@@ -9,7 +9,8 @@
 # distribution, and the Computer Use helper on its own: cmux copies it out of
 # the app before launch, so a copy taken the same way (ditto keeps the stapled
 # ticket) must carry its own ticket and pass codesign and spctl, without the
-# outer app's ticket. Results go to the step summary.
+# outer app's ticket; the Screen Sharing helper the same way when the app
+# carries it. Results go to the step summary.
 set -euo pipefail
 app="${1%/}"
 [[ -d "$app/Contents" ]] || { echo "no app at $app" >&2; exit 1; }
@@ -37,5 +38,16 @@ copy="$copy_dir/cmux Computer Use.app"
   echo "== copied helper: codesign --verify --deep --strict"; /usr/bin/codesign --verify --deep --strict --verbose=2 "$copy"
   echo "== copied helper: spctl"; notarized "$copy"
 } 2>&1 | tee -a "$RUNNER_TEMP/apple-checks.txt"
+# The Screen Sharing helper ("<app> Screen Sharing.app"), copied out of the app the same way.
+for share in "$app/Contents/Library/"*" Screen Sharing.app"; do
+  [[ -d "$share" ]] || continue
+  share_copy="$copy_dir/${share##*/}"
+  ditto "$share" "$share_copy"
+  {
+    echo "== copied Screen Sharing helper: stapler validate"; xcrun stapler validate "$share_copy"
+    echo "== copied Screen Sharing helper: codesign --verify --deep --strict"; /usr/bin/codesign --verify --deep --strict --verbose=2 "$share_copy"
+    echo "== copied Screen Sharing helper: spctl"; notarized "$share_copy"
+  } 2>&1 | tee -a "$RUNNER_TEMP/apple-checks.txt"
+done
 rm -rf "$copy_dir"
 { echo "### Apple's checks: ${app##*/}"; echo '```'; cat "$RUNNER_TEMP/apple-checks.txt"; echo '```'; } >> "$summary"

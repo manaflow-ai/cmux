@@ -200,7 +200,10 @@
     "signupPendingBody": "Hvis du allerede har en konto, skal du logge ind med den metode, du brugte før. Hvis du lige har oprettet en konto, skal du bekræfte din e-mail, før du logger ind.",
     "genericTitle": "Login kunne ikke gennemføres",
     "genericBody": "Prøv igen. Kontakt support, hvis problemet fortsætter.",
-    "backToSignIn": "Tilbage til login"
+    "backToSignIn": "Tilbage til login",
+    "chatgptLinkTitle": "Log ind én gang for at forbinde ChatGPT",
+    "chatgptLinkBody": "Denne e-mail har allerede en cmux-konto. Log ind med den metode, du brugte før, så bliver ChatGPT forbundet til kontoen.",
+    "chatgptEmailUnverifiedBody": "E-mailen på din ChatGPT-konto er ikke bekræftet. Bekræft den hos OpenAI, eller log ind på en anden måde."
   },
   "cloudPublicationAccess": {
     "title": "Du har ikke adgang",
@@ -2504,7 +2507,7 @@
       "socketModeDesc": "Overskriv adgangstilstand (cmuxOnly, allowAll, off). Accepterer også cmux-only/cmux_only og allow-all/allow_all",
       "workspaceIdDesc": "Auto-sat: nuværende workspace-ID",
       "surfaceIdDesc": "Auto-sat: nuværende surface-ID",
-      "termProgramDesc": "Sat til ghostty",
+      "termProgramDesc": "Sat til cmux",
       "termDesc": "Sat til xterm-ghostty",
       "envCallout": "Legacy CMUX_SOCKET_MODE-værdier full og notifications accepteres stadig for kompatibilitet.",
       "detectingCmux": "Detektering af cmux",

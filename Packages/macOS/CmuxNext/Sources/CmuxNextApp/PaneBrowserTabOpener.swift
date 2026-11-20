@@ -214,7 +214,7 @@ extension PaneBrowserTabOpener {
     private func openInSplit(_ split: BrowserTabSplitRequest, choice: BrowserEngineChoice, address: String, focusesAddressBar: Bool, // perf-hot: 10ms new-tab (the split shows in the click's turn)
                              profile: String?, notice: String?) {
         let controller = controller, cache = controller.services.cache, browserTabs = cache.browserTabs, model = controller.pane, machine = controller.daemon.machineID
-        let intent = controller.workspace?.beginFocusIntent(), command = BrowserTabSplitCommand(pane: model.handle, direction: split.direction, url: address, insertion: split.insertion)
+        let intent = split.keepsFocus ? nil : controller.workspace?.beginFocusIntent(), command = BrowserTabSplitCommand(pane: model.handle, direction: split.direction, url: address, insertion: split.insertion)
         let layout = controller.isPinnedDockPane ? nil : controller.workspace?.layoutModel // beside Home's dock it is a column: no even sizing
         let send = BenchSpans.measure("split.intend") { // an agent's split marks its new pane's pages agent-driven until the reply names its tab
             command.intendNow(on: controller.daemon, layout: layout, shown: controller.layoutPaneID, minted: split.agentDriven ? { @MainActor in cache.markAgentDriven(pane: $0, machine: machine) } : nil,
@@ -224,7 +224,7 @@ extension PaneBrowserTabOpener {
         controller.services.registry.trackOrRefuse(Task { // a key press nobody awaits still shows a refused open
             do {
                 let made = try await send { try await browserTabs.open(choice, in: model, url: address, profile: profile, notice: notice, split: $0) }
-                if let made { controller.workspace?.expectFocus(on: made, target: focusesAddressBar ? .addressBar : .content, generation: intent) }
+                if let made, !split.keepsFocus { controller.workspace?.expectFocus(on: made, target: focusesAddressBar ? .addressBar : .content, generation: intent) }
                 split.finished(made)
                 return nil
             } catch {

@@ -199,6 +199,7 @@ mod tests {
             plugin_dir: Some("/private/plugin".into()),
             user_plugin_dir: None,
             displays: None,
+            project_servers: Default::default(),
         }
     }
 

@@ -295,6 +295,8 @@ impl Hub {
                             }),
                         // The target sees what the source saw (`additional_dirs.rs`).
                         additional_directories: sm.additional_directories.clone(),
+                        // The same work goes on: the target keeps the source's stop condition.
+                        stop_condition: sm.stop_condition.clone(),
                         ..Default::default()
                     })
                     .await?;

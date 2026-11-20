@@ -40,6 +40,8 @@ const KEEP: &[&str] = &[
     "lastSeq",
     // What a client re-reads a kept chat by (`SessionSummary::transcript_seq`): a few bytes.
     "transcriptSeq",
+    // Where the owner restores a copy from (`journal_restore.rs`): a number, never trimmed.
+    "recoveredAfter",
 ];
 
 fn size(value: &Value) -> usize {

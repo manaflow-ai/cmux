@@ -75,9 +75,11 @@ pub struct Inputs {
 pub struct StorageNames {
     /// The Stack token Keychain service (`<bundle id>.auth`, scoped by the storage project).
     pub keychain_service: String,
-    /// The file-fallback token store under the home folder:
-    /// `Library/Application Support/cmux/<bundle id>[/<project>]`. This build's own namespace,
-    /// which predates the per-build state roots; moving it would sign every build out.
+    /// The file-fallback token store under the home folder: a scoped store in NEXT's own folder,
+    /// `Library/Application Support/cmux-next/<bundle id>/<project>` (moved there once from classic
+    /// cmux's `cmux/<bundle id>/<project>` by the app at launch, so nobody is signed out); an unscoped
+    /// legacy default's in `Library/Application Support/cmux/<bundle id>`, the store classic cmux of
+    /// the same bundle id writes too (one Keychain service, one session), so it stays.
     pub credentials_subpath: Vec<String>,
     /// The suffix of every `cmux.auth.*` defaults key (`<key>.<project>`), when scoped.
     pub defaults_key_suffix: Option<String>,
@@ -169,13 +171,17 @@ fn storage_project(bundle_id: Option<&str>, selection: Option<&Selection>) -> Op
     }
 }
 
-fn credentials_subpath(bundle_id: Option<&str>) -> Vec<String> {
-    vec![
+/// The token store folder of `bundle_id` for `project` ([`StorageNames::credentials_subpath`]).
+fn credentials_subpath(bundle_id: Option<&str>, project: Option<&str>) -> Vec<String> {
+    let folder = if project.is_some() { "cmux-next" } else { "cmux" };
+    let mut subpath = vec![
         "Library".to_owned(),
         "Application Support".to_owned(),
-        "cmux".to_owned(),
+        folder.to_owned(),
         bundle_id.unwrap_or("cmux").to_owned(),
-    ]
+    ];
+    subpath.extend(project.map(str::to_owned));
+    subpath
 }
 
 /// The token store names of `bundle_id` running `selection` (none: the placeholder configuration).
@@ -184,8 +190,7 @@ pub fn storage_names(bundle_id: Option<&str>, selection: Option<&Selection>) -> 
     let project = storage_project(bundle_id, selection);
     let service =
         bundle_id.map_or_else(|| "com.cmuxterm.app.auth".to_owned(), |id| format!("{id}.auth"));
-    let mut subpath = credentials_subpath(bundle_id);
-    subpath.extend(project.clone());
+    let subpath = credentials_subpath(bundle_id, project.as_deref());
     StorageNames {
         keychain_service: match &project {
             Some(project) if bundle_id.is_some() => format!("{service}.{project}"),
@@ -205,8 +210,7 @@ fn namespaced_legacy_store(bundle_id: &str, selection: &Selection) -> Option<Leg
     {
         return None;
     }
-    let mut subpath = credentials_subpath(Some(bundle_id));
-    subpath.push(selection.auth_namespace.clone());
+    let subpath = credentials_subpath(Some(bundle_id), Some(&selection.auth_namespace));
     Some(LegacyStore {
         keychain_service: format!("{bundle_id}.auth.{}", selection.auth_namespace),
         credentials_subpath: subpath,

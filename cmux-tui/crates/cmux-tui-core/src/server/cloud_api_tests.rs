@@ -184,34 +184,6 @@ fn every_call_of_the_library_is_one_of_this_modules_operations() {
 }
 
 #[test]
-fn a_classic_read_sends_the_stack_session_and_answers_its_body() {
-    let (origin, seen) =
-        fake(|_| (200, r#"{"run":{"id":"r1","state":"running"},"receipt":null}"#.into()));
-    let daemon = Daemon::start("vm");
-    let args = json!({"id": "r1", "timeoutMs": 1});
-    let result = daemon.send("cloud.runs.wait", params(&origin, "stack", args), None);
-    assert_eq!(result, Ok(json!({"run": {"id": "r1", "state": "running"}, "receipt": null})));
-    let seen = seen.lock().unwrap();
-    assert!(seen[0].line.starts_with("GET /api/runs/r1/wait?timeoutMs=1 "));
-    assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer secret-access"));
-    assert_eq!(seen[0].header("x-stack-refresh-token").as_deref(), Some("secret-refresh"));
-    assert_eq!(seen[0].header("x-cmux-team-id").as_deref(), Some("team_1"));
-}
-
-#[test]
-fn a_classic_mutation_answers_a_mutation_result_that_is_never_replayed() {
-    let (origin, seen) = fake(|_| (200, r#"{"id":"r1","state":"cancelled"}"#.into()));
-    let daemon = Daemon::start("vm-mutation");
-    let result = daemon
-        .send("cloud.runs.cancel", params(&origin, "stack", json!({"id": "r1"})), Some("cancel-1"))
-        .unwrap();
-    assert_eq!(result["replayed"], false);
-    assert_eq!(result["revision"], "0");
-    assert_eq!(result["value"], json!({"id": "r1", "state": "cancelled"}));
-    assert!(seen.lock().unwrap()[0].line.starts_with("POST /api/runs/r1/cancel "));
-}
-
-#[test]
 fn a_classic_vm_call_is_refused_at_once_and_sends_nothing() {
     let (origin, seen) = fake(|_| (200, "{}".into()));
     let daemon = Daemon::start("vm-gone");
@@ -225,19 +197,106 @@ fn a_classic_vm_call_is_refused_at_once_and_sends_nothing() {
 }
 
 #[test]
-fn a_run_wait_is_capped_at_the_servers_bound() {
-    let (origin, seen) =
-        fake(|_| (200, r#"{"run":{"id":"r1","state":"running"},"receipt":null}"#.into()));
+fn a_run_is_the_daemons_own_and_sends_nothing_to_the_api() {
+    let (origin, seen) = fake(|_| (200, r#"{"run":{"id":"r1"},"receipt":null}"#.into()));
     let daemon = Daemon::start("runs");
-    let result = daemon
+    let (code, _, details) = daemon
         .send(
             "cloud.runs.wait",
-            params(&origin, "stack", json!({"id": "r1", "timeoutMs": 1})),
+            params(&origin, "owner", json!({"id": "run_nope", "timeoutMs": 1})),
             None,
         )
+        .unwrap_err();
+    assert_eq!(code, "operation.failed");
+    let failure = &details["extra"]["failure"];
+    assert_eq!(failure["status"], 404);
+    assert_eq!(failure["code"], "run_not_found");
+    let (_, _, details) = daemon
+        .send(
+            "cloud.runs.create",
+            params(&origin, "owner", json!({"task": "hi", "idempotencyKey": "k", "image": "img"})),
+            Some("run-1"),
+        )
+        .unwrap_err();
+    assert_eq!(details["extra"]["failure"]["code"], "run_image_invalid");
+    assert!(seen.lock().unwrap().is_empty(), "no Run call goes over HTTP");
+}
+
+/// Codex's review of #39022 at e59d43c8 (F1): a Run the app followed from before the daemon ran
+/// Runs is classic Cloud's. Its wait and cancel drain there with the app's Stack session, in the
+/// Run's team, so an upgrade never drops its result; a Run the daemon knows never goes there.
+#[test]
+fn a_run_from_before_the_upgrade_drains_on_classic_cloud() {
+    let (origin, seen) = fake(|seen| {
+        if seen.line.starts_with("GET") {
+            let done =
+                r#"{"run":{"id":"r-old","status":"succeeded"},"receipt":{"status":"succeeded"}}"#;
+            (200, done.into())
+        } else {
+            (200, r#"{"run":{"id":"r-old","status":"cancelled"}}"#.into())
+        }
+    });
+    let daemon = Daemon::start("classic-drain");
+    let classic = |args: Value| {
+        let mut args = args;
+        args["classicApi"] = json!(origin);
+        args["classicTeam"] = json!("team_stack");
+        params("https://owner.invalid", "owner", args)
+    };
+    let waited = daemon
+        .send("cloud.runs.wait", classic(json!({"id": "r-old", "timeoutMs": 1})), None)
         .unwrap();
-    assert_eq!(result["run"]["id"], "r1");
-    assert!(seen.lock().unwrap()[0].line.starts_with("GET /api/runs/r1/wait?timeoutMs=1 "));
+    assert_eq!(waited["receipt"]["status"], "succeeded", "{waited}");
+    let cancelled = daemon
+        .send("cloud.runs.cancel", classic(json!({"id": "r-old"})), Some("drain-cancel"))
+        .unwrap();
+    assert_eq!(cancelled["value"]["run"]["status"], "cancelled", "{cancelled}");
+    {
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 2);
+        assert!(
+            seen[0].line.starts_with("GET /api/runs/r-old/wait?timeoutMs=1 "),
+            "{}",
+            seen[0].line
+        );
+        assert!(seen[1].line.starts_with("POST /api/runs/r-old/cancel "), "{}", seen[1].line);
+        for request in seen.iter() {
+            assert_eq!(request.header("authorization").as_deref(), Some("Bearer secret-access"));
+            assert_eq!(request.header("x-stack-refresh-token").as_deref(), Some("secret-refresh"));
+            assert_eq!(request.header("x-cmux-team-id").as_deref(), Some("team_stack"));
+        }
+    }
+    // With no classic session (not the app's), a Run the daemon never made is just not found,
+    // and nothing is sent.
+    let (_, _, details) = daemon
+        .send(
+            "cloud.runs.wait",
+            params(&origin, "owner", json!({"id": "r-x", "timeoutMs": 1})),
+            None,
+        )
+        .unwrap_err();
+    assert_eq!(details["extra"]["failure"]["code"], "run_not_found");
+    assert_eq!(seen.lock().unwrap().len(), 2);
+}
+
+/// #39022 review at 946e940e, F1: an incognito send's Run was a daemon Run, an ordinary Cloud chat
+/// the app opens and keeps. Classic Cloud runs it with no chat in the app (cmux-tui
+/// `tests/cli/cloud_runs_app_route.rs` sends one under a signed-in app), and at 855beb0d (audit 1)
+/// only while the app is on the account it was sent in: with no app to say so, nothing is sent and
+/// no daemon Run starts.
+#[test]
+fn an_incognito_run_never_goes_without_the_account_check() {
+    let (origin, seen) =
+        fake(|_| (200, r#"{"id":"r-private","status":"queued","environment":"sandboxed"}"#.into()));
+    let daemon = Daemon::start("incognito-create");
+    let args = json!({"task": "private", "agent": "codex", "timeoutMs": 30_000,
+        "idempotencyKey": "k-private", "incognito": true, "classicApi": origin,
+        "classicTeam": "team_stack", "expectedAccount": {"user_id": "u1", "team_id": "team_1"}});
+    let (_, _, details) = daemon
+        .send("cloud.runs.create", params("https://owner.invalid", "owner", args), Some("c-1"))
+        .unwrap_err();
+    assert_eq!(details["extra"]["failure"]["code"], "run_not_signed_in", "{details}");
+    assert!(seen.lock().unwrap().is_empty(), "nothing went to classic Cloud");
 }
 
 #[test]
@@ -336,14 +395,15 @@ fn a_classic_machine_exec_is_refused_before_any_request() {
 #[test]
 fn a_refusal_names_its_kind_and_never_carries_a_credential_back() {
     let (origin, _seen) = fake(|_| {
-        (409, r#"{"error":"vm_busy","message":"echo secret-access and secret-refresh"}"#.into())
+        let body =
+            r#"{"error":{"code":"vm_busy","message":"echo secret-access and secret-refresh"}}"#;
+        (409, body.into())
     });
     let daemon = Daemon::start("refusal");
-    let args = json!({"id": "r1", "timeoutMs": 1});
     let (code, message, details) =
-        daemon.send("cloud.runs.wait", params(&origin, "stack", args), None).unwrap_err();
+        daemon.send("cloud.owner.handoffs", params(&origin, "owner", json!({})), None).unwrap_err();
     assert_eq!(code, "operation.failed");
-    assert_eq!(details["operation"], "cloud.runs.wait");
+    assert_eq!(details["operation"], "cloud.owner.handoffs");
     assert_eq!(details["reason"], "http");
     let failure = &details["extra"]["failure"];
     assert_eq!(failure["kind"], "http");
@@ -360,13 +420,13 @@ fn a_request_that_is_not_a_call_runs_nothing_and_echoes_nothing() {
     let daemon = Daemon::start("invalid");
     let mut unknown = params(&origin, "stack", json!({}));
     unknown["extra_field"] = json!("secret-extra");
-    let (code, message, details) = daemon.send("cloud.runs.wait", unknown, None).unwrap_err();
+    let (code, message, details) = daemon.send("cloud.owner.handoffs", unknown, None).unwrap_err();
     assert_eq!(code, "validation.invalid");
     assert!(!format!("{message} {details}").contains("secret-access"));
 
     let mut no_token = params(&origin, "stack", json!({}));
     no_token["access_token"] = json!("   ");
-    let (code, _, _) = daemon.send("cloud.runs.wait", no_token, None).unwrap_err();
+    let (code, _, _) = daemon.send("cloud.owner.handoffs", no_token, None).unwrap_err();
     assert_eq!(code, "validation.invalid");
 
     let mut bad_key = params(&origin, "owner", json!({}));
@@ -376,8 +436,8 @@ fn a_request_that_is_not_a_call_runs_nothing_and_echoes_nothing() {
     assert_eq!(code, "validation.invalid");
     assert!(!format!("{message} {details}").contains("%%%%"));
 
-    let (code, _, _) =
-        daemon.send("cloud.runs.cancel", params(&origin, "stack", json!({})), None).unwrap_err();
+    let open = params(&origin, "owner", json!({"session": "s-1", "machine": VM}));
+    let (code, _, _) = daemon.send("cloud.owner.handoff_open", open, None).unwrap_err();
     assert_eq!(code, "validation.invalid", "a mutation needs its idempotency key");
     assert!(seen.lock().unwrap().is_empty());
 }
@@ -404,16 +464,16 @@ fn files(root: &std::path::Path) -> Vec<(PathBuf, Vec<u8>)> {
 fn no_record_or_log_of_the_daemon_holds_a_credential() {
     let (origin, seen) = fake(|seen| {
         if seen.line.starts_with("GET") {
-            (200, r#"{"run":{"id":"r1","state":"running"},"receipt":null}"#.into())
+            (200, r#"{"handoffs":[{"id":"h"}],"nextCursor":null}"#.into())
         } else {
-            (409, r#"{"error":"vm_busy","message":"echo secret-access"}"#.into())
+            (409, r#"{"error":{"code":"vm_busy","message":"echo secret-access"}}"#.into())
         }
     });
     let daemon = Daemon::start("records");
-    let wait = params(&origin, "stack", json!({"id": "r1", "timeoutMs": 1}));
-    assert!(daemon.send("cloud.runs.wait", wait, None).is_ok());
-    let cancel = params(&origin, "stack", json!({"id": "r1"}));
-    assert!(daemon.send("cloud.runs.cancel", cancel, Some("records-1")).is_err());
+    let handoffs = params(&origin, "owner", json!({}));
+    assert!(daemon.send("cloud.owner.handoffs", handoffs, None).is_ok());
+    let open = params(&origin, "owner", json!({"session": "s-1", "machine": VM}));
+    assert!(daemon.send("cloud.owner.handoff_open", open, Some("records-1")).is_err());
     let mut keyed = params(&origin, "owner", json!({"machine": VM, "key_length": 10}));
     keyed["key_base64"] = json!(base64::engine::general_purpose::STANDARD.encode(b"secret-key"));
     let _ = daemon.send("cloud.owner.acpmux_keyed_start", keyed, Some("records-2"));

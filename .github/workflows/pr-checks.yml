@@ -7,6 +7,8 @@ name: PR checks
 # None of them fails a pull request. PR size warns on one over 800 lines with
 # no `Size:` line and runs on every push, a base-only one included.
 # The description lints (pr-capture-check and three more) run in pr-body-checks.yml.
+# The Swift logic report (swift-logic) adds a line with the pull request's own Swift logic growth to its
+# status comment; it never fails either.
 #
 # Base-only updates: a push that only merged feat-cmux-next into the branch
 # skips the link and split-plan, whose answers stay the previous head's. On 2026-10-26,
@@ -45,7 +47,7 @@ jobs:
   portable-placement:
     name: portable light placement
     if: ${{ vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 4
     permissions:
       contents: read
@@ -236,6 +238,74 @@ jobs:
           python3 scripts/ci/pr_status.py set --repo "$REPOSITORY" --pr "$PR" --section review \
             --body-file "$RUNNER_TEMP/review.md" --legacy "<!-- cmux-gallery-link -->"
 
+  # The pull request's own Swift logic growth, as the `swift-logic` line of its status comment
+  # (scripts/cmux-next/swift-logic-pr-status.py, swift-logic-delta.py): goal swift-share-falls. Lawrence
+  # 2026-11-02: "move as much from swift into rust as possible"; Leo 2026-11-07: "swift to anything but swift".
+  # A report, never a gate: growth and a count that cannot be made ("not counted") both pass, and every step
+  # is continue-on-error. A pull request that changes no *.swift file gets no line. The scripts come from the
+  # base commit; the pull request's commits are only fetched (git, no API call) and read as data.
+  # Cost: one cold count (about a minute) on a pull request's first push, a few seconds after that (the facts
+  # cache is kept per pull request).
+  swift-logic:
+    name: Swift logic report
+    needs: base-only
+    if: ${{ !cancelled() && needs.base-only.outputs.base_only != 'true' && contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout the count and status scripts from the base commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/pr_status.py
+            scripts/cmux-next/arch_counts.py
+            scripts/cmux-next/swift-logic-lines.py
+            scripts/cmux-next/swift-logic-delta.py
+            scripts/cmux-next/swift-logic-pr-status.py
+          sparse-checkout-cone-mode: false
+
+      - name: Restore this pull request's Swift facts cache
+        continue-on-error: true
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/swift-logic/objects.git/cmux-arch-counts
+          key: swift-logic-facts-${{ hashFiles('scripts/cmux-next/arch_counts.py', 'scripts/cmux-next/swift-logic-lines.py') }}-pr${{ github.event.pull_request.number }}
+          restore-keys: swift-logic-facts-${{ hashFiles('scripts/cmux-next/arch_counts.py', 'scripts/cmux-next/swift-logic-lines.py') }}-
+
+      - name: Count the pull request's Swift logic delta
+        continue-on-error: true
+        env:
+          URL: ${{ github.server_url }}/${{ github.repository }}.git
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/swift-logic.md"
+          python3 -I scripts/cmux-next/swift-logic-pr-status.py --url "$URL" --base-ref "$BASE_REF" \
+            --head "$HEAD_SHA" --work "$RUNNER_TEMP/swift-logic" --out "$out" \
+            || echo "Swift logic: not counted (swift-logic-pr-status.py exited $?; see this run)" > "$out"
+          cat "$out" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Update the PR's Swift logic line
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/swift-logic.md"
+          if [ -s "$out" ]; then
+            python3 scripts/ci/pr_status.py set --repo "$REPOSITORY" --pr "$PR" --section swift-logic --body-file "$out"
+          else
+            python3 scripts/ci/pr_status.py set --repo "$REPOSITORY" --pr "$PR" --section swift-logic --clear
+          fi
+
   # Warns on a feat-cmux-next pull request that changes more than about 800 lines
   # (added + deleted), not counting the generated, lockfile, localization and
   # fixture paths in scripts/ci/pr_size_exclusions.json, unless its body has a
@@ -260,10 +330,10 @@ jobs:
     # from before it could fail (or that a later Size: edit changed) must not
     # answer for it.
     if: ${{ always() && !cancelled() && contains(fromJSON('["opened","synchronize","reopened","edited","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft }}
-    # A declared light job (.github/runners.json hosted_light_jobs): one GraphQL read, 4 s of work.
-    # Hosted Ubuntu on attempt 1, the reconciled Linux pool on a re-run (no secret).
+    # A light job: one GraphQL read, 4 s of work. The reconciled Linux pool on every attempt (no
+    # secret), never GitHub-hosted Ubuntu (it left light jobs queued for hours, cmux#45735).
     needs: portable-placement
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' size ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' size ') && needs.portable-placement.outputs.mini_runner || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' size ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' size ') && needs.portable-placement.outputs.mini_runner || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -344,9 +414,9 @@ jobs:
     name: UI review advisory
     needs: [base-only, portable-placement]
     if: ${{ always() && !cancelled() && needs.base-only.outputs.base_only != 'true' && contains(fromJSON('["opened","synchronize","reopened","edited","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft }}
-    # A declared light job (.github/runners.json hosted_light_jobs): one file list read, 4 s of work.
-    # Hosted Ubuntu on attempt 1, the reconciled Linux pool on a re-run (no secret).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' ui-review ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' ui-review ') && needs.portable-placement.outputs.mini_runner || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    # A light job: one file list read, 4 s of work. The reconciled Linux pool on every attempt (no
+    # secret), never GitHub-hosted Ubuntu (it left light jobs queued for hours, cmux#45735).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' ui-review ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' ui-review ') && needs.portable-placement.outputs.mini_runner || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:
       contents: read

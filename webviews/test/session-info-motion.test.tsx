@@ -17,6 +17,7 @@ import {
 import type { ProcessRegistry } from "../src/agent-session/acpmux/session-info/processes";
 import { activity, assistant, chat, tool, user } from "../src/gallery/fixtures/acpmux";
 import { settleReact } from "./support/domTeardown";
+import { SESSION_INFO } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -103,7 +104,7 @@ async function mount() {
     root = createRoot(container);
     root.render(<Pane />);
   });
-  return () => container.querySelector<HTMLElement>("aside.acpmux-session-info");
+  return () => container.querySelector<HTMLElement>(SESSION_INFO);
 }
 
 test("Session Info slides in from the right and back out, keeping its sections until the exit ends", async () => {
@@ -247,7 +248,7 @@ test("open, Session Info and its task rows survive 50 streamed updates without a
   await render(0);
   await act(async () => setSessionInfoSection("tasks", true));
   await act(async () => setSessionInfoOpen(true));
-  const panel = () => container.querySelector<HTMLElement>("aside.acpmux-session-info");
+  const panel = () => container.querySelector<HTMLElement>(SESSION_INFO);
   const taskRow = () =>
     container.querySelector<HTMLElement>('[data-section="tasks"] .acpmux-session-info-task--command');
   const opened = panel();

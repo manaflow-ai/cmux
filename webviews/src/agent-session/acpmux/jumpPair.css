@@ -36,9 +36,11 @@
      shape and type.
    - stacked: rounded squares in the Needs you pill's radius, Jump up a hairline gap over Jump to
      latest, one compact column.
+   - single: the frosted disc alone, no Jump up (VirtualTranscript.tsx draws none).
    - lens: the fisheye disc before (VirtualTranscript.tsx adds .ui-glass-fisheye only for it). */
 :root:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-jump-latest:is(
     [data-look="frosted"],
+    [data-look="single"],
     [data-look="labeled"],
     [data-look="stacked"]
   ) {

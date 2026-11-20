@@ -21,6 +21,8 @@ public final class MacScreenHubViewer {
     @ObservationIgnored var hub: @MainActor () -> DeviceHub?
     /// Starts the tab's stream (the signaling is ready): the pane connects its session.
     @ObservationIgnored var startStream: () -> Void = {}
+    /// A session started streaming, by any path to `accept(_:)` (the pages mark that this Mac has viewed another).
+    @ObservationIgnored var onStreaming: () -> Void = {}
     /// Stops the tab's stream now (revoked, ended, a new request).
     @ObservationIgnored var stopStream: () -> Void = {}
     /// Makes the session's signaling from a ticket; tests replace it.
@@ -251,6 +253,7 @@ public final class MacScreenHubViewer {
         }
         lastScope = ticket.scope
         phase = .streaming(sessionID: ticket.sessionId, scope: ticket.scope)
+        onStreaming()
         startStream()
     }
 

@@ -99,6 +99,8 @@ final class WorkspaceHoverCardController: HoverCardSource {
     // MARK: HoverCardSource
 
     var hoverCardWindow: NSWindow? { list?.window }
+    /// The sidebar's rows and owner cards share one card that morphs between them.
+    var hoverCardGroup: HoverCardGroup? { .sidebar }
 
     func hoverCardHit(at screenPoint: CGPoint) -> HoverCardHit? {
         guard let list, let window = list.window else { return nil }
@@ -368,7 +370,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         guard isLive, let content else { return nil }
         let starts = ([content.activitySince] + content.facts.map(\.since)).compactMap { $0 }
         guard let newest = starts.max() else { return nil }
-        return Date().timeIntervalSince(newest) < 3600 ? .seconds(1) : .seconds(60)
+        return Date().timeIntervalSince(newest) < 3600 ? .seconds(1) : .seconds(60) // hover-timing: clock refresh, not a delay
     }
 
     private let titleLabel = ChromeLabel(labelWithString: "")
@@ -405,6 +407,12 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     let style: WorkspaceTabHoverCardStyle
     private var detailsExpanded = false
     var isDetailsExpanded: Bool { detailsExpanded }
+    /// Hide details was pressed: the card's next fold may keep the detail rows drawn (`HoverCardFoldingBody`).
+    private var foldPending = false
+    /// The card folds now with the detail rows still laid out, fading out under its edge.
+    private var holdingFold = false
+    /// The detail rows are laid out: expanded, or folding from expanded.
+    private var showsDetails: Bool { detailsExpanded || holdingFold }
     var onDetailsChanged: (() -> Void)?
     /// The scrollable history of prompts, waits and finished turns (u3320).
     let timeline = WorkspaceHoverCardTimelineView()
@@ -413,6 +421,10 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     private var width: CGFloat = WorkspaceHoverCardView.cardWidth
     /// The constraints the tokens size, and how (`applySizes`).
     private var sized: [(NSLayoutConstraint, (SidebarHoverCardMetrics) -> CGFloat)] = []
+    /// The rows, and their top and bottom insets from the card's edges (`applyEdgeInsets`).
+    private var rowsStack: NSStackView?
+    private var topInset: NSLayoutConstraint?
+    private var bottomInset: NSLayoutConstraint?
     private var activitySlot: HoverCardIconSlot?
     /// The user's card (`cmux.hovercard/1`) once its first scene arrives; the built-in rows hide.
     private let customSlot = NSView()
@@ -524,16 +536,19 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         content.addSubview(stack)
         let widthLimit = content.widthAnchor.constraint(lessThanOrEqualToConstant: Self.cardWidth)
         self.widthLimit = widthLimit
+        let topInset = stack.topAnchor.constraint(equalTo: content.topAnchor, constant: Self.padding)
+        let bottomInset = content.bottomAnchor.constraint(equalTo: stack.bottomAnchor, constant: Self.padding)
+        (rowsStack, self.topInset, self.bottomInset) = (stack, topInset, bottomInset)
         sized = [
             (content.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.minCardWidth), \.minWidth),
-            (stack.topAnchor.constraint(equalTo: content.topAnchor), \.padding),
-            (stack.bottomAnchor.constraint(equalTo: content.bottomAnchor), { -$0.padding }),
             (stack.leadingAnchor.constraint(equalTo: content.leadingAnchor), \.padding),
             (stack.trailingAnchor.constraint(equalTo: content.trailingAnchor), { -$0.padding }),
         ] + [kindIcon.widthAnchor, kindIcon.heightAnchor, activitySlot.widthAnchor, activitySlot.heightAnchor,
              activity.widthAnchor, activity.heightAnchor].map { ($0.constraint(equalToConstant: Self.iconSize), \.iconSide) }
         NSLayoutConstraint.activate(sized.map(\.0) + [
             widthLimit,
+            topInset,
+            bottomInset,
             timeline.widthAnchor.constraint(equalTo: stack.widthAnchor),
             tabList.widthAnchor.constraint(equalTo: stack.widthAnchor),
             detailsToggle.widthAnchor.constraint(equalTo: stack.widthAnchor),
@@ -565,6 +580,22 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         resourceRow.iconSide = tokens.iconSide
         factViews.forEach { $0.iconSide = tokens.iconSide }
         detailsToggle.applySizes()
+        applyEdgeInsets()
+    }
+
+    /// A tab row's fill and Show details' reach `WorkspaceTabHoverCardRow.fillOutset` past the rows' sides; where one
+    /// is the first or the last row shown, the rows come that much nearer the card's top or bottom too, so the fill
+    /// stands one gap from every edge it meets, the gap the card's corners are concentric around (Lawrence
+    /// 2026-11-16: "bottom padding must be same as left/right, same for top"). A row with no fill keeps the padding.
+    private func applyEdgeInsets() {
+        guard let rowsStack else { return }
+        let shown = rowsStack.arrangedSubviews.filter { !$0.isHidden }
+        func inset(_ edge: NSView?) -> CGFloat {
+            let fills = edge === tabList || edge === detailsToggle
+            return Self.padding - (fills ? WorkspaceTabHoverCardRow.fillOutset : 0)
+        }
+        topInset?.constant = inset(shown.first)
+        bottomInset?.constant = inset(shown.last)
     }
 
     @available(*, unavailable)
@@ -673,14 +704,53 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
 
     private func toggleDetails() {
         detailsExpanded.toggle()
+        foldPending = !detailsExpanded
         updateDetailsVisibility()
         needsLayout = true
+        // Show details: the rows fade in as the card grows over them (the card's growth reveals them,
+        // the fade keeps their text from being cut mid-line by the moving edge at full strength).
+        if detailsExpanded { fadeDetails(in: true) }
         onDetailsChanged?()
+        foldPending = false
     }
 
     func resetDetails() {
         detailsExpanded = false
+        foldPending = false
+        holdingFold = false
+        restoreDetailsOpacity()
         updateDetailsVisibility()
+    }
+
+    /// The detail rows shown now (the built-in ones or the customization's).
+    private var detailViews: [NSView] {
+        (builtIn + [customSlot, customError]).filter { !$0.isHidden }
+    }
+
+    /// The detail rows fade in (`in`: Show details) or out (a fold): the hover cards' fades, so
+    /// Reduce Motion and speed off apply. Opacity only: the card's resize carries the movement.
+    private func fadeDetails(in fadesIn: Bool) {
+        for view in detailViews {
+            view.wantsLayer = true
+            guard let layer = view.layer else { continue }
+            if fadesIn {
+                Motion.hoverCards.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0))
+            } else {
+                Motion.hoverCards.set(layer, "opacity", to: Float(0), fade: .fadeOut, from: Float(1))
+            }
+        }
+    }
+
+    /// Every detail row whole again (the next Show details starts from a whole row).
+    private func restoreDetailsOpacity() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for view in builtIn + [customSlot, customError] {
+            guard let layer = view.layer else { continue }
+            layer.removeAnimation(forKey: "opacity")
+            layer.opacity = 1
+        }
+        CATransaction.commit()
     }
 
     /// Opens the details without a click (Show Resource Usage asks for them).
@@ -737,7 +807,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         }
         detailsToggle.title = detailsExpanded ? Strings.hideDetails : Strings.showDetails
         detailsToggle.isExpanded = detailsExpanded
-        if !detailsExpanded {
+        if !showsDetails {
             for view in builtIn { view.isHidden = true }
             customSlot.isHidden = true
             customError.isHidden = true
@@ -754,21 +824,23 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
             resourceRow.isHidden = !resourceShown
             customError.isHidden = customError.stringValue.isEmpty
         }
-        ageLabel.isHidden = !detailsExpanded || content?.age == nil
+        ageLabel.isHidden = !showsDetails || content?.age == nil
         updateTitleVisibility()
         let hasBuiltInDetails = activityWord != nil || content?.age != nil || content?.stats != nil
             || content?.facts.contains(where: { $0.kind != "machine" }) == true || content?.timeline.isEmpty == false || resourceShown
         detailsToggle.isHidden = !hasBuiltInDetails && customView == nil && customError.stringValue.isEmpty
+        applyEdgeInsets()
     }
 
     /// The name row shows unless the tab rows already say it (`sidebar.hoverCards.workspaceTitle`): a host shown
     /// beside the name keeps the row, since the tabs do not say where the workspace runs.
     private func updateTitleVisibility() {
         guard let content else { return }
-        let shows = SidebarTunables.workspaceHoverCardTitle.value.showsTitle(content.title, tabTitles: tabTitles, expanded: detailsExpanded)
+        let shows = SidebarTunables.workspaceHoverCardTitle.value.showsTitle(content.title, tabTitles: tabTitles, expanded: showsDetails)
         titleRow.isHidden = !shows && hostLabel.isHidden
         titleLabel.isHidden = !shows
         kindIcon.isHidden = !shows || !hostLabel.isHidden
+        applyEdgeInsets()
     }
 
     /// Shows the user's card when it rendered, else the built-in card with the error (if any).
@@ -839,6 +911,27 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         row.widthAnchor.constraint(equalTo: factsStack.widthAnchor).isActive = true
         row.iconSide = Self.iconSize
         factViews.append(row)
+    }
+}
+
+/// Hide details folds the card over its detail rows: they stay laid out, fading out, while the card's edge
+/// folds up to the toggle, and go when the fold ends (msg 38370: the rows went at once and an empty card
+/// folded after them).
+extension WorkspaceHoverCardView: HoverCardFoldingBody {
+    func holdLayoutWhileFolding() -> Bool {
+        guard foldPending, !detailsExpanded else { return false }
+        foldPending = false
+        holdingFold = true
+        updateDetailsVisibility()
+        fadeDetails(in: false)
+        return true
+    }
+
+    func endFoldHold() {
+        guard holdingFold else { return }
+        holdingFold = false
+        updateDetailsVisibility()
+        restoreDetailsOpacity()
     }
 }
 

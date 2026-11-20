@@ -68,7 +68,7 @@
             "step": 1,
             "unit": "count"
           },
-          "default": 5,
+          "default": 3,
           "keywords": [
             "edited",
             "files",

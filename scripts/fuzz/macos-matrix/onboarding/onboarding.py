@@ -52,12 +52,18 @@ sys.path.insert(0, os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 from eyes import Eyes, NotSeen  # noqa: E402
 from rfb import RFB  # noqa: E402
+import tcc  # noqa: E402
 
 PASSWORD = "admin"  # the pinned images' login (images.json)
-BUNDLE_ID = "com.cmuxterm.app.nightly.cmux-next"
-APP = "cmux NEXT"
-ACPMUX_HOME = f"/Users/admin/.acpmux/builds/{BUNDLE_ID}"
+# The app's name and bundle id come from the DMG itself (read_app_from_dmg): the NIGHTLY was "cmux NEXT"
+# (com.cmuxterm.app.nightly.cmux-next) when this suite was written and is "cmux NIGHTLY"
+# (com.cmuxterm.app.nightly) now. These are the fallbacks when the DMG cannot be read.
+BUNDLE_ID = "com.cmuxterm.app.nightly"
+APP = "cmux NIGHTLY"
 GUEST_WORK = "/Users/admin/onboarding"
+GUEST_DMG = "/Users/admin/Downloads/cmux-NEXT.dmg"
+TCC_LOG = f"{GUEST_WORK}/tcc-log.ndjson"
+TCC_PID = f"{GUEST_WORK}/tcc-log.pid"
 HARNESS = "onbagent"
 # The reference count of person actions per step (cmuxterm-hq#7146, "the best flow").
 REFERENCE = {"cu_open": 1, "cu_ax": 3, "cu_screen": 3, "cu_ready": 0}
@@ -96,6 +102,9 @@ vnc = RFB(host, int(port), password)
 eyes = Eyes(vnc, opts.vmeye, opts.out)
 steps: list[dict] = []
 findings: list[dict] = []
+# Each macOS prompt the person answered, with the text that names the app (tcc.py's "screen" source).
+prompts_seen: list[dict] = []
+tcc_before: dict = {}
 
 
 def step(name: str):
@@ -126,6 +135,13 @@ def step(name: str):
     return wrap
 
 
+def note_prompt(row: dict, kind: str, pattern: str, lines: list[dict]) -> None:
+    """Record a macOS prompt for tcc.py: its kind and the OCR line that names the asking app."""
+    hit = eyes.find(pattern, lines)
+    prompts_seen.append({"step": row.get("step"), "kind": kind, "text": (hit or {}).get("text", "")[:200],
+                         "frame": os.path.basename(getattr(eyes, "last_frame", "") or "")})
+
+
 def answer_macos_prompts(row: dict, seconds: float = 4) -> None:
     """Answer what macOS shows on the way to a grant, the way a person does, and note each one."""
     deadline = time.monotonic() + seconds
@@ -140,12 +156,19 @@ def answer_macos_prompts(row: dict, seconds: float = 4) -> None:
             # One password per sheet: wait for the sheet to go before looking again.
             eyes.wait(r"enter your password|Use Password", 15, gone=True)
         elif eyes.find(r"would like to record this computer", lines):
+            note_prompt(row, "screen_recording", r"would like to record this computer", lines)
             eyes.click(r"^Open System Settings$")
             row.setdefault("extra", []).append("macOS Screen Recording prompt")
+        elif eyes.find(r"would like to control this computer", lines):
+            note_prompt(row, "accessibility", r"would like to control this computer", lines)
+            eyes.click(r"^Open System Settings$")
+            row.setdefault("extra", []).append("macOS Accessibility prompt")
         elif eyes.find(r"Quit (&|and) Reopen", lines):
+            note_prompt(row, "quit_and_reopen", r"may not be able to record|until it is quit|Quit (&|and) Reopen", lines)
             eyes.click(r"Quit (&|and) Reopen")
             row.setdefault("extra", []).append("Quit & Reopen (helper)")
         elif eyes.find(r"bypass the system private window picker|Allow For One Month", lines):
+            note_prompt(row, "private_window_picker", r"bypass the system private window picker|Allow For One Month", lines)
             eyes.click(r"^Allow( For One Month)?$")
             row.setdefault("extra", []).append("private window picker bypass")
         else:
@@ -183,17 +206,69 @@ def grant(row: dict, line_pattern: str, done_pattern: str) -> None:
     eyes.wait(done_pattern, 30)
 
 
+def acpmux_home() -> str:
+    return f"/Users/admin/.acpmux/builds/{BUNDLE_ID}"
+
+
+def read_app_from_dmg() -> None:
+    """The app's name and bundle id, read from the DMG in the guest (attached hidden, read, detached)
+    before the person opens it. Keeps the module's defaults when it cannot be read."""
+    global APP, BUNDLE_ID
+    res = guest(f'd=$(mktemp -d /tmp/onb-dmg.XXXXXX) && hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$d" '
+                f'{shlex.quote(GUEST_DMG)} >/dev/null && a=$(ls -d "$d"/*.app | head -1) && basename "$a" .app && '
+                f'/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$a/Contents/Info.plist"; '
+                f'hdiutil detach "$d" >/dev/null 2>&1; rmdir "$d" 2>/dev/null; true', timeout=180)
+    lines = [l.strip() for l in res.stdout.splitlines() if l.strip()]
+    if len(lines) >= 2:
+        APP, BUNDLE_ID = lines[0], lines[1]
+    print(f"app {APP!r} bundle {BUNDLE_ID} (read from the DMG: {len(lines) >= 2})", flush=True)
+
+
+def read_tcc_dbs() -> dict:
+    found = {}
+    for name, command in tcc.db_commands():
+        try:
+            res = guest(command, timeout=30)
+            found[name] = tcc.db_read(name, res.returncode, res.stdout, res.stderr)
+        except subprocess.SubprocessError as error:
+            found[name] = {"db": name, "readable": False, "error": str(error)[:300]}
+    return found
+
+
+def collect_tcc() -> dict:
+    """Stops tccd's log stream, brings it back, reads the TCC.db rows again and sums up (tcc.py)."""
+    lines: list[str] = []
+    try:
+        guest(tcc.stop_command(TCC_PID), timeout=30)
+        local = os.path.join(opts.out, "tcc-log.ndjson")
+        subprocess.run([*SCP, f"{opts.ssh}:{TCC_LOG}", local], check=True, timeout=300)
+        with open(local, errors="replace") as f:
+            lines = f.read().splitlines()
+    except (subprocess.SubprocessError, OSError) as error:
+        print(f"tcc log: {error}", flush=True)
+    result = tcc.summary(lines, tcc_before, read_tcc_dbs(), prompts_seen)
+    result["app"], result["bundle_id"] = APP, BUNDLE_ID
+    with open(os.path.join(opts.out, "tcc.json"), "w") as f:
+        json.dump(result, f, indent=1)
+    print(tcc.line(result), flush=True)
+    return result
+
+
 def main() -> int:
     os.makedirs(opts.out, exist_ok=True)
     # Harness part (SSH): the DMG as a browser download leaves it, and the agent's harness.
-    subprocess.run([*SCP, opts.dmg, f"{opts.ssh}:/Users/admin/Downloads/cmux-NEXT.dmg"], check=True, timeout=600)
-    guest(f"mkdir -p {GUEST_WORK} {shlex.quote(ACPMUX_HOME)}")
+    subprocess.run([*SCP, opts.dmg, f"{opts.ssh}:{GUEST_DMG}"], check=True, timeout=600)
+    read_app_from_dmg()
+    guest(f"mkdir -p {GUEST_WORK} {shlex.quote(acpmux_home())}")
+    # tccd's log for the whole run, and the TCC.db rows before anything ran (tcc.py).
+    tcc_before.update(read_tcc_dbs())
+    guest(tcc.start_command(TCC_LOG, TCC_PID))
     subprocess.run([*SCP, opts.agent, f"{opts.ssh}:{GUEST_WORK}/onbagent"], check=True, timeout=60)
     config = {"harnesses": {HARNESS: {"argv": [f"{GUEST_WORK}/onbagent"],
                                       "env": {"ONB_OUT": GUEST_WORK}, "description": "onboarding check's scripted agent"}}}
     quarantine = "0081;%08x;Safari;" % int(time.time())
-    guest(f"xattr -w com.apple.quarantine '{quarantine}' ~/Downloads/cmux-NEXT.dmg && "
-          f"printf %s {shlex.quote(json.dumps(config))} > {shlex.quote(ACPMUX_HOME)}/config.json")
+    guest(f"xattr -w com.apple.quarantine '{quarantine}' {shlex.quote(GUEST_DMG)} && "
+          f"printf %s {shlex.quote(json.dumps(config))} > {shlex.quote(acpmux_home())}/config.json")
     first_pid = None
 
     @step("install")
@@ -300,7 +375,7 @@ def main() -> int:
     @step("agent")
     def _(row):
         acpmux = f"/Applications/{APP}.app/Contents/Resources/bin/acpmux"
-        res = guest(f"cd {GUEST_WORK} && ACPMUX_HOME={shlex.quote(ACPMUX_HOME)} {shlex.quote(acpmux)} exec -m {HARNESS} "
+        res = guest(f"cd {GUEST_WORK} && ACPMUX_HOME={shlex.quote(acpmux_home())} {shlex.quote(acpmux)} exec -m {HARNESS} "
                     f"--cwd {GUEST_WORK} --policy approve-all --timeout 240 'use Calculator and TextEdit in the background'",
                     timeout=300)
         row["exec_exit"] = res.returncode
@@ -333,7 +408,11 @@ def write(result: dict) -> None:
 
 def finish() -> int:
     eyes.close()
-    person = sum(s["actions"] for s in steps if s["step"] in REFERENCE)
+    try:
+        grants = collect_tcc()
+    except (subprocess.SubprocessError, OSError, ValueError) as error:
+        grants = {"error": str(error)[:300]}
+    person =sum(s["actions"] for s in steps if s["step"] in REFERENCE)
     ok = {s["step"]: s["ok"] for s in steps}
     cu = ("install", "first_run", "cu_open", "cu_ax", "cu_screen", "cu_ready", "agent", "no_relaunch")
     result = {
@@ -345,6 +424,9 @@ def finish() -> int:
         "steps": steps, "failed_steps": [s["step"] for s in steps if not s["ok"]],
         "person_actions_to_ready": person, "reference_actions_to_ready": sum(REFERENCE.values()),
         "findings": findings, "video": None,
+        # Accessibility and Screen Recording asks per app identity (tcc.py; the whole run is in tcc.json).
+        "tcc": {k: grants[k] for k in ("app", "bundle_id", "grant_prompt_count", "cmux_grant_prompt_count", "cmux_identities", "identities", "grant_prompts",
+                                       "prompts_seen", "db_readable", "db_new_rows", "log_lines", "error") if k in grants},
     }
     write(result)  # before the slow parts below: a timeout there keeps every step's verdict
     try:

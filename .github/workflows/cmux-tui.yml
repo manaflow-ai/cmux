@@ -460,21 +460,21 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
-      # cmux-rd-ffi is its own Cargo workspace (outside --workspace), so the
-      # cmux-tui lint/test steps never build it. Its tests pin the C header
+      # cmux-rd-ffi is in the app FFI workspace (cmux-app-ffi, outside
+      # cmux-tui's --workspace), so the cmux-tui lint/test steps never build it. Its tests pin the C header
       # against the exports and layouts (plans/cmux-next/remote-desktop.md 3).
-      - name: cmux-rd-ffi (own workspace)
+      - name: cmux-rd-ffi (app FFI workspace)
         working-directory: cmux-tui/crates/cmux-rd-ffi
         run: |
           cargo fmt --check || { echo "::warning title=cmux-rd-ffi rustfmt::not rustfmt-clean"; [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]] || exit 1; }
           cargo clippy --all-targets --locked -- -D warnings
           cargo test --locked
 
-      # cmux-layout-reducer-ffi is its own workspace too (no committed
-      # Cargo.lock): its C ABI tests cover the sidebar reducer and the Tasks
-      # preview. cmux-app-ffi links it, and build-app-ffi.sh builds --locked,
-      # so a stale cmux-app-ffi/Cargo.lock fails here with the needed diff.
-      - name: cmux-layout-reducer-ffi (own workspace)
+      # cmux-layout-reducer-ffi is in the app FFI workspace too: its C ABI
+      # tests cover the sidebar reducer and the Tasks preview. The workspace's
+      # one lock is cmux-app-ffi/Cargo.lock, and build-app-ffi.sh builds
+      # --locked, so a stale lock fails here with the needed diff.
+      - name: cmux-layout-reducer-ffi (app FFI workspace)
         working-directory: cmux-tui/crates/cmux-layout-reducer-ffi
         run: |
           cargo fmt --check || { echo "::warning title=cmux-layout-reducer-ffi rustfmt::not rustfmt-clean"; [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]] || exit 1; }
@@ -735,7 +735,7 @@ jobs:
     outputs:
       # Runnable tests the focused filter selected here; hosted-verification reads it.
       focused_selected: ${{ steps.focused.outputs.selected }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_15 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_15 }}
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1336,6 +1336,10 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        uses: ./.github/actions/zig-global-cache
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust

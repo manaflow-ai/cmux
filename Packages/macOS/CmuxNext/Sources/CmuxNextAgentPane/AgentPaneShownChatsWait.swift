@@ -61,6 +61,11 @@ public final class AgentPaneShownChatsWait {
         then()
     }
 
+    /// The chat pages among `views` that the person sees load now (``loading(_:)``), or the stand-in's (tests).
+    public func loadingNow(_ views: some Sequence<AgentPaneView>) -> [WhenPainted] {
+        standIn?() ?? Self.loading(views)
+    }
+
     /// The chat pages among `views` that are not drawn yet and that the person sees load: not hidden, in a window
     /// on screen (not minimized, ordered out or fully covered). A New Tab page draws no chat.
     public static func loading(_ views: some Sequence<AgentPaneView>) -> [WhenPainted] {

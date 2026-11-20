@@ -229,3 +229,20 @@ test("a harness acpmux marks pickerHidden (the cmux router fallback) is not a ch
   const picker = buildPickerCatalog({ catalog: BUNDLED_MODEL_CATALOG, acpmux: catalog });
   expect(picker.harnesses.filter((entry) => entry.pickable).map((entry) => entry.acpmuxHarness)).not.toContain("cmux");
 });
+
+test("live releases absent from the bundled catalog reach the Claude Code picker", async () => {
+  const { buildPickerCatalog, BUNDLED_MODEL_CATALOG } = await import("./modelCatalogData");
+  const live = [
+    { id: "claude-fable-5-2", name: "Fable 5.2" },
+    { id: "claude-opus-5-6", name: "Opus 5.6" },
+    { id: "claude-new-family-1", name: "New Family 1" },
+  ];
+  const acpmux = mergeModelCatalog(
+    { harnesses: [{ id: "claude", name: "Claude Code", family: "claude" }] },
+    { harnesses: [{ harness: "claude", models: live, topModels: live.map(({ id }) => id) }] },
+  );
+  const result = buildPickerCatalog({ catalog: BUNDLED_MODEL_CATALOG, acpmux });
+  const claude = result.harnesses.find(({ id }) => id === "claude")!;
+  expect(claude.topModels).toEqual(live.map(({ id }) => id));
+  for (const model of live) expect(claude.models).toContainEqual(expect.objectContaining(model));
+});

@@ -36,6 +36,14 @@ extension CloudAPIClient {
         }
     }
 
+    /// Starts the desktop closure on an existing running Cloud machine. The platform route
+    /// performs the root-owned capability repair; the app never asks the guest shell to invent it.
+    public func setupDesktop(_ id: String) async throws {
+        try requireWorker()
+        struct Response: Decodable { let ok: Bool }
+        _ = try await send("POST", "\(machinePath)/\(id)/desktop", timeout: .seconds(30), as: Response.self)
+    }
+
     /// Lists a guest directory through the authenticated backend wrapper.
     public func listFiles(_ id: String, path: String) async throws -> [CloudFileEntry] {
         struct List: CloudServerModel {

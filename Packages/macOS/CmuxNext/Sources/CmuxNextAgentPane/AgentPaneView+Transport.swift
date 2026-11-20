@@ -117,6 +117,8 @@ extension AgentPaneView {
             self?.refreshQuestionKeyBinding()
             self?.refreshOtherInstallNotice()
             self?.shownPushes.onSessionChange?() // the new chat's owed work (AgentPaneOwedWork)
+            // A painted page that moved to another chat shows it (``AgentPaneSeenChats``).
+            if let model = self?.model, model.hasPainted, let session = model.sessionId { AgentPaneTailCache.shared.seen.noteShown(session) }
         }
         model.transport.deliver = { [weak self] event, done in
             guard let self else { return done() }
@@ -126,6 +128,8 @@ extension AgentPaneView {
                 }
                 // The page host's events carry no completion: the next push may follow next turn.
                 if !pageEvents.publish(.transport(event)) {
+                    // Said in the log: this close reaches the page as a clean one with no reason.
+                    AgentPaneTransport.logger.notice("agent pane transport closed: the page host fell a full buffer behind connection=\(event.connection, privacy: .public)")
                     self.model.transport.close(connection: event.connection)
                 }
                 // task-owner: one completion for the pacer, on the main actor

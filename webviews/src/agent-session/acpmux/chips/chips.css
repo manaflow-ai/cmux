@@ -284,6 +284,8 @@
   font-variant-numeric: tabular-nums;
   line-height: 1.4;
   letter-spacing: var(--text-detail--letter-spacing);
+  /* One line, as every video tile's length (composer/videoLengthFit.ts). */
+  white-space: nowrap;
 }
 /* Every control on a playing video shows the arrow too (WebKit's own controls). */
 .cv-media__frame.is-playing video,

@@ -26,11 +26,6 @@ EXEMPTIONS: dict[str, str] = {
     # whole, which contains each backend path the pull_request list names.
     "cmux-vm-cloud.yml": "push covers backend/** on codex/vm-api-cloud-* branches; pull requests "
     "name the cloud-VM API files inside it",
-    # A feat-cmux-next push that touches the app walks the reviewer path on a macOS
-    # machine; a pull request walks it only when it changes the gate itself, so an
-    # app pull request does not pay for the walk (its push to feat-cmux-next does).
-    "ios-review-gate.yml": "pull requests run the macOS walk only when they change the gate; "
-    "feat-cmux-next pushes run it for every app change",
 }
 
 # name -> (filter, push-only patterns, why). A narrower exemption: only these
@@ -69,6 +64,13 @@ PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
         "base pushes also compile for the nightly release inputs, so a nightly repair "
         "earns its Release compile before promotion; the base-red classifier runs "
         "only on pushes",
+    ),
+    # The push trigger only registers the workflow on feat-cmux-next for its dispatch half (its jobs skip on a
+    # push); pull requests take no path filter, since the plan decides.
+    "cmux-next-hot-verify.yml": (
+        "paths",
+        frozenset({".github/workflows/cmux-next-hot-verify.yml"}),
+        "a push of this file registers the workflow for dispatch on feat-cmux-next; no job runs on a push",
     ),
 }
 

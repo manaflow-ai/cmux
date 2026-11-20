@@ -105,7 +105,7 @@ pub fn pid_alive(pid: u32) -> bool {
 
 /// The acpmux to run prompt bodies with: `$CMUX_AUTOMATION_ACPMUX`, else the
 /// one next to this executable, else `acpmux` on `PATH`.
-fn acpmux() -> PathBuf {
+pub fn acpmux() -> PathBuf {
     if let Some(p) = std::env::var_os("CMUX_AUTOMATION_ACPMUX").filter(|p| !p.is_empty()) {
         return PathBuf::from(p);
     }

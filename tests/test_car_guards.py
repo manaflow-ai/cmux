@@ -55,7 +55,7 @@ def repo(tmp: str, files: dict[str, str]) -> Path:
     root.mkdir()
     # The helpers the map imports, from this checkout.
     for helper in ("select_package_tests.py", "focused_tests.py", "car_guards.py", "cmux_next_route.py",
-                   "ci_process_tree.py", "nightly-next-car-guard.sh", "car-guard-python.sh"):
+                   "ci_process_tree.py", "gh_expressions.py", "nightly-next-car-guard.sh", "car-guard-python.sh"):
         write(root, {f"scripts/ci/{helper}": (ROOT / "scripts/ci" / helper).read_text(encoding="utf-8")})
     write(root, files)
     git(root, "init", "-q")

@@ -14,10 +14,16 @@ use tokio::runtime::Runtime;
 
 mod browser;
 mod classic_leftovers;
+mod link_side;
+mod terminal_chat;
 mod terminal_prediction;
 
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
+pub use link_side::{LinkOpenSide, link_open_side};
+pub use terminal_chat::{
+    TabFace, TerminalChatCandidate, TerminalChatFaces, TerminalChatFacts, TerminalChatSwap,
+};
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
 
 uniffi::setup_scaffolding!();
@@ -464,6 +470,20 @@ impl LinkHandle {
         self.link.is_closed()
     }
 
+    /// Milliseconds since the link last received any frame from the Mac.
+    /// Any frame proves the link alive as a probe's pong would, so the app's
+    /// heartbeat probes only a link quiet for a whole beat.
+    pub fn received_ago_ms(&self) -> u64 {
+        u64::try_from(self.link.received_ago().as_millis()).unwrap_or(u64::MAX)
+    }
+
+    /// Milliseconds since the link last received a frame other than a ping
+    /// or a pong. With Align Keepalives on, the heartbeat probes a link with
+    /// no traffic for a whole beat on the keepalive beat.
+    pub fn traffic_ago_ms(&self) -> u64 {
+        u64::try_from(self.link.traffic_ago().as_millis()).unwrap_or(u64::MAX)
+    }
+
     /// Close the link and its transport. The signaling socket stays warm
     /// for the next dial (`reset_warm_state` closes it).
     pub fn close(&self) {
@@ -624,11 +644,13 @@ pub struct ConnectOptions {
     /// rides RTP inside the tunnel (the "WireGuard only" comparison).
     #[uniffi(default = false)]
     pub no_webrtc_media: bool,
-    /// WireGuard: the person's "Ultra mode on cellular" setting. On, a dial
-    /// made while the network is cellular (`set_cellular_path`) sends
-    /// repair data, about 2-3x the bytes, so a lossy network costs no time.
-    #[uniffi(default = false)]
-    pub ultra_on_cellular: bool,
+    /// WireGuard: the person's Settings > Transport > Ultra Mode, as the app
+    /// stores it: `"off"`, `"auto"` (the default: no extra data on a clean
+    /// link, repair data once packets are lost, capped while
+    /// `set_cellular_path` says cellular) or `"always"` (repair data on
+    /// every datagram, about 2-3x the bytes).
+    #[uniffi(default = "auto")]
+    pub ultra: String,
 }
 
 /// Dial `mac_device_id` from this phone (`device_id`) over `transport`.
@@ -684,7 +706,7 @@ pub async fn connect_with_options(
         video_lane: !options.no_video_lane,
         webrtc_media: !options.no_webrtc_media
             && std::env::var_os("CMUX_MOBILE_DEV_NO_WEBRTC_MEDIA").is_none(),
-        ultra_on_cellular: options.ultra_on_cellular,
+        ultra: cmux_mobile_link::UltraSetting::parse(&options.ultra),
     };
     on_runtime(connect_inner(request, observer)).await
 }
@@ -711,8 +733,8 @@ pub struct ConnectRequest {
     /// WireGuard: offer a WebRTC media session beside the link for browser
     /// video (cmux_mobile_link::hybrid).
     pub webrtc_media: bool,
-    /// WireGuard: "Ultra mode on cellular" (`ConnectOptions::ultra_on_cellular`).
-    pub ultra_on_cellular: bool,
+    /// WireGuard: Settings > Transport > Ultra Mode (`ConnectOptions::ultra`).
+    pub ultra: cmux_mobile_link::UltraSetting,
 }
 
 fn emit(observer: &Option<Arc<dyn LinkObserver>>, event: LinkEvent) {
@@ -1002,7 +1024,7 @@ async fn prewarm_on(
     let timeline = Timeline::new();
     let key = SocketKey { base_url: base_url.clone(), team_id, device_id };
     let socket = async {
-        if let Some(socket) = pool.pooled(&key).await {
+        if let Some(socket) = pool.reusable(&key, &timeline).await {
             if socket.client.probe(STALE_PROBE).await {
                 timeline.mark("signaling_alive");
                 return;
@@ -1028,8 +1050,8 @@ async fn network_changed_on(
     let roam = tokio::spawn(cmux_mobile_link::dial::wireguard::network_changed());
     let timeline = Timeline::new();
     let key = SocketKey { base_url, team_id, device_id };
-    if let Some(socket) = pool.pooled(&key).await {
-        if socket.client.probe(NETWORK_PROBE).await {
+    if let Some(socket) = pool.reusable(&key, &timeline).await {
+        if socket.client.probe(network_probe(socket.client.rtt())).await {
             timeline.mark("alive");
         } else {
             timeline.mark("stale");
@@ -1084,6 +1106,21 @@ impl Warm {
         pool.iter().rev().find(|s| s.key == *key && s.client.closed_reason().is_none()).cloned()
     }
 
+    /// The pooled socket for `key` while it has heard from the service within one keepalive
+    /// ([`SignalingClient::is_fresh`]). One that missed a pong (the phone slept, or the app was
+    /// suspended past a keepalive) is dropped here instead of reused: a dial on it waited
+    /// [`STALE_PROBE`] (2.5 s) for an answer a half-open socket never sends, and only then
+    /// opened the socket it could have opened at once (ask-48f698fc26).
+    async fn reusable(&self, key: &SocketKey, timeline: &Timeline) -> Option<Arc<WarmSocket>> {
+        let socket = self.pooled(key).await?;
+        if socket.client.is_fresh() {
+            return Some(socket);
+        }
+        timeline.mark("signaling_quiet");
+        self.evict(&socket).await;
+        None
+    }
+
     /// The pooled socket for `key` (true), else a new one (false), waiting
     /// for one already opening.
     async fn pooled_or_open(
@@ -1092,11 +1129,11 @@ impl Warm {
         token: &str,
         timeline: &Timeline,
     ) -> Result<(Arc<WarmSocket>, bool), CmuxMobileError> {
-        if let Some(socket) = self.pooled(key).await {
+        if let Some(socket) = self.reusable(key, timeline).await {
             return Ok((socket, true));
         }
         let _opening = self.opening.lock().await;
-        if let Some(socket) = self.pooled(key).await {
+        if let Some(socket) = self.reusable(key, timeline).await {
             timeline.mark("signaling_joined");
             return Ok((socket, true));
         }
@@ -1160,18 +1197,58 @@ pub async fn prewarm(base_url: String, token: String, team_id: String, device_id
 
 /// The device's network is cellular now, or not (iOS `NWPathMonitor`,
 /// `NWPath.usesInterfaceType(.cellular)`; every path update, the first one
-/// too). WireGuard dials made from now on turn ultra mode on when this is
-/// true and their `ConnectOptions::ultra_on_cellular` is set; a live link
-/// keeps its mode until it redials.
+/// too). Every WireGuard link in Auto (`ConnectOptions::ultra`) reads it
+/// live: on cellular its repair data stays within its data bytes.
 #[uniffi::export]
 pub fn set_cellular_path(cellular: bool) {
     cmux_mobile_link::dial::wireguard::set_cellular_path(cellular);
+}
+
+/// Settings → Transport → Align Keepalives (off by default): every
+/// keepalive of the phone goes out on the same beats
+/// (`cmux_mobile_link::keepalive`). Read by each dial and by the signaling
+/// socket's next keepalive tick.
+#[uniffi::export]
+pub fn set_keepalive_alignment(on: bool) {
+    cmux_mobile_link::keepalive::set_aligned(on);
+}
+
+/// Milliseconds from now until the next keepalive beat of `period_ms`, for
+/// the app's own timers (presence, Cloud Chief, the link heartbeat), so
+/// they share the Rust keepalives' instants.
+#[uniffi::export]
+pub fn keepalive_beat_delay_ms(period_ms: u64) -> u64 {
+    let delay = cmux_mobile_link::keepalive::delay_to_beat(Duration::from_millis(period_ms.max(1)));
+    u64::try_from(delay.as_millis()).unwrap_or(u64::MAX)
 }
 
 /// How long the signaling socket may take to answer after a network
 /// change before a new one is opened (the old network's socket is usually
 /// dead, and `bye` and new dials need a live one).
 const NETWORK_PROBE: Duration = Duration::from_millis(1000);
+/// The shortest wait for that answer: a few round trips of a fast network, plus scheduling.
+const NETWORK_PROBE_FLOOR: Duration = Duration::from_millis(300);
+
+/// How long to wait for the old socket after a network change: four of its measured round
+/// trips (a live socket answers in one), between [`NETWORK_PROBE_FLOOR`] and [`NETWORK_PROBE`].
+/// A flat 1 s was 90% of a roam's reconnect at an 80 ms round trip (ask-48f698fc26); a socket
+/// that never timed a pong keeps the full second.
+fn network_probe(rtt: Option<Duration>) -> Duration {
+    rtt.map_or(NETWORK_PROBE, |rtt| (rtt * 4).clamp(NETWORK_PROBE_FLOOR, NETWORK_PROBE))
+}
+
+#[cfg(test)]
+mod network_probe_tests {
+    use super::*;
+
+    #[test]
+    fn the_wait_after_a_network_change_follows_the_sockets_round_trip() {
+        assert_eq!(network_probe(None), NETWORK_PROBE);
+        assert_eq!(network_probe(Some(Duration::from_millis(10))), NETWORK_PROBE_FLOOR);
+        assert_eq!(network_probe(Some(Duration::from_millis(100))), Duration::from_millis(400));
+        assert_eq!(network_probe(Some(Duration::from_secs(2))), NETWORK_PROBE);
+    }
+}
 
 /// The device's network changed or came back (iOS `NWPathMonitor`): every
 /// WireGuard link moves onto the new network at once without a redial, and
@@ -1237,7 +1314,9 @@ async fn dial(
         block_udp: request.block_udp || std::env::var_os("CMUX_MOBILE_DEV_BLOCK_UDP").is_some(),
         video_lane: request.video_lane,
         webrtc_media: request.webrtc_media,
-        ultra_on_cellular: request.ultra_on_cellular,
+        ultra: request.ultra,
+        // Read once, so the tunnel and its link agree (`dial_on`).
+        aligned_keepalives: cmux_mobile_link::keepalive::aligned(),
         timeline: timeline.clone(),
         ..DialOptions::default()
     };
@@ -1301,7 +1380,7 @@ async fn dial_on(
         &request.mac_device_id,
         request.transport.into(),
         options,
-        LinkConfig::default(),
+        if options.aligned_keepalives { LinkConfig::aligned() } else { LinkConfig::default() },
     );
     if !probe {
         return dial.await.map_err(Attempt::Failed);

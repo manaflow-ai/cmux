@@ -21,7 +21,9 @@ export const ThinkingRow = memo(
         liveState={row.liveState}
         liveAgents={row.liveAgents}
         liveCompaction={row.liveCompaction}
-        thoughtMs={row.thoughtMs}
+        phaseAt={row.phaseAt}
+        heardAt={row.heardAt}
+        heardKey={row.heardKey}
         turnTotal={row.turnTotal}
         untimed={row.untimed}
         verbKey={row.verbKey}
@@ -50,7 +52,9 @@ export const ThinkingRow = memo(
     a.row.liveState === b.row.liveState &&
     a.row.liveAgents === b.row.liveAgents &&
     a.row.liveCompaction === b.row.liveCompaction &&
-    a.row.thoughtMs === b.row.thoughtMs &&
+    a.row.phaseAt === b.row.phaseAt &&
+    a.row.heardAt === b.row.heardAt &&
+    a.row.heardKey === b.row.heardKey &&
     a.row.turnTotal === b.row.turnTotal &&
     a.row.untimed === b.row.untimed &&
     a.row.verbKey === b.row.verbKey &&

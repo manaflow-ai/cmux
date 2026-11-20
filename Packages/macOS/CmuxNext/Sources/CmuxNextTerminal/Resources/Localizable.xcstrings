@@ -2621,6 +2621,137 @@
         }
       }
     },
+    "terminal.link.lost.restartFailed.noPty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal stopped: out of terminals. Close some, then restart."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ターミナルを停止しました: ターミナルの空きがありません。いくつか閉じてから再起動してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "توقفت الطرفية: لا توجد طرفيات متاحة. أغلق بعضها ثم أعد التشغيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal zaustavljen: nema slobodnih terminala. Zatvorite neke, pa ponovo pokrenite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal stoppet: ikke flere terminaler. Luk nogle, og genstart derefter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal gestoppt: keine Terminals mehr frei. Einige schließen, dann neu starten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal detenida: no quedan terminales. Cierra algunas y reinicia."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal arrêté : plus de terminaux disponibles. Fermez-en, puis redémarrez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminale fermato: terminali esauriti. Chiudine alcuni, poi riavvia."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទែមីណល់បានឈប់៖ អស់ទែមីណល់ហើយ។ បិទខ្លះ រួចចាប់ផ្ដើមឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "터미널 중지됨: 사용 가능한 터미널 없음. 일부를 닫은 후 다시 시작하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal stoppet: tomt for terminaler. Lukk noen, og start på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal zatrzymany: brak wolnych terminali. Zamknij kilka i uruchom ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal parado: sem terminais disponíveis. Feche alguns e reinicie."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Терминал остановлен: нет свободных терминалов. Закройте несколько и перезапустите."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เทอร์มินัลหยุดแล้ว: เทอร์มินัลเต็มแล้ว ปิดบางส่วนแล้วเริ่มใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal durduruldu: boş terminal kalmadı. Birkaçını kapatıp yeniden başlatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Термінал зупинено: немає вільних терміналів. Закрийте кілька й перезапустіть."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal đã dừng: hết terminal. Hãy đóng bớt rồi khởi động lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "终端已停止：终端数量已用尽。请关闭一些，然后重新启动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "終端機已停止：終端機數量已用盡。請關閉一些，然後重新啟動。"
+          }
+        }
+      }
+    },
     "terminal.link.lost.cause.signal": {
       "extractionState": "manual",
       "localizations": {

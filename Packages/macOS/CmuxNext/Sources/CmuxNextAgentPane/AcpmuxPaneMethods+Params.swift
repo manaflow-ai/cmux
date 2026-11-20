@@ -28,7 +28,8 @@ nonisolated extension AcpmuxPaneMethods {
         "session/set_model": (["sessionId", "modelId"], []),
         "session/cancel": (["sessionId"], []),
         // `limit`: the newest page of the session list, the rest by `_acpmux/sessions` `cursor` (cx-2lv1k).
-        "_acpmux/watch": (["enabled", "limit"], []),
+        // `afterSeq`, `listEpoch`: a reconnect follows the list from the cursor it last read (#41889).
+        "_acpmux/watch": (["enabled", "limit", "afterSeq", "listEpoch"], []),
         // `usage`: each chat's usage read first (SessionSummary.usageStats), for Session Info's Usage.
         "_acpmux/sessions": (["limit", "cursor", "usage"], []),
         // `maxBytes`: the most one page downloads, opening a chat or paging older turns in (cx-2lv1k).
@@ -47,7 +48,12 @@ nonisolated extension AcpmuxPaneMethods {
         // (its own id) or the chat's own turn.
         "_acpmux/retry": (["sessionId", "subagentId"], []),
         // `visible`: whether the pane shows the chat; acpmux owns unread from it (cx-n8ou).
-        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs"], []),
+        // `settled`: a cold open asks for acpmux's settled view (direct.ts sendAttach,
+        // settled-attach-v1); refused, no chat opens once the daemon names it (#42185).
+        // `hold`: a chat drawn from the row store attaches without a page (rows/holdKinds.ts,
+        // attach-hold-v1); refused, the open failed and no new chat started (#42460).
+        // schemas/agent-pane/attach-params.json lists every key the page sends here.
+        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs", "settled", "hold"], []),
         "_acpmux/detach": (["sessionId"], []),
         "_acpmux/view": (["sessionId", "visible"], []),
         // Whether this pane types in a shared chat, never its text (multiplayer/presenceClient.ts).
@@ -56,12 +62,15 @@ nonisolated extension AcpmuxPaneMethods {
         // `cancelFork`: Fork Conversation's Cancel takes back a fork nobody used, with the transcript
         // copy its agent made (direct.ts `takeBackFork`, acpmux hub/fork_cancel.rs); with
         // `cancelToken`, it stops the fork that token names while it is still being made.
-        "_acpmux/kill": (["sessionId", "purge", "cancelFork", "cancelToken"], []),
+        // `ifIdle`: Move to Terminal stops the chat only while no turn, prompt or tool call is open
+        // (direct.ts `releaseToTerminal`, acpmux hub/stop_if_idle.rs); it only narrows a stop.
+        "_acpmux/kill": (["sessionId", "purge", "cancelFork", "cancelToken", "ifIdle"], []),
         // `ifLive`: `fork` or `open` once the person chose, for a chat still live in its own app.
         "_acpmux/watch_take_over": (["sessionId", "ifLive"], []),
         // Background processes (direct.ts listProcesses, tailProcess, killProcess, backgroundWork):
         // a kill names its chat, which must be the pane's, and acpmux stops only that chat's process.
-        "_acpmux/process/list": (["sessionId"], []),
+        // A list is read page by page (`limit`, then each page's `nextCursor` as `cursor`).
+        "_acpmux/process/list": (["sessionId", "limit", "cursor"], []),
         "_acpmux/process/tail": (["processId", "maxBytes"], []),
         "_acpmux/process/kill": (["sessionId", "processId"], []),
         "_acpmux/process/background": (["sessionId", "toolCallId"], []),
@@ -86,7 +95,10 @@ nonisolated extension AcpmuxPaneMethods {
         // New project (direct.ts newProject): the folder's name only, never a path or a root.
         "_acpmux/project_new": (["name"], []),
         // `cwd`: the chat folder whose folder harness profiles to list (checked like every cwd).
-        "_acpmux/harnesses": (["cwd"], []),
+        // `_meta.acpmux.peer`: a new chat bound for another of the person's machines reads that
+        // machine's agents (Austin, 2026-11-12; webviews machineHarnesses.ts). acpmux forwards it to
+        // that peer with no caller params, from local and app connections only. One non-empty name.
+        "_acpmux/harnesses": (["cwd", "_meta"], ["peer"]),
         // `refresh`: the picker's Refresh models; acpmux probes its agents' model lists again. It
         // grants nothing (the same probes acpmux runs in the background), so no gesture rule.
         // `localOnly`: this machine's lists only, without waiting on the peers (the picker's own read).
@@ -195,34 +207,60 @@ nonisolated extension AcpmuxPaneMethods {
     /// A set_mode or set_config_option with `cmuxGesture` in `_meta` redeems a ticket: its `_meta`
     /// is the gesture rule's (R1 refuses any other key there and spends the ticket).
     static func breaksParamsRule(_ object: [String: Any]?, modeFields: Set<String>?) -> Bool {
-        guard let object, let method = object["method"] as? String, let rawParams = object["params"] else { return false }
-        guard let params = rawParams as? [String: Any] else { return true }
-        guard let known = knownParams[method] else { return !params.isEmpty }
-        if params.keys.contains(where: { !known.params.contains($0) }) { return true }
+        paramsRuleViolation(object, modeFields: modeFields) != nil
+    }
+
+    /// Which part of the params rule (P1) `object` breaks, in a few words for the relay's log and the
+    /// refusal's `detail` (`unknown param "settled"`), else nil. The page shows it under the failed
+    /// card's Details: a chat that cannot start says what the relay refused, not only that it did
+    /// (cmux#44964; #42185 and #42460 refused an attach key and nothing named it). It names keys and
+    /// rule parts only, never a param's value.
+    static func paramsRuleViolation(_ object: [String: Any]?, modeFields: Set<String>?) -> String? {
+        guard let object, let method = object["method"] as? String, let rawParams = object["params"] else { return nil }
+        guard let params = rawParams as? [String: Any] else { return "params is not an object" }
+        guard let known = knownParams[method] else {
+            return params.isEmpty ? nil : "\(method) takes no params"
+        }
+        if let key = params.keys.sorted().first(where: { !known.params.contains($0) }) { return "unknown param \(quoted(key))" }
         if (method == "acp.trust.get" || method == "acp.trust.set"), let peer = params["peer"] {
-            guard let name = peer as? String, !name.isEmpty else { return true }
+            guard let name = peer as? String, !name.isEmpty else { return "peer is not a machine name" }
         }
         let setting = settingMethods.contains(method)
         let denied = setting ? [] : modeFields ?? []
-        if params.keys.contains(where: denied.contains) { return true }
-        guard let rawMeta = params["_meta"] else { return false }
-        guard let meta = rawMeta as? [String: Any] else { return true }
+        if let key = params.keys.sorted().first(where: denied.contains) { return "mode field \(quoted(key))" }
+        guard let rawMeta = params["_meta"] else { return nil }
+        guard let meta = rawMeta as? [String: Any] else { return "_meta is not an object" }
         // A redeeming frame: R1 first (nothing but the ticket in _meta), then the gesture rule.
-        if setting, meta["cmuxGesture"] != nil { return meta.keys.contains { $0 != "cmuxGesture" } }
+        if setting, meta["cmuxGesture"] != nil {
+            return meta.keys.sorted().first { $0 != "cmuxGesture" }.map { "unknown _meta key \(quoted($0))" }
+        }
         // A permission answer's `_meta` holds the pick's ticket and nothing else, as does a plan
         // build's (it answers the plan approval).
         if method == "_acpmux/permission_respond" || method == "_acpmux/plan/build" || method == "chat.fix_from_link" {
-            return Set(meta.keys) != [gestureTicketKey]
+            return Set(meta.keys) == [gestureTicketKey] ? nil : "_meta holds more than the gesture ticket"
         }
         // A prompt held for the folder trust answer redeems its ticket beside its acpmux.promptId.
-        if meta.keys.contains(where: { $0 != "acpmux" && !(method == "session/prompt" && $0 == gestureTicketKey) }) { return true }
-        guard let rawAcpmux = meta["acpmux"] else { return false }
-        guard let acpmux = rawAcpmux as? [String: Any] else { return true }
-        if acpmux.keys.contains(where: { !known.acpmux.contains($0) || denied.contains($0) }) { return true }
+        if let key = meta.keys.sorted().first(where: { $0 != "acpmux" && !(method == "session/prompt" && $0 == gestureTicketKey) }) {
+            return "unknown _meta key \(quoted(key))"
+        }
+        guard let rawAcpmux = meta["acpmux"] else { return nil }
+        guard let acpmux = rawAcpmux as? [String: Any] else { return "_meta.acpmux is not an object" }
+        if let key = acpmux.keys.sorted().first(where: denied.contains) { return "mode field \(quoted(key)) in _meta.acpmux" }
+        if let key = acpmux.keys.sorted().first(where: { !known.acpmux.contains($0) }) {
+            return "unknown _meta.acpmux key \(quoted(key))"
+        }
+        if method == "_acpmux/harnesses", let peer = acpmux["peer"] {
+            guard let name = peer as? String, !name.isEmpty else { return "_meta.acpmux.peer is not a machine name" }
+        }
         // A start's model is a spawn parameter (Claude Code's `--model`, `${model}` in a harness's
         // argv or env): one model id, never a flag or anything else.
-        if method == "session/new", let model = acpmux["model"] { return !isModelID(model) }
-        return false
+        if method == "session/new", let model = acpmux["model"], !isModelID(model) { return "_meta.acpmux.model is not a model id" }
+        return nil
+    }
+
+    /// A key as the refusal names it: quoted, at most 64 characters (a page bug can send any key).
+    private static func quoted(_ key: String) -> String {
+        "\"" + String(key.prefix(64)) + "\""
     }
 
     /// The longest `_meta.acpmux.model` a start may carry, in bytes.

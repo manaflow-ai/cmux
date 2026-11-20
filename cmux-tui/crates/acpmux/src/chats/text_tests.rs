@@ -100,6 +100,25 @@ fn a_long_chat_keeps_its_newest_messages() {
     assert!(doc.message(doc.messages.len() - 1).starts_with("prompt3"));
 }
 
+/// A newest message past the bound alone (a pasted 50 MB log) keeps its newest text: the chat
+/// was held with no text at all, so no word of it was found (`text_scale_bench`).
+#[test]
+fn a_message_past_the_bound_alone_keeps_its_newest_text() {
+    let words = needle("tailword");
+    // Two-byte characters, so the cut falls inside one.
+    let huge = format!("headword {} tailword", "é".repeat(CHAT_BYTES));
+    let stamp = Stamp { updated_ms: 0, messages: None };
+    let read = Doc::new(stamp, &[turn("start", "short"), turn("paste", &huge)]);
+    let mut edited = Doc::new(stamp, &[turn("start", "short")]);
+    edited.edit(1, &[turn("paste", &huge)], 0);
+    for doc in [read, edited] {
+        assert!(doc.is_sound(), "{} bytes", doc.text.len());
+        let found = doc.find(&words, &Matcher::new(&words)).expect("the newest text is found");
+        assert_eq!(doc.messages[found.message as usize].turn, 1);
+        assert!(doc.find(&needle("headword"), &Matcher::new(&needle("headword"))).is_none());
+    }
+}
+
 #[test]
 fn a_chat_is_read_again_only_when_it_changed_and_a_gone_chat_is_dropped() {
     let text = index();

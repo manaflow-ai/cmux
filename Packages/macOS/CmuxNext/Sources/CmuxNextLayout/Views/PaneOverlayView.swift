@@ -7,8 +7,9 @@ import QuartzCore
 /// hairline border, the focus ring or glow (`focusRing.*`, theme gray by
 /// default, never blue) and the attention ring of an unread notification
 /// (`notifications.attention.*`) on the rounded content area below the
-/// header (tab strip, browser toolbar), and the inactive dim over the whole
-/// padded pane, rounded only where the content area is. It lives in the
+/// header (tab strip, browser toolbar), beside a vertical tab list, also on
+/// a floating card, and the inactive dim over the whole padded pane, rounded
+/// only where the content area is (a floating card: all four corners). It lives in the
 /// layout's `OverlayPlane`, above content child windows, and only strokes
 /// inside the content area: it never changes a pane frame or inset. A ring
 /// hides the border while it shows.
@@ -20,6 +21,16 @@ final class PaneOverlayView: NSView {
         var shows: Bool
         var width: CGFloat?
         var color: ThemeRGB?
+    }
+
+    /// The bands of a pane's own chrome around its content area, in points: a tab
+    /// strip on top (`header`, with a browser toolbar under it), one at the bottom
+    /// (`footer`) and a vertical tab list on the leading edge (`leading`). The rings
+    /// and the border trace the area inside them.
+    struct Bands: Equatable {
+        var header: CGFloat = 0
+        var footer: CGFloat = 0
+        var leading: CGFloat = 0
     }
 
     /// What the inactive dim paints: the pane fill (clear over a
@@ -57,8 +68,10 @@ final class PaneOverlayView: NSView {
     private var isFocusedPane = false
     private var padding: CGFloat = 0
     private var cornerRadius: CGFloat = 0
-    private var headerHeight: CGFloat = 0
-    private var footerHeight: CGFloat = 0
+    private var bands = Bands()
+    /// Floating panes: the dim covers the whole rounded card, tabs included
+    /// (``setShape(padding:cornerRadius:bands:wholeCard:)``).
+    private var wholeCard = false
     private var focusRing = FocusRingSettings()
     private var ringAlphaOverride: CGFloat?
     private var attentionSettings = AttentionSettings()
@@ -139,18 +152,37 @@ final class PaneOverlayView: NSView {
     }
 
     func setShape(padding: CGFloat, cornerRadius: CGFloat, headerHeight: CGFloat, footerHeight: CGFloat = 0) {
-        guard padding != self.padding || cornerRadius != self.cornerRadius || headerHeight != self.headerHeight
-            || footerHeight != self.footerHeight else { return }
+        setShape(padding: padding, cornerRadius: cornerRadius, bands: Bands(header: headerHeight, footer: footerHeight), wholeCard: false)
+    }
+
+    /// The pane's shape: its `padding` inside the cell, its card's `cornerRadius`, the
+    /// `bands` of its own chrome (tabs) around the content area, and whether the
+    /// whole padded rect is one card (`wholeCard`, Floating Panes). The border and
+    /// every ring trace the content area inside the bands, a whole card's too: its
+    /// tabs are on the card, not in the area the ring marks. The content area rounds
+    /// every corner with the card's radius, so where it meets the card's own corner
+    /// the two curves are one, and where it meets the tabs it matches their pills.
+    func setShape(padding: CGFloat, cornerRadius: CGFloat, bands: Bands, wholeCard: Bool) {
+        guard padding != self.padding || cornerRadius != self.cornerRadius || bands != self.bands || wholeCard != self.wholeCard else { return }
         self.padding = padding
         self.cornerRadius = cornerRadius
-        self.headerHeight = headerHeight
-        self.footerHeight = footerHeight
+        self.bands = bands
+        self.wholeCard = wholeCard
         layoutLayers()
     }
 
     /// The rect the focus ring and glow trace, in this view's coordinates
     /// (for tests and `debug.layers`).
     var ringFrame: CGRect { ring.frame }
+    /// The focus ring's corner radius (for tests).
+    var ringCornerRadius: CGFloat { ring.cornerRadius }
+    /// The unread ring's rect and corner radius (for tests).
+    var attentionFrame: CGRect { attention.frame }
+    var attentionCornerRadius: CGFloat { attention.cornerRadius }
+    /// The inactive dim's rect, corner radius and rounded corners (for tests).
+    var dimFrame: CGRect { dimLayer.frame }
+    var dimCornerRadius: CGFloat { dimLayer.cornerRadius }
+    var dimCorners: CACornerMask { dimLayer.maskedCorners }
     /// The color the focus ring strokes with (for tests).
     var ringColor: CGColor? { ring.borderColor }
     /// The border's line width in points and color override (for tests).
@@ -162,7 +194,7 @@ final class PaneOverlayView: NSView {
         style.panePadding = padding
         style.paneCornerRadius = cornerRadius
         let padded = PaneChromeGeometry.contentRect(forCell: bounds, style: style)
-        let rect = PaneChromeGeometry.roundedRect(inPadded: padded, headerHeight: headerHeight, footerHeight: footerHeight)
+        let rect = PaneChromeGeometry.roundedRect(inPadded: padded, headerHeight: bands.header, footerHeight: bands.footer, leadingWidth: bands.leading)
         let radius = PaneChromeGeometry.cornerRadius(for: rect, style: style)
         let ringRadius = focusRing.cornerRadius.map { min($0, min(rect.width, rect.height) / 2) } ?? radius
         CATransaction.begin()
@@ -176,13 +208,18 @@ final class PaneOverlayView: NSView {
             sublayer.cornerRadius = ringRadius
         }
         dimLayer.frame = padded
-        dimLayer.cornerRadius = radius
-        // The dim covers the whole padded rect: only the corners the content
-        // area shares with it round (a header squares the top ones, a footer
-        // the bottom ones). The view is flipped, so maxY is the bottom.
-        var corners: CACornerMask = []
-        if headerHeight <= 0 { corners.formUnion([.layerMinXMinYCorner, .layerMaxXMinYCorner]) }
-        if footerHeight <= 0 { corners.formUnion([.layerMinXMaxYCorner, .layerMaxXMaxYCorner]) }
+        // The dim covers the whole padded rect. A whole card rounds all four
+        // of its corners; any other pane only the corners the content area
+        // shares with it (a header squares the top ones, a footer the bottom
+        // ones, a vertical list the leading ones). The view is flipped, so
+        // maxY is the bottom.
+        var corners: CACornerMask = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        if !wholeCard {
+            if bands.header > 0 { corners.subtract([.layerMinXMinYCorner, .layerMaxXMinYCorner]) }
+            if bands.footer > 0 { corners.subtract([.layerMinXMaxYCorner, .layerMaxXMaxYCorner]) }
+            if bands.leading > 0 { corners.subtract([.layerMinXMinYCorner, .layerMinXMaxYCorner]) }
+        }
+        dimLayer.cornerRadius = wholeCard ? PaneChromeGeometry.cornerRadius(for: padded, style: style) : radius
         dimLayer.maskedCorners = corners
         glow.frame = glowClip.bounds
         glow.cornerRadius = ringRadius

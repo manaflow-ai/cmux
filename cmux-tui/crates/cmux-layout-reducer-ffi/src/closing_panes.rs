@@ -6,7 +6,8 @@
 //! call allocates nothing once the handle's buffers have grown to the screen's size (it reuses them per frame).
 //!
 //! Return codes: `begin` and `remove` return 1 when they answer (the pane starts closing; the pane was closing) and 0
-//! when they do not, with nothing written. 1 and 0 are answers, not `CMUX_LAYOUT_REDUCER_OK` (also 0): a caller checks
+//! when they do not, with nothing written; `landing_moves` returns 1 (a landing now would move a closing side more
+//! than `snap`) or 0. 1 and 0 are answers, not `CMUX_LAYOUT_REDUCER_OK` (also 0): a caller checks
 //! for 1. `settle` and `rects` return `CMUX_LAYOUT_REDUCER_OK` and write a list that borrows the handle's buffer, valid
 //! until the next call on the same handle. Every call returns `ERR_NULL` (a null pointer where the call reads or
 //! writes), `ERR_INVALID` (an unknown handle kind) or `ERR_PANIC` with nothing written.
@@ -364,6 +365,36 @@ pub unsafe extern "C" fn cmux_closing_panes_rects(
         }
         Err(_) => ERR_PANIC,
     }
+}
+
+/// The land rule's question (`ClosingPanes::landing_moves`): would a landing now, which puts every live frame on its
+/// target, move a side of a closing pane more than `snap`? `frames` are where this frame's step put the live panes;
+/// `rest_strip` is where the strip's view shift rests (the cameras are taken at rest). Returns 1 (it would: hold the
+/// landing) or 0 (it would not, or nothing is closing). The closing panes' state is not changed: the two placements
+/// run on copies. Per motion frame while a pane closes and the live frames are near rest.
+///
+/// # Safety
+/// See the module.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_closing_panes_landing_moves(
+    closing: *mut CmuxClosingPanes,
+    frames: *const CmuxClosingFrame,
+    frame_count: usize,
+    rest_strip: f64,
+    snap: f64,
+) -> i32 {
+    if closing.is_null() {
+        return ERR_NULL;
+    }
+    // SAFETY: module Safety.
+    let Some(frames) = (unsafe { slice(frames, frame_count) }) else { return ERR_NULL };
+    // SAFETY: non-null and live (module Safety).
+    let closing = unsafe { &mut *closing };
+    catch_unwind(AssertUnwindSafe(|| {
+        closing.read_frames(frames);
+        i32::from(closing.rules.landing_moves(&closing.frames, rest_strip, snap))
+    }))
+    .unwrap_or(ERR_PANIC)
 }
 
 /// A new layout carried the strip by `drift`; `view_shift` (read only when `has_view_shift` is 1) is the new layout's

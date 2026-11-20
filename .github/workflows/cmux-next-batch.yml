@@ -9,7 +9,8 @@ name: cmux-next batch queue
 #   debounce  (pull_request, push) waits for 2 minutes without events, at most
 #             10 minutes after the first one, then dispatches `batch`
 #   batch     (dispatch) the controller, on Linux; one at a time, never cancelled
-#   regen-linux (dispatch by batch) rebuilds web bundles and SDK bindings
+#   regen-linux (dispatch by batch) rebuilds web bundles, SDK bindings and the
+#             other generated families (scripts/cmux-next/generated_merge.py)
 #   regen     (dispatch by batch) rebuilds Swift-generated exports on a mini
 #             Both run the stack's code with a read-only token and return a
 #             patch; the controller applies and pushes it.
@@ -193,7 +194,7 @@ jobs:
 
   regen:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'regen' && startsWith(inputs.branch, 'next-batch/') && github.repository_owner == 'manaflow-ai' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt <= 3 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt <= 3 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 45
     permissions:
       contents: read
@@ -361,6 +362,18 @@ jobs:
             python3 cmux-tui/bindings/codegen/generate.py --write || fail "the cmux-tui SDK generator"
             names+=("cmux-tui SDK")
           fi
+          # Every other generated family a kept copy belongs to (generated=FAMILY,FAMILY;
+          # scripts/cmux-next/generated_merge.py REGENERATE).
+          set -f  # a family key can hold a glob (cmux-tui/bindings/*/...)
+          for kind in $KINDS; do
+            case "$kind" in
+              generated=*)
+                python3 scripts/cmux-next/generated_merge.py regenerate --families "${kind#generated=}" \
+                  || fail "generated_merge.py regenerate"
+                names+=("generated files")
+                ;;
+            esac
+          done
           git add -A -- .
           if ! git diff --cached --quiet; then
             git -c user.name="cmux-next batch queue" \
@@ -382,7 +395,7 @@ jobs:
     # An owned mini (CI_PR_POOL_OWNED): its tailnet tag lets it submit to the
     # build fleet. The job only submits and waits; the build runs on a fleet
     # worker.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt <= 3 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt <= 3 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 150
     permissions:
       contents: read

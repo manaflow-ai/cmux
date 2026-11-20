@@ -41,7 +41,7 @@ nonisolated enum AgentDefaultsSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agents.promptCache", "Prompt Cache"),
-                help: SettingsText.keyed("settings.agents.promptCache.help", "How long Claude Code keeps a chat's prompt cached. One hour keeps replies after a pause cheap; its cache writes cost a little more."),
+                help: SettingsText.keyed("settings.agents.promptCache.help", "One hour keeps replies after a pause cheap; its cache writes cost a little more."),
                 kind: .choice([
                     SettingChoice("1h", SettingsText.keyed("settings.choice.promptCacheOneHour", "1 Hour")),
                     SettingChoice("5m", SettingsText.keyed("settings.choice.promptCacheFiveMinutes", "5 Minutes")),
@@ -54,7 +54,7 @@ nonisolated enum AgentDefaultsSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agents.modelRouter.model", "cmux Model Router Model"),
-                help: SettingsText.keyed("settings.agents.modelRouter.model.help", "The model a new chat on the cmux model router starts on. A model you pick in a chat applies to that chat only."),
+                help: SettingsText.keyed("settings.agents.modelRouter.model.help", "The model new cmux model router chats start on."),
                 kind: .choice([
                     SettingChoice("deepseek/deepseek-v4.1-flash-1017", SettingsText.keyed("settings.choice.modelRouterDeepSeekV41Flash1017", "DeepSeek V4.1 Flash 1017 (Images)")),
                     SettingChoice("deepseek/deepseek-v4.1-flash", SettingsText.keyed("settings.choice.modelRouterDeepSeekV41Flash", "DeepSeek V4.1 Flash")),

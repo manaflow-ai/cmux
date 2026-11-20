@@ -9,6 +9,7 @@
 
 use std::collections::HashMap;
 
+use cmux_json::JsonGet as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -241,12 +242,8 @@ fn text_of(content: Option<&Value>) -> String {
     out
 }
 
-fn str_at<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
-    v.get(key).and_then(Value::as_str).filter(|s| !s.is_empty())
-}
-
 fn owned(v: &Value, key: &str) -> Option<String> {
-    str_at(v, key).map(str::to_owned)
+    v.get_nonempty_str(key).map(str::to_owned)
 }
 
 impl RowTable {
@@ -339,7 +336,7 @@ impl RowTable {
                 self.turn_end(rec, out);
             }
             "message_superseded" => {
-                if let Some(old) = str_at(msg, "oldMessageId") {
+                if let Some(old) = msg.get_nonempty_str("oldMessageId") {
                     for at in self.messages.get(old).cloned().unwrap_or_default() {
                         self.change(at, out, |h| {
                             let was = h.hidden;

@@ -5,17 +5,14 @@
 // jolting ... We need to be able to, like, know beforehand the size we're going to go for". And
 // 2026-11-08 (ask-104c134b68): "I feel like there's some sort of, like, fly-in animation for when the
 // images and attachments go from the composer to the, like, message display from the user or
-// whatever. So I feel like that's kind of weird." A sent preview is laid out in its slot at its final
-// size from its first frame (UserBubble.tsx sentImageSize) and appears there: it fades in with its
-// prompt on the send motion (conversation.css SEND-ENTRANCE), never flying from the composer, and the
-// composer's chip is gone in the same frame. Through the fade and the image's load the sent row keeps
-// its height, and the preview and the text beside it keep their places in it. Every frame from the
-// send is read, in the agent pane's dev entry (the composer's real send path). Sent from the latest
-// row of a chat that already scrolls, the composer's prompt becomes the message instead (Leo,
-// 2026-11-08, ask-157340f908: "if you're at the bottom ... the transformation applies whatever's in
-// your composer into your depicted message"; agent-pane-send-morph.test.ts): the preview is still in
-// its slot at its size from its first frame, hidden under the copy that moves there, and drawn whole
-// in the frame the copy lands.
+// whatever. So I feel like that's kind of weird." And 2026-11-11: "that slow settle animation is just
+// so bad. Like, just do it." A sent preview is laid out in its slot at its final size from its first
+// frame (UserBubble.tsx sentImageSize) and is drawn there whole: the send step is 0, so it neither
+// fades (conversation.css SEND-ENTRANCE) nor flies from the composer (sendMorph.ts), and the
+// composer's chip is gone in the same frame. Through the image's load the sent row keeps its height,
+// and the preview and the text beside it keep their places in it. Every frame from the send is read,
+// in the agent pane's dev entry (the composer's real send path). Sent from the latest row of a chat
+// that already scrolls, it is the same: no copy, the preview whole in its slot from its first frame.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 // Locally: CMUX_BROWSER_TESTS=1 bun test test/agent-pane-send-transition.test.ts
@@ -25,6 +22,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { SCREEN_RECORDING_POSTER_JPEG } from "../src/gallery/fixtures/videoPoster";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 type Box = { left: number; top: number; width: number; height: number };
 /// One frame of the sent row: its height, and the preview's and the bubble's boxes in the row's own
@@ -150,8 +148,9 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
 
   /// In place: from its first frame the preview is in its slot at its final size, larger than its chip,
   /// and stays there; the row's height and the text beside it never change; the composer's chip is
-  /// gone in that first frame; and the preview fades in (`fades`) or is drawn whole (motion off).
-  const expectInPlace = (frames: Frame[], chip: Box, label: string, fades = true) => {
+  /// gone in that first frame; no copy is drawn over the pane; and the preview is drawn whole in every
+  /// frame (no fade, nothing hides it), with the send step at 0 or motion off alike.
+  const expectInPlace = (frames: Frame[], chip: Box, label: string) => {
     expect(frames.length, `${label}: the sent row was never drawn`).toBeGreaterThan(2);
     const first = frames[0]!;
     const last = frames.at(-1)!;
@@ -166,43 +165,10 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
       if (first.bubble) near(frame.bubble, first.bubble, `${label}: the text beside it at ${frame.at} ms`);
       expect(frame.hit, `${label}: the preview is painted, not covered, at ${frame.at} ms`).toBe(true);
       expect(frame.chips, `${label}: no chip comes back at ${frame.at} ms`).toBe(0);
+      expect(frame.ghosts, `${label}: no copy is drawn over the pane at ${frame.at} ms`).toBe(0);
+      expect(frame.shown, `${label}: the preview is shown at ${frame.at} ms`).toBe(true);
+      expect(frame.opacity, `${label}: the preview is whole at ${frame.at} ms`).toBeGreaterThan(0.99);
     }
-    if (fades) expect(first.opacity, `${label}: the preview fades in`).toBeLessThan(0.6);
-    else expect(first.opacity, `${label}: with motion off it is drawn whole at once`).toBe(1);
-    for (let index = 1; index < frames.length; index += 1)
-      expect(frames[index]!.opacity, `${label}: the fade at ${frames[index]!.at} ms`).toBeGreaterThanOrEqual(
-        frames[index - 1]!.opacity - 0.001,
-      );
-    expect(last.opacity, `${label}: the preview ends fully drawn`).toBeGreaterThan(0.99);
-  };
-
-  /// Sent from the latest row of a chat that scrolls: the preview is in its slot at its final size
-  /// from its first frame and stays there, hidden while the composer's copy of it moves there and
-  /// drawn whole, with no fade of its own, from the frame the copy lands (sendMorph.ts).
-  const expectMorphed = (frames: Frame[], chip: Box, label: string) => {
-    expect(frames.length, `${label}: the sent row was never drawn`).toBeGreaterThan(2);
-    const first = frames[0]!;
-    expect(first.preview.height, `${label}: the preview is larger than its chip from its first frame`).toBeGreaterThan(
-      chip.height + 10,
-    );
-    expect(first.chips, `${label}: the composer's chip is gone when the prompt appears`).toBe(0);
-    expect(first.ghosts, `${label}: the composer's prompt moves into the row`).toBeGreaterThan(0);
-    const landed = frames.findIndex((frame) => frame.ghosts === 0);
-    expect(landed, `${label}: the copy never landed`).toBeGreaterThan(0);
-    for (const [index, frame] of frames.entries()) {
-      near(frame.preview, first.preview, `${label}: the preview in its row at ${frame.at} ms`);
-      expect(frame.row, `${label}: the row's height at ${frame.at} ms`).toBe(first.row);
-      if (first.bubble) near(frame.bubble, first.bubble, `${label}: the text beside it at ${frame.at} ms`);
-      expect(frame.chips, `${label}: no chip comes back at ${frame.at} ms`).toBe(0);
-      expect(frame.shown, `${label}: hidden under its copy only while the copy flies, at ${frame.at} ms`).toBe(
-        index >= landed,
-      );
-      if (index >= landed) {
-        expect(frame.opacity, `${label}: drawn whole once landed, at ${frame.at} ms`).toBeGreaterThan(0.99);
-        expect(frame.hit, `${label}: the preview is painted, not covered, at ${frame.at} ms`).toBe(true);
-      }
-    }
-    expect(frames.at(-1)!.loaded, `${label}: the preview never loaded`).toBe(true);
   };
 
   /// The agent pane's dev entry with its in-page mock agent; the host answers `answers`' methods.
@@ -223,27 +189,30 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
       });
     }, answers);
     await page.goto(`http://127.0.0.1:${port(pane)}/`);
-    await page.locator('.acpmux-composer-prompt [contenteditable="true"]').waitFor();
+    await page.locator(COMPOSER_EDITOR).waitFor();
   };
 
   /// A 1600x1000 screenshot pasted into the composer beside typed text, ready to send; answers the
   /// chip's box.
   const pasteScreenshot = async (page: Page): Promise<Box> => {
-    await page.locator('.acpmux-composer-prompt [contenteditable="true"]').click();
-    await page.evaluate(async () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = 1600;
-      canvas.height = 1000;
-      const context = canvas.getContext("2d")!;
-      context.fillStyle = "#3a7bd5";
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
-      const data = new DataTransfer();
-      data.items.add(new File([blob], "Screenshot.png", { type: "image/png" }));
-      document
-        .querySelector('.acpmux-composer-prompt [contenteditable="true"]')!
-        .dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
-    });
+    await page.locator(COMPOSER_EDITOR).click();
+    await page.evaluate(
+      async ({ COMPOSER_EDITOR }) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 1600;
+        canvas.height = 1000;
+        const context = canvas.getContext("2d")!;
+        context.fillStyle = "#3a7bd5";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+        const data = new DataTransfer();
+        data.items.add(new File([blob], "Screenshot.png", { type: "image/png" }));
+        document
+          .querySelector(COMPOSER_EDITOR)!
+          .dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+      },
+      { COMPOSER_EDITOR },
+    );
     const chipImage = page.locator(".acpmux-composer .acpmux-attachment-image img").first();
     await chipImage.waitFor();
     await page.waitForFunction(() => {
@@ -266,7 +235,7 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
     return pasteScreenshot(page);
   };
 
-  test("a pasted screenshot sent with text appears in place at its size, fading in; nothing flies", async () => {
+  test("a pasted screenshot sent with text appears in place at its size, whole at once; nothing flies", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     try {
       const chip = await paneWithScreenshot(page);
@@ -278,12 +247,12 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
     }
   });
 
-  test("sent from the latest row of a chat that rises: the screenshot's copy lands in its slot, which rises with its row", async () => {
+  test("sent from the latest row of a chat that scrolls: the screenshot is in its slot, whole, at once; nothing flies", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 520 } });
     try {
       await openPane(page);
-      // Prompts and replies before it, so the chat overflows and rises to the new prompt.
-      const prompt = page.locator('.acpmux-composer-prompt [contenteditable="true"]');
+      // Prompts and replies before it, so the chat overflows and the send is from its latest row.
+      const prompt = page.locator(COMPOSER_EDITOR);
       for (const line of ["first question", "second question", "third question"]) {
         await prompt.click();
         await page.keyboard.type(line);
@@ -298,7 +267,7 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
       const chip = await pasteScreenshot(page);
       await watchSentRow(page, "img.cv-user__image, .cv-user__image-placeholder");
       await page.keyboard.press("Enter");
-      expectMorphed(await sentFrames(page), chip, "overflowing chat");
+      expectInPlace(await sentFrames(page), chip, "overflowing chat");
     } finally {
       await page.close();
     }
@@ -391,7 +360,7 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
         });
       }, POSTER);
       await page.goto(`http://127.0.0.1:${port(pane)}/`);
-      const prompt = page.locator('.acpmux-composer-prompt [contenteditable="true"]');
+      const prompt = page.locator(COMPOSER_EDITOR);
       await prompt.waitFor();
       await prompt.click();
       await prompt.evaluate((target) => {
@@ -428,7 +397,7 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
       await page.evaluate(() => (document.documentElement.dataset.agentMotion = "off"));
       await watchSentRow(page, "img.cv-user__image, .cv-user__image-placeholder");
       await page.keyboard.press("Enter");
-      expectInPlace(await sentFrames(page), chip, "motion off", false);
+      expectInPlace(await sentFrames(page), chip, "motion off");
     } finally {
       await page.close();
     }

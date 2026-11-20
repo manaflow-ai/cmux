@@ -7,8 +7,10 @@
 # (.github/workflows/ios-internal-nightly.yml). `--config AppStore` with the
 # production identity (--app-id, --bundle-id com.cmux.app, --app-name and the
 # App Store profile names, or the CMUX_MOBILE_* variables below) builds the
-# public App Store app, the record the classic ios/ app used
-# (.github/workflows/ios-app-store.yml on main). The bundle id must be the one
+# public App Store app, the record the classic ios/ app used. No workflow runs
+# that lane yet: the App Store lane for com.cmux.app is not wired
+# (.github/workflows/ios-app-store.yml still builds the classic ios/ app), so
+# `--config AppStore` runs only by hand. The bundle id must be the one
 # project.yml gives the configuration, and the App Store Connect record must
 # have exactly that name and bundle id, or nothing is built.
 #
@@ -284,6 +286,7 @@ fi
 
 # --- Signing material -------------------------------------------------------
 profile_path="" profile_uuid="" identity="" ext_profile_path="" ext_profile_uuid="" svc_profile_path="" svc_profile_uuid=""
+associated_domains=NO
 if [[ $unsigned == 0 ]]; then
   log "signing: profile \"$profile_name\", distribution identity"
   # fetch_profile <bundle id> <profile name> <CI file or ""> <out base>: the
@@ -355,6 +358,35 @@ Import one of their .p12 files into the login keychain (see verify/testflight-re
   grep -qx "$identity" <<<"$ext_authorized" || die "\"$ext_profile_name\" does not authorize identity $identity (the app's); regenerate it with the same certificates as \"$profile_name\""
   grep -qx "$identity" <<<"$svc_authorized" || die "\"$svc_profile_name\" does not authorize identity $identity (the app's); regenerate it with the same certificates as \"$profile_name\""
   echo "profile $profile_uuid, extension profiles $ext_profile_uuid $svc_profile_uuid, identity $identity"
+  # Entitlements beyond the base set, decided by the app's profile (a key the
+  # profile lacks fails signing or the upload). Time Sensitive notifications
+  # are required: the TestFlight entitlements files carry the key, asks are
+  # sent time-sensitive, and both App IDs have the capability. cmux's
+  # universal links (the list in App/CmuxMobileApp-TestFlight-Links.entitlements)
+  # are signed in only when the profile carries Associated Domains: the build
+  # then gets CMUX_MOBILE_ASSOCIATED_DOMAINS=YES (project.yml), and
+  # check_entitlements and the --from-archive signing expect exactly this set.
+  read -r profile_time_sensitive profile_associated_domains < <(python3 -I -c '
+import plistlib,sys
+have=plistlib.load(open(sys.argv[1],"rb")).get("Entitlements",{})
+print(int("com.apple.developer.usernotifications.time-sensitive" in have), int("com.apple.developer.associated-domains" in have))' \
+    "$private/profile.plist") || die "could not read the capabilities of \"$profile_name\""
+  [[ "$profile_time_sensitive" == 1 ]] || die "\"$profile_name\" lacks Time Sensitive notifications. Turn on USERNOTIFICATIONS_TIMESENSITIVE for $bundle_id (scripts/asc_ensure_signing.py does it for the App Store profile) and regenerate the profile."
+  if [[ "$profile_associated_domains" == 1 ]]; then
+    associated_domains=YES
+    echo "ok: profile carries Associated Domains; signing in cmux's universal links"
+  else
+    echo "::warning::\"$profile_name\" lacks Associated Domains: https cmux links open Safari, not this build. Turn on ASSOCIATED_DOMAINS for $bundle_id and regenerate the profile (verify/deep-links.md)." >&2
+    notes+=("Signed without universal links: \"$profile_name\" lacks the Associated Domains capability.")
+  fi
+  python3 -I - "$script_dir/../App/CmuxMobileApp-TestFlight-Links.entitlements" "$associated_domains" \
+      "$private/optional-ent.plist" <<'PY' || die "could not write the optional entitlements"
+import plistlib,sys
+out={"com.apple.developer.usernotifications.time-sensitive":True}
+if sys.argv[2]=="YES":
+    out["com.apple.developer.associated-domains"]=plistlib.load(open(sys.argv[1],"rb"))["com.apple.developer.associated-domains"]
+plistlib.dump(out,open(sys.argv[3],"wb"))
+PY
 fi
 
 if [[ -n "$from_archive" ]]; then
@@ -418,7 +450,8 @@ else
   # give the extension the app's profile.
   args+=(CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=$team CODE_SIGN_IDENTITY="$identity"
          CMUX_MOBILE_APP_PROFILE="$profile_uuid" CMUX_MOBILE_CONTENT_EXTENSION_PROFILE="$ext_profile_uuid"
-         CMUX_MOBILE_SERVICE_EXTENSION_PROFILE="$svc_profile_uuid")
+         CMUX_MOBILE_SERVICE_EXTENSION_PROFILE="$svc_profile_uuid"
+         CMUX_MOBILE_ASSOCIATED_DOMAINS="$associated_domains")
 fi
 log "xcodebuild archive"
 xcodebuild archive "${args[@]}" > "$out/logs/archive.log" 2>&1 \
@@ -474,12 +507,13 @@ check_app() {  # <CmuxMobileApp.app>
 check_entitlements() {  # <CmuxMobileApp.app>
   codesign --verify --strict --deep "$1"
   codesign -d --entitlements - --xml "$1" 2>/dev/null > "$private/ent.plist"
-  python3 -I - "$private/ent.plist" "$team" "$bundle_id" <<'PY'
+  python3 -I - "$private/ent.plist" "$team" "$bundle_id" "$private/optional-ent.plist" <<'PY'
 import plistlib,sys
 e=plistlib.load(open(sys.argv[1],"rb")); team,bid=sys.argv[2],sys.argv[3]
 want={"application-identifier":f"{team}.{bid}","com.apple.developer.team-identifier":team,
       "aps-environment":"production","get-task-allow":False,"beta-reports-active":True,
       "com.apple.developer.applesignin":["Default"],"keychain-access-groups":[f"{team}.{bid}",f"{team}.{bid}.push"]}
+want.update(plistlib.load(open(sys.argv[4],"rb")))
 bad=[f"{k}: {e.get(k)!r} != {v!r}" for k,v in want.items() if e.get(k)!=v]
 extra=sorted(set(e)-set(want))
 if bad or extra:
@@ -561,12 +595,14 @@ if [[ -n "$from_archive" ]]; then
   [[ "$appexes" == "$app/PlugIns/CmuxMobileNotificationContent.appex"$'\n'"$app/PlugIns/CmuxMobileNotificationService.appex" ]] \
     || die "unexpected app extensions: $appexes (CmuxMobileNotificationContent.appex and CmuxMobileNotificationService.appex have profiles here)"
   cp "$profile_path" "$app/embedded.mobileprovision"
-  python3 -I - "$private/sign-ent.plist" "$team" "$bundle_id" <<'PY'
+  python3 -I - "$private/sign-ent.plist" "$team" "$bundle_id" "$private/optional-ent.plist" <<'PY'
 import plistlib,sys
 team,bid=sys.argv[2],sys.argv[3]
-plistlib.dump({"application-identifier":f"{team}.{bid}","com.apple.developer.team-identifier":team,
+ent={"application-identifier":f"{team}.{bid}","com.apple.developer.team-identifier":team,
   "aps-environment":"production","get-task-allow":False,"beta-reports-active":True,
-  "com.apple.developer.applesignin":["Default"],"keychain-access-groups":[f"{team}.{bid}",f"{team}.{bid}.push"]},open(sys.argv[1],"wb"))
+  "com.apple.developer.applesignin":["Default"],"keychain-access-groups":[f"{team}.{bid}",f"{team}.{bid}.push"]}
+ent.update(plistlib.load(open(sys.argv[4],"rb")))
+plistlib.dump(ent,open(sys.argv[1],"wb"))
 PY
   while IFS= read -r nested; do
     codesign --force --sign "$identity" --timestamp "$nested"

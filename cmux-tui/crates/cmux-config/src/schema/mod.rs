@@ -3,6 +3,8 @@
 //! bundled daemon and its app always agree.
 
 mod accepts;
+mod app_id;
+mod backdrop;
 mod chat_roots;
 mod json_schema;
 mod retired;
@@ -17,7 +19,7 @@ use serde_json::value::RawValue;
 
 pub use accepts::{Accepted, accepts, effective_value, is_hex_color};
 pub use chat_roots::chat_root_is_valid;
-pub use retired::{retired_keys, retired_reason};
+pub use retired::{Replaced, replaced_by_row, replaced_keys, retired_keys, retired_reason};
 pub use url::{is_http_origin, new_tab_page_url_is_valid};
 
 use crate::value::canonical;
@@ -130,6 +132,16 @@ pub enum DomainKind {
     /// (Swift `BackdropSelectionSetting.accepts`; each Mac has its own
     /// wallpaper set, so system paths are checked by shape).
     BackdropSelection,
+    /// `appearance.backgroundLight` / `appearance.backgroundDark`: a fixed
+    /// background, a listed choice or `system:` / `file:` with an absolute
+    /// path (Swift `BackdropSelectionSetting.acceptsPicture`).
+    BackdropPicture,
+    /// `appearance.backgroundSchedule`: an object of times (`HH:MM`, or a sun
+    /// event with an offset) to fixed backgrounds (Swift
+    /// `BackdropSelectionSetting.acceptsSchedule`).
+    BackdropSchedule,
+    /// `appearance.backgroundLocation`: `LAT,LON` (Swift `BackdropLocation`).
+    BackdropLocation,
     /// `agents.chats.roots`: absolute folders outside the protected ones
     /// (Swift `ChatRootValidator`).
     ChatRoots,
@@ -142,6 +154,9 @@ pub enum DomainKind {
     /// `agentPane.display.commandLabels`: a list of preset names and command
     /// label rules (Swift `CommandLabelsSetting.accepts`).
     CommandLabels,
+    /// `tabs.newTabApp`: an id an app manifest may have
+    /// (`app_id::is_valid_app_id`, the manifest schema's pattern; Swift `NewTabAppSetting.isValidID`).
+    AppId,
 }
 
 /// One descriptor row.
@@ -392,10 +407,14 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
         "domain:font_family" => Validation::Domain(DomainKind::FontFamily),
         "domain:sound" => Validation::Domain(DomainKind::Sound),
         "domain:backdrop_selection" => Validation::Domain(DomainKind::BackdropSelection),
+        "domain:backdrop_picture" => Validation::Domain(DomainKind::BackdropPicture),
+        "domain:backdrop_schedule" => Validation::Domain(DomainKind::BackdropSchedule),
+        "domain:backdrop_location" => Validation::Domain(DomainKind::BackdropLocation),
         "domain:chat_roots" => Validation::Domain(DomainKind::ChatRoots),
         "domain:search_template" => Validation::Domain(DomainKind::SearchTemplate),
         "domain:custom_densities" => Validation::Domain(DomainKind::CustomDensities),
         "domain:command_labels" => Validation::Domain(DomainKind::CommandLabels),
+        "domain:app_id" => Validation::Domain(DomainKind::AppId),
         other => return Err(format!("{}: unknown validation {other}", parsed.key)),
     };
     Ok(Row {

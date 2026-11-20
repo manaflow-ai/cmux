@@ -25,7 +25,7 @@ APP_JOBS = {
     "recover-nightly-next-notarization": "read", "publish-nightly": "write", "keep-published-dsyms": "read",
     "generate-nightly-deltas": "read",
     "republish-nightly-deltas": "write", "publish-release-notes": "read",
-    "publish-nightly-next-github": "write",
+    "publish-nightly-next-github": "write", "nightly-next-one": "write",
 }
 # The permission each job mints is a choice, so APP_JOBS stays hand-kept, but every nightly.yml
 # job that can run under a release environment or reads the release App's credentials must be
@@ -45,6 +45,9 @@ APP_TOKEN_EXEMPT = {
     ),
 }
 RELEASE_APP_SECRETS = ("CMUX_RELEASE_APP_ID", "CMUX_RELEASE_APP_KEY")
+# nightly-next-one builds before it publishes: its build steps' gh calls already wait through a rate limit
+# (the budget wrapper goes on PATH before the build), and it mints the App token only for publication.
+BUDGET_FIRST = {"nightly-next-one"}
 
 
 def release_app_jobs(jobs: dict) -> set[str]:
@@ -126,7 +129,13 @@ class WorkflowTests(unittest.TestCase):
             budget = [i for i, s in enumerate(steps) if BUDGET_INSTALL.search(str(s.get("run", "")))]
             self.assertEqual((len(mint), len(app), len(budget)), (1, 1, 1), name)
             # Mint, then this wrapper, then gh_budget_wait.sh, which wraps it and keeps its wait.
-            self.assertEqual((app[0], budget[0]), (mint[0] + 1, mint[0] + 2), name)
+            if name in BUDGET_FIRST:
+                # Each wrapper calls the gh first on PATH when it was installed, so here the App wrapper
+                # calls the budget wrapper, which still waits: app -> budget -> gh.
+                self.assertEqual(app[0], mint[0] + 1, name)
+                self.assertLess(budget[0], mint[0], name)
+            else:
+                self.assertEqual((app[0], budget[0]), (mint[0] + 1, mint[0] + 2), name)
             step = steps[mint[0]]
             self.assertIn("actions/create-github-app-token@", step["uses"])
             self.assertTrue(step.get("continue-on-error"), name)  # a failed mint keeps github.token

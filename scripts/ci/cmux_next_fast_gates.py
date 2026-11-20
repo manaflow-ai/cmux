@@ -15,8 +15,8 @@ result is fresh for the tip they merge into.
       string catalog or protocol spec change, which ci-web's routing does not check) to --output
       (GITHUB_OUTPUT).
   run --base BASE [--web true|false] [--checks true|false] [--budget-seconds N]
-                                                  every gate on BASE..HEAD (the merge); exit 1
-                                                  when any gate fails, after running all of them.
+                                                  every gate on BASE..HEAD (the merge); independent gates run
+                                                  together, and exit 1 when any gate fails after running all of them.
       With --budget-seconds, a gate still running N seconds after the run began is stopped
       and reported as stalled (2026-11-09: a web lint whose bun install hung on the registry sat
       silent until the job's limit cancelled it, and merge_hold refused the cancelled check).
@@ -69,7 +69,11 @@ IDENTITY = ("-c", "user.name=cmux fast gates", "-c", "user.email=fast-gates@user
 # The crash ratchet reads these trees on each side (cmux-next-guards.yml, crash-ratchet).
 RATCHET_PATHS = ("Packages", "cmux-tui/crates", "scripts/cmux-next")
 FETCH_DEPTH = 50
-DEEPEN_STEPS = (200, 1000, 5000)
+# A pull request a few dozen commits from the tip needs only the first step. Each deepen brings commits and trees but
+# no blobs (--filter=blob:none; git fetches a blob a gate reads on demand): on 2026-11-13 a --deepen=200 with blobs
+# took 87 to 108 s of a 160 to 233 s job (runs 43473169308, 43474564309) for heads 9 and 32 commits from their base.
+DEEPEN_STEPS = (32, 200, 1000, 5000)
+DEEPEN_FILTER = "--filter=blob:none"
 
 
 def log(message: str) -> None:
@@ -208,9 +212,13 @@ def deepen(repo: Path, remote: str, wants: list[str], head: str, base: str) -> N
     for depth in DEEPEN_STEPS:
         if deep_enough(repo, head, base):
             return
-        git(repo, "fetch", "--no-tags", "--quiet", f"--deepen={depth}", remote, *wants)
+        started = time.monotonic()
+        git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FILTER, f"--deepen={depth}", remote, *wants)
+        log(f"fast-gates: deepened by {depth} in {time.monotonic() - started:.1f}s")
     if not deep_enough(repo, head, base):
-        git(repo, "fetch", "--no-tags", "--quiet", "--unshallow", remote, *wants)
+        started = time.monotonic()
+        git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FILTER, "--unshallow", remote, *wants)
+        log(f"fast-gates: unshallowed in {time.monotonic() - started:.1f}s")
 
 
 def fetch_for_merge(repo: Path, remote: str, pr: str, base: str) -> None:
@@ -319,18 +327,86 @@ def run_gate(argv: list[str], repo: Path, seconds: float | None) -> int | None:
     try:
         return process.wait(timeout=seconds)
     except subprocess.TimeoutExpired:
-        # SIGTERM first, then SIGKILL to the whole group whether or not the leader left: a child that ignores
-        # SIGTERM must not outlive its gate into the next one.
-        for sig in (signal.SIGTERM, signal.SIGKILL):
-            try:
-                os.killpg(process.pid, sig)
-            except (ProcessLookupError, PermissionError):  # gone, or a macOS zombie group
-                break
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                pass
+        stop_gate(process)
         return None
+
+
+def stop_gate(process: subprocess.Popen) -> None:
+    """Stop a gate and every child it started, leaving no install or checker behind."""
+    # SIGTERM first, then SIGKILL to the whole group whether or not the leader left: a child that ignores
+    # SIGTERM must not outlive its gate into the next one.
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(process.pid, sig)
+        except (ProcessLookupError, PermissionError):  # gone, or a macOS zombie group
+            break
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+
+
+def timed_gate_argv(argv: list[str]) -> list[str]:
+    """Wrap a gate with POSIX ``time`` so its child CPU use is recorded."""
+    timer = Path("/usr/bin/time")
+    return [str(timer), "-p", *argv] if timer.is_file() else argv
+
+
+def child_cpu_seconds(output: str) -> float | None:
+    """Return user+system CPU seconds from the private ``time -p`` log."""
+    values = []
+    for label in ("user", "sys"):
+        matches = re.findall(rf"(?m)^{label} ([0-9]+(?:\.[0-9]+)?)$", output)
+        if not matches:
+            return None
+        values.append(float(matches[-1]))
+    return sum(values)
+
+
+def run_gate_batch(entries: list[tuple[str, list[str]]], repo: Path, deadline: float | None,
+                   log_dir: Path) -> dict[str, tuple[int | None, float, str, float | None]]:
+    """Run independent gates together, stopping all remaining groups at the shared deadline.
+
+    Gate output is captured separately and printed in declaration order after the batch. This keeps concurrent
+    annotations readable while preserving each gate's complete log. Web lint and webviews checks are deliberately
+    placed in separate batches by ``run`` because both may install webviews dependencies in the checkout.
+    """
+    if not entries:
+        return {}
+    log_dir.mkdir(parents=True, exist_ok=True)
+    active: dict[str, tuple[subprocess.Popen, object, float, Path]] = {}
+    results: dict[str, tuple[int | None, float, str, float | None]] = {}
+    for name, argv in entries:
+        slug = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-").lower() or "gate"
+        path = log_dir / f"{slug}.log"
+        handle = path.open("w+", encoding="utf-8")
+        process = subprocess.Popen(timed_gate_argv(argv), cwd=repo, start_new_session=True, stdout=handle,
+                                   stderr=subprocess.STDOUT, text=True)
+        active[name] = (process, handle, time.monotonic(), path)
+
+    while active:
+        now = time.monotonic()
+        for name, (process, handle, started, path) in list(active.items()):
+            code = process.poll()
+            if code is None:
+                continue
+            handle.close()
+            output = path.read_text(encoding="utf-8", errors="replace")
+            results[name] = (code, now - started, output, child_cpu_seconds(output))
+            del active[name]
+        if not active:
+            break
+        if deadline is not None and now >= deadline:
+            stopped = time.monotonic()
+            for name, (process, handle, started, path) in list(active.items()):
+                stop_gate(process)
+                handle.close()
+                output = path.read_text(encoding="utf-8", errors="replace")
+                results[name] = (None, stopped - started, output, None)
+                del active[name]
+            break
+        time.sleep(0.05)
+    return results
 
 
 def run(args: argparse.Namespace) -> int:
@@ -347,21 +423,38 @@ def run(args: argparse.Namespace) -> int:
     deadline = None if args.budget_seconds is None else time.monotonic() + args.budget_seconds
     try:
         export_tree(repo, args.base, holder)
+        active = [
+            (name, argv)
+            for name, argv in gates(repo, args.base, merge, holder, args.web == "true", args.checks == "true")
+            if argv is not None
+        ]
+        # Web lint and webviews checks can both run bun install in webviews/. Keep those two in separate batches;
+        # every other gate reads the merge and its exported base tree, so they share the critical path safely.
+        batches = [[entry for entry in active if entry[0] != "webviews checks"],
+                   [entry for entry in active if entry[0] == "webviews checks"]]
+        active_results: dict[str, tuple[int | None, float, str, float | None]] = {}
+        max_parallel = 0
+        for batch in batches:
+            max_parallel = max(max_parallel, len(batch))
+            left = None if deadline is None else deadline - time.monotonic()
+            if left is not None and left < 1:
+                continue
+            active_results.update(run_gate_batch(batch, repo, deadline, holder / "gate-logs"))
+
         for name, argv in gates(repo, args.base, merge, holder, args.web == "true", args.checks == "true"):
             if argv is None:
                 print(f"{name}: skipped ({SKIPPED[name]})", flush=True)
                 rows.append((name, "skipped", 0.0))
                 continue
-            left = None if deadline is None else deadline - time.monotonic()
-            if left is not None and left < 1:
+            if name not in active_results:
                 print(f"::error title=fast gates: {name}::{name} never started: the gates' {args.budget_seconds}s "
                       "budget ran out on the gates before it", flush=True)
                 rows.append((name, "failed (no time left)", 0.0))
                 continue
             print(f"::group::{name}", flush=True)
-            started = time.monotonic()
-            code = run_gate(argv, repo, left)
-            seconds = time.monotonic() - started
+            code, seconds, output, _cpu = active_results[name]
+            if output:
+                print(output, end="" if output.endswith("\n") else "\n", flush=True)
             print("::endgroup::", flush=True)
             if code is None:
                 outcome = f"failed (stalled: no result in {seconds:.0f}s)"
@@ -378,9 +471,24 @@ def run(args: argparse.Namespace) -> int:
     finally:
         shutil.rmtree(holder, ignore_errors=True)
     failed = [name for name, outcome, _ in rows if outcome.startswith("failed")]
+    timed = [(name, seconds) for name, outcome, seconds in rows
+             if outcome not in {"skipped", "failed (no time left)"}]
+    slowest, critical = "no gate ran", 0.0
+    if timed:
+        slowest, critical = max(timed, key=lambda row: row[1])
+        # The CI timing budget is attached to this workflow step. Name the gate that consumed its critical path so
+        # a future alert points at the growing check instead of leaving the aggregate step unexplained.
+        print(f"::notice title=fast gates timing attribution::{slowest} was the critical-path gate at {critical:.1f}s; "
+              "per-gate timings are in the step summary", flush=True)
+    runner_cpus = os.cpu_count() or 1
+    cpu_by_gate = {name: active_results[name][3] for name, _, _ in rows if name in active_results}
     lines = ["### cmux-next fast gates", "", f"Base `{args.base}`, merge `{merge}`.", "",
-             "| gate | result | time |", "| --- | --- | --- |"]
-    lines += [f"| {name} | {outcome} | {seconds:.1f}s |" for name, outcome, seconds in rows]
+             f"Critical-path gate: **{slowest}** ({critical:.1f}s).", "",
+             f"Runner CPUs: {runner_cpus}; maximum parallel gates: {max_parallel}.", "",
+             "| gate | result | wall time | child CPU |", "| --- | --- | --- | --- |"]
+    lines += [f"| {name} | {outcome} | {seconds:.1f}s | "
+              f"{cpu_by_gate[name]:.1f}s |" if cpu_by_gate.get(name) is not None else
+              f"| {name} | {outcome} | {seconds:.1f}s | - |" for name, outcome, seconds in rows]
     if args.summary:
         with args.summary.open("a", encoding="utf-8") as stream:
             stream.write("\n".join(lines) + "\n")

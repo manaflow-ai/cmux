@@ -66,7 +66,7 @@ extension SidebarModel {
     private func orderSource() -> OrderSource {
         // An anchored client item (Channels after Home) is a stop at its place, placed among the shown items as
         // the band draws it (a hidden Home is no anchor); other client items are not stops.
-        let hidden = Set(itemInfo.filter(\.value.isHidden).keys)
+        let hidden = SidebarItemInfo.hiddenItems(in: layout.sections, infos: itemInfo)
         let shown = layout.sections(in: .top, room: activeProfileID?.rawValue).presenting(hidingItems: hidden, apps: suppressedApps)
         let placed = placingTransientItems(in: shown, anchoredOnly: true)
         let top = placed.flatMap(\.items).filter { item in

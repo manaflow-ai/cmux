@@ -1,3 +1,4 @@
+import CmuxMobileTransport
 import Foundation
 import Testing
 @testable import CmuxMobileLive
@@ -111,8 +112,11 @@ private final class PresenceTestRig {
     var request: (@MainActor () async throws -> URLRequest)?
     var refresh: (@MainActor () async throws -> [LiveAPI.Mac])?
     var configureSocket: (@MainActor (PresenceTestSocket) -> Void)?
+    /// Align Keepalives for this rig (off unless a test sets it before `listener`).
+    var beat: KeepaliveBeat = .off
     lazy var listener = PresenceListener(
         clock: clock,
+        beat: beat,
         signalRequest: { [unowned self] in
             if let request { return try await request() }
             return URLRequest(url: URL(string: "https://presence.invalid/signal")!)
@@ -233,6 +237,36 @@ private func settle(until condition: (() -> Bool)? = nil) async {
         await rig.finish()
     }
 
+    /// Align Keepalives: the next ping waits for the 10 s keepalive beat (the
+    /// link ping's and the signaling ping's), not 15 s after the pong.
+    @Test func alignedPingsWaitForTheKeepaliveBeat() async {
+        let rig = PresenceTestRig()
+        // The grid's last beat was 3 s ago: the next is 7 s away.
+        let origin = rig.clock.now - .seconds(3)
+        let clock = rig.clock
+        rig.beat = KeepaliveBeat { period in
+            let into = (clock.now - origin).components.seconds * 1000
+                + (clock.now - origin).components.attoseconds / 1_000_000_000_000_000
+            let periodMs = period.components.seconds * 1000
+            return .milliseconds(periodMs - into % periodMs)
+        }
+        rig.listener.start()
+        await settle { rig.sockets.first?.pingCount == 1 }
+        guard let socket = rig.sockets.first else { Issue.record("No socket"); return }
+        socket.hello()
+        socket.pong()
+        await settle { rig.clock.pendingDelays == [.seconds(7)] }
+        #expect(rig.clock.pendingDelays == [.seconds(7)], "pending: \(rig.clock.pendingDelays)")
+        for expectedPings in 2...4 {
+            rig.clock.advance(by: rig.clock.pendingDelays.first ?? .zero)
+            await settle { socket.pingCount == expectedPings }
+            socket.pong()
+            await settle { rig.clock.pendingDelays == [KeepaliveBeat.period] }
+        }
+        #expect(rig.sockets.count == 1)
+        await rig.finish()
+    }
+
     @Test func pongWithoutHelloStillHitsHelloDeadline() async {
         let rig = PresenceTestRig()
         rig.listener.start()
@@ -327,5 +361,34 @@ private func settle(until condition: (() -> Bool)? = nil) async {
         #expect(rig.clock.pendingCount == 0)
         #expect(rig.refreshes == 0)
         await rig.finish()
+    }
+
+    /// A socket that cannot open retries on its backoff in front and behind; only in
+    /// front does each retry also fetch the Mac list over HTTP (the foreground's kick
+    /// reconnects, and the socket's hello brings the list).
+    @Test func backgroundRetriesMakeNoHTTPRefreshes() async {
+        for backgrounded in [true, false] {
+            let rig = PresenceTestRig()
+            var attempts = 0
+            rig.request = {
+                attempts += 1
+                throw URLError(.notConnectedToInternet)
+            }
+            rig.listener.backgrounded = backgrounded
+            rig.listener.start()
+            var elapsed: Duration = .zero
+            while elapsed < .seconds(3600) {
+                await settle()
+                guard let next = rig.clock.pendingDelays.first else { break }
+                rig.clock.advance(by: next)
+                elapsed += next
+            }
+            await settle()
+            print("bg-quiet: presence per hour (background: \(backgrounded)): \(attempts) socket retries, \(rig.refreshes) HTTP refreshes")
+            // 2, 4, 8, then 20 s apart: 183 retries in the hour either way.
+            #expect(attempts > 150)
+            if backgrounded { #expect(rig.refreshes == 0) } else { #expect(rig.refreshes >= attempts - 1) }
+            await rig.finish()
+        }
     }
 }

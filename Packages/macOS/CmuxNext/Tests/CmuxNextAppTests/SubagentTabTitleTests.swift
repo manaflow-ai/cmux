@@ -2,6 +2,7 @@ import CmuxNextActions
 @testable import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextIcons
 import CmuxNextTabs
 import Foundation
 import Testing
@@ -104,8 +105,8 @@ struct SubagentTabTitleTests {
         titles.name("workflow", of: "s", title: "Review the patch")
         titles.bind("workflow", of: "s", toTab: "tab")
         let model = AgentPaneModel(host: NoHost(), sessionId: "s")
-        model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() }, showsSubagent: { title, tone, keepingTitle in
-            titles.show(title, inTab: "tab", tone: tone, keepingTitle: keepingTitle)
+        model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() }, showsSubagent: { title, tone, keepingTitle, mark in
+            titles.show(title, inTab: "tab", tone: tone, keepingTitle: keepingTitle, mark: mark)
         })
         @MainActor func shown(_ params: [String: Any]) async {
             let reply = await model.respondToHeader(AgentPaneRequest(body: ["method": "chat.subagentShown", "params": params]))
@@ -130,10 +131,10 @@ struct SubagentTabTitleTests {
 
     @Test func thePageReportsWhatThePaneShows() {
         let shown = AgentPaneRequest(body: ["method": "chat.subagentShown", "params": ["subagent": "a2", "title": "Auditor", "tone": 2]])
-        guard case .subagentShown(let agent, let title, let tone, _) = shown else { Issue.record("not decoded: \(shown)"); return }
+        guard case .subagentShown(let agent, let title, let tone, _, _) = shown else { Issue.record("not decoded: \(shown)"); return }
         #expect(agent == "a2" && title == "Auditor" && tone == 2)
         let chat = AgentPaneRequest(body: ["method": "chat.subagentShown", "params": [String: Any]()])
-        guard case .subagentShown(let none, let noTitle, let noTone, _) = chat else { Issue.record("not decoded: \(chat)"); return }
+        guard case .subagentShown(let none, let noTitle, let noTone, _, _) = chat else { Issue.record("not decoded: \(chat)"); return }
         #expect(none == nil && noTitle == nil && noTone == nil, "back on the chat: no subagent, no name")
         let bad = AgentPaneRequest(body: ["method": "chat.subagentShown", "params": ["subagent": ""]])
         if case .subagentShown = bad { Issue.record("an empty subagent id was taken") }
@@ -177,10 +178,55 @@ struct SubagentTabTitleTests {
 
     @Test func thePagesRequestCarriesTheName() throws {
         let request = AgentPaneRequest(body: ["method": "chat.subagentPane", "params": ["subagent": "agent-1", "focus": false, "title": "Audit the stack", "tone": 4]])
-        guard case .subagentPane(let agent, let focus, let title, let tone) = request else { Issue.record("not decoded: \(request)"); return }
+        guard case .subagentPane(let agent, let focus, let title, let tone, _) = request else { Issue.record("not decoded: \(request)"); return }
         #expect(agent == "agent-1" && !focus && title == "Audit the stack" && tone == 4)
         let old = AgentPaneRequest(body: ["method": "chat.subagentPane", "params": ["subagent": "agent-1"]])
-        guard case .subagentPane(_, _, let none, let noTone) = old else { Issue.record("not decoded: \(old)"); return }
+        guard case .subagentPane(_, _, let none, let noTone, _) = old else { Issue.record("not decoded: \(old)"); return }
         #expect(none == nil && noTone == nil, "a page that sends no name still opens the pane")
+    }
+
+    /// Leo, 2026-11-12: "ICON ISN'T THE SAME". A subagent's row draws the subagent mark (`task.ai`)
+    /// in its tone, or for a subagent of another family that family's mark; its pane's tab drew
+    /// its chat's Claude mark. The tab draws the row's mark.
+    @Test func aSubagentTabDrawsTheMarkItsRowDraws() async {
+        let titles = SubagentTabTitles()
+        titles.name("s/t1", of: "s", title: "Gray skeleton rows fix", tone: 4)
+        titles.bind("s/t1", of: "s", toTab: "tab")
+        #expect(titles.icon(ofTab: "tab") == .subagent)
+        #expect(TabItemMapping.subagentIcon(harness: titles.icon(ofTab: "tab")?.harness) == .icon(.taskAi))
+        // The chat's own tab, and any other tab: no subagent icon, so its own mark stays.
+        #expect(titles.icon(ofTab: "chat") == nil)
+        // A subagent of another family: its row draws that family's mark, and so does its tab.
+        titles.name("s/t2", of: "s", title: "Review", tone: 2, mark: "codex")
+        titles.bind("s/t2", of: "s", toTab: "tab2")
+        #expect(titles.icon(ofTab: "tab2") == .harness("codex"))
+        #expect(TabItemMapping.subagentIcon(harness: "codex") == .agentMark("codex"))
+        // A harness cmux lists no mark for draws the subagent mark, as the row's fallback does.
+        #expect(TabItemMapping.subagentIcon(harness: "no-such-harness") == .icon(.taskAi))
+
+        // The pane shows another subagent, then its chat again: the icon follows.
+        let model = AgentPaneModel(host: NoHost(), sessionId: "s")
+        model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() }, showsSubagent: { title, tone, keepingTitle, mark in
+            titles.show(title, inTab: "tab", tone: tone, keepingTitle: keepingTitle, mark: mark)
+        })
+        @MainActor func shown(_ params: [String: Any]) async {
+            let reply = await model.respondToHeader(AgentPaneRequest(body: ["method": "chat.subagentShown", "params": params]))
+            #expect(reply["ok"] as? Bool == true)
+        }
+        await shown(["subagent": "s/t3", "title": "Auditor", "tone": 3, "mark": "codex"])
+        #expect(titles.icon(ofTab: "tab") == .harness("codex"))
+        await shown(["subagent": "s/t1", "title": "Gray skeleton rows fix", "tone": 4])
+        #expect(titles.icon(ofTab: "tab") == .subagent)
+        await shown([:])
+        #expect(titles.icon(ofTab: "tab") == nil, "back on the chat, the tab kept a subagent's icon")
+    }
+
+    @Test func aMarkThatIsNotAPlainHarnessIdIsDropped() {
+        let open = AgentPaneRequest(body: ["method": "chat.subagentPane", "params": ["subagent": "a", "tone": 1, "mark": "../x"]])
+        guard case .subagentPane(_, _, _, _, let mark) = open else { Issue.record("not decoded: \(open)"); return }
+        #expect(mark == nil)
+        let codex = AgentPaneRequest(body: ["method": "chat.subagentPane", "params": ["subagent": "a", "mark": "codex"]])
+        guard case .subagentPane(_, _, _, _, let named) = codex else { Issue.record("not decoded: \(codex)"); return }
+        #expect(named == "codex")
     }
 }

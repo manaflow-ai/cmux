@@ -516,6 +516,15 @@ pub(super) fn ended_replies(events: &[AcpmuxEvent]) -> (Vec<String>, Option<u64>
         for output in folder.apply(event) {
             match output {
                 TurnOutput::Started { .. } => cuts.clear(),
+                // The hold turn of a subagent started before the one-prompt
+                // start (goal.rs) only said `ready`: its run went on in the
+                // goal turn, so it neither reports nor ends. One that was
+                // stopped or failed got no goal turn: it ends.
+                TurnOutput::Ended {
+                    turn, error: None, ..
+                } if !stopped && crate::goal::is_hold_prompt(turn.prompt_id.as_deref()) => {
+                    cuts.clear();
+                }
                 TurnOutput::Ended { turn, seq, error } => {
                     last_end = Some(seq);
                     cancelled = stopped || crate::fold::is_cancelled(error.as_deref());
@@ -535,6 +544,85 @@ pub(super) fn ended_replies(events: &[AcpmuxEvent]) -> (Vec<String>, Option<u64>
         }
     }
     (replies, last_end, cancelled)
+}
+
+/// The goal snapshot of a `session_info_update` (`_meta.goal`; null when
+/// cleared), if `event` is one.
+fn goal_of(event: &AcpmuxEvent) -> Option<&Value> {
+    event.msg.get("params")?.pointer("/update/_meta/goal")
+}
+
+/// Whether the session reported a goal in `events` (Codex's own, set from
+/// the stop condition: goal.rs).
+pub(super) fn has_goal(events: &[AcpmuxEvent]) -> bool {
+    events
+        .iter()
+        .any(|e| goal_of(e).is_some_and(|g| !g.is_null()))
+}
+
+/// The state of an acpmux `background_turn` record (`started` / `ended`):
+/// a turn the agent ran by itself.
+fn background_state(event: &AcpmuxEvent) -> Option<&str> {
+    (event.dir == "mux" && event.kind == "background_turn")
+        .then(|| event.msg.get("state").and_then(Value::as_str))
+        .flatten()
+}
+
+/// The seq and final words of the last background turn that ended in
+/// `events` (its words after its last own tool call), when it said any.
+pub(super) fn last_background_reply(events: &[AcpmuxEvent]) -> Option<(u64, String)> {
+    let mut text: Option<String> = None;
+    let mut last = None;
+    for event in events {
+        match background_state(event) {
+            Some("started") => text = Some(String::new()),
+            Some("ended") => {
+                if let Some(t) = text.take()
+                    && !t.trim().is_empty()
+                {
+                    last = Some((event.seq, t.trim().to_owned()));
+                }
+            }
+            _ => {
+                let Some(t) = text.as_mut() else { continue };
+                if is_own_tool_call(event) {
+                    t.clear();
+                } else if event.kind == "agent_message_chunk"
+                    && let Some(words) = event
+                        .msg
+                        .get("params")
+                        .and_then(|p| p.pointer("/update/content/text"))
+                        .and_then(Value::as_str)
+                {
+                    t.push_str(words);
+                }
+            }
+        }
+    }
+    last
+}
+
+/// Whether the session's goal goes on in `events`: its last goal snapshot
+/// has status `active`, or a turn it ran by itself is still open (Codex
+/// marks the goal complete inside its last turn and says its final words
+/// after). Never once its last event is older than `quiet` at `now` (one
+/// with no time counts as young), so a goal Codex dropped holds no one
+/// forever. Codex (codex-acp 1.10.0) runs its next turns toward an active
+/// goal itself, so a turn end then is not the subagent's end.
+pub(super) fn goal_goes_on(events: &[AcpmuxEvent], now: u64, quiet: std::time::Duration) -> bool {
+    let active = events
+        .iter()
+        .rev()
+        .find_map(goal_of)
+        .is_some_and(|goal| goal.get("status").and_then(Value::as_str) == Some("active"));
+    let open =
+        has_goal(events) && events.iter().rev().find_map(background_state) == Some("started");
+    let young = events
+        .iter()
+        .rev()
+        .find_map(|e| e.at)
+        .is_none_or(|at| now.saturating_sub(at) < quiet.as_millis() as u64);
+    (active || open) && young
 }
 
 /// A tool call of the session itself; a Task subagent's (`<acp>/<toolu>`
@@ -729,6 +817,64 @@ mod tests {
         ];
         let (replies, _, _) = ended_replies(&events);
         assert_eq!(replies, vec!["Done: landed.".to_owned()]);
+    }
+
+    fn prompt(seq: u64, id: &str) -> AcpmuxEvent {
+        ev(seq, "mux", "user_message", json!({"promptId": id}))
+    }
+
+    /// User 2026-11-12 (msg 30563, "you're not sending these pills anymore"): a
+    /// subagent under `/goal` (goal.rs) first answers its task prompt with only
+    /// `ready`. Its session is idle between that turn and the `/goal` turn, and
+    /// that `ready` was read as its report: the Chief got "[a1145] ready", and
+    /// Home moved the agent's pill off the Chief's reply, marked done. The hold
+    /// turn is never a report.
+    #[test]
+    fn the_goal_hold_turn_is_never_a_report() {
+        // The ids subagents.rs gives the task prompt (hold) and the goal prompt.
+        let hold = "optchat-sub:a5:task:1794519309421";
+        let goal = "optchat-sub:a5:1794519309421";
+        let events = vec![prompt(1, hold), start(2), say(3, "ready"), end(4)];
+        let (replies, last_end, _) = ended_replies(&events);
+        assert_eq!(
+            replies,
+            Vec::<String>::new(),
+            "the hold turn's `ready` is no report"
+        );
+        assert_eq!(
+            last_end, None,
+            "the run has not ended: the goal turn comes next"
+        );
+
+        let events = vec![
+            prompt(1, hold),
+            start(2),
+            say(3, "ready"),
+            end(4),
+            prompt(5, goal),
+            start(6),
+            say(7, "Landed abc..def."),
+            end(8),
+        ];
+        let (replies, last_end, _) = ended_replies(&events);
+        assert_eq!(replies, vec!["Landed abc..def.".to_owned()]);
+        assert_eq!(last_end, Some(8));
+    }
+
+    /// A hold turn that was stopped gets no `/goal` after it (subagents.rs): it
+    /// ends the run as cancelled, as before.
+    #[test]
+    fn a_stopped_hold_turn_still_ends_the_run() {
+        let hold = "optchat-sub:a5:task:1794519309421";
+        let events = vec![
+            prompt(1, hold),
+            start(2),
+            say(3, "Reading"),
+            ev(4, "mux", "turn_end", json!({"stopReason": "cancelled"})),
+        ];
+        let (_, last_end, cancelled) = ended_replies(&events);
+        assert_eq!(last_end, Some(4));
+        assert!(cancelled);
     }
 
     /// One reply with no tool calls stays whole.

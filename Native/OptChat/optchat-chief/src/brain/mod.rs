@@ -42,6 +42,7 @@ mod previews;
 mod prewarm;
 pub mod reaction_wake;
 mod recover;
+pub mod redescribe;
 mod replies;
 mod reply_ledger;
 mod rights_gate;
@@ -418,6 +419,20 @@ pub enum Input {
     },
     /// A description of a turn's image arrived (or failed): logged as a note.
     Described {
+        image: Box<images::TurnImage>,
+        description: Result<String, String>,
+    },
+    /// The owner's `memory redescribe`: describe the images these note
+    /// lines name again (redescribe.rs). Answers `{"started": [ids],
+    /// "refused": [{"id", "why"}]}` at once; each new description rewrites
+    /// its note through the memory's change book when it arrives.
+    Redescribe {
+        notes: Vec<u64>,
+        reply: Sender<serde_json::Value>,
+    },
+    /// A new description of the image note line `note` names arrived (or failed).
+    Redescribed {
+        note: u64,
         image: Box<images::TurnImage>,
         description: Result<String, String>,
     },
@@ -1822,6 +1837,14 @@ impl Brain {
                 let _ = reply.send(self.turn_gate(&tool, &input));
             }
             Input::Described { image, description } => self.described(&image, description),
+            Input::Redescribe { notes, reply } => {
+                let _ = reply.send(self.redescribe(&notes));
+            }
+            Input::Redescribed {
+                note,
+                image,
+                description,
+            } => self.redescribed(note, &image, description),
             Input::ReactionJudged { seq, id, answer } => self.reaction_judged(seq, id, answer),
             Input::Engine { request, reply } => {
                 let _ = reply.send(self.engine_control(request));

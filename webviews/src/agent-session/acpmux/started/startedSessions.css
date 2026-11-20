@@ -128,7 +128,9 @@
 .acpmux-session-status[data-status="unread"] > svg {
   scale: 1.5;
 }
-.acpmux-session-status[data-status="done"],
+/* A finished session keeps the line's quiet ink: done is no success state (Leo, 2026-11-14, on Worked
+   for turning green once done; conversation/finishedInk.test.ts). Ready and open are its pull
+   request's states, which GitHub draws green. */
 .acpmux-session-status[data-status="ready"],
 .acpmux-session-status[data-status="open"] {
   color: var(--agent-status-success);

@@ -3,6 +3,7 @@
 A whole look for cmux NEXT (colors, the sidebar, glass, borders, motion, fonts, the wallpaper) is one
 file: `~/.config/cmux/themes/<name>.json`. You don't need a build or a restart, and a mistake can't
 break the app. This page gives the steps, the shipped looks to start from, and how to undo a look.
+Ready-made changes you try with one click: [customize recipes](customize-recipes.md).
 The full key list is in [the cmux-customization skill](../../skills/cmux-customization/SKILL.md#rice-cmux).
 
 ## Five steps

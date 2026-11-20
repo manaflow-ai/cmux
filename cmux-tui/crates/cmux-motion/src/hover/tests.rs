@@ -79,7 +79,10 @@ fn shown_on_row_one() -> HoverCardMachine<Id> {
 
 #[test]
 fn hover_timing_tokens_match_the_swift_values() {
-    assert_eq!(HOVER_CARD_SHOW_DELAY, 400_000_000, "the fast cold delay (Leo 2026-11-01)");
+    assert_eq!(
+        HOVER_CARD_SHOW_DELAY, 1_300_000_000,
+        "Chrome's delay at standard tab width (Lawrence 2026-11-15)"
+    );
     assert_eq!(HOVER_CARD_RESHOW_WINDOW, 300_000_000);
     assert_eq!(HOVER_CARD_SWEEP_INTERVAL, 150_000_000);
     assert_eq!(HOVER_CARD_PIN_LIFETIME, 10_000_000_000);

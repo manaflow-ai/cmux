@@ -1,5 +1,6 @@
 import Foundation
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// The URLSession WebSocket behind ``AgentPaneTransport``. Its callbacks run on its own serial
 /// queue; the queues are guarded by one Mutex that is never held across IO.
@@ -105,6 +106,8 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     private let signal: @Sendable () -> Void
     private let state = Mutex(State())
     let statusRead = AcpmuxStatusReadSlot()
+    /// Ends an open the daemon never accepts after the transport's connect timeout (``start(timeout:)``).
+    private let openDeadline = DemandTimer(owner: "agent-pane-socket-open")
     /// Checks the daemon's frames in passes, in order, while the receive loop goes on.
     private let inbound = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.inbound", qos: .userInitiated)
 
@@ -131,8 +134,14 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         queue.maxConcurrentOperationCount = 1
         queue.qualityOfService = .userInitiated
         let session = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: queue)
+        defer { openDeadline.cancel() }
         var request = request
-        request.timeoutInterval = timeout
+        // A URLSession task's timeout is also how long it waits between frames, open or not: the
+        // connect timeout here (10 s) ended a quiet chat's socket after 10 s without a frame, the
+        // page lost its connection and rebuilt the chat (Leo, 2026-11-12: "WHY IS IT STILL NOT FIXED
+        // YET"). An open socket waits as long as the chat is quiet; the connect timeout bounds only
+        // the open (``openDeadline``), and a daemon gone silent is the page's liveness check's call.
+        request.timeoutInterval = Self.quietSocketLimit
         let task = session.webSocketTask(with: request)
         task.maximumMessageSize = AcpmuxPaneMethods.maximumFrameBytes
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
@@ -148,8 +157,24 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                 continuation.resume(throwing: AgentPaneTransportError.closed)
             } else {
                 task.resume()
+                openDeadline.schedule(after: .seconds(timeout)) { [weak self] in self?.openTimedOut() }
             }
         }
+    }
+
+    /// How long an open socket may go without a frame before URLSession ends it: a day, so a quiet
+    /// chat keeps its connection.
+    static let quietSocketLimit: TimeInterval = 24 * 60 * 60
+
+    /// The open is still unanswered at its deadline: it fails as a refused connect does.
+    private func openTimedOut() {
+        let task = state.withLock { state -> URLSessionWebSocketTask? in
+            state.opened || state.closed != nil ? nil : state.task
+        }
+        guard let task else { return }
+        AgentPaneTransport.logger.error("agent pane transport open timed out connection=\(self.connection, privacy: .public)")
+        task.cancel(with: .goingAway, reason: nil)
+        daemonClosed(code: 1006, reason: "connect timed out")
     }
 
     /// Opens the wire; its frames take the same inbound path as the WebSocket's.
@@ -177,7 +202,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
             case .success(.string(let text)): self.arrived(text)
             case .success(.data(let data)): self.arrived(String(decoding: data, as: UTF8.self))
             case .success: break
-            case .failure: return self.daemonClosed(code: 1006, reason: "")
+            case .failure(let error): return self.socketFailed(error)
             }
             self.receive(task)
         }
@@ -635,6 +660,16 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
-        daemonClosed(code: 1006, reason: "")
+        guard let error else { return daemonClosed(code: 1006, reason: "") }
+        socketFailed(error)
+    }
+
+    /// The socket's IO failed: the page hears why in the close's reason (the page counts its lost
+    /// connections by it), and the log keeps it, where before every failure was a bare 1006.
+    private func socketFailed(_ error: any Error) {
+        let failure = error as NSError
+        let reason = "\(failure.domain) \(failure.code)"
+        AgentPaneTransport.logger.notice("agent pane transport socket failed connection=\(self.connection, privacy: .public) error=\(reason, privacy: .public)")
+        daemonClosed(code: 1006, reason: reason)
     }
 }

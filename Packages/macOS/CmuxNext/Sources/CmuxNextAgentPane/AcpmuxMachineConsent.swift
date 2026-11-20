@@ -22,10 +22,13 @@ public nonisolated struct AcpmuxMachineConsent: Sendable {
         self.executable = executable
     }
 
-    /// The raw `_acpmux/machine_consent_get` result, or nil on any failure.
+    /// The raw `_acpmux/machine_consent_get` result, or nil on any failure. It asks as the
+    /// helper, which serves only this Mac's own sessions (`use: localComputerUse`): acpmux
+    /// decides there whether a sign-in join gates them. The app's consent sheet asks without it.
     @concurrent public func current() async -> Data? {
         guard let result = try? await AcpmuxServerPeer.call(socketPath: socketPath,
-                                                            method: "_acpmux/machine_consent_get", params: [:],
+                                                            method: "_acpmux/machine_consent_get",
+                                                            params: ["use": "localComputerUse"],
                                                             executable: executable, deadline: Self.deadline) else { return nil }
         return try? JSONSerialization.data(withJSONObject: result)
     }

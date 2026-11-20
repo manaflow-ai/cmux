@@ -5,7 +5,7 @@ Each tool here takes where HEAD meets this clone's origin/feat-cmux-next. That r
 last fetch of it: a branch that merged a newer base (a stacked parent fetched alone, `git fetch origin lane/parent`,
 after the parent merged feat-cmux-next) had that base's files counted as its own. cmux#41310 fixed the pre-push gate
 (scripts/cmux-next/push_range.py refresh_upstream); these are the readers left: affected tests, the Rust panic
-ratchet, build_class, gate-plan, the test-determinism scan, codebase-health and a manual arch-ratchet run (the
+ratchet, build_class, gate-plan, the test-determinism scan, codebase-health and a manual arch-ratchet or guardrails run (the
 gate and the web lint run by hand take the same push_range.manual_range). Each test builds one fixture: the topic
 adds own files and merges a base that has base-only files, while the clone's origin/feat-cmux-next stays old.
 
@@ -170,6 +170,81 @@ class StaleBaseReaders(StaleBaseFixture):
             self.assertEqual(arch.main(["--repo", str(self.work)]), 0)
         self.assertIn(f"over {self.fresh_base[:11]}", out.getvalue())
         self.assert_fetched()
+
+    def test_a_manual_guardrails_run_judges_from_the_fresh_base(self):
+        guardrails = load("stale_base_guardrails", "scripts/cmux-next/guardrails.py")
+        out = io.StringIO()
+        with unittest.mock.patch.object(guardrails, "run_push", lambda *args, **kwargs: False), \
+                contextlib.redirect_stdout(out):
+            guardrails.main(["--repo", str(self.work)])
+        self.assertIn(f"over {self.fresh_base[:11]}", out.getvalue())
+        self.assert_fetched()
+
+
+class StaleBaseIsNamed(StaleBaseReaders):
+    """When the refresh cannot fetch origin/feat-cmux-next, every reader of an own range says so: the range's note
+    (push_range.refresh_base) names the stale base. A reader that drops the note measures from the stale copy in
+    silence, and a newer base's files count as the branch's own (#41662 review F1: the web lint run by hand)."""
+
+    STALE = "origin/feat-cmux-next could not be fetched"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.git(self.work, "remote", "set-url", "origin", str(self.tmp / "gone.git"))
+        self.head = self.git(self.work, "rev-parse", "HEAD")
+        self.push = [f"refs/heads/topic {self.head} refs/heads/topic {'0' * 40}"]
+
+    def assert_named(self, text: str) -> None:
+        self.assertIn(self.STALE, text, "the stale base is not named")
+
+    def test_a_manual_web_lint_run_names_the_stale_base(self):
+        lint = load("stale_base_web_lint_manual", "scripts/web_lint_prepush.py")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            lint.main(["--repo", str(self.work), "--dry-run"])
+        self.assert_named(err.getvalue())
+
+    def test_a_pre_push_web_lint_run_names_the_stale_base(self):
+        lint = load("stale_base_web_lint_push", "scripts/web_lint_prepush.py")
+        err = io.StringIO()
+        with unittest.mock.patch.object(sys, "stdin", io.StringIO("\n".join(self.push) + "\n")), \
+                unittest.mock.patch.dict(os.environ, {"CMUX_WEB_LINT_SKIP_REASON": ""}), \
+                contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            lint.main(["--repo", str(self.work), "--pre-push", "--dry-run"])
+        self.assert_named(err.getvalue())
+
+    def test_a_pre_push_arch_ratchet_run_names_the_stale_base(self):
+        arch = load("stale_base_arch_ratchet_push", "scripts/cmux-next/arch-ratchet.py")
+        err = io.StringIO()
+        with unittest.mock.patch.object(arch, "run_push", lambda *args, **kwargs: False), \
+                contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            arch.pre_push(self.work, "origin", self.push)
+        self.assert_named(err.getvalue())
+
+    def test_a_manual_guardrails_run_names_the_stale_base(self):
+        guardrails = load("stale_base_guardrails_stale", "scripts/cmux-next/guardrails.py")
+        out = io.StringIO()
+        with unittest.mock.patch.object(guardrails, "run_push", lambda *args, **kwargs: False), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            guardrails.main(["--repo", str(self.work)])
+        self.assert_named(out.getvalue())
+
+    def test_the_fast_tier_receipt_names_the_stale_base(self):
+        tier = load("stale_base_fast_tier", "scripts/cmux-next/prepush_fast_tier.py")
+        args = unittest.mock.Mock(repo=self.work, remote="origin", base=None, head="HEAD", scratch=None)
+        with unittest.mock.patch.object(tier, "check_range", lambda *a, **k: []):
+            receipt = tier.worker(args, "\n".join(self.push) + "\n")
+        self.assert_named(json.dumps(receipt))
+
+    # The fixture's fetch fails here, so the parent's fresh-base rows do not apply.
+    test_affected_tests_plans_from_the_fresh_base = None
+    test_rust_panic_ratchet_lists_the_branch_s_own_hits_first = None
+    test_build_class_classifies_only_the_branch_s_own_files = None
+    test_gate_plan_routes_only_the_branch_s_own_files = None
+    test_the_determinism_scan_reads_only_the_branch_s_own_tests = None
+    test_codebase_health_names_only_the_tree_s_own_measured_changes = None
+    test_a_manual_arch_ratchet_run_judges_from_the_fresh_base = None
+    test_a_manual_guardrails_run_judges_from_the_fresh_base = None
 
 
 class BaseFetchOnce(StaleBaseFixture):

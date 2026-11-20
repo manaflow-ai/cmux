@@ -12,7 +12,8 @@ import { gzipSync } from "node:zlib";
 // (432.9 KiB before); no dependency was added.
 // Atomic agent-key VM slots (limits/agent-slots.ts) and the no-count tenant policy measured 446.5 KiB; no dependency
 // was added.
-const BUDGET_GZIP_BYTES = 450 * 1024; // 298 KiB at S1
+// The staging database fault switch (src/db/fault.ts) measured 450.7 KiB; no dependency was added.
+const BUDGET_GZIP_BYTES = 452 * 1024; // 298 KiB at S1
 const dir = process.argv[2] ?? "dist";
 
 const files = readdirSync(dir, { recursive: true })

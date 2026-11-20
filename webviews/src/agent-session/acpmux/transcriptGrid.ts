@@ -11,17 +11,45 @@ export const TRANSCRIPT_BLOCK_GAP = gridLength("gap-block");
 export const TRANSCRIPT_INNER_GAP = gridLength("gap-inner");
 export const TRANSCRIPT_TURN_GAP = gridLength("gap-turn");
 export const TRANSCRIPT_COMPOSER_GAP = gridLength("gap-composer");
-/// A run of one-line rows and the prose over or under it (design/transcript-spacing.md, "The table":
-/// chatgpt.com 16 box to box, ChatGPT and Claude Code desktop ~40 centre to centre). Leo, 2026-11-02:
-/// "now there's sometimes too much spacing between tool calls". Lucas, 2026-11-11: still "too much
-/// vertical spacing between white text and commands/tool calls ... reduce it ever so slightly, both up
-/// and down": the inner gap (12), not the grid's run gap (16), which other surfaces keep.
-export const TRANSCRIPT_RUN_GAP = gridLength("gap-inner");
+/// Codex leaves 16px between transcript items, including prose adjacent to activity.
+export const TRANSCRIPT_RUN_GAP = gridLength("gap-run");
 /// A reply footer (design/transcript-spacing.md "Reply footer"; Leo, 2026-11-02: "didn't i always
 /// say we can do it like chatgpt"): ChatGPT's 32 button around a 20 glyph, 8 under the reply's last
 /// line, then the block gap to whatever comes next.
 export const TRANSCRIPT_FOOTER_GAP = gridLength("gap-footer");
 export const TRANSCRIPT_FOOTER_CONTROL = gridLength("transcript-footer-control");
+/// A one-line row's height: a step row, a status row, the live line in a run (conversation.css
+/// `--cv-tool-row-height` at the default density, "One-line row pitch", #29965).
+export const TRANSCRIPT_LINE_ROW = 22;
+
+/// The live line right under a step or status row (model.ts `isLiveStep`, MARK_LIVE_STEP): its box and the gap over
+/// it, set here and nowhere else. model.ts places it with these, conversation.css draws it through the custom
+/// properties `transcriptLiveVars` puts on the transcript, and the spacing spec (transcriptSpacing.ts) and the tests
+/// derive their numbers from them, so changing its box or its gap is one line here (Leo, 2026-11-15: "why do we have so
+/// many files that get affected each time anyways").
+///   `line`  one more one-line row of the run, TRANSCRIPT_LINE_ROW tall (#29965)
+///   `slot`  the footer's TRANSCRIPT_FOOTER_CONTROL slot it has under a reply, so what lands over it moves nothing
+///           (cmux#24569)
+export const TRANSCRIPT_LIVE_STEP_BOX = "line" as "line" | "slot";
+/// The grid token of the gap over it: the run gap Codex leaves between transcript items (#42247).
+export const TRANSCRIPT_LIVE_STEP_GAP_TOKEN = "gap-run";
+export const TRANSCRIPT_LIVE_STEP_GAP = gridLength(TRANSCRIPT_LIVE_STEP_GAP_TOKEN);
+/// Its height at Interface Size 1.
+export const TRANSCRIPT_LIVE_STEP_HEIGHT =
+  TRANSCRIPT_LIVE_STEP_BOX === "slot" ? TRANSCRIPT_FOOTER_CONTROL : TRANSCRIPT_LINE_ROW;
+/// Its box and gap as CSS custom properties, set on the transcript's root (VirtualTranscript.tsx): conversation.css
+/// sizes the line with `--cv-live-step-height` and the gallery's plays read `--cv-live-step-gap`, never a length of
+/// their own.
+export function transcriptLiveVars(): Record<"--cv-live-step-height" | "--cv-live-step-gap", string> {
+  return {
+    "--cv-live-step-height": TRANSCRIPT_LIVE_STEP_BOX === "slot" ? "var(--cv-footer-row)" : "var(--cv-tool-row-height)",
+    "--cv-live-step-gap": `var(--grid-${TRANSCRIPT_LIVE_STEP_GAP_TOKEN})`,
+  };
+}
+/// The spacing spec's distance from a one-line row's centre to the centre of the live line under it, its words
+/// centred in its box (transcriptSpacing.ts "step-to-live" and the "...-to-live" status rows).
+export const TRANSCRIPT_LINE_TO_LIVE_STEP =
+  TRANSCRIPT_LINE_ROW / 2 + TRANSCRIPT_LIVE_STEP_GAP + TRANSCRIPT_LIVE_STEP_HEIGHT / 2;
 
 /// The interface scale the CSS grid tokens multiply by (desktop.css: `calc(24px *
 /// var(--cmux-interface-scale, 1))`). The virtual stack places its gaps with the same factor, so
@@ -68,6 +96,15 @@ export const MARK_WORKED = 9;
 /// so under "Subagent finished" or a tool run it is never flush (Lucas, 2026-11-08). Toward a footer
 /// row, a prompt or the live line it is a step row.
 export const MARK_CARD = 10;
+/// A finished turn's todo list folded to its "3 of 3 tasks done" line (conversation/PlanList.tsx,
+/// opened or not). Its turn's footer row sits the same 8 under it as under a final reply (Lucas,
+/// 2026-11-12: "the exact same amount as if it were just a normal final message"); toward every
+/// other row it is any other row.
+export const MARK_PLAN_LINE = 11;
+/// The running turn's line as its last row right under a step or status row (model.ts `isLiveStep`): its box and
+/// the gap over it are TRANSCRIPT_LIVE_STEP_BOX and TRANSCRIPT_LIVE_STEP_GAP; under it, the room a row of that box
+/// has (tailGap). Not another step, which would sit flush.
+export const MARK_LIVE_STEP = 12;
 /// Added to a row's mark (a reply or a tool run) when it opens a turn the agent ran on its own that
 /// draws as its own turn, with no line of its own over it (model.ts `opensBackgroundTurn`): a task
 /// notification started it, not a prompt. It stands the turn gap from the row over it, as a prompt
@@ -85,12 +122,14 @@ type MarkedRow = {
   status?: string;
   resumable?: boolean;
   below?: boolean;
-  retryable?: boolean;
   turnCopy?: readonly unknown[];
+  plan?: unknown;
+  turnEnded?: boolean;
 };
 export function rowMark(row: MarkedRow): number {
   if (row.kind === "user" && !row.incoming && !row.received) return MARK_PROMPT;
   if (row.kind === "assistant" && (row.text?.length ?? 0) > 0) return MARK_MESSAGE;
+  if (row.kind === "plan" && row.plan !== undefined && row.turnEnded === true) return MARK_PLAN_LINE;
   // The live line in the footer's slot (turns.ts WORKING, THINKING and ACTIVITY_LINE, by value).
   if ((row.kind === "working" || row.kind === "thinking" || row.kind === "activityLine") && row.below === true)
     return MARK_FOOTER_SLOT;
@@ -100,8 +139,7 @@ export function rowMark(row: MarkedRow): number {
     // turns.ts isEmptyFooter's inverse, inline so this module stays import-free.
     return row.status !== "failed" &&
       row.status !== "error" &&
-      !row.resumable &&
-      ((row.text?.length ?? 0) > 0 || (row.retryable === true && (row.turnCopy?.length ?? 0) > 0))
+      ((row.text?.length ?? 0) > 0 || (row.turnCopy?.length ?? 0) > 0)
       ? MARK_FOOTER_ROW
       : MARK_FOOTER;
   return MARK_OTHER;
@@ -112,6 +150,9 @@ export function rowMark(row: MarkedRow): number {
 export function transcriptGap(previous: number, next: number): number {
   if ((next & MARK_OPENS_TURN) !== 0) return TRANSCRIPT_TURN_GAP;
   previous = baseMark(previous);
+  if (previous === MARK_PLAN_LINE && next === MARK_FOOTER_ROW) return TRANSCRIPT_FOOTER_GAP;
+  if (previous === MARK_PLAN_LINE) previous = MARK_OTHER;
+  if (next === MARK_PLAN_LINE) next = MARK_OTHER;
   if (previous === MARK_WORKED && next !== MARK_PROMPT) return 0;
   if (previous === MARK_WORKED) previous = MARK_STEP;
   if (next === MARK_WORKED) next = MARK_STEP;
@@ -124,7 +165,7 @@ export function transcriptGap(previous: number, next: number): number {
   // turn gap follows it, by the rules below.
   if ((next === MARK_FOOTER_ROW || next === MARK_FOOTER_SLOT) && previous === MARK_MESSAGE)
     return TRANSCRIPT_FOOTER_GAP;
-  // The last turn that ended on work (turns.ts endsChatOnWork): its footer row sits the same 8 under
+  // A turn that ended on work (turns.ts endsOnWork): its footer row sits the same 8 under
   // the run's last line, never a block gap away (Leo, 2026-11-02: "this spacing would be good", on
   // ChatGPT's row right under the turn's last line).
   if (next === MARK_FOOTER_ROW && (previous === MARK_STEP || previous === MARK_STATUS)) return TRANSCRIPT_FOOTER_GAP;
@@ -148,6 +189,7 @@ export function transcriptGap(previous: number, next: number): number {
   // The live state is separate from completed activity. Leo, 2026-11-04: "the gap between tool
   // calls and thinking needs to be bigger". Use the same scaled run gap as activity to prose.
   if (line(previous) && (next === MARK_INDICATOR || next === MARK_FOOTER_SLOT)) return TRANSCRIPT_RUN_GAP;
+  if (next === MARK_LIVE_STEP) return TRANSCRIPT_LIVE_STEP_GAP;
   // A run, or any status line, and the reply's prose around it sit 16 apart, either way.
   if ((line(previous) && next === MARK_MESSAGE) || (previous === MARK_MESSAGE && line(next))) return TRANSCRIPT_RUN_GAP;
   return TRANSCRIPT_BLOCK_GAP;
@@ -159,6 +201,8 @@ export function transcriptGap(previous: number, next: number): number {
 /// its hover controls in the gap) follows it; anything else takes the composer gap.
 export function tailGap(last: number, beforeLast: number, footerAfter = false): number {
   last = baseMark(last);
+  // The live line in a run has the room under it that a row of its box has: an indicator's, or the footer slot's.
+  if (last === MARK_LIVE_STEP) last = TRANSCRIPT_LIVE_STEP_BOX === "slot" ? MARK_FOOTER_SLOT : MARK_INDICATOR;
   beforeLast = baseMark(beforeLast);
   if (footerAfter) return TRANSCRIPT_BLOCK_GAP;
   if (last === MARK_INDICATOR && beforeLast === MARK_PROMPT) return TRANSCRIPT_BLOCK_GAP;

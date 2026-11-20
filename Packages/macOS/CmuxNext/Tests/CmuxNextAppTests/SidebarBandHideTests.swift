@@ -61,8 +61,10 @@ import Testing
         }
 
         /// Waits for `condition` up to a deadline: the settings write and reload run on other
-        /// tasks, which a fixed count of yields outran on a busy runner.
-        func until(_ condition: () -> Bool, within timeout: Duration = .seconds(10)) async {
+        /// tasks, which a fixed count of yields outran on a busy runner. The deadline only bounds a
+        /// failure: in the full parallel run other suites hold the main thread for seconds at a time,
+        /// and 10 s ended before the hide reached the sidebar (it landed later in the same test).
+        func until(_ condition: () -> Bool, within timeout: Duration = .seconds(60)) async {
             let deadline = ContinuousClock.now + timeout
             while !condition(), ContinuousClock.now < deadline {
                 try? await Task.sleep(for: .milliseconds(5))
@@ -83,7 +85,7 @@ import Testing
         // The sidebar draws from the settings controller's design settings, as in the app (its own
         // instance here: suites run in parallel, and another sidebar reads the shared one).
         let design = DesignSettings()
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: design, fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: design, fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         services.settings = settings
         await settings.reload()

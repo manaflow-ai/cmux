@@ -416,6 +416,8 @@ typedef struct CmuxRdLineReader CmuxRdLineReader;
 #define CMUX_RD_LINE_DISPLAYS 512u
 #define CMUX_RD_LINE_CURRENT 1024u
 #define CMUX_RD_LINE_ERROR 2048u
+/* Typed pre-media carrier failure permits WebRTC on the same approved session. */
+static const uint32_t CMUX_RD_LINE_FALLBACK_WEBRTC = 4096u;
 
 typedef struct CmuxRdLine {
     uint32_t fields;               /* CMUX_RD_LINE_* bits */

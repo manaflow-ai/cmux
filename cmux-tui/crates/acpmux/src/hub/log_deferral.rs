@@ -5,7 +5,8 @@ use super::*;
 impl Hub {
     /// Appends one record under the session's append lock. A tool output snapshot a newer one may
     /// replace is stored without its content and held; the held ones a record makes due are
-    /// appended before it. A copy (`at`) is never held. Clients hear every record as sent.
+    /// appended before it. A copy (`at`) is never held. Clients hear every record the store
+    /// keeps, as sent; one it refused is not published ([`Hub::append_record_locked`]).
     ///
     /// `stored_only`: see [`Hub::append_record_locked`].
     #[allow(clippy::too_many_arguments)]

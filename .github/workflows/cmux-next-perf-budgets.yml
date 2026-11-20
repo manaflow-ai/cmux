@@ -310,7 +310,7 @@ jobs:
         with:
           name: tipguard-blacksmith-${{ inputs.tip_sha }}-${{ github.run_id }}
           path: ${{ runner.temp }}/tipguard-blacksmith
-          retention-days: 90
+          retention-days: 7
           if-no-files-found: warn
 
   plan:
@@ -320,7 +320,8 @@ jobs:
     permissions:
       actions: read
       contents: read
-    timeout-minutes: 10
+    # A plan takes about a minute; a result run may wait up to an hour for the rate limit's reset first.
+    timeout-minutes: 75
     outputs:
       action: ${{ steps.plan.outputs.action }}
       sha: ${{ steps.plan.outputs.sha }}
@@ -364,7 +365,11 @@ jobs:
           # that wait as a yield.
           route=()
           [ -n "$MAC_GATEWAY" ] || [ "$MAC_CONTROLLER" != 1 ] || route=(--controller)
-          python3 -I scripts/cmux-next/perf-cron.py fetch-state --repo "$GITHUB_REPOSITORY" --dir "$dir"
+          # A result run carries the result of a part that ran on the bench: it waits out a spent rate limit (it
+          # resets within the hour) instead of dropping the result. A plain tick does nothing and the next one tries.
+          wait=()
+          [ -z "$PERF_RESULT" ] || wait=(--wait-limit 3600)
+          python3 -I scripts/cmux-next/perf-cron.py fetch-state --repo "$GITHUB_REPOSITORY" --dir "$dir" ${wait[@]+"${wait[@]}"}
           python3 -I scripts/cmux-next/perf-cron.py plan --repo "$GITHUB_REPOSITORY" --dir "$dir" \
             --yield-mode "$YIELD_MODE" ${no_mac[@]+"${no_mac[@]}"} ${route[@]+"${route[@]}"} --perf-result "$PERF_RESULT" \
             --output "$GITHUB_OUTPUT" | tee "$RUNNER_TEMP/plan.log"
@@ -463,7 +468,7 @@ jobs:
           name: perf-cron-part-${{ github.run_id }}
           path: ${{ runner.temp }}/perf-cron-part
           overwrite: true
-          retention-days: 14
+          retention-days: 7
           if-no-files-found: ignore
 
   # The controller route (cmuxterm-hq build-fleet/cmd/controller/perf_cron.go): with no gateway runner and
@@ -571,7 +576,7 @@ jobs:
           name: perf-cron-linux-${{ github.run_id }}
           path: ${{ runner.temp }}/perf-cron-linux
           overwrite: true
-          retention-days: 14
+          retention-days: 7
           if-no-files-found: ignore
 
   report:
@@ -652,7 +657,7 @@ jobs:
           name: perf-cron-state
           path: ${{ runner.temp }}/perf-cron
           overwrite: true
-          retention-days: 90
+          retention-days: 7
           if-no-files-found: error
 
       # A part finished and the measurement has more: start the next tick now instead of at the dispatcher's next

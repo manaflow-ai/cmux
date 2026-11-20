@@ -4,6 +4,7 @@
  *
  *   bun scripts/cmux-next/machine-join-e2e.ts --origin https://cmux-platform-development.debussy.workers.dev \
  *     --acpmux PATH --user USER --home DIR --name NAME --evidence FILE --run ID --sha SHA [--bench SCRIPT]
+ *     [--share-cmux-rd PATH --viewer-user USER --viewer-home DIR --device-hub URL]
  *
  * The stack account comes only from this process's environment (CMUX_UITEST_STACK_EMAIL and
  * CMUX_UITEST_STACK_PASSWORD, which the workflow maps from the repo's dev stack secrets). This
@@ -18,6 +19,16 @@
  * revoke, status and list show revoked, secret scan, evidence. The machine revoke and the install
  * revoke run in `finally` and on SIGINT/SIGTERM, so every path after the mint revokes.
  * Exit 0 when the evidence says pass, 1 otherwise, 2 for a refused invocation.
+ *
+ * Share (--share-cmux-rd): while joined, proves a joined headless Linux machine is shared with no
+ * step on it (Leo, 2026-11-16: "if you've connected to a headlessly running mini why... would it
+ * need anything?"). On the host side only what the join runs: `cmux-rd linux-host enable
+ * --non-interactive --hub URL` as the joined user, whose user systemd manager runs (lingering, as
+ * an ssh login would start it), so the host unit it installs runs as on a real machine. A viewer
+ * (another disposable user with its own home and Xvfb, the same account) signs in to the
+ * development device hub, waits for the machine's device to be online and shared, and asks for a
+ * view: it must stream and decode a frame within SHARE_FRAME_LIMIT_MS, with no request waiting
+ * for a person on the host (`linux-host requests` empty).
  */
 import { spawn } from "node:child_process"
 import { mkdirSync, writeFileSync } from "node:fs"
@@ -31,6 +42,20 @@ const DEV_STACK_PROJECT = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
 const DEV_STACK_CLIENT_KEY = "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g"
 const USER_AGENT = "cmux-machine-join-e2e/1"
 export const HEARTBEAT_LIMIT_S = 90
+/** The development device hub (workers/device-hub/wrangler.toml [env.dev]); share mode talks to no other. */
+export const DEV_DEVICE_HUB = "https://cmux-device-hub-dev.debussy.workers.dev"
+/** From the host's enable to its device listed online and shared on the hub. */
+export const SHARE_ONLINE_LIMIT_MS = 60_000
+/** From the viewer's start (sign-in, request) to its first decoded frame. */
+export const SHARE_FRAME_LIMIT_MS = 60_000
+/** How long the viewer keeps the stream once it starts, before it stops and reports. */
+export const SHARE_HOLD_MS = 5_000
+/** The share stage's addition to the run's deadline. */
+export const SHARE_LIMIT_MS = 6 * 60_000
+/** The viewer's own virtual display (the host's starts at :99). */
+export const VIEWER_DISPLAY = ":42"
+/** What `cmux-rd linux-host requests` prints with no viewer waiting. */
+export const NO_REQUESTS = "No viewer is waiting."
 /** The bench's whole run: a cold and two warm installs of each project. */
 export const BENCH_LIMIT_MS = 40 * 60_000
 
@@ -84,6 +109,9 @@ export interface Options {
   sha: string
   /** A root-owned script run as the disposable user while the machine is joined (before the revoke), or "". */
   bench?: string
+  /** Share mode: the run's root-owned cmux-rd (the joined home's ~/.local/bin/cmux-rd links to it), the
+   * viewer's disposable user and home, and the device hub. */
+  share?: { cmuxRd: string; viewerUser: string; viewerHome: string; hub: string }
 }
 
 export interface ChildResult {
@@ -102,12 +130,26 @@ export interface Daemon {
   stop(): Promise<ChildResult>
 }
 
+/** A child whose output can be read while it runs. */
+export interface Live {
+  /** What it printed so far (code null while it runs). */
+  output(): ChildResult
+  /** SIGTERM (sudo relays it to its command). */
+  term(): void
+  /** SIGKILL; its result then comes at most KILL_GRACE_MS later. */
+  kill(): void
+  /** Its result, once it ends. */
+  done: Promise<ChildResult>
+}
+
 export interface Deps {
   fetch: (url: string, init: RequestInit) => Promise<Response>
   /** Runs argv with exactly `env`, writing `stdin` (then closing it) when given. */
   run(argv: string[], options: { env: Record<string, string>; stdin?: string; timeoutMs: number; signal?: AbortSignal; binary?: boolean }): Promise<ChildResult>
   /** Starts a long-running argv with exactly `env`; stdin is closed. */
   start(argv: string[], options: { env: Record<string, string> }): Daemon
+  /** Starts argv with exactly `env`, writes `stdin` and closes it; its output is readable while it runs. */
+  spawn(argv: string[], options: { env: Record<string, string>; stdin?: string }): Live
   /** One line of this step's output (the job log). */
   write(line: string): void
   writeFile(path: string, text: string): void
@@ -143,8 +185,109 @@ export interface Evidence {
   revoke: { revokedListed: boolean | null; statusRevoked: boolean | null }
   /** With --bench: its exit code and the last JSON object it printed (numbers and plain strings only). */
   bench?: { code: number | null; result: Record<string, unknown> | null }
+  /** With --share-cmux-rd: the zero-touch share. */
+  share?: ShareEvidence
   result: "pass" | "fail"
   reason: string
+}
+
+/** Times are ms. */
+export interface ShareEvidence {
+  hub: string
+  /** The viewer signed in to the hub with the account (which also lets the machine sign in as it). */
+  viewerSignedIn: boolean
+  /** The one host-side step, the join's `linux-host enable --non-interactive`: its exit, whether it said
+   * not_installed, and its lines (plain words only). */
+  enable: { code: number | null; notInstalled: boolean; lines: string[] }
+  deviceId: string | null
+  /** From the enable's end to the device listed online and shared. */
+  deviceOnlineMs: number | null
+  /** From the viewer's start (sign-in, request) to its "Streaming" line. */
+  streamingMs: number | null
+  /** From the viewer's start to its stop with a frame decoded: the first frame came within this. */
+  firstFrameWithinMs: number | null
+  view: ViewStats | null
+  /** The viewer was told to wait for the host's person. */
+  hostPrompted: boolean
+  /** `linux-host requests` on the host printed that no viewer waits. */
+  requestsEmpty: boolean | null
+  /** Values of this run's sign-in found in the viewer's home afterwards. */
+  viewerHomeHeld: number | null
+}
+
+export interface ViewStats {
+  ended: string | null
+  connected: boolean
+  path: string | null
+  seconds: number | null
+  frames: number | null
+  decoded: number | null
+  decodeErrors: number | null
+  mbitPerS: number | null
+  width: number | null
+  height: number | null
+  encoder: string | null
+}
+
+/** A plain short string (no token shape), else null. */
+export const plainWord = (v: unknown, max = 64): string | null =>
+  typeof v === "string" && v.length <= max && /^[A-Za-z0-9 ._:/()-]*$/.test(v) && !/cm[jm]_|eyJ|bearer|authorization/i.test(v) ? v : null
+const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? Math.round(v * 1000) / 1000 : null)
+
+/** The `view` object of `cmux-rd view`'s report (its --stats-file, or the last JSON line it printed),
+ * reduced to numbers and plain words. */
+export function viewStats(text: string): ViewStats | null {
+  for (const line of text.split("\n").reverse()) {
+    let v: any
+    try {
+      v = JSON.parse(line)
+    } catch {
+      continue
+    }
+    const r = v?.view
+    if (!r || typeof r !== "object" || Array.isArray(r)) continue
+    return {
+      ended: plainWord(r.ended, 120),
+      connected: r.connected === true,
+      path: plainWord(r.path),
+      seconds: num(r.seconds),
+      frames: num(r.frames),
+      decoded: num(r.decoded),
+      decodeErrors: num(r.decode_errors),
+      mbitPerS: num(r.mbit_per_s),
+      width: num(r.welcome?.width),
+      height: num(r.welcome?.height),
+      encoder: plainWord(r.welcome?.encoder)
+    }
+  }
+  return null
+}
+
+export interface ListedDevice {
+  id: string
+  platform: string
+  name: string
+  online: boolean
+}
+
+/** `cmux-rd view --list`: one `ID  PLATFORM  NAME[  (offline)]` line per shared device. */
+export function listedDevices(stdout: string): ListedDevice[] {
+  const out: ListedDevice[] = []
+  for (const line of stdout.split("\n")) {
+    const m = /^(\S+)  (\S+)  (.*?)(  \(offline\))?$/.exec(line.trimEnd())
+    const id = safeId(m?.[1])
+    if (!m || !id) continue
+    out.push({ id, platform: m[2]!, name: m[3]!, online: !m[4] })
+  }
+  return out
+}
+
+/** The device the joined machine registered: its name is the join's, else the one new online `linux` device. */
+export function joinedDevice(before: ListedDevice[], now: ListedDevice[], name: string): ListedDevice | undefined {
+  const named = now.filter((d) => d.name === name && d.online)
+  if (named.length === 1) return named[0]
+  const fresh = now.filter((d) => d.online && d.platform === "linux" && !before.some((b) => b.id === d.id))
+  return named.length === 0 && fresh.length === 1 ? fresh[0] : undefined
 }
 
 class Refused extends Error {}
@@ -160,6 +303,13 @@ export function refusal(opts: Options): string | undefined {
   if (!opts.acpmux.startsWith("/")) return "acpmux must be an absolute path"
   if (!opts.evidence.startsWith("/")) return "evidence must be an absolute path"
   if (opts.bench && (!opts.bench.startsWith("/") || opts.bench.includes(".."))) return "bench must be an absolute path"
+  if (opts.share) {
+    const sh = opts.share
+    if (sh.hub !== DEV_DEVICE_HUB) return `device hub must be ${DEV_DEVICE_HUB}`
+    if (!sh.cmuxRd.startsWith("/") || sh.cmuxRd.includes("..")) return "cmux-rd must be an absolute path"
+    if (!USER.test(sh.viewerUser) || sh.viewerUser === "root" || sh.viewerUser === opts.user) return "viewer user must be a plain disposable login name, not the joined user"
+    if (!sh.viewerHome.startsWith("/") || sh.viewerHome.includes("..") || sh.viewerHome === opts.home) return "viewer home must be an absolute path of its own"
+  }
   return undefined
 }
 
@@ -414,6 +564,12 @@ export async function runE2E(
   let joinSettled: Promise<unknown> = new Promise(() => undefined)
   let joinEnded = false
   const joinStop = new AbortController()
+  // Share mode: whether any viewer process ran, its display server and its view while they run, and the
+  // lines of the viewer and the host printed with a failure.
+  let viewerStarted = false
+  let viewerX: Daemon | undefined
+  let viewer: Live | undefined
+  const shareLog: string[] = []
 
   const op = async (name: string, params: unknown, keep = false) => {
     const r = await call(`${DEV_API}/v1/ops`, {
@@ -540,6 +696,22 @@ export async function runE2E(
     (cleaning ??= (async () => {
       const stopping = daemon?.stop()
       daemon = undefined
+      if (viewerStarted) {
+        // The viewer first (its view, its display server, then every process of the viewer user).
+        const v = viewer
+        const x = viewerX
+        viewer = undefined
+        viewerX = undefined
+        if (v) {
+          v.term()
+          if (!(await settle(v.done, 1_000, 15_000))) v.kill()
+          await settle(v.done.then((r) => childText.push(r.stdout, r.stderr)), 250, 1_000)
+        }
+        const xStopping = x?.stop()
+        await settle(killViewer("TERM"), 750, 5_000)
+        if (xStopping) await settle(xStopping, 500, 5_000)
+        await settle(killViewer("KILL"), 750, 5_000)
+      }
       if (joinStarted) {
         // The join's launcher itself (sudo relays the TERM, or ends before it starts acpmux), then every
         // process of the user. Each step is confirmed before the next, on short bounds after a cancel
@@ -604,6 +776,187 @@ export async function runE2E(
     if (cleaning) throw new Failed("cancelled before the next step")
   }
   onCleanup?.(cancel)
+
+  // Every process of the viewer's disposable user, and nothing else.
+  const killViewer = (signal: "TERM" | "KILL") =>
+    deps.run(["sudo", "-n", "-u", opts.share!.viewerUser, "--", "/bin/kill", `-${signal}`, "-1"], { env: childEnv, timeoutMs: cancelled ? 1_000 : 5_000 })
+  /** A child's line made plain and redacted, for the log and the evidence. */
+  const cleanLine = (line: string) =>
+    redact(plainLine(line), secrets)
+      .replace(/cm[jm]_\S*/g, "(token)")
+      .replace(/eyJ\S*/g, "(jwt)")
+      .replace(/bearer|authorization/gi, "(auth)")
+      .replace(/[^A-Za-z0-9 ._:;,()/'"=+-]/g, "")
+      .trim()
+      .slice(0, 200)
+  const lastLine = (r: ChildResult | undefined) => cleanLine(`${r?.stderr ?? ""}\n${r?.stdout ?? ""}`.split("\n").filter((l) => l.trim()).pop() ?? "")
+
+  // 6a. The share, while joined. The host side runs only the join's step; the viewer is another user.
+  const runShare = async (sh: NonNullable<Options["share"]>) => {
+    const ev: ShareEvidence = {
+      hub: sh.hub,
+      viewerSignedIn: false,
+      enable: { code: null, notInstalled: false, lines: [] },
+      deviceId: null,
+      deviceOnlineMs: null,
+      streamingMs: null,
+      firstFrameWithinMs: null,
+      view: null,
+      hostPrompted: false,
+      requestsEmpty: null,
+      viewerHomeHeld: null
+    }
+    evidence.share = ev
+    const pause = (ms: number) => within(new Promise(() => undefined), Math.max(0, ms), true)
+    live()
+    // The joined user's commands see its user manager (runtime directory and bus), as in its login session,
+    // and the acpmux home the join wrote its machine credential to, as acpmux's daemon passes it when it runs
+    // the enable (cmux-rd never guesses a default home: linux_host/machine.rs):
+    // `enable` installs and starts the host's user unit through it.
+    const id = await deps.run(asUserTool(["id", "-u"]), { env: childEnv, timeoutMs: 10_000 })
+    const uid = id.stdout.trim()
+    if (id.code !== 0 || !/^\d{1,10}$/.test(uid)) throw new Failed("share: no uid for the joined user")
+    const hostRd = `${opts.home}/.local/bin/cmux-rd`
+    const asHost = (args: string[]) =>
+      asUserTool(["/usr/bin/env", `XDG_RUNTIME_DIR=/run/user/${uid}`, `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${uid}/bus`, `ACPMUX_HOME=${opts.home}/.acpmux`, ...args])
+    // The host unit runs ~/.local/bin/cmux-rd: it must be the run's own build.
+    const link = await deps.run(asUserTool(["readlink", "-f", "--", hostRd]), { env: childEnv, timeoutMs: 10_000 })
+    if (link.code !== 0 || link.stdout.trim() !== sh.cmuxRd) throw new Failed("share: ~/.local/bin/cmux-rd is not the run's cmux-rd")
+    const host = async (args: string[], timeoutMs = 60_000) => {
+      live()
+      const r = await deps.run(asHost([hostRd, ...args]), { env: childEnv, timeoutMs, signal: inFlight.signal })
+      childText.push(r.stdout, r.stderr)
+      return r
+    }
+    const asViewer = (args: string[]) => [
+      "sudo", "-n", "-u", sh.viewerUser, "--", "/usr/bin/env", "-i", "-C", sh.viewerHome,
+      `HOME=${sh.viewerHome}`, `USER=${sh.viewerUser}`, `LOGNAME=${sh.viewerUser}`, `PATH=${CHILD_PATH}`, "LANG=C.UTF-8", `DISPLAY=${VIEWER_DISPLAY}`,
+      ...args
+    ]
+    viewerStarted = true
+    let enabled = false
+    try {
+      // The viewer's own display.
+      const socket = `/tmp/.X11-unix/X${VIEWER_DISPLAY.slice(1)}`
+      const isSocket = async () => (await deps.run(asViewer(["test", "-S", socket]), { env: childEnv, timeoutMs: 10_000 })).code === 0
+      if (await isSocket()) throw new Failed(`share: the display ${VIEWER_DISPLAY} is already taken`)
+      live()
+      viewerX = deps.start(asViewer(["Xvfb", VIEWER_DISPLAY, "-screen", "0", "1280x800x24", "-nolisten", "tcp"]), { env: childEnv })
+      const xBy = deps.now() + 10_000
+      while (!(await isSocket())) {
+        if (deps.now() >= xBy) throw new Failed(`share: the viewer's Xvfb ${VIEWER_DISPLAY} did not start within 10 s`)
+        await pause(250)
+        live()
+      }
+
+      // The viewer signs in with the account (the token on stdin only): the hub then knows the account,
+      // which a machine's own sign-in needs. Its list before the enable tells a new device apart.
+      await refreshStack().catch(() => undefined)
+      const list = async () => {
+        live()
+        const r = await deps.run(asViewer([sh.cmuxRd, "view", "--list", "--hub", sh.hub, "--stack-token-file", "-"]), {
+          env: childEnv,
+          stdin: `${stack!.access}\n`,
+          timeoutMs: 60_000,
+          signal: inFlight.signal
+        })
+        childText.push(r.stdout, r.stderr)
+        return { devices: r.code === 0 ? listedDevices(r.stdout) : null, r }
+      }
+      const first = await list()
+      ev.viewerSignedIn = first.devices !== null
+      if (!first.devices) throw new Failed(`share: the viewer could not sign in to the device hub: ${lastLine(first.r)}`)
+      const before = first.devices
+
+      // The join's step on the host, and nothing else there.
+      enabled = true
+      const enable = await host(["linux-host", "enable", "--non-interactive", "--hub", sh.hub], 180_000)
+      const enabledAt = deps.now()
+      ev.enable = {
+        code: enable.code,
+        notInstalled: /^not_installed:/m.test(enable.stdout),
+        lines: `${enable.stdout}\n${enable.stderr}`.split("\n").map(cleanLine).filter(Boolean).slice(-12)
+      }
+      for (const line of ev.enable.lines) say(`  enable: ${line}`)
+      if (ev.enable.notInstalled) throw new Failed("share: the host did not sign in: linux-host enable --non-interactive said not_installed")
+      if (enable.code !== 0) throw new Failed(`share: linux-host enable --non-interactive exited ${enable.code}: ${lastLine(enable)}`)
+
+      // The machine's device, online and shared, with no further step on the host.
+      const onlineBy = enabledAt + SHARE_ONLINE_LIMIT_MS
+      let device: ListedDevice | undefined
+      for (;;) {
+        const now = (await list()).devices
+        device = now ? joinedDevice(before, now, opts.name) : undefined
+        if (device || deps.now() >= onlineBy) break
+        await pause(Math.min(3_000, onlineBy - deps.now()))
+      }
+      if (!device) throw new Failed(`share: the joined machine's device was not online and shared on the hub within ${SHARE_ONLINE_LIMIT_MS / 1000} s`)
+      ev.deviceId = device.id
+      ev.deviceOnlineMs = deps.now() - enabledAt
+      say(`device ${device.id} is online and shared ${ev.deviceOnlineMs} ms after the enable`)
+
+      // The view: sign-in, request, ticket, link, stream. It must stream and decode within the limit, and is
+      // stopped SHARE_HOLD_MS after it starts streaming, when it writes its report.
+      await refreshStack().catch(() => undefined)
+      live()
+      const statsFile = `${sh.viewerHome}/view-stats.json`
+      const startedAt = deps.now()
+      const v = (viewer = deps.spawn(
+        asViewer([sh.cmuxRd, "view", device.id, "--hub", sh.hub, "--stack-token-file", "-", "--display", VIEWER_DISPLAY, "--stats-file", statsFile, "--scope", "view"]),
+        { env: childEnv, stdin: `${stack!.access}\n` }
+      ))
+      let ended = false
+      void v.done.then(() => (ended = true))
+      const frameBy = startedAt + SHARE_FRAME_LIMIT_MS
+      let streamingAt: number | null = null
+      for (;;) {
+        const err = v.output().stderr
+        if (/Waiting for its person/.test(err)) ev.hostPrompted = true
+        if (streamingAt === null && /^Streaming \d+x\d+/m.test(err)) {
+          streamingAt = deps.now()
+          ev.streamingMs = streamingAt - startedAt
+        }
+        if (ended || ev.hostPrompted || cleaning) break
+        const stopAt = streamingAt === null ? frameBy : Math.min(frameBy, streamingAt + SHARE_HOLD_MS)
+        if (deps.now() >= stopAt) break
+        await within(v.done, Math.min(250, stopAt - deps.now()), true)
+      }
+      const stoppedAt = deps.now()
+      viewer = undefined
+      v.term()
+      if (!(await settle(v.done, 1_000, 15_000))) v.kill()
+      let out: ChildResult | undefined
+      await settle(v.done.then((r) => (out = r)), 250, 2_000)
+      if (out) childText.push(out.stdout, out.stderr)
+      for (const line of (out?.stderr ?? "").split("\n").filter((l) => l.trim()).slice(-30)) shareLog.push(`viewer: ${cleanLine(line)}`)
+      live()
+      const stats = await deps.run(asViewer(["cat", "--", statsFile]), { env: childEnv, timeoutMs: 10_000 })
+      ev.view = viewStats(stats.code === 0 ? stats.stdout : "") ?? viewStats(out?.stderr ?? "")
+      const decoded = (ev.view?.decoded ?? 0) >= 1
+      if (decoded && streamingAt !== null) ev.firstFrameWithinMs = stoppedAt - startedAt
+      if (ev.view) say(`view: streaming after ${ev.streamingMs} ms, ${ev.view.decoded} frame(s) decoded, ${ev.view.mbitPerS} Mbit/s, ${ev.view.width}x${ev.view.height}, path ${ev.view.path}`)
+
+      // No request reached the host's person.
+      const requests = await host(["linux-host", "requests"], 30_000)
+      ev.requestsEmpty = requests.code === 0 && requests.stdout.trim() === NO_REQUESTS
+      expect(!ev.hostPrompted, "share: the request waited for a person on the host")
+      expect(ev.streamingMs !== null, `share: the viewer did not stream within ${SHARE_FRAME_LIMIT_MS / 1000} s${ended && streamingAt === null ? ` (it ended: ${lastLine(out)})` : ""}`)
+      expect(ev.firstFrameWithinMs !== null && ev.firstFrameWithinMs <= SHARE_FRAME_LIMIT_MS, `share: no frame decoded within ${SHARE_FRAME_LIMIT_MS / 1000} s of the request`)
+      expect(ev.requestsEmpty, "share: linux-host requests on the host is not empty")
+    } finally {
+      // The host unit's log, for a failure's log only (scanned like every child's output).
+      if (enabled && !cleaning) {
+        try {
+          const journal = await deps.run(asHost(["journalctl", "--user", "-u", "cmux-screen-host.service", "-o", "cat", "--no-pager", "-n", "60"]), { env: childEnv, timeoutMs: 15_000 })
+          childText.push(journal.stdout, journal.stderr)
+          for (const line of journal.stdout.split("\n").filter((l) => l.trim()).slice(-40)) shareLog.push(`host: ${cleanLine(line)}`)
+        } catch {
+          // Only a log.
+        }
+      }
+    }
+  }
+
   const stackHeaders = () => ({ "x-stack-project-id": DEV_STACK_PROJECT, "x-stack-publishable-client-key": DEV_STACK_CLIENT_KEY, "x-stack-access-type": "client" })
 
   try {
@@ -759,6 +1112,16 @@ export async function runE2E(
     evidence.credentialFileMode = now.own ? now.mode : null
     expect(evidence.credentialFileMode === "600", "credential file mode is not 600")
 
+    // 6a. The share (above). Its failure is the run's, and the revoke checks still run after it.
+    if (opts.share) {
+      try {
+        await runShare(opts.share)
+      } catch (e) {
+        if (!(e instanceof Failed) || cleaning) throw e
+        problems.push(e.message)
+      }
+    }
+
     // 6b. The bench, as the disposable user, while the machine is joined and its daemon runs. Its output
     // is redacted and scanned like every other child's; only its last JSON line becomes evidence.
     if (opts.bench) {
@@ -816,6 +1179,27 @@ export async function runE2E(
     evidence.secretScan.home.cmm = null
     problems.push("could not scan the whole disposable home")
   }
+  // The viewer's home: nothing of this run's sign-in (the access token reached the viewer on stdin only).
+  if (opts.share && viewerStarted && evidence.share) {
+    try {
+      const sh = opts.share
+      const archive = await deps.run(
+        ["sudo", "-n", "-u", sh.viewerUser, "--", "/usr/bin/env", "-i", `PATH=${CHILD_PATH}`, "tar", "-C", sh.viewerHome, "--one-file-system", "--format=gnu", "-cf", "-", "."],
+        { env: childEnv, timeoutMs: 30_000, binary: true }
+      )
+      if (archive.code !== 0) throw new Error("tar failed")
+      let held = 0
+      for (const entry of tarEntries(archive.stdout)) {
+        const text = `${entry.name}\n${entry.link}\n${entry.body}`
+        held += count(text, "cmj_") + count(text, "cmm_")
+        for (const v of secrets) if (v.length >= 8 && text.includes(v)) held += 1
+      }
+      evidence.share.viewerHomeHeld = held
+    } catch {
+      evidence.share.viewerHomeHeld = null
+    }
+    expect(evidence.share.viewerHomeHeld === 0, "the viewer's home holds a value of this run's sign-in, or could not be scanned")
+  }
   const logText = [...transcript, ...childText].join("\n")
   evidence.secretScan.log = { cmj: count(logText, "cmj_"), cmm: count(logText, "cmm_") }
   expect(evidence.secretScan.home.cmj === 0, "the home holds a join token")
@@ -825,7 +1209,10 @@ export async function runE2E(
   if (secrets.some((s) => s.length >= 4 && logText.includes(s))) problems.push("output holds a secret value")
 
   evidence.result = problems.length === 0 ? "pass" : "fail"
-  evidence.reason = problems.length === 0 ? "joined, heartbeat, listed, consent none, mode 600, revoked, no secrets found" : problems.join("; ")
+  evidence.reason =
+    problems.length === 0
+      ? `joined, heartbeat, listed, consent none, mode 600,${opts.share ? " shared with no step on the host," : ""} revoked, no secrets found`
+      : problems.join("; ")
   // 9. The evidence itself: scanned before it goes anywhere; a leak replaces it with a bare failure.
   let text = JSON.stringify(evidence, null, 2)
   const leaks = evidenceLeaks(text, secrets)
@@ -844,6 +1231,7 @@ export async function runE2E(
   if (evidence.result === "fail") {
     // The tail of what acpmux printed, redacted, to debug a failure.
     for (const line of childText.join("\n").split("\n").filter((l) => l.trim()).slice(-40)) say(`  acpmux: ${redact(line, secrets).slice(0, 300)}`)
+    for (const line of shareLog) say(`  ${line}`)
   }
   return evidence
 }
@@ -862,7 +1250,10 @@ export function parseArgs(argv: string[]): Options {
     evidence: value("--evidence"),
     runId: value("--run"),
     sha: value("--sha"),
-    bench: value("--bench")
+    bench: value("--bench"),
+    ...(argv.includes("--share-cmux-rd")
+      ? { share: { cmuxRd: value("--share-cmux-rd"), viewerUser: value("--viewer-user"), viewerHome: value("--viewer-home"), hub: value("--device-hub") } }
+      : {})
   }
 }
 
@@ -902,7 +1293,7 @@ export function realDeps(): Deps {
       }, KILL_GRACE_MS)
       void done.then(() => clearTimeout(grace))
     }
-    return { child, done, kill }
+    return { child, done, kill, snapshot: () => result(null) }
   }
   return {
     fetch: (url, init) => fetch(url, init),
@@ -941,6 +1332,10 @@ export function realDeps(): Deps {
         }
       }
     },
+    spawn: (argv, { env, stdin }) => {
+      const { child, done, kill, snapshot } = collect(argv, env, stdin)
+      return { output: snapshot, term: () => void child.kill("SIGTERM"), kill, done }
+    },
     write: (line) => process.stdout.write(`${line}\n`),
     writeFile: (path, text) => {
       mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
@@ -969,7 +1364,7 @@ if (import.meta.main) {
   }
   // A cancel or a step timeout (SIGINT, then SIGTERM about 7.5 s later) stops the run and revokes at
   // once; the run then writes its (failed) evidence and exits. 9 s after the first signal it exits anyway.
-  // The run's own deadline (12 minutes, under the step's 15; 40 more with --bench) cancels the same way.
+  // The run's own deadline (12 minutes, under the step's 15; 40 more with --bench, 6 more with share) cancels the same way.
   let cancelNow: (() => Promise<void>) | undefined
   // Handled, not default, for both signals and every repeat: the second one must not kill the cleanup.
   let stopping = false
@@ -980,7 +1375,7 @@ if (import.meta.main) {
     setTimeout(() => process.exit(130), 9_000).unref()
   }
   for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, stop)
-  setTimeout(() => cancelNow?.(), 12 * 60_000 + (opts.bench ? BENCH_LIMIT_MS : 0)).unref()
+  setTimeout(() => cancelNow?.(), 12 * 60_000 + (opts.bench ? BENCH_LIMIT_MS : 0) + (opts.share ? SHARE_LIMIT_MS : 0)).unref()
   runE2E(opts, env, realDeps(), (cancel) => (cancelNow = cancel)).then(
     (e) => process.exit(e.result === "pass" ? 0 : 1),
     (e) => {

@@ -41,7 +41,7 @@
   min-width: var(--cv-context-copy);
   height: var(--cv-context-copy);
   padding: 0 var(--ds-space-1);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   cursor: default;
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);

@@ -882,6 +882,61 @@ fn start(
         ),
         Source::Local { .. } => (Some("unknown".to_owned()), None, None),
     };
+    // A panic goes to `<optchat root>/panics.jsonl`; the cmux-next app sends
+    // it to Sentry under the telemetry choice (RustPanicSource.chief).
+    {
+        let mut fields = cmux_panic_log::Fields::new();
+        fields.insert("process".into(), "optchat-chief".into());
+        fields.insert("pid".into(), std::process::id().into());
+        fields.insert("version".into(), env!("CARGO_PKG_VERSION").into());
+        fields.insert("build".into(), BUILD.into());
+        cmux_panic_log::install(paths.root.join("panics.jsonl"), fields, |_| false);
+    }
+    // Product analytics (analytics/mod.rs): content-free events to PostHog
+    // under the telemetry choice, re-read every few minutes.
+    {
+        let cloud = matches!(source, Source::Cloud { .. });
+        let exe = std::env::current_exe().ok();
+        let channel = crate::analytics::channel(
+            if cloud { "cloud" } else { "local" },
+            &|k| std::env::var(k).ok(),
+            exe.as_deref(),
+        );
+        let release = crate::analytics::release_build(&channel);
+        let config = crate::analytics::Config {
+            source: if cloud { "cloud" } else { "local" },
+            person: if cloud {
+                person.clone().filter(|p| p != "unknown")
+            } else {
+                None
+            },
+            team: if cloud { team.clone() } else { None },
+            build: BUILD.to_owned(),
+            channel,
+            app_version: env("CMUX_CHIEF_APP_VERSION"),
+            engine: if engine_choice.as_deref() == Some("native") {
+                "native"
+            } else {
+                "acpmux"
+            },
+            endpoint: env("CMUX_CHIEF_ANALYTICS_ENDPOINT")
+                .filter(|_| cfg!(debug_assertions))
+                .unwrap_or_else(crate::analytics::Config::endpoint),
+        };
+        if let Some(analytics) = crate::analytics::Analytics::open(&paths.root, config, move || {
+            crate::analytics::consent::read(release)
+        }) {
+            log(format!(
+                "analytics: {}",
+                if analytics.is_on() {
+                    "on"
+                } else {
+                    "off (telemetry choice)"
+                }
+            ));
+            trace.set_analytics(analytics);
+        }
+    }
     trace.emit(
         "usage.identity",
         json!({
@@ -1463,6 +1518,15 @@ fn start(
                     .map(|v| v.to_string())
                     .map_err(late)
             }
+            ControlRequest::Redescribe(notes) => {
+                let (reply, answer) = channel();
+                tx.send(Input::Redescribe { notes, reply })
+                    .map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
             ControlRequest::StopAll => {
                 let (reply, answer) = channel();
                 tx.send(Input::StopAll { reply }).map_err(stopping)?;
@@ -1667,8 +1731,11 @@ fn start(
     let memory_editor = crate::inspect::edit::Editor::open(chat.clone(), &paths.root);
     // The MCP hub (mcp_hub): servers the Chief adds itself; a task's result
     // and a subscribed event reach the brain as a note, as a peer Chief's do.
-    let mcp_hub = crate::mcp_hub::McpHub::new(
+    let mcp_hub = crate::mcp_hub::McpHub::new_for(
         paths.root.join("mcp"),
+        // One store of connections for the machine: every Chief home and
+        // acpmux's connect card (mcp_hub::store).
+        crate::mcp_hub::store::shared_dir(),
         Some(crate::skills::chief_dir(home)),
         {
             let tx = Mutex::new(tx.clone());
@@ -1679,6 +1746,8 @@ fn start(
                     .send(Input::PeerChiefNote { text });
             })
         },
+        // It sees the servers the person's scope on the connect card gives this Chief.
+        crate::mcp_hub::Viewer::Chief(crate::paths::home_id(home)),
     );
     mcp_hub.start();
     crate::tools::serve_all(

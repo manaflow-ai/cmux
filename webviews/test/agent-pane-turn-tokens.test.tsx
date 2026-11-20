@@ -1,12 +1,11 @@
 // l10n-allow-file: test fixture prompts and tool titles, not shipped UI.
-// The running turn's line says what the turn has spent so far, as Claude desktop's does: the
-// time, then this turn's generated output ("Working for 5m 54s · 2.1M out"). Claude Code reports
-// each model call's prompt and output usage as it lands, and acpmux marks those records as one
-// call's (`usage_update` with `_meta.acpmux.call`, claude_stdio/inbound.rs), so the turn's line
-// adds only output tokens since its `turn_started`. Every other usage record is the context a
-// harness holds: Claude Code's result repeats its last call's (for the context ring), and other
+// Turn usage stays available as data while the running line shows elapsed time alone.
+// Claude Code reports each model call's prompt and output usage as it lands, and acpmux marks
+// those records as one call's (`usage_update` with `_meta.acpmux.call`, claude_stdio/inbound.rs),
+// so the turn's usage accumulator adds only output tokens since its `turn_started`. Every other
+// usage record is the context a harness holds: Claude Code's result repeats its last call's (for the context ring), and other
 // harnesses, whatever their family, report only that. None of those adds up. A chat attached after
-// its turn started has not seen every call; it shows the time alone, even once older pages load.
+// its turn started has not seen every call; its accumulated usage stays unknown even once older pages load.
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
@@ -632,14 +631,14 @@ const drawn = (row: AcpmuxRow, value: WorkingCounts) =>
     .replace(/\s+/g, " ")
     .trim();
 
-test("the line reads the time, then the turn's output, after the working dots", () => {
-  expect(drawn(status, counts({ tokens: 2_140_000 }))).toBe("Working for 5m 54s · 2.1M out");
-  expect(drawn({ ...status, doing: "bun test" }, counts({ tokens: 840_000 }))).toBe("bun test 5m 54s · 840K out");
+test("the line keeps elapsed time and background work counts without token amounts", () => {
+  expect(drawn(status, counts({ tokens: 2_140_000 }))).toBe("Working for 5m 54s");
+  expect(drawn({ ...status, doing: "bun test" }, counts({ tokens: 840_000 }))).toBe("bun test 5m 54s");
   // Before the first call reports, or with no token data, the time stands alone.
   expect(drawn(status, counts())).toBe("Working for 5m 54s");
   expect(drawn(status, counts({ tokens: 0 }))).toBe("Working for 5m 54s");
-  // The background counts follow the tokens.
-  expect(drawn(status, counts({ tokens: 2_140_000, agents: 2 }))).toBe("Working for 5m 54s · 2.1M out · 2 subagents");
+  // Background work counts remain even when usage data is present.
+  expect(drawn(status, counts({ tokens: 2_140_000, agents: 2 }))).toBe("Working for 5m 54s · 2 subagents");
   // Over the work, as the Codex app's "Working for 32s": the time alone.
   expect(drawn({ ...status, below: undefined }, counts({ tokens: 2_140_000 }))).toBe("Working for 5m 54s");
 });

@@ -203,7 +203,7 @@ pub fn serve_terminal_host_stdio(
     });
 
     let launch_owner_deadline = Instant::now() + HOST_LAUNCH_OWNER_TIMEOUT;
-    let mut backoff = host_accept::AcceptBackoff::new();
+    let mut backoff = host_accept::accept_backoff();
     // No client stream since this instant: the owner daemon is gone. After
     // the orphan grace (tagged DEV, staging, debug builds: 10 minutes; every
     // other build: ABANDONED_HOST_GRACE, a week) with still no client the
@@ -248,7 +248,7 @@ pub fn serve_terminal_host_stdio(
                 }
                 match host_accept::serve_accepted(&shared, stream) {
                     Ok(()) => backoff.reset(),
-                    Err(error) => backoff.after_error(&shared, &error),
+                    Err(error) => host_accept::wait_after_error(&mut backoff, &shared, &error),
                 }
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -291,7 +291,7 @@ pub fn serve_terminal_host_stdio(
                 match listener.wait(&shared.accept_waker, timeout) {
                     Err(error) => {
                         if error.kind() != std::io::ErrorKind::Interrupted {
-                            backoff.after_error(&shared, &error);
+                            host_accept::wait_after_error(&mut backoff, &shared, &error);
                         }
                     }
                     Ok(woken) => {
@@ -310,7 +310,7 @@ pub fn serve_terminal_host_stdio(
                     std::io::ErrorKind::Interrupted | std::io::ErrorKind::ConnectionAborted
                 ) => {}
             // EMFILE, ENFILE, ENOBUFS, ENOMEM: never end the shell.
-            Err(error) => backoff.after_error(&shared, &error),
+            Err(error) => host_accept::wait_after_error(&mut backoff, &shared, &error),
         }
     }
     // Debug builds only (cx-6xk9): a test holds an ended host alive, with

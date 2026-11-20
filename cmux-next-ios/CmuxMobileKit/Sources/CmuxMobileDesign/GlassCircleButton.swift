@@ -26,7 +26,7 @@ public struct GlassCircleButton: View {
                 .frame(width: size, height: size)
                 .contentShape(.circle)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .glassEffect(.regular.interactive(), in: .circle)
         .frame(minWidth: 44, minHeight: 44)
         .accessibilityLabel(accessibilityLabel)

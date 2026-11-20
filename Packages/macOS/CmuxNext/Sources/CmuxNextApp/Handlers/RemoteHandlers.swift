@@ -18,7 +18,9 @@ enum RemoteHandlers {
         MachineSectionHostView.bindJoinedActions(into: registry, context: context)
         let ssh = context.services.ssh
         let available: @MainActor () -> String? = { ssh.unavailableReason }
-        let hasMachine: @MainActor () -> String? = { ssh.unavailableReason ?? (ssh.sessions.isEmpty ? RemoteStrings.noMachine : nil) }
+        // The palette collects a machine, or offers Add Machine when none is
+        // known. Explicit callers still get machine()'s missing-target refusal.
+        let hasMachine = available
         ssh.offerInstall = { [weak registry] session in
             // Asks through the registry's confirmation sheet (remote.install is destructive).
             _ = registry?.perform("remote.install", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: session.machineID)))
@@ -98,7 +100,7 @@ enum RemoteHandlers {
                     return nil
                 } catch {
                     if interactive { CloudPresenter.failure(error, in: CloudHandlers.window(context)) }
-                    return ActionWorkFailure(String(describing: error))
+                    return ActionWorkFailure(log: String(describing: error), reason: CloudStrings.errorText(error))
                 }
             }
             registry.track(work)

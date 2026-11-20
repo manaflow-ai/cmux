@@ -3,7 +3,14 @@
    each surface keeps its own theme colors. ui.css imports this; the agent pane, which does not
    load ui.css, ships it ahead of its own stylesheets (build-agent-pane-web.sh). */
 :root {
-  --ui-popup-radius: 8px;
+  /* One px at the interface scale (Text Size; ui/interfaceScale.ts). A floating surface's frame (a
+     popover's or card's width, a chip's height, a gap a clamp reckons with) is
+     `calc(N * var(--ui-px, 1px))`, never a bare px: the type tokens grow with Text Size, and a frame
+     that does not clips its own label (Leo 2026-11-12: "it doesn't follow").
+     test/floating-ui-follows-text-size.test.ts holds the floating surfaces to it. */
+  --ui-px: calc(1px * var(--cmux-interface-scale, 1));
+  /* The design scale's popup radius (schemas/design-scale namedRadii popup), the native GlassMenu's too. */
+  --ui-popup-radius: var(--ds-radius-popup, 8px);
   --ui-popup-padding: calc(var(--ds-space-1) * var(--cmux-interface-scale, 1));
   /* The raised step of the shared elevation scale (`--elevation-2`, pages/shared/desktop.css; the
      native PopupStyle.elevation2) and a hairline edge: one
@@ -154,16 +161,22 @@
    the buttons are weird"). Every dialog a page draws itself is the shared glass (.ui-glass) with
    .ui-glass-floats, so in a see-through Chromium page the theme surface lies under its tint and the
    page's text fades instead of reading through it (glass.css, "CHROMIUM OVER THE WINDOW GLASS"). This
-   one rule gives it the sheet role's veil, corner radius and depth (the surface-roles block in
-   glass.css), as the native dialog card has (CmuxDialogCardSurface). A dialog's own class sets only its
+   one rule gives it the shared transient veil with the sheet role's corner radius and depth (the
+   surface-roles block in glass.css), as the native dialog card has (CmuxDialogCardSurface). A dialog's own class sets only its
    size and layout; its controls are the shared Button, Input and Select (ui/controls.css). Reduce
    Transparency: the opaque popup surface (glass.css applies --glass-opaque). */
+/* Concentric with its buttons (Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons
+   inside"): a dialog's corner is the button corner plus the padding between its edge and its buttons, the
+   same padding on every side. A dialog whose padding is not the default sets --ui-dialog-padding on its
+   popup and pads with it (scripts/cmux-next/check-concentric-containers.py). */
 .ui-dialog.ui-glass {
-  --glass-tint: var(--surface-sheet-veil);
+  --ui-dialog-padding: var(--ds-space-5);
+  --glass-tint: var(--transient-surface-veil);
+  --glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
   --glass-elevation: var(--elevation-2);
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
   --glass-opaque: var(--surface-popup);
-  border-radius: var(--surface-sheet-radius);
+  border-radius: calc(var(--ds-radius-control) + var(--ui-dialog-padding));
   background: var(--glass-tint);
 }
 
@@ -277,7 +290,8 @@
    pane does not load ui.css and that menu named no class of the pane's; the composer model menu's
    submenu chevrons drew nothing for the same reason). Zero-specificity copies of ui.css's menu rules,
    so a ui.css host draws exactly what it drew, and a menu, row, check or chevron that names no look of
-   its own still gets this one; a feature's own rules still win. A host maps --ui-row to its row wash. */
+   its own still gets this one; a feature's own rules still win. A host maps --ui-row to its row wash;
+   a host that maps none gets the app's highlighted-row token (desktop.css --cmux-row-focus), ui.css's. */
 :where(.ui-popup.ui-menu) {
   padding: var(--ui-popup-padding);
   font-family: var(--font-ui);
@@ -299,7 +313,7 @@
   outline: none;
 }
 :where(.ui-menu-item[data-highlighted]) {
-  background: var(--ui-row, color-mix(in srgb, currentColor 10%, transparent));
+  background: var(--ui-row, var(--cmux-row-focus, color-mix(in srgb, currentColor 10%, transparent)));
 }
 :where(.ui-menu-check) {
   display: inline-flex;

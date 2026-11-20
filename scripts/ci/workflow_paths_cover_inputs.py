@@ -49,6 +49,8 @@ import warnings
 from bisect import bisect_left
 from dataclasses import dataclass, field
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 EVENTS = ("pull_request", "pull_request_target", "push")
 FILTERS = ("paths", "paths-ignore")
@@ -990,7 +992,11 @@ def find_gaps(root: Path, covered=None, workflows: list[Path] | None = None):
                     walker.note_unknown(name, f"working-directory {workdir}")
                     continue
                 cwd = repo.abs(os.path.normpath(workdir)) if workdir and workdir != "." else str(repo.root)
-                run = re.sub(r"\$\{\{[^}]*\}\}", "$__EXPR", run)
+                try:
+                    run = gh_expressions.EXPRESSION.sub("$__EXPR", run)
+                except gh_expressions.Unterminated:
+                    walker.note_unknown(name, "a step whose ${{ never ends")
+                    continue
                 for test in walker.entries(run, cwd, env):
                     for found, chain in walker.closure(test, cwd).items():
                         chains = closures.setdefault(found, [])

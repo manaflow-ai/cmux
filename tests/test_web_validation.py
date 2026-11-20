@@ -239,22 +239,26 @@ class WebValidationTests(unittest.TestCase):
         cache. Blacksmith is a capped paid overflow now (2026-10-30), so the shards run at
         16 vCPU: 14% slower at p50 than 32 for half the price. There, four shards ran their
         dev-server files four at a time for 18-26 min each (p50 24.4 min, 2026-10-31), the
-        long pole from ask to merge for a webview fix, so they are eight. The base replay
-        (react-apps-base-check) takes one shard per head shard's results artifact."""
+        long pole from ask to merge for a webview fix, so they were eight. At eight the split
+        balanced each shard to about 1000 s of tests (2026-11-13), past a 20 min verdict, so
+        they are twelve (about 690 s each). The base replay (react-apps-base-check) is one
+        job that joins every head shard's results artifact (one job a head shard before #42540)."""
         workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
         start = workflow.index("  react-apps-check-shard:")
         match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 3 :])
         block = workflow[start:] if match is None else workflow[start : start + 3 + match.start()]
         shards = [int(n) for n in re.findall(r"^          - shard: (\d+)$", block, re.MULTILINE)]
         counts = set(re.findall(r"^            shard_count: (\d+)$", block, re.MULTILINE))
-        self.assertEqual(len(shards), 8)
+        self.assertEqual(len(shards), 12)
         self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_16 }}", unwrap_fork_pool_reads(block))
         self.assertEqual(shards, list(range(1, len(shards) + 1)))
         self.assertEqual(counts, {str(len(shards))})
         base_start = workflow.index("  react-apps-base-check:")
         base_match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[base_start + 3 :])
         base = workflow[base_start:] if base_match is None else workflow[base_start : base_start + 3 + base_match.start()]
-        self.assertEqual([int(n) for n in re.findall(r"^          - shard: (\d+)$", base, re.MULTILINE)], shards)
+        self.assertNotIn("strategy:", base)
+        self.assertIn(f'HEAD_SHARDS: "{len(shards)}"', base)
+        self.assertIn("pattern: react-apps-head-results-shard*", base)
         for step in ("Generated bundle merge driver", "Check diff viewer eager JS budget",
                      "Verify React Compiler for webviews", "Check webviews (Oxlint, Oxfmt, type check)",
                      "Check PR-scoped webview rules"):
@@ -262,6 +266,24 @@ class WebValidationTests(unittest.TestCase):
                 body = block[block.index(f"- name: {step}"):]
                 body = body[: body.index("\n      - name:", 1)] if "\n      - name:" in body[1:] else body
                 self.assertIn("if: matrix.shard == 1", body)
+
+    def test_a_shard_whose_engines_failed_is_red_without_running_its_tests(self):
+        """A failed engine install went on to the whole suite, 15-25 min, and the shard was red
+        anyway (run 43337871244): the tests now skip and the gate step names the engine step."""
+        workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
+        start = workflow.index("  react-apps-check-shard:")
+        block = workflow[start : workflow.index("\n  react-apps-base-check:", start)]
+        def step(name):
+            body = block[block.index(f"- name: {name}\n"):]
+            return body[: body.index("\n      - name:", 1)] if "\n      - name:" in body[1:] else body
+        self.assertIn("id: engines", step("Install headless engines"))
+        self.assertIn("if: ${{ !cancelled() && steps.engines.outcome != 'failure' }}", step("Test webviews"))
+        self.assertIn("steps.webview-tests.outcome != 'skipped'", step("Upload head webview results"))
+        gate = step("Fail on the gate checks")
+        self.assertIn("ENGINES: ${{ steps.engines.outcome }}", gate)
+        self.assertIn('"ENGINES|Install headless engines"', gate)
+        # The split starts shard 1 at the seconds its shard-only checks take.
+        self.assertIn('CMUX_WEB_TEST_SHARD_HEAD_START: "1:120"', step("Test webviews"))
 
     def test_pr_and_merge_group_checks_belong_to_ci(self):
         delegated = {"changes": {"result": "success", "outputs": {"required": "true"}},

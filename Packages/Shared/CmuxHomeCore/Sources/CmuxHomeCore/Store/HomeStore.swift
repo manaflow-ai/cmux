@@ -35,6 +35,8 @@ public final class HomeStore {
     @ObservationIgnored var seeded: Set<ConversationID> = []
     /// The cache was read into the mirror (once per store).
     @ObservationIgnored var cacheRestored = false
+    /// This launch named its Chief (``rememberChief(_:)``): ``launchChief`` is nil from then on.
+    var chiefDecided = false
     /// Conversations that got the text typed in a gone cache-only one, until their view says so.
     @ObservationIgnored var carriedDrafts: Set<ConversationID> = []
     public internal(set) var me: Participant?

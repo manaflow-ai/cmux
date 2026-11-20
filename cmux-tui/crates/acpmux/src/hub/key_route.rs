@@ -209,9 +209,9 @@ impl Hub {
                 for (route, r) in
                     self.remote_sessions.read().iter().filter(|(_, r)| &r.peer == peer)
                 {
-                    let name = r.summary.get("name").and_then(Value::as_str).unwrap_or_default();
+                    let name = r.summary.name().unwrap_or_default();
                     let bare = name.strip_prefix(&format!("{peer}/")).unwrap_or(name);
-                    let closed = r.summary.get("status").and_then(Value::as_str) == Some("closed");
+                    let closed = r.summary.closed();
                     take(peer, bare, &r.receipt.mux_session_id, route.clone(), closed);
                 }
             }
@@ -275,7 +275,7 @@ impl Hub {
             });
         }
         for (route, r) in self.remote_sessions.read().iter() {
-            let name = r.summary.get("name").and_then(Value::as_str).unwrap_or_default();
+            let name = r.summary.name().unwrap_or_default();
             let bare = name.strip_prefix(&format!("{}/", r.peer)).unwrap_or(name);
             let Some(tier) =
                 tier_of(bare, &r.receipt.mux_session_id, false).and_then(|t| tiers.get_mut(t))
@@ -286,7 +286,7 @@ impl Hub {
                 host: r.peer.clone(),
                 name: bare.to_owned(),
                 route: route.clone(),
-                closed: r.summary.get("status").and_then(Value::as_str) == Some("closed"),
+                closed: r.summary.closed(),
             });
         }
         tiers
@@ -372,7 +372,8 @@ mod tests {
     pub(super) fn list(hub: &Hub, peer: &str, id: &str, name: &str, status: &str) {
         let row = RemoteSession {
             peer: peer.into(),
-            summary: json!({"sessionId": id, "name": format!("{peer}/{name}"), "status": status}),
+            summary: json!({"sessionId": id, "name": format!("{peer}/{name}"), "status": status})
+                .into(),
             receipt: SessionReceipt {
                 host_id: peer.into(),
                 mux_session_id: id.into(),

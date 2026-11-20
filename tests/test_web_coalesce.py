@@ -684,11 +684,13 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(output.read_text(), everything.read_text())
 
     def test_the_pull_request_webview_verdict_is_untouched(self):
-        # Condition 3: react-apps-base-check runs on pull requests only, from the head shards' own results.
+        # Condition 3: react-apps-base-check runs on pull requests only, from the head shards' own results (and the
+        # early base replay of the same merge parent, a pull-request-only job too).
         ci_web = yaml.safe_load(CI_WEB.read_text())
         base = ci_web["jobs"]["react-apps-base-check"]
-        self.assertEqual(base["needs"], ["web-subarea-scope", "react-apps-check-shard"])
+        self.assertEqual(base["needs"], ["web-subarea-scope", "react-apps-check-shard", "react-apps-base-early"])
         self.assertTrue(base["if"].startswith("${{ github.event_name == 'pull_request'"))
+        self.assertEqual(ci_web["jobs"]["react-apps-base-early"]["if"], base["if"])
 
 
 if __name__ == "__main__":

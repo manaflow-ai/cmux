@@ -58,6 +58,8 @@ export type BootImage = {
   displayName: string;
   snapshotId: string;
   services: string[];
+  /** The image's inputs key (bake.ts bakeInputsSha256): absent on entries from before it and on bakes it does not cover. */
+  inputs_sha256?: string;
 };
 type Env = keyof typeof SERVICES;
 
@@ -101,7 +103,8 @@ export function validate(images: BootImage[], env: string): void {
   if (new Set(images.map((i) => i.id)).size !== images.length) fail("duplicate ids");
   for (const i of images) {
     const keys = Object.keys(i).sort().join(",");
-    if (keys !== "displayName,id,revision,services,snapshotId") fail(`${i.id}: fields ${keys}`);
+    if (keys !== "displayName,id,revision,services,snapshotId" && keys !== "displayName,id,inputs_sha256,revision,services,snapshotId") fail(`${i.id}: fields ${keys}`);
+    if (i.inputs_sha256 !== undefined && !SHA256.test(i.inputs_sha256)) fail(`${i.id}: bad inputs_sha256`);
     if (!/^[a-z][a-z0-9-]*$/u.test(i.id) || i.id.length > 63) fail(`bad id ${i.id}`);
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(i.revision) || i.revision.length > 64) fail(`${i.id}: bad revision`);
     if (i.displayName.length < 1 || i.displayName.length > 100 || [...i.displayName].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127))
@@ -112,6 +115,8 @@ export function validate(images: BootImage[], env: string): void {
   }
 }
 
+const SHA256 = /^[0-9a-f]{64}$/u;
+
 /** Drops the oldest auto-rolled entries past KEEP_AUTO; `newestFirst` says which end of the list is newest. */
 export function trimAuto(images: BootImage[], newestFirst: boolean): BootImage[] {
   const ordered = newestFirst ? images : [...images].reverse();
@@ -120,15 +125,48 @@ export function trimAuto(images: BootImage[], newestFirst: boolean): BootImage[]
   return newestFirst ? kept : kept.reverse();
 }
 
-export type Candidate = { snapshot_id: string; lock_sha256: string; run: number; source_sha?: string; smoke?: { detail?: string }; cmux_tui?: { commit?: string } };
+export type Candidate = { snapshot_id: string; lock_sha256: string; run: number; source_sha?: string; smoke?: { detail?: string }; cmux_tui?: { commit?: string }; inputs_sha256?: string };
+
+/**
+ * cmux-platform's fallback image (fallback-image.json): what its CLOUD_VM_API_IMAGE pin names in every environment, the
+ * image a create boots before that isolate has read cmux-vm's list, and the image a create that recorded the pin boots
+ * after. It must stay listed (a recorded pin the list no longer names fails as cloud.provider.image_withdrawn) and must
+ * connect and update itself on the current channel. An auto-rolled entry leaves the lists within KEEP_AUTO rolls, and
+ * the newest hand-approved one was cloud-native-bd31f93-rd022 (11-07), whose cmux-host ran the session host binary as the
+ * relay ticket command (#37770) and whose updater refuses the channel's machine/ URLs (#42308): a machine booted from it
+ * never connects (cmuxterm-hq probe cloud-chat-replies-staging, 2026-11-17T14:03:17Z). So every roll writes this entry
+ * into both lists when it is missing, under a hand-approved id that trimAuto and rollback never take out. Moving the
+ * fallback: a newer smoked roll's entry here (a new id), then cmux-platform's pin once a roll has listed it.
+ */
+export const FALLBACK_FILE = path.join(ROOT, "images/cmux-vm/fallback-image.json");
+
+export function fallbackImage(file = FALLBACK_FILE): Omit<BootImage, "services"> {
+  const fallback = JSON.parse(readFileSync(file, "utf8")) as Omit<BootImage, "services">;
+  if (fallback.id.startsWith(AUTO_PREFIX)) throw new Error(`${fallback.id}: the fallback needs a hand-approved id, never ${AUTO_PREFIX}*`);
+  validate([{ ...fallback, services: [...SERVICES.production] }], "fallback");
+  return fallback;
+}
+
+/**
+ * `images` with the fallback entry, when it is missing, where the hand-approved entries meet the auto-rolled ones: after
+ * production's rolls (it boots its first entry) and before staging's (it boots its last), so no environment boots it.
+ */
+export function withFallback(images: BootImage[], env: Env, fallback = fallbackImage()): BootImage[] {
+  if (images.some((i) => i.id === fallback.id)) return images;
+  const auto = (i: BootImage) => i.id.startsWith(AUTO_PREFIX);
+  const found = env === "production" ? images.findIndex((i) => !auto(i)) : images.findIndex(auto);
+  const at = found < 0 ? images.length : found;
+  return [...images.slice(0, at), { ...fallback, services: [...SERVICES[env]] }, ...images.slice(at)];
+}
 
 /** The approved entry for a baked candidate: production first, staging last (its order is append-only). */
 export function approve(text: string, entry: BootImage): { text: string; previousFirst: string } {
   const prod = locate(text, "production").images;
   const staging = locate(text, "staging").images;
   if (prod.some((i) => i.id === entry.id) || staging.some((i) => i.id === entry.id)) throw new Error(`${entry.id} is already approved`);
-  const nextProd = trimAuto([{ ...entry, services: [...SERVICES.production] }, ...prod], true);
-  const nextStaging = trimAuto([...staging, { ...entry, services: [...SERVICES.staging] }], false);
+  const fallback = fallbackImage();
+  const nextProd = withFallback(trimAuto([{ ...entry, services: [...SERVICES.production] }, ...prod], true), "production", fallback);
+  const nextStaging = withFallback(trimAuto([...staging, { ...entry, services: [...SERVICES.staging] }], false), "staging", fallback);
   let out = replaceList(text, "production", nextProd);
   out = replaceList(out, "staging", nextStaging);
   return { text: out, previousFirst: prod[0]?.id ?? "" };
@@ -172,6 +210,8 @@ export function rolledImage(candidate: Candidate, revision: string, cmuxTui: str
     displayName: `Cloud Native (cmux-tui ${cmuxTui.slice(0, 8)}, image roll ${run}.${attempt})`,
     snapshotId: candidate.snapshot_id,
     services: [],
+    // cmux-platform compares it across rolls: equal means only cmux-tui changed, so a spare stays claimable.
+    ...(typeof candidate.inputs_sha256 === "string" && SHA256.test(candidate.inputs_sha256) ? { inputs_sha256: candidate.inputs_sha256 } : {}),
   };
 }
 

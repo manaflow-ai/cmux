@@ -1148,6 +1148,19 @@ impl Brain {
         for id in quiet_ids {
             self.watch_sub(&id, now);
         }
+        // Held while its goal went on (goal.rs): Codex's own turns change no
+        // session status, so each tick reads it again until it reports.
+        let held: Vec<(String, String)> = self
+            .state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter(|s| Self::running(s) && s.goal_held && !s.paused && !s.cancelled)
+            .filter_map(|s| Some((s.id.clone(), s.session_id.clone()?)))
+            .collect();
+        for (id, session) in held {
+            self.finish_sub(&id, &session);
+        }
         let state = &self.state;
         self.watches.retain(|id, _| {
             state
@@ -1290,8 +1303,10 @@ impl Brain {
         let Some((_, sub)) = self.state.sub(id) else {
             return;
         };
+        // One held on its goal reports through finish_sub (goal_goes_on).
         if sub.status != SubStatus::Running
             || sub.awaiting_task
+            || sub.goal_held
             || now.saturating_sub(sub.run_ms) < IDLE_GRACE.as_millis() as u64
         {
             return;

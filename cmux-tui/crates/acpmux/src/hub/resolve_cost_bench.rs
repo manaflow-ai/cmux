@@ -28,7 +28,7 @@ fn hub_of(per_peer: usize) -> Arc<Hub> {
                        "status": "idle", "turnCount": 1, "createdAt": 1, "updatedAt": s + 1})
             })
             .collect();
-        hub.apply_peer_notice(&name, peer.generation, PeerNotice::Sessions(rows));
+        hub.apply_peer_notice(&name, peer.generation, PeerNotice::sessions_from_values(rows));
     }
     hub
 }

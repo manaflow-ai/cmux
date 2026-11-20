@@ -23,11 +23,16 @@
 //! runner whose FIFO landed in a later folder of the same chat id (a purge moved its folder aside
 //! while it started) ignores that folder's stops, so a chat never stops another chat's task. Before
 //! the task starts, SIGTERM or SIGINT ends the runner; after, it stops the task like a stop line
-//! does: SIGTERM to the task's own group, then SIGKILL to the group after [`GRACE`]. Only the
-//! runner signals that group, and only before it reaps the leader, so the group id is still the
-//! task's. SIGHUP is ignored. The runner learns the leader's exit with `waitid(WNOWAIT)` and reaps
-//! it only once the pipe ends, so output a child it left writes later is kept and a stop still
-//! reaches that child. Once a stop began, the reap also waits for its SIGKILL: a member that
+//! does: SIGTERM to the task's whole tree, then SIGKILL to it after [`GRACE`]. The tree is the
+//! task's own group and every process that left it: what still runs under this runner, and what
+//! carries the task's [`TASK_MARK`] in its environment, so a process whose parent exited is found
+//! too. GNU `timeout` (setpgid) and a shell with job control move their children out of the group,
+//! and a group signal alone left those running (a `glaeda-gh wait; gh ...` loop polled GitHub
+//! after its bg_stop). Each such process is known by pid and start time, so a reused pid is
+//! never signalled. Only the runner signals the group, and only before it reaps the leader, so the
+//! group id is still the task's. SIGHUP is ignored. The runner learns the leader's exit with
+//! `waitid(WNOWAIT)` and reaps it only once the pipe ends, so output a child it left writes later
+//! is kept and a stop still reaches that child. Once a stop began, the reap also waits for its SIGKILL: a member that
 //! ignores SIGTERM and holds no pipe (its output sent elsewhere) is killed too, never left once
 //! the pipe ends. A stop whose SIGKILL leaves the pipe open (a process that left the group holds
 //! it) ends the wait after one more grace. Then the runner writes the exit and exits.
@@ -44,6 +49,9 @@ use std::path::{Path, PathBuf};
 pub const RUN_ARG: &str = "__bg-run";
 /// The default segment: two of them, 8 MiB, are the most a task keeps.
 pub const SEGMENT: u64 = 4 << 20;
+/// The variable each task runs with, valued with its own mark (`<runner pid>-<start ms>`): a stop
+/// finds by it the processes that left the task's group and whose parent exited.
+pub const TASK_MARK: &str = "ACPMUX_BG_TASK";
 /// From SIGTERM to SIGKILL on a stop.
 pub const GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 
@@ -419,6 +427,22 @@ pub fn main() -> anyhow::Result<()> {
         libc::signal(libc::SIGCHLD, libc::SIG_DFL);
     }
     let (dir, id) = (spec.dir.clone(), spec.id.clone());
+    let mark = format!("{}-{}", std::process::id(), crate::store::now_ms());
+    // `signal` to every process of the task's tree outside its group: what still runs under this
+    // runner and what carries its mark (a process whose parent exited).
+    let signal_tree = {
+        let mark = mark.clone();
+        move |signal: libc::c_int| {
+            use crate::agent_host::tree;
+            let mut procs = tree::descendants(&[std::process::id()]);
+            for p in tree::marked(TASK_MARK, &mark) {
+                if !procs.contains(&p) {
+                    procs.push(p);
+                }
+            }
+            tree::signal_still_running(&procs, signal);
+        }
+    };
     /// The task's pid once it runs, whether it was reaped (from then on its group id may be
     /// another's), and its record: one lock, so a stop never interleaves with the start, the
     /// reap or a record write.
@@ -444,6 +468,7 @@ pub fn main() -> anyhow::Result<()> {
     let stop = {
         let (task, dir, give_up, killed) =
             (task.clone(), dir.clone(), give_up.clone(), killed.clone());
+        let signal_tree = signal_tree.clone();
         let held_id = id.clone();
         move || {
             let mut held = task.lock().unwrap_or_else(|e| e.into_inner());
@@ -462,6 +487,7 @@ pub fn main() -> anyhow::Result<()> {
             let _ = write_record(&dir, &held.record);
             drop(held);
             let (task, give_up, killed) = (task.clone(), give_up.clone(), killed.clone());
+            let signal_tree = signal_tree.clone();
             std::thread::spawn(move || {
                 let sent = || {
                     *killed.0.lock().unwrap_or_else(|e| e.into_inner()) = true;
@@ -476,6 +502,8 @@ pub fn main() -> anyhow::Result<()> {
                     // for the SIGKILL below), so the group is the task's.
                     unsafe { libc::killpg(pid as i32, signal) };
                     drop(held);
+                    // And what left the group (pid and start time checked, so after the reap too).
+                    signal_tree(signal);
                     if signal == libc::SIGKILL {
                         sent();
                     }
@@ -526,8 +554,10 @@ pub fn main() -> anyhow::Result<()> {
         let (reader, writer) = std::io::pipe()?;
         let shell = ["/bin/bash", "/bin/sh"].into_iter().find(|s| Path::new(s).exists());
         let mut cmd = std::process::Command::new(shell.unwrap_or("/bin/sh"));
-        // Exactly the env the daemon built (the agent's), never this runner's own on top of it.
+        // Exactly the env the daemon built (the agent's), never this runner's own on top of it,
+        // plus the task's mark.
         cmd.arg("-c").arg(&spec.command).current_dir(&spec.cwd).env_clear().envs(&spec.env);
+        cmd.env(TASK_MARK, &mark);
         cmd.stdin(std::process::Stdio::null()).stdout(writer.try_clone()?).stderr(writer);
         // SAFETY: setsid, signal and sigprocmask are async-signal-safe. The task leads its own
         // session and group, with SIGPIPE back to its default and no signal blocked.

@@ -94,6 +94,8 @@ public final class BrowserChromeView: NSView {
     private let promptDialogs = BrowserPromptDialogs()
     let pageStatus = PageStatusViews()
     lazy var pageOverlays = PageFloatingOverlays(page: contentContainer)
+    /// The verification code suggestion under a page's code field, made on first use.
+    var verificationSuggestionsIfMade: VerificationSuggestionController?
     /// Bound in setup (first read there), never an IUO.
     lazy var toolbarHeight: NSLayoutConstraint = density.bind(toolbar.heightAnchor.constraint(equalToConstant: 0)) { [weak self] in
         // A deallocated chrome view's constraint is never laid out again.
@@ -396,6 +398,7 @@ public final class BrowserChromeView: NSView {
         extensionToolbar.bind(tab)
         toolbarButtons.bind(tab)
         addressBar.bindKeywords(of: tab)
+        addressBar.bindPreloading(of: tab)
         if let findBar = pageBars.findBarIfMade, !findBar.isHidden {
             old?.clearFind()
             findBar.isHidden = true
@@ -409,7 +412,15 @@ public final class BrowserChromeView: NSView {
     }
 
     /// Permission prompts in the bar; JavaScript dialogs as cmux dialogs on this tab.
-    func renderPrompt() { promptDialogs.render(tab.pendingPrompts.first, in: contentContainer, shownBar: pageBars.promptBarIfMade) { [pageBars] in pageBars.promptBar } }
+    /// A verification code offer shows under its code field instead (`VerificationSuggestionController`).
+    func renderPrompt() {
+        let first = tab.pendingPrompts.first
+        let suggested: Bool
+        if case .verificationOffer = first?.kind { suggested = verificationSuggestions.render(first) } else {
+            suggested = verificationSuggestionsIfMade?.render(nil) ?? false
+        }
+        promptDialogs.render(suggested ? nil : first, in: contentContainer, shownBar: pageBars.promptBarIfMade) { [pageBars] in pageBars.promptBar }
+    }
 
     private func render() {
         let state = tab.state

@@ -1,0 +1,61 @@
+// Leo Daylight: the Leo collection's look in the light. Frosted glass over your desktop, a violet
+// accent on paper, and the same tones in every collection extension (accent, success, warning,
+// danger). Edit and save: the running app repaints at once.
+{
+  "name": "Leo Daylight",
+  "description": "Frosted glass on lavender paper; a violet accent, teal and amber tones.",
+
+  // The terminal theme and its colors. ANSI 1, 2, 3 and 4 become the danger, success, warning and
+  // highlight tones every extension draws with; colors.accent is the accent.
+  "appearance.theme": "Rose Pine Dawn",
+  "colors": {
+    "background": "#fbf8ff",
+    "foreground": "#2a2340",
+    "cursor": "#7c4dff",
+    "selection": "#e6ddff",
+    "accent": "#7c4dff",
+    "0": "#2a2340",
+    "1": "#c92a5e",
+    "2": "#1f8a5f",
+    "3": "#a8650f",
+    "4": "#3563c9",
+    "5": "#7c4dff",
+    "6": "#0b839a",
+    "7": "#6b6385",
+    "8": "#8a83a3",
+    "9": "#e0466f",
+    "10": "#2a9d6c",
+    "11": "#b8761c",
+    "12": "#4a78dc",
+    "13": "#9466ff",
+    "14": "#1596ad",
+    "15": "#f2eefb"
+  },
+  "appearance.accent": "theme",
+
+  // No painting: frosted glass that takes your desktop's colors. Popovers keep their own
+  // see-through material.
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "frosted",
+  "appearance.wallpaperTint": true,
+  "appearance.glassTransparency": 0.25,
+
+  // A lavender sidebar beside paper panes, sections in a quiet tray.
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#f1ecfb",
+  "appearance.surfaces.sidebar.opacity": 0.8,
+  "sidebar.sectionLook": "tray",
+  "appearance.surfaces.terminal.color": "#fbf8ff",
+  "appearance.surfaces.terminal.opacity": 0.92,
+  "appearance.surfaces.agentPane.color": "#fbf8ff",
+  "appearance.surfaces.agentPane.opacity": 0.94,
+  "appearance.surfaces.newTabPage.color": "#fbf8ff",
+  "appearance.surfaces.newTabPage.opacity": 0.8,
+
+  // Work shows as a violet dot.
+  "appearance.statusIndicator.style": "dot",
+  "appearance.statusIndicator.color": "#7c4dff",
+
+  "appearance.titleAreaTone": "subtleTone",
+  "appearance.density": "comfortable"
+}

@@ -54,8 +54,9 @@
       "guideline": "2.1(a) / 2.1(b)",
       "summary": "No way past the connect page, so the app's features were unreachable",
       "apple_said_paraphrased": "We could not locate the in-app purchases in the app.",
-      "root_cause": "The connect page required a live Mac; the demonstration account hit the same gate.",
+      "root_cause": "The connect page required a live Mac; the demonstration account hit the same gate. The review notes also never said where the plans were.",
       "detectors": [
+        "lint:iap.review-notes",
         "uitest:testOnboardingHasAWayForwardWithoutAMac",
         "uitest:testSignedInReviewerReachesHomeWithoutAMac",
         "uitest:testOnboardingHasNoDeadControls"

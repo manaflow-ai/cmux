@@ -34,6 +34,9 @@ WORKFLOW = os.path.join(ROOT, ".github", "workflows", "cmux-next-media.yml")
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 from test_ci_fork_runner_routing import parse_expression  # noqa: E402
 import workflow_jobs  # noqa: E402
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 REPO = "manaflow-ai/cmux"
 LABEL = "media-tour"
@@ -106,7 +109,7 @@ def evaluate(node, context):
 
 def expression(text, context):
     text = str(text).strip()
-    parts = re.split(r"\$\{\{(.*?)\}\}", text)
+    parts = gh_expressions.EXPRESSION.split(text)
     if len(parts) == 3 and not parts[0] and not parts[2]:
         return evaluate(parse_expression(parts[1]), context)
     if len(parts) == 1:

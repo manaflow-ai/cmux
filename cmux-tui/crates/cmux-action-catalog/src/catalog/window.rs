@@ -24,6 +24,38 @@ pub static ACTIONS: &[Action] = &[
         main_menu: Some("app"),
         ..Action::DEFAULT
     },
+    // Customize…: customize cmux by asking (cmux-customize), opened from the palette and the
+    // app menu with no terminal. The CLI's own door is `cmux customize`; this one opens a panel
+    // that takes the keyboard, which automation never does unasked.
+    Action {
+        id: "customize.open",
+        group: GROUP,
+        title: t("ActionCatalog", "action.customize.open", "Customize…"),
+        keywords: &["customize", "customise", "personalize", "make it yours", "ask", "agent", "sidebar", "section", "widget", "extension", "theme", "profile", "preview", "apply", "discard", "rollback", "undo"],
+        category: "window",
+        symbol: "wand.and.rays",
+        surfaces: PALETTE | KEYBOARD | MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action customize-open",
+        main_menu: Some("app"),
+        ..Action::DEFAULT
+    },
+    // Reset Customization Library: every library entry off, back to what was there before any
+    // layer, as `cmux customize library reset` (the CLI's own verb). The Settings card turns
+    // entries off one at a time and changes the library only on the person's click, so this row
+    // is the person's too.
+    Action {
+        id: "customize.library.reset",
+        group: GROUP,
+        title: t("SettingsActions", "action.customize.library.reset", "Reset Customization Library"),
+        keywords: &["customize", "customise", "customization", "library", "reset", "turn off", "all off", "disable", "layers", "entries", "undo", "rollback"],
+        category: "settings",
+        symbol: "arrow.counterclockwise",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action customize-library-reset",
+        is_person_only: true,
+        ..Action::DEFAULT
+    },
     Action {
         id: "newWindow",
         group: GROUP,

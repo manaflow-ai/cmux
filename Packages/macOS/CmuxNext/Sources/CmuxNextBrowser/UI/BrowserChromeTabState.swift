@@ -23,6 +23,11 @@ public final class BrowserChromeTabState: Sendable {
         get { loads.onPageFinished }
         set { loads.onPageFinished = newValue }
     }
+    /// Each main-frame URL the tab commits, once (`BrowserPageLoads.onPageCommitted`).
+    public var onPageCommitted: ((URL) -> Void)? {
+        get { loads.onPageCommitted }
+        set { loads.onPageCommitted = newValue }
+    }
     public var loadOverride: ((URL) -> Bool)? { didSet { chrome?.loadOverride = loadOverride } }
     public var onOpenURL: ((URL, OmnibarDisposition) -> Void)? { didSet { chrome?.onOpenURL = onOpenURL } }
     public var onTypedCommit: (() -> Void)? { didSet { chrome?.onTypedCommit = onTypedCommit } }
@@ -80,6 +85,13 @@ public final class BrowserChromeTabState: Sendable {
     /// Shows `text` over the tab's page now, or when the tab next shows.
     public func showNotice(_ text: String, action: (title: String, run: () -> Void)? = nil) {
         if let chrome { chrome.showNotice(text, action: action) } else { pendingNotice = (text, action) }
+    }
+
+    /// Takes the notice away, shown or waiting, while it still says `text` (a notice whose condition
+    /// ended; one that says something else since stays).
+    public func hideNotice(saying text: String) {
+        if pendingNotice?.text == text { pendingNotice = nil }
+        if chrome?.noticeText == text { chrome?.hideNotice() }
     }
 
     /// The notice over the tab's page, shown or waiting (diagnostics, the import offer's check).

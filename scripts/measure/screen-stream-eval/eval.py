@@ -16,7 +16,7 @@ and each TARGET is
    "split": {"key"|"pointer": {"encode_ms", "transport_ms", "decode_ms", "input_to_capture_ms", "method",
                                 [rd: "input_to_capture_parts": {"render_ms"|"sck_ms"|"pickup_ms"|"gate_ms"|"encode_ms": {"n", "p50", "p95"}}]},
              "typing": {"encode_ms", "decode_ms"}},
-   "extra": {..., "repeats": [{"repeat", "kbps", "fps", "ocr_cer", ...}]}}
+   "extra": {..., "first_frame_ms", "cpu_pct", "repeats": [{"repeat", "kbps", "fps", "ocr_cer", ...}]}}
 The window and OCR scenarios run several times (the harness's repeats=, 3 by default): each of
 their numbers is the median of the repeats that measured it, and extra.repeats keeps every repeat's
 own. Latency runs once: its p50 and p95 are already over SAMPLES inputs.
@@ -27,6 +27,7 @@ New fields may be added; a field is never renamed or given another meaning witho
 from __future__ import annotations
 
 import json
+import math
 import statistics
 import sys
 from pathlib import Path
@@ -46,21 +47,36 @@ def load(path: Path):
         return None
 
 
-def phase_numbers(series: list[dict], phases: dict[str, dict]) -> tuple[dict, dict, dict, dict]:
-    kbps, fps, encode, decode = {}, {}, {}, {}
+def phase_numbers(series: list[dict], phases: dict[str, dict]) -> tuple[dict, dict, dict, dict, dict]:
+    kbps, fps, sampled_fps, encode, decode = {}, {}, {}, {}, {}
     for name in WINDOW_PHASES:
         span = phases.get(name)
-        rows = [] if not span else [s for s in series if span["start_unix_ms"] + PHASE_GUARD_MS < s["unix_ms"] <= span["end_unix_ms"]]
+        rows = []
+        if span:
+            for sample in series:
+                duration = sample.get("duration_ms", 1000)
+                if type(duration) not in (int, float) or not math.isfinite(duration) or duration <= 0:
+                    continue
+                if (span["start_unix_ms"] + PHASE_GUARD_MS <= sample["unix_ms"] - duration
+                        and sample["unix_ms"] <= span["end_unix_ms"]):
+                    rows.append(sample)
         if not rows:
-            kbps[name] = fps[name] = encode[name] = decode[name] = None
+            kbps[name] = fps[name] = sampled_fps[name] = encode[name] = decode[name] = None
             continue
-        kbps[name] = round(sum(s["bytes"] for s in rows) * 8 / 1000 / len(rows), 1)
-        fps[name] = round(sum(s["frames"] for s in rows) / len(rows), 1)
+        # Missing counts remain unmeasured; valid counts are weighted by actual duration.
+        elapsed_s = sum(s.get("duration_ms", 1000) for s in rows) / 1000
+        byte_rows = [s.get("bytes") for s in rows]
+        frame_rows = [s.get("frames") for s in rows]
+        sampled_rows = [s.get("sampled_changes") for s in rows]
+        measured = lambda values: all(type(v) in (int, float) and math.isfinite(v) and v >= 0 for v in values)
+        kbps[name] = round(sum(byte_rows) * 8 / 1000 / elapsed_s, 1) if measured(byte_rows) else None
+        fps[name] = round(sum(frame_rows) / elapsed_s, 1) if measured(frame_rows) else None
+        sampled_fps[name] = round(sum(sampled_rows) / elapsed_s, 1) if measured(sampled_rows) else None
         enc = [s["encode_ms"] for s in rows if isinstance(s.get("encode_ms"), (int, float))]
         dec = [s["decode_ms"] for s in rows if isinstance(s.get("decode_ms"), (int, float))]
         encode[name] = round(statistics.median(enc), 2) if enc else None
         decode[name] = round(statistics.median(dec), 2) if dec else None
-    return kbps, fps, encode, decode
+    return kbps, fps, sampled_fps, encode, decode
 
 
 OCR_FIELDS = ["cer", "host_cer_vs_truth", "viewer_cer_vs_truth", "host_chars", "viewer_chars", "truth_chars", "host_image", "viewer_image"]
@@ -72,10 +88,11 @@ def empty_target(errors: list[str]) -> dict:
         "ok": False, "errors": errors,
         "latency": {k: {"p50_ms": None, "p95_ms": None, "n": None, "lost": None} for k in ("key", "pointer")},
         "kbps": dict.fromkeys(WINDOW_PHASES), "fps": dict.fromkeys(WINDOW_PHASES),
+        "sampled_fps": dict.fromkeys(WINDOW_PHASES),
         "ocr": dict.fromkeys(OCR_FIELDS),
         "split": {**{k: {"input_to_capture_ms": None, "encode_ms": None, "transport_ms": None, "decode_ms": None, "method": None}
                      for k in ("key", "pointer")}, "typing": {"encode_ms": None, "decode_ms": None}},
-        "extra": {},
+        "extra": {"first_frame_ms": None, "cpu_pct": None},
     }
 
 
@@ -90,7 +107,10 @@ def target(name: str, folder: Path, out: Path) -> None:
         result["split"][kind] = {k: split.get(k) for k in ("input_to_capture_ms", "encode_ms", "transport_ms", "decode_ms", "method")}
         if split.get("input_to_capture_parts"):
             result["split"][kind]["input_to_capture_parts"] = split["input_to_capture_parts"]
-        if g2g.get("p50") is None:
+        # A window-only target (its `caps` verb; screen-stream-eval.sh) has no latency stage, and
+        # Screen Sharing.app's latency is unavailable unless the presented observer measured it.
+        unavailable = (split.get("method") or "").startswith("apple-screen-sharing-app:")
+        if g2g.get("p50") is None and not unavailable and not (folder / "window-only").exists():
             errors.append(f"latency {kind}: no samples")
     # Repeats (window-N.json, phases-N.jsonl, ocr-N.json): every number is the median of the repeats
     # that measured it, and extra.repeats keeps each repeat's own numbers.
@@ -105,16 +125,23 @@ def target(name: str, folder: Path, out: Path) -> None:
                 if line.strip():
                     row = json.loads(line)
                     phases[row["phase"]] = row
-        kbps, fps, encode, decode = phase_numbers(window.get("series") or [], phases)
+        kbps, fps, sampled_fps, encode, decode = phase_numbers(window.get("series") or [], phases)
         ocr = load(folder / f"ocr-{rep}.json")
-        if None in kbps.values():
-            errors.append(f"window {rep}: no numbers for {[k for k, v in kbps.items() if v is None]} (phases logged: {sorted(phases)})")
+        # Bytes are required, except from a viewer that marks them unavailable (Screen Sharing.app
+        # when nettop read none, `bytes_unavailable: true`); that one needs frame or sampled-change counts instead. A
+        # `bytes_method` alone (gui-viewer.sh's nettop) still owes bytes.
+        if (window.get("extra") or {}).get("bytes_unavailable") is True:
+            missing = [k for k in WINDOW_PHASES if fps[k] is None and sampled_fps[k] is None]
+        else:
+            missing = [k for k in WINDOW_PHASES if kbps[k] is None]
+        if missing:
+            errors.append(f"window {rep}: no numbers for {missing} (phases logged: {sorted(phases)})")
         if ocr is None:
             errors.append(f"ocr {rep}: no result")
         else:
             ocrs.append(ocr)
         extras.append(window.get("extra") or {})
-        per_rep.append({"repeat": rep, "kbps": kbps, "fps": fps, "typing_encode_ms": encode.get("typing"),
+        per_rep.append({"repeat": rep, "kbps": kbps, "fps": fps, "sampled_fps": sampled_fps, "typing_encode_ms": encode.get("typing"),
                         "typing_decode_ms": decode.get("typing"), "ocr_cer": (ocr or {}).get("cer"),
                         "ocr": {k: (ocr or {}).get(k) for k in OCR_FIELDS},
                         **{f"window_{k}": v for k, v in (window.get("extra") or {}).items()}})
@@ -144,7 +171,17 @@ def target(name: str, folder: Path, out: Path) -> None:
                 result["ocr"][k] = middle.get(k)
     else:
         errors.append("ocr: no result")
-    result["extra"] = {**(extras[0] if extras else {}), "repeats": per_rep}
+    # Codec observations are per-repeat evidence, not first-repeat metadata: missing quality or
+    # timing in one repeat stays visible in extra.repeats rather than becoming an aggregate taken
+    # from another repeat. First frame and CPU are each the median of the repeats that measured it.
+    metadata = {k: v for k, v in (extras[0] if extras else {}).items()
+                if k not in {"netem_metrics", "first_frame_ms", "cpu_pct", "process_cpu_pct"}}
+    result["extra"] = {**metadata,
+                        "first_frame_ms": median_of(e.get("first_frame_ms") for e in extras),
+                        "cpu_pct": median_of(e.get("cpu_pct") for e in extras),
+                        "process_cpu_pct": median_of(e.get("process_cpu_pct") for e in extras),
+                        "repeats": per_rep}
+    result["sampled_fps"] = {k: median_of(r["sampled_fps"][k] for r in per_rep) for k in WINDOW_PHASES}
     result["ok"] = not errors
     out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
 
@@ -183,6 +220,24 @@ def summary(results_path: Path, out: Path, previous_path: Path | None) -> None:
         lines.append("No earlier run to compare against.")
     if run.get("blocked"):
         lines += ["", f"**Not measured:** {run['blocked']}"]
+    targets = results.get("targets", {})
+    if len(targets) > 1:
+        # One row per contender, so latency, bandwidth and frame rate read across targets at once.
+        lines += ["", "## Side by side", "",
+                  "| Target | Key / click p50 | kbps idle / typing / scroll | fps idle / typing / scroll |",
+                  "| --- | --- | --- | --- |"]
+        sampled_only = False
+        for name, t in targets.items():
+            latency = " / ".join(fmt(((t.get("latency") or {}).get(kind) or {}).get("p50_ms"), " ms")
+                                 for kind in ("key", "pointer"))
+            kbps = " / ".join(fmt((t.get("kbps") or {}).get(phase), "", 0) for phase in WINDOW_PHASES)
+            fps, mark = t.get("fps") or {}, ""
+            if all(v is None for v in fps.values()) and any(v is not None for v in (t.get("sampled_fps") or {}).values()):
+                fps, mark, sampled_only = t["sampled_fps"], "*", True
+            rate = " / ".join(fmt(fps.get(phase), mark) for phase in WINDOW_PHASES)
+            lines.append(f"| {name} | {latency} | {kbps} | {rate} |")
+        if sampled_only:
+            lines += ["", "\\* sampled screenshot changes a second (at most 10 captures a second), not decoded FPS."]
     for name, t in results.get("targets", {}).items():
         p = ((previous or {}).get("targets") or {}).get(name) or {}
 
@@ -204,6 +259,10 @@ def summary(results_path: Path, out: Path, previous_path: Path | None) -> None:
             lines.append(f"| kbps, {label} | {cell('kbps', phase, unit='', digits=0)} at {cell('fps', phase, unit=' fps')} |")
         lines.append(f"| Text OCR error (13 pt code, viewer vs host screenshot) | {cell('ocr', 'cer', unit='%', digits=2)}"
                      f" (host OCR vs drawn text {fmt(get(t, 'ocr', 'host_cer_vs_truth'), '%', 2)}) |")
+        lines.append(f"| First decoded frame / viewer CPU / capture CPU | {cell('extra', 'first_frame_ms')} / {cell('extra', 'cpu_pct', unit=' %', digits=1)} / {cell('extra', 'process_cpu_pct', unit=' %', digits=1)} |")
+        if any(v is not None for v in (t.get('sampled_fps') or {}).values()):
+            lines.append(f"| Apple sampled screenshot changes (not decoded FPS) | "
+                         + " / ".join(cell('sampled_fps', phase, unit=' changes/s', digits=1) for phase in WINDOW_PHASES) + " |")
         for kind in ("key", "pointer"):
             lines.append(f"| {kind.capitalize()} split: input→capture / encode / transport / decode | "
                          f"{cell('split', kind, 'input_to_capture_ms')} / {cell('split', kind, 'encode_ms', digits=2)} / "

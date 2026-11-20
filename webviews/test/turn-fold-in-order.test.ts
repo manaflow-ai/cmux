@@ -100,7 +100,7 @@ for (const family of FAMILIES)
     expect(opened.find((shown) => shown.id === `${WORKED}-u-0`)!.foldOpen).toBe(false);
     // Closing it again leaves the other fold as it was.
     const both = toggleTurnFold(steered, new Set([`${WORKED}-u-0`, `${WORKED}-s-1`]), `${WORKED}-s-1`);
-    expect([...both]).toEqual([`${WORKED}-u-0`]);
+    expect([...both]).toEqual([`${WORKED}-u-0`, `closed:${WORKED}-s-1`]);
   });
 
 test("Find opens the fold that holds the match: the one after the steer for its commands", () => {

@@ -62,6 +62,8 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import yaml
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 sys.path.append(str(Path(__file__).resolve().parents[2] / "tests"))
 import workflow_jobs  # noqa: E402 - tests/workflow_jobs.py, the one reader of a job's runs-on
@@ -256,7 +258,7 @@ def _picker_value_term(term: str) -> bool:
         return False
     return PICKER_OUTPUT.search(re.sub(r"'(?:[^']|'')*'", "''", term)) is not None
 MATRIX_VALUE = re.compile(r"^matrix\.([\w-]+)$")
-EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
+EXPRESSION = gh_expressions.EXPRESSION  # a tokenizer: a `}}` in a string literal does not end it
 CALL = re.compile(r"^([A-Za-z]\w*)\((.*)\)$", re.DOTALL)
 
 

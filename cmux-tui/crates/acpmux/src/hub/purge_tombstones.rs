@@ -107,7 +107,7 @@ mod tests {
     }
 
     fn list(ids: &[&str]) -> PeerNotice {
-        PeerNotice::Sessions(ids.iter().map(|id| row(id)).collect())
+        PeerNotice::sessions_from_values(ids.iter().map(|id| row(id)).collect())
     }
 
     fn changed(id: &str, kind: &str) -> PeerNotice {

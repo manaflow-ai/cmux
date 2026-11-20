@@ -1,0 +1,39 @@
+/* Explicit non-chat adoption. Loading this CSS alone never changes another page or gallery.
+   System menus, per-role geometry and accessibility fallbacks remain platform owned. */
+:is(:root[data-transient-material], .transient-material-scope) {
+  --transient-surface-veil: light-dark(
+    color-mix(in srgb, var(--glass-surface) calc(var(--ds-transient-light-veil-alpha) * 100%), transparent),
+    color-mix(in srgb, var(--glass-surface) calc(var(--ds-transient-dark-veil-alpha) * 100%), transparent)
+  );
+}
+
+:is(:root[data-transient-material], .transient-material-scope) :is(.ui-popup.ui-glass, .ui-card.ui-glass, .page-menu) {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent);
+  --glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
+  --host-glass-fill: color-mix(in srgb, var(--glass-surface) calc(var(--ds-transient-host-veil) * 100%), transparent);
+}
+
+:is(:root[data-transient-material], .transient-material-scope) .ui-dialog.ui-glass {
+  --glass-tint: var(--transient-surface-veil);
+  --glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
+}
+
+/* Keep the tooltip's contrast-fitted ink and veil on the common frost. */
+:is(:root[data-transient-material], .transient-material-scope) :is(.ui-tooltip, .ui-title-tooltip) {
+  --tooltip-blur: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
+}
+
+/* Lens owns its own frost. No second blur over the host's rendered material. */
+:root[data-transient-material][data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"])
+  :is(.ui-popup, .ui-card, .ui-dialog).ui-glass {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-lens-tint), transparent);
+  --glass-backdrop: var(--ds-glass-lens-blur);
+}
+
+/* glass.css already forces opaque glass under either accessibility signal. */
+@media (prefers-reduced-transparency: reduce) {
+  :is(:root[data-transient-material], .transient-material-scope) :is(.ui-tooltip, .ui-title-tooltip) {
+    --tooltip-blur: none;
+  }
+}
+:root[data-reduce-transparency] :is(.ui-tooltip, .ui-title-tooltip) { --tooltip-blur: none; }

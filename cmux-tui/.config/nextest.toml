@@ -129,11 +129,32 @@ slow-timeout = { period = "60s", terminate-after = 4, grace-period = "5s" }
 filter = 'test(=lifecycle_latency_creates_and_closes_in_a_populated_session)'
 success-output = "final"
 
+# The long-holder tests (tests/agent_start_burst.rs) print the wait of each short request of
+# a terminal, and the daemon's thread and descriptor counts at the bound of the long
+# connections, on stderr; a fleet step shows them only when a passing test's output is kept.
+[[profile.ci.overrides]]
+filter = 'test(/^agent_start_long_holders_/)'
+success-output = "final"
+
 # The create cost tests (mux/tests/create_commit_cost.rs) print the counts of one create at
 # each session size on stderr; a fleet step shows them only when a passing test's output is
 # kept.
 [[profile.ci.overrides]]
 filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::create_commit_cost::/)'
+success-output = "final"
+
+# Three tests of cmux-tui tests/holder_terminals/holder_late_start.rs print a HOLDER-LATE-START
+# line on stderr. The large-session restart: how many terminals re-attached inside the
+# start's wait for the holder and how many after the start. The two restarts while the holder
+# is stopped: each daemon's line of its ask of the holder. The listener with a connect whose
+# client is gone: what this system gives for that connect. A run shows these lines only when
+# a passing test's output is kept.
+[[profile.ci.overrides]]
+filter = '''
+test(=holder_late_start::a_restart_of_a_large_session_reattaches_every_terminal)
+| test(=holder_late_start::a_second_restart_while_the_holder_is_stopped_reattaches_the_terminal)
+| test(=holder_late_start::a_listener_with_a_connect_whose_client_is_gone_prints_what_the_system_gives)
+'''
 success-output = "final"
 
 # The git lane tests (cmux-tui-core tests/git_lane.rs) print their "git-lane:" lines on stderr:
@@ -142,6 +163,29 @@ success-output = "final"
 # is kept.
 [[profile.ci.overrides]]
 filter = 'binary_id(cmux-tui-core::git_lane)'
+success-output = "final"
+
+# The git.status tests (cmux-tui-core tests/git_status.rs) print their "git-status:" lines on
+# stderr: the daemon's reply in each form of a repository beside what the status child of git
+# says, and the git children of one git.status. A fleet step shows them only when a passing
+# test's output is kept.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui-core::git_status)'
+success-output = "final"
+
+# The git.fingerprint tests (cmux-tui-core tests/git_fingerprint.rs) print their
+# "git-fingerprint:" lines on stderr: the git children of one git.fingerprint beside the count
+# of a git.diff with each patch. A fleet step shows them only when a passing test's output is kept.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui-core::git_fingerprint)'
+success-output = "final"
+
+# The idle tests (cmux-tui tests/idle_wakeups.rs) print one "idle daemon:" line for each
+# process on stderr: its CPU time, context switches and wakeups in each of the 3 quiet
+# windows. A fleet step shows them only when a passing test's output is kept; a pass with no
+# numbers does not say how far from the bound the daemon is.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui::idle_wakeups)'
 success-output = "final"
 
 # Fuzz catalog row h (cmux-remote tests/netdrop_fuzz_e2e.rs) and its red tests print their
@@ -183,4 +227,24 @@ slow-timeout = { period = "60s", terminate-after = 5, grace-period = "5s" }
 # line); a fleet step shows them only when a passing test's output is kept.
 [[profile.ci.overrides]]
 filter = 'binary_id(cmux-tui-core) & test(=workspace_registry::output_cleanup::journal_compact_tests::restating_records_shrink_and_replay_to_the_same_state_at_every_revision)'
+success-output = "final"
+
+# The vacuum backlog tests (mux/tests/journal_vacuum_backlog.rs) print what the maintenance
+# ticks wrote (their journal_vacuum_backlog lines: commits, WAL bytes, bytes returned); a
+# fleet step shows them only when a passing test's output is kept.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::journal_vacuum_backlog::/)'
+success-output = "final"
+
+# The seal cost test (mux/tests/journal_seal_cost.rs) prints what a seal wrote (its
+# journal_seal_cost line); a fleet step shows it only when a passing test's output is kept.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::journal_seal_cost::/)'
+success-output = "final"
+
+# The disk section read cost test (mux/tests/disk_usage_read_cost.rs) prints the SQLite memory the
+# read took (its disk_usage_read_cost line); a fleet step shows it only when a passing
+# test's output is kept.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::disk_usage_read_cost::/)'
 success-output = "final"

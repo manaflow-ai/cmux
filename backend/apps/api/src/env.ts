@@ -248,6 +248,11 @@ export interface Env {
   /** Secret: the Svix endpoint secret (whsec_...) of the Stack team webhook (stack-webhook.ts); unset answers 503. */
   readonly STACK_WEBHOOK_SECRET?: string
   /**
+   * Secret (development and previews only, never staging or production): the token of the Cloud self-test's
+   * POST /v1/dev/fixtures (dev-fixtures.ts), which makes marked test users, teams and memberships. Unset: 503.
+   */
+  readonly DEV_FIXTURES_TOKEN?: string
+  /**
    * GitHub Actions jobs that may sign in as one test account by their OIDC token (ci-session.ts, hq#7076): a JSON
    * array of rows naming the exact repository, ref and workflow file, and the one Stack user. No secret.
    */

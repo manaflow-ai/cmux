@@ -257,6 +257,20 @@ button.cv-agentmsg__name:focus-visible {
 .cv-disclosure > .cv-msgline__preview {
   margin-top: calc(-1 * var(--grid-gap-inner));
 }
+/* The space between the message's line and the card it opens (`.cv-agentmsg`'s gap) is the fold body's
+   own first item, not the flex gap over it, as a tool run's is (conversation.css, `.cv-tools > * + .cv-fold`).
+   The gap lies outside the height the fold animates: a close at the latest row stopped one gap short
+   for some frames and then jumped when the body was removed (transcript-details-toggle-steady-browser.test.ts,
+   "message card ... the clicked line stalled"). The body takes the gap back and holds the same space
+   inside its box, so the layout at rest is the same and the space folds away with the card. */
+.cv-agentmsg > * + .cv-fold {
+  margin-top: calc(-1 * var(--grid-gap-inner));
+}
+.cv-agentmsg > * + .cv-fold::before {
+  content: "";
+  display: block;
+  height: var(--grid-gap-inner);
+}
 
 /* One line, inline, at the transcript's text tone (messageLineLook.ts `single`, the default). Leo,
    2026-11-03, on the stacked rows: "i don't think these subtitles are as good as just doing it

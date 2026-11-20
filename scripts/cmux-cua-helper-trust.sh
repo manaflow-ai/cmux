@@ -32,7 +32,8 @@ cmux_cua_drop_unsigned_nested_helper() {
   local helper="$host/Contents/Library/cmux Computer Use.app"
   [[ -d "$helper" && ! -L "$helper" ]] || return 0
   local id
-  id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$helper/Contents/Info.plist" 2>/dev/null || true)"
+  id=""
+  [[ -f "$helper/Contents/Info.plist" ]] && id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$helper/Contents/Info.plist" 2>/dev/null || true)"
   [[ "$id" == "$CMUX_CUA_HELPER_ID" ]] || return 0
   cmux_cua_helper_is_signed "$helper" && return 0
   /bin/rm -rf -- "$helper"

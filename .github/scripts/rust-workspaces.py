@@ -88,7 +88,15 @@ class Tree:
                 return key
         return None
 
+    def workspace_named(self, directory: str) -> str | None:
+        """The workspace the package's own `package.workspace` names (cmux-rd-ffi: "../cmux-app-ffi"), which cargo
+        takes over the nearest one above it (cmux#42082 review F1)."""
+        named = self.manifests.get(directory, {}).get("package", {}).get("workspace")
+        return os.path.normpath(str(PurePosixPath(directory) / named)) if isinstance(named, str) else None
+
     def excluded(self, root: str, directory: str) -> bool:
+        if not under(directory, root):
+            return False  # a member beside the root ("../x") is outside every `exclude` entry
         relative = str(PurePosixPath(directory).relative_to(root))
         return any(relative == path.rstrip("/") or relative.startswith(path.rstrip("/") + "/")
                    for path in self.manifests[root]["workspace"].get("exclude", []))
@@ -100,6 +108,8 @@ class Tree:
             if "workspace" in manifest:
                 found.add(directory)
             elif "package" in manifest:
+                if isinstance(manifest["package"].get("workspace"), str):
+                    continue  # a member of the workspace it names (cmux-rd-ffi names ../cmux-app-ffi)
                 above = self.workspace_above(directory)
                 if above is None or self.excluded(above, directory):
                     found.add(directory)
@@ -112,7 +122,8 @@ class Tree:
         found = {root} if "package" in manifest else set()
         if table is None:
             return found
-        patterns = [str(PurePosixPath(root) / member) for member in table.get("members", [])]
+        # Normalized: a member may sit beside the root (cmux-app-ffi's members are "../cmux-rd-ffi" and its siblings).
+        patterns = [os.path.normpath(str(PurePosixPath(root) / member)) for member in table.get("members", [])]
         for directory, other in self.manifests.items():
             if "package" in other and any(fnmatch(directory, pattern) for pattern in patterns) \
                     and not self.excluded(root, directory):
@@ -133,7 +144,8 @@ class Tree:
                 base = directory
                 if spec.get("workspace") is True:
                     # Inherited from the package's workspace: its own manifest when it is the root.
-                    base = directory if "workspace" in manifest else (self.workspace_above(directory) or directory)
+                    base = directory if "workspace" in manifest else (self.workspace_named(directory)
+                                                                      or self.workspace_above(directory) or directory)
                     spec = self.manifests.get(base, {}).get("workspace", {}).get("dependencies", {}).get(name, {})
                     if not isinstance(spec, dict):
                         continue
@@ -279,6 +291,33 @@ def plan(repo: Path, base: str) -> list[dict]:
     return jobs
 
 
+# The words every spelling of cargo's stale-lock refusal ends with (scripts/cmux-next/cargo-locks.py knows them all).
+STALE_LOCK_HINT = "--locked was passed"
+
+
+def run_cargo(command: list[str], cwd: Path, env: dict[str, str]) -> tuple[int, list[str]]:
+    """Run COMMAND with its output passed on as it comes. Returns its exit code and the stderr lines that name a
+    lock cargo refused to update under --locked: the only lines a failed run's cause needs."""
+    refusals = []
+    with subprocess.Popen(command, cwd=cwd, env=env, stderr=subprocess.PIPE, text=True, errors="replace") as proc:
+        for line in proc.stderr:
+            sys.stderr.write(line)
+            sys.stderr.flush()
+            if STALE_LOCK_HINT in line:
+                refusals.append(line)
+        return proc.wait(), refusals
+
+
+def stale_lock_explained(repo: Path, refusals: list[str]) -> bool:
+    """True when REFUSALS hold cargo's stale-lock refusal: cargo-locks.py explain has then printed its cause and fix."""
+    if not refusals:
+        return False
+    explain = [sys.executable, str(Path(__file__).resolve().parents[2] / "scripts/cmux-next/cargo-locks.py"),
+               "explain", "-", "--repo", str(repo.resolve())]
+    sys.stdout.flush()
+    return subprocess.run(explain, input="".join(refusals), text=True).returncode == 0
+
+
 def run(repo: Path, root: str) -> int:
     entry = next((entry for entry in load_list(repo) if entry.get("root") == root and entry.get("run") is True), None)
     if entry is None:
@@ -297,11 +336,15 @@ def run(repo: Path, root: str) -> int:
         for name, command in commands:
             print(f"::group::{root}: {' '.join(command)}", flush=True)
             # From the workspace so rustup uses the nearest rust-toolchain.toml.
-            rc = subprocess.run(command, cwd=repo / root, env=env).returncode
+            rc, refusals = run_cargo(command, repo / root, env)
             print("::endgroup::", flush=True)
             if rc:
                 red.append(name)
-                print(f"::error title={root} {name}::`{' '.join(command)}` failed in {root}")
+                if stale_lock_explained(repo, refusals):
+                    print(f"::error title={root} {name}::a stale Cargo.lock in {root} (cargo --locked refused it; "
+                          "the fix is above)")
+                else:
+                    print(f"::error title={root} {name}::`{' '.join(command)}` failed in {root}")
     print(f"rust-workspaces: {root}: " + (f"red ({', '.join(red)})" if red else "clippy and tests green"))
     return 1 if red else 0
 

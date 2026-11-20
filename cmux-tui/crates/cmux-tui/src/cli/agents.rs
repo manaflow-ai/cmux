@@ -22,6 +22,7 @@ pub(super) const DEFAULT_SNAPSHOT_LIMIT: usize = 100;
 pub(super) const MAX_SNAPSHOT_LIMIT: usize = 1_000;
 
 mod events;
+pub(in crate::cli) use events::follow as follow_events;
 pub(super) mod turn;
 mod wait;
 
@@ -197,7 +198,7 @@ pub(super) enum AgentCommand {
         args: Vec<String>,
     },
     Wait(wait::WaitRequest),
-    Events(events::EventsRequest),
+    Events(Box<events::EventsRequest>),
     /// Prompt another agent chat or read its transcript (chat.rs).
     Chat(chat::ChatCommand),
 }
@@ -278,7 +279,9 @@ fn command_capped(args: &[String], wait_max: u64) -> Result<AgentCommand, UsageE
                 .collect(),
         }),
         ["wait", rest @ ..] => wait::parse(rest, wait_max).map(AgentCommand::Wait),
-        ["events", rest @ ..] => events::parse(rest).map(AgentCommand::Events),
+        ["events", rest @ ..] => {
+            events::parse(rest).map(|request| AgentCommand::Events(Box::new(request)))
+        }
         _ => Err(UsageError::new("unknown agents command; run `cmux agents --help`")),
     }
 }

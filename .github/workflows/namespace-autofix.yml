@@ -41,7 +41,9 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.base.sha }}
-          fetch-depth: 0
+          # One commit each: the job reads base files, diffs two trees and commits on the PR head, none of
+          # which needs history. The full clone outgrew timeout-minutes (cancelled in this step, 2026-11-16).
+          fetch-depth: 1
           persist-credentials: false
 
       - name: Mint scoped write token
@@ -69,7 +71,7 @@ jobs:
             exit 0
           fi
 
-          git fetch --no-tags origin "+refs/pull/${{ github.event.pull_request.number }}/head:refs/remotes/pr/head"
+          git fetch --no-tags --depth=1 origin "+refs/pull/${{ github.event.pull_request.number }}/head:refs/remotes/pr/head"
           fetched_head="$(git rev-parse refs/remotes/pr/head)"
           [ "$fetched_head" = "$HEAD_SHA" ] || {
             echo "::error::Fetched PR head $fetched_head does not match event head $HEAD_SHA"

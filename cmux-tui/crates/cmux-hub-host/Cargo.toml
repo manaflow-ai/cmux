@@ -1,0 +1,29 @@
+[package]
+name = "cmux-hub-host"
+version = "0.1.0"
+edition = "2021"
+rust-version.workspace = true
+license = "GPL-3.0-or-later"
+publish = false
+description = "The device hub screen host shared by `cmux-rd linux-host` and the acpmux share host: the device identity, the hub client and its sockets, and serving one approved session through a cmux.rd/1 helper"
+
+[lints]
+workspace = true
+
+[dependencies]
+# The device key (P-256 ECDSA), SHA-256 and the hub's HTTPS and WebSocket over rustls with the
+# ring provider and the platform trust store.
+ring.workspace = true
+rustls.workspace = true
+rustls-native-certs = "0.8"
+serde.workspace = true
+serde_json.workspace = true
+libc.workspace = true
+# The session's helper (`cmux-rd serve`): owned, ended with its session, and on macOS its own
+# responsible process when asked.
+cmux-process.workspace = true
+# Relay secrets sealed to the agreement key: HPKE base mode, DHKEM(P-256, HKDF-SHA256),
+# HKDF-SHA256, AES-256-GCM (PROTOCOL.md, Relays). `pkcs8` reads the agreement key as ring
+# wrote it.
+hpke = { version = "0.13", default-features = false, features = ["alloc", "p256"] }
+p256 = { version = "0.13", default-features = false, features = ["pkcs8"] }

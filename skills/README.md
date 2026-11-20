@@ -17,6 +17,7 @@ parsing, test compilation, executed tests and runtime evidence.
 
 | Task | Skill |
 | --- | --- |
+| Try any change in a running cmux before building or testing it (the hot loop) | [cmux-hot-loop](cmux-hot-loop/SKILL.md) |
 | Setup, tagged builds, project normalization | [cmux-dev-workflow](cmux-dev-workflow/SKILL.md) |
 | Tests, verification scope, target wiring | [cmux-testing](cmux-testing/SKILL.md) |
 | Which commit broke a test on main, stale test or regression | [cmux-test-bisect](cmux-test-bisect/SKILL.md) |
@@ -26,6 +27,7 @@ parsing, test compilation, executed tests and runtime evidence.
 | Billing implementation, Stripe and entitlements | [cmux-billing](cmux-billing/SKILL.md) |
 | Instrumentation and app/runtime implementation bugs | [cmux-debugging](cmux-debugging/SKILL.md) |
 | User-facing strings and localization | [cmux-localization](cmux-localization/SKILL.md) |
+| The cmux-next iPhone app (`cmux-next-ios/`): fleet simulator tests, App Review gate, TestFlight, iOS merges | [cmux-ios](cmux-ios/SKILL.md) |
 | CLI/socket implementation, threading and focus | [cmux-socket-policy](cmux-socket-policy/SKILL.md) |
 | Any cmux-next feature, action, setting, op or agent capability (standing rules) | [cmux-next-feature](cmux-next-feature/SKILL.md) |
 | Agent session partitioning, ACPM coordination and daemon-local mailbox policy | [cmux-acpmux](cmux-acpmux/SKILL.md) |
@@ -57,3 +59,10 @@ parsing, test compilation, executed tests and runtime evidence.
 Start with diagnostics for a user's broken installation; use debugging when
 investigating or changing the source implementation. Similarly, Cloud VM operations
 belong to `cmux-cloud-vm`, while its service implementation belongs to `cmux-backend`.
+
+## Adding a skill
+
+Claude Code finds a repo skill only through `.claude/skills/<name>`, a link to `../../skills/<name>`
+(Codex reads `skills/` through `.agents/skills`). Add the link with the skill:
+`ln -s ../../skills/<name> .claude/skills/<name>`. `python3 scripts/validate-cmux-browser-skill.py`
+checks every skill has one; `cmux-hot-loop` and `cmux-live` shipped without it.

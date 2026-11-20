@@ -1,5 +1,5 @@
-//! `_acpmux/sessions {pendingOnly: true}`: only the chats that wait on an ask, read without the
-//! list guard. On 2026-11-02 a Mac whose daemon mirrored 8,572 chats from its peers paced each
+//! `_acpmux/sessions {pendingOnly: true}`: only the chats that wait on an ask, no other row built.
+//! On 2026-11-02 a Mac whose daemon mirrored 8,572 chats from its peers paced each
 //! 64-row page of its list 4-9 s, and the app's dialog list (`cmux agents dialog list`, the
 //! `agents_dialog_list` and `agents_wait` tools) read every page before it found the one chat
 //! with an ask: it timed out at 5 s every time.
@@ -40,7 +40,7 @@ async fn hub() -> Arc<crate::hub::Hub> {
         })
         .collect();
     let mut settled = peer.settled();
-    for notice in [PeerNotice::Sessions(list), PeerNotice::Connected] {
+    for notice in [PeerNotice::sessions_from_values(list), PeerNotice::Connected] {
         hub.peer_notices.send(("box".to_owned(), peer.generation, notice)).await.unwrap();
     }
     tokio::time::timeout(Duration::from_secs(10), settled.wait_for(|n| *n >= 1))
@@ -87,14 +87,16 @@ async fn a_pending_only_list_holds_only_the_chats_that_wait_on_an_ask() {
 }
 
 #[tokio::test]
-async fn a_pending_only_list_reads_no_list_snapshot() {
+async fn a_pending_only_list_builds_only_the_asking_rows() {
     let hub = hub().await;
-    // Every other list waits on the guard's pace; this one never asks it for a build.
+    let built = || hub.summaries_built.load(std::sync::atomic::Ordering::SeqCst);
+    let before = built();
     for _ in 0..3 {
         let reply = call(&hub, method::MUX_SESSIONS, json!({"pendingOnly": true})).await;
         assert_eq!(reply["result"]["sessions"].as_array().map(Vec::len), Some(3));
     }
-    assert!(hub.list_guard.window().is_zero(), "no list was built for a pending-only read");
+    // Only the peers' rows wait on an ask here: no row of this daemon's is built.
+    assert_eq!(built() - before, 0, "rows built for a pending-only read");
 }
 
 #[tokio::test]
@@ -134,7 +136,7 @@ async fn a_pending_only_list_past_one_page_goes_in_pages() {
         })
         .collect();
     let mut settled = peer.settled();
-    for notice in [PeerNotice::Sessions(list), PeerNotice::Connected] {
+    for notice in [PeerNotice::sessions_from_values(list), PeerNotice::Connected] {
         hub.peer_notices.send(("box".to_owned(), peer.generation, notice)).await.unwrap();
     }
     tokio::time::timeout(Duration::from_secs(10), settled.wait_for(|n| *n >= 1))

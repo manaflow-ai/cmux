@@ -260,7 +260,7 @@ def main():
                    f"{s['p50']:>6} {s['p95']:>6} {s['p99']:>6} {s['max']:>7}    {line['devtools_stalls']}, {line['failed']}")
     problems = incomplete(rows, table, list(arms), sizes, opts.calls * opts.rounds, stopped)
     if problems:
-        # A run with failed or missing calls is not a result: it must never read as one (REVIEW.md section 9).
+        # A run with failed or missing calls is not a result: it must never read as one.
         safe_print("DEVTOOLS-CALLS-INCOMPLETE " + "; ".join(problems), flush=True)
         sys.exit(1)
     safe_print("DEVTOOLS-CALLS-COMPLETE", flush=True)

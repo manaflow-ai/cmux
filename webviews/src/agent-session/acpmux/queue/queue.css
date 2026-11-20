@@ -36,7 +36,7 @@
 .wq-detail[data-plan]{-webkit-line-clamp:4;padding:var(--ds-space-2);border-radius:var(--radius-control);background:color-mix(in srgb,var(--agent-text) 4%,transparent);color:var(--agent-text)}
 .wq-answers{display:flex;flex-wrap:wrap;gap:var(--ds-space-2);opacity:0;visibility:hidden;transition:opacity var(--cmux-motion-settle,180ms) var(--cmux-ease-settle,cubic-bezier(0.16,1,0.3,1))}
 .wq-answers[data-shown]{opacity:1;visibility:visible}
-.wq-button{display:inline-flex;align-items:center;gap:var(--ds-space-1);height:24px;padding:0 var(--ds-space-2);border-radius:var(--radius-control);border:0;background:color-mix(in srgb,var(--agent-text) 7%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-detail)}
+.wq-button{display:inline-flex;align-items:center;gap:var(--ds-space-1);height:24px;padding:0 var(--ds-space-2);border-radius:var(--ds-radius-control);border:0;background:color-mix(in srgb,var(--agent-text) 7%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-detail)}
 .wq-button:hover{background:color-mix(in srgb,var(--agent-text) 11%,transparent)}
 .wq-button[data-tone="allow"]{background:var(--agent-accent,var(--agent-text));color:var(--agent-on-accent)}
 .wq-button[data-tone="deny"]{color:var(--danger)}

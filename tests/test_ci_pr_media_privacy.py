@@ -35,6 +35,8 @@ _git_fixture_spec.loader.exec_module(git_fixture_env)
 if str(ROOT / "scripts/ci") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
 import pr_media_privacy as privacy  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 GIT_ENV = {
     "GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "test@example.com",
@@ -620,8 +622,9 @@ class WriterInventoryTests(unittest.TestCase):
     # Writes only through scripts/pr-media.py, which checks.
     THROUGH_PR_MEDIA_PY = {"scripts/cmux-next/media/publish.py", "scripts/cmux-next/media/reel.py",
                            "scripts/cmux-next/media/whats-new-clips.py", "scripts/cmux-next/media/whats-new-gallery.py",
-                           ".github/workflows/cmux-next-media.yml", ".github/workflows/nightly.yml",
-                           ".github/workflows/whats-new-gallery.yml",
+                           ".github/workflows/cmux-next-media.yml", ".github/workflows/cmux-next-iphone-clips.yml",
+                           ".github/workflows/nightly.yml",
+                           ".github/workflows/whats-new-gallery.yml", ".github/workflows/cmux-next-hot-verify.yml",
                            ".github/actions/pr-media-publish/action.yml"}
     # Remove files or rewrite the retention index; they add no capture.
     REMOVES_ONLY = {"scripts/ci/pr_media_privacy.py", "scripts/ci/prune_pr_media.py",
@@ -629,6 +632,7 @@ class WriterInventoryTests(unittest.TestCase):
     # Name the branch or pr-media.py's file names for links; write nothing.
     # Name pr-media URLs and push words but write nothing there (release-notes.py reads clip URLs).
     NOT_WRITERS = {"scripts/gallery-matrix/report.ts", "scripts/gallery-matrix/compare.test.ts",
+                   "scripts/cmux-next/hot-verify-ci.py",
                    "scripts/cmux-next/release-notes.py"}
     SKIP_SUFFIXES = (".md", ".json", ".xcstrings", ".txt", ".png", ".gif", ".mp4", ".webp", ".jpg", ".svg")
 
@@ -948,8 +952,10 @@ class FeatWorkflowTests(unittest.TestCase):
     WRITER_JOBS = {
         ".github/workflows/cmux-next-media.yml": {"publish": "scripts/cmux-next/media/publish.py",
                                                   "whats-new-clips": "scripts/cmux-next/media/whats-new-clips.py"},
+        ".github/workflows/cmux-next-iphone-clips.yml": {"publish": "scripts/cmux-next/media/whats-new-clips.py"},
         ".github/workflows/nightly.yml": {"publish-nightly-reel": "scripts/cmux-next/media/reel.py"},
         ".github/workflows/whats-new-gallery.yml": {"publish": "scripts/cmux-next/media/whats-new-gallery.py"},
+        ".github/workflows/cmux-next-hot-verify.yml": {"publish": "scripts/pr-media.py"},
     }
     # Remove files or rewrite the retention index; they add no capture.
     REMOVES_ONLY = {".github/workflows/pr-media-prune.yml"}
@@ -1133,7 +1139,7 @@ class FeatWorkflowTests(unittest.TestCase):
         """The environment can be pr-media: GitHub matches names without case, and an expression whose value
         comes from outside it could be anything."""
         names = [""]
-        for i, piece in enumerate(re.split(r"\$\{\{(.*?)\}\}", name, flags=re.S)):
+        for i, piece in enumerate(gh_expressions.EXPRESSION.split(name)):
             values = self.outcomes(piece) if i % 2 else [piece]
             if values is None:
                 return True

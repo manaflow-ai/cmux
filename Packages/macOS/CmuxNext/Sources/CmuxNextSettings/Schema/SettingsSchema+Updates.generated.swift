@@ -76,7 +76,7 @@ nonisolated enum UpdateSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.updates.channel", "Update Channel"),
-                help: SettingsText.keyed("settings.updates.channel.help", "Canary and Dev get builds before they reach Nightly. Stable gets only builds that have run a week without problems, so switching to it may mean no updates for a while."),
+                help: SettingsText.keyed("settings.updates.channel.help", "Stable gets builds that ran a week without problems; Canary and Dev get them first."),
                 kind: .choice([
                     SettingChoice(UpdatesChannelSetting.stable.rawValue, SettingsText.keyed("settings.choice.updatesChannelStable", "Stable")),
                     SettingChoice(UpdatesChannelSetting.nightly.rawValue, SettingsText.keyed("settings.choice.updatesChannelNightly", "Nightly")),
@@ -109,7 +109,7 @@ nonisolated enum UpdateSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.updates.downloadAutomatically", "Download Updates Automatically"),
-                help: SettingsText.keyed("settings.updates.downloadAutomatically.help", "Off: cmux checks for updates and asks before it downloads one. On: updates download by themselves. Either way, cmux asks before it restarts into an update."),
+                help: SettingsText.keyed("settings.updates.downloadAutomatically.help", "Off: cmux asks before downloading. It always asks before restarting."),
                 kind: .toggle,
                 default: .bool(UpdatesSettings.downloadAutomaticallyDefault),
                 keywords: ["update", "download", "background", "metered"]
@@ -119,7 +119,7 @@ nonisolated enum UpdateSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.updates.oneClickInstall", "Update in One Click"),
-                help: SettingsText.keyed("settings.updates.oneClickInstall.help", "Off: Update downloads the update, then cmux asks before it restarts into it. On: one click on Update downloads it, shows its progress, then installs it and restarts cmux. Terminals and agents keep running across the restart."),
+                help: SettingsText.keyed("settings.updates.oneClickInstall.help", "One click on Update downloads, installs and restarts. Terminals and agents keep running."),
                 kind: .toggle,
                 default: .bool(UpdatesSettings.oneClickInstallDefault),
                 keywords: ["update", "install", "restart", "relaunch", "one click"]
@@ -129,7 +129,7 @@ nonisolated enum UpdateSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.updates.whatsNewInstall", "Install Versions from What's New"),
-                help: SettingsText.keyed("settings.updates.whatsNewInstall.help", "Each day in What's New lists its versions with an Install button. cmux checks the download's signature, then restarts into that version with your terminals and agents."),
+                help: SettingsText.keyed("settings.updates.whatsNewInstall.help", "An Install button for each version listed in What's New."),
                 kind: .toggle,
                 default: .bool(UpdatesSettings.whatsNewInstallDefault),
                 keywords: ["update", "install", "version", "rollback", "earlier", "nightly", "what's new"]
@@ -153,7 +153,7 @@ nonisolated enum UpdateSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.updates.web", "Web UI Updates"),
-                help: SettingsText.keyed("settings.updates.web.help", "Every Merge: changes to the web UI arrive minutes after they land, without waiting for the next app update. Off: the web UI this app shipped with."),
+                help: SettingsText.keyed("settings.updates.web.help", "Every Merge gets web UI changes minutes after they land."),
                 kind: .choice([
                     SettingChoice(UpdatesWebSetting.everyMerge.rawValue, SettingsText.keyed("settings.choice.updatesWebEveryMerge", "Every Merge")),
                     SettingChoice(UpdatesWebSetting.nightly.rawValue, SettingsText.keyed("settings.choice.updatesWebNightly", "With Nightly")),
@@ -167,7 +167,7 @@ nonisolated enum UpdateSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.updates.liveWebReload", "cmux Live"),
-                help: SettingsText.keyed("settings.updates.liveWebReload.help", "The switch that lets cmux live start and Edit cmux Live… show your own checkout's web UI in this app: each saved edit shows at once, with no build and no relaunch. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with. cmux live start --swift is the Swift path (Labs > Live Code)."),
+                help: SettingsText.keyed("settings.updates.liveWebReload.help", "Lets cmux live start show your checkout's web UI, each saved edit at once."),
                 kind: .toggle,
                 default: .bool(UpdatesSettings.liveWebReloadDefault),
                 keywords: ["web", "live", "hot reload", "reload", "dev server", "overlay", "edit", "web-dev", "cmux live", "live web reload"]
@@ -209,7 +209,7 @@ nonisolated enum UpdateSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.updates.showWhatsNew", "Show What's New After Updates"),
-                help: SettingsText.keyed("settings.updates.showWhatsNew.help", "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it."),
+                help: SettingsText.keyed("settings.updates.showWhatsNew.help", "A sidebar card links to What's New after an update."),
                 kind: .toggle,
                 default: .bool(UpdatesSettings.showWhatsNewDefault),
                 keywords: ["whats new", "release notes", "changelog", "update", "sidebar"]
@@ -219,7 +219,7 @@ nonisolated enum UpdateSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.updates.showFeatureTips", "Show Feature Tips"),
-                help: SettingsText.keyed("settings.updates.showFeatureTips.help", "Now and then, a small tip points at a feature an update added. Close it or use the feature and it never comes back."),
+                help: SettingsText.keyed("settings.updates.showFeatureTips.help", "A small tip now and then points at a feature an update added."),
                 kind: .toggle,
                 default: .bool(UpdatesSettings.showFeatureTipsDefault),
                 keywords: ["tips", "whats new", "new feature", "hint", "callout"]
@@ -229,7 +229,7 @@ nonisolated enum UpdateSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.updates.idleInstallMaxWait", "Install Within"),
-                help: SettingsText.keyed("settings.updates.idleInstallMaxWait.help", "A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart."),
+                help: SettingsText.keyed("settings.updates.idleInstallMaxWait.help", "A nightly installs when you are idle, and never waits longer than this."),
                 kind: .number(SettingNumber(UpdatesSettings.idleInstallMaxWaitRange, step: 60, unit: .seconds)),
                 default: .number(UpdatesSettings.idleInstallMaxWaitDefault),
                 keywords: ["update", "install", "idle", "wait", "automatic", "nightly"]
@@ -239,7 +239,7 @@ nonisolated enum UpdateSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.updates.idleInstallQuiet", "Quiet Time Before Installing"),
-                help: SettingsText.keyed("settings.updates.idleInstallQuiet.help", "How long the keyboard and mouse must be idle before a downloaded nightly installs by itself."),
+                help: SettingsText.keyed("settings.updates.idleInstallQuiet.help", "How long you must be idle before a nightly installs."),
                 kind: .number(SettingNumber(UpdatesSettings.idleInstallQuietRange, step: 5, unit: .seconds)),
                 default: .number(UpdatesSettings.idleInstallQuietDefault),
                 keywords: ["update", "install", "idle", "quiet", "typing", "nightly"]

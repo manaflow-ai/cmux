@@ -78,6 +78,21 @@ struct AgentPaneChromiumMoveTests {
         #expect(moves == 1)
     }
 
+    @Test func aReservedPageWaitsForItsFrameEvenWhenItsNativeSizeAlreadyMatches() async throws {
+        let (view, page) = try await parkedChromiumPage()
+        view.placeMovedChromiumPage(requiringFrame: true)
+        let window = pane(NSSize(width: 800, height: 600))
+        defer { window.close() }
+        let root = try #require(window.contentView)
+        root.addPrewarmedSubview(view)
+        try #require(view.holdsPageAway, "native size alone cannot release a workspace reservation")
+        let deadline = Date().addingTimeInterval(5)
+        while view.holdsPageAway, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(sizeWaits(page) == 1)
+        #expect(!view.holdsPageAway)
+        #expect(page.visibility.last == true)
+    }
+
     @Test func aPageParkedAtAnotherSizeWaitsOutsideTheWindowUntilItDrewThere() async throws {
         let (view, page) = try await parkedChromiumPage()
         var asked = false
@@ -109,6 +124,64 @@ struct AgentPaneChromiumMoveTests {
         #expect(moves == 2)
         view.layoutSubtreeIfNeeded()
         #expect(view.pageContent.frame == final)
+    }
+
+    @Test func aFrameAtThePreviousWidthCannotRevealAPageBeforeItsNextLayout() async throws {
+        let (view, page) = try await parkedChromiumPage()
+        var resized = false
+        page.answer = { method, params in
+            guard method == "Runtime.evaluate",
+                  (params["expression"] as? String)?.contains("innerWidth") == true, !resized else { return nil }
+            // Cmd-N can give the page its workspace's width while a frame requested at the split's width returns.
+            resized = true
+            view.frame.size.width = 1400
+            return nil
+        }
+        var moves = 0
+        view.placeMovedChromiumPage { moves += 1 }
+        let window = pane(NSSize(width: 1000, height: 700))
+        defer { window.close() }
+        window.contentView?.addSubview(view)
+        view.frame = window.contentView!.bounds
+        view.layoutSubtreeIfNeeded()
+        try #require(view.holdsPageAway)
+
+        let deadline = Date().addingTimeInterval(5)
+        while !resized, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(resized, "the page never answered the first size wait")
+        try await Task.sleep(for: .milliseconds(200)) // let the fake's old-size answer return before the next layout
+        #expect(view.holdsPageAway, "the old-width frame revealed the page at the workspace's new width")
+        #expect(moves == 1, "the page moved into view before it drew at the new width")
+
+        view.layoutSubtreeIfNeeded()
+        let final = pagePlace(view, in: view.bounds)
+        #expect(view.pageContent.frame == AgentPaneView.awayFrame(of: final))
+        while view.holdsPageAway, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(sizeWaits(page) == 2)
+        #expect(!view.holdsPageAway)
+        #expect(view.pageContent.frame == final)
+    }
+
+    @Test(arguments: [800.0, 1280.0])
+    func aPrewarmedWorkspacePageRendersAtItsFinalSizeBeforeItShows(width: Double) async throws {
+        let (view, page) = try await parkedChromiumPage()
+        let window = pane(NSSize(width: width, height: 600))
+        defer { window.close() }
+        let root = try #require(window.contentView)
+        root.addPrewarmedSubview(view)
+        let final = pagePlace(view, in: view.bounds)
+        #expect(view.window === window)
+        #expect(!view.isHiddenOrHasHiddenAncestor)
+        #expect(view.alphaValue == 0)
+        #expect(!view.frame.intersects(root.bounds))
+        #expect(page.visibility.last == true, "offscreen prewarming paused Chromium")
+        #expect(view.pageContent.frame == final)
+
+        view.frame = root.bounds
+        view.alphaValue = 1
+        view.layoutSubtreeIfNeeded()
+        #expect(view.pageContent.frame == final, "showing the pre-rendered page resized it")
+        #expect(sizeWaits(page) == 0)
     }
 
     /// A pane on its split's spring: it shows at `bounds` now and will rest at `rest` (`RestingPlacement`).

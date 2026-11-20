@@ -45,9 +45,10 @@
 .acpmux-needs-you {
   display: flex;
   flex-direction: column;
-  width: 360px;
+  /* Its frame follows Text Size as its rows do (--ui-px, ui/popupSurface.css). */
+  width: calc(360 * var(--ui-px, 1px));
   max-width: calc(100vw - 24px);
-  max-height: min(520px, 75vh);
+  max-height: min(calc(520 * var(--ui-px, 1px)), 75vh);
   overflow: hidden;
   box-sizing: border-box;
   padding: 0;

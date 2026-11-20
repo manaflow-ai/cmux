@@ -5,17 +5,23 @@ edition = "2024"
 rust-version = "1.91"
 license = "GPL-3.0-or-later"
 publish = false
-description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the app health model, the cmux SDK daemon client and the Chrome cookie sync"
+description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the app health model, the cmux SDK daemon client, the agent list client and the Chrome cookie sync"
 
-# Own workspace, like its members: built only for the app xcframework
-# (scripts/cmux-next/build-app-ffi.sh), so cmux-tui workspace builds and
-# cmux-tui/Cargo.lock do not change.
+# The workspace of the app's C ABIs, with one Cargo.lock for all four: this
+# crate and the FFI crates it links, which name it in `package.workspace`.
+# Built only for the app xcframework (scripts/cmux-next/build-app-ffi.sh), so
+# cmux-tui workspace builds and cmux-tui/Cargo.lock do not change. One lock: a
+# dependency change in a crate they share needs one lock edit, not one per FFI
+# crate (#40883, #40898).
 [workspace]
+members = ["../cmux-launch-record", "../cmux-layout-reducer-ffi", "../cmux-rd-ffi", "../cmux-sdk-ffi"]
 
 [lib]
 crate-type = ["staticlib"]
 
 [dependencies]
+# The no-I/O agent list client (src/ffi.rs); the app owns the socket.
+acpmux-client = { path = "../acpmux-client" }
 cmux-rd-ffi = { path = "../cmux-rd-ffi" }
 cmux-layout-reducer-ffi = { path = "../cmux-layout-reducer-ffi" }
 cmux-palette-ranker = { path = "../cmux-palette-ranker" }
@@ -40,6 +46,7 @@ cmux-motion = { path = "../cmux-motion", default-features = false }
 # The daemon client the cmux CLI uses (cmux-tui/bindings/rust) as a C ABI:
 # the app's connect, call, command and subscribe (include/cmux_sdk_ffi.h).
 cmux-sdk-ffi = { path = "../cmux-sdk-ffi" }
+cmux-launch-record = { path = "../cmux-launch-record" }
 
 # Generates include/cmux_motion_ffi.h (cbindgen.toml); tests/c_header.rs fails
 # when the committed header differs. A test, not a build.rs: no build rewrites
@@ -52,4 +59,5 @@ opt-level = 3
 codegen-units = 1
 debug = false
 strip = "debuginfo"
-lto = "off"
+# Machine code from rustc's own LTO: scripts/cmux-next/build-app-ffi.sh.
+lto = "fat"

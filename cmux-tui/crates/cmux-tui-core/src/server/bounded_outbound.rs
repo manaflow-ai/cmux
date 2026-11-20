@@ -658,10 +658,22 @@ fn write_line<W: Write + ?Sized>(writer: &mut W, line: &[u8]) -> std::io::Result
 
 pub(super) struct QueuedSink {
     pub(super) outbound: Arc<BoundedOutbound>,
-    pub(super) control: Option<SinkControl>,
+    /// The connection's own descriptor of its socket, shared with the
+    /// connection loop, which closes it when the connection ends.
+    pub(super) control: Option<Arc<SinkControl>>,
 }
 
-pub(super) enum SinkControl {
+/// A connection's handle on its own socket, for a kick or a write timeout
+/// from any thread. `close` shuts the socket down and closes this descriptor
+/// in the same call, so a `MessageWriter` clone that outlives the connection
+/// (a subscriber, a request thread) holds no descriptor of the socket. On
+/// macOS a client blocked in a read can miss the wake from a shutdown while
+/// the daemon keeps any descriptor of its end open; the last close wakes it.
+pub(super) struct SinkControl {
+    socket: Mutex<Option<SinkSocket>>,
+}
+
+enum SinkSocket {
     Unix(Box<dyn transport::Stream>),
     WebSocket(TcpStream),
 }
@@ -797,17 +809,35 @@ impl Write for SynchronizedTcpStream {
 }
 
 impl SinkControl {
+    pub(super) fn unix(stream: Box<dyn transport::Stream>) -> Arc<Self> {
+        Arc::new(Self { socket: Mutex::new(Some(SinkSocket::Unix(stream))) })
+    }
+
+    pub(super) fn websocket(stream: TcpStream) -> Arc<Self> {
+        Arc::new(Self { socket: Mutex::new(Some(SinkSocket::WebSocket(stream))) })
+    }
+
+    /// Ok and nothing to do once the descriptor is closed.
     pub(super) fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
-        match self {
-            Self::Unix(stream) => stream.set_write_timeout(timeout),
-            Self::WebSocket(stream) => stream.set_write_timeout(timeout),
+        match &*self.socket.lock().recover_poison() {
+            Some(SinkSocket::Unix(stream)) => stream.set_write_timeout(timeout),
+            Some(SinkSocket::WebSocket(stream)) => stream.set_write_timeout(timeout),
+            None => Ok(()),
         }
     }
 
-    pub(super) fn shutdown(&self) -> std::io::Result<()> {
-        match self {
-            Self::Unix(stream) => stream.shutdown(Shutdown::Both),
-            Self::WebSocket(stream) => stream.shutdown(Shutdown::Both),
+    /// Shuts the socket down both ways (the connection's own reader wakes)
+    /// and closes this descriptor. Later calls do nothing.
+    pub(super) fn close(&self) {
+        let socket = self.socket.lock().recover_poison().take();
+        match socket {
+            Some(SinkSocket::Unix(stream)) => {
+                let _ = stream.shutdown(Shutdown::Both);
+            }
+            Some(SinkSocket::WebSocket(stream)) => {
+                let _ = stream.shutdown(Shutdown::Both);
+            }
+            None => {}
         }
     }
 }
@@ -880,7 +910,7 @@ impl MessageSink for QueuedSink {
     fn abort(&self) {
         self.outbound.abort();
         if let Some(control) = &self.control {
-            let _ = control.shutdown();
+            control.close();
         }
     }
 

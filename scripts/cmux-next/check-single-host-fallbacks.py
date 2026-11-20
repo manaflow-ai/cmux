@@ -7,14 +7,34 @@ live only in the build-fleet repository, whose runner label policy test reads th
 so cmux#40221 merged two undeclared runs-on variables green here and turned that repository red afterwards.
 The declaration now lives here; the build-fleet test reads this file.
 
-Read, for every workflow under <root>/.github/workflows:
-- each `runs-on:` line, as the build-fleet test reads it (every `vars.NAME` on the line, and every single-host
-  label: a controller label or one starting with a `single_host_prefixes` entry, which `labels` must declare);
-- each job's parsed runs-on (a block list, a `group`/`labels` mapping), `vars.NAME`, `vars['NAME']` and
-  `fromJSON(vars.NAME)` alike;
-- the matrix values a runs-on reads through `matrix.KEY` (axes and `include`; a dynamic matrix whole);
-- the `with:` values a caller passes to a local reusable workflow's input that reaches a runs-on there.
+Read, for every job of every workflow under <root>/.github/workflows, through the one resolve step every
+workflow guard shares (tests/workflow_jobs.py: resolve): its runs-on per matrix cell, literal indexes read as dot
+form (`matrix['runner']`, `vars['X']`), an expression's literal branches, and a reusable workflow's `inputs.X`
+traced to every value its callers pass (each caller's own matrix expanded, at any call depth). Then:
+- every repository variable the resolve step consumed resolving the runs-on (Resolved.vars_read, field runs-on)
+  must be declared, wherever it sat: the runs-on as written, a matrix value it took or a matrix nothing could
+  expand (`fromJSON(vars.X)`, in the job or in a caller whose value reaches an input), a caller's `with:` value,
+  a condition (`vars.X == 'a' && 'a' || 'b'`, `needs.a.outputs.b && vars.X || 'y'`). One whose name is itself an
+  expression cannot be declared, and is a finding. This file reads no runs-on text itself: the resolver reads every
+  text a runs-on can take a value from (Codex on #40894: a re-scan of the runs-on text here missed a caller's
+  fromJSON matrix and every condition inside a matrix value);
+- every resolved label that is single-host (a controller label or one starting with a `single_host_prefixes`
+  entry) must be declared under `labels`.
+A value the resolver cannot settle is never skipped (review F1 on #40894: `${{ fromJSON('["glaeda-runner-cmux22-new"]')
+}}` was left unresolved and an undeclared label passed). Constant `fromJSON('<literal>')` terms resolve to their
+labels (workflow_jobs.constant_from_json). Of what stays unresolved, every label named anywhere in it (a string
+literal, a fallback branch inside a fromJSON) is checked as if resolved, and the part must be one a runs-on may
+read: a literal, `vars.NAME` (declared above), a placement job's `needs.JOB.outputs.NAME`, a caller-less
+`inputs.NAME`, or `fromJSON(...)` of those with a property chain, behind `&&` conditions and `||` alternatives
+(settled()). Anything else (`format(...)`, a label spliced around an expression, a matrix nothing expands) may be
+any self-hosted label, and is a finding, unless workflow_jobs.UNRESOLVED_MATRICES audits that job's matrix. A trace
+the resolver refuses to finish (an input default or caller chain that loops back to itself, Resolved.unverifiable)
+is a finding: what it reads cannot be verified.
 The declaration must also promise a bounded fallback, by the build-fleet test's own schema rules.
+
+The hook runs only installed code, so the installer puts tests/workflow_jobs.py beside this checker (it is in
+scripts/git-hooks/checks-copy-inputs, which also stamps the copy, so a resolver change alone reaches the hook); it
+loads that copy first, else the repository's.
 
 Where it runs. No CI gate (CLAUDE.md, Lawrence 2026-10-23: no new CI gates or tests). The mode is an explicit
 flag, never read from the environment:
@@ -47,14 +67,8 @@ WORKFLOWS = ".github/workflows"
 # A finding's status (see the module doc): the scan found it, or the scan did not run.
 FOUND, INCOMPLETE = "found", "incomplete"
 
-RUNS_ON_LINE = re.compile(r"^\s*runs-on:\s*(?P<value>.*)$")
-# `vars.NAME` and `vars['NAME']`; GitHub matches variable names case-insensitively, so `vars.name` reads NAME.
-VAR = re.compile(r"\bvars\s*(?:\.\s*(?P<dot>[A-Za-z_][A-Za-z0-9_]*)|\[\s*'(?P<key>[^']*)'\s*\])")
 # The build-fleet test's label token, so both read the same labels off a line.
 LABEL = re.compile(r"(?<![A-Za-z0-9_.-])([A-Za-z][A-Za-z0-9_.-]*)(?![A-Za-z0-9_.-])")
-MATRIX = re.compile(r"\bmatrix\.([A-Za-z_][A-Za-z0-9_-]*)")
-INPUT = re.compile(r"\binputs\.([A-Za-z_][A-Za-z0-9_-]*)")
-LOCAL_CALL = re.compile(r"^\./(\.github/workflows/[^@]+\.ya?ml)$")
 # The build-fleet repository's GitHub-hosted label pattern (scripts/ci/check-runner-labels.py HOSTED).
 HOSTED = re.compile(
     r"(?<![A-Za-z0-9_-])("
@@ -167,108 +181,36 @@ def bounded(name: str, entry: object) -> list[str]:
     return []
 
 
-def strings(node: object) -> Iterator[str]:
-    """Every string in a parsed YAML value, keys of a mapping included (a runs-on group or labels)."""
-    if isinstance(node, str):
-        yield node
-    elif isinstance(node, dict):
-        for key, value in node.items():
-            yield from strings(key)
-            yield from strings(value)
-    elif isinstance(node, list):
-        for item in node:
-            yield from strings(item)
+def load_workflow_jobs():
+    """tests/workflow_jobs.py: the copy beside this file (the hook's installed checks), else this repository's.
+    Loaded once per process, so every reader here (and the Unreadable it raises) is the same module."""
+    import importlib.util
+
+    if "single_host_workflow_jobs" in sys.modules:
+        return sys.modules["single_host_workflow_jobs"]
+
+    here = Path(__file__).resolve().parent
+    for path in (here / "workflow_jobs.py", here.parents[1] / "tests" / "workflow_jobs.py"):
+        if path.is_file():
+            spec = importlib.util.spec_from_file_location("single_host_workflow_jobs", path)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = module
+            spec.loader.exec_module(module)
+            return module
+    raise FileNotFoundError("tests/workflow_jobs.py is not beside the checker nor in its repository")
 
 
-def matrix_values(job: dict, keys: set[str]) -> Iterator[str]:
-    """The strings `matrix.KEY` can take for each KEY a runs-on reads; a dynamic matrix whole."""
-    matrix = (job.get("strategy") or {}).get("matrix") if isinstance(job.get("strategy"), dict) else None
-    if matrix is None:
-        return
-    if not isinstance(matrix, dict):
-        yield from strings(matrix)
-        return
-    for key, value in matrix.items():
-        if key in keys:
-            yield from strings(value)
-        elif key == "include":
-            if not isinstance(value, list):
-                yield from strings(value)
-                continue
-            for entry in value:
-                if isinstance(entry, dict):
-                    for name, item in entry.items():
-                        if name in keys:
-                            yield from strings(item)
-                else:
-                    yield from strings(entry)
+def first_line(paths: list[Path], pattern: re.Pattern) -> tuple[Path, int]:
+    """The first of PATHS with a line PATTERN matches, and that line; the first path and line 1 when none has one."""
+    for path in paths:
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if pattern.search(line):
+                return path, number
+    return paths[0], 1
 
 
-def load_workflow(path: Path) -> dict:
-    import yaml  # here, so --advisory can report a missing PyYAML instead of failing
-
-    document = yaml.safe_load(path.read_text(encoding="utf-8"))
-    return document if isinstance(document, dict) else {}
-
-
-def jobs_of(document: dict) -> Iterator[tuple[str, dict]]:
-    jobs = document.get("jobs")
-    for name, job in (jobs.items() if isinstance(jobs, dict) else ()):
-        if isinstance(job, dict):
-            yield str(name), job
-
-
-def job_selector_texts(job: dict) -> list[str]:
-    """The runs-on strings of a job, with the matrix values its runs-on reads."""
-    if "runs-on" not in job:
-        return []
-    texts = list(strings(job["runs-on"]))
-    keys = {key for text in texts for key in MATRIX.findall(text)}
-    if keys:
-        texts.extend(matrix_values(job, keys))
-    return texts
-
-
-def local_callee(job: dict, root: Path) -> Path | None:
-    uses = job.get("uses")
-    match = LOCAL_CALL.match(uses) if isinstance(uses, str) else None
-    return root / match.group(1) if match else None
-
-
-def runner_inputs(path: Path, root: Path, memo: dict[Path, set[str]]) -> set[str]:
-    """The workflow_call inputs of `path` that reach a runs-on, directly or through a local call."""
-    if path in memo:
-        return memo[path]
-    memo[path] = set()  # a cycle reaches nothing new
-    if not path.is_file():
-        return memo[path]
-    reached: set[str] = set()
-    for _, job in jobs_of(load_workflow(path)):
-        for text in job_selector_texts(job):
-            reached.update(INPUT.findall(text))
-        callee = local_callee(job, root)
-        if callee is not None and isinstance(job.get("with"), dict):
-            passed = runner_inputs(callee, root, memo)
-            for key, value in job["with"].items():
-                if key in passed:
-                    for text in strings(value):
-                        reached.update(INPUT.findall(text))
-    memo[path] = reached
-    return reached
-
-
-def variable_names(text: str) -> Iterator[str]:
-    for match in VAR.finditer(text):
-        yield (match.group("dot") or match.group("key")).upper()
-
-
-def first_line(path: Path, name: str) -> int:
-    """The first line of `path` that names the variable, for an annotation; 1 when none does."""
-    pattern = re.compile(rf"\bvars\s*(?:\.\s*{re.escape(name)}\b|\[\s*'{re.escape(name)}'\s*\])", re.IGNORECASE)
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        if pattern.search(line):
-            return number
-    return 1
+# A repository variable read at all, for the line of one whose name is an expression.
+ANY_VAR = re.compile(r"\bvars\s*[.\[]", re.IGNORECASE)
 
 
 class Reads:
@@ -277,49 +219,157 @@ class Reads:
     def __init__(self) -> None:
         # name -> [(where, file path relative to the repository root, line)]
         self.variables: dict[str, list[tuple[str, str, int]]] = {}
-        self.lines: list[tuple[str, int, str]] = []  # (file, line, runs-on value)
+        self.lines: list[tuple[str, int, str]] = []  # (file, line, a resolved runs-on label)
+        self.dynamic: list[tuple[str, str, int]] = []  # (where, file, line) of a variable read with no literal name
+        self.unverifiable: list[tuple[str, str, int]] = []  # (where, file, line) of a trace the resolver refused
+        self.unsettled: list[tuple[str, str, int, str]] = []  # (where, file, line, term) of a part nothing settles
         self.unreadable: list[str] = []
 
 
-def references(workflow_dirs: Iterable[Path]) -> Reads:
-    import yaml
+# The contexts a settled runs-on operand reads by name (settled()): each is either declared here (vars) or a value
+# a placement job or a dispatch picks at run time, whose own policy is the job's business.
+SETTLED_READS = {"vars": 2, "inputs": 2, "needs": 4}
 
+
+def _split_top(text: str, operator: str) -> list[str]:
+    """TEXT split at OPERATOR (`||`, `&&`) outside string literals and brackets, by tokens."""
+    wj = load_workflow_jobs()
+    spans = wj._token_spans(text)
+    parts, start, depth = [], 0, 0
+    for token in spans:
+        if token.kind == "op" and token.text in "([":
+            depth += 1
+        elif token.kind == "op" and token.text in ")]":
+            depth -= 1
+        elif token.kind == "op" and token.text == operator and depth == 0:
+            parts.append(text[start:token.start])
+            start = token.end
+    parts.append(text[start:])
+    return parts
+
+
+def settled(term: str) -> bool:
+    """Whether every value TERM (an unresolved part of a resolved runs-on) can take is one this policy reads by
+    name: a literal, `vars.NAME`, `needs.JOB.outputs.NAME`, `inputs.NAME`, or `fromJSON(<settled>)` with a property
+    chain after it (of a literal, only one constant_from_json resolves to labels); `a && b` takes b's value, `a || b`
+    either. Anything else may be any label. Fails closed: a term
+    the tokenizer cannot read is not settled."""
+    wj = load_workflow_jobs()
+    text = term.strip()
+    if "${{" in text:
+        spans = wj.expression_spans(text)
+        return spans == [(0, len(text))] and settled(text[3:-2])
+    try:
+        alternatives = _split_top(text, "||")
+        for alternative in alternatives:
+            if not _settled_operand(_split_top(alternative, "&&")[-1].strip()):
+                return False
+    except wj.Unreadable:
+        return False
+    return True
+
+
+def _settled_operand(operand: str) -> bool:
+    wj = load_workflow_jobs()
+    spans = wj._token_spans(operand)
+    stream = [(t.kind, t.text) for t in spans]
+    if not stream:
+        return False
+    if stream[0] == ("op", "(") and stream[-1] == ("op", ")"):
+        depth = 0
+        for index, token in enumerate(stream):
+            depth += token == ("op", "(")
+            depth -= token == ("op", ")")
+            if depth == 0 and index != len(stream) - 1:
+                break
+        else:
+            return settled(operand[spans[0].end:spans[-1].start])
+    if len(stream) == 1 and stream[0][0] == "string":
+        return True
+    head = stream[0][1].lower() if stream[0][0] == "name" else ""
+    if head == "fromjson" and len(stream) >= 3 and stream[1] == ("op", "("):
+        depth = 0
+        for index, token in enumerate(stream[1:], 1):
+            depth += token == ("op", "(")
+            depth -= token == ("op", ")")
+            if depth == 0:
+                inner = operand[spans[1].end:spans[index].start].strip()
+                if wj._property_chain(stream[index + 1:]) is None:
+                    return False
+                while wj._wrapped(inner):
+                    inner = inner[1:-1].strip()
+                literal = wj._token_spans(inner)
+                if len(literal) == 1 and literal[0].kind == "string":
+                    # A constant settles only as the labels it resolves to: constant_from_json leaves `null`, an
+                    # object, `[]` and a key the literal lacks unresolved (review F1 on #41933: `fromJSON('null')`).
+                    chain = operand[spans[index].end:]
+                    return wj.constant_from_json(f"fromJSON({inner}){chain}") is not None
+                return settled(inner)
+        return False
+    if head in SETTLED_READS:
+        names = wj._property_chain(stream[1:])
+        if names is None or len(names) != SETTLED_READS[head] - 1 or not all(isinstance(n, str) for n in names):
+            return False
+        return head != "needs" or str(names[1]).lower() == "outputs"
+    return False
+
+
+def references(workflow_dirs: Iterable[Path]) -> Reads:
+    import yaml  # here, so --advisory can report a missing PyYAML instead of failing
+
+    wj = load_workflow_jobs()
     reads = Reads()
     for directory in workflow_dirs:
         if not directory.is_dir():
             reads.unreadable.append(f"{directory}: workflow directory is missing")
             continue
-        root = directory.parents[1]
-        memo: dict[Path, set[str]] = {}
-        for workflow in sorted([*directory.glob("*.yml"), *directory.glob("*.yaml")]):
-            rel = f"{WORKFLOWS}/{workflow.name}"
-
-            def note(text: str, where: str, line: int | None = None) -> None:
-                for name in variable_names(text):
-                    places = reads.variables.setdefault(name, [])
-                    if all(where != seen for seen, _, _ in places):
-                        places.append((where, rel, line if line is not None else first_line(workflow, name)))
-
-            for number, line in enumerate(workflow.read_text(encoding="utf-8").splitlines(), 1):
-                match = RUNS_ON_LINE.match(line)
-                if match:
-                    reads.lines.append((rel, number, match.group("value")))
-                    note(match.group("value"), f"{workflow.name}:{number}", number)
+        paths = {p.name: p for p in sorted([*directory.glob("*.yml"), *directory.glob("*.yaml")])}
+        documents = {}
+        for name, path in paths.items():
             try:
-                document = load_workflow(workflow)
-            except yaml.YAMLError as error:
-                reads.unreadable.append(f"{workflow.name}: unreadable YAML: {error.__class__.__name__}")
-                continue
-            for name, job in jobs_of(document):
-                for text in job_selector_texts(job):
-                    note(text, f"{workflow.name}: job {name}")
-                callee = local_callee(job, root)
-                if callee is not None and isinstance(job.get("with"), dict):
-                    passed = runner_inputs(callee, root, memo)
-                    for key, value in job["with"].items():
-                        if key in passed:
-                            for text in strings(value):
-                                note(text, f"{workflow.name}: job {name}: with.{key} (a runs-on input of {callee.name})")
+                documents[name] = wj.document(path)
+            except (yaml.YAMLError, ValueError) as error:
+                reads.unreadable.append(f"{name}: unreadable YAML: {error.__class__.__name__}")
+        workflows = wj.Workflows(documents)
+        everything = list(paths.values())
+        for name, document in documents.items():
+            rel = f"{WORKFLOWS}/{name}"
+            for job_id, job in wj.jobs(document).items():
+                if not isinstance(job, dict) or "runs-on" not in job:
+                    continue
+                where = f"{name}: job {job_id}"
+                resolved = wj.resolve(job, job_id, name, workflows)
+                for read in sorted((r for r in resolved.vars_read if r.field == "runs-on"),
+                                   key=lambda r: (r.name or "", r.file or "", r.job, r.path, r.text)):
+                    # The line is in the file the read sits in (a caller's, for a traced input), else the job's.
+                    source = paths.get(read.file or name, paths[name])
+                    search = [source, *(p for p in everything if p != source)]
+                    if read.name is None:
+                        if all(not w.startswith(f"{where}: ") for w, _, _ in reads.dynamic):
+                            path, line = first_line(search, ANY_VAR)
+                            reads.dynamic.append((f"{where}: {read.text[:120]}", f"{WORKFLOWS}/{path.name}", line))
+                        continue
+                    places = reads.variables.setdefault(read.name, [])
+                    if all(not seen.endswith(f": {where}") for seen, _, _ in places):
+                        path, line = first_line(search, re.compile(
+                            rf"\bvars\s*(?:\.\s*{re.escape(read.name)}\b|\[\s*['\"]{re.escape(read.name)}['\"]\s*\])",
+                            re.IGNORECASE))
+                        places.append((f"{path.name}:{line}: {where}", f"{WORKFLOWS}/{path.name}", line))
+                for loop in sorted(u for u in resolved.unverifiable if u.field == "runs-on"):
+                    source = paths.get(loop.workflow, paths[name])
+                    _, line = first_line([source], re.compile(rf"^\s*{re.escape(loop.name)}\s*:", re.IGNORECASE))
+                    reads.unverifiable.append((f"{where}: inputs.{loop.name} of {loop.workflow} ({loop.reason})",
+                                               f"{WORKFLOWS}/{source.name}", line))
+                # The labels a runs-on resolves to, and every label named in a part it could not resolve (a literal
+                # inside it may be the value it takes): none is skipped for being unresolved.
+                for value in sorted(resolved.runs_on | resolved.runs_on_unresolved):
+                    for label in LABEL.findall(value):
+                        _, line = first_line([paths[name]], re.compile(rf"(?<![A-Za-z0-9_.-]){re.escape(label)}(?![A-Za-z0-9_.-])"))
+                        reads.lines.append((rel, line, label))
+                if resolved.matrix_audit is None:
+                    for term in sorted(t for t in resolved.runs_on_unresolved if not settled(t)):
+                        _, line = first_line([paths[name]], re.compile(r"^\s*runs-on\s*:"))
+                        reads.unsettled.append((where, rel, line, term))
     return reads
 
 
@@ -331,6 +381,20 @@ def findings(workflow_dirs: Iterable[Path], policy: dict) -> list[dict]:
     reads = references(workflow_dirs)
     found = [{"key": f"unreadable:{note}", "message": note, "file": WORKFLOWS, "line": 1, "status": INCOMPLETE}
              for note in reads.unreadable]
+    for where, rel, line in reads.dynamic:
+        found.append({"key": f"vars:dynamic:{where.split(': ', 2)[0]}:{where.split(': ', 2)[1]}", "file": rel,
+                      "line": line, "status": FOUND,
+                      "message": f"{where}: a runs-on reads a repository variable whose name is an expression, so "
+                                 f"{DECLARATION} cannot declare its fallback; name the variable"})
+    for where, rel, line in reads.unverifiable:
+        found.append({"key": f"unverifiable:{where}", "file": rel, "line": line, "status": FOUND,
+                      "message": f"{where}: a runs-on takes its value through this input, whose trace never ends, so "
+                                 f"the variables it reads cannot be verified; break the loop"})
+    for where, rel, line, term in reads.unsettled:
+        found.append({"key": f"unsettled:{where}: {term}", "file": rel, "line": line, "status": FOUND,
+                      "message": f"{where}: a runs-on can take `{term[:160]}`, which the resolver cannot settle, so it "
+                                 f"may be any self-hosted label with no declared fallback; make each branch a literal, a "
+                                 f"declared vars.NAME or a placement job's output"})
     declared = {name.upper() for name in policy.get("variables", {})}
     for name in sorted(reads.variables):
         if name in declared:

@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextHome
 import CmuxNextScreenshots
 import CmuxNextTerminal
 import CmuxNextTerminalFind
@@ -28,7 +29,8 @@ extension TerminalHandlers {
                 // The chat's own find bar (Find in Chat).
                 AgentPaneFind(view).run("find", takeFocus: invocation.allowsViewChange)
             case .page, .conversation:
-                return ctx.refuse(RefusalStrings.notATerminal)
+                guard let home = home(content) else { return ctx.refuse(RefusalStrings.notATerminal) }
+                home.showFind(text: invocation["text"]?.stringValue, takeFocus: invocation.allowsViewChange)
             case .browser:
                 guard let window = ctx.services.windowController(showing: pane) else { return }
                 window.focus.send(.focusPane(pane.paneKey, source: .intent))
@@ -49,6 +51,7 @@ extension TerminalHandlers {
             guard let (pane, content) = ctx.visibleContent(invocation) else { return }
             if sendToFilePage("hideFind", pane, content, ctx) { return }
             if case .agent(let view) = content { return AgentPaneFind(view).run("hideFind", takeFocus: false) }
+            if let home = home(content) { return home.hideFind(restoringFocus: invocation.allowsViewChange) }
             guard case .terminal(let entry) = content else { return ctx.refuse(RefusalStrings.browserFindClosesWithEscape) }
             // A socket or CLI run leaves focus and the selection alone.
             entry.session.find.close(restoringFocus: invocation.allowsViewChange)
@@ -67,6 +70,9 @@ extension TerminalHandlers {
         return FilePageHandlers.sendFind(action, key, ctx.services)
     }
 
+    /// The Home chat a Home tab, the dock or a conversation tab shows (its own find bar).
+    private static func home(_ c: TabContent) -> HomeNativeTranscriptView? { switch c { case .page, .conversation: .first(in: c.view); default: nil } }
+
     private static func navigate(_ invocation: ActionInvocation, forward: Bool, _ ctx: AppActionContext) {
         guard let (pane, content) = ctx.visibleContent(invocation) else { return }
         if sendToFilePage(forward ? "findNext" : "findPrevious", pane, content, ctx) { return }
@@ -74,7 +80,8 @@ extension TerminalHandlers {
         case .agent(let view):
             AgentPaneFind(view).run(forward ? "findNext" : "findPrevious", takeFocus: invocation.allowsViewChange)
         case .page, .conversation:
-            return ctx.refuse(RefusalStrings.notATerminal)
+            guard let home = home(content) else { return ctx.refuse(RefusalStrings.notATerminal) }
+            home.stepFind(forward: forward, takeFocus: invocation.allowsViewChange)
         case .browser(let entry):
             entry.chrome?.perform(forward ? .findNext : .findPrevious)
         case .terminal(let entry):

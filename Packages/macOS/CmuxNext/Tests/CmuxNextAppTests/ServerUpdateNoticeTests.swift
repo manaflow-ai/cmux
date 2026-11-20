@@ -1,4 +1,5 @@
 import CmuxNextTestSupport
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextUpdater
@@ -40,6 +41,31 @@ struct ServerUpdateNoticeTests {
                                     defaults: UserDefaults = defaults()) -> ServerUpdateCoordinator {
         ServerUpdateCoordinator(policy: ServerSkewPolicy(catalog: catalog), restarter: restarter,
                                 snoozes: ServerUpdateSnoozeStore(defaults: defaults), now: { now })
+    }
+
+    /// "Update ready" showed on the handshake right after launch or a daemon handoff. A handshake now
+    /// holds new offers until its connection has held for `offerHold`; the next handshake starts it again.
+    @Test func anOfferWaitsUntilTheConnectionHeld() async throws {
+        let clock = ManualClock()
+        let center = ServerUpdateCoordinator(policy: ServerSkewPolicy(catalog: Self.catalog),
+                                             restarter: FakeRestarter(next: Self.newDaemon()),
+                                             snoozes: ServerUpdateSnoozeStore(defaults: Self.defaults()), clock: clock)
+        #expect(center.holdsOffers, "no handshake yet")
+        center.report(Self.oldDaemon(), appCapabilities: Self.app, bundledBuild: "new5678")
+        #expect(center.notices.count == 1, "the notice is known at once; only its toast waits")
+        #expect(center.holdsOffers)
+        try await clock.waitForSleeper()
+        clock.advance(by: ServerUpdateCoordinator.offerHold - .seconds(1))
+        await Task.yield()
+        #expect(center.holdsOffers)
+        // A handoff: the new daemon's handshake starts the hold again.
+        center.report(Self.oldDaemon(), appCapabilities: Self.app, bundledBuild: "new5678")
+        clock.advance(by: .seconds(2))
+        for _ in 0..<50 { await Task.yield() }
+        #expect(center.holdsOffers)
+        clock.advance(by: ServerUpdateCoordinator.offerHold)
+        for _ in 0..<200 where center.holdsOffers { await Task.yield() }
+        #expect(!center.holdsOffers)
     }
 
     /// Version skew: the features the old daemon lacks are off, and the notice names them.
@@ -87,6 +113,17 @@ struct ServerUpdateNoticeTests {
     }
 
     /// Reporting skew never restarts anything: only a confirmed restart does.
+    /// A failed restart says so plainly with Try Again; the error's own text (a Swift Debug
+    /// string) is for the log, never the toast.
+    @Test func aFailedRestartSaysSoPlainlyWithTryAgain() {
+        let failed = ServerRestartOutcome.failed(#"command(cmd: "restart", message: "socket closed", code: Optional("io"))"#)
+        let text = failed.message(serverLabel: "cmux-tui")
+        #expect(text == "Couldn't restart cmux-tui. Try again.")
+        #expect(!text.contains("socket closed"))
+        #expect(failed.retryTitle == "Try Again")
+        #expect(ServerRestartOutcome.restarted(gained: []).retryTitle == nil)
+    }
+
     @Test func skewAloneNeverRestarts() {
         let restarter = FakeRestarter(next: Self.newDaemon())
         let center = Self.coordinator(restarter)

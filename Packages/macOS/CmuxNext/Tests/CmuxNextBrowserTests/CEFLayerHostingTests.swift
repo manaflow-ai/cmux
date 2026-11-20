@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextTestSupport
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// Layer hosting (fork API 26) of a page window, without Chromium: a fake fork call, a run-loop
@@ -452,5 +453,157 @@ private final class LiveResizeWindow: NSWindow {
         window.isReleasedWhenClosed = false
         window.isLive = live
         return window
+    }
+}
+
+/// Window frame sync (fork API 32, hq#11877): in a page sync (S5: a drag, a key resize, a pane spring) every resize of a
+/// hosted page's view hands the fork the window's Core Animation fence for this turn, one fence per window per turn,
+/// and the main thread never waits for it. Outside a page sync, or with the page in its own window, no fence is asked.
+/// The fence here is a port of the test's own (its receive right kept, so its send rights can be counted).
+@MainActor
+@Suite(.closesItsWindows) struct CEFResizeFenceWiringTests {
+    final class FenceFork {
+        private(set) var fences: [(browser: Int32, port: mach_port_t, timeoutMs: Int32)] = []
+        var dones: [@MainActor (Bool) -> Void] = []
+        var takes = true
+        var fork: CEFLayerHosting.Fork {
+            CEFLayerHosting.Fork(setLayerHosting: { _, enabled in enabled ? 7 : 0 },
+                                 resizeFence: { [self] browser, port, timeout, done in
+                                     guard takes else { return false }
+                                     fences.append((browser, port, timeout))
+                                     dones.append(done)
+                                     return true
+                                 })
+        }
+    }
+
+    let fork = FenceFork()
+    let clock = ManualClock()
+    /// The fences made, as receive rights this test keeps (so the app's send rights on them can be counted).
+    final class Ports {
+        var made: [mach_port_t] = []
+        func make() -> mach_port_t? {
+            var name = mach_port_t(MACH_PORT_NULL)
+            guard mach_port_allocate(mach_task_self_, MACH_PORT_RIGHT_RECEIVE, &name) == KERN_SUCCESS,
+                  mach_port_insert_right(mach_task_self_, name, name, mach_msg_type_name_t(MACH_MSG_TYPE_MAKE_SEND))
+                  == KERN_SUCCESS else { return nil }
+            made.append(name)
+            return name
+        }
+    }
+
+    let ports = Ports()
+
+    /// The send rights of `port` this process holds (the app's own, as the fake fork takes none).
+    func sendRights(_ port: mach_port_t) -> mach_port_urefs_t {
+        var refs: mach_port_urefs_t = 0
+        _ = mach_port_get_refs(mach_task_self_, port, MACH_PORT_RIGHT_SEND, &refs)
+        return refs
+    }
+
+    func makeHosted(_ enabled: Bool = true) -> (CEFLayerHosting, NSView, NSWindow) {
+        let window = NSWindow(contentRect: NSRect(x: -4000, y: -4000, width: 400, height: 300),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        view.wantsLayer = true
+        window.contentView?.wantsLayer = true
+        window.contentView?.addSubview(view)
+        let ports = ports
+        let hosting = CEFLayerHosting(isEnabled: { enabled }, schedule: { $0() },
+                                      makePage: { CEFHostedPageView(frame: $0, makeLayerHost: { _ in CALayer() }) },
+                                      refreshIntervals: { [1.0 / 60] },
+                                      resizeFences: CEFResizeFences(clock: clock, makePort: { _ in ports.make() }))
+        hosting.view = view
+        hosting.pageWindowCreated(browser: 3, fork: fork.fork)
+        return (hosting, view, window)
+    }
+
+    /// Runs the blocks queued for the end of this turn (``CEFLayerHosting/atEndOfTurn(_:)``).
+    func endTurn() { CFRunLoopRunInMode(.defaultMode, 0.005, false) }
+
+    @Test func aResizeOutsideAPageSyncAsksNoFence() {
+        let (hosting, _, window) = makeHosted()
+        defer { window.close() }
+        #expect(hosting.page != nil)
+        hosting.pageViewResized()
+        #expect(fork.fences.isEmpty)
+        #expect(ports.made.isEmpty)
+    }
+
+    @Test func aPageInItsOwnWindowAsksNoFence() {
+        let (hosting, _, window) = makeHosted(false)
+        defer { window.close() }
+        hosting.paneResizeDrag(active: true)
+        hosting.pageViewResized()
+        #expect(fork.fences.isEmpty)
+    }
+
+    @Test func pagesResizedInOneTurnShareOneFenceWithAOneRefreshDeadline() throws {
+        let (hosting, _, window) = makeHosted()
+        defer { window.close() }
+        hosting.paneResizeDrag(active: true)
+        let before = CEFHostView.trackerStats.resizeFences
+        hosting.pageViewResized()
+        hosting.pageViewResized()
+        let first = try #require(fork.fences.first)
+        #expect(fork.fences.count == 2)
+        #expect(ports.made == [first.port])
+        #expect(fork.fences.allSatisfy { $0.browser == 3 && $0.port == first.port })
+        #expect(first.timeoutMs == 17)
+        #expect(CEFHostView.trackerStats.resizeFences == before + 1)
+        let presented = CEFHostView.trackerStats.resizeFencePresented
+        for done in fork.dones { done(true) }
+        #expect(CEFHostView.trackerStats.resizeFencePresented == presented + 2)
+        // Every page reported, but the turn is not over: another page may still join.
+        #expect(sendRights(first.port) == 1)
+        endTurn()
+        #expect(sendRights(first.port) == 0)
+    }
+
+    /// After its turn, a fence with a page still out keeps its send right until that page reports, then lets it go: a
+    /// fence freed with its right would hold the window's commits for good, and one kept past `done` would too.
+    @Test func aFenceOutlivesItsTurnUntilItsPagesReport() throws {
+        let (hosting, _, window) = makeHosted()
+        defer { window.close() }
+        hosting.paneResizeDrag(active: true)
+        hosting.pageViewResized()
+        let fence = try #require(fork.fences.first)
+        endTurn()
+        #expect(sendRights(fence.port) == 1)
+        for done in fork.dones { done(true) }
+        #expect(sendRights(fence.port) == 0)
+    }
+
+    /// A page that never reports holds the window no longer than this app's deadline (the fork's and one refresh).
+    @Test func aFenceGoesAtItsDeadline() async throws {
+        let (hosting, _, window) = makeHosted()
+        defer { window.close() }
+        hosting.paneResizeDrag(active: true)
+        hosting.pageViewResized()
+        let fence = try #require(fork.fences.first)
+        endTurn()
+        let expired = CEFHostView.trackerStats.resizeFencesExpired
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(40))
+        for _ in 0..<50 where sendRights(fence.port) != 0 { await Task.yield() }
+        #expect(sendRights(fence.port) == 0)
+        #expect(CEFHostView.trackerStats.resizeFencesExpired == expired + 1)
+        // A late report finds the right gone and changes nothing.
+        for done in fork.dones { done(false) }
+        #expect(sendRights(fence.port) == 0)
+    }
+
+    /// A fence no page joined goes at the end of its turn.
+    @Test func aFenceNoPageJoinedGoesWithItsTurn() throws {
+        let (hosting, _, window) = makeHosted()
+        defer { window.close() }
+        fork.takes = false
+        hosting.paneResizeDrag(active: true)
+        hosting.pageViewResized()
+        let port = try #require(ports.made.first)
+        #expect(sendRights(port) == 1)
+        endTurn()
+        #expect(sendRights(port) == 0)
     }
 }

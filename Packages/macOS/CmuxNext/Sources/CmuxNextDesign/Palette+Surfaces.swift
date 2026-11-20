@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxTheme
+public import CmuxTheme
 public import CmuxNextDesignTokens
 
 extension Palette {
@@ -12,6 +12,15 @@ extension Palette {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
         let scope = ThemeContext.activeScope ?? ThemeScope.app
         return scope.surfaceBackgrounds.fill(for: kind, tokens: tokens, windowTint: WindowBackdrop.currentTint(tokens))?.nsColor
+    }
+
+    /// `kind`'s override for an owner that paints it straight over the window's one tint, whose color is `sheet`
+    /// (``SurfaceBackgrounds/fill(for:tokens:windowTint:overSheet:)``); nil `sheet` is ``surfaceOverride(_:)``.
+    public static func surfaceOverride(_ kind: SurfaceKind, overSheet sheet: ThemeRGB?) -> NSColor? {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        let scope = ThemeContext.activeScope ?? ThemeScope.app
+        return scope.surfaceBackgrounds.fill(for: kind, tokens: tokens, windowTint: WindowBackdrop.currentTint(tokens),
+                                             overSheet: sheet)?.nsColor
     }
 
     /// `kind`'s background: its override, else `fallback` (what the owner

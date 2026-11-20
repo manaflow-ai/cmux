@@ -126,6 +126,37 @@ await requireBrowserLane("agent-pane-tool-group-scroll.test.ts", async () => {
     if ((await run.getAttribute("aria-expanded")) !== "true") await run.click();
     const box = page.locator(".cv-run-scroll").first();
     await box.waitFor();
+    // The run's open plays a height fold, and in its last frames a chat that fit starts to overflow
+    // (3 px here). A wheel that landed in those frames moved the transcript to its end: 8 of 21 first
+    // tries failed the last assert with 3 for 1. That window is a finding of its own (#41859's probe
+    // lines); this test is about a wheel over a run at rest. Wait for the fold's END before an offset
+    // is read and the wheel is sent: the run's row plays no animation, and its height and the
+    // transcript's offset hold for 6 frames.
+    await page
+      .waitForFunction(
+        () => {
+          const row = document.querySelector<HTMLElement>(".cv-run-scroll")?.closest<HTMLElement>(".acpmux-row");
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+          if (!row || !scroller) return false;
+          const holder = globalThis as unknown as { __runFoldSeen?: { height: number; top: number; held: number } };
+          const seen = (holder.__runFoldSeen ??= { height: -1, top: -1, held: 0 });
+          const height = row.getBoundingClientRect().height;
+          const top = scroller.scrollTop;
+          const playing = row.getAnimations({ subtree: true }).some((each) => each.playState === "running");
+          const same = Math.abs(height - seen.height) < 0.01 && Math.abs(top - seen.top) < 0.01;
+          seen.held = same && !playing ? seen.held + 1 : 0;
+          seen.height = height;
+          seen.top = top;
+          return seen.held >= 6;
+        },
+        undefined,
+        { polling: "raf", timeout: 5_000 },
+      )
+      .catch((error: unknown) => {
+        throw new Error(
+          `the run's fold did not end in 5 s: its row's height and the transcript's offset never held for 6 frames (${String(error).split("\n")[0]})`,
+        );
+      });
     await box.scrollIntoViewIfNeeded();
     await box.evaluate((node) => {
       node.scrollTop = 0;

@@ -57,6 +57,10 @@ ALLOWED: dict[str, str] = {
         'only when this run deferred to a same-key owner whose hand-off job has started: one owner-run read every 15 s, at most 12 passes',
     'cmux-next-generated-catch-up.yml: Select PRs that conflict with feat-cmux-next':
         "per feat-cmux-next push, only while a PR's mergeable is UNKNOWN: re-lists open PRs every 20 s, at most 5 more times",
+    "app-ffi-release.yml: Watch the build and rescue it to Blacksmith macOS":
+        "per feat-cmux-next app-ffi-release run, only while vars.CI_BLACKSMITH_MACOS is pr-rescue or on "
+        "(app_ffi_rescue.py, #45076, hq#3690): one jobs page every 120 s, at most 50 reads, ending once the "
+        "build has a runner; a candidate for the owned-pool rescue's one sweeper",
     'published-in.yml: Comment the release on its PRs':
         'per stable release: one comment per PR, 7.5 s apart for the secondary limit on content writes; stops at the first rate-limit refusal',
     'nightly.yml: Comment the build on its PRs':
@@ -112,6 +116,8 @@ ALLOWED: dict[str, str] = {
     'cmux-next-batch.yml: Wait for quiet, then dispatch a batch':
         'only when CMUX_NEXT_BATCH_ENABLED=1: one debounce sleep between two run listings, then a dispatch; the flagged loop (GraphQL paging with one 10 s retry) is in the batch subcommand this step does not run',
     "gallery-advisory.yml: Update the PR's gallery section":
+        'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
+    "pr-checks.yml: Update the PR's Swift logic line":
         'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
     "pr-checks.yml: Update the PR's review line":
         'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',

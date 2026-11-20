@@ -28,6 +28,9 @@ for path in \
   "$APP/Contents/Resources/libexec/cmux-server-helper" \
   "$APP/Contents/Frameworks/cmux Helper.app/Contents/MacOS/cmux Helper" \
   "$APP/Contents/Frameworks/cmux Helper (GPU).app/Contents/MacOS/cmux Helper (GPU)" \
+  "$APP/Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/cmux-remote-browser-host" \
+  "$APP/Contents/Helpers/cmux-remote-browser-host.app/Contents/Frameworks/cmux-remote-browser-host Helper.app/Contents/MacOS/cmux-remote-browser-host Helper" \
+  "$APP/Contents/Helpers/cmux-remote-browser-host.app/Contents/Frameworks/cmux-remote-browser-host Helper (Renderer).app/Contents/MacOS/cmux-remote-browser-host Helper (Renderer)" \
   "$APP/Contents/PlugIns/CmuxDockTilePlugin.plugin/Contents/MacOS/CmuxDockTilePlugin" \
   "$APP/Contents/Library/SystemExtensions/cmuxTunnel.systemextension/Contents/MacOS/cmuxTunnel" \
   "$APP/Contents/Frameworks/libcmux_command_palette_nucleo_ffi.dylib" \
@@ -37,6 +40,8 @@ do
   printf '#!/bin/sh\nexit 0\n' > "$path"
   chmod +x "$path"
 done
+# The host app's CEF framework is a symlink to the app's own; never followed.
+ln -s ../../../../Frameworks/Sparkle.framework "$APP/Contents/Helpers/cmux-remote-browser-host.app/Contents/Frameworks/Chromium Embedded Framework.framework"
 # bin/cmux is the cmux-tui binary; its other names are symlinks, never stripped.
 ln -s cmux "$APP/Contents/Resources/bin/cmux-tui"
 ln -s cmux "$APP/Contents/Resources/bin/acpmux"
@@ -75,7 +80,7 @@ cp "$STRINGS_DIR/Broken.strings" "$TMP_DIR/Broken.before"
 cat > "$TMP_DIR/tools/file" <<'EOF'
 #!/usr/bin/env bash
 case "$1" in
-  *"/Contents/MacOS/cmux"|*"/Contents/Resources/bin/cmux"|*"/Contents/Resources/bin/cmux-tui"|*"/Contents/Resources/bin/acpmux"|*"/Contents/Resources/bin/cmux-diff-sidecar"|*"CmuxDockTilePlugin"|*"/Contents/MacOS/cmuxTunnel"|*"libcmux_"*|*"-apple-darwin"|*"/bin/ghostty"|*"/bin/cmux-app-host"|*"/bin/cmux-browser-host"|*"/bin/cmux-cloud"|*"/libexec/cmux-server-helper"|*"/Contents/MacOS/cmux Helper"*)
+  *"/Contents/MacOS/cmux"|*"/Contents/Resources/bin/cmux"|*"/Contents/Resources/bin/cmux-tui"|*"/Contents/Resources/bin/acpmux"|*"/Contents/Resources/bin/cmux-diff-sidecar"|*"CmuxDockTilePlugin"|*"/Contents/MacOS/cmuxTunnel"|*"libcmux_"*|*"-apple-darwin"|*"/bin/ghostty"|*"/bin/cmux-app-host"|*"/bin/cmux-browser-host"|*"/bin/cmux-cloud"|*"/libexec/cmux-server-helper"|*"/Contents/MacOS/cmux Helper"*|*"/Contents/MacOS/cmux-remote-browser-host"*)
     printf '%s: Mach-O universal binary\n' "$1"
     ;;
   *)
@@ -115,6 +120,9 @@ printf '%s\n' \
   "-S -x $APP/Contents/Frameworks/libcmux_command_palette_nucleo_ffi.dylib" \
   "-S -x $APP/Contents/Frameworks/cmux Helper (GPU).app/Contents/MacOS/cmux Helper (GPU)" \
   "-S -x $APP/Contents/Frameworks/cmux Helper.app/Contents/MacOS/cmux Helper" \
+  "-S -x $APP/Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/cmux-remote-browser-host" \
+  "-S -x $APP/Contents/Helpers/cmux-remote-browser-host.app/Contents/Frameworks/cmux-remote-browser-host Helper.app/Contents/MacOS/cmux-remote-browser-host Helper" \
+  "-S -x $APP/Contents/Helpers/cmux-remote-browser-host.app/Contents/Frameworks/cmux-remote-browser-host Helper (Renderer).app/Contents/MacOS/cmux-remote-browser-host Helper (Renderer)" \
   "-S -x $APP/Contents/Library/SystemExtensions/cmuxTunnel.systemextension/Contents/MacOS/cmuxTunnel" \
   | LC_ALL=C sort > "$expected"
 LC_ALL=C sort "$TMP_DIR/strip.log" > "$TMP_DIR/strip.sorted.log"

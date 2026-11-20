@@ -11,6 +11,9 @@
 // What does not count, so a correct page scores 0:
 //   - a box that has not yet held still for `REST_FRAMES` frames: an entrance animation, a row
 //     still mounting. Once it rested, any later move counts (the composer gap that jumps on load).
+//     A box a keyframe animation is moving (its own or an ancestor's, `animating`) has not rested
+//     either: on a loaded runner an entrance can hold its first frame for a few frames before it
+//     plays (the file search palette's ui-enter rise read as a 2.5 px shift, #40937);
 //     A step starts on a settled page, so its first frame's boxes have rested (`restedAtStart`);
 //   - the step's target, its ancestors and descendants (the tool row that expands), and while that
 //     row opens at the very bottom (`BOTTOM_FOLD`), everything inside it: it rises as one;
@@ -23,7 +26,10 @@
 //   - a box's first move after a resize (`firstMoveFree`): the new width lays it out once; a second
 //     move is the bounce a sidebar toggle must not have;
 //   - moves under half a CSS px (layout rounding), and boxes outside the viewport.
-// The pure scoring is here (unit tested); `startBoxTracker` samples the live page.
+// The pure scoring is here (unit tested); `startBoxTracker` samples the live page. The tracker also
+// judges the same frames for the follow (followJudge.ts): a move other than the one translation the
+// transcript rows share.
+import { judgeFollowFrames, type FollowJudgement } from "./followJudge";
 
 export type Box = { x: number; y: number; width: number; height: number };
 
@@ -31,11 +37,25 @@ export type Box = { x: number; y: number; width: number; height: number };
  * One tracked box in one frame. `after` is true when it follows the step's target in document order;
  * `before` when it precedes a target whose row is opening at the bottom of its transcript (`BOTTOM_FOLD`).
  */
-export type BoxSample = { box: Box; label: string; targeted?: boolean; after?: boolean; before?: boolean };
+export type BoxSample = {
+  box: Box;
+  label: string;
+  targeted?: boolean;
+  after?: boolean;
+  before?: boolean;
+  /** A keyframe animation on it or an ancestor is running or about to start: its moves are that
+   *  animation's, not a shift, and it has not rested. */
+  animating?: boolean;
+  /** A transcript row (`data-row-id`): the follow judge (followJudge.ts) wants every one in view to
+   *  move by the same translation. */
+  row?: boolean;
+  /** The composer or its bar: the follow judge wants it never to move. */
+  composer?: boolean;
+};
 export type BoxFrame = Map<number, BoxSample>;
 
 export type BoxMove = { label: string; frame: number; dx: number; dy: number };
-export type BoxShift = { score: number; moves: BoxMove[] };
+export type BoxShift = { score: number; moves: BoxMove[]; follow?: FollowJudgement };
 
 /** The transcript row that is opening or closing at the very bottom, so the text above it rises or
  *  falls (App.tsx `beginBottomStackFold`, `data-bottom-stack-fold`, set for every bottom stack), and
@@ -146,6 +166,10 @@ export function scoreBoxFrames(
       const dy = now.box.y - was.box.y;
       const moved = Math.abs(dx) > MOVE_SLACK || Math.abs(dy) > MOVE_SLACK;
       const rested = (still.get(id) ?? 0) >= REST_FRAMES;
+      if (now.animating || was.animating) {
+        still.set(id, 0);
+        continue;
+      }
       if (!moved) {
         still.set(id, (still.get(id) ?? 0) + 1);
         continue;
@@ -256,6 +280,7 @@ export function sampleBoxes(doc: Document, target: StepTargets, extra: Element[]
   // The row opening at the very bottom moves as one: what it holds (a batch's message rows) rises
   // with its toggle and the text above, so it is the target's as much as the toggle's line is.
   const targets = targetList(target).map((each) => ({ each, folding: bottomFoldOf(each) }));
+  const moving = animatedElements(doc);
   for (const element of new Set([...doc.querySelectorAll(TRACK_SELECTOR), ...extra])) {
     const rect = element.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) continue;
@@ -278,32 +303,140 @@ export function sampleBoxes(doc: Document, target: StepTargets, extra: Element[]
       targeted,
       after,
       before,
+      animating: moving.size > 0 && inMotion(element, moving),
+      row: element.hasAttribute("data-row-id"),
+      composer: element.matches(".acpmux-composer-box, .acpmux-composer-bar"),
     });
   }
   return frame;
 }
 
+/** Keyframe properties that move a box without a layout change. */
+const MOVING_PROPERTIES = new Set(["transform", "translate", "scale", "rotate"]);
+
+/** The elements a keyframe animation (a CSSAnimation, not a transition, which can carry a real
+ *  shift) is moving, running or waiting to start: an entrance rise. A shimmer or fade moves nothing
+ *  and leaves its box judged as before. */
+function animatedElements(doc: Document): Set<Element> {
+  const moving = new Set<Element>();
+  for (const animation of doc.getAnimations?.() ?? []) {
+    if (animation.playState === "finished" || animation.playState === "idle") continue;
+    if (!("animationName" in animation)) continue;
+    const effect = animation.effect as KeyframeEffect | null;
+    if (!effect?.target) continue;
+    const moves = effect.getKeyframes().some((frame) => Object.keys(frame).some((key) => MOVING_PROPERTIES.has(key)));
+    if (moves) moving.add(effect.target);
+  }
+  return moving;
+}
+
+function inMotion(element: Element, moving: Set<Element>): boolean {
+  for (let node: Element | null = element; node; node = node.parentElement) if (moving.has(node)) return true;
+  return false;
+}
+
 /** Most frames one tracker keeps (about 33 s at 60 Hz); a longer run scores its first frames. */
 const MAX_FRAMES = 2000;
 
-/** Samples every frame until `stop`, which scores what it saw. */
+/** What `afterEachPaint` schedules with: a window, or a stand-in in a unit test. */
+export interface PaintClock {
+  requestAnimationFrame(callback: (time: number) => void): number;
+  cancelAnimationFrame(handle: number): void;
+  /** Posts `then` as a task: a message posted from a frame callback runs after that frame renders. */
+  afterThisFrame(then: () => void): void;
+  /** Adds a capturing listener for the input events that come before a pending read. */
+  onInput?(listener: () => void): () => void;
+}
+
+/** Input that can change the page between a frame and the read after it (paintedFrames.ts). */
+const INPUT_EVENTS = [
+  "keydown",
+  "beforeinput",
+  "input",
+  "pointerdown",
+  "pointerup",
+  "mousedown",
+  "mouseup",
+  "click",
+  "wheel",
+];
+
+export function windowPaintClock(view: Window): PaintClock {
+  return {
+    requestAnimationFrame: (callback) => view.requestAnimationFrame(callback),
+    cancelAnimationFrame: (handle) => view.cancelAnimationFrame(handle),
+    afterThisFrame(then) {
+      const channel = new (view as Window & typeof globalThis).MessageChannel();
+      channel.port1.onmessage = () => {
+        channel.port1.close();
+        then();
+      };
+      channel.port2.postMessage(null);
+    },
+    onInput(listener) {
+      for (const kind of INPUT_EVENTS) view.addEventListener(kind, listener, { capture: true, passive: true });
+      return () => {
+        for (const kind of INPUT_EVENTS) view.removeEventListener(kind, listener, { capture: true });
+      };
+    },
+  };
+}
+
+/**
+ * Calls `read` once after each painted frame until the returned stop. A frame callback runs before
+ * the frame's style, layout, ResizeObserver callbacks and paint, so a read there can see a layout
+ * no frame paints (the transcript's lift before its dock observer ran, #46151): the read waits for
+ * a task posted from the frame callback instead. An input event before that task runs the read
+ * first, on the state the frame painted.
+ */
+export function afterEachPaint(clock: PaintClock, read: () => void): () => void {
+  let stopped = false;
+  let handle = 0;
+  // The frame whose read has not run yet; a read runs at most once, and only while it is pending.
+  let pending = 0;
+  let frames = 0;
+  const runFor = (frameNumber: number) => {
+    if (stopped || frameNumber === 0 || pending !== frameNumber) return;
+    pending = 0;
+    read();
+  };
+  const offInput = clock.onInput?.(() => runFor(pending)) ?? (() => {});
+  const frame = () => {
+    if (stopped) return;
+    // A read whose task did not come before the next frame would see this frame's unpainted layout:
+    // it is dropped (the next read sees both frames' moves).
+    const frameNumber = ++frames;
+    pending = frameNumber;
+    clock.afterThisFrame(() => runFor(frameNumber));
+    handle = clock.requestAnimationFrame(frame);
+  };
+  handle = clock.requestAnimationFrame(frame);
+  return () => {
+    stopped = true;
+    pending = 0;
+    clock.cancelAnimationFrame(handle);
+    offInput();
+  };
+}
+
+/** Samples after every painted frame until `stop`, which scores what it saw. */
 export function startBoxTracker(
   doc: Document,
   options: { target?: StepTargets; extra?: () => Element[]; firstMoveFree?: boolean; restedAtStart?: boolean } = {},
 ): { stop(): BoxShift } {
   const frames: BoxFrame[] = [];
   const view = doc.defaultView!;
-  let handle = 0;
   const sample = () => {
     if (frames.length < MAX_FRAMES) frames.push(sampleBoxes(doc, options.target ?? null, options.extra?.() ?? []));
-    handle = view.requestAnimationFrame(sample);
   };
   sample();
+  const stopSampling = afterEachPaint(windowPaintClock(view), sample);
   return {
     stop() {
-      view.cancelAnimationFrame(handle);
+      stopSampling();
       frames.push(sampleBoxes(doc, options.target ?? null, options.extra?.() ?? []));
-      return scoreBoxFrames(frames, { width: view.innerWidth, height: view.innerHeight }, options);
+      const shift = scoreBoxFrames(frames, { width: view.innerWidth, height: view.innerHeight }, options);
+      return { ...shift, follow: judgeFollowFrames(frames, options) };
     },
   };
 }

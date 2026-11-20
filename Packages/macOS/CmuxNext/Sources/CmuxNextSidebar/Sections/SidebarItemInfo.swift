@@ -256,21 +256,39 @@ extension SidebarItemInfo {
     }
 
     /// `fallback(for:)` of the item's ref, titled with the label stored with
-    /// the item (a closed workspace's last known name) when it has one.
+    /// the item (a closed workspace's last known name) when it has one. A
+    /// workspace item the App has not described is a closed workspace
+    /// (`closedWorkspace`): never drawn as its raw `<session>:<ws_…>`
+    /// reference, also before the App's first pass at launch (#42372).
     public static func fallback(for item: LayoutItem) -> SidebarItemInfo {
         var info = fallback(for: item.ref)
         if info.isMissing, let label = item.label { info.title = label }
+        if item.ref.kind == LayoutItemRef.workspaceKind, item.label == nil { info.isHidden = true }
         return info
     }
 
     /// A workspace item no open workspace answers: dimmed under its stored
     /// name, or hidden when it has none. Without a name it would be an
     /// anonymous workspace glyph whose click does nothing (a pin from an old
-    /// daemon session; Lawrence 2026-10-21 "what are these 2 weird things").
+    /// daemon session; Lawrence 2026-10-21 "what are these 2 weird things"),
+    /// titled with its raw reference (#42372: dozens of Pinned rows reading
+    /// the same session UUID after a restore).
     /// The layout keeps it, so it draws again when its workspace comes back.
     public static func closedWorkspace(_ item: LayoutItem) -> SidebarItemInfo {
-        var info = fallback(for: item)
-        if item.label == nil { info.isHidden = true }
-        return info
+        fallback(for: item)
+    }
+
+    /// The ids of `sections`' items that draw nothing: an item `infos` hides,
+    /// and one it does not describe whose fallback hides (a closed workspace
+    /// with no stored name). The bands and the Cmd-1…9 order skip the same set.
+    public static func hiddenItems(in sections: [LayoutSection], infos: [LayoutItemID: SidebarItemInfo]) -> Set<LayoutItemID> {
+        var hidden = Set(infos.filter(\.value.isHidden).keys)
+        for section in sections {
+            // `fallback(for:)`'s rule, without making the info: an undescribed workspace with no stored name.
+            for item in section.items where item.label == nil && item.ref.kind == LayoutItemRef.workspaceKind && infos[item.id] == nil {
+                hidden.insert(item.id)
+            }
+        }
+        return hidden
     }
 }

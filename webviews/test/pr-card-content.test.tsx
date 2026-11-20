@@ -105,7 +105,7 @@ async function card(answer: Record<string, unknown>, url = PR_URL, known = KNOWN
   const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
   const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
   // The card words every age in the pane's language, so the pane's language is pinned here
-  // rather than left to the runner's (REVIEW.md: a test must not read the machine).
+  // rather than left to the runner's (a test must not read the machine).
   setPaneLanguage("en");
   const { resetPullRequestStore } = await import("../src/agent-session/acpmux/chips/pullRequestStore");
   const { PullRequestCardBody } = await import("../src/agent-session/acpmux/chips/PullRequestCard");

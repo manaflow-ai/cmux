@@ -431,9 +431,13 @@ impl Brain {
                 .filter(|p| p.kind == cmux_conversation::ParticipantKind::Human)
                 .and_then(|p| p.person.as_deref())
                 .filter(|id| *id != cmux_chief::rules::USER_LOCAL);
+            // `from`, `images`, `files`, `remote`: content-free flags for
+            // product analytics (analytics/catalog.rs).
+            let from = message_from(summary, &message);
             self.trace.emit(
                 "usage.message",
-                serde_json::json!({"id": message.id, "person": person}),
+                serde_json::json!({"id": message.id, "person": person, "from": from,
+                    "images": has_images, "files": has_files, "remote": remote.is_some(), "side": false}),
             );
             let sender = self.settings.membership.agent_sender(summary, &message);
             let relay = sender
@@ -607,5 +611,23 @@ impl Brain {
             &crate::compactor::user_claude_home(),
         );
         crate::slash_skills::with_invocation(text, &skills)
+    }
+}
+
+/// Whether `message`'s author is a person (`human`), an agent or neither,
+/// from the conversation's participants: a closed token for analytics.
+pub(super) fn message_from(
+    summary: &cmux_conversation::Summary,
+    message: &cmux_conversation::Message,
+) -> &'static str {
+    match summary
+        .participants
+        .iter()
+        .find(|p| p.id == message.author)
+        .map(|p| &p.kind)
+    {
+        Some(cmux_conversation::ParticipantKind::Human) => "human",
+        Some(cmux_conversation::ParticipantKind::Agent) => "agent",
+        _ => "other",
     }
 }

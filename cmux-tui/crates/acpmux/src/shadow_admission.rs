@@ -25,8 +25,10 @@
 //! verdicts as `shadowAdmission` and `acpmux ls` prints a line for each one
 //! that would defer.
 
-use crate::host_pressure::{ShadowInputs, ShadowState, ShadowVerdict, shadow_verdict};
+use crate::host_pressure::{ShadowInputs, ShadowVerdict, shadow_verdict};
 use crate::placement::Candidate;
+// Not through host_pressure, whose glob re-export the test-hooks check cannot follow.
+use cmux_host_budget::ShadowState;
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::collections::HashMap;

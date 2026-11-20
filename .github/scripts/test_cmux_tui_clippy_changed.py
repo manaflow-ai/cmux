@@ -31,6 +31,14 @@ if [[ "$1" == metadata ]]; then
   exit
 fi
 printf '%s\\n' "$*" >> "$CARGO_LOG"
+if [[ -n "${STALE_LOCK:-}" ]]; then
+  case "$STALE_LOCK" in
+    create) echo "error: cannot create the lock file $PWD/Cargo.lock because --locked was passed to prevent this" >&2 ;;
+    needs) echo "error: the lock file $PWD/Cargo.lock needs to be updated but --locked was passed to prevent this" >&2 ;;
+    *) echo "error: cannot update the lock file $PWD/Cargo.lock because --locked was passed to prevent this" >&2 ;;
+  esac
+  exit 101
+fi
 [[ -n "${HEAD_LOG:-}" ]] && git rev-parse HEAD >> "$HEAD_LOG"
 for arg in "$@"; do
   if [[ "$arg" == "${FAIL_PACKAGE:-none}" ]]; then
@@ -151,6 +159,10 @@ class ClippyChangedTests(unittest.TestCase):
         if not self.ratchet_log.exists():
             return []
         return [line.split() for line in self.ratchet_log.read_text().splitlines()]
+
+    def judged(self, out: Path) -> list[str]:
+        """The arguments the wrapper passes the ratchet for the clippy JSON at OUT (cargo's stderr beside it)."""
+        return ["--repo", str(self.repo.resolve()), "--clippy-json", str(out), "--cargo-log", f"{out}.stderr"]
 
     def run_ratchet(self, *args: str, rc: int = 0) -> tuple[subprocess.CompletedProcess[str], Path]:
         out = self.tmp / "out" / "panic-clippy.jsonl"
@@ -275,7 +287,41 @@ class ClippyChangedTests(unittest.TestCase):
         self.assertEqual(self.calls(), [["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d",
                                          "--lib", "--bins", *PANIC]])
         self.assertIn('"build-finished"', out.read_text())
-        self.assertEqual(self.ratchet_calls(), [["--repo", str(self.repo.resolve()), "--clippy-json", str(out)]])
+        self.assertEqual(self.ratchet_calls(), [self.judged(out)])
+
+    def test_a_stale_lockfile_is_named_instead_of_a_lint(self) -> None:
+        # #42133's shape: base moved a dependency, the merge ref's Cargo.lock no longer matched, and
+        # the job said to fix lints that did not exist.
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        result = self.run_check("--base", self.base, env_extra={"STALE_LOCK": "1"})
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("::error title=cmux-tui clippy (stale Cargo.lock)::cmux-tui/Cargo.lock does not match its "
+                      "manifests", result.stdout)
+        self.assertIn("`scripts/cmux-next/cargo-locks.py fix`", result.stdout)
+        self.assertNotIn("fix each lint", result.stdout)
+
+    def test_each_of_cargos_spellings_of_a_stale_lockfile_is_named(self) -> None:
+        # cargo-locks.py knows three sentences; a detector that knew one called the others lints.
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        for spelling in ("create", "needs"):
+            with self.subTest(spelling=spelling):
+                result = self.run_check("--base", self.base, env_extra={"STALE_LOCK": spelling})
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("::error title=cmux-tui clippy (stale Cargo.lock)::cmux-tui/Cargo.lock does not match "
+                              "its manifests", result.stdout)
+                self.assertNotIn("fix each lint", result.stdout)
+
+    def test_a_stale_lockfile_is_named_instead_of_a_ratchet_hit(self) -> None:
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        out = self.tmp / "out" / "panic-clippy.jsonl"
+        result = self.run_check("--base", self.base, "--panic-ratchet", str(out),
+                                env_extra={"STALE_LOCK": "1", "RATCHET_RC": "2"})
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("::error title=cmux-tui panic ratchet (stale Cargo.lock)::cmux-tui/Cargo.lock", result.stdout)
+        self.assertNotIn("names each new hit", result.stdout)
+        # The ratchet gets cargo's stderr too, so its own line names the lockfile.
+        self.assertIn("cannot update the lock file", Path(f"{out}.stderr").read_text())
+        self.assertIn("cannot update the lock file", result.stderr, "cargo's stderr still reaches the log")
 
     def test_a_red_panic_ratchet_fails_the_check_and_names_the_packages(self) -> None:
         self.change("cmux-tui/crates/d/src/lib.rs")
@@ -326,7 +372,7 @@ class ClippyChangedTests(unittest.TestCase):
         self.assertEqual(self.calls(), [lint])
         self.assertEqual(heads.read_text().split(), [head])
         self.assertFalse(out.with_name(out.name + ".base").exists())
-        self.assertEqual(self.ratchet_calls(), [["--repo", str(self.repo.resolve()), "--clippy-json", str(out)]])
+        self.assertEqual(self.ratchet_calls(), [self.judged(out)])
 
     def test_compare_base_lints_the_same_packages_at_the_base_when_head_is_red(self) -> None:
         # cmux-next fast gates: a row lowered on the tip since the PR's own ratchet ran (#28182); the base's
@@ -344,7 +390,7 @@ class ClippyChangedTests(unittest.TestCase):
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), head, "the checkout is back on HEAD")
         base_out = out.with_name(out.name + ".base")
         self.assertIn('"build-finished"', base_out.read_text())
-        strict = ["--repo", str(self.repo.resolve()), "--clippy-json", str(out)]
+        strict = self.judged(out)
         self.assertEqual(self.ratchet_calls(), [strict, [*strict, "--base-clippy-json", str(base_out)]])
 
     def test_compare_base_returns_to_head_when_the_base_lint_cannot_start(self) -> None:
@@ -363,7 +409,7 @@ class ClippyChangedTests(unittest.TestCase):
         result, out = self.run_ratchet("--compare-base")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.calls(), [["clippy", "--locked", "--workspace", "--lib", "--bins", *PANIC]])
-        self.assertEqual(self.ratchet_calls(), [["--repo", str(self.repo.resolve()), "--clippy-json", str(out)]])
+        self.assertEqual(self.ratchet_calls(), [self.judged(out)])
 
 
 def clippy_jsonl(hits: int, finished: bool = True, lint: str = "indexing_slicing",
@@ -398,9 +444,12 @@ class RatchetAgainstBaseTests(unittest.TestCase):
         (here / "rust-panic-baseline.json").write_text(json.dumps({"crates": {"acpmux": {
             "unwrap_used": 0, "indexing_slicing": 693, "arithmetic_side_effects": 10}}, "lints": lints}))
 
-    def judge(self, head: str, base: str | None = None) -> subprocess.CompletedProcess[str]:
+    def judge(self, head: str, base: str | None = None,
+              cargo_log: Path | None = None) -> subprocess.CompletedProcess[str]:
         (self.tmp / "head.jsonl").write_text(head)
         args = ["--repo", str(self.tmp), "--clippy-json", str(self.tmp / "head.jsonl")]
+        if cargo_log is not None:
+            args += ["--cargo-log", str(cargo_log)]
         if base is not None:
             (self.tmp / "base.jsonl").write_text(base)
             args += ["--base-clippy-json", str(self.tmp / "base.jsonl")]
@@ -435,6 +484,37 @@ class RatchetAgainstBaseTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stderr)
         listed = [line.strip() for line in result.stderr.splitlines() if line.strip().startswith("crates/")]
         self.assertEqual(listed[0], "crates/acpmux/src/zz.rs:1:1", result.stderr)
+
+    def test_a_run_cargo_stopped_at_a_stale_lockfile_names_the_lockfile(self) -> None:
+        # #42133: the JSON is empty because cargo refused the lockfile, not because a build broke.
+        lock = self.tmp / "cmux-tui/Cargo.lock"
+        (self.tmp / "cargo.log").write_text(f"error: cannot update the lock file {lock} because --locked was "
+                                            "passed to prevent this\n")
+        result = self.judge("", cargo_log=self.tmp / "cargo.log")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("::error title=rust panic ratchet (stale Cargo.lock)::cmux-tui/Cargo.lock does not match",
+                      result.stderr)
+        self.assertIn("`scripts/cmux-next/cargo-locks.py fix`", result.stderr)
+        self.assertNotIn("partial build", result.stderr)
+
+    def test_each_of_cargos_spellings_of_a_stale_lockfile_names_the_lockfile(self) -> None:
+        lock = self.tmp / "cmux-tui/Cargo.lock"
+        for words in (f"cannot create the lock file {lock} because --locked was passed to prevent this",
+                      f"the lock file {lock} needs to be updated but --locked was passed to prevent this"):
+            with self.subTest(words=words):
+                (self.tmp / "cargo.log").write_text(f"error: {words}\n")
+                result = self.judge("", cargo_log=self.tmp / "cargo.log")
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("::error title=rust panic ratchet (stale Cargo.lock)::cmux-tui/Cargo.lock does not "
+                              "match", result.stderr)
+                self.assertNotIn("partial build", result.stderr)
+
+    def test_a_run_that_did_not_finish_for_another_reason_is_still_a_partial_build(self) -> None:
+        (self.tmp / "cargo.log").write_text("error: could not compile `acpmux`\n")
+        result = self.judge(clippy_jsonl(1, finished=False), cargo_log=self.tmp / "cargo.log")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("partial build", result.stderr)
+        self.assertNotIn("stale Cargo.lock", result.stderr)
 
     def test_without_a_base_run_every_count_over_the_row_is_red(self) -> None:
         self.assertEqual(self.judge(clippy_jsonl(700)).returncode, 1)

@@ -100,7 +100,7 @@ struct BrowserFileImport {
         }.value
         let sources = menu.rows
         guard let first = menu.selected else { return nil }
-        let spec = CmuxDialogSpec(
+        let spec = CmuxDialogSpec(usesTransientMaterial: true,
             title: BrowserFileImportStrings.title, lines: [BrowserFileImportStrings.message],
             fields: [.choice(id: browserField, label: BrowserFileImportStrings.browserLabel,
                              options: sources.map { CmuxDialogOption(label: $0.name, value: $0.id) }, selected: first.id)],
@@ -114,7 +114,7 @@ struct BrowserFileImport {
 
     /// Whether the person went on to choose the files.
     private static func showSteps(_ source: BrowserExportSource) async -> Bool {
-        let spec = CmuxDialogSpec(
+        let spec = CmuxDialogSpec(usesTransientMaterial: true,
             title: BrowserFileImportStrings.stepsTitle(source.name),
             lines: BrowserFileImportStrings.steps(source) + [BrowserFileImportStrings.lastStep],
             buttons: [CmuxDialogButton(id: "cancel", title: PasswordCSVGuideStrings.cancel, role: .cancel),

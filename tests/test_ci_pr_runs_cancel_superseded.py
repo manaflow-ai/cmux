@@ -38,6 +38,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -261,10 +263,10 @@ def resolve(value: Any, context: dict[str, Any]) -> Any:
     """A workflow field: a literal, one `${{ }}`, or a string with several."""
     if not isinstance(value, str):
         return value
-    whole = re.fullmatch(r"\s*\$\{\{(.*?)\}\}\s*", value, re.S)
+    whole = gh_expressions.EXPRESSION.fullmatch(value.strip())
     if whole and value.count("${{") == 1:
         return evaluate(whole.group(1), context)
-    return re.sub(r"\$\{\{(.*?)\}\}", lambda m: _text(evaluate(m.group(1), context)), value, flags=re.S)
+    return gh_expressions.EXPRESSION.sub(lambda m: _text(evaluate(m.group(1), context)), value)
 
 
 def condition(value: Any, context: dict[str, Any]) -> bool:
@@ -273,7 +275,7 @@ def condition(value: Any, context: dict[str, Any]) -> bool:
     if isinstance(value, bool):
         return value
     text = str(value).strip()
-    whole = re.fullmatch(r"\$\{\{(.*?)\}\}", text, re.S) if text.count("${{") == 1 else None
+    whole = gh_expressions.EXPRESSION.fullmatch(text) if text.count("${{") == 1 else None
     if text.count("${{") > 1:
         return _truthy(resolve(text, context))
     return _truthy(evaluate(whole.group(1) if whole else text, context))

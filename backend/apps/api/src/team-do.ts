@@ -3,7 +3,8 @@ import type { ServerNetworkReservation } from "@cmux/protocol"
 import { teamEventVisible, teamSubscriberView } from "./domains/team-visibility.ts"
 import { aiLimitViewOf, codeRunLimit, teamDomain, type TeamState } from "./domains/team.ts"
 import type { Env } from "./env.ts"
-import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
+import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
+import { cloudMachineReader, publishOwnershipRefusal, type CloudMachineRead } from "./team-cloud-session-machine.ts"
 import { teamRead, teamVmAccountsFence, withAiSpend } from "./team-reads.ts"
 import { can, firstOwner, homeCoMembersOf, hostOf, memberOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
@@ -22,6 +23,8 @@ import { revokePairMachineJoin } from "./pair-machine-join.ts"
 import { revokeInstallCerts, sshExternal, type SshCaDeps } from "./team-ssh-ca.ts"
 import { vmAdminExternal } from "./team-vm-taint-admin.ts"
 import { memberAdminExternal } from "./team-member-admin.ts"
+import { agentKeyExternal, agentKeyOpen, agentKeyStatus, type AgentKeyDeps, type TeamAgent, type TeamSharedKey } from "./team-agent-keys.ts"
+import { modelsPolicyExternal, modelsPolicyGet, type ModelsPolicyDeps } from "./team-models-policy.ts"
 import { vmApiTenantOf, type VmApiTenant, type VmApiTenantPurpose } from "./team-vm-api-tenant.ts"
 import { ensurePersonalTenant, personalTenantTarget, type EnsurePersonalTenantReply } from "./team-vm-api-personal.ts"
 import { PersonalTenantStore } from "./team-vm-api-personal-store.ts"
@@ -80,7 +83,7 @@ export class TeamDO extends OwnerDO<TeamState> {
   protected read(state: TeamState, op: string, params: unknown, principal: Principal): ReadResult { return teamRead(state, op, params, principal, this.rows) }
   async aiUserLimit(entity: string, user: string): Promise<number> { return codeRunLimit(this.isBound(entity) ? this.bind(entity).currentState : undefined, this.rows, user) } // RPC from code runs: this member's AI limit only, 0 for a non-member (team-ai-limit.ts)
   async aiLimitView(entity: string, user: string, cursor?: string) { return aiLimitViewOf(this.isBound(entity) ? this.bind(entity).currentState : undefined, this.rows, entity, user, cursor) } // RPC from the team.ai_limit.get route
-  override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> { const r = await super.readOp(entity, principal, op, params); const fenced = (r.ok && (await teamVmAccountsFence(() => this.teamVm(entity).currentInstall(entity), principal, op))) || r; return op === "team.ai_limit.get" ? withAiSpend(this.env, entity, fenced, (await import("./inference/plan.ts")).storedPlan(this.ctx.storage.sql)) : fenced }
+  override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> { if (op === "team.agent_key.status") return this.isBound(entity) ? agentKeyStatus(this.agentKeyDeps(entity), principal) : { ok: false, code: "auth.forbidden", message: "not a member of this team" }; if (op === "team.models_policy.get") return this.isBound(entity) ? modelsPolicyGet(this.modelsPolicyDeps(entity), principal) : { ok: false, code: "auth.forbidden", message: "not a member of this team" }; const r = await super.readOp(entity, principal, op, params); const fenced = (r.ok && (await teamVmAccountsFence(() => this.teamVm(entity).currentInstall(entity), principal, op))) || r; return op === "team.ai_limit.get" ? withAiSpend(this.env, entity, fenced, (await import("./inference/plan.ts")).storedPlan(this.ctx.storage.sql)) : fenced }
 
   /** Backoff after a failed push to ConnectionDO (in memory: a restart retries at once). */
   private syncRetryAt: number | null = null
@@ -514,6 +517,20 @@ export class TeamDO extends OwnerDO<TeamState> {
   /** cx-q4f3: team_vm.taint.accept, team_vm.rebuild, team_vm.retired.delete (team-vm-taint-admin.ts). */
   async vmAdminOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> { return vmAdminExternal({ ...this.sshDeps(entity), teamVm: this.teamVm(entity) }, principal, frame) }
   async memberAdminOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> { return memberAdminExternal({ ...this.sshDeps(entity), stackProjectId: this.env.STACK_PROJECT_ID, stack: this.stack ?? stackServer(this.env) }, principal, frame) }
+  /** RPC from the Worker: team.agent_key.set and team.agent_key.remove (team-agent-keys.ts; the key only in this request). */
+  async agentKeyOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> { return agentKeyExternal(this.agentKeyDeps(entity), principal, frame) }
+  /** RPC from the model route only (resolveTeamSharedKey; cmux-platform through its TEAM_DO binding): the team's shared key, or null. Never a client read. */
+  async agentKeyResolve(entity: string, agent: TeamAgent, user?: string): Promise<TeamSharedKey | null> { return this.isBound(entity) ? agentKeyOpen(this.agentKeyDeps(entity), agent, user) : null } // an unknown team has no key, and asking creates no storage
+  private agentKeyDeps(entity: string): AgentKeyDeps {
+    const engine = this.bind(entity)
+    return { state: () => this.boundEngine?.currentState ?? engine.currentState, rows: engine.rows, team: entity, stream: engine.stream, env: this.env, http: this.http, sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) }
+  }
+  /** RPC from the Worker: team.models_policy.set (team-models-policy.ts; a side table beside the agent keys). */
+  async modelsPolicyOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> { return modelsPolicyExternal(this.modelsPolicyDeps(entity), principal, frame) }
+  private modelsPolicyDeps(entity: string): ModelsPolicyDeps {
+    const engine = this.bind(entity)
+    return { state: () => this.boundEngine?.currentState ?? engine.currentState, rows: engine.rows, team: entity, stream: engine.stream, sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) }
+  }
   private teamVm = (team: string) => this.env.TEAM_VM_DO.get(this.env.TEAM_VM_DO.idFromName(team))
 
   /** SSH CA requests running in this instance (team-ssh-ca.ts); a reset object starts with none, so its stored requests resume. */
@@ -747,6 +764,11 @@ export class TeamDO extends OwnerDO<TeamState> {
 
   /** An op (an invite accepted, a member added or removed) answers once the members' team indexes follow it, as a Stack delivery does. */
   override async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
+    // A first Cloud session publish needs the machine's creator (CloudDO's record; team-cloud-session-machine.ts).
+    if (frame.op === "team.cloud.session.publish" && this.isBound(entity)) {
+      const refused = await publishOwnershipRefusal({ stream: `team:${entity}`, rows: this.rows, read: this.cloudMachineRead ?? cloudMachineReader(this.env.CLOUD_DO) }, entity, principal, frame)
+      if (refused) return { frames: refused }
+    }
     const r = await super.submit(entity, principal, frame)
     await this.indexesDelivered()
     return r
@@ -769,4 +791,16 @@ export class TeamDO extends OwnerDO<TeamState> {
   private readonly stackSync = new StackTeamSync(() => ({ team: this.boundEntity() ?? "", stackProjectId: this.env.STACK_PROJECT_ID, stack: this.stack ?? stackServer(this.env), sql: this.ctx.storage.sql, state: () => this.boundEngine!.currentState, rows: () => this.rows, submitSystem: (op, params, key) => this.submitSystem(op, params, key), revokeStuck: (user) => [revokeMemberCertsNow({ sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) }, user), this.closeSockets((p) => p.user === user, "left the team")], pace: () => this.stackPace?.() ?? stackReadPace(this.env), lowPace: () => this.stackLowPace?.() ?? stackLowReadPace(this.env), carryTo: this.carryTo ?? (async (personalTeam, fromTeam, vmPlan) => { const r = await this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(personalTeam)).receiveCarriedVmPlan(personalTeam, fromTeam, vmPlan); if (!r.ok) throw new Error(`carried grant refused: ${r.code}`) }) }))
 
   protected maySubscribe(state: TeamState, principal: Principal): boolean { return can(state, this.rows, principal.user, "team.resources") }
+
+  /** Tests only: replaces CloudDO's machine read for the first-publish check (team-cloud-session-machine.ts). */
+  cloudMachineRead: CloudMachineRead | undefined = undefined
+
+  /** The first-publish machine check awaits CloudDO, which the socket's synchronous op path cannot: that op goes through POST /v1/ops. */
+  protected override routeFrame(ws: WebSocket, _a: Attachment, frame: { readonly t?: string; readonly op?: unknown } & Record<string, unknown>): boolean {
+    if (frame.t !== "op" || frame.op !== "team.cloud.session.publish") return false
+    try {
+      ws.send(JSON.stringify({ t: "reject", tx: "", idempotency_key: frame.idempotency_key ?? "", code: "validation.invalid", message: "team.cloud.session.publish goes through POST /v1/ops", retryable: false, replayed: false }))
+    } catch {}
+    return true
+  }
 }

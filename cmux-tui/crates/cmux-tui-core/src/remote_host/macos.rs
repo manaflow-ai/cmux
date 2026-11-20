@@ -2,7 +2,7 @@
 //! responsibility-disclaimed spawn, and process identity checks.
 
 use cmux_process::{Command, Stdio};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -29,7 +29,7 @@ pub(super) struct Staged {
 
 /// The app's embedded bundle: `CMUX_REMOTE_APP`, else `Contents/Library`
 /// of the app whose `Contents/Resources/bin` holds this daemon.
-fn embedded() -> Result<PathBuf, String> {
+pub(super) fn embedded() -> Result<PathBuf, String> {
     if let Some(path) = std::env::var_os("CMUX_REMOTE_APP").map(PathBuf::from) {
         return path
             .is_dir()
@@ -50,36 +50,8 @@ fn embedded() -> Result<PathBuf, String> {
         .ok_or_else(|| "this cmux build has no cmux Remote".into())
 }
 
-fn digest_of(app: &Path) -> Result<String, String> {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    for part in [
-        "Contents/MacOS/cmux-remote",
-        "Contents/_CodeSignature/CodeResources",
-        "Contents/Info.plist",
-    ] {
-        let mut file =
-            std::fs::File::open(app.join(part)).map_err(|error| format!("{part}: {error}"))?;
-        let mut buffer = vec![0_u8; 1 << 20];
-        loop {
-            let count = file.read(&mut buffer).map_err(|error| format!("{part}: {error}"))?;
-            if count == 0 {
-                break;
-            }
-            hasher.update(&buffer[..count]);
-        }
-    }
-    Ok(format!("{:x}", hasher.finalize()))
-}
-
-fn bundle_id(app: &Path) -> Option<String> {
-    let output = Command::new("/usr/bin/plutil")
-        .args(["-extract", "CFBundleIdentifier", "raw", "-o", "-"])
-        .arg(app.join("Contents/Info.plist"))
-        .stdin(Stdio::null())
-        .output()
-        .ok()?;
-    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+pub(super) fn bundle_id(app: &Path) -> Option<String> {
+    cmux_signed_bundle::bundle_id(app)
 }
 
 /// Whether `app` is a valid, sealed cmux Remote of cmux's team.
@@ -88,96 +60,21 @@ fn verify(app: &Path) -> Result<(), String> {
     if !BUNDLE_IDS.contains(&id.as_str()) {
         return Err(format!("{id} is not cmux Remote"));
     }
-    let requirement = format!(
-        "=identifier \"{id}\" and anchor apple generic and certificate leaf[subject.OU] = \"{TEAM}\""
-    );
-    let output = Command::new("/usr/bin/codesign")
-        .args(["--verify", "--strict", "--deep", "-R"])
-        .arg(&requirement)
-        .arg(app)
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|error| format!("codesign: {error}"))?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(format!("signature: {}", String::from_utf8_lossy(&output.stderr).trim()))
-    }
+    cmux_signed_bundle::verify(app, &cmux_signed_bundle::team_requirement(&id, TEAM))
 }
 
 /// A verified copy of the embedded bundle under `state/app/<digest>/`,
 /// reused while the embedded bundle is the same; never followed through a
 /// symlink. The two newest copies are kept (a host of the previous build may
-/// still run from one until it drains).
+/// still run from one until it drains). The staging itself is
+/// `cmux-signed-bundle`'s, shared with the acpmux share host's helper.
 pub(super) fn stage(state: &Path) -> Result<Staged, String> {
-    use std::os::unix::fs::PermissionsExt;
     let source = embedded()?;
-    let digest = digest_of(&source)?;
-    let root = state.join("app");
-    for dir in [state, root.as_path()] {
-        std::fs::create_dir_all(dir).map_err(|error| format!("{}: {error}", dir.display()))?;
-        let meta = std::fs::symlink_metadata(dir).map_err(|error| format!("{error}"))?;
-        if !meta.is_dir() {
-            return Err(format!("{} is not a directory", dir.display()));
-        }
-        let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
-    }
-    let name = source.file_name().ok_or("bad bundle name")?;
-    let slot = root.join(&digest[..16]);
-    let app = slot.join(name);
-    let marker = slot.join(".verified");
-    let ready = std::fs::read_to_string(&marker).is_ok_and(|text| text.trim() == digest)
-        && digest_of(&app).is_ok_and(|copy| copy == digest);
-    if !ready {
-        let temporary = root.join(format!(".staging-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&temporary);
-        std::fs::create_dir_all(&temporary).map_err(|error| format!("{error}"))?;
-        let copy = temporary.join(name);
-        let status = Command::new("/usr/bin/ditto")
-            .args(["--norsrc", "--noqtn"])
-            .arg(&source)
-            .arg(&copy)
-            .stdin(Stdio::null())
-            .status()
-            .map_err(|error| format!("ditto: {error}"))?;
-        if !status.success() {
-            let _ = std::fs::remove_dir_all(&temporary);
-            return Err("cannot copy cmux Remote out of the app".into());
-        }
-        if let Err(error) = verify(&copy).and_then(|()| {
-            (digest_of(&copy)? == digest)
-                .then_some(())
-                .ok_or("the copy differs from the embedded bundle".into())
-        }) {
-            let _ = std::fs::remove_dir_all(&temporary);
-            return Err(error);
-        }
-        std::fs::write(temporary.join(".verified"), &digest).map_err(|error| format!("{error}"))?;
-        let _ = std::fs::remove_dir_all(&slot);
-        std::fs::rename(&temporary, &slot).map_err(|error| format!("{error}"))?;
-    }
-    prune(&root, &slot);
-    let executable = app.join("Contents/MacOS").join(EXECUTABLE);
-    Ok(Staged { executable, digest })
-}
-
-/// Keeps `current` and the newest other copy; removes the rest.
-fn prune(root: &Path, current: &Path) {
-    let Ok(entries) = std::fs::read_dir(root) else { return };
-    let mut others: Vec<(std::time::SystemTime, PathBuf)> = entries
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path != current
-                && !path.file_name().is_some_and(|name| name.to_string_lossy().starts_with('.'))
-        })
-        .filter_map(|path| Some((std::fs::metadata(&path).ok()?.modified().ok()?, path)))
-        .collect();
-    others.sort();
-    others.pop();
-    for (_, path) in others {
-        let _ = std::fs::remove_dir_all(path);
-    }
+    cmux_signed_bundle::private_dir(state)?;
+    let parts = cmux_signed_bundle::digest_parts(EXECUTABLE);
+    let staged = cmux_signed_bundle::stage(&source, &state.join("app"), &parts, verify)?;
+    let executable = staged.executable(EXECUTABLE);
+    Ok(Staged { executable, digest: staged.digest })
 }
 
 /// Starts the host with responsibility disclaimed (its own responsible

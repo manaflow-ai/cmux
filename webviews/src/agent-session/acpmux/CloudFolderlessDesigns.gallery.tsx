@@ -88,7 +88,7 @@ export default componentEntry<CloudFolderlessDesignsProps>({
       },
     },
     "started-fresh-folder": {
-      note: "A started folderless Cloud chat in the fresh folder its machine made (~/chats/<chat>): No folder, not the folder's generated name; /cd or cmux chat cd moves it to a repository.",
+      note: "A started folderless Cloud chat in the fresh folder its machine made (~/chats/<chat>): the chip names that folder as the machine has it, never No folder; /cd or cmux chat cd moves it to a repository.",
       props: {
         ...base,
         design: "menu-note",

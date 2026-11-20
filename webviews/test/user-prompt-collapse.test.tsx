@@ -68,7 +68,7 @@ const { resetTranscriptDisclosure } =
 const { pasteRanges, COLLAPSED_PROMPT_LINES } = await import("../src/agent-session/acpmux/conversation/promptCollapse");
 const { paintFindHighlights } = await import("../src/agent-session/acpmux/conversation/chatFind");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
-// Strings by key (REVIEW.md: tests never pin English copy).
+// Strings by key: tests never pin English copy.
 const MORE = translate("message.more");
 const LESS = translate("message.less");
 const COPY = `.cv-user__actions button[aria-label="${translate("turn.copy")}"]`;

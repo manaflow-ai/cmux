@@ -25,6 +25,8 @@ public final class NativeNewTabModel {
     public var kind: AgentPaneTabKind
     /// The highlighted row's index in ``rows``; nil is the first row (Return's default).
     public var highlighted: Int?
+    /// The device's newest chats (the host's Chats feed): the rows search their titles.
+    public var chats: [AgentPaneDeviceChat] = []
     @ObservationIgnored private var actions: NativeNewTabActions
     @ObservationIgnored private let ranker: NativeNewTabRanker
     /// Asks for the palette's actions once, at the first keystroke or ``loadPaletteActions()``; they come later
@@ -43,9 +45,11 @@ public final class NativeNewTabModel {
     ///   - ranker: Picks the dropdown's rows.
     ///   - paletteActions: Asks for the Commands palette's actions, when `page` was built without them so the
     ///     page shows first; nil when `page.omnibar.actions` already holds them.
+    ///   - chats: The device's newest chats (the host's Chats feed), for the chat rows.
     public init(page: AgentPaneNewTab, actions: NativeNewTabActions, ranker: NativeNewTabRanker = NativeNewTabRanker(),
-                paletteActions: PaletteActionsRequest? = nil) {
+                paletteActions: PaletteActionsRequest? = nil, chats: [AgentPaneDeviceChat] = []) {
         self.page = page
+        self.chats = chats
         self.kind = page.kind
         self.actions = actions
         self.ranker = ranker
@@ -65,7 +69,14 @@ public final class NativeNewTabModel {
     }
 
     /// The dropdown's rows for the current text and kind.
-    public var rows: [NativeNewTabRow] { ranker.rows(for: text, kind: kind, omnibar: page.omnibar) }
+    public var rows: [NativeNewTabRow] { ranker.rows(for: text, kind: kind, omnibar: page.omnibar, sources: sources) }
+
+    /// The chats and the start folders and agents the rows draw from: the page's projects (this
+    /// Mac's, most recent first), its last agent and home folder.
+    var sources: NativeNewTabSources {
+        NativeNewTabSources(chats: chats, folders: page.projects + page.omnibar.projects, defaultAgent: page.lastAgent ?? "claude",
+                            home: page.home)
+    }
 
     /// The row Return takes.
     public var selectedIndex: Int? {
@@ -80,9 +91,11 @@ public final class NativeNewTabModel {
     ///   - page: The new tab's context, built without the palette's actions.
     ///   - actions: What the page asks its host to do, for the tab it now is.
     ///   - paletteActions: Asks for the Commands palette's actions, once (``loadPaletteActions()``).
-    public func adopt(page: AgentPaneNewTab, actions: NativeNewTabActions, paletteActions: PaletteActionsRequest?) {
+    public func adopt(page: AgentPaneNewTab, actions: NativeNewTabActions, paletteActions: PaletteActionsRequest?,
+                      chats: [AgentPaneDeviceChat] = []) {
         paletteAsk &+= 1
         self.page = page
+        self.chats = chats
         self.actions = actions
         self.paletteActions = paletteActions
         kind = page.kind
@@ -118,6 +131,8 @@ public final class NativeNewTabModel {
         case .workspace(let workspace): actions.jump(.workspace, workspace.id)
         case .page(let page): actions.submit(page.url, .browser, false)
         case .action(let action): actions.action(action.id)
+        case .chat(let chat): actions.openChat(chat.key)
+        case .start(let start): actions.start(start.harness, start.folder)
         }
     }
 }

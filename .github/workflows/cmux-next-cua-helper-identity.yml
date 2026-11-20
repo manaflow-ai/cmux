@@ -16,6 +16,16 @@ on:
       - "tests/fixtures/cua-helper-signatures/**"
       - "tests/test_cmux_cua_build_cache_safety.py"
       - "tests/test_cmux_cua_dev_helper_identity.py"
+      - "scripts/cmux-next/bundle-screen-sharing-helper.sh"
+      - "scripts/codesign-retry.sh"
+      - "scripts/ci/verify-computer-use-helper.sh"
+      - "scripts/ci/nightly-steps/app-assemble-computer-use-helper.sh"
+      - "scripts/ci/nightly-steps/prepare-verify-binary-architectures.sh"
+      - "scripts/sign-cmux-bundle.sh"
+      - "scripts/ci/notarize-computer-use-helper.sh"
+      - "scripts/ci/rcodesign-sign-bundle.sh"
+      - "scripts/ci/release-signer/sign-app.sh"
+      - "tests/test_one_permission_identity.py"
       - ".github/workflows/cmux-next-cua-helper-identity.yml"
       - "cmux-tui/rust-toolchain.toml"
       - "scripts/lib/rust-targets.sh"
@@ -28,6 +38,16 @@ on:
       - "tests/fixtures/cua-helper-signatures/**"
       - "tests/test_cmux_cua_build_cache_safety.py"
       - "tests/test_cmux_cua_dev_helper_identity.py"
+      - "scripts/cmux-next/bundle-screen-sharing-helper.sh"
+      - "scripts/codesign-retry.sh"
+      - "scripts/ci/verify-computer-use-helper.sh"
+      - "scripts/ci/nightly-steps/app-assemble-computer-use-helper.sh"
+      - "scripts/ci/nightly-steps/prepare-verify-binary-architectures.sh"
+      - "scripts/sign-cmux-bundle.sh"
+      - "scripts/ci/notarize-computer-use-helper.sh"
+      - "scripts/ci/rcodesign-sign-bundle.sh"
+      - "scripts/ci/release-signer/sign-app.sh"
+      - "tests/test_one_permission_identity.py"
       - ".github/workflows/cmux-next-cua-helper-identity.yml"
       - "cmux-tui/rust-toolchain.toml"
       - "scripts/lib/rust-targets.sh"
@@ -50,7 +70,7 @@ jobs:
     # An owned mini first: a same-repository run takes the side label on attempt 1, and
     # main's rescue (owned_pool_rescue.py SIDE_WORKFLOW_PATHS) moves a stuck or refused job
     # to Blacksmith macOS, the last resort a fork or a re-run takes directly.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -71,3 +91,9 @@ jobs:
       # cmux-cua it bundles is built with --features cmux-host-consent (#27393).
       - name: The bundled cmux-cua build keeps its caches and turns on host consent
         run: python3 tests/test_cmux_cua_build_cache_safety.py
+
+      # Screen sharing and computer use ask for their permissions as one app, cmux Computer Use
+      # (com.cmuxterm.cua): the screen sharing executable ships inside it, signed with its
+      # identifier, and a release app's Contents/Library holds no second helper identity.
+      - name: Screen sharing and computer use share one permission identity
+        run: python3 tests/test_one_permission_identity.py

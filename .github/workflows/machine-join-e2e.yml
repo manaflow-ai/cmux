@@ -17,6 +17,15 @@ name: Machine join E2E (development)
 # the run's cmux install are revoked in that step's `finally` and on a cancel;
 # the evidence check below fails the job when a joined machine is not shown
 # revoked. Manual dispatch on feat-cmux-next only.
+#
+# share: true adds, while joined, the zero-touch share of a headless Linux
+# machine (Leo, 2026-11-16: "if you've connected to a headlessly running mini
+# why... would it need anything?"): cmux-rd built from the run's commit; on the
+# joined user's side only what the join runs, `cmux-rd linux-host enable
+# --non-interactive` against the development device hub; a second disposable
+# user with its own home and Xvfb, signed in to the same account, must get a
+# decoded frame of the joined machine's screen within 60 s with no request
+# waiting on the host. Its numbers (first frame bound, Mbit/s) are in the evidence.
 on:
   workflow_dispatch:
     inputs:
@@ -39,6 +48,11 @@ on:
           - none
           - deps
           - deps-slow
+      share:
+        description: "while joined, share the machine with no step on it: the join's `cmux-rd linux-host enable --non-interactive`, then a viewer of the same account must decode a frame within 60 s"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -59,6 +73,8 @@ jobs:
     timeout-minutes: 90
     env:
       HUB_ORIGIN: https://cmux-platform-development.debussy.workers.dev
+      # share: the development device hub (workers/device-hub/wrangler.toml [env.dev]).
+      DEVICE_HUB: https://cmux-device-hub-dev.debussy.workers.dev
     steps:
       - name: Refuse any ref but feat-cmux-next
         env:
@@ -114,6 +130,25 @@ jobs:
       - name: Build acpmux
         working-directory: cmux-tui
         run: cargo build --locked -p acpmux --bin acpmux
+
+      # share: Xvfb (the host's virtual display and the viewer's own) and cmux-rd from the run's commit,
+      # with the release features (cmux-rd-release.yml): Cisco's OpenH264, downloaded at run time, and the
+      # device hub link. cmux-rd-host is its own Cargo workspace. dbus-user-session gives the joined
+      # user's lingering user manager its session bus (/run/user/UID/bus), which the share's user
+      # units need; the runner image has none (run 44004680060: no bus after 30 s).
+      - name: Install the share's display server
+        if: inputs.share
+        run: sudo apt-get install -y xvfb dbus-user-session
+
+      - name: Build cmux-rd
+        id: cmuxrd
+        if: inputs.share
+        run: |
+          set -euo pipefail
+          manifest=cmux-tui/crates/cmux-rd-host/Cargo.toml
+          cargo build --locked --manifest-path "$manifest" --no-default-features --features openh264,link --bin cmux-rd
+          target_dir="$(cargo metadata --format-version 1 --no-deps --manifest-path "$manifest" | jq -r .target_directory)"
+          echo "bin=$target_dir/debug/cmux-rd" >> "$GITHUB_OUTPUT"
 
       # The user and base path go to the outputs before useradd, so cleanup runs even if a later line fails.
       - name: Create the disposable user
@@ -201,6 +236,71 @@ jobs:
             exit 1
           fi
 
+      # With share: the run's cmux-rd root-owned beside acpmux and linked where the host's user unit runs it
+      # (~/.local/bin/cmux-rd, where a join installs it); the joined user's user manager running (lingering,
+      # started explicitly so a failure names its reason, as that user's ssh login would start it: `enable` installs and starts the host unit through it, and
+      # the host starts the virtual display through it); and a second disposable user for the viewer, with
+      # its own empty home. Nothing of the share itself runs here. No secret here.
+      - name: Prepare the share
+        id: share
+        if: inputs.share
+        env:
+          JOIN_USER: ${{ steps.user.outputs.user }}
+          JOIN_UID: ${{ steps.user.outputs.uid }}
+          JOIN_BASE: ${{ steps.user.outputs.base }}
+          JOIN_HOME: ${{ steps.user.outputs.home }}
+          CMUX_RD_BIN: ${{ steps.cmuxrd.outputs.bin }}
+        run: |
+          set -euo pipefail
+          viewer="cmuxview-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          # Recorded before useradd, so its removal runs even if a later line fails.
+          {
+            echo "viewer=$viewer"
+            echo "viewer_home=$JOIN_BASE/viewer"
+          } >> "$GITHUB_OUTPUT"
+          sudo install -o root -g root -m 0755 "$CMUX_RD_BIN" "$JOIN_BASE/bin/cmux-rd"
+          sudo -n -u "$JOIN_USER" -- /usr/bin/env -i HOME="$JOIN_HOME" PATH=/usr/bin:/bin \
+            /bin/sh -c 'mkdir -p "$HOME/.local/bin" && ln -s "$1" "$HOME/.local/bin/cmux-rd"' sh "$JOIN_BASE/bin/cmux-rd"
+          sudo useradd --no-create-home --home-dir "$JOIN_BASE/viewer" --shell /usr/sbin/nologin --user-group "$viewer"
+          sudo install -d -o "$viewer" -g "$viewer" -m 0700 "$JOIN_BASE/viewer"
+          # The viewer's decoder (Cisco's OpenH264, a one-time download) before the share, so the first-frame
+          # bound measures the share. The host's encoder is left to the share itself, as on a real machine.
+          sudo -n -u "$viewer" -- /usr/bin/env -i HOME="$JOIN_BASE/viewer" PATH=/usr/bin:/bin \
+            "$JOIN_BASE/bin/cmux-rd" openh264-install
+          # The X socket directory both displays use (the host's from :99, the viewer's :42).
+          sudo install -d -o root -g root -m 1777 /tmp/.X11-unix
+          # What runs the user manager here: PID 1 and logind (one line each, in every run's log).
+          echo "pid 1: $(ps -o comm= -p 1); system: $(systemctl is-system-running 2>&1 || true); logind: $(systemctl is-active systemd-logind.service 2>&1 || true)"
+          systemctl is-active --quiet systemd-logind.service || sudo systemctl start systemd-logind.service
+          sudo loginctl enable-linger "$JOIN_USER"
+          # Lingering asks logind to start it; starting it here too says why when it cannot.
+          manager="user@$JOIN_UID.service"
+          # Its exit status is not the verdict: on a runner it can exit 1 with the manager up. The manager is
+          # judged by `is-active` and its socket, both read as root (/run/user/UID is the joined user's, 0700).
+          start_rc=0
+          sudo timeout 60 systemctl start "$manager" || start_rc=$?
+          # The manager's own socket, which `systemctl --user` connects to (the session bus is a separate
+          # package, dbus-user-session, which a machine need not have).
+          private="/run/user/$JOIN_UID/systemd/private"
+          for _ in $(seq 1 60); do
+            sudo test -S "$private" && break
+            sleep 0.5
+          done
+          if ! sudo systemctl is-active --quiet "$manager" || ! sudo test -S "$private"; then
+            echo "::group::why the joined user's user manager is not running"
+            sudo timeout 20 systemctl status --no-pager --lines 20 systemd-logind.service "user-runtime-dir@$JOIN_UID.service" "$manager" || true
+            sudo timeout 20 journalctl -b --no-pager --lines 60 -u systemd-logind.service -u "user-runtime-dir@$JOIN_UID.service" -u "$manager" || true
+            sudo ls -la "/run/user/$JOIN_UID" "/run/user/$JOIN_UID/systemd" || true
+            echo "::endgroup::"
+            echo "::error::the joined user's user manager did not start (systemctl start $manager: exit $start_rc, $(sudo systemctl is-active "$manager" 2>&1 || true); $private after 30 s: $(sudo test -S "$private" && echo yes || echo no))"
+            exit 1
+          fi
+          bus="/run/user/$JOIN_UID/bus"
+          echo "user manager: running; session bus: $(sudo test -S "$bus" && echo "$bus" || echo none)"
+          sudo -n -u "$JOIN_USER" -- /usr/bin/env -i HOME="$JOIN_HOME" PATH=/usr/bin:/bin \
+            XDG_RUNTIME_DIR="/run/user/$JOIN_UID" \
+            systemctl --user is-system-running || true
+
       # With bench=deps: cmux-tui's sources and the webviews manifest copied for the disposable user, the
       # toolchain root-owned beside acpmux, and scripts/cmux-next/deps-bench.sh (root-owned) to run while
       # joined. Every cache the bench fills lives under the base, outside the scanned home. No secret here.
@@ -251,13 +351,20 @@ jobs:
           JOIN_BASE: ${{ steps.user.outputs.base }}
           JOIN_HOME: ${{ steps.user.outputs.home }}
           BENCH: ${{ inputs.bench }}
+          SHARE: ${{ inputs.share }}
+          VIEWER_USER: ${{ steps.share.outputs.viewer }}
+          VIEWER_HOME: ${{ steps.share.outputs.viewer_home }}
         # exec: bun is the step's process, so a cancel's SIGINT reaches it and it revokes at once.
         run: |
           bench=()
           case "$BENCH" in deps | deps-slow) bench=(--bench "$JOIN_BASE/bin/deps-bench.sh") ;; esac
+          share=()
+          if [ "$SHARE" = true ]; then
+            share=(--share-cmux-rd "$JOIN_BASE/bin/cmux-rd" --viewer-user "$VIEWER_USER" --viewer-home "$VIEWER_HOME" --device-hub "$DEVICE_HUB")
+          fi
           exec bun scripts/cmux-next/machine-join-e2e.ts --origin "$HUB_ORIGIN" --acpmux "$JOIN_BASE/bin/acpmux" \
             --user "$JOIN_USER" --home "$JOIN_HOME" --name "$JOIN_NAME" \
-            --evidence "$RUNNER_TEMP/machine-join-e2e/evidence.json" --run "$GITHUB_RUN_ID" --sha "$GITHUB_SHA" "${bench[@]}"
+            --evidence "$RUNNER_TEMP/machine-join-e2e/evidence.json" --run "$GITHUB_RUN_ID" --sha "$GITHUB_SHA" "${bench[@]}" "${share[@]}"
 
       # Fails on a token or credential prefix, a JWT or an auth header in the evidence (nothing is then
       # uploaded or summarized), on missing evidence, and on a joined machine not shown revoked.
@@ -303,6 +410,21 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+      # share: the viewer's processes, the viewer user and its home (inside the base, so before the base goes).
+      - name: Remove the viewer user
+        if: always() && steps.share.outputs.viewer != ''
+        env:
+          VIEWER_USER: ${{ steps.share.outputs.viewer }}
+        run: |
+          set -uo pipefail
+          sudo -n -u "$VIEWER_USER" -- /bin/kill -KILL -1 2>/dev/null || true
+          sleep 1
+          sudo userdel --remove "$VIEWER_USER" 2>/dev/null || true
+          if id "$VIEWER_USER" >/dev/null 2>&1; then
+            echo "::error::the viewer user $VIEWER_USER is still present"
+            exit 1
+          fi
+
       # The user's processes, the user and its home, and its socket directory. `kill -1` run as the
       # disposable user signals exactly the processes that user owns (all started by this job), nothing else.
       - name: Remove the disposable user
@@ -313,6 +435,9 @@ jobs:
           JOIN_BASE: ${{ steps.user.outputs.base }}
         run: |
           set -uo pipefail
+          # share: its user manager (lingering) goes first, so nothing starts the user's processes again.
+          sudo loginctl disable-linger "$JOIN_USER" 2>/dev/null || true
+          sudo loginctl terminate-user "$JOIN_USER" 2>/dev/null || true
           sudo -n -u "$JOIN_USER" -- /bin/kill -KILL -1 2>/dev/null || true
           sleep 1
           sudo userdel --remove "$JOIN_USER" 2>/dev/null || true
