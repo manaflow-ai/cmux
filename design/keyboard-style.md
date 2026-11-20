@@ -40,6 +40,20 @@ and macOS key code. Two readers, one behavior:
 Both run every case of `schemas/keymap/key-vectors.json`: synthetic key events on QWERTY,
 Dvorak, Colemak, AZERTY and QWERTZ, for every style and both layout modes.
 
+Until the app FFI pin carries cmux-keymap (the release is built from feat-cmux-next after this
+lands), the native shortcut matcher reads Keep QWERTY Positions from a Swift copy of the US key
+table (`CmuxNextActions/ShortcutKeyPositions.swift`, `ActionRegistry.matchesQwertyPositions`):
+Command and Control shortcuts go by key position, in the dispatcher, chords, the leader layer, the
+recorders and global hot keys. The re-pin replaces it with `cmux_keymap_candidates`.
+
+## Code Editor
+
+`editor.vimMode` (Settings > Code Editor, "Vim Keys in the Editor", off by default) turns on
+monaco-vim in the code editor: Normal, Insert and Visual modes, the mode and the `:` prompt in the
+status bar, loaded only when on (`webviews/src/pages/editor/vimMode.ts`). It is its own switch:
+Key Style Vim moves lists and leaves text fields typing as usual, and modal editing is a separate
+choice, as in Zed and VS Code.
+
 ## Key Style
 
 - **Standard**: nothing added.
