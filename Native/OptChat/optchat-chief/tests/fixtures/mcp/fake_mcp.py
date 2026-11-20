@@ -6,7 +6,8 @@
 --era stateless  2026-07-28: no initialize (method not found), server/discover,
                  the Tasks extension (tasks/get carries the result),
                  subscriptions/listen.
---http PORT      serve Streamable HTTP on 127.0.0.1:PORT instead of stdio
+--http PORT      serve Streamable HTTP on 127.0.0.1:PORT instead of stdio (0: a free
+                 port, printed as the first stdout line)
                  (session era; --token T makes it answer 401 without it).
 """
 import json, sys, threading, time, uuid
@@ -282,7 +283,11 @@ def http(port, token):
             self.send_header("Content-Length", "0")
             self.end_headers()
 
-    ThreadingHTTPServer(("127.0.0.1", port), H).serve_forever()
+    server = ThreadingHTTPServer(("127.0.0.1", port), H)
+    # Port 0 asks the kernel for a free port; its number is the first stdout line, so no other
+    # test can take the port between a pick and a bind.
+    print(server.server_address[1], flush=True)
+    server.serve_forever()
 
 
 if "--http" in sys.argv:

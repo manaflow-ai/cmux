@@ -370,30 +370,32 @@ fn unsafe_targets_are_refused_before_anything_runs() {
     );
 }
 
-fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
-}
-
+/// The fake on Streamable HTTP and its port: it binds port 0 and prints the port the kernel gave
+/// it once it listens. A port picked here and bound later could be taken in between by a parallel
+/// test's server, which the connect probe then took for this one.
 fn http_server(args: &[&str]) -> (std::process::Child, u16) {
-    let port = free_port();
-    let child = std::process::Command::new("python3")
+    use std::io::BufRead;
+    let mut child = std::process::Command::new("python3")
         .arg(fake())
-        .args(["--http", &port.to_string()])
+        .args(["--http", "0"])
         .args(args)
+        .stdout(std::process::Stdio::piped())
         .spawn()
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while std::net::TcpStream::connect(("127.0.0.1", port)).is_err() {
-        assert!(
-            Instant::now() < deadline,
-            "the fake HTTP server did not start"
-        );
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    let stdout = child.stdout.take().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        let _ = std::io::BufReader::new(stdout).read_line(&mut line);
+        let _ = tx.send(line);
+    });
+    let line = rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the fake HTTP server did not start");
+    let port = line
+        .trim()
+        .parse()
+        .expect("the fake HTTP server printed no port");
     (child, port)
 }
 
