@@ -42,11 +42,25 @@ impl<'a, C: ControlPlane> Ctx<'a, C> {
     /// the host) also clears the projection: a signed-out Mac shows no
     /// machines.
     pub(crate) fn wire(&mut self, op: &str, params: Value) -> Result<WireResult, CloudError> {
+        self.wire_key(op, params, self.key)
+    }
+
+    pub(crate) fn key(&self) -> Option<&str> {
+        self.key
+    }
+
+    /// A composed operation's reads have no key; its mutations use stable child keys.
+    pub(crate) fn wire_key(
+        &mut self,
+        op: &str,
+        params: Value,
+        key: Option<&str>,
+    ) -> Result<WireResult, CloudError> {
         let call = WireCall {
             op: op.to_owned(),
             params,
-            idempotency_key: self.key.map(str::to_owned),
-            origin: self.key.and(self.origin),
+            idempotency_key: key.map(str::to_owned),
+            origin: key.and(self.origin),
         };
         match self.control_plane.call(&call) {
             Ok(WireReply::Result(result)) => Ok(result),

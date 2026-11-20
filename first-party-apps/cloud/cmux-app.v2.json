@@ -67,7 +67,6 @@
       "cloud.machine.get",
       "cloud.machine.idle_policy.set",
       "cloud.machine.keep",
-      "cloud.machine.pause_all",
       "cloud.machine.list",
       "cloud.machine.pause",
       "cloud.machine.rename",

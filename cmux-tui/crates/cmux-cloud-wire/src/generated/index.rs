@@ -51,7 +51,6 @@ pub mod op_names {
     pub const CLOUD_MACHINE_LINK_TOKEN: &str = "cloud.machine.link_token";
     pub const CLOUD_MACHINE_LIST: &str = "cloud.machine.list";
     pub const CLOUD_MACHINE_PAUSE: &str = "cloud.machine.pause";
-    pub const CLOUD_MACHINE_PAUSE_ALL: &str = "cloud.machine.pause_all";
     pub const CLOUD_MACHINE_RENAME: &str = "cloud.machine.rename";
     pub const CLOUD_MACHINE_RESIZE: &str = "cloud.machine.resize";
     pub const CLOUD_MACHINE_START: &str = "cloud.machine.start";
@@ -300,7 +299,6 @@ pub mod op_names {
         CLOUD_MACHINE_LINK_TOKEN,
         CLOUD_MACHINE_LIST,
         CLOUD_MACHINE_PAUSE,
-        CLOUD_MACHINE_PAUSE_ALL,
         CLOUD_MACHINE_RENAME,
         CLOUD_MACHINE_RESIZE,
         CLOUD_MACHINE_START,
@@ -552,7 +550,6 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "cloud.machine.link_token" => visitor.visit::<CloudMachineLinkTokenOp>(),
         "cloud.machine.list" => visitor.visit::<CloudMachineListOp>(),
         "cloud.machine.pause" => visitor.visit::<CloudMachinePauseOp>(),
-        "cloud.machine.pause_all" => visitor.visit::<CloudMachinePauseAllOp>(),
         "cloud.machine.rename" => visitor.visit::<CloudMachineRenameOp>(),
         "cloud.machine.resize" => visitor.visit::<CloudMachineResizeOp>(),
         "cloud.machine.start" => visitor.visit::<CloudMachineStartOp>(),

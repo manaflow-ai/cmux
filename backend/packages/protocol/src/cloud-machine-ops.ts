@@ -518,20 +518,6 @@ export const CloudMigrationStart = cloudMutation(
   true
 )
 
-export const CloudMachinePauseAll = cloudMutation(
-  "cloud.machine.pause_all",
-  "mutate-shared",
-  Schema.Struct({}),
-  Schema.Struct({ machines: Schema.Array(Schema.Struct({
-    machine: MachineId,
-    status: Schema.Literals(["pausing", "paused", "skipped", "failed"]),
-    error: Schema.optionalKey(Schema.Struct({ code: Schema.String, message: Schema.String }))
-  })) }),
-  [],
-  "Pause every claimed machine the caller may manage, including machines already automatically paused. Automatic wakes remain held until an explicit start. Returns each machine's outcome; a busy or failed machine does not prevent the others from being paused." + KEY,
-  "cloud pause-all"
-)
-
 export const cloudMachineOps = [
   CloudMachineList,
   CloudMachineGet,
@@ -539,7 +525,6 @@ export const cloudMachineOps = [
   CloudMachineRename,
   CloudMachineStart,
   CloudMachinePause,
-  CloudMachinePauseAll,
   CloudMachineResize,
   CloudMachineDelete,
   CloudMachineIdlePolicySet,

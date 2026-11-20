@@ -8,6 +8,7 @@ mod environment;
 mod machine;
 mod machine_projection;
 mod migration;
+mod pause_all;
 mod plan;
 mod snapshot;
 pub(crate) mod start_retry;

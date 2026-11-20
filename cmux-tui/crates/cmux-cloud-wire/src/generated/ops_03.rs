@@ -134,66 +134,6 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Pause every claimed machine the caller may manage, including machines already automatically paused. Automatic wakes remain held until an explicit start. Returns each machine's outcome; a busy or failed machine does not prevent the others from being paused. After mutation.indeterminate, retry with the same idempotency key.
-    CloudMachinePauseAllOp {
-        name: "cloud.machine.pause_all",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:CloudDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: CloudMachinePauseAllParams,
-        result: CloudMachinePauseAllResult,
-        error: CloudMachinePauseAllError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudMachinePauseAllParams {}
-
-wire_enum! {
-    CloudMachinePauseAllResultMachinesItemStatus {
-        Pausing = "pausing",
-        Paused = "paused",
-        Skipped = "skipped",
-        Failed = "failed",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudMachinePauseAllResultMachinesItemError {
-    pub code: String,
-    pub message: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudMachinePauseAllResultMachinesItem {
-    pub machine: MachineId,
-    pub status: CloudMachinePauseAllResultMachinesItemStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error: Option<CloudMachinePauseAllResultMachinesItemError>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudMachinePauseAllResult {
-    pub machines: Vec<CloudMachinePauseAllResultMachinesItem>,
-}
-
-wire_errors! {
-    /// The error codes cloud.machine.pause_all declares.
-    CloudMachinePauseAllError {
-        AuthForbidden = "auth.forbidden",
-        AuthSsoRequired = "auth.sso_required",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ClientTooOld = "client.too_old",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
     /// Rename a machine.
     CloudMachineRenameOp {
         name: "cloud.machine.rename",
@@ -894,4 +834,69 @@ wire_errors! {
         CloudRateLimited = "cloud.rate_limited",
         ValidationInvalid = "validation.invalid",
     }
+}
+
+wire_op! {
+    /// Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 120 seconds and never outlives an included grant; admit_until, when present, lets the receiver keep this policy through a failed renewal for at most one hour after checked_at. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine).
+    CloudVmNetworkPolicyOp {
+        name: "cloud.vm.network_policy",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:CloudDO",
+        risk: "read",
+        principals: [Install],
+        params: CloudVmNetworkPolicyParams,
+        result: CloudVmNetworkPolicyView,
+        error: CloudVmNetworkPolicyError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmNetworkPolicyParams {
+    pub machine: MachineId,
+}
+
+wire_errors! {
+    /// The error codes cloud.vm.network_policy declares.
+    CloudVmNetworkPolicyError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        CloudRateLimited = "cloud.rate_limited",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Record the bound VM's receiver incarnation. read takes only machine and phase; begin needs expected generation and a 32-hex attempt ID; ready/end need expected generation. Begin/ready require running; retirement remains available through park. Retries preserve terminal state. No idempotency key: every call rechecks current VM authority instead of replaying a response. VM installs only (kind vm, grant vm-self, own bound machine). Listener and token consumers require separate wiring.
+    CloudVmReceiverLifecycleOp {
+        name: "cloud.vm.receiver.lifecycle",
+        class: Mutation,
+        idempotency: None,
+        owner: "cloud:CloudDO",
+        risk: "execute",
+        principals: [Install],
+        params: CloudVmReceiverLifecycleParams,
+        result: CloudVmReceiverLifecycleResult,
+        error: CloudVmReceiverLifecycleError,
+    }
+}
+
+wire_enum! {
+    CloudVmReceiverLifecycleParamsPhase {
+        Read = "read",
+        Begin = "begin",
+        Ready = "ready",
+        End = "end",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmReceiverLifecycleParams {
+    pub machine: MachineId,
+    pub phase: CloudVmReceiverLifecycleParamsPhase,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempt: Option<String>,
 }

@@ -47,28 +47,79 @@ fn err_json(out: Result<Value, CloudError>) -> Value {
 }
 
 #[test]
-fn pause_all_preserves_partial_results_and_replays_the_same_key() {
-    let mut s = server();
-    let outcomes = json!({"machines": [
-        {"machine": vm(1), "status": "pausing"},
-        {"machine": vm(2), "status": "paused"},
-        {"machine": vm(3), "status": "failed", "error": {
-            "code": "cloud.machine.busy", "message": "The machine is starting"
-        }}
-    ]});
+fn pause_all_snapshots_every_page_and_preserves_partial_results() {
+    let mut s = listed();
+    let first = record(&s, &vm(1));
+    let mut second = record(&s, &vm(2));
+    second["status"] = json!("paused");
+    let third = record(&s, &vm(3));
+    s.control_plane_mut().calls.clear();
     s.control_plane_mut().answer(
-        "cloud.machine.pause_all",
-        json!({}),
-        Some("pause-all-key"),
-        outcomes.clone(),
+        "cloud.machine.list",
+        json!({"limit": 100}),
+        None,
+        json!({"machines": [first.clone()], "next_cursor": "next"}),
     );
+    s.control_plane_mut().answer(
+        "cloud.machine.list",
+        json!({"limit": 100, "cursor": "next"}),
+        None,
+        json!({"machines": [second.clone(), third], "next_cursor": null}),
+    );
+    for (id, mut machine) in [(vm(1), first), (vm(2), second)] {
+        let params = json!({"machine": id});
+        let key =
+            cmux_cloud::api::upstream_key("cloud.machine.pause_all", &params, "pause-all-key");
+        machine["status"] = json!("paused");
+        machine["revision"] = json!("20");
+        s.control_plane_mut().answer(
+            "cloud.machine.pause",
+            params,
+            Some(&key),
+            json!({"machine": machine}),
+        );
+    }
+    let params = json!({"machine": vm(3)});
+    let key = cmux_cloud::api::upstream_key("cloud.machine.pause_all", &params, "pause-all-key");
+    s.control_plane_mut().answer("cloud.machine.pause", params, Some(&key), json!({"error": {
+        "code": "cloud.machine.not_running", "message": "The machine is starting", "retryable": false
+    }}));
     let request =
         Request::new("cloud.machine.pause_all", json!({})).key("pause-all-key").origin(Origin::Cli);
-    let first = s.handle(&request).unwrap();
-    assert_eq!(first, outcomes);
-    assert_eq!(s.handle(&request).unwrap(), outcomes);
-    assert_eq!(s.control_plane().calls.len(), 1, "same-key retry is replayed");
-    assert_eq!(s.control_plane().calls[0].idempotency_key.as_deref(), Some("pause-all-key"));
+    let answer = s.handle(&request).unwrap();
+    assert_eq!(answer["machines"].as_array().unwrap().len(), 3);
+    assert_eq!(answer["machines"][0]["status"], "paused");
+    assert_eq!(
+        answer["machines"][1]["status"], "paused",
+        "already paused machines still get a person hold"
+    );
+    assert_eq!(answer["machines"][2]["status"], "failed");
+    assert_eq!(answer["machines"][2]["error"]["code"], "cloud.machine.not_running");
+    assert_eq!(s.handle(&request).unwrap(), answer);
+    assert_eq!(
+        s.control_plane().calls.len(),
+        5,
+        "same-key retry replays the completed bulk operation"
+    );
+    assert!(s.control_plane().calls[..2].iter().all(|call| call.idempotency_key.is_none()));
+}
+
+#[test]
+fn pause_all_refuses_a_repeated_page_before_pausing_any_machine() {
+    let mut s = listed();
+    let machine = record(&s, &vm(1));
+    s.control_plane_mut().calls.clear();
+    for params in [json!({"limit": 100}), json!({"limit": 100, "cursor": "loop"})] {
+        s.control_plane_mut().answer(
+            "cloud.machine.list",
+            params,
+            None,
+            json!({"machines": [machine.clone()], "next_cursor": "loop"}),
+        );
+    }
+    let answer = s.handle(&mutation("cloud.machine.pause_all", json!({}), "loop-key")).unwrap_err();
+    assert_eq!(answer.code, "cmux.cloud.bad_response");
+    assert!(s.control_plane().calls.iter().all(|call| call.op == "cloud.machine.list"));
 }
 
 #[test]
