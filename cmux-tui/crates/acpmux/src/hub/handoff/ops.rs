@@ -199,10 +199,7 @@ impl Hub {
             return Ok(self.handoff_view(&existing));
         }
         let source = source?;
-        if source.turn().is_some()
-            || source.queued() > 0
-            || !source.pending_permissions().is_empty()
-        {
+        if source.turn().is_some() || source.queued() > 0 || source.has_pending_permissions() {
             return Err(refuse(
                 CONFLICT,
                 "source_busy",

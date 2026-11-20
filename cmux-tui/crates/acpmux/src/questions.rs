@@ -21,12 +21,19 @@
 //! sub-session, from a session above it (`subsession_answer.rs`).
 
 use crate::rpc::RpcError;
-use cmux_json::JsonSet as _;
+use cmux_json::{JsonGet as _, JsonSet as _};
 use serde_json::{Map, Value, json};
 
 /// The normalized question of a request, when it carries one.
 pub(crate) fn question(request: &Value) -> Option<&Value> {
-    request.pointer("/toolCall/_meta/acpmux/question").filter(|q| q["items"].is_array())
+    // Read for every waiting ask by a summary's `waitingOn` and a queue read: no allocation
+    // (`get_path`, where `pointer` builds strings per token).
+    request.get_path(&["toolCall", "_meta", "acpmux", "question"]).filter(|q| q["items"].is_array())
+}
+
+/// The tool Claude Code names in a request's `_meta` (`AskUserQuestion`, `ExitPlanMode`).
+pub(crate) fn claude_tool(request: &Value) -> Option<&str> {
+    request.get_path(&["toolCall", "_meta", "claude", "tool"]).and_then(Value::as_str)
 }
 
 /// The folder a trust request asks about (`hub/trust_wait.rs`): a card the daemon raises on a
@@ -40,11 +47,7 @@ pub(crate) fn trust_cwd(request: &Value) -> Option<&str> {
 /// True when policy and batches must not answer the request: a question.
 /// Other interactive requests (plan approval) keep their policy behavior.
 pub(crate) fn needs_person(request: &Value) -> bool {
-    question(request).is_some()
-        || matches!(
-            request.pointer("/toolCall/_meta/claude/tool").and_then(Value::as_str),
-            Some("AskUserQuestion")
-        )
+    question(request).is_some() || claude_tool(request) == Some("AskUserQuestion")
 }
 
 /// Whether a session above the asking one may answer `request`

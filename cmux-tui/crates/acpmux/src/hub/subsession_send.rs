@@ -196,18 +196,22 @@ fn waiting_cut(
     s: &Session,
     cut: fn(&str, usize) -> String,
 ) -> Option<(&'static str, Option<String>)> {
-    let pending = s.pending_permissions();
-    let question = pending.iter().find(|(_, r)| super::questions::needs_person(r));
-    match (question, pending.first()) {
-        (Some((_, r)), _) => {
-            let prompt = super::questions::question(r)
+    // Read in place: every session summary asks, so it must not copy each pending request
+    // (a chat with hundreds of asks waiting made every list read pay for all of them).
+    let state = s.permissions.lock().unwrap_or_else(|e| e.into_inner());
+    if state.pending.is_empty() {
+        return None;
+    }
+    let question = state.pending.values().find(|p| super::questions::needs_person(&p.request));
+    match question {
+        Some(p) => {
+            let prompt = super::questions::question(&p.request)
                 .and_then(|q| q.pointer("/items/0/prompt"))
                 .and_then(Value::as_str)
                 .map(|p| cut(p, 120));
             Some(("question", prompt))
         }
-        (None, Some(_)) => Some(("permission", None)),
-        (None, None) => None,
+        None => Some(("permission", None)),
     }
 }
 

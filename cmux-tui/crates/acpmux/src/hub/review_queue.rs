@@ -66,8 +66,9 @@ pub(crate) enum Kind {
 
 impl Kind {
     pub(crate) fn of(request: &Value) -> Kind {
+        // Read for every waiting ask by a queue read: no allocation (no `Value::pointer`).
         let tool = &request["toolCall"];
-        if tool.pointer("/_meta/claude/tool").and_then(Value::as_str) == Some("ExitPlanMode")
+        if crate::questions::claude_tool(request) == Some("ExitPlanMode")
             || super::gemini_plan::names_plan(tool)
         {
             Kind::Plan
@@ -380,19 +381,42 @@ struct Row {
 }
 
 impl Row {
-    fn item(&self, id: String, kind: &str, ask: String, at: u64, now: u64) -> Value {
+    /// One item of this session's, with the session's `impact` for its kind ([`impact`]).
+    fn item(
+        &self,
+        id: String,
+        kind: &str,
+        ask: String,
+        at: u64,
+        now: u64,
+        impact: &(u32, Vec<String>),
+    ) -> Value {
         let age = now.saturating_sub(at);
-        let (impact, reasons) = impact(kind != "pr", self.weight);
+        let (impact, reasons) = impact;
         let mut v = json!({
             "id": id, "kind": kind, "sessionId": self.session_id, "title": self.title,
             "harness": self.harness, "vendor": self.vendor, "ask": ask, "at": at, "ageMs": age,
-            "impact": impact, "impactReasons": reasons, "score": score(impact, age),
+            "impact": impact, "impactReasons": reasons, "score": score(*impact, age),
         });
         if let Some(w) = &self.workspace_id {
             v.set("workspaceId", json!(w));
         }
         v
     }
+}
+
+/// One item a queue read ranks before it builds any: its sort key, its session's row and what
+/// it is.
+struct Pick {
+    score: f64,
+    at: u64,
+    row: usize,
+    what: What,
+}
+
+enum What {
+    Ask(String, Kind),
+    Pr(Pr),
 }
 
 impl Hub {
@@ -427,9 +451,19 @@ impl Hub {
         }
     }
 
-    /// This daemon's own queue items (no peer's), unsorted, and how many sessions the read
-    /// visited.
+    /// Every item of this daemon's own queue (no peer's), in [`sort_items`]'s order, and how
+    /// many sessions the read visited.
+    #[cfg(test)]
     pub(crate) fn review_queue_local(&self, now: u64) -> (Vec<Value>, usize) {
+        let (items, _, visited) = self.review_queue_page(now, usize::MAX);
+        (items, visited)
+    }
+
+    /// This daemon's own queue, sorted ([`sort_items`]'s order) and cut to `limit`, with how
+    /// many items there are before the cut and how many sessions the read visited. Only the
+    /// items the page keeps are built: the others are ranked by their score alone, so a read
+    /// costs the page plus one small key per waiting ask, not a copy and a JSON item of each.
+    pub(crate) fn review_queue_page(&self, now: u64, limit: usize) -> (Vec<Value>, usize, usize) {
         self.review_index.expire_settling(now);
         let (asking, with_prs, noted) = {
             let inner = self.review_index.lock();
@@ -438,49 +472,46 @@ impl Hub {
                 inner.prs.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
             (asking, prs, inner.noted)
         };
-        let mut items = Vec::new();
+        // Each session the page may draw from, with its shared row and its impact for an ask
+        // and for a pull request (each the same for every item of the session).
+        let mut rows: Vec<(Arc<Session>, Row, (u32, Vec<String>), (u32, Vec<String>))> = Vec::new();
+        let row_of = |session: Arc<Session>| {
+            let mut row = self.review_row(&session);
+            row.weight.subsessions = self.width_used(&session.id);
+            let ask = impact(true, row.weight);
+            let pr = impact(false, row.weight);
+            (session, row, ask, pr)
+        };
+        let mut picks: Vec<Pick> = Vec::new();
         let mut visited = 0;
         let lookup =
             |id: &str| self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         for id in asking {
             visited += 1;
             let Some(session) = lookup(&id) else {
-                self.drop_stale_asks(&id, &[], noted, now);
+                self.drop_stale_asks(&id, &HashSet::new(), noted, now);
                 continue;
             };
-            let pending = session.pending_permissions();
-            let held: Vec<&str> = pending.iter().map(|(k, _)| k.as_str()).collect();
+            // The ids and kinds only, read in place: no copy of any request.
+            let pending: Vec<(String, Kind)> = {
+                let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+                state.pending.iter().map(|(k, p)| (k.clone(), Kind::of(&p.request))).collect()
+            };
+            let held: HashSet<&str> = pending.iter().map(|(k, _)| k.as_str()).collect();
             self.drop_stale_asks(&id, &held, noted, now);
             if pending.is_empty() {
                 continue;
             }
-            let mut row = self.review_row(&session);
-            row.weight.subsessions = self.width_used(&session.id);
-            let notes: HashMap<String, Ask> =
-                self.review_index.lock().asks.get(&id).cloned().unwrap_or_default();
-            for (permission_id, request) in pending {
-                let kind = Kind::of(&request);
-                let note = notes.get(&permission_id);
-                let at = note.map_or(now, |n| n.at);
-                let mut item = row.item(
-                    format!("acpmux:{permission_id}"),
-                    kind.as_str(),
-                    ask_text(kind, &request),
-                    at,
-                    now,
-                );
-                item.set("permissionId", json!(permission_id));
-                item.set("options", json!(options(&request)));
-                if let Some(t) = note.and_then(|n| n.turn_id.as_ref()) {
-                    item.set("turnId", json!(t));
-                }
-                if let Some(d) = detail(&request) {
-                    item.set("detail", json!(d));
-                }
-                if kind != Kind::Approval {
-                    item.set("question", request);
-                }
-                items.push(item);
+            let built = row_of(session);
+            let impact = built.2.0;
+            let row = rows.len();
+            rows.push(built);
+            let inner = self.review_index.lock();
+            let notes = inner.asks.get(&id);
+            for (permission_id, kind) in pending {
+                let at = notes.and_then(|n| n.get(&permission_id)).map_or(now, |n| n.at);
+                let score = score(impact, now.saturating_sub(at));
+                picks.push(Pick { score, at, row, what: What::Ask(permission_id, kind) });
             }
         }
         for (id, prs) in with_prs {
@@ -493,35 +524,94 @@ impl Hub {
             if matches!(session.status(), SessionStatus::Running | SessionStatus::Waiting) {
                 continue;
             }
-            let mut row = self.review_row(&session);
-            row.weight.subsessions = self.width_used(&session.id);
+            let fresh: Vec<Pr> =
+                fresh.into_iter().filter(|pr| !self.audit.reviewed(&id, &pr.url)).collect();
+            if fresh.is_empty() {
+                continue;
+            }
+            let built = row_of(session);
+            let impact = built.3.0;
+            let row = rows.len();
+            rows.push(built);
             for pr in fresh {
-                if self.audit.reviewed(&id, &pr.url) {
-                    continue;
-                }
-                let mut item = row.item(
-                    format!("pr:{}", pr.url),
-                    "pr",
-                    line(&format!("Review {}", pr_label(&pr.url)), ASK_CHARS),
-                    pr.at,
-                    now,
-                );
-                item.set("prUrl", json!(pr.url));
-                items.push(item);
+                let score = score(impact, now.saturating_sub(pr.at));
+                picks.push(Pick { score, at: pr.at, row, what: What::Pr(pr) });
             }
         }
-        (items, visited)
+        let total = picks.len();
+        // `sort_items`'s order (stable, so ties keep the order the items were found in).
+        picks.sort_by(|a, b| b.score.total_cmp(&a.score).then(a.at.cmp(&b.at)));
+        picks.truncate(limit);
+        let items = picks
+            .into_iter()
+            .filter_map(|pick| {
+                let (session, row, ask_impact, pr_impact) = rows.get(pick.row)?;
+                match pick.what {
+                    What::Ask(permission_id, kind) => {
+                        // Answered since it was ranked: gone from the page.
+                        let request = session
+                            .permissions
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .pending
+                            .get(&permission_id)?
+                            .request
+                            .clone();
+                        let turn_id = self
+                            .review_index
+                            .lock()
+                            .asks
+                            .get(&session.id)
+                            .and_then(|n| n.get(&permission_id))
+                            .and_then(|n| n.turn_id.clone());
+                        let mut item = row.item(
+                            format!("acpmux:{permission_id}"),
+                            kind.as_str(),
+                            ask_text(kind, &request),
+                            pick.at,
+                            now,
+                            ask_impact,
+                        );
+                        item.set("permissionId", json!(permission_id));
+                        item.set("options", json!(options(&request)));
+                        if let Some(t) = turn_id {
+                            item.set("turnId", json!(t));
+                        }
+                        if let Some(d) = detail(&request) {
+                            item.set("detail", json!(d));
+                        }
+                        if kind != Kind::Approval {
+                            item.set("question", request);
+                        }
+                        Some(item)
+                    }
+                    What::Pr(pr) => {
+                        let mut item = row.item(
+                            format!("pr:{}", pr.url),
+                            "pr",
+                            line(&format!("Review {}", pr_label(&pr.url)), ASK_CHARS),
+                            pr.at,
+                            now,
+                            pr_impact,
+                        );
+                        item.set("prUrl", json!(pr.url));
+                        Some(item)
+                    }
+                }
+            })
+            .collect();
+        (items, total, visited)
     }
 
     /// Moves the asks of session `id` the index learned at or before `noted` that it no longer
     /// holds (`held`) out of the queue's index into `settling`: one learned after the read began
     /// stays for the next read, and a decision record that comes after still finds its ask.
-    fn drop_stale_asks(&self, id: &str, held: &[&str], noted: u64, now: u64) {
+    fn drop_stale_asks(&self, id: &str, held: &HashSet<&str>, noted: u64, now: u64) {
         let mut inner = self.review_index.lock();
         let Some(asks) = inner.asks.get_mut(id) else { return };
         let stale: Vec<String> = asks
             .iter()
-            .filter(|(k, a)| a.noted <= noted && !held.contains(&k.as_str()))
+            .filter(|(k, a)| a.noted <= noted && !held.contains(k.as_str()))
             .map(|(k, _)| k.clone())
             .collect();
         let mut moved = Vec::with_capacity(stale.len());

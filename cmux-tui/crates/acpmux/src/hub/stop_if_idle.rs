@@ -195,7 +195,7 @@ impl Hub {
         {
             return Some("queued");
         }
-        if !session.pending_permissions().is_empty()
+        if session.has_pending_permissions()
             || session.asks_in_flight.load(Ordering::SeqCst) > 0
             || self.secrets.waiting_in(&session.id)
         {

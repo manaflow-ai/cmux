@@ -854,7 +854,7 @@ impl Hub {
                     .collect(),
                 })
                 .collect(),
-            pending_permissions: session.pending_permissions().len() as u64,
+            pending_permissions: session.pending_permission_count() as u64,
             waiting_on: waiting.as_ref().map(|w| w.0.to_owned()),
             waiting_prompt: waiting.and_then(|w| w.1),
             // Since when it waits on the person (`lane`); null while it does not.
