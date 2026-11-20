@@ -458,7 +458,7 @@ fn drain(hub: &Arc<Hub>, retry: bool) {
                 }
             }
             Some(sent) if retry && sent.state == State::Failed => {
-                hub.outbox.update(&d.id, |d| {
+                hub.outbox.update_soon(&d.id, |d| {
                     d.state = State::Queued;
                     d.error = None;
                 });

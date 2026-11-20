@@ -99,7 +99,7 @@ pub(super) async fn relay(
                 mode: carried.mode,
                 idempotency_key: idempotency_key(&carried.prompt_id),
             };
-            hub.outbox.update(&delivery.id, |d| d.relay_post = Some(message.clone()));
+            hub.outbox.update_async(&delivery.id, |d| d.relay_post = Some(message.clone())).await;
             message
         }
     };
@@ -218,7 +218,7 @@ pub(super) async fn send(
     };
     let receipt = mesh.send(&message).await.map_err(|e| refusal(target, e))?;
     if target.starts_with('@') {
-        super::team::remember_sender(hub, conn, &receipt.message_id, target)?;
+        super::team::remember_sender(hub, conn, &receipt.message_id, target).await?;
     }
     Ok(status_of(&receipt, target))
 }
