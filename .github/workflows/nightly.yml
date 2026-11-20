@@ -3316,6 +3316,7 @@ jobs:
       contents: read
     outputs:
       sha: ${{ steps.checks.outcome == 'success' && needs.resolve-nightly-cmux-tui-client.outputs.build_sha || '' }}
+      lint_report: ${{ steps.lint.outputs.lint_report }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -3328,9 +3329,16 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
+      # Lint-class reds report and are fixed forward (Leo 2026-11-20); typecheck and acpmux-protocol:check block.
       - name: Webview checks on the build commit
         id: checks
-        run: python3 scripts/ci/fast_gate_webviews_checks.py --repo .
+        run: python3 scripts/ci/fast_gate_webviews_checks.py --repo . --advisory-out "$RUNNER_TEMP/webview-lint.json"
+      - &lint-report
+        name: Report the lint-class webview checks
+        id: lint
+        if: ${{ !cancelled() && !env.LEFT_SLOT }}
+        continue-on-error: true
+        run: python3 scripts/ci/nightly_fix_forward_issue.py outputs --report "$RUNNER_TEMP/webview-lint.json"
 
   prepare-nightly-variant-primary:
     # No environment and no secrets. It runs no code from the bundle; the
@@ -5607,6 +5615,28 @@ jobs:
             }
             await github.rest.issues.createComment({ ...context.repo, issue_number: issue.number, body });
 
+  # Lint-class webview reds, kept in one open issue (scripts/ci/nightly_fix_forward_issue.py); never a hold.
+  report-nightly-fix-forward:
+    needs: [decide, resolve-nightly-cmux-tui-client, check-nightly-webviews, nightly-next-one]
+    if: "!cancelled() && (needs.check-nightly-webviews.outputs.lint_report != '' || needs.nightly-next-one.outputs.lint_report != '')"
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 125 || 5 }}
+    permissions:
+      contents: read
+      issues: write # the fix-forward issue
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+      - name: File the lint-class reds in the fix-forward issue
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LINT_REPORT: ${{ needs.nightly-next-one.outputs.lint_report || needs.check-nightly-webviews.outputs.lint_report }}
+          BUILD_SHA: ${{ needs.nightly-next-one.outputs.build_sha || needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+        run: python3 scripts/ci/nightly_fix_forward_issue.py file --repo "$GITHUB_REPOSITORY"
+
   await-nightly-tree-marker:
     needs: [decide, resolve-nightly-cmux-tui-client, build-nightly-app]
     # A timed-out pick-nightly-build-runner must not skip this job (see build-nightly-app's `if`).
@@ -6655,13 +6685,16 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
           overwrite: true
-      # Before the keyed job asks for the signer Mac; scripts/ci/nightly_deltas_yield.py.
+      # Before the keyed job asks for the signer Mac; scripts/ci/nightly_deltas_yield.py. Two signers (ultra1, cmux15)
+      # do not wait for the loop (a build may still wait; see the script); one-mini mode or NIGHTLY_NEXT_SIGNERS=1 waits.
       - name: Yield the signer Mac to the nightly-next build loop
         id: deltas-yield
         if: needs.published-build.outputs.track == 'nightly-next'
         continue-on-error: true
         timeout-minutes: 42
-        run: python3 .publish-tooling/scripts/ci/nightly_deltas_yield.py --repo "$GITHUB_REPOSITORY" --build "$NIGHTLY_BUILD" --feed "$NIGHTLY_NEXT_FEED_BASE/appcast-arm64.xml"
+        env:
+          NIGHTLY_NEXT_SIGNERS: ${{ vars.NIGHTLY_NEXT_SIGNERS || vars.CI_NIGHTLY_MINI != '' && '1' || '2' }}
+        run: python3 .publish-tooling/scripts/ci/nightly_deltas_yield.py --repo "$GITHUB_REPOSITORY" --build "$NIGHTLY_BUILD" --feed "$NIGHTLY_NEXT_FEED_BASE/appcast-arm64.xml" --signers "$NIGHTLY_NEXT_SIGNERS"
 
   generate-nightly-deltas:
     # Delta work is deliberately downstream of the first publication. A slow
@@ -7050,6 +7083,7 @@ jobs:
       source: ${{ steps.source.outputs.source }}
       build: ${{ steps.source.outputs.build }}
       build_sha: ${{ steps.source.outputs.build_sha }}
+      lint_report: ${{ steps.lint.outputs.lint_report }}
       already_published: ${{ steps.recheck.outputs.already_published == 'true' || steps.gate.outputs.refused == 'true' }}
       refused: ${{ steps.gate.outputs.refused == 'true' || steps.recheck.outputs.superseded == 'true' || steps.upload_next_appcasts.outputs.publication_refused == 'true' }}
       refusal_reason: ${{ steps.gate.outputs.refusal_reason }}
@@ -7209,7 +7243,7 @@ jobs:
         run: bash scripts/ci/nightly-steps/app-build-release.sh
       - name: Start the webview checks on the build commit
         if: ${{ !env.LEFT_SLOT }}
-        run: python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helper-builds" webview-checks -- python3 scripts/ci/fast_gate_webviews_checks.py --repo .
+        run: python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helper-builds" webview-checks -- python3 scripts/ci/fast_gate_webviews_checks.py --repo . --advisory-out "$RUNNER_TEMP/webview-lint.json"
       - *x34
       - *x35
       - *x36
@@ -7252,6 +7286,7 @@ jobs:
         if: ${{ !env.LEFT_SLOT }}
         id: webview-checks
         run: python3 scripts/ci/background_build.py join --state "$RUNNER_TEMP/nightly-helper-builds" webview-checks
+      - *lint-report
       - *set-up-node
       - *x56
       # Nothing a build script, a dependency or the app started may still run once a secret is present
