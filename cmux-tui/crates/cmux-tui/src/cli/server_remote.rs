@@ -424,7 +424,7 @@ fn install(request: &Request, steps: &mut Steps) -> i32 {
         .unwrap_or_else(|_| "cmux".to_owned());
     let mut cmd_argv = vec![program];
     cmd_argv.extend(connect_action(ep, request.label.as_deref()));
-    let code = run_cmux_surface(&cmd_argv, steps.json);
+    let code = run_as_cmux(&cmd_argv, steps.json);
     steps.record("connect", &shown(&argv), code);
     if code == Some(0) {
         steps.say(&format!("cmux server: {} is set up and open in cmux", ep.destination));
@@ -438,8 +438,8 @@ fn install(request: &Request, steps: &mut Steps) -> i32 {
     0
 }
 
-/// Runs this binary as `cmux` (its surface comes from argv[0]).
-fn run_cmux_surface(argv: &[String], json: bool) -> Option<i32> {
+/// Runs this binary as `cmux` (its command set comes from argv[0]).
+fn run_as_cmux(argv: &[String], json: bool) -> Option<i32> {
     let (program, args) = argv.split_first()?;
     let mut cmd = Command::new(program);
     cmd.arg0("cmux");
