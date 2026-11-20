@@ -537,8 +537,28 @@ fn a_projected_folder_behaves_like_the_folder_on_every_hard_case() {
     );
     assert!(!repo.join("src/m01.rs").exists());
     std::fs::remove_file(repo.join("src/m02.rs")).unwrap();
-    std::fs::rename(repo.join("docs"), repo.join("notes-moved")).unwrap();
+    // A Mac folder refuses rename(2) with EXDEV (overlay.rs: "refused, so tools copy instead"),
+    // as kernel overlayfs without redirect_dir does; `mv`, what an agent runs, copies it.
+    assert_eq!(
+        std::fs::rename(repo.join("docs"), repo.join("notes-moved")).map_err(|e| e.raw_os_error()),
+        Err(Some(18))
+    );
+    let (up, down) = w.wire.read();
+    assert!(
+        Command::new("mv")
+            .arg(repo.join("docs"))
+            .arg(repo.join("notes-moved"))
+            .status()
+            .unwrap()
+            .success()
+    );
+    let (up2, down2) = w.wire.read();
+    println!(
+        "PROJECTION-BYTES {}",
+        json!({"case": "mv_mac_folder_2_files", "up": up2 - up, "down": down2 - down})
+    );
     assert_eq!(std::fs::read_to_string(repo.join("notes-moved/b.md")).unwrap(), "b\n");
+    assert!(!repo.join("docs").exists());
     for kept in ["src/m01.rs", "src/m02.rs", "docs/a.md"] {
         assert!(mac.join(kept).exists(), "the Mac lost {kept}");
     }
@@ -606,7 +626,7 @@ fn a_projected_folders_bytes_per_action_stay_flat_where_they_should() {
         }
         assert_eq!(start.answer["mode"], "projected", "{}", start.answer);
         let mut last = w.wire.read();
-        let mut row = |case: &str, took: Duration, last: &mut (u64, u64)| {
+        let row = |case: &str, took: Duration, last: &mut (u64, u64)| {
             let now = w.wire.read();
             let (up, down) = (now.0 - last.0, now.1 - last.1);
             println!(
