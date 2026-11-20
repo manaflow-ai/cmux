@@ -259,12 +259,17 @@ struct AgentIncomingCard: View {
         for block in MarkdownDocument(parsing: text).blocks {
             let lines: [String]
             switch block.kind {
-            case .heading(_, let text), .paragraph(let text), .quote(let text):
-                lines = text.split(whereSeparator: \.isNewline).map { plainInline(String($0)) }
+            case .heading(_, let text), .paragraph(let text):
+                // The block's marks are read whole (bold or a link may span a line break), then
+                // its first line is taken.
+                lines = plainInline(text).split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+            case .quote(let text):
+                // A quote holds Markdown of its own (a fence, a heading): its first line, read so.
+                lines = [firstLine(text)]
             case .list(let list):
-                lines = list.items.map { plainInline($0.text) }
+                lines = list.items.map { plainInline($0.text).trimmingCharacters(in: .whitespaces) }
             case .table(let table):
-                lines = [table.header.map(plainInline).filter { !$0.isEmpty }.joined(separator: " · ")]
+                lines = [table.header.map { plainInline($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: " · ")]
             case .code(_, let code, _):
                 // Code is shown as written: its characters are the text, not syntax.
                 lines = code.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
@@ -280,15 +285,20 @@ struct AgentIncomingCard: View {
         return math ?? ""
     }
 
-    /// A line's inline Markdown (emphasis, code, strike, links) as the plain characters it draws; a
-    /// line of marks alone (`**`) is nothing.
-    private static func plainInline(_ line: String) -> String {
+    /// Text's inline Markdown (emphasis, code, strike, links, `$math$`) as the plain characters it
+    /// draws, its line breaks kept; a line of marks alone (`**`) is nothing.
+    private static func plainInline(_ text: String) -> String {
+        // Inline math draws its formula: the TeX without its `$` (a price, `$5 and $6`, is not math).
+        let unmathed = text.replacingOccurrences(
+            of: #"(?<![\\$\w])\$([^\s$](?:[^$\n]*[^\s$])?)\$(?![\w$])"#, with: "$1", options: .regularExpression)
         let parsed = try? AttributedString(
-            markdown: line,
+            markdown: unmathed,
             options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace, failurePolicy: .returnPartiallyParsedIfPossible)
         )
-        let plain = (parsed.map { String($0.characters) } ?? line).trimmingCharacters(in: .whitespaces)
-        return plain.allSatisfy { "*_~`".contains($0) } ? "" : plain
+        let plain = parsed.map { String($0.characters) } ?? unmathed
+        return plain.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line in line.allSatisfy { "*_~` ".contains($0) } ? "" : String(line) }
+            .joined(separator: "\n")
     }
 }
 
