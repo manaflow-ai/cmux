@@ -18,6 +18,7 @@
 
 import { type FrameOwners, startFrameOwners } from "./frameOwners";
 import { percentile, round2, summary } from "./perf";
+import { retainLayoutWatch } from "./conversation/layoutWatch";
 
 /** The record kinds the capture reports apart; any other kind is `other`. */
 export const CAPTURE_KINDS = ["tool_call", "tool_call_update", "agent_message_chunk", "other"] as const;
@@ -179,6 +180,9 @@ export type CaptureEnv = {
   /** Calls `onDraw` after each change to the transcript's DOM (a MutationObserver); without it a record
    *  counts as drawn by the first frame after it arrived. */
   watchDraws?(onDraw: () => void): { disconnect(): void } | undefined;
+  /** Holds the page's layout watch (conversation/layoutWatch.ts) for the window: its running count of
+   *  unexplained shifts, and its release. Without it the report counts none. */
+  layoutShifts?(): { count(): number; release(): void };
 };
 
 /** The page's own environment. Its frame and timer functions are the page's as they were before
@@ -222,6 +226,7 @@ export function browserEnv(): CaptureEnv {
     supportedEntryTypes: () =>
       typeof PerformanceObserver === "undefined" ? [] : (PerformanceObserver.supportedEntryTypes ?? []),
     startOwners: () => startFrameOwners(),
+    layoutShifts: () => retainLayoutWatch(window),
     watchDraws(onDraw) {
       if (typeof MutationObserver === "undefined") return undefined;
       const root = document.querySelector(".acpmux-scroll") ?? document.body;
@@ -286,6 +291,9 @@ export class ChatPerfCapture {
       });
       cleanups.push(() => channel.close());
       let frame = 0;
+      const layoutShifts = env.layoutShifts?.();
+      const shiftsBefore = layoutShifts?.count() ?? 0;
+      if (layoutShifts) cleanups.push(() => layoutShifts.release());
       const owners = env.startOwners?.();
       if (owners) cleanups.push(() => owners.restore());
       const onFrame = (time: number) => {
@@ -345,6 +353,8 @@ export class ChatPerfCapture {
         frames: frameReport,
         long_tasks: longTaskSummary(longEntries, longType as "long-animation-frame" | "longtask" | null),
         layout_shift: layoutShiftSummary(shifts),
+        // Moves the layout watch could not explain (no input, append or declared move); warn-only for now.
+        layout: { unexplained_shifts: layoutShifts ? layoutShifts.count() - shiftsBefore : null },
         records: { ...arrivalSummary(arrivals), unpainted },
         owners: ownerReport,
       };

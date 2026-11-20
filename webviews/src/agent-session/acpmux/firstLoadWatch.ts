@@ -54,22 +54,32 @@ export function firstLoadFields(frames: FrameRecord[]): FirstLoadFields | undefi
   };
 }
 
-/// One frame of `doc` as firstLoadFrames.ts reads it.
-export function readFrame(doc: Document, now: number): FrameRecord {
+/// What `readFrame` read on the way, for a reader that looks at more than the first-load record does
+/// (conversation/layoutWatch.ts): each row's element in the order of `rows`, the scroller and its box.
+export type FrameParts = { elements: HTMLElement[]; scroller?: HTMLElement; view?: { top: number; bottom: number } };
+
+/// One frame of `doc` as firstLoadFrames.ts reads it; `parts`, when given, gets what it read on the way.
+export function readFrame(doc: Document, now: number, parts?: FrameParts): FrameRecord {
   const drawn = doc.querySelector<HTMLElement>(SNAPSHOT_HOST_TAG);
   const host = drawn && drawn.style.visibility !== "hidden" ? drawn : null;
   const scope: ParentNode = host?.shadowRoot ?? doc;
   const rootHidden = !host && doc.getElementById("root")?.style.opacity === "0";
   const scroller = scope.querySelector<HTMLElement>(".acpmux-scroll");
   const view = rootHidden ? undefined : scroller?.getBoundingClientRect();
-  const rows: FrameRow[] = [];
+  const shown: { row: FrameRow; element: HTMLElement }[] = [];
   if (view)
     for (const row of Array.from(scope.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]"))) {
       const box = row.getBoundingClientRect();
       if (box.height <= 0 || box.bottom <= view.top || box.top >= view.bottom) continue;
-      rows.push({ id: row.dataset.rowId ?? "", top: box.top });
+      shown.push({ row: { id: row.dataset.rowId ?? "", top: box.top, height: box.height }, element: row });
     }
-  rows.sort((a, b) => a.top - b.top);
+  shown.sort((a, b) => a.row.top - b.row.top);
+  const rows = shown.map((one) => one.row);
+  if (parts) {
+    for (const one of shown) parts.elements.push(one.element);
+    parts.scroller = scroller ?? undefined;
+    parts.view = view ? { top: view.top, bottom: view.bottom } : undefined;
+  }
   const composer = rootHidden
     ? undefined
     : Array.from(scope.querySelectorAll(".acpmux-composer-box"))
