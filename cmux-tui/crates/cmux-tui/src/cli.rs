@@ -682,15 +682,39 @@ pub(crate) fn acp_scope_args(raw_args: &[String]) -> Vec<std::ffi::OsString> {
 #[cfg(unix)]
 pub(crate) fn agent_acp_scope_args(raw_args: &[String]) -> Option<Vec<std::ffi::OsString>> {
     let [head, verb, rest @ ..] = raw_args else { return None };
-    if head != "agent"
-        || !matches!(
-            verb.as_str(),
-            "ls" | "send" | "history" | "search" | "resolve" | "register" | "bg" | "notices"
-        )
-    {
+    if head != "agent" {
         return None;
     }
-    Some(std::iter::once(verb).chain(rest.iter()).map(std::ffi::OsString::from).collect())
+    let mut args = Vec::with_capacity(raw_args.len());
+    match verb.as_str() {
+        "ls" | "send" | "history" | "search" | "resolve" | "register" => {
+            args.push(verb.clone());
+            args.extend(rest.iter().cloned());
+        }
+        // Keep the short front door while reusing the existing process command
+        // implementation. `start` is the user-facing spelling for moving the
+        // current foreground task into the background.
+        "bg" => {
+            let (subcommand, tail) = match rest {
+                [subcommand, tail @ ..] if subcommand == "start" => ("background", tail),
+                [subcommand, tail @ ..] if subcommand == "list" => ("list", tail),
+                _ => ("", &[][..]),
+            };
+            if subcommand.is_empty() {
+                return None;
+            }
+            args.extend(["process".to_owned(), subcommand.to_owned()]);
+            args.extend(tail.iter().cloned());
+        }
+        // Notices are the existing pending/held notice view. Giving it the
+        // front-door name avoids a second implementation of that RPC fanout.
+        "notices" => {
+            args.push("pending".to_owned());
+            args.extend(rest.iter().cloned());
+        }
+        _ => return None,
+    }
+    Some(args.into_iter().map(std::ffi::OsString::from).collect())
 }
 
 /// The agent-caller refusal of a plan that writes a Chief by the raw or

@@ -1328,6 +1328,15 @@ fn root_help_lists_every_scope_and_help_word_reaches_own_help_scopes() {
         agent_acp_scope_args(&strings(&["agent", "search", "nightly"])),
         Some(os(&["search", "nightly"]))
     );
+    assert_eq!(
+        agent_acp_scope_args(&strings(&["agent", "bg", "start", "lane"])),
+        Some(os(&["process", "background", "lane"]))
+    );
+    assert_eq!(
+        agent_acp_scope_args(&strings(&["agent", "bg", "list"])),
+        Some(os(&["process", "list"]))
+    );
+    assert_eq!(agent_acp_scope_args(&strings(&["agent", "notices"])), Some(os(&["pending"])));
     assert_eq!(agent_acp_scope_args(&strings(&["agent", "list"])), None);
 }
 
