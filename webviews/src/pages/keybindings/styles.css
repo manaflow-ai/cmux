@@ -553,7 +553,7 @@
    out, as glass.css leaves out its own: the tint is opaque there, so the popup is the same. */
 @media not (prefers-reduced-transparency: reduce) {
   @supports not (-webkit-backdrop-filter: none) {
-    :root:not([data-glass-lens], [data-reduce-transparency]) .ui-popup.ui-glass.keys-recorder {
+    :root:not([data-glass-lens], [data-reduce-transparency], [data-glass="off"]) .ui-popup.ui-glass.keys-recorder {
       background:
         linear-gradient(var(--glass-tint), var(--glass-tint)),
         color-mix(in srgb, var(--glass-surface) var(--glass-underlay), transparent);
