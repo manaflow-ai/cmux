@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextBrowser
 
 extension ShellWindow {
     /// The window's one titlebar decision (`TitlebarDragPolicy`): a left
@@ -53,14 +54,14 @@ extension ShellWindow {
     }
 
     override func becomeKey() {
-        BenchSpans.mark("key.become") // debug.new_tab bench_create's key_changes
+        BenchSpans.mark("key.become"); CEFProbe.keyChange(self, "SHELL-BECOME-KEY") // PROBE; debug.new_tab bench_create's key_changes
         cursorRectHold?.windowKeyStateWillChange(self)
         super.becomeKey()
         focusLog?.keyChanged(self, becameKey: true, route: routeInFlight)
     }
 
     override func resignKey() {
-        BenchSpans.mark("key.resign")
+        BenchSpans.mark("key.resign"); CEFProbe.keyChange(self, "SHELL-RESIGN-KEY") // PROBE
         focusLog?.keyChanged(self, becameKey: false, route: routeInFlight)
         cursorRectHold?.windowKeyStateWillChange(self)
         super.resignKey()
