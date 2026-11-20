@@ -26,8 +26,9 @@ public final class PaneModel: Identifiable {
     /// The stand-in tabs that the overlay's lift took out while the list is held, by surface: the restore of the same
     /// lift puts the same record back (``takeLiftedTab(_:)``).
     @ObservationIgnored private var liftedTabs: [SurfaceID: TabModel] = [:]
-    /// The first tab, set only when it is another tab (each write of ``tabs``): an observer of the first tab (a window's
-    /// Home, `WorkspaceModel.isWindowHome`) does not wake for a tab added after it in the pane.
+    /// The first tab, set only when it is another tab (at each write of ``tabs``; while the store holds the list, one
+    /// time at the hold's end): an observer of the first tab (a window's Home, `WorkspaceModel.isWindowHome`) does not
+    /// wake for a tab added after it in the pane.
     public private(set) var firstTab: TabModel?
     public internal(set) var tabGroups: [TabGroupModel]
     /// Group spans over `tabs`, recomputed only when tabs or groups change.

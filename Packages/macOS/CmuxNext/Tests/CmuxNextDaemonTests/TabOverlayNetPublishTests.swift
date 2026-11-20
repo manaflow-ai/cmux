@@ -113,17 +113,18 @@ struct TabOverlayNetPublishTests {
         #expect(store.mirrorViolations.isEmpty, "\(store.mirrorViolations)")
     }
 
-    /// With no creation that waits nothing is held: a batch that adds a tab to the pane writes its tab list as before.
+    /// With no creation that waits nothing is held: a batch that adds 2 tabs to the pane writes its tab list 2 times,
+    /// one time for each tab, as before.
     @Test func aPaneWithNoWaitingCreationPublishesEachWrite() throws {
         let store = Self.store()
         let pane = try Self.shown(store)
         let writes = Writes()
         writes.track(pane)
 
-        _ = store.apply(batch: [Self.tabOpened(in: 0, sequence: 1)])
+        _ = store.apply(batch: [Self.tabOpened(in: 0, sequence: 1), Self.tabOpened(in: 0, sequence: 2)])
 
-        #expect(writes.tabs == 1, "the batch wrote the pane's tab list \(writes.tabs) times, want 1")
-        #expect(pane.tabs.count == 2)
+        #expect(writes.tabs == 2, "the batch of 2 tabs wrote the pane's tab list \(writes.tabs) times, want 2")
+        #expect(pane.tabs.count == 3)
         #expect(store.mirrorViolations.isEmpty, "\(store.mirrorViolations)")
     }
 

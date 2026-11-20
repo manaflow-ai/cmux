@@ -140,10 +140,7 @@ test("Find matches a sent text file's body behind its chip, and the match opens 
     text: `See the notes\n${body}`,
     inlineParts,
   } as Row;
-  for (const view of ["inline", "strip", "both"] as const)
-    expect(findMatches([row], "zanzibar rollout plan", view)).toEqual([
-      { rowIndex: 0, rowId: "file-row", occurrence: 0 },
-    ]);
+  expect(findMatches([row], "zanzibar rollout plan")).toEqual([{ rowIndex: 0, rowId: "file-row", occurrence: 0 }]);
   // The typed words, then the body, in the order the bubble draws them.
   expect(findMatches([row], "notes").length).toBe(2);
   const bubble = render(row);
@@ -297,11 +294,11 @@ test("Find reads a placed prompt's words as joined where a strip image left the 
   expect(findMatches([row], "quick brown")).toEqual([{ rowIndex: 0, rowId: "strip-join", occurrence: 0 }]);
 });
 
-// In the strip view every attachment draws in the band, a placed image too, so the bubble joins the
-// words on either side of it as one run, and Find reads that run; in the inline view the image
-// stands between them, and Find reads them apart. At 38fb9cad Find always read the inline layout,
-// and "quick brown" found nothing in the strip view.
-test("Find reads a prompt as the active attachment view draws it", async () => {
+// Every attachment draws in the block above the bubble, a placed image too, in every attachment
+// view (Leo, 2026-11-17: "Put them in a block above the text."), so the bubble joins the words on
+// either side of it as one run, and Find reads that run. At 38fb9cad Find always read the inline
+// layout, and "quick brown" found nothing in the strip view.
+test("Find reads a prompt as its bubble draws it, in every attachment view", async () => {
   const { findMatches, useChatFind } = await import("../src/agent-session/acpmux/conversation/chatFind");
   const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
   const inlineParts = [
@@ -318,30 +315,16 @@ test("Find reads a prompt as the active attachment view draws it", async () => {
     inlineParts,
   } as Row;
   const drawn = () => host.querySelector("[data-inline-content]")!.textContent!;
-  const found = (view?: "inline" | "strip" | "both") => findMatches([row], "quick brown", view).length;
   try {
-    act(() => setComposerSettings({ attachmentView: "strip" }));
-    render(row);
-    expect(host.querySelector(".cv-user__inline-strip .cv-user__inline-image")).not.toBeNull();
-    expect(drawn()).toContain("the quick brown fox");
-    expect(found()).toBe(1);
-    expect(found("strip")).toBe(1);
-
-    act(() => setComposerSettings({ attachmentView: "inline" }));
-    render(row);
-    expect(host.querySelector(".cv-user__inline-strip")).toBeNull();
-    // The image draws between the two runs, each its own text.
-    expect(host.querySelector("[data-inline-content] .cv-user__inline-image")).not.toBeNull();
-    expect([...host.querySelectorAll("[data-inline-content] .cv-user__typed")].map((node) => node.textContent)).toEqual(
-      ["the quick ", "brown fox"],
-    );
-    expect(found()).toBe(0);
-    expect(found("inline")).toBe(0);
-    expect(found("both")).toBe(0);
-    // The same row object read in another view is read again, not taken from the cache.
-    expect(found("strip")).toBe(1);
-
-    // An open bar finds again when the view changes under it.
+    for (const attachmentView of ["strip", "inline", "both"] as const) {
+      act(() => setComposerSettings({ attachmentView }));
+      render(row);
+      expect(host.querySelector(".cv-user__inline-strip .cv-user__inline-image")).not.toBeNull();
+      expect(host.querySelector("[data-inline-content] .cv-user__inline-image")).toBeNull();
+      expect(drawn()).toContain("the quick brown fox");
+      expect(findMatches([row], "quick brown").length).toBe(1);
+    }
+    // An open bar finds the joined run in every view.
     let find: ReturnType<typeof useChatFind> | undefined;
     const Probe = () => {
       find = useChatFind([row]);
@@ -349,7 +332,7 @@ test("Find reads a prompt as the active attachment view draws it", async () => {
     };
     act(() => root.render(<Probe />));
     act(() => find!.show("quick brown"));
-    expect(find!.matches.length).toBe(0);
+    expect(find!.matches.length).toBe(1);
     act(() => setComposerSettings({ attachmentView: "strip" }));
     expect(find!.matches.length).toBe(1);
   } finally {

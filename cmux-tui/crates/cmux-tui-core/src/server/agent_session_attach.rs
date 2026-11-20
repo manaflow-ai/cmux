@@ -44,7 +44,8 @@ use crate::state::conversation_tabs_store::ConversationTabRecord;
 pub use agent_session_folders::AGENT_SESSION_FOLDERS_CAPABILITY;
 use agent_session_link::{AcpmuxLink, Inbound, LinkError};
 pub use agent_session_start::{
-    AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_CREDENTIALS_CAPABILITY,
+    AGENT_SESSION_PREWARM_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
+    AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY, AGENT_SESSION_START_CREDENTIALS_CAPABILITY,
     AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODE_CAPABILITY,
     AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
     AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY,
@@ -109,6 +110,11 @@ pub const MAX_PROMPT_CONTEXT_BYTES: usize = 16 * 1024;
 /// asks one: never a teammate or link guest, the Cloud mobile carrier (its prompts keep the Web's
 /// asking policy, which this would widen) or a read-only attachment.
 pub const AGENT_SESSION_BTW_CAPABILITY: &str = "agent-session-btw-v1";
+/// `max_bytes` on `agent-session-attach` and `agent-session-events`: the page's byte budget,
+/// passed to acpmux as `maxBytes` (at most [`MAX_PAGE_BYTES`]). The agent pane asks 128 KiB for a
+/// chat's open page and read-ahead; without it acpmux answers its 1 MiB default, so a Cloud
+/// chat's open, read-ahead and reconnect each read up to 8x what a local chat's do (hq#14027).
+pub const AGENT_SESSION_PAGE_BYTES_CAPABILITY: &str = "agent-session-page-bytes-v1";
 /// How long a side question may wait for its answer: acpmux gives an inline one 110 seconds.
 const BTW_TIMEOUT: Duration = Duration::from_secs(120);
 /// The longest side question, in bytes (a question about the chat, not a prompt).
@@ -430,6 +436,14 @@ impl Attachment {
         }
     }
 
+    /// Ends the attachment after a push to its stream failed. The client always hears it: the
+    /// stream's own `overflow` notice when the queue already sent it, else `send_failed`. A
+    /// silent end left a client holding a dial that answered requests and a chat that never
+    /// moved, with nothing that told it to attach again (cloud-carrier-chaos-staging, drop 60 s).
+    pub(super) fn end_unsent(&self) {
+        self.end(unsent_reason(&self.outbound));
+    }
+
     /// A newer live record arriving before an older one leaves the client with
     /// no way to recover the gap from the stream. End the attachment so its
     /// normal after-seq replay fetches the missing records. A record at or
@@ -458,6 +472,12 @@ fn closed_event(surface: SurfaceId, reason: &str) -> Value {
     json!({"event": "agent-session-closed", "surface": surface, "reason": reason})
 }
 
+/// The close reason the client still needs after a failed push to `stream`: none when the
+/// stream's own overflow notice is already queued (`terminal_enqueued`), else `send_failed`.
+fn unsent_reason(stream: &OutboundStream) -> Option<&'static str> {
+    (!stream.terminal_enqueued.load(Ordering::Acquire)).then_some("send_failed")
+}
+
 // MARK: Requests
 
 /// Page params shared by attach and events.
@@ -473,6 +493,8 @@ struct PageParams {
     limit: Option<u64>,
     #[serde(default)]
     kinds: Option<Vec<String>>,
+    #[serde(default)]
+    max_bytes: Option<u64>,
 }
 
 enum AgentSessionCommand {
@@ -1006,6 +1028,13 @@ pub(super) fn try_handle(
     if cmd == "agent-session-start" {
         return Some(start(mux, client, id, object, writer));
     }
+    // The owner's coming start, warmed ahead (cmux#45953): never a teammate's, guest's or member's link.
+    if cmd == "agent-session-prewarm" {
+        if author.is_some() {
+            return Some(refuse(writer, id, Refusal::NotTrusted));
+        }
+        return Some(prewarm(mux, client, id, object, writer));
+    }
     // The owner's refreshed model credential: never a teammate's, guest's or member's link.
     if cmd == "agent-session-credentials" {
         if author.is_some() {
@@ -1117,6 +1146,26 @@ fn machine_login(
         return refuse(writer, id, Refusal::Limit);
     }
     true
+}
+
+/// `agent-session-prewarm` (agent_session_prewarm.rs), with the start's trust and acpmux checks.
+fn prewarm(
+    mux: &Arc<Mux>,
+    client: u64,
+    id: Option<Value>,
+    params: serde_json::Map<String, Value>,
+    writer: &MessageWriter,
+) -> bool {
+    let Ok(params) = serde_json::from_value(Value::Object(params)) else {
+        return refuse(writer, id, Refusal::BadRequest);
+    };
+    if !mux.agent_carrier_allowed(client) {
+        return refuse(writer, id, Refusal::NotTrusted);
+    }
+    let Some(socket) = mux.control_clients.agent_sessions.socket() else {
+        return refuse(writer, id, Refusal::Unavailable);
+    };
+    agent_session_start::prewarm(mux, client, id, socket, params, writer)
 }
 
 /// `agent-session-start` (agent_session_start.rs), with the attach verbs'
@@ -1348,6 +1397,12 @@ fn page_params(session: &str, params: &PageParams, attach: bool) -> Result<Value
             return Err(Refusal::BadRequest);
         }
         out.insert("kinds", json!(kinds));
+    }
+    if let Some(bytes) = params.max_bytes {
+        if bytes == 0 {
+            return Err(Refusal::BadRequest);
+        }
+        out.insert("maxBytes", json!(bytes.min(MAX_PAGE_BYTES as u64)));
     }
     if attach {
         out.insert("eventStream", json!(true));
@@ -2135,7 +2190,8 @@ fn refuse(writer: &MessageWriter, id: Option<Value>, refusal: Refusal) -> bool {
     )
 }
 
-/// A refusal with its typed reason in `data` (`needs_keyed_start`).
+/// A refusal with its typed reason in `data` (`needs_keyed_start`). The generic `refused` also
+/// names acpmux's reason code in its text, as a prompt's refusal does ([`Refused::send`]).
 fn refuse_with_data(
     writer: &MessageWriter,
     id: Option<Value>,
@@ -2147,12 +2203,21 @@ fn refuse_with_data(
         Response {
             id,
             ok: false,
+            error: Some(refusal_text(refusal, &data)),
             data: Some(data),
-            error: Some(refusal.message().to_string()),
             error_code: Some(refusal.code().to_string()),
             error_delivery: None,
         },
     )
+}
+
+/// The text of `refusal` with `data`: the generic `refused` names `data.reason` (acpmux's code)
+/// so a reader of the error alone sees why; every other refusal's text is its own.
+fn refusal_text(refusal: Refusal, data: &Value) -> String {
+    match (refusal, data.get("reason").and_then(Value::as_str)) {
+        (Refusal::Refused, Some(reason)) => format!("{} ({reason})", refusal.message()),
+        _ => refusal.message().to_string(),
+    }
 }
 
 impl Mux {
@@ -2202,3 +2267,7 @@ impl Mux {
             && self.control_clients.agent_sessions.starts.owner_cloud(true)
     }
 }
+
+#[cfg(test)]
+#[path = "agent_session_attach_unsent_tests.rs"]
+mod unsent_tests;

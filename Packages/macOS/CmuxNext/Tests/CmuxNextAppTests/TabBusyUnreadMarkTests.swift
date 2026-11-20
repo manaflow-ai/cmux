@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import QuartzCore
 import Testing
 
@@ -110,5 +111,51 @@ import Testing
         // The status draws as the dot, or as a status icon set's glyph.
         #expect(Self.shows(cell.badgeLayer) || Self.shows(cell.statusGlyphLayer?.layer), "a needs-input mark gave way to the spinner")
         #expect(Self.shows(cell.spinnerLayer?.layer), "the spinner gave way to the needs-input mark")
+    }
+
+    /// Review F1 of #45479: switching the Debug look redraws the tabs already on screen, with no other update. The
+    /// strip's token observation reads the look, so the busy unread tab turns into the old two marks once the main
+    /// actor runs the observation's redraw, and back to one mark when the override clears.
+    @Test func switchingTheDebugLookRedrawsALiveStrip() async throws {
+        let store = TunableStore.shared
+        store.activate(file: nil)
+        store.register(TabTunables.all)
+        let key = TabTunables.busyUnreadMark.key
+        defer { store.set(key, nil) }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 40), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
+        let tabs = [TabItem(id: TabID("quiet"), title: "zsh"), Self.item(busy: true)]
+        let strip = TabStripView(model: TabStripModel(tabs: tabs, selectedID: TabID("quiet")))
+        strip.dragsWindowFromEmptySpace = false
+        strip.frame = NSRect(x: 0, y: 0, width: 520, height: TabStripView.preferredHeight)
+        window.contentView = strip
+        window.orderFrontRegardless()
+        strip.layoutSubtreeIfNeeded()
+        let cell = try #require(strip.cells[Self.id])
+        // What the busy unread tab shows: the dot, the spinner, and how many marks they make side by side.
+        func seen() -> String {
+            "dot \(Self.shows(cell.badgeLayer)), spinner \(Self.shows(cell.spinnerLayer?.layer)), marks \(Self.separateMarks(cell))"
+        }
+        // The marks once the strip settles. The observation's redraw is a main-actor job: the test suspends (it
+        // runs as a main-queue job itself, so pumping the run loop from inside it would never run that job).
+        func marks(after change: () -> Void) async throws -> Int {
+            let start = Self.separateMarks(cell)
+            change()
+            var now = start
+            for _ in 0 ..< 40 where now == start {
+                try await Task.sleep(for: .milliseconds(10))
+                strip.layoutSubtreeIfNeeded()
+                now = Self.separateMarks(cell)
+            }
+            return now
+        }
+        try #require(Self.shows(cell.spinnerLayer?.layer), "the busy tab in the strip shows no spinner: \(seen())")
+        #expect(Self.separateMarks(cell) == 1, "the default look: \(seen())")
+        let paired = try await marks { store.set(key, .choice(TabBusyUnreadMark.pair.rawValue)) }
+        #expect(paired == 2, "the open tab kept one mark after the look became the pair: \(seen())")
+        let restored = try await marks { store.set(key, nil) }
+        #expect(restored == 1, "the open tab kept two marks after the look went back to the default: \(seen())")
     }
 }

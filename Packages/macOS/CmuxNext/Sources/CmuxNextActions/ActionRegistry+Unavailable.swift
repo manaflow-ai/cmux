@@ -50,9 +50,21 @@ extension ActionRegistry {
     /// (CLI, MCP, socket, palette) still get the reason; the App shows no
     /// notice for a keyboard or menu run.
     public func refuse(_ reason: String, quiet: Bool = false) {
+        if defers(reason) { return }
         if isCapturingRefusal { capturedRefusal = capturedRefusal ?? reason }
         if isReportingRefusal { reportedRefusal = reportedRefusal ?? reason }
         refusalObserver?(reason, quiet)
+    }
+
+    /// Whether the person's run now is held for later instead of refused with `reason`
+    /// (``refusalDeferrals``). Once it is held, the run's later refusals are dropped too: its replay
+    /// reports its own.
+    private func defers(_ reason: String) -> Bool {
+        guard let run = personRun, !isCapturingRefusal else { return false }
+        if run.deferred { return true }
+        guard refusalDeferrals.contains(where: { $0(run.id, run.invocation, reason) }) else { return false }
+        personRun?.deferred = true
+        return true
     }
 
     /// Like ``refuse(_:)`` for an explicit target that names nothing: the
@@ -130,4 +142,11 @@ extension ActionRegistry {
     public func unboundActionIDs(in categories: Set<ActionCategory>) -> [ActionID] {
         descriptors.filter { categories.contains($0.category) && !isBound($0.id) }.map(\.id)
     }
+}
+
+/// A person's run whose handler runs now (``ActionRegistry/personRun``), and whether a refusal in it was held.
+struct PersonRun {
+    let id: ActionID
+    let invocation: ActionInvocation
+    var deferred = false
 }

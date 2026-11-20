@@ -17,7 +17,13 @@ import {
 const begun = () => cloudStartBegun("k-1", "fix the build", "/Users/me/src/paint/");
 
 test("a start shows the message and the folder by its name", () => {
-  expect(begun()).toEqual({ key: "k-1", task: "fix the build", state: "starting", folder: "paint" });
+  expect(begun()).toEqual({
+    key: "k-1",
+    task: "fix the build",
+    state: "starting",
+    folder: "paint",
+    cwd: "/Users/me/src/paint",
+  });
   expect(cloudStartBegun("k", "t", undefined)).toEqual({ key: "k", task: "t", state: "starting" });
 });
 
@@ -53,6 +59,8 @@ test("the host's push fills the card, field by field, each checked", () => {
     task: "fix the build",
     state: "starting",
     folder: "paint-app",
+    // The host renames the card's folder; the folder the start copies (the composer's chip) stays.
+    cwd: "/Users/me/src/paint",
     step: "folder",
     machine: "paint machine",
     size: "4 CPU, 16 GB",
@@ -170,6 +178,30 @@ test("a copy's files and bytes, its fallback and an https install link reach the
     clone: { state: "running", install_url: "javascript:alert(1)" },
   });
   expect(unsafe?.clone?.installUrl).toBeUndefined();
+});
+
+test("the files a first pass left on this Mac stay on the clone through its end", () => {
+  const copying = cloudStartPushed(begun(), {
+    key: "k-1",
+    step: "folder",
+    clone: { state: "running", phase: "copy", left_on_mac: 1204 },
+  });
+  expect(copying?.clone?.leftOnMac).toBe(1204);
+  // The final answer without the count keeps it: a partial copy never reads as complete.
+  const ended = cloudStartPushed(copying, { key: "k-1", step: "folder", clone: { state: "done", phase: "complete" } });
+  expect(ended?.clone).toEqual({ state: "done", phase: "complete", leftOnMac: 1204 });
+  // A plain copy's end carries only the count; it lands on the clone it ends.
+  const plain = cloudStartPushed(begun(), { key: "k-1", step: "folder", clone: { left_on_mac: 7 } });
+  expect(plain?.clone).toEqual({ state: "done", leftOnMac: 7 });
+  // Nothing left, or a malformed count, adds nothing.
+  for (const left of [0, -3, 1.5, "12"]) {
+    const whole = cloudStartPushed(begun(), {
+      key: "k-1",
+      step: "folder",
+      clone: { state: "done", phase: "complete", left_on_mac: left },
+    });
+    expect(whole?.clone).toEqual({ state: "done", phase: "complete" });
+  }
 });
 
 test("forwards the environment id and setup ran or cached state", () => {

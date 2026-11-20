@@ -58,6 +58,9 @@ pub(super) mod fence;
 pub(super) mod fetch;
 mod git_back;
 mod history;
+mod left_note;
+mod summary;
+pub(super) use summary::Summary;
 mod links;
 mod listed;
 mod local;
@@ -104,6 +107,7 @@ pub(super) use seed_pull::{
     failure_code as seed_pull_failure_code, is_sha, seed_pull, still_as_recorded,
 };
 pub(crate) mod estimate;
+pub(crate) mod project;
 pub(crate) mod size_cap;
 pub(crate) mod skips;
 mod store;
@@ -1254,6 +1258,10 @@ fn push_inner(
     if set.files.remove(manifest_name).is_some() | set.links.remove(manifest_name).is_some() {
         set.skips.note(manifest_name, skips::Why::Reserved);
     }
+    // Nor is the note of what a first pass left on this Mac ([`left_note`]).
+    if set.files.remove(left_note::NAME).is_some() | set.links.remove(left_note::NAME).is_some() {
+        set.skips.note(left_note::NAME, skips::Why::Reserved);
+    }
     // Loose objects go as packs ([`packs`]).
     if git_record {
         let dirs = local::GitDirs::of(&local)?.context("the folder is no longer in git")?;
@@ -1615,6 +1623,19 @@ fn push_inner(
     remote
         .write(&manifest_path, &mut manifest.as_slice(), 0o600)
         .context("cannot save the sync manifest")?;
+    // A first pass names what stayed on this Mac at the copy's top, for the chat's agent; a copy
+    // sent whole takes away a note an earlier first pass left (cmuxterm-hq#11697).
+    let note_path = format!("{remote_root}/{}", left_note::NAME);
+    match set.left.as_ref() {
+        Some(left_here) => {
+            let text = left_here.text(&local, remote_root);
+            remote
+                .write(&note_path, &mut text.as_bytes(), 0o644)
+                .context("cannot write the note of what stayed on this Mac")?;
+        }
+        None if rules == local::Rules::Copy => remote.delete(&[note_path])?,
+        None => {}
+    }
     store::forget(&mut remote, &left.jobs);
     // A pull's base is this copy, never the machine's.
     base::save(&local, remote_root, &next).context("cannot keep the sync record on this Mac")?;
@@ -2042,14 +2063,22 @@ impl std::fmt::Display for TooBig {
 
 impl std::error::Error for TooBig {}
 
-/// What a copy of `local` (`cmux link sync push`, by its rules) would send:
-/// its files and their bytes.
+/// What a chat's copy of `local` will send (`cmux link sync push`, by its rules and its limits, as `push_inner`
+/// lists it): its files and their bytes. A folder past the limits counts only its first pass, `.git` left out; an
+/// `--allow-large` folder counts whole. The listing is the copy's own, bounded at its file limit ([`size_cap`]), and
+/// a folder sent whole is summed from it with no file opened again (`link start-chat preflight`, a seed's refusal).
 pub(super) fn copy_estimate(local: &Path) -> anyhow::Result<(u64, u64)> {
     let local =
         std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
-    let set = local::collect(&local, local::Rules::Copy, None)?;
-    let bytes = set.files.values().map(|file| size(file).unwrap_or(0)).fold(0, u64::saturating_add);
-    Ok((u64::try_from(set.files.len()).unwrap_or(u64::MAX), bytes))
+    let cap = (!size_cap::allowed(&local)).then(size_cap::Cap::new);
+    let set = local::collect(&local, local::Rules::Copy, cap)?;
+    let files = u64::try_from(set.files.len()).unwrap_or(u64::MAX);
+    // A first pass (its cap taken: at most `FIRST_FILES` files) or an `--allow-large` folder is summed file by file.
+    let bytes = match &set.cap {
+        Some(cap) => cap.bytes(),
+        None => set.files.values().map(|file| size(file).unwrap_or(0)).fold(0, u64::saturating_add),
+    };
+    Ok((files, bytes))
 }
 
 /// "1 file", "36,796 files".
