@@ -82,8 +82,12 @@ impl GlassLook {
                 let tint_strength = field("tintStrength")
                     .and_then(Value::as_f64)
                     .filter(|value| value.is_finite())
-                    .unwrap_or(strength.default.unwrap_or(1.0));
-                let veil = field("veil").and_then(Value::as_f64).filter(|value| value.is_finite());
+                    .map_or(strength.default.unwrap_or(1.0), |value| strength.clamp(value));
+                let veil_spec = spec("veil");
+                let veil = field("veil")
+                    .and_then(Value::as_f64)
+                    .filter(|value| value.is_finite())
+                    .map(|value| veil_spec.clamp(value));
                 ((*role).to_owned(), RoleGlass { material, tint, tint_strength, veil })
             })
             .collect();
