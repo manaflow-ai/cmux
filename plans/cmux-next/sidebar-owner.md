@@ -1,5 +1,20 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-20 (glass landing repair, #47161): the Glass Sidebar experiment must preserve every existing hover
+  card when it is off. Hover cards retain their corner radius and shadow, including square cards in Bare
+  chrome; only the new flush docked glass card suppresses its shadow. Do not apply a new docked variant's
+  radius/shadow rule to the shared floating-card path. Detector: `FloatingSidebarTests` covers square and
+  rounded hover cards with the experiment off and on, plus flush/inset docked glass.
+
+- 2026-11-19 (lane/taste-glass-sidebar): Sidebar-Look: Leo, 2026-11-19, on the taste builds: "we might as well just
+  build out a bunch that are really promising and just see how they fare, like without waiting." Settings >
+  Experimental > Experiments > Glass Sidebar (`experiments.glassSidebarExtension`, off by default): the docked sidebar
+  takes the floating sidebar's glass card (`SidebarContainerView.glassDocked`), inset by the main pane gutter with
+  corners concentric with the window's; the panes run full-bleed; on macOS 26 the main pane sits in an
+  `NSBackgroundExtensionView` so its content extends mirrored and blurred under the card (`GlassSidebarChrome`,
+  `ContentBackgroundExtension`). Debug `chrome.glassSidebar.variant`: extended (default), glassOnly, flush. Off, the
+  sidebar's views and pins are as before. Regression: `GlassSidebarLookTests`.
+
 - 2026-11-19 (lane/needs-you-glow): Sidebar-Look: Leo, 2026-11-19, on eight new features: "all of them" and "some of
   them maybe just as customizations lol if it affects default looks". "Needs you" as motion, off by default: with
   `notifications.attention.mark` `glow` (default `badge`, no change), a workspace row that waits for the person (an

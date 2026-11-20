@@ -154,6 +154,41 @@
           ]
         }
       ]
+    },
+    {
+      "name": "experiments",
+      "section": "advanced",
+      "group": {
+        "key": "settings.group.experiments",
+        "text": "Experiments"
+      },
+      "note": "Settings > Experimental > Experiments: taste builds of a look, one experiments.* toggle each, off by default; nothing changes while one is off.",
+      "rows": [
+        {
+          "key": "experiments.glassSidebarExtension",
+          "note": "Taste build (2026-11-19): the sidebar is an inset glass panel, the active pane's content extends blurred under it, and the top-left controls float as glass over full-bleed panes. Off by default; nothing changes while off.",
+          "title": {
+            "key": "settings.experiments.glassSidebarExtension",
+            "text": "Glass Sidebar"
+          },
+          "help": {
+            "key": "settings.experiments.glassSidebarExtension.help",
+            "text": "The sidebar floats as glass and the open pane shows through under it."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "glass",
+            "sidebar",
+            "blur",
+            "translucent",
+            "liquid",
+            "experiment",
+            "background extension",
+            "toolbar"
+          ]
+        }
+      ]
     }
   ]
 }

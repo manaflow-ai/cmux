@@ -42,6 +42,11 @@ extension SettingsApplier {
     static func applyChromeStyle(_ snapshot: CmuxConfigSnapshot, to design: DesignSettings) {
         if design.chromeStyle != snapshot.chromeStyle { design.chromeStyle = snapshot.chromeStyle }
     }
+
+    /// Copies `experiments.glassSidebarExtension` into `design`, writing only a change.
+    static func applyGlassSidebarExtension(_ snapshot: CmuxConfigSnapshot, to design: DesignSettings) {
+        if design.glassSidebarExtension != snapshot.glassSidebarExtension { design.glassSidebarExtension = snapshot.glassSidebarExtension }
+    }
 }
 
 extension ChromeStyleSetting {

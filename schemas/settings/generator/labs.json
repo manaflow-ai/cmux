@@ -2,7 +2,9 @@
   "source": "schemas/settings/source/labs.json",
   "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Labs.generated.swift",
   "type": "LabsSettingsSchema",
+  "joined": "descriptors",
   "lists": {
-    "labs": ["descriptors", "CmuxConfigSnapshot"]
+    "labs": ["labs", "CmuxConfigSnapshot"],
+    "experiments": ["experiments", "CmuxConfigSnapshot"]
   }
 }

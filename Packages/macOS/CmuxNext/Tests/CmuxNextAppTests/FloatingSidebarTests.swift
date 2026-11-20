@@ -131,6 +131,31 @@ import Testing
         }
     }
 
+    @Test(arguments: [false, true], [CGFloat(0), CGFloat(12)])
+    func hoverCardsKeepTheirShadowWithOrWithoutDockedGlass(glassDocked: Bool, radius: CGFloat) {
+        _ = NSApplication.shared
+        let sidebar = SidebarContainerView(model: SidebarModel())
+        sidebar.glassDocked = glassDocked
+        sidebar.glassDockedInset = 0
+        sidebar.floatCornerRadius = radius
+        sidebar.isFloatOverlay = true
+        #expect(!sidebar.floatShadowLayer.isHidden, "hover cards retain their existing shadow, even when square")
+        #expect(sidebar.panel.layer?.cornerRadius == radius)
+    }
+
+    @Test func onlyFlushDockedGlassSuppressesTheCardShadow() {
+        _ = NSApplication.shared
+        let sidebar = SidebarContainerView(model: SidebarModel())
+        sidebar.floatCornerRadius = 12
+        sidebar.glassDocked = true
+        sidebar.glassDockedInset = 0
+        #expect(sidebar.floatShadowLayer.isHidden)
+        sidebar.glassDockedInset = 6
+        #expect(!sidebar.floatShadowLayer.isHidden)
+        sidebar.glassDocked = false
+        #expect(sidebar.floatShadowLayer.isHidden, "ordinary docked sidebars have no card shadow")
+    }
+
     @Test func pinningAFloatGivesTheSidebarItsPlace() {
         withReducedMotion {
             let (window, root) = hiddenRoot()
