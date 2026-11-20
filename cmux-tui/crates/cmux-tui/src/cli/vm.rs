@@ -110,8 +110,7 @@ pub(super) fn split(command_args: &[String]) -> Option<(Scope, &[String])> {
     scope.owns(rest.first().map(String::as_str)).then_some((scope, rest))
 }
 
-const VERBS: &str =
-    "run, new, show, pause, resume, start, stop, rm, exec, fork, snapshot, access, key, creation";
+const VERBS: &str = "run, new, show, pause, resume, start, stop, rm, exec, fork, snapshot, access, key, creation, file";
 
 /// `cmux vm`'s usage for the VM API verbs; `cmux vm --help` adds the Cloud verbs.
 fn help() -> String {
@@ -187,7 +186,7 @@ pub(super) fn plan(rest: &[String], output: OutputMode) -> Result<Vec<String>, U
         "snapshot" => ("snapshot", sub_verb(tail, SNAPSHOT)),
         // `shutdown` is `pause` here too, as with the app (vm_short.rs).
         "shutdown" => ("pause", tail.to_vec()),
-        "pause" | "resume" | "start" | "stop" | "exec" | "fork" | "run" | "creation" => {
+        "pause" | "resume" | "start" | "stop" | "exec" | "fork" | "run" | "creation" | "file" => {
             (verb.as_str(), tail.to_vec())
         }
         "start-chat" | "chat" => {
@@ -538,7 +537,8 @@ pub(super) fn vm_runs_cloud_verb(verb: &str) -> bool {
 
 /// Words `vm` answers itself that are not [`MACHINE_VERBS`]: the VM API's list, help, and the
 /// pointers of [`plan`].
-const VM_OWN_WORDS: &[&str] = &["ls", "list", "help", "resize", "workspace", "start-chat", "chat"];
+const VM_OWN_WORDS: &[&str] =
+    &["ls", "list", "help", "resize", "workspace", "start-chat", "chat", "file"];
 
 /// `cmux cloud …` typed at a terminal: one line on stderr with its new name. A script (no
 /// terminal on stderr) and this binary's own steps read nothing new.
