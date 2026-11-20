@@ -231,7 +231,8 @@ async function measure(
     }
     await page.addInitScript(longTaskProbe);
     const rows = await openChat(page, port, Math.max(1, Math.round(length / 3)));
-    const cdp = engine === "webkit" ? undefined : await page.context().newCDPSession(page);
+    // WebKit has no CDP; it returned through runComposerLoad above.
+    const cdp = await page.context().newCDPSession(page);
     await cdp?.send("Performance.enable");
     const metrics = async (): Promise<Record<string, number>> => {
       if (!cdp) return {};
