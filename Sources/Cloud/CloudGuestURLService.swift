@@ -15,6 +15,7 @@ final class CloudGuestURLService {
     private let deliverFilePreview: @MainActor (CloudGuestFilePreviewRequest, TerminalLinkOpenRequest) async -> Bool
     private var process: Process?
     private var reader: Task<Void, Never>?
+    private var deliveries: [UUID: Task<Void, Never>] = [:]
     private var terminals: [String] = []
     private var socketPath: String?
     private var link: CloudMachineLink?
@@ -73,9 +74,9 @@ final class CloudGuestURLService {
                 guard !Task.isCancelled, let self, self.generation == taskGeneration else { return }
                 guard let data = line.data(using: .utf8) else { continue }
                 if let request = CloudGuestURLRequest(data: data) {
-                    await self.deliver(request, link: link, generation: taskGeneration)
+                    self.startDelivery(request, link: link, generation: taskGeneration)
                 } else if let request = CloudGuestFilePreviewRequest(data: data) {
-                    await self.deliver(request, link: link, generation: taskGeneration)
+                    self.startDelivery(request, link: link, generation: taskGeneration)
                 }
             }
             guard let status = await exit.result, let self, self.generation == taskGeneration else { return }
@@ -98,11 +99,33 @@ final class CloudGuestURLService {
         generation = UUID()
         reader?.cancel()
         reader = nil
+        for delivery in deliveries.values { delivery.cancel() }
+        deliveries.removeAll()
         if process?.isRunning == true { process?.terminate() }
         process = nil
         link = nil
         socketPath = nil
         terminals = []
+    }
+
+    private func startDelivery(_ request: CloudGuestURLRequest, link: CloudMachineLink, generation: UUID) {
+        guard deliveries.count < 16 else { return }
+        let id = UUID()
+        deliveries[id] = Task { [weak self] in
+            guard let self else { return }
+            await self.deliver(request, link: link, generation: generation)
+            self.deliveries.removeValue(forKey: id)
+        }
+    }
+
+    private func startDelivery(_ request: CloudGuestFilePreviewRequest, link: CloudMachineLink, generation: UUID) {
+        guard deliveries.count < 16 else { return }
+        let id = UUID()
+        deliveries[id] = Task { [weak self] in
+            guard let self else { return }
+            await self.deliver(request, link: link, generation: generation)
+            self.deliveries.removeValue(forKey: id)
+        }
     }
 
     private func deliver(_ request: CloudGuestURLRequest, link: CloudMachineLink, generation: UUID) async {

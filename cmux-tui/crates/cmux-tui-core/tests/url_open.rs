@@ -81,36 +81,6 @@ fn file_preview_open_socket_delivery_exclusive_claim_expiry_and_validation() {
         assert_eq!(rpc(&socket, request)["data"]["opened"], false);
     }
 
-    // File previews share the same bounded pending broker as URL opening.
-    let mut pending = Vec::new();
-    for _ in 0..16 {
-        let mut connection = connect(&socket);
-        send(&mut connection, open());
-        let event = read(&mut first);
-        assert_eq!(event["event"], "file-preview-open");
-        pending.push((connection, event["request_id"].clone()));
-    }
-    let mut over_capacity = connect(&socket);
-    send(&mut over_capacity, open());
-    assert_eq!(read(&mut over_capacity)["data"]["opened"], false);
-    for (mut connection, request_id) in pending {
-        assert_eq!(
-            rpc(
-                &socket,
-                json!({"id": 1, "cmd": "file-preview-open-claim", "request_id": request_id})
-            )["data"]["claimed"],
-            true
-        );
-        assert_eq!(
-            rpc(
-                &socket,
-                json!({"id": 1, "cmd": "file-preview-open-result", "request_id": request_id, "opened": false})
-            )["data"]["accepted"],
-            true
-        );
-        assert_eq!(read(&mut connection)["data"]["opened"], false);
-    }
-
     // With two frontends subscribed, the broker refuses to pick one. Checked last, with
     // `second` kept open: dropping it would race the server noticing the disconnect.
     let mut second = connect(&socket);

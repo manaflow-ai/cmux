@@ -4189,7 +4189,11 @@ take the request capability and, for the result, `opened`. Their results are
 declined delivery, disconnect, invalid path, or deadline returns
 `{opened:false}` to the guest. Public guests use `cmux open <path>[:line]` for
 existing regular UTF-8-path files; relative paths resolve at the guest process
-cwd without symlink canonicalization. The optional line is accepted for
+cwd without symlink canonicalization. `cmux open` honors an explicit `--socket`
+or `--session` route before the terminal's socket environment, and requires that
+it run in a terminal connected to cmux. With `--json` or `--jsonl`, successful
+delivery emits `{"opened":true,"path":"...","line":number|null}`; normal
+and quiet output remain silent on success. The optional line is accepted for
 compatibility but is not yet applied by the preview.
 
 ### url-open

@@ -635,7 +635,7 @@ fn scope_help_for(
         "raw" => Cow::Borrowed(RAW_HELP),
         "identify" => Cow::Borrowed(catalog.pane_cli.identify_help),
         "skill" => Cow::Borrowed(catalog.pane_cli.skill_help),
-        "open" => Cow::Borrowed(OPEN_HELP),
+        "open" => Cow::Borrowed(catalog.open.help),
         _ => return Cow::Owned(root_help(catalog)),
     };
     if scope == "server" || !PUBLIC_SCOPES.contains(&scope) {
@@ -701,17 +701,6 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "  machine       Inspect the local machine
 Run `cmux <scope> --help` for scope-specific paths, and add --help to an
 action for its options.
 ";
-
-const OPEN_HELP: &str = "\
-USAGE
-  cmux open <path>[:line]
-
-Request a preview of an existing regular file from the current cmux guest
-terminal. Relative paths resolve against the calling process's current
-directory. The optional line is accepted for compatibility but is not yet
-applied by the preview. The command requires CMUX_TUI_SOCKET and
-CMUX_TUI_TERMINAL_ID, and fails if no connected frontend claims within five seconds or delivers
-within 45 seconds after claiming. URLs and non-regular files are rejected.\n";
 
 fn root_help(catalog: &crate::localization::Catalog) -> String {
     let messages = &catalog.local_server;

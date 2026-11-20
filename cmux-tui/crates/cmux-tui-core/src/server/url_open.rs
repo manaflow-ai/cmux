@@ -26,7 +26,7 @@ struct Pending {
     claim_deadline: Instant,
     delivery_deadline: Option<Instant>,
     claimed: bool,
-    claim_reply: mpsc::SyncSender<()>,
+    claim_reply: mpsc::SyncSender<Instant>,
     reply: mpsc::SyncSender<bool>,
 }
 
@@ -110,7 +110,7 @@ impl URLRequests {
         &self,
         terminal: &str,
         event: OpenEvent<'_>,
-    ) -> Option<(String, mpsc::Receiver<()>, mpsc::Receiver<bool>)> {
+    ) -> Option<(String, mpsc::Receiver<Instant>, mpsc::Receiver<bool>)> {
         let (id, writer, claim_receiver, receiver) = {
             let mut state = self.0.lock().unwrap();
             if state.pending.len() >= CAPACITY {
@@ -164,11 +164,15 @@ impl URLRequests {
         if pending.kind != kind || pending.claimed || Instant::now() >= pending.claim_deadline {
             return false;
         }
-        if pending.claim_reply.try_send(()).is_err() {
+        let delivery_deadline = match kind {
+            OpenKind::Url => pending.claim_deadline,
+            OpenKind::FilePreview => Instant::now() + kind.delivery_deadline(),
+        };
+        if pending.claim_reply.try_send(delivery_deadline).is_err() {
             return false;
         }
         pending.claimed = true;
-        pending.delivery_deadline = Some(Instant::now() + kind.delivery_deadline());
+        pending.delivery_deadline = Some(delivery_deadline);
         true
     }
 
@@ -243,7 +247,9 @@ pub(super) fn start(
         let opened = claim_receiver
             .recv_timeout(CLAIM_DEADLINE)
             .ok()
-            .and_then(|()| receiver.recv_timeout(kind.delivery_deadline()).ok())
+            .and_then(|deadline| {
+                receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())).ok()
+            })
             .unwrap_or(false);
         worker_mux.control_clients.url_opens.cancel(&request_id);
         respond(&worker_writer, worker_id, opened);
