@@ -53,8 +53,12 @@ final class SwipeReply {
     }
 
     func install() {
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] e in self?.handle(e) ?? e }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] e in self?.monitored(e) ?? e }
     }
+
+    /// cmux: the monitor's answer for one event (nil: taken, the scroll view never sees it);
+    /// `HomeSwipeReplyTests` feeds phased streams through it.
+    func monitored(_ e: NSEvent, at: CGPoint? = nil) -> NSEvent? { handle(e, at: at) ?? e }
 
     /// Returns nil when the event is consumed.
     /// `at`: a host point for the check (`--swipe-check`), whose events have no window.
