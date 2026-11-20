@@ -6,6 +6,7 @@
 // listed whole here (Leo, 2026-11-01: "our + button results are still really bad"): at most a few
 // recent ones, then one "Commands and skills…" row that opens the slash list, which searches them
 // all (composerPlusRegistry.ts, recentCommands.ts).
+import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
 import { Picker, PlusIcon, type Section } from "./ComposerPickers";
 import { runComposerPlusAction, type ComposerPlusEntry } from "./composerPlusRegistry";
 import type { SlashCommand } from "./slashCommands";
@@ -54,6 +55,7 @@ const MemoPlusMenu = memo(function PlusMenu({
 }: ComposerPlusMenuProps) {
   acpmuxPerf.render("composer:plus");
   const t = useT();
+  const addShortcut = useShortcut(SHORTCUT_ACTIONS.composerAddMenu);
   // Untitled groups: a hairline splits them (styles.css), with no header band between.
   const sections: Section[] = composerPlusMenuSections(entries, planning, experimentArm(composerPlusCommands)).map(
     (group) => ({
@@ -75,6 +77,7 @@ const MemoPlusMenu = memo(function PlusMenu({
       label={t("composer.add")}
       // Codex's short tooltip (Leo, 2026-10-21): "Add files and more", not the menu's list.
       tooltip={t("composer.addTooltip")}
+      shortcut={addShortcut}
       className={className ? `acpmux-composer-plus ${className}` : "acpmux-composer-plus"}
       button={<PlusIcon />}
       align="start"

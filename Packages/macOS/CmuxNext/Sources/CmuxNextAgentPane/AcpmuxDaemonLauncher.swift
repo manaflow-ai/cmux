@@ -38,9 +38,10 @@ nonisolated enum AcpmuxDaemonLauncher {
     /// Process basics that are safe for a Team-signed helper to inherit. Its
     /// login-environment loader supplies user tool and credential variables
     /// after start; the app process's unrelated capabilities never cross the
-    /// unverified launch boundary.
+    /// unverified launch boundary. `CMUX_BUILD_SPACE` is the app's own build space
+    /// (`LaunchIdentity.stripInheritedEnvironment` replaced any inherited one): no secret.
     private static let signedInheritedKeys: Set<String> = [
-        "HOME", "LANG", "LOGNAME", "PATH", "SHELL", "TMPDIR", "USER", "__CF_USER_TEXT_ENCODING",
+        "CMUX_BUILD_SPACE", "HOME", "LANG", "LOGNAME", "PATH", "SHELL", "TMPDIR", "USER", "__CF_USER_TEXT_ENCODING",
     ]
 
     static func arguments(for environment: AcpmuxEnvironment) -> [String] {
@@ -50,8 +51,7 @@ nonisolated enum AcpmuxDaemonLauncher {
     }
 
     /// The daemon's environment: this app's, without any inherited Computer
-    /// Use secret, plus `childEnvironment`, non-secret Computer Use v2 state,
-    /// the session offer tools while suggested tasks are on
+    /// Use secret, plus `childEnvironment`, the session offer tools while suggested tasks are on
     /// (``AcpmuxEnvironment/offersSessionTools``), the agent message runaway guard
     /// off when ``AcpmuxEnvironment/agentPairGuard`` is off (else its cap), and the launch knobs.
     static func spawnEnvironment(_ environment: AcpmuxEnvironment, inherited: [String: String]) -> [String: String] {
@@ -63,11 +63,6 @@ nonisolated enum AcpmuxDaemonLauncher {
                     || key.hasPrefix("LC_"))
         }
         var variables = safeInherited.merging(environment.childEnvironment) { $1 }
-        for (key, value) in environment.computerUse where !value.isEmpty {
-            let developmentCredential = environment.passesPersonKeyAtSpawn
-                && AcpmuxEnvironment.computerUseKeys.contains(key)
-            if !computerUse.contains(key) || developmentCredential { variables[key] = value }
-        }
         // acpmux offers by default; `0` is how this setting turns them off.
         variables[AcpmuxEnvironment.offerToolsKey] = environment.offersSessionTools ? "1" : "0"
         if environment.agentPairGuard {
