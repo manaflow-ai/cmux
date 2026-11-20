@@ -62,6 +62,21 @@ import Testing
         #expect(AgentIncomingCard.firstLine("_Done_ with `max_rows`") == "Done with max_rows")
     }
 
+    @Test func marksThatSpanALineBreakAreReadWhole() {
+        #expect(AgentIncomingCard.firstLine("**Summary:\nall green**") == "Summary:")
+        #expect(AgentIncomingCard.firstLine("See [the\nPR](https://example.com/pr/1) now") == "See the")
+    }
+
+    @Test func aQuoteIsReadAsTheMarkdownInsideIt() {
+        #expect(AgentIncomingCard.firstLine("> ```swift\n> let x = 1\n> ```") == "let x = 1")
+        #expect(AgentIncomingCard.firstLine("> ## Quoted heading\n> body") == "Quoted heading")
+    }
+
+    @Test func inlineMathLosesItsDollars() {
+        #expect(AgentIncomingCard.firstLine("$x^2$ is the square") == "x^2 is the square")
+        #expect(AgentIncomingCard.firstLine("It costs $5 and $6") == "It costs $5 and $6")
+    }
+
     @Test func plainTextIsUnchanged() {
         #expect(AgentIncomingCard.firstLine("Reviewed #45282, two nits\nmore") == "Reviewed #45282, two nits")
     }
