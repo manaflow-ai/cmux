@@ -174,7 +174,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::Schema => {
             use std::io::Write;
-            let _ = std::io::stdout().write_all(crate::schema::SCHEMA.as_bytes());
+            let _ = std::io::stdout().write_all(crate::schema::SCHEMA.inflate().as_bytes());
             Ok(())
         }
         Command::Defaults { family, pairs, clear } => {
