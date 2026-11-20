@@ -964,6 +964,7 @@ pub fn run(opts: &Opts) -> Res<()> {
                     "first_rx_ns": v.marker_first_rx_ns,
                     "complete_ns": v.marker_complete_ns,
                     "decoded_ns": v.marker_at_ns,
+                    "presented_ns": v.marker_shown_ns,
                 }));
                 break;
             }
