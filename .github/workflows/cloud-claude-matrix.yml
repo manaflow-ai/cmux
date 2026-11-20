@@ -10,7 +10,8 @@ name: Cloud chat matrix (Claude, production, nightly)
 #
 # Same trust rule as cloud-journey-prod.yml: the schedule registers from main, the scripts always come from
 # feat-cmux-next, never a pull request's head. Secrets: the production agent test account (cmux-next-cloud-journey
-# environment), the repository's CLAUDE_CODE_OAUTH_TOKEN for the subscription row, and ANTHROPIC_API_KEY when set.
+# environment), CLOUD_PROBE_CLAUDE_CODE_OAUTH_TOKEN (else the repository's CLAUDE_CODE_OAUTH_TOKEN, whose weekly
+# limit claude.yml spends) for the subscription row, and ANTHROPIC_API_KEY when set.
 on:
   schedule:
     - cron: "23 9 * * *"
@@ -54,7 +55,7 @@ jobs:
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLOUD_PROBE_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           AUTH: ${{ inputs.auth || 'sr2,subscription,api-key,team-key' }}
           MODELS: ${{ inputs.models || 'opus,sonnet,haiku' }}
