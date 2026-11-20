@@ -27,7 +27,6 @@ import Testing
         func saved(_: URL, hash _: String) {}
     }
 
-
     @Test func fileIdentityMatchesTheRecordedRustURI() throws {
         #expect(FilePageSourceContext.sourceURI(URL(fileURLWithPath: "/tmp/a b/#100%/é.md")) == "file:///tmp/a%20b/%23100%25/%C3%A9.md")
         #expect(FilePageSourceContext.sourceURI(URL(fileURLWithPath: "/tmp/a%20b.md")) == "file:///tmp/a%2520b.md")
