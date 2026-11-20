@@ -25,6 +25,10 @@ export interface HeaderQuickToolsInput {
   onFiles?: (mode: QuickActionMode) => void;
   onPreview?: (url: string | undefined, mode: QuickActionMode) => void;
   onSideTabs?: () => void;
+  /// Open in Editor (folderActions.ts): the chat's project folder on this Mac in the default editor,
+  /// named in `openInEditorLabel` ("Open in Zed"); without it (no local folder) the button hides.
+  onOpenInEditor?: () => void;
+  openInEditorLabel?: string;
   t: Translate;
 }
 
@@ -44,6 +48,8 @@ export function headerQuickTools(input: HeaderQuickToolsInput): HeaderQuickTool[
     onFiles,
     onPreview,
     onSideTabs,
+    onOpenInEditor,
+    openInEditorLabel,
     t,
   } = input;
   if (!tabTools) return [];
@@ -104,6 +110,17 @@ export function headerQuickTools(input: HeaderQuickToolsInput): HeaderQuickTool[
                 title: previewTitle(),
                 pressed: on(HEADER_ACTIONS.preview, mode),
                 run: () => onPreview(previewUrl, mode),
+              },
+            ]
+          : [];
+      case "openInEditor":
+        return onOpenInEditor
+          ? [
+              {
+                id,
+                icon: "code",
+                label: openInEditorLabel ?? t("folderMenu.openInEditor"),
+                run: onOpenInEditor,
               },
             ]
           : [];

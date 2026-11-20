@@ -34,7 +34,15 @@ import { useSyncExternalStore } from "react";
 /// same button then reads Hide tabs, which hides the panes beside the chat (the App zooms the chat,
 /// closing nothing) and shows them again. It always toggles; its mode is ignored.
 
-export type QuickActionId = "terminal" | "splitDown" | "browser" | "changes" | "files" | "preview" | "newTab";
+export type QuickActionId =
+  | "terminal"
+  | "splitDown"
+  | "browser"
+  | "changes"
+  | "files"
+  | "preview"
+  | "newTab"
+  | "openInEditor";
 /// `toggle`: a second click closes the split the first one opened. `open`: every click opens another.
 export type QuickActionMode = "toggle" | "open";
 export interface QuickAction {
@@ -42,10 +50,20 @@ export interface QuickAction {
   readonly mode: QuickActionMode;
 }
 
-const ids: readonly QuickActionId[] = ["changes", "preview", "terminal", "splitDown", "browser", "files", "newTab"];
+const ids: readonly QuickActionId[] = [
+  "changes",
+  "preview",
+  "terminal",
+  "splitDown",
+  "browser",
+  "files",
+  "newTab",
+  "openInEditor",
+];
 /// Not shown until a person adds them (in the chat menu meanwhile).
 /// Preview too (Leo 2026-10-20, "these buttons are kind of weird"): Browser opens the chat's page when it has one.
-const OFF_BY_DEFAULT: ReadonlySet<QuickActionId> = new Set(["preview", "newTab", "files", "splitDown"]);
+/// Open in Editor too: it lists in "..." until a person pins it (folderActions.ts).
+const OFF_BY_DEFAULT: ReadonlySet<QuickActionId> = new Set(["preview", "newTab", "files", "splitDown", "openInEditor"]);
 const isId = (value: unknown): value is QuickActionId => ids.includes(value as QuickActionId);
 const isMode = (value: unknown): value is QuickActionMode => value === "toggle" || value === "open";
 

@@ -46,6 +46,9 @@ export type ChatMenuChild = {
   on?: boolean;
   separatorBefore?: boolean;
   onSelect: () => void;
+  /// A row that opens a submenu of its own (the Folder submenu's Open In ▸, its editors); its
+  /// `onSelect` is unused.
+  children?: ChatMenuChild[];
 };
 
 /// Modifier glyphs a drawn menu keycap must carry, as in ⌘N or ⇧⌘I.
@@ -79,15 +82,18 @@ export function guardedChatMenu(items: ChatMenuItem[], current: () => boolean): 
     (event?: E) => {
       if (current()) run(event);
     };
+  const guardChild = (child: ChatMenuChild): ChatMenuChild => ({
+    ...child,
+    onSelect: guard(child.onSelect),
+    ...(child.children && { children: child.children.map(guardChild) }),
+  });
   return items.map((item) =>
     item === "separator"
       ? item
       : {
           ...item,
           ...(item.onSelect && { onSelect: guard(item.onSelect) }),
-          ...(item.children && {
-            children: item.children.map((child) => ({ ...child, onSelect: guard(child.onSelect) })),
-          }),
+          ...(item.children && { children: item.children.map(guardChild) }),
         },
   );
 }

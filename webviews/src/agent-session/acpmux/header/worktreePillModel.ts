@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { folderActions, type EditorList, type FolderAction, type FolderHost } from "../folderActions";
+import type { Translate } from "../i18n";
 
 export interface HeaderWorktree {
   readonly branch: string;
@@ -88,4 +90,11 @@ export function useWorktree(
   );
   if (!folder || !readStatus) return undefined;
   return found?.folder === folder ? found.worktree : knownWorktrees.get(folder);
+}
+
+/// The worktree pill's folder rows (the worktree is the chat's folder): Open in Editor, Reveal in
+/// Finder, Open Terminal Here and Copy Path. The other editors stay in the chat menu's Folder ▸
+/// Open In: the popover holds no submenu.
+export function worktreeFolderActions(host: FolderHost, editors: EditorList | undefined, t: Translate): FolderAction[] {
+  return folderActions(host, editors, t).filter((action) => action.key !== "openIn");
 }

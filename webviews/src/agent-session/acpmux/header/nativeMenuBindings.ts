@@ -1,5 +1,5 @@
 import type { ContextMenuItem } from "../../../ui/ContextMenu";
-import type { ChatMenuItem } from "./chatHeaderToolsModel";
+import type { ChatMenuChild, ChatMenuItem } from "./chatHeaderToolsModel";
 import { boundedNativeText, type NativeRowMenuItem } from "./nativeRowTools";
 
 export interface NativeMenuBinding {
@@ -35,9 +35,20 @@ export function nativeChatMenu(rows: readonly ChatMenuItem[]): NativeMenuBinding
     };
     separatorBefore = false;
     if (row.children) {
-      if (row.children.length > 32 || (count += row.children.length) > 256) return;
-      if (row.children.some((child) => !validId(`${id}/${child.key}`))) return;
-      item.children = row.children.map((child) => {
+      // The native menu is one submenu deep: a row's own submenu (the Folder submenu's Open In ▸)
+      // lists in its place, each row named with it ("Open In Cursor").
+      const children = row.children.flatMap((child): ChatMenuChild[] =>
+        child.children
+          ? child.children.map((inner) => ({
+              ...inner,
+              label: `${child.label} ${inner.label}`,
+              disabled: child.disabled || inner.disabled,
+            }))
+          : [child],
+      );
+      if (children.length > 32 || (count += children.length) > 256) return;
+      if (children.some((child) => !validId(`${id}/${child.key}`))) return;
+      item.children = children.map((child) => {
         const childId = `${id}/${child.key}`;
         if (!row.disabled && child.disabled !== true) callbacks.set(childId, child.onSelect);
         return { id: childId, label: nativeMenuText(child.label), enabled: !row.disabled && child.disabled !== true };

@@ -444,3 +444,9 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The worktree pill's folder rows (WorktreePill.tsx): menu rows inside the popover, the shared neutral highlight. */
+.acpmux-worktree-open{display:flex;flex-direction:column;margin-top:2px;padding:4px 0 2px;border-top:.5px solid var(--acpmux-composer-edge)}
+.acpmux-worktree-open-row{display:flex;align-items:center;gap:6px;height:var(--ds-control-row,28px);margin:0;padding:0 10px;border:0;border-radius:5px;background:none;color:var(--agent-text);font:inherit;text-align:start;cursor:default}
+.acpmux-worktree-open-row:hover,.acpmux-worktree-open-row:focus-visible{background:var(--ui-row,color-mix(in srgb,currentColor 10%,transparent));outline:none}
+.acpmux-worktree-open-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-worktree-open+.acpmux-worktree-apply{margin-top:0}
