@@ -28,6 +28,8 @@ async fn finished_sessions_survive_reload_and_refuse_every_prompt_source() {
     let session = chat(&hub);
     hub.finish_session(&session, "PR merged; start afresh for new work").unwrap();
     let id = session.id.clone();
+    hub.shutdown_all().await;
+    hub.close_owned_tasks().await;
     drop(session);
     drop(hub);
     let hub = Hub::new(config.clone(), crate::store::open(&config.store, dir.path()).unwrap());
@@ -260,7 +262,16 @@ async fn finished_shared_admission_recovers_100_fake_503_sessions_across_two_dae
                 event = authority_events.recv() => event.unwrap(),
                 event = member_events.recv() => event.unwrap(),
             };
+            // Each hub also broadcasts its peer's mirrored events. Count the owner's
+            // journal only, so authority turns are not counted again on the member.
+            if event.remote.is_some() {
+                continue;
+            }
             if event.record.kind == "turn_started" {
+                assert!(
+                    sessions[..20].iter().all(|(_, session)| session.id != event.session_id),
+                    "a finished or paused session started a retry"
+                );
                 started_at.push(event.record.at);
                 active.insert(event.session_id.clone());
                 peak = peak.max(active.len());
