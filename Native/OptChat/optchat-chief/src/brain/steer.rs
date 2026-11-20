@@ -69,6 +69,11 @@ impl Brain {
             return false;
         };
         let (key, session) = (turn.key.clone(), turn.session_id.clone());
+        // Unread steers of this turn are being taken back; the turn is cut
+        // when they are, and the next turn takes the queue.
+        if self.withdrawing.as_deref() == Some(key.as_str()) {
+            return false;
+        }
         // Any harness: acpmux steers when the session's harness says it can
         // (Claude Code through its adapter, codex-acp), else refuses.
         let Some(session) = session else {
@@ -190,6 +195,11 @@ impl Brain {
                         "it waits for the next turn"
                     }
                 ));
+                // A steer a stop ended after it was written may still wait
+                // unread in the harness (acpmux's `stopped_unread`).
+                if e.contains("stopped before the agent read it") {
+                    self.steer_left = Some(steer.key.clone());
+                }
                 for mut item in steer.items.into_iter().rev() {
                     item.logged = steer.logged;
                     self.queue.push_front(item);
@@ -227,12 +237,66 @@ impl Brain {
             self.steering.extend(unread);
             return;
         }
+        // Take them back from the harness first (Claude Code drops a line it
+        // has not read), then cut the turn: a session that holds no unread
+        // message is kept, and the next turn goes on in it with the messages
+        // (turns.rs `keep_turn_session`). The cut waits for the answers, off
+        // the brain thread; a harness that cannot take one back leaves it in
+        // the session, which is then not kept.
+        let prompts: Vec<String> = unread
+            .iter()
+            .map(|s| format!("optchat-steer:{}:{}", s.key, s.id))
+            .collect();
         for steer in unread.into_iter().rev() {
             for item in steer.items.into_iter().rev() {
                 self.queue.push_front(item);
             }
         }
-        self.interrupt_for_person("steer unread past the deadline");
+        // Written to the harness and unread: the session may still hold them
+        // until the withdraw says otherwise. No new steer goes in meanwhile
+        // (`withdrawing`): it would take the requeued messages again.
+        self.steer_left = Some(key.clone());
+        self.withdrawing = Some(key.clone());
+        let session = self.state.turn.as_ref().and_then(|t| t.session_id.clone());
+        let (Some(session), true) = (session, !prompts.is_empty()) else {
+            self.interrupt_for_person("steer unread past the deadline");
+            return;
+        };
+        let agents = self.agents.clone();
+        let tx = self.tx.clone();
+        let asked_key = key.clone();
+        let spawned = std::thread::Builder::new()
+            .name("steer-withdraw".into())
+            .spawn(move || {
+                let all = prompts
+                    .iter()
+                    .all(|p| agents.withdraw_steer(&session, p) == Ok(true));
+                let _ = tx.send(Input::SteersWithdrawn {
+                    key: asked_key,
+                    all,
+                });
+            });
+        if let Err(e) = spawned {
+            (self.log)(&format!("taking back unread steers failed: {e}"));
+            self.interrupt_for_person("steer unread past the deadline");
+        }
+    }
+
+    /// The unread steers of turn `key` were asked back: cut the turn now (it
+    /// still runs), keeping its session when every one was dropped unread.
+    pub(super) fn steers_withdrawn(&mut self, key: &str, all: bool) {
+        let current =
+            self.phase == Phase::Running && self.state.turn.as_ref().is_some_and(|t| t.key == key);
+        if self.withdrawing.as_deref() != Some(key) {
+            return;
+        }
+        self.withdrawing = None;
+        if all && self.steer_left.as_deref() == Some(key) {
+            self.steer_left = None;
+        }
+        if current {
+            self.interrupt_for_person("steer unread past the deadline");
+        }
     }
 
     /// Stops the running turn for a person's message it cannot take now:
@@ -255,7 +319,11 @@ impl Brain {
         }
         self.stop_wanted = true;
         self.steer_due = None;
-        self.interrupt.request_hard();
+        // The next turn prompts this same session with the message (its work
+        // so far stays in its context and its cache), as a person who stops
+        // an agent and writes again does; never a new session that reads the
+        // whole view uncached and starts the work over.
+        self.interrupt.request_hard_resumable();
     }
 
     /// Another person's text delivered to a running turn keeps that turn's
