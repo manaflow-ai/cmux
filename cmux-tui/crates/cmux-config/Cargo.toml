@@ -12,6 +12,8 @@ workspace = true
 
 [dependencies]
 cmux-json.workspace = true
+# The settings schema compiled in compressed (src/schema/mod.rs).
+cmux-embed.workspace = true
 cmux-theme-tokens.workspace = true
 base64.workspace = true
 notify.workspace = true
