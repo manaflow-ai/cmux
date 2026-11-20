@@ -75,7 +75,7 @@ scripts/cmux-next/arch-ratchet.py --update` with the rows the pushed json leaves
 range (none when the push carries an `--update` measured after the drop; see
 stale_rows for the one case it can still name wrongly). An internal error prints a warning and lets the
 push through (fail open). Never runs
-under GitHub Actions (Lawrence 2026-10-23: no new CI gates, nothing that slows pushes). Its cost is the files
+under GitHub Actions (Lawrence 2026-10-23: no new CI gates and nothing that slows pushes; the CI part was lifted 2026-11-18). Its cost is the files
 it reads: the changed files, and for a type lookup the declaring and mentioning files, each analyzed once per
 content (arch_counts.FactsCache); the report prints the count. Measured 2026-10-23 at load 50-70 (method v3,
 before the v4 observer count): an 80-file cross-package move about 2 s warm, 8 s on the first run after

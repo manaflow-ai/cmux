@@ -43,7 +43,7 @@ Layers (each one only on files the push changes under Packages/macOS/CmuxNext, c
                dialogs, opaque glass (tree-sitter, so comments, strings and `case .alert` never match); not the
                visible-only-* rules, which the visible-only scanner ratchets per file
   swiftformat  --lint with scripts/cmux-next/lint/swiftformat.conf; local only: the pre-push hook and a plain
-               local run, never --base/--head, --commits or GitHub Actions (no new CI gate, lead 2026-10-27)
+               local run, never --base/--head, --commits or GitHub Actions (lead 2026-10-27, made under the 2026-10-23 no-new-CI rule, since lifted)
   rustfmt      changed cmux-tui/**/*.rs through the pinned rustfmt (cmux-tui/rustfmt.toml); local only, like
                swiftformat; a file the base already left unformatted does not block
   swiftlint    swift-syntax rules only (scripts/cmux-next/lint/swiftlint.yml), no SourceKit
@@ -3003,11 +3003,12 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
             jobs["ast-grep (scripts/cmux-next/lint/ast-grep-rules)"] = ("fn", ast_grep, ensure_tool(lock, "ast-grep"),
                                                                        lint / "sgconfig.yml", sources)
         # Local only (lead 2026-10-27): CI and the merge-time gates (fast gates, car guards: --base/--head; pushes:
-        # --commits) never refused a SwiftFormat finding, and must not start to (the 2026-10-23 no-new-CI rule, since lifted).
+        # --commits) never refused a SwiftFormat finding, and must not start to (lead 2026-10-27; the
+        # 2026-10-23 no-new-CI rule it cited was lifted 2026-11-18, and changing this is a separate decision).
         if swift and (swiftformat_layer if only is None else "swiftformat" in only):
             jobs["SwiftFormat --lint"] = ("fn", swiftformat, ensure_tool(lock, "swiftformat"),
                                           lint / "swiftformat.conf", swift)
-        # Local only, like SwiftFormat (lead 2026-11-05: PRs merge before CI's fmt check ends; no new CI gate).
+        # Local only, like SwiftFormat (lead 2026-11-05: PRs merge before CI's fmt check ends; no new CI gate, a 2026-10-23 rule since lifted).
         rust = [p for p in changed if p.startswith(RUST_SCOPE) and p.endswith(".rs")]
         if rust and (swiftformat_layer if only is None else "rustfmt" in only):
             rust_root = rust_workspace_root(repo, head, absolute(Path(tmp)))
@@ -3259,7 +3260,7 @@ def guardrails(repo: Path, ranges: list, started) -> bool:
         return False
 
 
-# The perf cron's unit tests (scripts/cmux-next/perf-cron.py) never run on CI (Lawrence 2026-10-23: no new CI tests;
+# The perf cron's unit tests (scripts/cmux-next/perf-cron.py) never run on CI (Lawrence 2026-10-23: no new CI tests, lifted 2026-11-18;
 # the owner runs them), and the hook never runs them either: they are the push's own code. When a push changes the
 # cron or its tests, the gate names them and the command to run them (perf_cron_tests).
 PERF_CRON_PATHS = ("scripts/cmux-next/perf-cron", "scripts/cmux-next/tests/test_perf_cron")
