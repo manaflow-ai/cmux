@@ -124,7 +124,12 @@ class ClassicApiGuardTests(unittest.TestCase):
         self.assertNotIn("\n  pull_request:", text)
         self.assertIn("branches: [main]", text)
         self.assertIn("edited", text)
-        self.assertNotIn("changes.body", text)
+        # An edit skips the check only when neither the old nor the new body has a reason line, so
+        # adding, changing or removing `Classic API change:` always re-runs it (pattern
+        # pr-edit-fans-out-ci: a HOLD-line edit takes no runner).
+        for read in ("contains(github.event.pull_request.body, 'Classic API change:')",
+                     "contains(github.event.changes.body.from, 'Classic API change:')"):
+            self.assertEqual(text.count(read), 3, read)  # the group, the name and the if
         self.assertIn("--expected-files", text)
         self.assertIn("--listed-records", text)
         self.assertIn("ref: ${{ github.event.pull_request.base.sha }}", text)

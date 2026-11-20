@@ -26,15 +26,21 @@ on:
 
 permissions: {}
 
+# `edited` is for a base change. A title or body edit decides nothing here (the check reads labels,
+# comments and the diff, never the description): its run takes no runner and its own group, so it
+# never cancels a push's run (pattern pr-edit-fans-out-ci, tests/test_ci_pr_runs_cancel_superseded.py).
 concurrency:
-  group: language-boundaries-${{ github.event.pull_request.number }}
+  group: language-boundaries-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && !github.event.changes.base && '-metadata' || '' }}
   cancel-in-progress: true
 
 jobs:
   language-boundaries:
-    name: language-boundaries
-    # A fix-cause:* label on a closed pull request starts no job (tests/test_ci_fix_cause_labels_start_no_jobs.py).
-    if: ${{ !(github.event.pull_request.state == 'closed' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && startsWith(github.event.label.name, 'fix-cause:')) }}
+    # The skipped metadata-edit run publishes another name: a skipped `language-boundaries` would
+    # read as a pass and replace a failing one.
+    name: ${{ github.event.action == 'edited' && !github.event.changes.base && 'language-boundaries metadata edit (ignored)' || 'language-boundaries' }}
+    # A fix-cause:* label on a closed pull request starts no job (tests/test_ci_fix_cause_labels_start_no_jobs.py),
+    # nor does a title or body edit.
+    if: ${{ !(github.event.pull_request.state == 'closed' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && startsWith(github.event.label.name, 'fix-cause:')) && !(github.event.action == 'edited' && !github.event.changes.base) }}
     # Every label change on an open pull request re-runs it (a skipped run would read as a pass and replace a failing one).
     # A base-revision control-plane job (cla-policy-guard.yml's runner rule): a VM destroyed after one job,
     # never a persistent or contributor-controlled machine.
