@@ -188,7 +188,7 @@ struct TerminalComposer: View {
         // rounded shape clips the cut lines at the corners too.
         .frame(minHeight: TerminalDockMetrics.control, alignment: .top)
         .clipShape(.rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
-        .glassSurface(in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
+        .fieldGlassSurface(in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
     }
 
     private var sendButton: some View {
@@ -355,6 +355,26 @@ extension View {
     func glassSurface(in shape: some Shape) -> some View {
         glassEffect(.regular.interactive(), in: shape)
     }
+
+    /// The field's glass, the same colour at every height. Regular glass
+    /// scatters more light the taller it is, so the field read paler once a
+    /// draft passed three lines (user report 2026-11-16: (25, 25, 25) at one
+    /// line, (46, 46, 46) at three in ComposerGlassColorUITests). A tint of
+    /// the one-line field's own colour sets the colour at every height; the
+    /// glass keeps its edge, lensing and touch response.
+    func fieldGlassSurface(in shape: some Shape) -> some View {
+        glassEffect(.regular.tint(ComposerFieldGlass.tint).interactive(), in: shape)
+    }
+}
+
+/// The colour the composer field's glass shows at one line over the screen's
+/// backing, as its tint (see `fieldGlassSurface`).
+enum ComposerFieldGlass {
+    static let tint = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(white: 0.10, alpha: 0.82)
+            : UIColor(white: 0.96, alpha: 0.82)
+    })
 }
 
 /// A picked movie, copied out of the Photos sandbox.
