@@ -194,7 +194,7 @@ fn landed(acpmux: &mut Acpmux, session: &str, cwd: &Path, side: &str) -> Value {
 }
 
 #[test]
-fn a_chat_goes_to_cloud_comes_back_and_goes_out_again_with_its_turns_draft_and_folder() {
+fn chat_round_trip_goes_to_cloud_comes_back_and_goes_out_again_with_its_turns_draft_and_folder() {
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
     let root = PathBuf::from("/tmp").join(format!("crt-{}-{stamp}", std::process::id()));
     fs::create_dir_all(&root).unwrap();
