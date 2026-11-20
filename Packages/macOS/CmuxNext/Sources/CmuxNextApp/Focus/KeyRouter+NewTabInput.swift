@@ -6,13 +6,6 @@ import CmuxNextCompat
 import CmuxNextTerminal
 
 /// Owns the short interval between Cmd-T (or Cmd-N's new workspace) and the New Tab field's
-/// readiness acknowledgement: every key typed from the shortcut on waits here, in order, and goes to
-/// the field once it reported ready (cx-kql5h: after Cmd-N the first 2-3 keys went to the old
-/// workspace, because nothing held them while the workspace and its page were made).
-///
-/// The hold is bounded (nightly 2026-10-11, "cannot type at all"): while a window's buffer lives,
-/// every printable key of that window waits here and a second Cmd-T opens nothing, so a buffer
-/// whose acknowledgement never comes would take the whole window's typing. A buffer therefore
 /// ends when
 /// - its pane no longer shows a New Tab page (the page was left or became a chat) or left the
 ///   window,
@@ -103,6 +96,12 @@ final class NewTabInputCoordinator {
 
     /// The last hold events (begin, capture, drain, release and why), for `debug.focus`.
     private(set) var log: [String] = []
+    /// PROBE (scratch): every key-down the app dispatches, with where it goes.
+    func probeKey(_ event: NSEvent, in window: NSWindow?) {
+        let key = NSApp.keyWindow, chars = event.modifierFlags.contains(.command) ? "cmd-\(event.charactersIgnoringModifiers ?? "")" : (event.characters ?? "")
+        log.append("KEY \(chars) t=\(Int(event.timestamp * 1000) % 100000) win=\(window.map { String(describing: type(of: $0)) } ?? "nil") key=\(key.map { String(describing: type(of: $0)) } ?? "nil") fr=\(key?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil") held=\(buffers.isEmpty ? 0 : 1)")
+        if log.count > 60 { log.removeFirst(log.count - 60) }
+    }
     private func note(_ event: String, _ entry: Entry?) {
         let age = entry.map { " +\(Int((now() - $0.buffer.began) / .milliseconds(1)))ms" } ?? ""
         log.append("\(event)\(age)")

@@ -20,6 +20,37 @@ import { experimentArm } from "../../experiments/experiment";
 import { liveBackground } from "../../ui/liveBackground/liveBackground.experiment";
 import { installUiPointer, type UiPointerControl } from "./uiPointer/picker";
 import { reportChatSnapshot } from "./chatSnapshot/live";
+// PROBE (scratch, not for landing): every key, input and focus event the page gets, for the Cmd-N lost-keys bench.
+{
+  const trace: unknown[] = [];
+  (globalThis as Record<string, unknown>).__cmuxKeyTrace = trace;
+  const t0 = performance.now();
+  const note = (event: Event) => {
+    const active = document.activeElement;
+    const inField = !!active?.closest?.(".nt-field, .acpmux-newtab-field");
+    trace.push([
+      Math.round(performance.now() - t0),
+      event.type,
+      (event as KeyboardEvent).key ?? (event as InputEvent).data ?? "",
+      document.hasFocus() ? 1 : 0,
+      inField ? 1 : 0,
+      event.defaultPrevented ? 1 : 0,
+    ]);
+    if (trace.length > 120) trace.splice(0, trace.length - 120);
+  };
+  for (const type of ["keydown", "keypress", "beforeinput", "input", "compositionstart"])
+    window.addEventListener(type, note, true);
+  for (const type of ["focus", "blur"])
+    window.addEventListener(type, (event) => event.target === window && note(event), true);
+  for (const type of ["keydown", "beforeinput"])
+    window.addEventListener(
+      type,
+      (event) => {
+        if (event.defaultPrevented) trace.push([Math.round(performance.now() - t0), type + ":prevented", ""]);
+      },
+      false,
+    );
+}
 
 // The chat's snapshot drew in the document's first frame (chatSnapshot/boot.ts): the host shows the
 // page now, before the handshake, instead of keeping its loading state until the rows are read.

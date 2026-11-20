@@ -180,8 +180,9 @@ class Bench:
                "first_responder": (window.get("appkit") or {}).get("first_responder"),
                "app_active": focus.get("app_active"), "key_window": focus.get("key_window"),
                "planned_ms": round(sent.get("duration_ms") or 0, 1), "keys_to": word}
+        row["key_trace"] = field.get("key_trace")
         if not ok:
-            row["hold_log"] = (focus.get("new_tab_key_log") or [])[-14:]
+            row["hold_log"] = (focus.get("new_tab_key_log") or [])[-45:]
             row["recent_focus"] = window.get("recent_events")
         print("CMDN-TYPING", json.dumps(row), flush=True)
         return row

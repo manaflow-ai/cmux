@@ -151,7 +151,7 @@ enum DebugNewTab {
             const openTabs = [...document.querySelectorAll('.nt-open-tab .nt-row-title')].map((title) => title.textContent);
             return JSON.stringify({ text: field ? (field.acpmuxMarkdownField?.plainText() ?? field.value) : null,
                                     focused: !!field && field.contains(document.activeElement),
-                                    open_tabs: openTabs });
+                                    open_tabs: openTabs, key_trace: globalThis.__cmuxKeyTrace ?? null, born: performance.timeOrigin });
             """
         guard let text = try? await view.callPageScript(script) as? String,
               let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)), let value = JSONValue(foundation: object) else {
