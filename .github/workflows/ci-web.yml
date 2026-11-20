@@ -313,7 +313,8 @@ jobs:
       - name: Build acpmux
         working-directory: cmux-tui
         run: |
-          cargo build --locked -p acpmux --bin acpmux
+          # 300 s with no output ends it (longest healthy silence 122 s, one crate's compile; step_watchdog.py).
+          python3 ../scripts/ci/step_watchdog.py --silent-seconds 300 --label "Build acpmux" -- cargo build --locked -p acpmux --bin acpmux
           # CARGO_TARGET_DIR (a fleet runner's shared target) moves the binary out of cmux-tui/target.
           target_dir="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
           echo "ACPMUX_BIN=$target_dir/debug/acpmux" >> "$GITHUB_ENV"
@@ -546,7 +547,8 @@ jobs:
       - name: Build the web bundles
         id: bundles
         continue-on-error: true
-        run: ./scripts/cmux-next/build-web-bundles.sh --force
+        # 300 s with no output ends it (longest healthy silence 39 s; step_watchdog.py).
+        run: python3 scripts/ci/step_watchdog.py --silent-seconds 300 --label "Build the web bundles" -- ./scripts/cmux-next/build-web-bundles.sh --force
 
       # ci-guards runs this on main; feat-cmux-next PRs skip ci-guards.
       # The checks from here to the engines do not depend on the shard, so
@@ -720,7 +722,10 @@ jobs:
             CMUX_WEB_TEST_FILES="$(python3 ../scripts/ci/webviews_affected.py --base "$BASE_REF" --head HEAD)" || CMUX_WEB_TEST_FILES=""
             export CMUX_WEB_TEST_FILES
           fi
-          ../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"
+          # 600 s with no output ends the step (exit 97) instead of the shard's 90-150 minute cap: the longest healthy
+          # silence seen is 115 s, and one file alone can run about 300 s before its line (step_silence_gaps.py).
+          python3 ../scripts/ci/step_watchdog.py --silent-seconds 600 --label "Test webviews (shard ${CMUX_WEB_TEST_SHARD:-?})" -- \
+            ../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"
 
       - name: Upload head webview results
         if: ${{ always() && github.event_name == 'pull_request' && steps.webview-tests.outcome != 'skipped' }}

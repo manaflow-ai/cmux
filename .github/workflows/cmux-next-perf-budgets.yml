@@ -361,6 +361,8 @@ jobs:
           MAC_GATEWAY: ${{ vars.CI_PERF_CRON_GATEWAY }}
           MAC_CONTROLLER: ${{ vars.CMUX_NEXT_PERF_CRON_CONTROLLER }}
           PERF_RESULT: ${{ inputs.perf_result }}
+          # The longest healthy silence of this step times two, rounded up (scripts/ci/step_silence_gaps.py).
+          SILENT_SECONDS: "600"
         run: |
           set -euo pipefail
           dir="$RUNNER_TEMP/perf-cron"
@@ -374,8 +376,11 @@ jobs:
           # resets within the hour) instead of dropping the result. A plain tick does nothing and the next one tries.
           wait=()
           [ -z "$PERF_RESULT" ] || wait=(--wait-limit 3600)
-          python3 -I scripts/cmux-next/perf-cron.py fetch-state --repo "$GITHUB_REPOSITORY" --dir "$dir" ${wait[@]+"${wait[@]}"}
-          python3 -I scripts/cmux-next/perf-cron.py plan --repo "$GITHUB_REPOSITORY" --dir "$dir" \
+          # No output for SILENT_SECONDS ends the step (exit 97), not the job's 75-minute cap: run 44731310755's plan
+          # printed nothing for 74 minutes. The rate-limit wait prints a line every minute.
+          watch=(python3 -I scripts/ci/step_watchdog.py --pty --silent-seconds "$SILENT_SECONDS" --label "perf cron plan" --)
+          "${watch[@]}" python3 -I scripts/cmux-next/perf-cron.py fetch-state --repo "$GITHUB_REPOSITORY" --dir "$dir" ${wait[@]+"${wait[@]}"}
+          "${watch[@]}" python3 -I scripts/cmux-next/perf-cron.py plan --repo "$GITHUB_REPOSITORY" --dir "$dir" \
             --yield-mode "$YIELD_MODE" ${no_mac[@]+"${no_mac[@]}"} ${route[@]+"${route[@]}"} --perf-result "$PERF_RESULT" \
             --output "$GITHUB_OUTPUT" | tee "$RUNNER_TEMP/plan.log"
           { echo "### perf cron plan"; echo; sed -n 's/^perf-cron plan: //p' "$RUNNER_TEMP/plan.log"; } >> "$GITHUB_STEP_SUMMARY"

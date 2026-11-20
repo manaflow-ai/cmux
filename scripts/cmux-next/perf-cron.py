@@ -1428,15 +1428,23 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
             "reason": f"{cur['kind']} measurement of {cur['sha'][:12]}: part {what} ({done})" + waits}
 
 
-def bisect_midpoint(commits, measurable, skip=()):
+# The commits nearest a range's middle the plan asks measurable() about, per range and tick. Each ask can run git and
+# the cmux-tui tree key script and fetch a URL: a plan that asked about every commit of 16 ranges (8,337 commits,
+# while no tree was published) printed nothing for 74 minutes and was cancelled at its job cap (run 44731310755,
+# 2026-11-20). A range with no measurable commit that near its middle waits for the next tick.
+BISECT_PROBES = 24
+
+
+def bisect_midpoint(commits, measurable, skip=(), probes=BISECT_PROBES):
     """commits: first-parent commits strictly between good and bad, oldest first. The measurable one nearest
-    the middle that is not in skip (commits a bisect step could not judge: `git bisect skip`), or None."""
+    the middle that is not in skip (commits a bisect step could not judge: `git bisect skip`), or None. Only the
+    `probes` commits nearest the middle are asked about (None past them)."""
     commits = [c for c in commits if c not in set(skip)]
     if not commits:
         return None
     mid = len(commits) // 2
     order = sorted(range(len(commits)), key=lambda i: (abs(i - mid), i))
-    for i in order:
+    for i in order[:probes] if probes else order:
         if measurable(commits[i]):
             return commits[i]
     return None
@@ -1907,13 +1915,22 @@ def part_minutes(run_seconds):
     return step_minutes, step_minutes + 5
 
 
+TREE_KEY_TIMEOUT_S = 120
+
+
 def tree_published(sha):
     for version in ("v2", "v1"):
-        try:
-            key = subprocess.run([sys.executable, os.path.join(ROOT, "scripts/ci/cmux_tui_tree_key.py"), "--version", version, sha],
-                                 capture_output=True, text=True, check=True, timeout=120).stdout.strip()
-        except subprocess.SubprocessError:
+        # Its own process group, killed whole at the cap: subprocess.run's timeout kills only the script, and a git
+        # it started keeps the output pipe open, so the wait for that pipe has no bound.
+        out, _, code = run_capped([sys.executable, os.path.join(ROOT, "scripts/ci/cmux_tui_tree_key.py"), "--version",
+                                   version, sha], ROOT, None, TREE_KEY_TIMEOUT_S)
+        if code is None:
+            print(f"perf-cron: the cmux-tui tree key of {sha[:12]} ({version}) took over {TREE_KEY_TIMEOUT_S} s; "
+                  "read as not published",
+                  flush=True)
+        if code != 0:
             continue
+        key = out.strip()
         url = f"https://files.cmux.com/cmux-tui/tree/{key}/cmux-tui-aarch64-apple-darwin.sha256"
         try:
             with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "cmux-ci"}), timeout=20) as r:
@@ -2880,6 +2897,21 @@ def write_outputs(path, values):
 
 # Past the time GitHub names, before the state is read again.
 LIMIT_WAIT_SLACK_S = 5
+# A line at least this often while it waits: the plan step runs under step_watchdog.py, which ends a step that prints
+# nothing for its limit (a wait for the reset is up to an hour).
+WAIT_HEARTBEAT_S = 60
+
+
+def sleep_with_heartbeat(seconds, what, every=WAIT_HEARTBEAT_S, sleep=None):
+    # time.sleep is looked up per call, so a test's patch of it reaches here; the wait counts down by what it slept.
+    sleep = sleep or time.sleep
+    left = seconds
+    while left > 0:
+        step = min(every, left)
+        sleep(step)
+        left -= step
+        if left > 0:
+            print(f"perf-cron: {what}: {int(left)} s left", flush=True)
 
 
 def cmd_fetch_state(o):
@@ -2895,7 +2927,7 @@ def cmd_fetch_state(o):
                 raise
             print(f"perf-cron: GitHub rate limit ({error}); waiting {error.wait} s for its reset to keep this run's result",
                   flush=True)
-            time.sleep(error.wait + LIMIT_WAIT_SLACK_S)
+            sleep_with_heartbeat(error.wait + LIMIT_WAIT_SLACK_S, "waiting for GitHub's rate limit to reset")
             fetch_state(o.repo, o.dir)
     except RateLimited as error:
         # No state read: the plan must not start from an empty one. It and the report see the mark and do nothing.
@@ -3001,9 +3033,13 @@ def plan(o):
             between = range_commits(rng["good"], rng["bad"])
             if between is None:
                 continue
-            ok = bisect_measurable(group["rows"], lambda c: fleet_runs(c, tip_version) and tree_published(c),
+            ok = bisect_measurable(group["rows"], lambda c: fleet_runs(c, tip_version) and tree_ready(c),
                                    supported_parts_at)
             sha = bisect_midpoint(between, ok, rng.get("skip") or [])
+            if not sha:
+                print(f"perf-cron: the range {rng['good'][:12]}...{rng['bad'][:12]} ({len(between)} commits) has no "
+                      f"measurable commit among the {BISECT_PROBES} nearest its middle (no published cmux-tui tree, "
+                      "or another measurement version); not bisected this tick", flush=True)
             if sha:
                 bisect = {"sha": sha, "range": rng, "rows": group["rows"]}
                 break

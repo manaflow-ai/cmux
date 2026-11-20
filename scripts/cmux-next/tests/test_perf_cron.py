@@ -176,6 +176,28 @@ class DecideTests(unittest.TestCase):
         self.assertNotEqual(cron.bisect_midpoint(commits, lambda c: True, skip=["c3"]), "c3", "a skipped commit is not picked again")
         self.assertIsNone(cron.bisect_midpoint(commits, lambda c: True, skip=commits))
 
+    def test_a_long_wait_prints_a_line_every_heartbeat(self):
+        now = [0.0]
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cron.sleep_with_heartbeat(150, "waiting", every=60, sleep=lambda s: now.__setitem__(0, now[0] + s))
+        self.assertEqual(now[0], 150)
+        self.assertEqual(out.getvalue(), "perf-cron: waiting: 90 s left\nperf-cron: waiting: 30 s left\n")
+
+    def test_bisect_midpoint_asks_only_the_probes_nearest_the_middle(self):
+        # Run 44731310755: every commit of 16 ranges (8,337) was asked about while no tree was published, and the
+        # plan printed nothing for 74 minutes. Each range asks at most BISECT_PROBES commits per tick.
+        commits = [f"c{i}" for i in range(1000)]
+        asked = []
+        self.assertIsNone(cron.bisect_midpoint(commits, lambda c: asked.append(c) or False))
+        self.assertEqual(len(asked), cron.BISECT_PROBES)
+        self.assertEqual(asked[0], "c500")
+        self.assertEqual(set(asked), {f"c{i}" for i in range(500 - cron.BISECT_PROBES // 2, 500 + cron.BISECT_PROBES // 2)})
+        # A measurable commit inside the probes is still the one nearest the middle.
+        self.assertEqual(cron.bisect_midpoint(commits, lambda c: c in ("c490", "c511")), "c490")
+        self.assertIsNone(cron.bisect_midpoint(commits, lambda c: c == "c100"), "past the probes")
+        self.assertEqual(cron.bisect_midpoint(commits, lambda c: c == "c100", probes=0), "c100", "0: every commit")
+
 
 class RegressionTests(unittest.TestCase):
     def test_worse_by_ten_percent_and_the_floor_regresses(self):
@@ -2286,8 +2308,9 @@ class RateLimitTests(unittest.TestCase):
             cron.cmd_fetch_state(argparse.Namespace(repo="o/r", dir=d, wait_limit=2700))
             self.assertEqual(fetch.call_count, 2, "the state is read again after the wait")
             self.assertFalse(os.path.exists(os.path.join(d, cron.RATE_LIMITED)))
-        self.assertEqual(len(slept), 1)
-        self.assertGreaterEqual(slept[0], 240)
+        # One line a minute while it waits (the plan step's watchdog ends a step silent for its limit).
+        self.assertEqual(sum(slept), 240 + cron.LIMIT_WAIT_SLACK_S)
+        self.assertLessEqual(max(slept), cron.WAIT_HEARTBEAT_S)
 
     def test_a_wait_past_the_limit_or_on_a_plain_tick_still_does_nothing(self):
         for wait, limit in ((3000, 2700), (240, 0), (None, 2700)):

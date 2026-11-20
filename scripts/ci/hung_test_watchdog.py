@@ -25,6 +25,7 @@ no progress".
 from __future__ import annotations
 
 import argparse
+import collections
 import dataclasses
 import errno
 import os
@@ -333,24 +334,30 @@ def child_environment() -> dict[str, str]:
     return env
 
 
-def spawn(command: list[str], out: Output) -> tuple[subprocess.Popen, int]:
+def spawn(command: list[str], out: Output, use_pty: bool = True) -> tuple[subprocess.Popen, int]:
     """Start the command on a pseudo-terminal so its stdio is line-buffered.
 
     Through a pipe, the Swift Testing helper's stdout is block-buffered: a
     stalled run's log stops at a buffer boundary, several tests before the one
     that hung, and the last `started` line names a test that already passed.
     """
-    try:
-        primary, secondary = pty.openpty()
-    except OSError as error:
-        out.line(
-            f"::warning::No pseudo-terminal ({error}); test output is block-buffered, "
-            "so a hang report can name a test that already finished."
-        )
+    if not use_pty:
         primary, secondary = os.pipe()
+        attributes = None
     else:
+        try:
+            primary, secondary = pty.openpty()
+        except OSError as error:
+            out.line(
+                f"::warning::No pseudo-terminal ({error}); test output is block-buffered, "
+                "so a hang report can name a test that already finished."
+            )
+            primary, secondary = os.pipe()
+            attributes = None
+        else:
+            attributes = termios.tcgetattr(secondary)
+    if attributes is not None:
         # No output processing: keep "\n" from becoming "\r\n" in the log.
-        attributes = termios.tcgetattr(secondary)
         attributes[1] &= ~termios.OPOST
         termios.tcsetattr(secondary, termios.TCSANOW, attributes)
     try:
@@ -360,7 +367,7 @@ def spawn(command: list[str], out: Output) -> tuple[subprocess.Popen, int]:
             stdout=secondary,
             stderr=secondary,
             start_new_session=True,
-            env=child_environment(),
+            env=child_environment() if use_pty else os.environ.copy(),
         )
     except BaseException:
         os.close(primary)
@@ -386,16 +393,25 @@ def run(
     log_path: Optional[Path],
     stall_seconds: float = 0,
     drain_seconds: float = 2.0,
+    step: bool = False,
+    tail_lines: int = 0,
+    silence_exit: int = TIMEOUT_EXIT,
+    use_pty: bool = True,
 ) -> int:
+    """step: the command is any CI step, not a test run (step_watchdog.py). Its report is the last
+    `tail_lines` lines of output instead of the tests in flight, its annotation says "Silent step", and a
+    silence returns `silence_exit` so a caller tells it from the whole-step timeout (TIMEOUT_EXIT)."""
     out = Output()
     progress = TestProgress()
+    tail: collections.deque[str] = collections.deque(maxlen=max(tail_lines, 1))
     log = log_path.open("wb") if log_path else None
-    process, fd = spawn(command, out)
+    process, fd = spawn(command, out, use_pty)
     started = last_output = last_progress = time.monotonic()
     seen_events = 0
     exited_at: Optional[float] = None
     pending = b""
     eof = False
+    silent = False
 
     received_signals: list[int] = []
 
@@ -416,16 +432,28 @@ def run(
         pending += chunk
         *complete, pending = pending.split(b"\n")
         for raw in complete:
-            progress.feed(raw.decode("utf-8", "replace"))
+            text = raw.decode("utf-8", "replace")
+            progress.feed(text)
+            if step:
+                tail.append(text)
 
     def report(heading: str) -> InFlight:
         if pending:
-            progress.feed(pending.decode("utf-8", "replace"))
+            text = pending.decode("utf-8", "replace")
+            progress.feed(text)
+            if step:
+                tail.append(text)
         state = progress.in_flight()
         out.line()
         out.line(f"::group::{heading}")
-        for text in format_report(state, time.monotonic()):
-            out.line(text)
+        if step:
+            shown = [ANSI.sub("", text).rstrip("\r") for text in tail][-tail_lines:] if tail_lines else []
+            out.line(f"Last {len(shown)} line(s) of output before it went quiet:" if shown else "No output at all.")
+            for text in shown:
+                out.line(f"  {text}")
+        else:
+            for text in format_report(state, time.monotonic()):
+                out.line(text)
         out.line("::endgroup::")
         return state
 
@@ -444,9 +472,11 @@ def run(
             else:
                 if timeout_seconds and now - started >= timeout_seconds:
                     reason = f"timed out after {timeout_seconds:g}s"
+                    silent = False
                     break
                 if silence_seconds and now - last_output >= silence_seconds:
                     reason = f"timed out after {silence_seconds:g}s with no output"
+                    silent = True
                     break
                 if progress.events != seen_events:
                     seen_events = progress.events
@@ -478,10 +508,24 @@ def run(
         # The test command stalled.
         # The reason appears once, in the annotation, so a log grep for
         # "timed out" counts one hit per stalled attempt.
-        state = report(f"{label}: tests in flight when the watchdog fired")
+        if step:
+            state = report(f"{label}: the step went quiet; the watchdog ends it")
+        else:
+            state = report(f"{label}: tests in flight when the watchdog fired")
         tree = process_tree(process.pid)
+        if tree:
+            out.line("Processes in the step's group: " + ", ".join(f"{name} ({pid})" for pid, name in tree[:12]))
         sample_stacks(tree, sample_seconds, out)
         terminate(process, tree=tree)
+        if step:
+            title = escape_property(f"Silent step: {label}")
+            detail = f"; last output: {state.last_line[:200]}" if state.last_line else "; it printed nothing"
+            message = escape_annotation(
+                f"{label} {reason}{detail}. The watchdog killed its process group "
+                f"(step_watchdog.py); a step that is quiet on purpose prints a heartbeat."
+            )
+            out.line(f"::error title={title}::{message}")
+            return silence_exit if silent else TIMEOUT_EXIT
         title = escape_property(f"Hung test in {label}")
         if reason is None:
             message = escape_annotation(
@@ -497,10 +541,10 @@ def run(
         name = signal.Signals(received.signum).name
         state = report(f"{label} received {name} from the runner: tests in flight")
         terminate(process, received.signum)
-        title = escape_property(f"Cancelled test in {label}")
+        title = escape_property(f"Cancelled {'step' if step else 'test'} in {label}")
         message = escape_annotation(
             f"{label} was stopped by {name} (job cancelled or job timeout reached), "
-            f"{hung_summary(state)}"
+            + (f"last output: {state.last_line[:200]}" if step else hung_summary(state))
         )
         out.line(f"::error title={title}::{message}")
         return 128 + received.signum

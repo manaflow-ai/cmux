@@ -5,7 +5,7 @@ culprit range deeper than the shallow clone (a real git repository), the issue o
 fetch_state paging and download_redirected (a local HTTP server), github_busy, and cmd_run_part's watch/cancel loop
 (a fake cmux-ci on disk). Run: python3 -I scripts/cmux-next/tests/test_perf_cron_io.py (not a CI job)."""
 import argparse, datetime, http.server, importlib.util, io, json, os, stat, subprocess, sys, tempfile, threading
-import unittest, zipfile
+import time, unittest, zipfile
 from unittest import mock
 import importlib.util  # noqa: E402
 import os  # noqa: E402
@@ -271,6 +271,36 @@ class ShallowRangeTests(unittest.TestCase):
                 mock.patch.object(cron, "DEEPEN_ROUNDS", 2), mock.patch("sys.stdout", out):
             self.assertIsNone(cron.range_commits(good, bad))
         self.assertIn("cannot list the range", out.getvalue())
+
+
+class TreePublishedBoundTests(unittest.TestCase):
+    def test_a_tree_key_whose_git_hangs_is_killed_whole_at_its_cap(self):
+        # subprocess.run's timeout killed only the key script: a git it started kept the output pipe open and the plan
+        # waited on that pipe with no bound. The whole group goes at TREE_KEY_TIMEOUT_S.
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "scripts", "ci"))
+            pid_file = os.path.join(root, "grandchild.pid")
+            with open(os.path.join(root, "scripts", "ci", "cmux_tui_tree_key.py"), "w") as f:
+                f.write("import subprocess, sys, time\n"
+                        "child = subprocess.Popen(['sleep', '600'])\n"
+                        f"open({pid_file!r}, 'w').write(str(child.pid))\n"
+                        "time.sleep(600)\n")
+            out = io.StringIO()
+            started = time.monotonic()
+            with mock.patch.object(cron, "ROOT", root), mock.patch.object(cron, "TREE_KEY_TIMEOUT_S", 1), \
+                    mock.patch("sys.stdout", out):
+                self.assertFalse(cron.tree_published("a" * 40))
+            self.assertLess(time.monotonic() - started, 30)
+            self.assertIn("took over 1 s; read as not published", out.getvalue())
+            grandchild = int(open(pid_file).read())
+            for _ in range(100):
+                try:
+                    os.kill(grandchild, 0)
+                except ProcessLookupError:
+                    break
+                time.sleep(0.05)
+            else:
+                self.fail("the tree key's grandchild survived")
 
 
 class IssueOwnershipTests(unittest.TestCase):
