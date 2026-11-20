@@ -804,8 +804,13 @@ impl Hub {
         }
         // Read after the peer lookup: a revocation while it waited must win.
         let mut grants = Owners::default();
-        self.scan_for_rebuild(&recipient, &[triage::GRANT_KIND], &mut |record| {
-            grants.apply(&record.msg);
+        let mut inherited = recipient.meta().fork_seq.is_some();
+        self.scan_for_rebuild(&recipient, &[triage::GRANT_KIND, "forked"], &mut |record| {
+            if inherited {
+                inherited = record.kind != "forked";
+            } else if record.kind == triage::GRANT_KIND {
+                grants.apply(&record.msg);
+            }
             true
         })
         .map_err(|e| RpcError::internal(format!("read surge grants: {e}")))?;

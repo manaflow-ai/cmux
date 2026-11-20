@@ -310,6 +310,59 @@ impl Hub {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn subscription_and_grant_survive_disk_restart_and_revocation() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = crate::config::Config::default();
+        config.store.mode = crate::config::StoreMode::Local;
+        let store = crate::store::open(&config.store, dir.path()).unwrap();
+        for id in ["recipient", "subscriber"] {
+            let meta = json!({"schema": crate::store::META_SCHEMA, "id": id, "name": id,
+                "harness": "claude", "cwd": "/tmp", "status": "closed", "createdAt": 1,
+                "updatedAt": 1, "lastSeq": 0, "eventCount": 0});
+            store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+        }
+        let hub = Hub::new(config.clone(), store);
+        let subscriber = hub.resolve("subscriber").unwrap();
+        let recipient = hub.resolve("recipient").unwrap();
+        hub.set_inbox_subscription(&subscriber, "review").unwrap();
+        hub.grant_inbox_subscription(&recipient, "review", &subscriber).unwrap();
+        hub.store.flush().unwrap();
+        drop(subscriber);
+        drop(recipient);
+        drop(hub);
+
+        let hub = Hub::new(config.clone(), crate::store::open(&config.store, dir.path()).unwrap());
+        let subscriber = hub.resolve("subscriber").unwrap();
+        let recipient = hub.resolve("recipient").unwrap();
+        assert!(hub.inbox_subscription_bindings(&subscriber).unwrap().contains_key("review"));
+        let mut grants = crate::surge_triage::Owners::default();
+        hub.scan_for_rebuild(&recipient, &[crate::surge_triage::GRANT_KIND], &mut |r| {
+            grants.apply(&r.msg);
+            true
+        })
+        .unwrap();
+        assert_eq!(grants.0.get("review").map(String::as_str), Some("subscriber"));
+        hub.revoke_inbox_subscription(&recipient, "review", &subscriber).unwrap();
+        hub.remove_inbox_subscription(&subscriber, "review").unwrap();
+        hub.store.flush().unwrap();
+        drop(subscriber);
+        drop(recipient);
+        drop(hub);
+
+        let hub = Hub::new(config.clone(), crate::store::open(&config.store, dir.path()).unwrap());
+        let subscriber = hub.resolve("subscriber").unwrap();
+        let recipient = hub.resolve("recipient").unwrap();
+        assert!(hub.inbox_subscription_bindings(&subscriber).unwrap().is_empty());
+        let mut grants = crate::surge_triage::Owners::default();
+        hub.scan_for_rebuild(&recipient, &[crate::surge_triage::GRANT_KIND], &mut |r| {
+            grants.apply(&r.msg);
+            true
+        })
+        .unwrap();
+        assert!(grants.0.is_empty());
+    }
+
     #[test]
     fn replay_keeps_latest_self_binding_and_survives_remove() {
         let records = vec![
