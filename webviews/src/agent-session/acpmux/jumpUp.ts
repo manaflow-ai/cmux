@@ -358,6 +358,12 @@ export class IdleTracker {
     return this.current;
   }
 
+  /// The mark as it stands, read outside a render: a scroll that drops it (`scrolled`) moves Jump up's
+  /// target, which the transcript's next render reads.
+  get mark(): ManualMark | undefined {
+    return this.current.mark;
+  }
+
   /// Keeps the stretch after IDLE_KEEP_MS when what is kept changed since the last write.
   keepSoon(): void {
     if (!this.enabled || !this.sessionId) return;
