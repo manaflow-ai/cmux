@@ -77,7 +77,7 @@ const starting: DaemonSource = {
   load: () => Promise.reject(pageError("cmux.protocol.unavailable", "Starting this build's Chief…", true)),
 };
 
-test("a daemon still starting shows nothing, then one muted line once it lasts", async () => {
+test("a daemon still starting shows the page's frame and composer, then one muted line once it lasts", async () => {
   const container = installDom();
   jest.useFakeTimers();
   root = createRoot(container);
@@ -89,7 +89,9 @@ test("a daemon still starting shows nothing, then one muted line once it lasts",
     ),
   );
   await act(async () => void jest.advanceTimersByTime(LASTING_MS - 1));
-  expect(container.textContent).toBe("");
+  // The person can type before either owner answers (LaunchComposer.tsx); nothing is said yet.
+  expect(container.querySelector(".lg-main .lg-main-compose .hc-composer")).not.toBeNull();
+  expect(container.querySelector(".hc-gate-line")).toBeNull();
   expect(container.querySelector("h1")).toBeNull();
   expect(container.querySelector(".hc-gate-error")).toBeNull();
   await act(async () => void jest.advanceTimersByTime(1));

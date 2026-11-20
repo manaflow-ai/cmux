@@ -16,6 +16,8 @@ import { DaemonSocket, type DaemonAuth } from "../shared/daemonSocket";
 import type { Strings } from "../shared/i18n";
 import { OWNER_SENTENCE, userMessage } from "../shared/userMessage";
 import { useLasting } from "../../ui/lasting";
+import { LaunchMain } from "./LaunchComposer";
+import { useHashPane } from "./panes";
 import "./DaemonGate.css";
 
 const storageKey = (url: string) => `cmux.daemon.credential:${url}`;
@@ -272,14 +274,25 @@ export function DaemonGate({
   // nothing shows while the retries can still outlast it. Only one that lasts past the grace is
   // said, as one muted line: the last attempt's reason, never in red, since the retries go on.
   const lasting = useLasting(phase.kind === "connecting");
+  const pane = useHashPane();
   // A new store per connection: the key remounts the page on every reconnect.
   if (phase.kind === "ready")
     return <Fragment key={phase.generation}>{children(phase.daemon, phase.pages, phase.owner)}</Fragment>;
+  // The page's own frame meanwhile, with its composer: the person types at once, and the text goes to
+  // the conversation the page opens (LaunchComposer.tsx). The list's and the header's places are held.
   if (phase.kind === "connecting")
     return (
-      <section className="hc-gate" aria-busy="true">
-        {lasting && <output className="hc-gate-line">{phase.note ?? t("connect.connecting")}</output>}
-      </section>
+      <div className="lg-shell">
+        <div className="lg-page" data-pane={pane}>
+          <nav className="lg-list lg-list-pending" aria-busy="true" />
+          <section className="lg-main">
+            <LaunchMain
+              strings={strings}
+              note={lasting && <output className="hc-gate-line">{phase.note ?? t("connect.connecting")}</output>}
+            />
+          </section>
+        </div>
+      </div>
     );
   return (
     <section className="hc-gate" aria-labelledby="hc-gate-title">

@@ -49,7 +49,22 @@ export function mountHomeChannelsPage(
 
 function defaultClient(): PageClient | null {
   const query = new URLSearchParams(location.search);
-  return createPageClient(query.has("mock") ? () => new MockHomeProvider() : undefined);
+  return createPageClient(
+    query.has("mock") ? () => lateOwner(new MockHomeProvider(), Number(query.get("mockOwnerDelay") ?? 0)) : undefined,
+  );
+}
+
+/** `?mock&mockOwnerDelay=MS`: the mock answers nothing for its first MS, as a Chief owner that is still
+ *  starting on a cold launch (the startup bench, home-composer-tti.bench.ts). */
+function lateOwner(provider: MockHomeProvider, delayMs: number): PageClient {
+  if (!(delayMs > 0)) return provider;
+  const started = new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+  const call = provider.call.bind(provider);
+  provider.call = async <R,>(op: string, params: unknown): Promise<R> => {
+    await started;
+    return call<R>(op, params);
+  };
+  return provider;
 }
 
 /** The page on a cmux instance's daemon: connect (credential or pairing), then the real Home. */
