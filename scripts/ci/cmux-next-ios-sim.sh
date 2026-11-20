@@ -1181,7 +1181,9 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
   ui_udid=""
   keep_test_logs "$work/ui-test.log" "$work/ui.xcresult" ui
   grep -h "^FAILED:" -A3 "$out/ui-tests-failures.txt" 2>/dev/null || true
-  note "- UI tests ${ui_suites[*]} ${ui_cold[*]}: exit $ui_status, $(cat "$out/ui-tests-counts.txt" 2>/dev/null || echo "no result bundle"), xcodebuild $ui_action $ui_seconds s, $((SECONDS - t0)) s in all"
+  # ${arr[*]-}: macOS /bin/bash 3.2 under set -u calls an empty array unbound,
+  # and dying here (after the tests and video) left no evidence.zip.
+  note "- UI tests ${ui_suites[*]-} ${ui_cold[*]-}: exit $ui_status, $(cat "$out/ui-tests-counts.txt" 2>/dev/null || echo "no result bundle"), xcodebuild $ui_action $ui_seconds s, $((SECONDS - t0)) s in all"
   # Launch marks (LaunchTTIUITests): every LAUNCHTTI line, and per flow and phase the p50 of each span.
   cat "$out/ui-console.txt" "$out"/ui-cold/*-console.txt 2>/dev/null | grep -oE 'LAUNCHTTI \{.*\}' | sed 's/^LAUNCHTTI //' > "$out/launch-tti.jsonl" || true
   if [[ -s "$out/launch-tti.jsonl" ]]; then
