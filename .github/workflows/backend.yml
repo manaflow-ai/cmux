@@ -788,7 +788,7 @@ jobs:
           fi
           echo "$out"
       # The deployed vars must equal wrangler.jsonc at the push's BEFORE commit (else drift, set out
-      # of band: refused). Then the repo is the source: a var the pushed commits change (an image
+      # of band: refused; a committed var the Worker still lacks is not drift, the deploy sets it). Then the repo is the source: a var the pushed commits change (an image
       # promotion, CLOUD_ALLOWED_TEAMS) deploys, and the step logs each change by name and value.
       - name: Worker vars match the previous commit (drift refused; changes in this push logged)
         if: steps.source.outputs.deploy == 'true'
