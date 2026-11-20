@@ -32,7 +32,7 @@
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Looks"
+            "value": "Look-Galerie"
           }
         },
         "es": {
@@ -2408,7 +2408,7 @@
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Theme: %@"
+            "value": "Design: %@"
           }
         },
         "es": {
