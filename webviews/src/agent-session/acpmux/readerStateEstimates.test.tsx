@@ -159,11 +159,10 @@ test("a long prompt the reader opened is estimated whole, over Show less (Prompt
   } as AcpmuxRow;
   // Drawn 503 shut (its 20 lines and Show more), 958 open.
   near(row, 503);
-  await setLine("prompt:user-1", true);
+  // The bubble's fold is on the shared key (rows/MessageRow.tsx draws it under no chat's provider).
+  await setLine("prompt:user-1", true, null);
   near(row, 958);
-  // Another chat's prompt of the same row id is not this one.
-  expect(Math.abs(estimate(row, "another-chat") - 503)).toBeLessThanOrEqual(SPACING);
-  await setLine("prompt:user-1", false);
+  await setLine("prompt:user-1", false, null);
   near(row, 503);
 });
 
