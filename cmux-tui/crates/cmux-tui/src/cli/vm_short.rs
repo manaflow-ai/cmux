@@ -471,10 +471,10 @@ pub(super) fn pausable(listed: &Value) -> Vec<(String, String)> {
         .filter(|row| row.get("status").and_then(Value::as_str) == Some("running"))
         .filter_map(|row| {
             let id = row.get("machine_id").and_then(Value::as_str)?.to_owned();
-            let name = row.get("title").and_then(Value::as_str).map_or_else(
-                || format!("vm:{id}"),
-                |title| super::wire::sanitize_remote_text(title),
-            );
+            let name = row
+                .get("title")
+                .and_then(Value::as_str)
+                .map_or_else(|| format!("vm:{id}"), super::wire::sanitize_remote_text);
             Some((id, name))
         })
         .collect()
