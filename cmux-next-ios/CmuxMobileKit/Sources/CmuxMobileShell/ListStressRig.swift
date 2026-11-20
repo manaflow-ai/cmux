@@ -484,6 +484,7 @@ final class HomeStressHUD {
         probe.pageLanded = { [hud] shift, rows in hud.landed(shift: shift, rows: rows) }
         probe.scrolling = { [hud] moving in hud.scrolling(moving) }
         probe.frameShift = { [hud] shift in hud.sampled(shift) }
+        probe.passFrameShift = { [hud] shift, mid, detail in hud.passSampled(shift, midPlacement: mid, detail: detail) }
         probe.shiftDetail = { [hud] shift, detail in hud.shifted(shift, detail) }
         probe.slid = { [hud] frames in hud.slid(frames) }
         probe.held = { [hud] rows in hud.hold(rows) }
