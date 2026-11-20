@@ -657,3 +657,7 @@ mod tests;
 #[cfg(test)]
 #[path = "list_scale_tests.rs"]
 mod scale_tests;
+
+#[cfg(test)]
+#[path = "stream_tell_tests.rs"]
+mod stream_tell_tests;
