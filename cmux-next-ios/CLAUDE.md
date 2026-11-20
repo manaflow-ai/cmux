@@ -23,7 +23,7 @@ covers your change:
 
 ## Hand-off command
 
-This is the root [CLAUDE.md](../CLAUDE.md#finishing-a-task) "Finishing a task" hand-off for the
+This is the ["Finishing a task"](../skills/cmux-dev-workflow/references/finishing-a-task.md) hand-off for the
 iPhone app. Its phone leg passed end to end on 2026-11-18 on a real iPhone 16 Plus (tag
 `phone-e2e-1118`, [#46718](https://github.com/manaflow-ai/cmux/pull/46718)) in all three modes:
 default, `--manual-pairing` and `--no-auth`. Report any failure as the phone's blocker. It leaves the task's build on every connected iPhone,
