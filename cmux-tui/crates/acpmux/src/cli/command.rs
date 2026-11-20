@@ -452,6 +452,8 @@ pub enum Command {
     /// Every chat on this device, from every harness: list, open, roots. Also `cmux chats …`.
     #[command(subcommand)]
     Chats(crate::cli::chats::ChatsCmd),
+    /// Read-only local branch board (Labs > Show Preview Features). Also `cmux board --json`.
+    Board,
     /// Background processes agents left running (dev servers, watchers):
     /// list, show (everything one printed, live with --follow), kill,
     /// background (Ctrl-B: move a chat's running work there).

@@ -32,6 +32,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Inbox(..)
             | Command::Deliver { .. }
             | Command::Chats(..)
+            | Command::Board
             | Command::Process(..)
             | Command::Worktree(..)
             | Command::Group(..)
@@ -1105,6 +1106,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             Ok(())
         }
         Command::Chats(cmd) => crate::cli::chats::run(cmd, json_out).await,
+        Command::Board => super::board::run(json_out).await,
         Command::Process(cmd) => crate::cli::process::run(cmd, json_out).await,
         Command::Worktree(cmd) => crate::cli::worktree::run(cmd, json_out),
         Command::Group(cmd) => crate::cli::group::run(cmd, json_out).await,
