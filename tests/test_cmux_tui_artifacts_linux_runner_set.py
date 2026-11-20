@@ -181,6 +181,18 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
 
     def test_the_overflow_switch_moves_every_linux_job_to_the_other_size(self) -> None:
         for name, runs_on in linux_routes():
+            if name == "cmux-next-daemon-tests":
+                # A nightly-path retry must leave the owned pool even when placement
+                # saw an idle runner or LINUX_RUNNER still points at that pool.
+                for saved, expected in (("", size_label(WORKFLOW.name, name)),
+                                        (OVERFLOW_RECORD, failover_label(WORKFLOW.name, name))):
+                    retry = context("manaflow-ai", "cmux-linux", saved, "")
+                    retry.update({"github.run_attempt": 2.0,
+                                  "needs.tree-preflight.outputs.linux_jobs": f" {name} ",
+                                  "needs.tree-preflight.outputs.linux_runner": FLEET})
+                    with self.subTest(job=name, saved=bool(saved)):
+                        self.assertEqual(resolve_labels(runs_on, context=retry), {expected})
+                continue
             for linux_runner in ("", "blacksmith-4vcpu-ubuntu-2404", SMALL):
                 with self.subTest(job=name, linux_runner=linux_runner):
                     size = size_label(WORKFLOW.name, name)
