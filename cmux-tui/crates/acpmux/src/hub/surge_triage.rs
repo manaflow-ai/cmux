@@ -620,7 +620,16 @@ impl Hub {
             Some(triage_with) => triage_with(prompt),
             None => {
                 let timeout = Duration::from_millis(triage::TIMEOUT_MS);
-                match self.complete_own(harness, prompt, triage::MAX_TOKENS, timeout).await {
+                match self
+                    .complete_own(
+                        harness,
+                        prompt,
+                        triage::MAX_TOKENS,
+                        timeout,
+                        super::complete::ModelFallback::SmallOnly,
+                    )
+                    .await
+                {
                     Ok(text) => Some(text),
                     Err(e) => {
                         tracing::info!(
