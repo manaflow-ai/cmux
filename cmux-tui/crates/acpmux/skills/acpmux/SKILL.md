@@ -23,7 +23,8 @@ To message another session from a chat, use the `send` tool
 `cmux.acpmux_send` in a cmux_exec script), not
 `cmux agent send` in Bash ("Messages between agents" below). In a shell,
 use the cmux CLI from the running build. On a standalone host,
-`"$ACPMUX_BIN"` invokes the session's own engine with the same arguments.
+`acpmux send NAME "…"` is the shell equivalent. In an agent session,
+`"$ACPMUX_BIN"` selects the engine from the running build.
 
 Inside cmux your `cmux-subsessions` MCP server starts children instead:
 `start_session` (with `worktree: true` for a worktree of its own, or `fork: true` for a
@@ -137,7 +138,7 @@ cmux agent last NAME [-n 3]                            # last reply text
 cmux agent history NAME                                # one line per turn: prompt, status, tools, tokens, wall time
 cmux agent bg start 'make test'                         # run a shell command that survives agent hibernation
 cmux agent bg list                                     # your background tasks in this session and their latest output
-cmux agent notices                                     # read this session's inbox threads
+cmux agent notices                                     # read tool, inbox and host notices, newest first
 cmux agent list                                        # terminal agents and chats in this cmux session's workspaces
 cmux agent ls [--all] [--wide]                         # live named lanes + STUCK reason; --all: closed/reviewer/sub/unnamed too; --wide: + context, subagents, 24h cost
 cmux agent ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=v] [--live] [--machine MACHINE]   # a filter hides nothing

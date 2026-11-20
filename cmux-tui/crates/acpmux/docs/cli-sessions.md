@@ -74,7 +74,7 @@ boundary); `--no-steer` queues it instead.
 | Open it as a tab in a specific pane | `cmux agent open-tab SESSION_ID --target PANE_ID` |
 | Run a shell command that keeps running when the agent hibernates | `cmux agent bg start 'make test'` |
 | List the background tasks you started in this session and their latest output | `cmux agent bg list` |
-| Read this session's inbox threads | `cmux agent notices` |
+| Read this session's tool, inbox and host notices, newest first | `cmux agent notices` |
 | Wait for a turn to end, then print the reply | `cmux agent wait review-27310 --timeout 1800 --print` |
 | Wait for several sessions | `cmux agent wait review-27310 review-27311 --all` |
 | Find the session behind a PR footer's agent link | `cmux agent resolve "https://cmux.com/deeplink/agent?id=aid-3f9c2a"` |
