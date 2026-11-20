@@ -46,6 +46,22 @@ pub(crate) enum PassEnd {
     /// The model left messages undecided (an outage, a timeout, a garbled answer): they stay
     /// held, and the pass is tried again as a failed one is.
     Undecided,
+    /// A recipient is still in the turn an earlier digest started: what is owed waits, and
+    /// the next pass runs after this long (its measured reply period, at least [`DEBOUNCE`]),
+    /// when everything owed by then goes out as one digest.
+    Busy(Duration),
+}
+
+/// How long owed digests wait behind a recipient's digest turn, at most: then they go out.
+pub(crate) const MAX_HOLD: Duration = Duration::from_secs(600);
+
+/// One digest recipient's pace: the digest turn under way, and how long its digest turns took.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct DigestPace {
+    /// The digest prompt id whose turn runs, and since when.
+    pub(crate) running: Option<(String, std::time::Instant)>,
+    /// The recipient's measured reply period: a moving average of its digest turns' lengths.
+    pub(crate) period: Duration,
 }
 
 /// A failed pass is tried again this many times, then waits for the next call.
@@ -137,6 +153,11 @@ pub(crate) struct Journal {
     pub(super) delivered: BTreeSet<String>,
     /// What its digests told whom, for [`triage::mark_repeats`].
     pub(super) told: triage::Told,
+    /// Whether the scan has started (a fork's inherited prefix is decided then).
+    pub(super) started: bool,
+    /// A fork's records copied from its parent, before its `forked` marker: none of them is
+    /// this chat's (the parent's held messages, grants and owed digests stay the parent's).
+    pub(super) inherited: bool,
     /// `needs_this_session` items: prompt id to thread, while unread.
     pub(super) open: BTreeMap<String, String>,
 }
@@ -161,6 +182,18 @@ impl Journal {
                 if let Some(d) = msg.get("digestDelivered").and_then(Value::as_str) {
                     self.owed.remove(d);
                     self.delivered.insert(d.to_owned());
+                }
+                // Owed digests that waited behind a busy recipient, merged into one.
+                if let Some(into) = msg.get("into").and_then(Value::as_str) {
+                    let from = msg.get("coalesced").and_then(Value::as_array);
+                    let ids = from.into_iter().flatten().filter_map(Value::as_str);
+                    for id in ids.filter(|id| *id != into) {
+                        let lines = self.owed.remove(id).unwrap_or_default();
+                        self.delivered.insert(id.to_owned());
+                        if !self.delivered.contains(into) {
+                            self.owed.entry(into.to_owned()).or_default().extend(lines);
+                        }
+                    }
                 }
                 // Owner items whose owner lost its authorization before delivery: told here.
                 let redirected = msg.get("redirected").and_then(Value::as_array);
@@ -230,9 +263,16 @@ impl Hub {
             let mut failures = 0u32;
             loop {
                 tokio::time::sleep(wait).await;
+                let mut busy = None;
                 let more = match hub.surge_triage_pass(&session).await {
                     Ok(PassEnd::Done) => {
                         failures = 0;
+                        false
+                    }
+                    // Arrivals meanwhile coalesce into the digest that goes when the turn ends.
+                    Ok(PassEnd::Busy(after)) => {
+                        failures = 0;
+                        busy = Some(after);
                         false
                     }
                     Ok(PassEnd::More) => {
@@ -253,13 +293,16 @@ impl Hub {
                 let mut due = hub.surge_triage_due.lock().unwrap_or_else(|e| e.into_inner());
                 let again = due.get(&session.id).copied().unwrap_or(false);
                 let retry = failures > 0 && failures <= RETRIES;
-                if !(more || again || retry) || super::queue::closing(&session) {
+                if !(more || again || retry || busy.is_some()) || super::queue::closing(&session) {
                     due.remove(&session.id);
                     return;
                 }
                 due.insert(session.id.clone(), false);
                 wait = if retry {
                     hub.surge_triage_wait(RETRY_AFTER * 2u32.pow(failures - 1))
+                } else if let Some(after) = busy {
+                    // Paced by the receiver: no faster than it answers, however many arrive.
+                    hub.surge_triage_wait(after)
                 } else {
                     hub.surge_triage_wait(DEBOUNCE)
                 };
@@ -383,11 +426,21 @@ impl Hub {
 
     /// Reads `journal`'s records past its cursor.
     fn surge_journal_tail(&self, session: &Session, journal: &mut Journal) -> Result<(), RpcError> {
-        let kinds = ["inbox", triage::RECORD_KIND, triage::GRANT_KIND];
+        if !journal.started {
+            journal.started = true;
+            // As `message_events::recover_message_events_after`: a fork skips everything up to
+            // its `forked` marker, all of it when a crash left none.
+            journal.inherited = session.meta().fork_seq.is_some();
+        }
+        let kinds = ["inbox", triage::RECORD_KIND, triage::GRANT_KIND, "forked"];
         let mut newest = journal.cursor;
         self.scan_kinds_after_and_kept(session, journal.cursor, &kinds, &mut |e: EventRecord| {
             newest = newest.max(e.seq);
-            journal.read(&e.kind, &e.msg, e.at);
+            if journal.inherited {
+                journal.inherited = e.kind != "forked";
+            } else {
+                journal.read(&e.kind, &e.msg, e.at);
+            }
             true
         })
         .map_err(|e| RpcError::internal(format!("read surge records: {e}")))?;
@@ -397,7 +450,8 @@ impl Hub {
 
     /// `lines` as delivered now: an owner item whose owner is no longer the thread's
     /// authorized owner (its grant revoked, its subscription removed since the pass decided
-    /// it) is this chat's again, never the old owner's. Returns the lines and the redirected.
+    /// it), or that is closed, is this chat's again: never the old owner's, and never lost.
+    /// Returns the lines and the redirected.
     fn surge_reauthorize(
         &self,
         session: &Session,
@@ -411,7 +465,11 @@ impl Hub {
         let owners = self.surge_owners(session, grants);
         for l in &mut lines {
             let Some(owner) = l.owner.as_deref() else { continue };
-            if owners.0.get(&l.thread_id).map(String::as_str) == Some(owner) {
+            let reachable = || {
+                self.resolve(owner).is_ok_and(|s| !super::queue::closing(&s))
+                    || self.remote_owner_target(owner).is_some()
+            };
+            if owners.0.get(&l.thread_id).map(String::as_str) == Some(owner) && reachable() {
                 continue;
             }
             l.category = triage::Category::NeedsThisSession;
@@ -499,6 +557,16 @@ impl Hub {
             *n -= 1;
             return Err(RpcError::internal("test: a failure after the journal write"));
         }
+        // Owed digests that waited (behind a busy recipient, or a failed delivery) go as one.
+        if journal.owed.len() > 1 {
+            let ids: Vec<String> = journal.owed.keys().cloned().collect();
+            let all: Vec<Line> = journal.owed.values().flat_map(|l| l.values().cloned()).collect();
+            let into = triage::digest_id(&session.id, &all);
+            let record = json!({"coalesced": ids, "into": into, "items": []});
+            journal.read(triage::RECORD_KIND, &record, crate::store::now_ms());
+            let open = self.surge_open_topics(session, journal);
+            self.surge_persist(session, record, open)?;
+        }
         let owed: Vec<(String, Vec<Line>)> = journal
             .owed
             .iter()
@@ -510,6 +578,9 @@ impl Hub {
         }
         for (id, lines) in owed {
             let (lines, redirected) = self.surge_reauthorize(session, &journal.grants, lines);
+            if let Some(after) = self.surge_digest_busy(session, &id, &lines, &redirected) {
+                return Ok(PassEnd::Busy(after));
+            }
             self.deliver_surge_digests(session, &id, &lines, &redirected).await?;
             let redirected: Vec<Value> = redirected
                 .iter()
@@ -545,17 +616,17 @@ impl Hub {
         threads.len() as u64
     }
 
-    /// Sends the digests named `id`: the chat's own and each owner's. Each is sent once: a
-    /// resend is its prompt id's duplicate.
-    async fn deliver_surge_digests(
-        self: &Arc<Self>,
-        session: &Arc<Session>,
+    /// The digests `id` sends now, as `(recipient, prompt id, text, shown lines)`: the chat's
+    /// own and each owner's, none for a recipient with nothing to show.
+    fn surge_digests<'a>(
+        &self,
+        session: &Session,
         id: &str,
-        lines: &[Line],
+        lines: &'a [Line],
         redirected: &[Line],
-    ) -> Result<(), RpcError> {
+    ) -> Vec<(String, String, String, Vec<&'a Line>)> {
+        let mut out = Vec::new();
         if let Some(text) = triage::digest(&session.id, lines) {
-            let mine = triage::digest_lines(lines);
             // Redirected items change what the chat's digest says: its own prompt id, so a
             // copy sent before the revocation does not swallow it as a duplicate.
             let id = if redirected.is_empty() {
@@ -563,20 +634,59 @@ impl Hub {
             } else {
                 owner_digest_id(id, &triage::digest_id(&session.id, redirected))
             };
-            self.send_surge_digest(session, &id, text, &mine).await?;
+            out.push((session.id.clone(), id, text, triage::digest_lines(lines)));
         }
         let owners: BTreeSet<&str> = lines.iter().filter_map(|l| l.owner.as_deref()).collect();
         for owner in owners {
             let Some(text) = triage::owner_digest(&session.id, owner, lines) else { continue };
             let theirs = triage::owner_digest_lines(owner, lines);
-            let digest_id = owner_digest_id(id, owner);
-            if let Ok(to) = self.resolve(owner) {
-                self.send_surge_digest(&to, &digest_id, text, &theirs).await?;
-            } else if let Some(target) = self.remote_owner_target(owner) {
-                self.send_remote_surge_digest(session, &target, &digest_id, text, &theirs).await?;
+            out.push((owner.to_owned(), owner_digest_id(id, owner), text, theirs));
+        }
+        out
+    }
+
+    /// How long digest `id` waits: None when every recipient is free (or in this digest's
+    /// own turn, a resend being its duplicate); else the busiest one's reply period, at least
+    /// [`DEBOUNCE`]. A turn past [`MAX_HOLD`] holds nothing.
+    fn surge_digest_busy(
+        &self,
+        session: &Session,
+        id: &str,
+        lines: &[Line],
+        redirected: &[Line],
+    ) -> Option<Duration> {
+        let digests = self.surge_digests(session, id, lines, redirected);
+        let pace = self.surge_digest_pace.lock().unwrap_or_else(|e| e.into_inner());
+        digests
+            .iter()
+            .filter_map(|(to, prompt, _, _)| {
+                let p = pace.get(to)?;
+                let (running, since) = p.running.as_ref()?;
+                (running != prompt && since.elapsed() < MAX_HOLD).then_some(p.period.max(DEBOUNCE))
+            })
+            .max()
+    }
+
+    /// Sends the digests named `id`: the chat's own and each owner's. Each is sent once: a
+    /// resend is its prompt id's duplicate. An owner that cannot be reached fails the pass
+    /// (it is retried; [`Hub::surge_reauthorize`] hands a closed owner's items to the chat),
+    /// so no digest is journaled delivered that no one received.
+    async fn deliver_surge_digests(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        id: &str,
+        lines: &[Line],
+        redirected: &[Line],
+    ) -> Result<(), RpcError> {
+        for (to, prompt, text, shown) in self.surge_digests(session, id, lines, redirected) {
+            if to == session.id {
+                self.send_surge_digest(session, &prompt, text, &shown).await?;
+            } else if let Ok(local) = self.resolve(&to) {
+                self.send_surge_digest(&local, &prompt, text, &shown).await?;
+            } else if let Some(target) = self.remote_owner_target(&to) {
+                self.send_remote_surge_digest(session, &target, &prompt, text, &shown).await?;
             } else {
-                // An owner gone since its subscription: its items stay in this chat's archive.
-                tracing::info!(session = %session.id, owner, "surge triage: owner gone");
+                return Err(RpcError::internal(format!("surge owner unreachable: {to}")));
             }
         }
         Ok(())
@@ -656,8 +766,7 @@ impl Hub {
             }
             tokio::time::timeout_at(deadline, changed)
                 .await
-                .map_err(|_| RpcError::internal("remote surge digest delivery timed out"))?
-                .ok();
+                .map_err(|_| RpcError::internal("remote surge digest delivery timed out"))?;
         }
     }
 
@@ -681,10 +790,30 @@ impl Hub {
             ..PromptOptions::default()
         };
         let (hub, chat) = (self.clone(), to.clone());
-        // Runs on past the accept: a queued prompt's run lasts until its turn ends.
+        let started = std::time::Instant::now();
+        {
+            let mut pace = self.surge_digest_pace.lock().unwrap_or_else(|e| e.into_inner());
+            pace.entry(to.id.clone()).or_default().running = Some((id.to_owned(), started));
+        }
+        let prompt = id.to_owned();
+        // Runs on past the accept: a queued prompt's run lasts until its turn ends, which
+        // ends the recipient's digest turn and measures its reply period.
         let run = self.scope.spawn_named("surge-digest", async move {
             let blocks = vec![json!({"type": "text", "text": text})];
-            hub.prompt_with(&chat, blocks, "acpmux", false, opts).await
+            let ran = hub.prompt_with(&chat, blocks, "acpmux", false, opts).await;
+            let took = started.elapsed();
+            let mut pace = hub.surge_digest_pace.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(p) = pace.get_mut(&chat.id) {
+                p.period = if p.period.is_zero() { took } else { (p.period * 3 + took) / 4 };
+                if p.running.as_ref().is_some_and(|(id, _)| *id == prompt) {
+                    p.running = None;
+                }
+            }
+            // A closed chat paces nothing: its entry goes with it.
+            if super::queue::closing(&chat) {
+                pace.remove(&chat.id);
+            }
+            ran
         });
         match rx.await {
             Ok(_accepted) => {

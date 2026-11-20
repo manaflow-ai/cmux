@@ -13,6 +13,9 @@ async fn chat(answer: Option<&'static str>) -> (Arc<Hub>, Arc<Session>) {
     let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
     let session = hub.new_session(req).await.unwrap();
     hub.set_surge_triager(Some(Arc::new(move |_| answer.map(str::to_owned))));
+    // The test runs each pass itself: a lazy inbox restore that finds held messages schedules
+    // no pass of its own beside it (`resume_after_restore`). [`scheduled`] lets one run.
+    hub.surge_triage_due.lock().unwrap().insert(session.id.clone(), false);
     (hub, session)
 }
 
@@ -184,6 +187,7 @@ async fn a_failure_after_the_journal_write_is_retried_with_no_new_arrival() {
     let (hub, s) = chat(Some("1 this")).await;
     hold(&hub, &s, "m1", "review", "result", "pick a base");
     FAIL_BEFORE_DELIVERY.lock().unwrap().insert(s.id.clone(), 2);
+    scheduled(&hub, &s);
     hub.schedule_surge_triage(&s);
     wait_idle(&hub, &s).await;
     let events = hub.events(&s.id, 0, 100_000).unwrap();
@@ -204,6 +208,7 @@ async fn retries_are_bounded() {
     let (hub, s) = chat(Some("1 this")).await;
     hold(&hub, &s, "m1", "review", "result", "pick a base");
     FAIL_BEFORE_DELIVERY.lock().unwrap().insert(s.id.clone(), 1000);
+    scheduled(&hub, &s);
     hub.schedule_surge_triage(&s);
     wait_idle(&hub, &s).await;
     let left = FAIL_BEFORE_DELIVERY.lock().unwrap()[&s.id];
@@ -218,6 +223,7 @@ async fn a_restored_inbox_resumes_the_held_backlog() {
     // A restart: no cached triage state, the inbox read again from the log, no new arrival.
     hub.surge_triage_journals.lock().unwrap().clear();
     *s.inbox() = Default::default();
+    scheduled(&hub, &s);
     hub.restore_inbox(&s);
     wait_idle(&hub, &s).await;
     let events = hub.events(&s.id, 0, 100_000).unwrap();
@@ -243,6 +249,9 @@ async fn schedule_runs_one_pass_for_a_burst() {
     let (hub, s) = chat(Some("1 noise\n2 noise\n3 noise")).await;
     for i in 0..3 {
         hold(&hub, &s, &format!("m{i}"), "runners", "fyi", "queued");
+        if i == 0 {
+            scheduled(&hub, &s);
+        }
         hub.schedule_surge_triage(&s);
     }
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
@@ -526,7 +535,7 @@ async fn a_repeated_observation_wakes_no_one_twice_across_passes_and_restarts() 
         thread,
         "Runner ubuntu-2404 queued 12 min on #48195",
     );
-    hub.surge_triage_pass(&s).await.unwrap();
+    pass_through(&hub, &s).await;
     // The next 30-second pass: another host's report of the same incident.
     hold_from(
         &hub,
@@ -536,7 +545,7 @@ async fn a_repeated_observation_wakes_no_one_twice_across_passes_and_restarts() 
         thread,
         "runner ubuntu-2404 queued 40 min on #48195",
     );
-    hub.surge_triage_pass(&s).await.unwrap();
+    pass_through(&hub, &s).await;
     // A restart: the projection is rebuilt from the journal, and still knows m1 was told.
     hub.surge_triage_journals.lock().unwrap().clear();
     hold_from(
@@ -547,7 +556,7 @@ async fn a_repeated_observation_wakes_no_one_twice_across_passes_and_restarts() 
         thread,
         "runner ubuntu-2404 queued 55 min on #48195",
     );
-    hub.surge_triage_pass(&s).await.unwrap();
+    pass_through(&hub, &s).await;
     // A materially different condition on the same topic surfaces.
     hold_from(
         &hub,
@@ -557,7 +566,7 @@ async fn a_repeated_observation_wakes_no_one_twice_across_passes_and_restarts() 
         thread,
         "runner pool down: no runner registers",
     );
-    hub.surge_triage_pass(&s).await.unwrap();
+    pass_through(&hub, &s).await;
 
     let events = hub.events(&s.id, 0, 100_000).unwrap();
     assert!(item(&events, "m1").get("repeatOf").is_none());
@@ -619,4 +628,122 @@ async fn a_grant_revoked_before_delivery_sends_the_item_to_the_chat_not_the_old_
     let marker = records(&events, triage::RECORD_KIND).find(|r| r.get("digestDelivered").is_some());
     assert_eq!(marker.unwrap()["redirected"][0]["promptId"], "m1");
     assert_eq!(hub.surge_open_topics(&s, &mut hub.surge_journal(&s).unwrap()), 1);
+}
+
+/// Lets [`Hub::schedule_surge_triage`] start passes for `s` again ([`chat`] stops them).
+fn scheduled(hub: &Hub, s: &Session) {
+    hub.surge_triage_due.lock().unwrap().remove(&s.id);
+}
+
+/// One pass of `s`, run again while a recipient is still in an earlier digest's turn.
+async fn pass_through(hub: &Arc<Hub>, s: &Arc<Session>) -> PassEnd {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        match hub.surge_triage_pass(s).await.unwrap() {
+            PassEnd::Busy(_) => {}
+            end => return end,
+        }
+        assert!(tokio::time::Instant::now() < deadline, "the digest turn ended");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn distinct_topics_while_the_receiver_is_busy_coalesce_into_one_paced_digest() {
+    let (hub, s) = chat(Some("1 this")).await;
+    let slow = Duration::from_secs(90);
+    let busy = DigestPace {
+        running: Some(("an earlier digest".into(), std::time::Instant::now())),
+        period: slow,
+    };
+    hub.surge_digest_pace.lock().unwrap().insert(s.id.clone(), busy);
+    // Three distinct actionable topics, one per 30-second pass, while the chat's earlier digest
+    // turn runs: none is sent, and each pass asks for the next one at its reply period.
+    for (id, thread, text) in [
+        ("m1", "review", "pick a base for #12"),
+        ("m2", "deploy", "deploy failed: roll back?"),
+        ("m3", "ci", "ci red on main after #13"),
+    ] {
+        hold(&hub, &s, id, thread, "result", text);
+        assert_eq!(hub.surge_triage_pass(&s).await.unwrap(), PassEnd::Busy(slow));
+    }
+    assert!(digested(&hub, &s.id).is_empty(), "nothing queued behind the busy turn");
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    let ids: BTreeSet<&str> = records(&events, triage::RECORD_KIND)
+        .filter_map(|r| r["digestPromptId"].as_str())
+        .collect();
+    assert_eq!(ids.len(), 3, "three passes, three owed digests");
+    // A fast receiver paces at the debounce, never faster.
+    hub.surge_digest_pace.lock().unwrap().get_mut(&s.id).unwrap().period = Duration::ZERO;
+    assert_eq!(hub.surge_triage_pass(&s).await.unwrap(), PassEnd::Busy(DEBOUNCE));
+
+    // The turn ends: one digest names all three.
+    hub.surge_digest_pace.lock().unwrap().get_mut(&s.id).unwrap().running = None;
+    assert_eq!(hub.surge_triage_pass(&s).await.unwrap(), PassEnd::Done);
+    assert_eq!(digested(&hub, &s.id), [json!(["m1", "m2", "m3"])]);
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    let merged = records(&events, triage::RECORD_KIND).filter(|r| r.get("into").is_some()).last();
+    let delivered = records(&events, triage::RECORD_KIND).find_map(|r| r.get("digestDelivered"));
+    assert_eq!(Some(&merged.unwrap()["into"]), delivered, "the merged digest is the one sent");
+    // A restart owes nothing more.
+    hub.surge_triage_journals.lock().unwrap().clear();
+    assert_eq!(pass_through(&hub, &s).await, PassEnd::Done);
+    assert_eq!(digested(&hub, &s.id).len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_closed_owner_is_never_marked_delivered_its_items_go_to_the_chat() {
+    let (hub, s) = chat(Some("1 owner")).await;
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let owner = hub.new_session(req).await.unwrap();
+    let params = json!({"sessionId": owner.id, "threadId": "runners"});
+    let method = crate::rpc::method::MUX_INBOX_SUBSCRIPTION_SET;
+    rpc_as(&hub, &owner.id, method, params).await;
+    let grant = json!({"threadId": "runners", "ownerSessionId": owner.id, "active": true});
+    hub.append(&s, "mux", triage::GRANT_KIND, grant);
+    hold(&hub, &s, "m1", "runners", "fyi", "runner queued 40 min");
+    FAIL_BEFORE_DELIVERY.lock().unwrap().insert(s.id.clone(), 1);
+    assert!(hub.surge_triage_pass(&s).await.is_err());
+    // The owner closes between the decision and the delivery.
+    hub.kill(&owner, true).await.unwrap();
+    assert_eq!(pass_through(&hub, &s).await, PassEnd::Done);
+    assert_eq!(digested(&hub, &s.id), [json!(["m1"])], "the chat is told instead");
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    let marker = records(&events, triage::RECORD_KIND).find(|r| r.get("digestDelivered").is_some());
+    assert_eq!(marker.unwrap()["redirected"][0]["promptId"], "m1");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_fork_never_sends_its_parents_owed_digest_or_uses_its_grants() {
+    let (hub, _) = chat(Some("1 owner")).await;
+    let req = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let owner = hub.new_session(req()).await.unwrap();
+    let child = hub.new_session(req()).await.unwrap();
+    hub.surge_triage_due.lock().unwrap().insert(child.id.clone(), false);
+    child.meta.lock().unwrap().fork_seq = Some(1);
+    let params = json!({"sessionId": owner.id, "threadId": "runners"});
+    let method = crate::rpc::method::MUX_INBOX_SUBSCRIPTION_SET;
+    rpc_as(&hub, &owner.id, method, params).await;
+    // The parent's records, copied before the fork's marker: its grant, a held message, and a
+    // digest it owed.
+    let grant = json!({"threadId": "runners", "ownerSessionId": owner.id, "active": true});
+    hub.append(&child, "mux", triage::GRANT_KIND, grant);
+    hold(&hub, &child, "p1", "review", "result", "the parent's own question");
+    let owed = json!({"batchId": "b", "recipient": "parent", "digestPromptId": "surge-digest-parent",
+        "items": [{"promptId": "p0", "threadId": "secret", "category": "needs_this_session",
+        "decidedBy": "rule", "from": "x", "label": "the parent's private item"}]});
+    hub.append(&child, "mux", triage::RECORD_KIND, owed);
+    hub.append(&child, "mux", "forked", json!({"parentId": "parent", "forkSeq": 1}));
+    hold(&hub, &child, "c1", "runners", "fyi", "runner queued 40 min");
+    assert_eq!(pass_through(&hub, &child).await, PassEnd::Done);
+
+    let events = hub.events(&child.id, 0, 100_000).unwrap();
+    let triaged: Vec<String> = records(&events, triage::RECORD_KIND)
+        .filter(|r| r.get("surge").is_some())
+        .flat_map(|r| triage::triaged_ids(r).collect::<Vec<_>>())
+        .collect();
+    assert_eq!(triaged, ["c1"], "only the fork's own message");
+    assert_eq!(item(&events, "c1")["category"], "needs_this_session", "no inherited grant");
+    assert_eq!(digested(&hub, &child.id), [json!(["c1"])], "the parent's digest is not sent");
+    assert!(digested(&hub, &owner.id).is_empty());
 }
