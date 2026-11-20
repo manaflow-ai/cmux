@@ -1127,6 +1127,8 @@ pub struct Hub {
     pub(super) surge_triage_due: StdMutex<HashMap<String, bool>>,
     /// What answers surge triage instead of the small model (tests; `surge_triage.rs`).
     pub(super) surge_triager: StdMutex<Option<surge_triage::SurgeTriager>>,
+    /// Each chat's surge triage state between passes (`surge_triage.rs` `Journal`).
+    pub(super) surge_triage_journals: StdMutex<HashMap<String, surge_triage::Journal>>,
     /// The forced start mode and the setting's change count (`start_mode_state.rs`).
     pub(super) start_mode_state: start_mode_state::StartModeCell,
     /// The caller tokens earlier daemon runs gave out, by session (`caller_registry.rs`).
@@ -1547,6 +1549,7 @@ impl Hub {
             coach_rewriter: StdMutex::new(None),
             surge_triage_due: StdMutex::new(HashMap::new()),
             surge_triager: StdMutex::new(None),
+            surge_triage_journals: StdMutex::new(HashMap::new()),
             start_mode_state,
             caller_registry,
             full_access_pushes: tokio::sync::Mutex::new(()),
