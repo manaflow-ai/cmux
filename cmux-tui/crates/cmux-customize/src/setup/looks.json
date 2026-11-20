@@ -1,0 +1,35 @@
+{
+  "cmuxLooks": 1,
+  "looks": [
+    {
+      "id": "manaflow-ai/studio-look",
+      "name": "Studio",
+      "tagline": "A dense, near-black workbench for agent chats: quiet chrome, compact rows, a boxed prompt.",
+      "repo": "github.com/manaflow-ai/cmux-studio-look",
+      "tags": ["chat", "dark", "sidebar"]
+    },
+    {
+      "id": "manaflow-ai/paper-look",
+      "name": "Paper",
+      "tagline": "A warm, roomy reading look for agent chats: serif replies on paper, soft rounded prompts.",
+      "repo": "github.com/manaflow-ai/cmux-paper-look",
+      "tags": ["chat", "light", "sidebar"]
+    },
+    {
+      "id": "manaflow-ai/newtab-cards-look",
+      "name": "Cards New Tab",
+      "tagline": "One rounded field, the project and agent under it, and your three most recent chats as cards.",
+      "repo": "github.com/manaflow-ai/cmux-newtab-cards-look",
+      "tags": ["new-tab"],
+      "previews": { "light": "screenshots/after-few-light.png", "dark": "screenshots/after-few-dark.png" }
+    },
+    {
+      "id": "manaflow-ai/newtab-threads-look",
+      "name": "Threads New Tab",
+      "tagline": "A New Tab page with the field on top, Recently Closed, and every chat as a quiet list.",
+      "repo": "github.com/manaflow-ai/cmux-newtab-threads-look",
+      "tags": ["new-tab"],
+      "previews": { "light": "screenshots/after-few-light.png", "dark": "screenshots/after-few-dark.png" }
+    }
+  ]
+}
