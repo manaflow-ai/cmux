@@ -154,6 +154,22 @@ await requireBrowserLane("new-tab-field-on-art.test.ts", async () => {
         expect(inset, "the list's padding is 6 of the corner's 20").toBeCloseTo((popoverCorner * 6) / 20, 1);
         expect(inset + rowCorner, "padding and row corner make the popover's corner").toBeCloseTo(popoverCorner, 1);
         expect(rowCorner, "the row's corner is half the row, a pill").toBeCloseTo(row / 2, 1);
+        // The Console template's field has the popup corner, and so do its suggestions (a portal: the popover's own
+        // class says the template).
+        await page.evaluate(() => {
+          document.querySelector(".nt-screen")!.setAttribute("data-template", "console");
+          document.querySelector(".nt-popover")!.classList.add("nt-popover-console");
+        });
+        const consoleCorner = parseFloat(await corner(".nt-popover"));
+        expect(consoleCorner, "the Console suggestions' corner is its box's").toBeCloseTo(
+          parseFloat(await corner(".nt-box")),
+          2,
+        );
+        const consoleRow = await metrics("#row", "#rows");
+        expect(parseFloat(consoleRow.inset) + parseFloat(consoleRow.radius), "concentric in Console").toBeCloseTo(
+          consoleCorner,
+          1,
+        );
         // The classic template's suggestions (NewTabPage's omnibar) are menu rows (batch 2).
         expect(await metrics("#omni-row", "#omni")).toEqual(tokens);
         expect(await corner("#omni")).toBe(await corner("#menu"));
@@ -180,12 +196,23 @@ await requireBrowserLane("new-tab-field-on-art.test.ts", async () => {
                   (parseFloat(getComputedStyle(zoomed).zoom) || 1);
                 const box = document.querySelector(".nt-box")!;
                 const popover = document.querySelector(".nt-popover")!;
-                return { box: corner(box, box.closest(".nt-composer")!), popover: corner(popover, popover) };
+                // A lone row's popover (whole-pixel padding and row): never shorter than two of its corners, or the
+                // engine shrinks its corner below the box's.
+                popover.classList.add("nt-popover-single");
+                const lone = {
+                  height: parseFloat(getComputedStyle(popover).height),
+                  corner: parseFloat(getComputedStyle(popover).borderTopLeftRadius),
+                };
+                popover.classList.remove("nt-popover-single");
+                return { box: corner(box, box.closest(".nt-composer")!), popover: corner(popover, popover), lone };
               },
               [t, lines] as const,
             );
             expect(drawn.popover, `density ${t}, ${lines} line(s)`).toBeCloseTo(drawn.box, 3);
             expect(drawn.box, `density ${t}, ${lines} line(s): Default's 20 px times the zoom`).toBeCloseTo(20 * t, 2);
+            expect(drawn.lone.height, `density ${t}: a lone row's popover holds two corners`).toBeGreaterThanOrEqual(
+              2 * drawn.lone.corner - 0.01,
+            );
           }
         }
         await page.close();

@@ -32,9 +32,9 @@
    (--nt-box-radius) at every density, and a row is concentric with it with the least padding: the list's padding is 6
    of the corner's 20 and the row's corner the other 14, half the 28 px row, so a selected row is a pill (Lucas
    2026-11-20: "concentric but also the minimum amount of padding"). A larger prompt text grows the corner, so the
-   row's corner stops at half its height (CMUX-652; standup 2026-11-18: "match the border radius of the composer
-   palette with the text input"; Lucas: "we need to make it concentric"). */
-.nt-popover{--ui-row-height:var(--acpmux-composer-control,28px);--nt-row-text:calc(13px * var(--nt-base-text-scale,1));--nt-row-detail:calc(12px * var(--nt-base-text-scale,1));--ui-popup-radius:var(--nt-box-radius);--ui-popup-padding:calc(var(--nt-box-radius) * 6 / 20);--ui-row-radius:min(calc(var(--nt-box-radius) - var(--ui-popup-padding) + var(--cmux-composer-row-radius-extra,0px)),calc(var(--ui-row-height) / 2));--ui-row-padding-inline:calc(var(--ds-space-2) * var(--nt-density,1));box-sizing:border-box;width:var(--anchor-width);padding:0;border-radius:var(--ui-popup-radius,var(--ds-radius-popup));color:var(--agent-text);font-family:var(--font-ui);-webkit-font-smoothing:antialiased;}
+   padding grows to the corner less half the row and the rows stay concentric pills (CMUX-652; standup 2026-11-18:
+   "match the border radius of the composer palette with the text input"; Lucas: "we need to make it concentric"). */
+.nt-popover{--ui-row-height:var(--acpmux-composer-control,28px);--nt-row-text:calc(13px * var(--nt-base-text-scale,1));--nt-row-detail:calc(12px * var(--nt-base-text-scale,1));--ui-popup-radius:var(--nt-box-radius);--ui-popup-padding:max(calc(var(--nt-box-radius) * 6 / 20),calc(var(--nt-box-radius) - var(--ui-row-height) / 2));--ui-row-radius:min(calc(var(--nt-box-radius) - var(--ui-popup-padding) + var(--cmux-composer-row-radius-extra,0px)),calc(var(--ui-row-height) / 2));--ui-row-padding-inline:calc(var(--ds-space-2) * var(--nt-density,1));box-sizing:border-box;width:var(--anchor-width);padding:0;border-radius:var(--ui-popup-radius,var(--ds-radius-popup));color:var(--agent-text);font-family:var(--font-ui);-webkit-font-smoothing:antialiased;}
 /* The suggestions belong to the field: a menu the composer opens (model, reasoning, access: the dropdown layer) covers them, whichever opened last, as Codex desktop's composer menus do (Leo 10-15: the model menu opened under them). A dialog's scrim, on the same layer and portaled later, still dims them. */
 .ui-positioner:has(>.nt-popover){z-index:var(--layer-overlay)}
 .nt-popover .nt-rows{--popup-scroll-cap:360px;box-sizing:border-box;padding:var(--ui-popup-padding);max-height:min(48vh,360px,var(--available-height,360px));overflow:auto;overscroll-behavior:contain}
@@ -1315,16 +1315,23 @@
      specified width times t once, so (anchor / t) * t equals the composer. */
   width: calc(var(--anchor-width) / var(--cmux-composer-zoom, 1));
 }
+/* The Console template's field has the popup corner (above), so its suggestions do too. */
+.nt-popover.nt-popover-console {
+  --nt-box-radius: var(--ds-radius-popup);
+}
 /* A lone row's padding and height in whole drawn pixels (after the zoom): at a compact density they came to 3.3 and
    23.3 px, so the row's edges fell between pixels and it sat 1 px low (Lucas 2026-11-17). Only one row: a list keeps
    every size Default times the zoom, which rounding each row would break (new-tab-density-scaling). An engine
-   without round() keeps the sizes above. */
+   without round() keeps the sizes above. The padding rounds up, never down: the popover is its row plus twice the
+   padding, and under two of its corners WebKit shrinks the corner below the field's (at Compact, 5.4 px rounded to 5
+   made the popover 35 px for an 18 px corner). */
 @supports (width: round(nearest, 1.5px, 1px)) {
   .nt-popover.nt-popover-single {
     --ui-popup-padding: calc(
       round(
-          nearest,
-          var(--nt-box-radius) * 6 / 20 * var(--cmux-composer-zoom, 1),
+          up,
+          max(var(--nt-box-radius) * 6 / 20, var(--nt-box-radius) - var(--ui-row-height) / 2) *
+            var(--cmux-composer-zoom, 1),
           1px
         ) /
         var(--cmux-composer-zoom, 1)
