@@ -27,6 +27,8 @@
 //! test; the time bars are printed, since one CI sample is noisy. Manual, on Linux CI:
 //! `cargo test -p acpmux --release --test delta_cost -- --ignored --nocapture`.
 
+// The per-home `json!` has more keys than the default limit expands, as in `god_daemon.rs`.
+#![recursion_limit = "256"]
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -41,6 +43,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
 
 use acpmux::god_fixture::{self, Shape};
 use acpmux::rows::{Patch, RowTable};
+use acpmux::store::Store as _;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader, Write};
@@ -328,10 +331,8 @@ fn fold_cost(home: &Path, id: &str, cut: u64) -> Value {
         table.apply(rec, &mut patches);
     }
     let ns = timed.elapsed().as_secs_f64() * 1e9;
-    let whole = patches
-        .iter()
-        .filter(|p| matches!(p, Patch::Insert { .. } | Patch::Text { .. }))
-        .count();
+    let whole =
+        patches.iter().filter(|p| matches!(p, Patch::Insert { .. } | Patch::Text { .. })).count();
     let patch_bytes: usize =
         patches.iter().map(|p| serde_json::to_vec(p).map_or(0, |b| b.len())).sum();
     let per = |v: f64| round2(v / deltas.max(1) as f64);
@@ -361,10 +362,8 @@ fn write_config(home: &Path) {
 fn summarize(turns: &[Turn], len: u64) -> Value {
     let m = |f: &dyn Fn(&Turn) -> f64| round2(median(turns.iter().map(f).collect()));
     let v1 = m(&|t: &Turn| t.per(t.tally.v1_bytes));
-    let others: BTreeMap<String, u64> = turns
-        .last()
-        .map(|t| t.tally.other_methods.clone())
-        .unwrap_or_default();
+    let others: BTreeMap<String, u64> =
+        turns.last().map(|t| t.tally.other_methods.clone()).unwrap_or_default();
     json!({
         "deltaBytes": len,
         "v1": {
@@ -515,12 +514,36 @@ fn a_text_delta_costs_its_own_length_in_a_god_chat() {
         let rows = vec![
             ratio_row(small, god, "v1 bytes per delta (16 B)", "/short/v1/bytesPerDelta", "B"),
             ratio_row(small, god, "v1 bytes per delta (256 B)", "/long/v1/bytesPerDelta", "B"),
-            ratio_row(small, god, "row patch bytes per delta (16 B)", "/short/rows/bytesPerDelta", "B"),
-            ratio_row(small, god, "row patch bytes per delta (256 B)", "/long/rows/bytesPerDelta", "B"),
-            ratio_row(small, god, "rows touched per delta", "/long/rows/rowsTouchedPerDelta", "rows"),
+            ratio_row(
+                small,
+                god,
+                "row patch bytes per delta (16 B)",
+                "/short/rows/bytesPerDelta",
+                "B",
+            ),
+            ratio_row(
+                small,
+                god,
+                "row patch bytes per delta (256 B)",
+                "/long/rows/bytesPerDelta",
+                "B",
+            ),
+            ratio_row(
+                small,
+                god,
+                "rows touched per delta",
+                "/long/rows/rowsTouchedPerDelta",
+                "rows",
+            ),
             ratio_row(small, god, "list bytes per delta", "/long/list/bytesPerDelta", "B"),
             ratio_row(small, god, "wire bytes per delta (256 B)", "/long/wireBytesPerDelta", "B"),
-            ratio_row(small, god, "daemon CPU per delta (256 B)", "/long/daemonCpuUsPerDelta", "us"),
+            ratio_row(
+                small,
+                god,
+                "daemon CPU per delta (256 B)",
+                "/long/daemonCpuUsPerDelta",
+                "us",
+            ),
             ratio_row(small, god, "wall per delta (256 B)", "/long/wallUsPerDelta", "us"),
             ratio_row(small, god, "fold ns per delta", "/fold/nsPerDelta", "ns"),
         ];
