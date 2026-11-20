@@ -87,6 +87,42 @@ impl Store {
 }
 
 impl Hub {
+    /// `_acpmux/history {sessionId, limit?}` of a peer chat whose peer did not answer: the turns
+    /// this daemon's copy holds, `stale`, with the times their `turn_result`s carry
+    /// (`history_timing.rs`), as the peer's own log would give them. None when it holds no turn.
+    /// One copy, at most [`SESSION_EVENTS`] records: no log is read.
+    pub(crate) fn peer_history_kept(&self, params: &Value) -> Option<Value> {
+        let key = params.get("sessionId").and_then(Value::as_str)?;
+        let (peer, mux, row) = self.resolve_remote(key)?;
+        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20);
+        let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+        let copy = self.peer_snapshots.read(
+            (&peer.name, &mux),
+            (SESSION_EVENTS, usize::MAX),
+            created_at(&row),
+            None,
+        );
+        let events = copy.get("events").and_then(Value::as_array)?;
+        let kinds = crate::hub::history_kinds();
+        let turns = crate::hub::history_turns(limit, &mut |visit| {
+            for e in events {
+                let Ok(e) = serde_json::from_value::<crate::store::EventRecord>(e.clone()) else {
+                    continue;
+                };
+                if kinds.contains(&e.kind.as_str()) && !visit(e) {
+                    break;
+                }
+            }
+        });
+        if turns.is_empty() {
+            return None;
+        }
+        Some(json!({
+            "sessionId": mux, "turns": turns, "peer": peer.name, "stale": true,
+            "capturedAt": copy["capturedAt"],
+        }))
+    }
+
     /// `_acpmux/peer_snapshot {sessionId, host?, limit?, maxBytes?}`: this daemon's copy of a peer
     /// session's events, answered whether or not the peer is reachable, always `stale`.
     /// `sessionId` is an id or `HOST/name`, or with `host` the peer's own id (a lease that ended).

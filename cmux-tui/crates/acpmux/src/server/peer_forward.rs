@@ -307,6 +307,25 @@ pub(super) async fn forward(
     {
         ask_back(&peer, m, params, conn.origin);
     }
+    // A history read of a peer that is down, or did not answer in time, is answered from this
+    // daemon's copy of the chat when it holds turns (`hub/peer_snapshot/read.rs`), with their
+    // times: the copy is this machine's own, so for its app and unix socket only, as
+    // `_acpmux/peer_snapshot` is.
+    if m == method::MUX_HISTORY
+        && !conn.origin.web_class()
+        && let Some(Err(e)) = &reply
+        && matches!(
+            e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str),
+            Some("peer_unreachable" | "peer_read_timeout")
+        )
+    {
+        let (hub, params) = (Arc::clone(hub), params.clone());
+        if let Ok(Some(kept)) =
+            tokio::task::spawn_blocking(move || hub.peer_history_kept(&params)).await
+        {
+            return Some(Ok(kept));
+        }
+    }
     if conn.origin == Origin::Peer {
         return reply.map(|r| r.map_err(super::redact::hide_unreachable_peer));
     }

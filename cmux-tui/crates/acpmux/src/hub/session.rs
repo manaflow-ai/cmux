@@ -77,6 +77,8 @@ pub struct Session {
     pub(super) append_lock: StdMutex<()>,
     /// Incremental per-chat wall-time and token attribution, seeded lazily from the journal.
     pub(super) time_breakdown: StdMutex<super::time_breakdown::State>,
+    /// The running turn's timing, for its `turn_result`'s receipt (`history_timing.rs`).
+    pub(super) turn_clock: StdMutex<super::history_timing::TurnClock>,
     /// The one writer of its metadata (`meta_save.rs`): versioned changes, committed to
     /// `session.json` in version order (fuzz row g finding g2).
     pub(super) meta_writer: super::meta_save::MetaWriter,
