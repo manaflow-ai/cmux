@@ -11,7 +11,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
 import type { NeedsYouAnswer, NeedsYouItem } from "../needsYou/model";
 import { askText } from "../needsYou/needsYouModel";
+import type { AcpmuxPermission } from "../model";
+import { composerPromptOf, promptHoldsDraft } from "../composerTyped";
 import { harnessName } from "../permissions/planBuild";
+import { permissionCommand, permissionTitle } from "../permissions/prompt";
 import { focusRoute } from "../../../ui/focusRoute";
 import { islandAnswers, islandExpanded, islandToggle, type IslandState } from "./model";
 import "./statusIsland.css";
@@ -21,8 +24,12 @@ export type StatusIslandActions = {
   answer(item: NeedsYouItem, choice: NeedsYouAnswer): Promise<unknown>;
   /// Opens the ask at its source (useNeedsYou's `actions.goTo`).
   goTo(item: NeedsYouItem): void;
-  /// Opens a chat by id, beside this one (the host's `chat.asks.open`).
+  /// Opens a chat by id: beside this one (the host's `chat.asks.open`), or for the chat on screen,
+  /// shows its failure where it is.
   openSession(sessionId: string): void;
+  /// Whether Open Chat can go anywhere for this chat (the host refuses another computer's chat and
+  /// any open from New Tab). Absent: it can.
+  canOpen?(sessionId: string): boolean;
 };
 
 export function StatusIsland({ state, actions }: { state: IslandState; actions: StatusIslandActions }) {
@@ -80,23 +87,42 @@ export function StatusIsland({ state, actions }: { state: IslandState; actions: 
     handoff.current = true;
     setToggled({ focus: state.focus, open: false });
   };
-  // Escape inside the card folds it back into the pill (a native listener: the island is a region,
-  // not a control, so its own buttons keep their keys).
+  // Escape belongs to the island while its card is open, wherever the keyboard is that the
+  // permission card would read an Escape as Deny (permissions/prompt.ts `permissionKeyAction`): in
+  // the island, on the page with nothing focused, or in the composer while it holds no draft. The
+  // card opens by itself with focus left in the composer, so the person's Escape there means "put
+  // this away", never Deny: the island folds and takes the key (window capture runs before the
+  // permission card's document capture, and a prevented key is one it ignores). A composer with a
+  // draft, another field, a menu or a dialog keeps its own Escape.
   const island = useRef<HTMLElement>(null);
   const focusKey = state.focus;
   useEffect(() => {
-    const node = island.current;
-    if (!node || !expanded || !focusKey) return;
+    if (!expanded || !focusKey) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+      const target = event.target instanceof Element ? event.target : null;
+      const inIsland = Boolean(target && island.current?.contains(target));
+      const nowhere = !target || target === document.body || target === document.documentElement;
+      const prompt = inIsland || nowhere ? null : composerPromptOf(target);
+      if (!inIsland && !nowhere && !(prompt && !promptHoldsDraft(prompt))) return;
+      event.preventDefault();
       event.stopPropagation();
-      handoff.current = true;
+      // Focus follows only a press made in the island; the composer keeps the keyboard.
+      handoff.current = inIsland;
       setToggled({ focus: focusKey, open: false });
     };
-    node.addEventListener("keydown", onKey);
-    return () => node.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [expanded, focusKey]);
+  // The request on show now. An answer goes only to the request whose button was pressed, and only
+  // while it is still the one on show: a newer ask that lands mid-press gets a fresh card (IslandAsk
+  // is keyed by the request), and a click that still arrives for the old one sends nothing.
+  const current = useRef(state.attention?.id);
+  useLayoutEffect(() => {
+    current.current = state.attention?.id;
+  });
   const answer = (item: NeedsYouItem, choice: NeedsYouAnswer) => {
+    if (item.id !== current.current) return;
     setSending(item.id);
     setFailedFocus(undefined);
     actions.answer(item, choice).then(
@@ -143,12 +169,14 @@ export function StatusIsland({ state, actions }: { state: IslandState; actions: 
           </button>
         ) : state.attention ? (
           <IslandAsk
+            key={state.attention.id}
             item={state.attention}
+            permission={state.permission}
             running={state.running}
             sending={sending === state.attention.id}
             failed={failedFocus === state.focus}
-            onAnswer={(choice) => state.attention && answer(state.attention, choice)}
-            onOpen={() => state.attention && actions.goTo(state.attention)}
+            onAnswer={answer}
+            onOpen={actions.goTo}
             onCollapse={collapse}
           />
         ) : state.failure ? (
@@ -161,16 +189,18 @@ export function StatusIsland({ state, actions }: { state: IslandState; actions: 
             />
             <p className="acpmux-status-island__ask">{t("statusIsland.failed")}</p>
             {state.failure.error && <p className="acpmux-status-island__detail">{state.failure.error}</p>}
-            <div className="acpmux-status-island__actions">
-              <button
-                type="button"
-                className="acpmux-status-island__action"
-                data-tone="allow"
-                onClick={() => state.failure && actions.openSession(state.failure.sessionId)}
-              >
-                {t("statusIsland.open")}
-              </button>
-            </div>
+            {(actions.canOpen?.(state.failure.sessionId) ?? true) && (
+              <div className="acpmux-status-island__actions">
+                <button
+                  type="button"
+                  className="acpmux-status-island__action"
+                  data-tone="allow"
+                  onClick={() => state.failure && actions.openSession(state.failure.sessionId)}
+                >
+                  {t("statusIsland.open")}
+                </button>
+              </div>
+            )}
           </div>
         ) : null}
       </div>
@@ -220,6 +250,7 @@ function IslandHead({
 
 function IslandAsk({
   item,
+  permission,
   running,
   sending,
   failed,
@@ -228,23 +259,35 @@ function IslandAsk({
   onCollapse,
 }: {
   item: NeedsYouItem;
+  permission?: AcpmuxPermission;
   running: number;
   sending: boolean;
   failed: boolean;
-  onAnswer(choice: NeedsYouAnswer): void;
-  onOpen(): void;
+  onAnswer(item: NeedsYouItem, choice: NeedsYouAnswer): void;
+  onOpen(item: NeedsYouItem): void;
   onCollapse(): void;
 }) {
   const t = useT();
   const answers = islandAnswers(item);
+  // A command is what Allow runs: read it as the permission card does (`permissionCommand`: the
+  // command, else an execute request's title), and show it whole, never as a clamped title line.
+  const command = permission && !item.question ? permissionCommand(permission) : "";
   return (
     <div className="acpmux-status-island__card" data-kind={item.kind}>
       <IslandHead name={item.who.name} harness={item.who.harness} running={running} onCollapse={onCollapse} />
-      <p className="acpmux-status-island__ask">{askText(item, t)}</p>
-      {item.detail && (
-        <p className="acpmux-status-island__detail" data-command={item.command ? "" : undefined}>
-          {item.detail}
+      <p className="acpmux-status-island__ask">
+        {command && permission ? permissionTitle(permission, t) : askText(item, t)}
+      </p>
+      {command ? (
+        <p className="acpmux-status-island__detail" data-command="">
+          {command}
         </p>
+      ) : (
+        item.detail && (
+          <p className="acpmux-status-island__detail" data-command={item.command ? "" : undefined}>
+            {item.detail}
+          </p>
+        )
       )}
       {failed && <p className="acpmux-status-island__error">{t("needsYou.answerFailed")}</p>}
       <div
@@ -258,13 +301,13 @@ function IslandAsk({
             className="acpmux-status-island__action"
             data-tone={choice.tone}
             disabled={sending}
-            onClick={() => onAnswer(choice)}
+            onClick={() => onAnswer(item, choice)}
           >
             {choice.label}
           </button>
         ))}
         {answers.length === 0 && (
-          <button type="button" className="acpmux-status-island__action" data-tone="allow" onClick={onOpen}>
+          <button type="button" className="acpmux-status-island__action" data-tone="allow" onClick={() => onOpen(item)}>
             {t("statusIsland.open")}
           </button>
         )}

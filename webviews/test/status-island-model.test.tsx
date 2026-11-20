@@ -111,6 +111,16 @@ describe("islandState", () => {
     expect(again.focus).not.toBe(first.focus);
     expect(islandExpanded(again, { focus: first.focus!, open: false })).toBe(true);
   });
+
+  test("F6: the newest failure is ranked by activity, not by a warm or resume's updatedAt", () => {
+    const s = state([
+      chat("recent", { indicator: "failed", activityAt: 50, updatedAt: 50 }),
+      // An old failure whose pane was just warmed: its updatedAt is newest, its activity is not.
+      chat("warmed", { indicator: "failed", activityAt: 10, updatedAt: 90 }),
+    ]);
+    expect(s.failure?.sessionId).toBe("recent");
+    expect(s.focus).toBe("failed:recent:50");
+  });
 });
 
 describe("islandExpanded", () => {

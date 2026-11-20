@@ -3,8 +3,9 @@
 // is a store of its own: the asks are the Needs you items (needsYou/model.ts), which acpmux already
 // reports, and the counts are the session list's indicators. An answer leaves the island the moment
 // acpmux says it was answered, wherever it was answered.
-import type { NeedsYouItem } from "../needsYou/model";
-import type { AcpmuxSessionEntry } from "../sessionList";
+import type { AcpmuxPermission } from "../model";
+import type { NeedsYouItem, WatchedAsk } from "../needsYou/model";
+import { activityTime, type AcpmuxSessionEntry } from "../sessionList";
 
 /// A chat whose agent stopped on an error: acpmux's `failed` dot, or `lost` (its machine is gone).
 export type IslandFailure = { sessionId: string; name: string; harness?: string; error?: string };
@@ -18,6 +19,10 @@ export type IslandState = {
   waiting: number;
   /// The ask the expanded card shows: the newest one with one-click answers, else the newest ask.
   attention?: NeedsYouItem;
+  /// The attention item's permission request as acpmux reported it, when it is one: the card reads
+  /// its command and title the way the permission card does (permissions/prompt.ts), so a command
+  /// carried only in the title is still shown whole above Allow.
+  permission?: AcpmuxPermission;
   /// The newest failed chat, shown when no ask is open.
   failure?: IslandFailure;
   /// The pill's mark: an ask outranks a failure, a failure outranks running work.
@@ -35,20 +40,38 @@ const failed = (entry: AcpmuxSessionEntry) =>
 export function islandState({
   sessions,
   items,
+  asks = [],
 }: {
   sessions: readonly AcpmuxSessionEntry[];
   /// The Needs you items, newest first (needsYouItems).
   items: readonly NeedsYouItem[];
+  /// The pending permission requests the items were read from (the snapshot's `asks`).
+  asks?: readonly WatchedAsk[];
 }): IslandState {
   let running = 0;
   let failure: AcpmuxSessionEntry | undefined;
   for (const entry of sessions) {
     if (entry.archived || entry.side) continue;
     if (entry.indicator === "working") running += 1;
-    else if (failed(entry) && (entry.updatedAt ?? 0) >= (failure?.updatedAt ?? -1)) failure = entry;
+    // Newest failure by when the chat last did something (activityTime): a warm or resume moves
+    // `updatedAt` and must not pick another failure or reopen the card.
+    else if (failed(entry) && (activityTime(entry) ?? 0) >= (failure ? (activityTime(failure) ?? 0) : -1))
+      failure = entry;
   }
   const attention = items.find((item) => islandAnswers(item).length > 0) ?? items[0];
-  if (attention) return { running, waiting: items.length, attention, tone: "attention", focus: `ask:${attention.id}` };
+  if (attention) {
+    const permission = attention.permissionId
+      ? asks.find((ask) => ask.permission.permissionId === attention.permissionId)?.permission
+      : undefined;
+    return {
+      running,
+      waiting: items.length,
+      attention,
+      ...(permission ? { permission } : {}),
+      tone: "attention",
+      focus: `ask:${attention.id}`,
+    };
+  }
   if (failure)
     return {
       running,
@@ -60,7 +83,7 @@ export function islandState({
         ...(failure.laneError ? { error: failure.laneError } : {}),
       },
       tone: "error",
-      focus: `failed:${failure.sessionId}:${failure.activityAt ?? failure.updatedAt ?? ""}`,
+      focus: `failed:${failure.sessionId}:${activityTime(failure) ?? ""}`,
     };
   return { running, waiting: 0, tone: running > 0 ? "running" : "idle" };
 }

@@ -22,6 +22,6 @@ export function useStatusIsland(
       open: { ...(sessionId ? { sessionId } : {}), rows, queue, queueApproval },
       tabs,
     });
-    return islandState({ sessions, items });
+    return islandState({ sessions, items, asks: asks ?? [] });
   }, [on, sessions, asks, sessionId, rows, queue, queueApproval, tabs]);
 }

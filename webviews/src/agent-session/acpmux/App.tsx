@@ -13705,7 +13705,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             actions={{
               answer: needsYou.actions.answer,
               goTo: needsYou.actions.goTo,
-              openSession: (sessionId) => void callNative("chat.asks.open", { sessionId }).catch(() => undefined),
+              // The chat on screen: its failure is right here, at the foot of the transcript. Another
+              // chat opens beside this one (`chat.asks.open`), which the host does only for a chat on
+              // this Mac's acpmux and never from New Tab: there the card offers no Open Chat.
+              openSession: (sessionId) => {
+                if (sessionId === snapshot.sessionId) {
+                  const failures = document.querySelectorAll(".cv-turn-error__cause");
+                  failures[failures.length - 1]?.scrollIntoView({ block: "nearest" });
+                  return;
+                }
+                void callNative("chat.asks.open", { sessionId }).catch(() => undefined);
+              },
+              canOpen: (sessionId) =>
+                !showNewTab &&
+                (sessionId === snapshot.sessionId ||
+                  !snapshot.sessions.some((session) => session.sessionId === sessionId && session.peer)),
             }}
           />
         ) : null}

@@ -15,7 +15,9 @@
   translate: -50% 0;
   overflow: hidden;
   box-sizing: border-box;
-  border-radius: var(--ds-radius-popup);
+  /* Compact: a capsule, half the pill's height; the card takes the popup radius, so the corners
+     morph with the box. */
+  border-radius: calc(var(--ds-control-primary) / 2);
   color: var(--agent-text);
   font-family: var(--font-ui);
   font-size: var(--text-control);
@@ -35,7 +37,7 @@
   --acpmux-status-island-mark: var(--agent-danger, var(--agent-text));
 }
 .acpmux-status-island[data-expanded] {
-  border-radius: var(--ui-popup-radius);
+  border-radius: var(--ds-radius-popup);
 }
 
 .acpmux-status-island__content {

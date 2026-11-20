@@ -79,10 +79,11 @@ const ask: Ask = {
     ],
   },
 };
-const render = async (sessions: Session[], asks: Ask[] = []) =>
+type Actions = import("../src/agent-session/acpmux/statusIsland/StatusIsland").StatusIslandActions;
+const render = async (sessions: Session[], asks: Ask[] = [], use: Actions = actions) =>
   act(async () =>
     root.render(
-      <StatusIsland state={islandState({ sessions, items: needsYouItems({ sessions, asks }) })} actions={actions} />,
+      <StatusIsland state={islandState({ sessions, items: needsYouItems({ sessions, asks }), asks })} actions={use} />,
     ),
   );
 const q = (selector: string) => host.querySelector<HTMLElement>(selector);
@@ -185,4 +186,100 @@ test("the island's morph obeys Reduce Motion and the motion gate (Calm Mode and 
   expect(css).toMatch(
     /\.acpmux-status-island__actions\[data-choices\] \.acpmux-status-island__action \{[^}]*white-space: normal;/,
   );
+});
+
+const options = ask.permission.options;
+const askOf = (permissionId: string, permission: Partial<Ask["permission"]>, at = 2_000): Ask => ({
+  sessionId: "Tab strip review",
+  at,
+  permission: { permissionId, pending: true, options, ...permission },
+});
+const allow = () =>
+  [...host.querySelectorAll<HTMLElement>(".acpmux-status-island__action")].find((b) => b.textContent === "Allow")!;
+
+test("F1: a newer request that lands mid-press gets fresh buttons; the old press sends nothing", async () => {
+  const sent: string[] = [];
+  const recording: Actions = {
+    ...actions,
+    answer: async (item) => {
+      sent.push(item.permissionId ?? "");
+    },
+  };
+  const first = askOf("p-old", { title: "Run the linter", command: "bun run lint" });
+  await render([chat("Tab strip review")], [first], recording);
+  const pressed = allow();
+  pressed.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true }));
+  // Between press and release, the old ask is answered elsewhere and a newer one takes its place.
+  const second = askOf("p-new", { title: "Run the deploy", command: "bun run deploy:prod" }, 3_000);
+  await render([chat("Tab strip review")], [second], recording);
+  expect(pressed.isConnected).toBe(false);
+  expect(allow()).not.toBe(pressed);
+  await click(pressed);
+  expect(sent).toEqual([]);
+  // The new request's own button answers the new request.
+  await click(allow());
+  expect(sent).toEqual(["p-new"]);
+});
+
+test("F2: a command carried only in an execute request's title shows whole above Allow", async () => {
+  const titleOnly = askOf("p-title", { kind: "execute", title: `Run ${longCommand}` });
+  await render([chat("Tab strip review")], [titleOnly]);
+  expect(q(".acpmux-status-island__detail[data-command]")?.textContent).toBe(longCommand);
+  expect(q(".acpmux-status-island__ask")?.textContent).toBe("Run command");
+});
+
+test("F2: a command identical to the title (Needs you drops its detail) still shows whole", async () => {
+  const same = askOf("p-same", { title: longCommand, command: longCommand });
+  await render([chat("Tab strip review")], [same]);
+  expect(q(".acpmux-status-island__detail[data-command]")?.textContent).toBe(longCommand);
+  expect(q(".acpmux-status-island__ask")?.textContent).toBe("Run command");
+});
+
+test("F4: Escape in an empty composer folds an auto-opened card and never reaches a Deny", async () => {
+  const doc = dom.window.document;
+  const composer = doc.createElement("div");
+  composer.className = "acpmux-composer-prompt";
+  const field = doc.createElement("div");
+  field.className = "acpmux-md-root";
+  field.tabIndex = 0;
+  composer.append(field);
+  doc.body.append(composer);
+  // The permission card's own key handler: document capture, ignores a prevented key.
+  const denied: string[] = [];
+  const card = (event: KeyboardEvent) => {
+    if (!event.defaultPrevented && event.key === "Escape") denied.push("deny");
+  };
+  doc.addEventListener("keydown", card, true);
+  try {
+    field.focus();
+    await render([chat("Tab strip review")], [askOf("p-esc", { title: "Run the linter", command: "bun run lint" })]);
+    expect(q(".acpmux-status-island[data-expanded]")).not.toBeNull();
+    expect(doc.activeElement).toBe(field);
+    await act(async () => {
+      field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    });
+    expect(denied).toEqual([]);
+    expect(q(".acpmux-status-island[data-expanded]")).toBeNull();
+    // The composer keeps the keyboard.
+    expect(doc.activeElement).toBe(field);
+    // With a draft, the composer owns its Escape: the island leaves it alone.
+    await render([chat("Tab strip review")], [askOf("p-esc2", { title: "Run the tests", command: "bun test" })]);
+    field.textContent = "half a prompt";
+    await act(async () => {
+      field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    });
+    expect(q(".acpmux-status-island[data-expanded]")).not.toBeNull();
+  } finally {
+    doc.removeEventListener("keydown", card, true);
+    composer.remove();
+  }
+});
+
+test("F3: Open Chat shows only where the host can go", async () => {
+  const failing = chat("Port the sheet", { indicator: "failed", laneError: "out of context", activityAt: 9 });
+  await render([failing], [], { ...actions, canOpen: () => false });
+  expect(q(".acpmux-status-island[data-expanded]")).not.toBeNull();
+  expect(host.textContent).not.toContain("Open Chat");
+  await render([failing], [], { ...actions, canOpen: () => true });
+  expect(host.textContent).toContain("Open Chat");
 });
