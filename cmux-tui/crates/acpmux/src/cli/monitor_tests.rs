@@ -189,3 +189,28 @@ fn the_subscription_is_hidden_and_takes_no_history() {
     let p = attach_params("s1");
     assert_eq!(p, json!({"sessionId": "s1", "limit": 0, "visible": false}));
 }
+
+#[test]
+fn the_monitor_connects_without_a_caller_and_sends_no_writes() {
+    // With a caller, the daemon ties `_acpmux/events` reads to it: a parent monitoring its
+    // lane would mark the lane's report read and drop it from its own queue.
+    let src = include_str!("monitor.rs");
+    let code = src.split("#[cfg(test)]").next().unwrap();
+    assert!(code.contains("connect_without_caller(false)"));
+    assert!(!code.contains("daemon::connect("), "the monitor must not connect with a caller");
+    for write in ["SESSION_PROMPT", "SESSION_CANCEL", "MUX_SEND", "PERMISSION", "MUX_KILL"] {
+        assert!(!code.contains(write), "the monitor must not send {write}");
+    }
+    let methods: Vec<&str> = code.match_indices("method::").map(|(i, _)| &code[i..]).collect();
+    for m in methods {
+        let name: String = m["method::".len()..]
+            .chars()
+            .take_while(|c| c.is_ascii_uppercase() || *c == '_')
+            .collect();
+        assert!(
+            ["MUX_ATTACH", "MUX_EVENTS", "MUX_INFO", "MUX_DISCONNECTED", ""]
+                .contains(&name.as_str()),
+            "unexpected method {name}"
+        );
+    }
+}

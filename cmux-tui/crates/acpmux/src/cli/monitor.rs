@@ -35,11 +35,10 @@ const RECONNECTS: u32 = 5;
 pub(crate) async fn run(key: &str, once: bool, json_out: bool) -> Result<()> {
     let key = expand_session_key(key)?;
     let mut out = Out { json: json_out, w: io::stdout() };
-    let client = crate::daemon::connect(false).await?;
+    let client = connect().await?;
     let id = resolve_id(&client, &key).await?;
     let snap = snapshot(&client, &id, false).await?;
-    out.put(&Envelope::Snapshot(snap.clone()))?;
-    if once {
+    if !out.put(&Envelope::Snapshot(snap.clone()))? || once {
         return Ok(());
     }
     tokio::select! {
@@ -50,32 +49,50 @@ pub(crate) async fn run(key: &str, once: bool, json_out: bool) -> Result<()> {
 
 async fn follow(mut client: Arc<Client>, id: String, snap: Snapshot, out: &mut Out) -> Result<()> {
     let mut f = Follower::new(&snap);
-    let mut failures = 0;
     loop {
         let r = follow_connected(&client, &id, &mut f, out).await;
-        let lost = matches!(r, Ok(Conn::Lost)) || (r.is_err() && client.is_closed());
         match r {
             Ok(Conn::Done) => return Ok(()),
-            _ if lost && failures < RECONNECTS => {
-                failures += 1;
+            Err(e) if !client.is_closed() => return Err(e),
+            Ok(Conn::Lost) | Err(_) => {
                 if !out.put(&Envelope::Gap(f.gap(GapReason::Disconnect, None)))? {
                     return Ok(());
                 }
-                tokio::time::sleep(Duration::from_millis(500 << failures)).await;
-                let Ok(c) = crate::daemon::connect(false).await else { continue };
+                // The next line is a fresh snapshot, or the monitor ends with the error.
+                let (c, snap) = reconnect(&id).await?;
                 client = c;
-                // A failed resync snapshot counts as one more failed reconnect.
-                let Ok(snap) = snapshot(&client, &id, true).await else { continue };
                 f = Follower::new(&snap);
                 if !out.put(&Envelope::Snapshot(snap))? {
                     return Ok(());
                 }
-                failures = 0;
             }
-            Ok(Conn::Lost) => return Err(client.closed("monitoring the session")),
-            Err(e) => return Err(e),
         }
     }
+}
+
+/// A new connection and a `resyncing` snapshot on it: up to [`RECONNECTS`] tries, backing off,
+/// where a failed connect and a failed snapshot each count as one.
+async fn reconnect(id: &str) -> Result<(Arc<Client>, Snapshot)> {
+    let mut last = anyhow!("monitor: no reconnect tried");
+    for failures in 1..=RECONNECTS {
+        tokio::time::sleep(Duration::from_millis(500 << failures)).await;
+        match connect().await {
+            Ok(c) => match snapshot(&c, id, true).await {
+                Ok(snap) => return Ok((c, snap)),
+                Err(e) => last = e,
+            },
+            Err(e) => last = e,
+        }
+    }
+    Err(last.context("monitor: the daemon connection was lost and did not come back"))
+}
+
+/// A connection with no caller identity, and no daemon autostart: the daemon ties a caller's
+/// log reads to that caller (a parent reading its lane's finished turn marks the lane's report
+/// read and drops it from the parent's queue, `hub/lane_report_reads.rs`), and an observer
+/// must change nothing.
+async fn connect() -> Result<Arc<Client>> {
+    crate::daemon::connect_without_caller(false).await
 }
 
 /// How one connection's follow ended.
