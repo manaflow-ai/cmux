@@ -522,7 +522,7 @@ mod tests {
         let (code, out, err) = step_with_path(&start_script(&c), &home, "run_clone", &bin);
         assert_eq!(code, 0, "{out} {err}");
         assert!(
-            started.elapsed() < std::time::Duration::from_secs(2),
+            started.elapsed() < Duration::from_secs(2),
             "step 0 waited for the clone: {:?}",
             started.elapsed()
         );
