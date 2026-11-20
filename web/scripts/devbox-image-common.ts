@@ -1902,24 +1902,17 @@ export function devboxClaudeTeamOnboardingCheckCommand(homes: readonly string[] 
  */
 export function devboxClaudeSettingsDefaultsCommand(): string {
   const seed = "python3 -I /etc/cmux/claude-onboarding.py --settings-default";
-  const rootFiles = ["/root/.claude/settings.json", "/root/.config/cmux/claude-team/settings.json"];
-  const workFiles = [`${DEVBOX_WORK_HOME}/.claude/settings.json`, `${DEVBOX_WORK_HOME}/.config/cmux/claude-team/settings.json`];
-  return `${rootFiles.map((file) => `${seed} ${file}`).join(" && ")} && ${workFiles.map((file) => `sudo -n -u ${DEVBOX_WORK_USER} ${seed} ${file}`).join(" && ")} && ${devboxClaudeSettingsDefaultsCheckCommand([...rootFiles, ...workFiles])}`;
+  return `${seed} /root/.claude/settings.json && sudo -n -u ${DEVBOX_WORK_USER} ${seed} ${DEVBOX_WORK_HOME}/.claude/settings.json && ${devboxClaudeSettingsDefaultsCheckCommand()}`;
 }
 
-/** Fails unless both homes' Claude settings carry a valid default or explicit choice. */
+/** Fails unless both homes' Claude user settings carry a valid default or explicit choice. */
 export function devboxClaudeSettingsDefaultsCheckCommand(
-  files: readonly string[] = [
-    "/root/.claude/settings.json",
-    "/root/.config/cmux/claude-team/settings.json",
-    `${DEVBOX_WORK_HOME}/.claude/settings.json`,
-    `${DEVBOX_WORK_HOME}/.config/cmux/claude-team/settings.json`,
-  ],
+  files: readonly string[] = ["/root/.claude/settings.json", `${DEVBOX_WORK_HOME}/.claude/settings.json`],
   expectedWorkUser: string | null = DEVBOX_WORK_USER,
 ): string {
   const encodedFiles = JSON.stringify(files);
-  const ownership = expectedWorkUser === null ? "" : ` && [ "$(stat -c %U ${files[2] ?? files[0]})" = ${expectedWorkUser} ] && [ "$(stat -c %U ${files[3] ?? files[1] ?? files[0]})" = ${expectedWorkUser} ]`;
-  return `python3 -c 'import json, os; rows = [json.load(open(p)) for p in ${encodedFiles}]; assert all("crossSessionInbound" in r and r["crossSessionInbound"] in ("accept", "hold", "refuse") for r in rows), rows; m = "/etc/claude-code/managed-settings.json"; assert not os.path.exists(m) or "crossSessionInbound" not in json.load(open(m))'${ownership} && echo claude-settings-defaults-ok`;
+  const ownership = expectedWorkUser === null ? "" : ` && [ "$(stat -c %U ${files[1] ?? files[0]})" = ${expectedWorkUser} ]`;
+  return `python3 -c 'import glob, json, os; rows = [json.load(open(p)) for p in ${encodedFiles}]; assert all("crossSessionInbound" in r and r["crossSessionInbound"] in ("accept", "hold", "refuse") for r in rows), rows; managed = ["/etc/claude-code/managed-settings.json"] if os.path.exists("/etc/claude-code/managed-settings.json") else []; managed += glob.glob("/etc/claude-code/managed-settings.d/*.json"); assert all("crossSessionInbound" not in json.load(open(p)) for p in managed), managed'${ownership} && echo claude-settings-defaults-ok`;
 }
 
 /**
