@@ -302,7 +302,7 @@ pub(crate) fn ensure(request: &Request) -> Outcome {
 /// carries one. A folder whose pinned pak is not a regular file is not this pack: verify.
 fn ready(pack: &Pack, root: PathBuf) -> Outcome {
     let chromium_pak = pack.chromium_pak(&root);
-    if let Some(pak) = &chromium_pak {
+    if let Some(pak) = chromium_pak.as_ref() {
         if !std::fs::symlink_metadata(pak).is_ok_and(|meta| meta.is_file()) {
             return Outcome::Unavailable(Code::Verify);
         }
