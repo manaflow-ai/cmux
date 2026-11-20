@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { AgentMark } from "../../shared/AgentMark";
 import { Spinner } from "../conversation/icons";
@@ -87,24 +87,23 @@ export function HarnessesScreen({
   const [health, setHealth] = useState<Record<string, HarnessHealth | undefined>>({});
   const [checks, setChecks] = useState(0);
   const [progress, setProgress] = useState<Record<string, Progress | undefined>>({});
-  const lifecycle = useMemo(() => ({ mounted: true }), []);
-  // Lifecycle-local bookkeeping does not affect rendering: it only stops stale host callbacks.
-  const launching = useMemo(() => new Set<string>(), []);
-  const mountedNow = useEffectEvent(() => lifecycle.mounted);
+  const lifecycle = useRef(true);
+  // Callback-only bookkeeping does not affect rendering: it only stops stale host callbacks.
+  const launching = useRef(new Set<string>());
   useEffect(() => {
     return () => {
-      lifecycle.mounted = false;
+      lifecycle.current = false;
     };
-  }, [lifecycle]);
+  }, []);
   const mark = (harness: string, next: Progress | undefined) => {
-    if (mountedNow()) setProgress((current) => ({ ...current, [harness]: next }));
+    if (lifecycle.current) setProgress((current) => ({ ...current, [harness]: next }));
   };
   const remember = (harness: string, reply: unknown) => {
     const row = (reply as { health?: HarnessHealth | null } | null)?.health ?? {
       id: harness,
       auth: "unknown" as const,
     };
-    if (mountedNow()) setHealth((current) => ({ ...current, [harness]: row }));
+    if (lifecycle.current) setHealth((current) => ({ ...current, [harness]: row }));
     return row;
   };
   useEffect(() => {
@@ -224,10 +223,10 @@ export function HarnessesScreen({
         // closing stops the command with it (another open offers Install again).
         const ended = await runHostCommand(callNative, command, {
           ...inFolder,
-          alive: mountedNow,
+          alive: () => lifecycle.current,
           onLine: (line) => mark(row.harness, { kind: "installing", line: installProgress(line, t) }),
         });
-        if (ended === "stopped" || !mountedNow()) return;
+        if (ended === "stopped" || !lifecycle.current) return;
         await rescan(row);
         mark(row.harness, { kind: "done" });
       } catch (error) {
@@ -284,16 +283,16 @@ export function HarnessesScreen({
     started: () => void,
     failure: Partial<Extract<Progress, { kind: "failed" }>>,
   ) => {
-    if (launching.has(row.harness)) return;
-    launching.add(row.harness);
+    if (launching.current.has(row.harness)) return;
+    launching.current.add(row.harness);
     mark(row.harness, { kind: "launching" });
     void callNative(method, params).then(
       () => {
-        launching.delete(row.harness);
-        if (mountedNow()) started();
+        launching.current.delete(row.harness);
+        if (lifecycle.current) started();
       },
       (error) => {
-        launching.delete(row.harness);
+        launching.current.delete(row.harness);
         mark(row.harness, {
           ...failure,
           kind: "failed",
