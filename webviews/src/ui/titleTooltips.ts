@@ -187,9 +187,10 @@ function anchorBox(element: Element): Box {
 }
 
 /// Whether `element`'s own text already says `text` (a labeled control): no tooltip then, as
-/// #20375 rules (test/tooltip-rules.ts). Text the element cuts off still shows in full.
+/// #20375 rules (test/tooltip-rules.ts). Text the element cuts off still shows in full, and a
+/// control that names a key (`data-tooltip-shortcut`) still shows it: the key is what it adds.
 function repeatsLabel(element: Element, text: string): boolean {
-  if (element.hasAttribute("data-tooltip-force")) return false;
+  if (element.hasAttribute("data-tooltip-force") || element.getAttribute("data-tooltip-shortcut")) return false;
   const own = element.textContent?.replace(/\s+/g, " ").trim().toLowerCase();
   return !!own && own === text.replace(/\s+/g, " ").trim().toLowerCase() && !clips(element);
 }

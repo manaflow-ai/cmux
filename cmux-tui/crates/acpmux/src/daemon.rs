@@ -76,6 +76,8 @@ pub(crate) mod provision;
 #[cfg(unix)]
 mod socket_rebind;
 mod stop_causes;
+mod stop_watchdog;
+pub(crate) use stop_watchdog::shutdown_time_left;
 pub(crate) mod supervision;
 #[cfg(unix)]
 pub(crate) use crate::term_sender;
@@ -84,6 +86,8 @@ use stop_causes::next_signal;
 use stop_causes::{AbortOnDrop, store_asks_to_stop};
 pub use stop_causes::{EXIT_REPAIR, exit_status};
 pub(crate) mod unused_exit;
+#[cfg(target_os = "linux")]
+mod watchdog;
 #[cfg(windows)]
 mod windows;
 
@@ -196,23 +200,10 @@ pub(crate) fn shutdown_budget(ends_agents: bool) -> Duration {
     }
 }
 
-/// Includes the CLI's final diagnostic-log flush, which used to add a fresh second after
-/// the daemon had consumed its entire shutdown budget.
-static SHUTDOWN_DEADLINE: std::sync::Mutex<Option<std::time::Instant>> =
-    std::sync::Mutex::new(None);
-
-pub(crate) fn shutdown_time_left() -> Option<Duration> {
-    SHUTDOWN_DEADLINE
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .as_ref()
-        .map(|deadline| deadline.saturating_duration_since(std::time::Instant::now()))
-}
-
 /// `exit_tasks` belongs to the CLI and stays alive until process exit. Shutdown persistence
 /// may use the end of that lifetime while retaining this daemon's exclusive home lock.
 pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<()> {
-    *SHUTDOWN_DEADLINE.lock().unwrap_or_else(PoisonError::into_inner) = None;
+    stop_watchdog::reset();
     // The start of every startup phase in `daemon status` is timed from (`gauges.rs`).
     let gauges = crate::gauges::global();
     crate::cli::cloud_join::retain_own_machine_consent_requirement()?;
@@ -398,6 +389,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // before this boundary. Requests still wait for the hub and this launch's auth tokens.
     let _socket_cleanup = BoundSocketCleanup(bound_socket.clone());
     gauges.mark("socket ready");
+    // Under systemd's watchdog: pings only while this socket answers hello (`daemon/watchdog.rs`).
+    #[cfg(target_os = "linux")]
+    watchdog::start(socket_path());
     // The local CodeRouter relay (crate cmux-coderouter): `cmux-router` and `local-coderouter`
     // routes read its port and mint keys from it. Opt-in (the cmux app sets ACPMUX_LOCAL_ROUTER=1).
     // Its owner ties the router's life to this daemon (daemon/router_owner.rs: the owner FIFO,
@@ -1208,8 +1202,11 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     hub.begin_shutdown();
     // The plan is fixed now: a shutdown that ends its agents gets the time their ends take.
     let shutdown_deadline = shutdown_started + shutdown_budget(hub.ends_agents_at_shutdown());
-    *SHUTDOWN_DEADLINE.lock().unwrap_or_else(PoisonError::into_inner) =
-        Some(shutdown_deadline.into_std());
+    // Every bound below is a timer on this runtime. With `start` in `acpmux.v2` a thread ends the
+    // process 800 ms in when the stop is held all the same (`daemon/stop_watchdog.rs`); with the
+    // setting empty there is none. `run`'s return disarms it.
+    let hard_exit = v2.as_ref().is_some_and(|v2| v2.allows_surfaces(&["start"]));
+    let _hard_exit = stop_watchdog::arm(&hub, shutdown_deadline.into_std(), hard_exit);
     let shutdown_left = || shutdown_deadline.saturating_duration_since(tokio::time::Instant::now());
     // Session/transport cleanup cannot consume the writers' entire chance to drain.
     let cleanup_deadline = shutdown_deadline - Duration::from_millis(250);

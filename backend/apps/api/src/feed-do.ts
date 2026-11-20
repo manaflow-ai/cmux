@@ -1,3 +1,4 @@
+import { envForObject } from "./build-space.ts"
 import type { EventFrame, OpFrame, Principal } from "@cmux/ownership"
 import { feedKindSchemas, FeedList, type FeedItem, type PushTarget } from "@cmux/protocol"
 import { decodeParams } from "./domains/common.ts"
@@ -5,7 +6,7 @@ import { approvalAnswerChannel, approvalOf, type ApprovalSource } from "./domain
 import { listItems } from "./domains/feed-query.ts"
 import { feedCounts, feedDomain, nextFeedWake, visibleTo, type FeedState } from "./domains/feed.ts"
 import { isUserClient, prunableAt, pushEligible, RETENTION_MS } from "./domains/feed-state.ts"
-import type { Env } from "./env.ts"
+import type { Env, RawEnv } from "./env.ts"
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { FEED_ENGINE_OPTIONS, scrubFeedText } from "./feed-privacy.ts"
 import type { SweepState } from "./feed-sweep.ts"
@@ -34,7 +35,8 @@ interface Presence {
 export const MAX_POSTS_PER_DAY = 5_000
 
 export class FeedDO extends OwnerDO<FeedState> {
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    const env = envForObject(ctx, raw)
     // Subscribers are the user's own clients; events show the acting install, never email or Stack ids.
     super(ctx, env, feedDomain, "feed", (p) => ({
       identity: p.identity,

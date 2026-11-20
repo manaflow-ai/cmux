@@ -124,6 +124,12 @@ class Bench:
             return {"error": repr(error)}
         return reply if isinstance(reply, dict) else {"value": reply}
 
+    def key_window_word(self):
+        focus = self.rpc("debug.focus") or {}
+        windows = [w for w in focus.get("windows") or [] if isinstance(w, dict)]
+        page = any((w.get("appkit") or {}).get("child_window_page") for w in windows)
+        return "page" if page and not any(w.get("is_key") for w in windows) else "shell"
+
     def window(self):
         windows = (self.rpc("debug.focus") or {}).get("windows") or []
         return windows[0] if windows else {}
@@ -151,9 +157,12 @@ class Bench:
 
     def run(self, name, arm, start, delay_ms):
         before = self.focused_tab()
-        sent = self.rpc("debug.key", {"sequence": sequence(delay_ms), "key_window": "shell"})
+        # The keys go to the window that has them, as a keyboard's do: the page's Chromium window when a page has the
+        # keyboard, else the shell (held-new-tab.py's key_window_word).
+        word = self.key_window_word()
+        sent = self.rpc("debug.key", {"sequence": sequence(delay_ms), "key_window": word})
         if "error" in sent:
-            row = {"run": name, "arm": arm, "start": start, "pass": False, "lost_keys": None, "error": sent["error"]}
+            row = {"run": name, "arm": arm, "start": start, "pass": False, "lost_keys": None, "error": sent["error"], "keys_to": word}
             print("CMDN-TYPING", json.dumps(row), flush=True)
             return row
         time.sleep((sent.get("duration_ms") or 0) / 1000)  # bench: the app plays the sequence by its own clock
@@ -170,7 +179,7 @@ class Bench:
                "field_focused": field.get("focused"), "tab_before": before, "tab_after": self.focused_tab(),
                "first_responder": (window.get("appkit") or {}).get("first_responder"),
                "app_active": focus.get("app_active"), "key_window": focus.get("key_window"),
-               "planned_ms": round(sent.get("duration_ms") or 0, 1)}
+               "planned_ms": round(sent.get("duration_ms") or 0, 1), "keys_to": word}
         if not ok:
             row["hold_log"] = (focus.get("new_tab_key_log") or [])[-14:]
             row["recent_focus"] = window.get("recent_events")
