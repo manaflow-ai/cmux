@@ -1,4 +1,5 @@
 import { canonicalJson, type Domain, type Principal, type ReduceResult } from "@cmux/ownership"
+import { failureNotice } from "./scheduler-notice.ts"
 import {
   AutomationCreate,
   AutomationDelete,
@@ -382,6 +383,10 @@ const reduceOp = (state: SchedulerState, op: string, params: unknown, ctx: Param
         const outbox = [runOutbox(next)]
         if (terminal) {
           outbox.push(...continueAfter(st, state, next, ctx.now))
+          // A failed run tells its creator (Feed notice, pushed to their devices); a skipped one does not.
+          const a = st.automation(next.automation) as { name?: string; created_by?: string } | undefined
+          const notice = failureNotice(next, { name: a?.name ?? next.automation, created_by: a?.created_by ?? next.charged_user })
+          if (notice) outbox.push(notice)
           st.pruneFinished(MAX_FINISHED_RUNS)
         }
         return { ok: true, state: st.head(state), value: publicRun(next), outbox, writes: st.writes() }
