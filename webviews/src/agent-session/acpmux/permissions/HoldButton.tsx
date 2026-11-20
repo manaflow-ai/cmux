@@ -1,7 +1,10 @@
 // Hold to approve (holdToApprove.experiment.ts, off by default): an allow button that answers only
 // after it is held. The pointer held on it, Return or Space held while it has focus, or the card's own
 // keys (y, a, Return, ⌘↩) held, fill a ring at the button's leading edge over the hold time; letting go
-// early, leaving the window or losing focus cancels for free. When the experiment is off the cards
+// early, dragging off the button, leaving the window or losing focus cancels for free. Every hold is
+// bound to the ask it started on (`identity`): when the card or panel moves on to another ask, or the
+// same ask's revision, the hold is cancelled, and a hold that fills checks the identity once more before
+// it answers, so a press on one ask can never approve the next. When the experiment is off the cards
 // call none of this and keep today's click.
 import React, { useEffect, useRef, useState } from "react";
 import { motionMode } from "../../../ui/motion/motionMode";
@@ -13,6 +16,7 @@ export type HoldPhase = "idle" | "holding" | "done";
 type HoldBind = Pick<
   React.ButtonHTMLAttributes<HTMLButtonElement>,
   | "onPointerDown"
+  | "onPointerMove"
   | "onPointerUp"
   | "onPointerCancel"
   | "onLostPointerCapture"
@@ -48,12 +52,16 @@ const isButtonKey = (key: string) => key === "Enter" || key === " ";
  */
 export function useHoldToApprove({
   enabled,
+  identity,
   durationMs,
   disabled = false,
   onComplete,
   reducedOverride,
 }: {
   enabled: boolean;
+  /// What the hold approves: the ask and its answer (a card's permission id and option id; a panel's
+  /// group id, revision and decision). A hold answers only the identity it started on.
+  identity: string;
   durationMs: number;
   disabled?: boolean;
   onComplete: () => void;
@@ -66,27 +74,41 @@ export function useHoldToApprove({
   const ref = useRef<HTMLButtonElement | null>(null);
   const complete = useRef(onComplete);
   complete.current = onComplete;
-  const run = useRef<{ phase: HoldPhase; stop: () => void }>({ phase: "idle", stop: () => undefined });
+  /// The identity shown now, read when a hold fills.
+  const current = useRef(identity);
+  current.current = identity;
+  const run = useRef<{ phase: HoldPhase; stop: () => void; identity?: string; pointerId?: number }>({
+    phase: "idle",
+    stop: () => undefined,
+  });
 
   const stop = () => {
     run.current.stop();
     run.current.stop = () => undefined;
   };
-  const cancel = () => {
-    if (run.current.phase !== "holding") return;
+  const reset = () => {
     stop();
-    run.current.phase = "idle";
+    run.current = { phase: "idle", stop: () => undefined };
     setPhase("idle");
     setProgress(0);
   };
-  const start = (releaseKey?: string): boolean => {
+  const cancel = () => {
+    if (run.current.phase !== "holding") return;
+    reset();
+  };
+  /// Starts a hold. `releaseKey` (a KeyboardEvent code) is the card key that started it, from
+  /// `origin`, the element that had focus: its release, its repeats and that element's blur belong
+  /// to the hold. `pointerId` is the pointer that pressed the button.
+  const start = (from: { releaseKey?: string; origin?: EventTarget | null; pointerId?: number } = {}): boolean => {
     if (disabled || run.current.phase !== "idle") return false;
+    const { releaseKey, origin, pointerId } = from;
+    const startedOn = current.current;
     const doc = ref.current?.ownerDocument ?? (typeof document === "undefined" ? undefined : document);
     const view = doc?.defaultView ?? undefined;
     const stepped = reducedOverride ?? motionMode(doc, ref.current) !== "full";
     const began = performance.now();
     const timers: (() => void)[] = [];
-    run.current.phase = "holding";
+    run.current = { phase: "holding", stop: () => undefined, identity: startedOn, pointerId };
     setReduced(stepped);
     setPhase("holding");
     setProgress(0);
@@ -106,32 +128,58 @@ export function useHoldToApprove({
     }
     // The timer, not a frame, decides: a page that draws no frames (hidden, a test) still completes.
     const done = setTimeout(() => {
+      // The ask moved on while the timer was due (the effect below cancels on the next commit; a
+      // timer can fire first): nothing is answered.
+      if (run.current.identity !== startedOn || current.current !== startedOn) {
+        reset();
+        return;
+      }
       stop();
       run.current.phase = "done";
       setPhase("done");
       setProgress(1);
-      const reset = setTimeout(() => {
+      const backToIdle = setTimeout(() => {
         if (run.current.phase !== "done") return;
         run.current.phase = "idle";
         setPhase("idle");
         setProgress(0);
       }, DONE_RESET_MS);
-      run.current.stop = () => clearTimeout(reset);
+      run.current.stop = () => clearTimeout(backToIdle);
       complete.current();
     }, durationMs);
     timers.push(() => clearTimeout(done));
-    if (releaseKey !== undefined && doc && view) {
-      // The card's key was pressed anywhere in the page: its release anywhere ends the hold.
+    if (view) {
+      // Every hold: the window losing focus (another app, a sheet) ends it.
+      const onWindowBlur = () => cancel();
+      view.addEventListener("blur", onWindowBlur);
+      timers.push(() => view.removeEventListener("blur", onWindowBlur));
+    }
+    if (releaseKey !== undefined && doc) {
+      // The card's key was pressed anywhere in the page: its release anywhere ends the hold, and its
+      // repeats are the hold's, so none types into the composer while it fills.
       const onUp = (event: KeyboardEvent) => {
         if (event.code === releaseKey) cancel();
       };
-      const onBlur = () => cancel();
+      const onDown = (event: KeyboardEvent) => {
+        if (event.code !== releaseKey || !event.repeat) return;
+        event.preventDefault();
+        event.stopPropagation();
+      };
+      // The repeats are taken at the window's capture, before the document's listeners (the
+      // composer's typing-anywhere one among them) see them.
       doc.addEventListener("keyup", onUp, true);
-      view.addEventListener("blur", onBlur);
+      view?.addEventListener("keydown", onDown, true);
       timers.push(() => {
         doc.removeEventListener("keyup", onUp, true);
-        view.removeEventListener("blur", onBlur);
+        view?.removeEventListener("keydown", onDown, true);
       });
+      // The element that had focus when the key went down loses it: the hold ends.
+      const element = origin as Element | null | undefined;
+      if (element && typeof element.addEventListener === "function" && element !== doc.body) {
+        const onOriginBlur = () => cancel();
+        element.addEventListener("blur", onOriginBlur);
+        timers.push(() => element.removeEventListener("blur", onOriginBlur));
+      }
     }
     run.current.stop = () => timers.forEach((clear) => clear());
     return true;
@@ -141,6 +189,11 @@ export function useHoldToApprove({
   useEffect(() => {
     if (disabled || !enabled) cancel();
   });
+  // Another ask, or another revision of it: a hold or a finished ring of the old one is dropped, and
+  // the new one needs its own press.
+  useEffect(() => {
+    if (run.current.phase !== "idle" && run.current.identity !== identity) reset();
+  }, [identity]);
   useEffect(() => () => stop(), []);
 
   if (!enabled) return undefined;
@@ -151,13 +204,25 @@ export function useHoldToApprove({
     ref,
     holdKey(event) {
       if (event.repeat) return;
-      start(event.code);
+      start({ releaseKey: event.code, origin: event.target });
     },
     bind: {
       onPointerDown(event) {
         if (event.button !== 0) return;
         event.currentTarget.setPointerCapture?.(event.pointerId);
-        start();
+        start({ pointerId: event.pointerId });
+      },
+      onPointerMove(event) {
+        // Capture keeps the pointer's events on the button after it leaves, so its bounds decide:
+        // dragging off the button lets go.
+        if (run.current.phase !== "holding" || run.current.pointerId !== event.pointerId) return;
+        const box = event.currentTarget.getBoundingClientRect();
+        const inside =
+          event.clientX >= box.left &&
+          event.clientX <= box.right &&
+          event.clientY >= box.top &&
+          event.clientY <= box.bottom;
+        if (!inside) cancel();
       },
       onPointerUp: cancel,
       onPointerCancel: cancel,

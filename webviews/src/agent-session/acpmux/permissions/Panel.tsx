@@ -120,6 +120,7 @@ function askOf(item: PermissionGroupItem, fallback: string) {
 /// held press, never a click; it registers its hold so the panel's keys (y, a, Return) can run it.
 function AnswerButton({
   holdKey,
+  identity,
   label,
   className,
   keyshortcuts,
@@ -132,6 +133,9 @@ function AnswerButton({
   register,
 }: {
   holdKey: string;
+  /// What a hold answers: the group, its revision and the decision. A hold answers only the identity
+  /// it started on, so a new revision or group needs a new press.
+  identity: string;
   label: string;
   className: string;
   keyshortcuts?: string;
@@ -145,6 +149,7 @@ function AnswerButton({
 }) {
   const hold = useHoldToApprove({
     enabled: holds,
+    identity,
     durationMs,
     disabled,
     reducedOverride: reduced,
@@ -385,6 +390,7 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
                   <AnswerButton
                     key={decision}
                     holdKey={`${group.groupId}:${decision}`}
+                    identity={`${group.groupId}\u0000${group.revision}\u0000${decision}`}
                     label={t(label)}
                     className={`acpmux-ask-action${decision === "allow_once" ? " is-primary" : decision === "allow_chat" ? " is-secondary" : ""}`}
                     keyshortcuts={

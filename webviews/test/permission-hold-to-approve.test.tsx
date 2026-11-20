@@ -8,11 +8,15 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxPermission } from "../src/agent-session/acpmux/model";
 import { settleReact } from "./support/domTeardown";
 
-const dom = new JSDOM(`<!doctype html><div id=root></div>`, {
-  url: "http://localhost/",
-  pretendToBeVisual: true,
-  virtualConsole: new VirtualConsole(),
-});
+const dom = new JSDOM(
+  `<!doctype html><div id=root></div>
+  <div class="acpmux-composer-prompt"><div class="acpmux-md-root"><div id=editor contenteditable="true" tabindex="-1"></div></div></div>`,
+  {
+    url: "http://localhost/",
+    pretendToBeVisual: true,
+    virtualConsole: new VirtualConsole(),
+  },
+);
 const globals = globalThis as Record<string, unknown>;
 const globalKeys = ["window", "document", "navigator", "HTMLElement", "Node", "IS_REACT_ACT_ENVIRONMENT"] as const;
 const saved = globalKeys.map((key) => [key, key in globals, globals[key]] as const);
@@ -46,6 +50,7 @@ type PermissionClientState = import("../src/agent-session/acpmux/permissions/pro
 
 const doc = dom.window.document;
 const host = doc.getElementById("root")!;
+const editor = doc.getElementById("editor")!;
 const HOLD_MS = 60;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -226,4 +231,141 @@ test("the grouped panel: under hold its Allow answers only after the hold, Deny 
   await fire(plain, "click", { detail: 1 });
   expect(sent).toEqual(["allow_once", "deny", "allow_once"]);
   await act(async () => root.unmount());
+});
+
+/// A card the test can rerender with another ask, as the pane does when the next ask arrives.
+async function liveCard(first: AcpmuxPermission, hold: Hold) {
+  const root = createRoot(host);
+  const answers: string[] = [];
+  const show = (permission: AcpmuxPermission) =>
+    act(async () =>
+      root.render(
+        <PermissionCard
+          permission={permission}
+          harness="claude"
+          hold={hold}
+          onAnswer={(id) => answers.push(`${permission.permissionId}:${id}`)}
+        />,
+      ),
+    );
+  await show(first);
+  const allow = () => host.querySelector<HTMLButtonElement>(".acpmux-permission-buttons .acpmux-permission-primary")!;
+  return { root, answers, show, allow };
+}
+
+test("F1: a hold started on ask A never approves the ask B that replaces it; B needs its own press", async () => {
+  const card = await liveCard(ask("ask-a", "npm test"), { scope: "all", durationMs: HOLD_MS });
+  // y goes down on A and stays down while A is replaced by B.
+  await fire(doc.body, "keydown", { key: "y", code: "KeyY" });
+  expect(card.allow().getAttribute("data-hold")).toBe("holding");
+  await card.show(ask("ask-b", "npm run build"));
+  expect(card.allow().getAttribute("data-hold")).toBe("idle");
+  await wait(HOLD_MS * 2);
+  expect(card.answers).toEqual([]);
+  await fire(doc.body, "keyup", { key: "y", code: "KeyY" });
+  // A pointer hold on A, then B: the same.
+  await card.show(ask("ask-c", "npm test"));
+  await fire(card.allow(), "pointerdown");
+  await card.show(ask("ask-d", "npm test"));
+  await wait(HOLD_MS * 2);
+  expect(card.answers).toEqual([]);
+  await fire(card.allow(), "pointerup");
+  // A fresh press on the ask shown answers that ask only.
+  await fire(doc.body, "keydown", { key: "y", code: "KeyY" });
+  await wait(HOLD_MS + 40);
+  await fire(doc.body, "keyup", { key: "y", code: "KeyY" });
+  expect(card.answers).toEqual(["ask-d:allow"]);
+  await act(async () => card.root.unmount());
+});
+
+test("F1: the panel's hold ends when its group's revision changes", async () => {
+  const root = createRoot(host);
+  const sent: string[] = [];
+  const render = (revision: number) =>
+    act(async () => {
+      const state = panelState("rm -rf build");
+      state.groups[0]!.revision = revision;
+      root.render(
+        <PermissionPanel
+          state={state}
+          working
+          hold={{ scope: "all", durationMs: HOLD_MS }}
+          onRespond={(group, at, decision) => sent.push(`${group}@${at}:${decision}`)}
+          onRetry={() => undefined}
+          onRevoke={() => undefined}
+          onRefresh={() => undefined}
+        />,
+      );
+    });
+  await render(1);
+  await fire(host.querySelector(".acpmux-ask-action.is-primary")!, "pointerdown");
+  await render(2);
+  await wait(HOLD_MS * 2);
+  expect(sent).toEqual([]);
+  const allow = host.querySelector(".acpmux-ask-action.is-primary")!;
+  await fire(allow, "pointerup");
+  await fire(allow, "pointerdown");
+  await wait(HOLD_MS + 40);
+  expect(sent).toEqual(["g1@2:allow_once"]);
+  await act(async () => root.unmount());
+});
+
+test("F2: dragging off Allow while it is pressed lets go and answers nothing", async () => {
+  const card = await mountCard(ask("drag", "npm test"), { scope: "all", durationMs: HOLD_MS });
+  card.allow.getBoundingClientRect = () =>
+    ({ left: 10, right: 90, top: 10, bottom: 40, width: 80, height: 30, x: 10, y: 10, toJSON: () => "" }) as DOMRect;
+  await fire(card.allow, "pointerdown", { clientX: 20, clientY: 20 });
+  // Moving inside keeps the hold.
+  await fire(card.allow, "pointermove", { clientX: 80, clientY: 30 });
+  expect(card.allow.getAttribute("data-hold")).toBe("holding");
+  // Captured, the pointer's moves still reach the button once it is off it.
+  await fire(card.allow, "pointermove", { clientX: 200, clientY: 30 });
+  expect(card.allow.getAttribute("data-hold")).toBe("idle");
+  await wait(HOLD_MS * 2);
+  await fire(card.allow, "pointerup", { clientX: 200, clientY: 30 });
+  expect(card.answers).toEqual([]);
+  await act(async () => card.root.unmount());
+});
+
+test("F3: the window losing focus ends a pointer hold and a key hold", async () => {
+  const card = await mountCard(ask("blur", "npm test"), { scope: "all", durationMs: HOLD_MS });
+  await fire(card.allow, "pointerdown");
+  await act(async () => void dom.window.dispatchEvent(new dom.window.Event("blur")));
+  expect(card.allow.getAttribute("data-hold")).toBe("idle");
+  await fire(doc.body, "keydown", { key: "y", code: "KeyY" });
+  expect(card.allow.getAttribute("data-hold")).toBe("holding");
+  await act(async () => void dom.window.dispatchEvent(new dom.window.Event("blur")));
+  await wait(HOLD_MS * 2);
+  expect(card.answers).toEqual([]);
+  await act(async () => card.root.unmount());
+});
+
+test("F3: a key hold from the composer ends when the composer loses focus", async () => {
+  const card = await mountCard(ask("origin", "npm test"), { scope: "all", durationMs: HOLD_MS });
+  editor.focus();
+  await fire(editor, "keydown", { key: "y", code: "KeyY" });
+  expect(card.allow.getAttribute("data-hold")).toBe("holding");
+  await act(async () => editor.blur());
+  expect(card.allow.getAttribute("data-hold")).toBe("idle");
+  await wait(HOLD_MS * 2);
+  expect(card.answers).toEqual([]);
+  await act(async () => card.root.unmount());
+});
+
+test("F4: the held key's repeats are the hold's and type nothing", async () => {
+  const card = await mountCard(ask("repeat", "npm test"), { scope: "all", durationMs: HOLD_MS * 4 });
+  editor.focus();
+  await fire(editor, "keydown", { key: "y", code: "KeyY" });
+  const repeat = new dom.window.KeyboardEvent("keydown", {
+    key: "y",
+    code: "KeyY",
+    repeat: true,
+    bubbles: true,
+    cancelable: true,
+  });
+  await act(async () => void editor.dispatchEvent(repeat));
+  expect(repeat.defaultPrevented).toBe(true);
+  await fire(editor, "keyup", { key: "y", code: "KeyY" });
+  editor.blur();
+  await act(async () => card.root.unmount());
 });

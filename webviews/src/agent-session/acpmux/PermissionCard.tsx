@@ -158,10 +158,14 @@ export function PlanBuildSplit({
   cardKey,
   onHere,
   onBuild,
+  holdFocus,
   children,
 }: {
   harness?: string;
   cardKey?: CardKey;
+  /// Under hold to approve, Build here answers nothing itself: the menu closes onto Approve plan,
+  /// where a held Return or press approves (HoldButton.tsx).
+  holdFocus?: React.RefObject<HTMLButtonElement | null>;
   onHere(): void;
   onBuild(target: PlanBuildElsewhere): void;
   /// The Approve plan button.
@@ -185,8 +189,13 @@ export function PlanBuildSplit({
           label={t("permission.plan.buildMenu")}
           align="end"
           className="acpmux-quick-menu acpmux-plan-build-menu"
+          finalFocus={holdFocus}
         >
-          <MenuItem data-value="here" shortcut={cardKey ? cardKey.keys.join("") : undefined} onSelect={onHere}>
+          <MenuItem
+            data-value="here"
+            shortcut={cardKey ? cardKey.keys.join("") : undefined}
+            onSelect={holdFocus ? undefined : onHere}
+          >
             {t("permission.plan.buildHere")}
           </MenuItem>
           <MenuItem data-value="worktree" onSelect={() => onBuild("worktree")}>
@@ -442,14 +451,18 @@ export function PermissionCard({
   const holdConfig = holdOverride ?? experimentHold;
   const holds = permission.pending && holdApplies(holdConfig.scope, [{ kind: permission.kind, command }]);
   const holdDescription = t("permission.holdToAllow");
+  // Each hold is bound to the ask and the answer it was pressed on: a press on one ask never
+  // approves the ask that replaces it (HoldButton.tsx `identity`).
   const holdOnce = useHoldToApprove({
     enabled: holds && !!allowOnce && !writing,
+    identity: `${permission.permissionId}\u0000${allowOnce?.id ?? ""}`,
     durationMs: holdConfig.durationMs,
     reducedOverride: holdOverride?.reduced,
     onComplete: () => allowOnce && answer(allowOnce),
   });
   const holdAlways = useHoldToApprove({
     enabled: holds && !!allowAlways && !alwaysAtSource && !writing,
+    identity: `${permission.permissionId}\u0000${allowAlways?.id ?? ""}`,
     durationMs: holdConfig.durationMs,
     reducedOverride: holdOverride?.reduced,
     onComplete: () => allowAlways && answer(allowAlways),
@@ -753,6 +766,7 @@ export function PermissionCard({
                     <PlanBuildSplit
                       harness={harness}
                       cardKey={shortcuts ? ALLOW_KEY : undefined}
+                      holdFocus={holdOnce?.ref}
                       onHere={() => answer(allowOnce)}
                       onBuild={build}
                     >

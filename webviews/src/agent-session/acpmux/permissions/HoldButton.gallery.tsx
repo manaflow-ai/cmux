@@ -72,22 +72,29 @@ function GalleryHoldCard({ permission, scope, durationMs, reduced }: Props) {
 
 const ALLOW = ".acpmux-permission-buttons button.acpmux-permission-primary";
 
-/// Presses Allow and keeps it down: the hold is long, so the still frame shows the ring part-filled.
-const pressAndHold: Play = async (ctx) => {
+/// Holds Return on the focused Allow, the keyboard path a person takes (the card's own key handlers,
+/// not a synthetic pointer): focus moves to Allow as a key would, then Return goes down and stays down.
+async function holdReturn(ctx: Parameters<Play>[0]) {
   await ctx.waitFor(() => ctx.document.querySelector(ALLOW));
+  await ctx.focus({ selector: ALLOW });
   const button = ctx.document.querySelector<HTMLButtonElement>(ALLOW)!;
   const view = ctx.document.defaultView!;
-  button.dispatchEvent(new view.PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 1 }));
-  await ctx.waitFor(() => button.getAttribute("data-hold") === "holding");
+  button.dispatchEvent(
+    new view.KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }),
+  );
+  await ctx.waitFor(() => button.getAttribute("data-hold") !== "idle");
+  return button;
+}
+
+/// Return held on Allow and kept down: the hold is long, so the still frame shows the ring part-filled.
+const pressAndHold: Play = async (ctx) => {
+  await holdReturn(ctx);
   await new Promise((resolve) => setTimeout(resolve, 1500));
 };
 
-/// Presses Allow and holds it through: the ring is full and the answer went out.
+/// Return held on Allow through the hold: the ring is full and the answer went out.
 const holdThrough: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(ALLOW));
-  const button = ctx.document.querySelector<HTMLButtonElement>(ALLOW)!;
-  const view = ctx.document.defaultView!;
-  button.dispatchEvent(new view.PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 1 }));
+  const button = await holdReturn(ctx);
   await ctx.waitFor(() => button.getAttribute("data-hold") === "done");
 };
 
