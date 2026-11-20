@@ -135,8 +135,11 @@ extension FileBrowserModel {
 
     /// Lists again now (a change made here should not wait for FSEvents).
     func refreshNow() async {
-        guard let listed = try? await Self.listSorted(folder, lister: lister, order: sortOrder) else { return }
+        let order = sortOrder
+        fullSorts += 1
+        guard let listed = try? await Self.listSorted(folder, lister: lister, order: order) else { return }
         all = listed
+        allOrder = order
         refilter()
     }
 

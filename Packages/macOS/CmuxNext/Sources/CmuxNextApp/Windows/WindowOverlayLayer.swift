@@ -30,8 +30,8 @@ import CmuxNextLayout
 /// `childWindows` (bottom to top) and `order(_:relativeTo:)` has no effect on
 /// child windows, so reordering re-adds windows. The fork re-adds a page
 /// window whenever it becomes visible, so the order is checked whenever a
-/// child window of this window appears, moves, or becomes key, on every
-/// event cycle of the window, and whenever the plane syncs.
+/// child window appears, moves, or becomes key, at the next event cycle after
+/// any window change (`WindowOverlayHost.orderOwed`), and whenever the plane syncs.
 @MainActor
 final class WindowOverlayLayer {
     enum Placement: String { case inWindow, overlayWindow }
@@ -92,7 +92,7 @@ final class WindowOverlayLayer {
                 // deferred work for the rest of the process.
                 self.layoutDepth = 0
                 self.windowDidLayoutWork()
-                self.evaluate()
+                if self.host.takePlacementCheck() { self.evaluate() } // only after a window came, went, showed, hid, moved or took key
             }
         })
         // Any move or resize source (drag, an Accessibility client such as
