@@ -17,6 +17,40 @@ fn words(list: &[&str]) -> Vec<String> {
     list.iter().map(|word| (*word).to_owned()).collect()
 }
 
+#[test]
+fn named_launch_routes_the_prompt_file_to_the_requested_machine() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(file.path(), "--model\nDo the work.\n").unwrap();
+    let path = file.path().to_str().unwrap();
+    for selector in [vec!["--machine", "test-lane"], vec!["--machine=test-lane"]] {
+        let mut args = vec!["chat", "new"];
+        args.extend(selector);
+        args.extend(["--harness", "codex", "--model", "example", "--prompt-file", path]);
+        let (global, command) = super::super::parse_globals(&words(&args)).ok().unwrap();
+        assert!(global.machine.is_none());
+        let parsed = start(&command[2..].iter().map(String::as_str).collect::<Vec<_>>());
+        assert_eq!(parsed.on.as_deref(), Some("test-lane"));
+        assert_eq!(parsed.agent.as_deref(), Some("codex"));
+        assert_eq!(parsed.model.as_deref(), Some("example"));
+        assert_eq!(parsed.prompt.as_deref(), Some("--model\nDo the work.\n"));
+    }
+    std::fs::write(file.path(), "-").unwrap();
+    let parsed = start(&["--prompt-file", path]);
+    assert_eq!(new_args(&parsed).unwrap(), words(&["--", "-"]));
+    let args = cloud_words(&parsed, &Machine::New).unwrap();
+    let super::super::cloud_start_chat::Parsed::Run(req) =
+        super::super::cloud_start_chat::parse(&args, || panic!("file content must not read stdin"))
+            .unwrap()
+    else {
+        panic!("expected chat start")
+    };
+    assert_eq!(req.prompt.as_deref(), Some("-"));
+    assert!(parse(&words(&["--on", "a", "--machine", "b"]), None).is_err());
+    assert!(parse(&words(&["--prompt-file", path, "--prompt", "two"]), None).is_err());
+    std::fs::write(file.path(), " \n").unwrap();
+    assert!(parse(&words(&["--prompt-file", path]), None).is_err());
+}
+
 fn start(list: &[&str]) -> Start {
     match parse(&words(list), None).unwrap() {
         Parsed::Run(start) => start,

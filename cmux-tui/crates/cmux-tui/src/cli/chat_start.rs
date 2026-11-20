@@ -52,11 +52,14 @@ use super::{GlobalArgs, OutputMode, UsageError};
 use cmux_cloud_start_core::machine_repo::Repo;
 
 mod local_repo;
+mod prompt_file;
 
 /// This command's flags that take the next word as their value.
 const TAKES_VALUE: &[&str] = &[
     "--on",
+    "--machine",
     "--prompt",
+    "--prompt-file",
     "-p",
     "--agent",
     "--harness",
@@ -115,6 +118,7 @@ usage: cmux chat [--on TARGET] [--environment ENV] [--harness HARNESS] [--model 
                  [--effort EFFORT] [--mode MODE]
                  [--cwd DIR | --from-folder DIR | --no-folder] [--repo URL] [--name NAME]
                  [--attach FILE]... [-w] [--timeout DURATION] [--json] [[--prompt] TEXT]
+       cmux chat new --machine TARGET --harness claude|codex [--model MODEL] [--prompt-file FILE]
 
 Starts an agent chat, right here unless --on names another target:
 
@@ -224,6 +228,7 @@ pub(super) struct Start {
     pub repo: Option<Repo>,
     pub name: Option<String>,
     pub prompt: Option<String>,
+    prompt_from_file: bool,
     /// `--attach` files for the first prompt (a chat here; a Cloud chat refuses them).
     pub attach: Vec<String>,
     /// `--environment ENV`: the Cloud environment a new machine boots in (`cloud start-chat
@@ -329,6 +334,7 @@ pub(super) fn parse_with(
         repo: None,
         name: None,
         prompt: None,
+        prompt_from_file: false,
         attach: Vec::new(),
         environment: None,
         wait: false,
@@ -368,9 +374,9 @@ pub(super) fn parse_with(
         };
         match flag {
             "-h" | "--help" => return Ok(Parsed::Help),
-            "--on" => {
+            "--on" | "--machine" => {
                 if start.on.is_some() {
-                    return Err(UsageError::new("give --on once"));
+                    return Err(UsageError::new("give the target once (--on or --machine)"));
                 }
                 let on = value()?.trim().to_owned();
                 if on.is_empty() {
@@ -383,6 +389,11 @@ pub(super) fn parse_with(
             "--prompt" | "-p" => {
                 let text = value()?;
                 set_prompt(&mut start.prompt, text)?;
+            }
+            "--prompt-file" => {
+                let path = value()?;
+                set_prompt(&mut start.prompt, prompt_file::read(&path)?)?;
+                start.prompt_from_file = true;
             }
             "--agent" | "--harness" => start.agent = Some(value()?),
             "--model" => start.model = Some(value()?),
@@ -1210,7 +1221,9 @@ pub(super) fn here_words(prefix: &[String], start: &Start) -> Result<Vec<String>
 /// The words after `agents chat new` for this start (`-` read from stdin now).
 pub(super) fn new_args(start: &Start) -> Result<Vec<String>, UsageError> {
     let prompt = match &start.prompt {
-        Some(prompt) if prompt == "-" => Some(read_stdin().map_err(UsageError::new)?),
+        Some(prompt) if prompt == "-" && !start.prompt_from_file => {
+            Some(read_stdin().map_err(UsageError::new)?)
+        }
         prompt => prompt.clone(),
     };
     new_words(start, prompt)
@@ -1257,7 +1270,11 @@ pub(super) fn cloud_words(start: &Start, machine: &Machine) -> Result<Vec<String
     let Some(prompt) = &start.prompt else {
         return Err(UsageError::new("a Cloud chat needs a first prompt: --prompt TEXT"));
     };
-    let mut words = vec!["--prompt".to_owned(), prompt.clone()];
+    let mut words = if start.prompt_from_file {
+        Vec::new()
+    } else {
+        vec!["--prompt".to_owned(), prompt.clone()]
+    };
     match machine {
         Machine::Named(name) => words.extend(["--name".to_owned(), name.clone()]),
         Machine::Target(id) => words.extend(["--target".to_owned(), format!("machine:{id}")]),
@@ -1286,6 +1303,9 @@ pub(super) fn cloud_words(start: &Start, machine: &Machine) -> Result<Vec<String
     }
     if start.no_folder {
         words.push("--no-folder".to_owned());
+    }
+    if start.prompt_from_file {
+        words.extend(["--".to_owned(), prompt.clone()]);
     }
     Ok(words)
 }

@@ -1,5 +1,7 @@
 # Remote agents and cmux Cloud
 
+For first-time setup, see [Start a Cloud chat from a clean Mac](cloud-teammate-setup.md).
+
 Run an agent on a machine you own and view it from your Mac, or use a machine
 managed by cmux Cloud. The repository and tools execute on the remote host;
 your Mac is a client. Closing the client does not move the files or stop the
