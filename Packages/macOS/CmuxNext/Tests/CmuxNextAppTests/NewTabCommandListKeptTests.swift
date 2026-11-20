@@ -59,9 +59,8 @@ struct NewTabCommandListKeptTests {
         let page = try Self.openPage(app)
         let start = lister.counts
         page.loadPaletteActions()
-        // The row is the display. No turn of the main thread ends between these frames, and the hand-over needs
-        // one (the list's JSON is made off the main thread), so it cannot come before the second request.
-        // The lister adds a listing's actions to its count in the task that reads the last of them.
+        // The row is the display. No turn of the main thread ends between these frames, and the hand-over needs one (the
+        // list's JSON is made off the main thread). The count rises in the task that reads the last action.
         let limit = Self.frameLimit(services)
         var fired = 0
         while lister.counts.actionsRead == start.actionsRead, fired < limit {
@@ -82,8 +81,7 @@ struct NewTabCommandListKeptTests {
                 "a request before the hand-over started \(end.started - read.started) more listings (\(end.actionsRead - read.actionsRead) catalog actions read again)")
     }
 
-    /// A hold of the New Tab key after a list was read: each of its ten pages shows with the palette's actions, and
-    /// the hold starts no listing.
+    /// A hold of the New Tab key after a list was read: each of its ten pages shows with the actions, and starts no listing.
     @Test func aHoldOfTenPagesStartsNoListing() async throws {
         let app = try await Self.shown()
         defer { app.close() }
@@ -124,9 +122,8 @@ struct NewTabCommandListKeptTests {
         var failure: String?
     }
 
-    /// A hold of the New Tab key in a window that has no list yet, for as long as the listing takes: an ask each two
-    /// frames from the first frame until the hand-over (the first ten are pages). One listing serves them all, and
-    /// each of its pages has that list.
+    /// A hold of the New Tab key in a window that has no list yet, for as long as the listing takes: an ask each two frames
+    /// from the first frame until the hand-over (the first ten are pages). One listing serves them all: each page has its list.
     @Test func aHoldWithNoListYetIsOneListing() async throws {
         let app = try await Self.shown()
         defer { app.close() }
@@ -189,9 +186,8 @@ struct NewTabCommandListKeptTests {
         #expect(without == 0, "\(without) of the hold's \(hold.pages.count) pages do not have the list after its hand-over")
     }
 
-    /// The first letter in a page that showed with the kept list reads the actions again, and never in its own
-    /// turn: the keystroke's turn reads no action and starts no listing (it queues the listing's first task for a
-    /// later frame), and a second letter while that listing runs starts no second one.
+    /// The first letter in a page that showed with the kept list reads the actions again, and never in its own turn: that
+    /// turn reads no action and only queues the listing's first task. A second letter while it runs starts no second one.
     @Test func theFirstLetterReadsTheActionsAgainInLaterFrames() async throws {
         let app = try await Self.shown()
         defer { app.close() }
@@ -240,9 +236,8 @@ struct NewTabCommandListKeptTests {
 
     // MARK: - The web page
 
-    /// The web New Tab page (the default kind), made cold as the pages of a hold are: a second page takes the list
-    /// that is there, in place, and no catalog action is read for it. Its person's first input reads the actions
-    /// again with no ask of the row, in later frames.
+    /// The web New Tab page (the default kind), made cold as the pages of a hold are: a second page takes the list that is
+    /// there, in place, with no read. Its person's first input reads the actions again with no ask of the row, in later frames.
     @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
     func aSecondWebPageTakesTheListWithNoNewReadAndReadsAgainAtItsFirstInput() async throws {
         try await Self.web("cn-list-kept-web") { web in
@@ -268,8 +263,7 @@ struct NewTabCommandListKeptTests {
             let frames = services.mainWork.frames
             try #require(!frames.activeClients.contains(Self.lister), "the lister has a task before the first input")
             _ = await view.model.respond(to: .touched)
-            // The write of the page's flag only asks for the read, in the main queue's next turn: its own turn
-            // queues no task of the lister.
+            // The write of the page's flag only asks for the read, in the main queue's next turn: no task in its own.
             #expect(!frames.activeClients.contains(Self.lister), "the first input's own turn queued a task of the lister")
             #expect(lister.counts == shown, "the first input's own turn started \(lister.counts.started - shown.started) listings")
             // Exactly one turn of the main queue: a block of the row's own, which the queue runs after the app's. The
@@ -294,9 +288,8 @@ struct NewTabCommandListKeptTests {
         }
     }
 
-    /// Two New Tab keys inside one frame (a large session has long frames): the older page is not its pane's
-    /// selection at the next frame, so it has no view when the lister's first task runs. The two pages start no
-    /// listing, and the older one takes the list, with no read, when its view is made.
+    /// Two New Tab keys inside one frame (a large session has long frames): the older page is not its pane's selection at the
+    /// next frame, so it has no view at the lister's first task. The pages start no listing; the older takes the list, with no read, at its view's make.
     @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
     func twoWebPagesInOneFrameStartNoListing() async throws {
         try await Self.web("cn-list-kept-web-pair") { web in
@@ -342,9 +335,8 @@ struct NewTabCommandListKeptTests {
     /// The focus contexts that the slices of one listing read under, in their order (one value while it holds).
     @MainActor private final class Slices { var contexts: [String] = [] }
 
-    /// The first New Tab key from a terminal, as a person holds it there: the focus goes from the terminal to the
-    /// page. One listing reads the page's list, each of its slices under the focus context that the page has at the
-    /// hand-over, and the list is kept: a second ask starts no listing.
+    /// A New Tab key from a terminal with no kept list: the focus goes from the terminal to the page. One listing reads
+    /// the list, each slice under the focus context of the hand-over, and the list is kept: a second ask starts none.
     @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
     func aFirstKeyFromATerminalIsOneListingUnderOneFocus() async throws {
         try await PasswordManagerRouteTests.withApp { services, connection in
@@ -364,11 +356,18 @@ struct NewTabCommandListKeptTests {
             pane.select(CmuxNextTabs.TabID(terminal.id))
             try await PasswordManagerRouteTests.until({ services.registry.context.contains(.terminalFocused) },
                                                       report: { "setup: the focus context \(Self.focus(services)) has no terminal" })
+            // The fixture is the display to the hand-over of the launch page's list. Then one key binding's change is a catalog change.
+            let launch = await Self.listed(services)
+            services.registry.setShortcutOverride(CmuxNextActions.Shortcut("t", modifiers: [.control]), for: "newTab.default")
             let lister = services.newTabActions, tabs = services.agentTabs
-            let known = Set(tabs.newTabPages.keys), before = lister.counts, start = Self.focus(services)
+            let known = Set(tabs.newTabPages.keys), old = tabs.views.values, before = lister.counts, start = Self.focus(services)
+            // The row's case: no listing in the air at the key (the lister has no task, the last list was handed over).
+            let inAir = services.mainWork.frames.activeClients.contains(Self.lister) || launch.list == nil
+            print("new-tab-list: a listing in the air at the key: \(inAir ? "yes" : "no") (\(before.started) listings started before the key, "
+                + "\(before.actionsRead) catalog actions read; the fixture \(launch.list == nil ? "got no hand-over" : "took the last hand-over"))")
+            try #require(!inAir, "the row did not make its case: a listing is in the air at the key")
             NewTabPage.open(in: pane, seed: nil)
-            // The row's ask joins the page's listing. A frame whose task reads a slice (the listing started, and its
-            // last slice is not read) notes the focus context that the slice reads under.
+            // The row's ask joins the page's listing. A frame whose task reads a slice notes the slice's focus context.
             let key = Self.focus(services), slices = Slices()
             let cold = await Self.listed(services) {
                 let counts = lister.counts, focus = Self.focus(services)
@@ -382,10 +381,11 @@ struct NewTabCommandListKeptTests {
                 + "contexts \(slices.contexts); a second ask: \(end.started - first.started) listings started, \(end.actionsRead - first.actionsRead) "
                 + "catalog actions read again; \(cold.frames) + \(again.frames) frames with a lister task; the focus context \(start) before the key, "
                 + "\(key) in the key's turn, \(handed) after the first hand-over, \(Self.focus(services)) now")
+            try #require(first.started > before.started, "the row did not make its case: the key started no listing (it joined one, or a list was kept)")
             #expect(first.started == before.started + 1, "the first key from a terminal started \(first.started - before.started) listings")
             #expect(slices.contexts == [handed], "the listing's slices read under the focus contexts \(slices.contexts); the page has \(handed) at the hand-over")
             #expect(end.started == first.started, "a second ask started \(end.started - first.started) listings")
-            let page = try #require(tabs.newTabPages.keys.first { !known.contains($0) }, "the key opened no New Tab page")
+            let page = try #require(Self.opened(services, after: known, old).first, "the key opened no New Tab page")
             let view = try #require(tabs.views[page], "the page has no view after its listing")
             #expect(cold.list != nil && view.model.newTab?.omnibar.actions == again.list?.actions, "the page does not show the list of now")
         }
@@ -399,14 +399,17 @@ struct NewTabCommandListKeptTests {
         let first: AgentPaneView
         /// The list the lister gives with the focus on the first page.
         let list: Listed
-        /// The keys of the New Tab pages before the first one.
-        let known: Set<AgentTabKey>
+        /// The keys and the views of the New Tab pages before the first one (the launch's own page).
+        let known: Set<AgentTabKey>, old: [AgentPaneView]
 
-        /// The New Tab pages that came after the first one, by their keys of now (a key changes when the store answers).
-        func others() -> [AgentTabKey] {
-            let tabs = services.agentTabs
-            return tabs.newTabPages.keys.filter { !known.contains($0) && tabs.views[$0] !== first }
-        }
+        /// The New Tab pages that came after the first one, by their keys of now.
+        func others() -> [AgentTabKey] { NewTabCommandListKeptTests.opened(services, after: known, old + [first]) }
+    }
+
+    /// The New Tab pages that were not there before, by their keys of now: a page's key changes at the store's answer.
+    private static func opened(_ services: AppServices, after known: Set<AgentTabKey>, _ old: [AgentPaneView]) -> [AgentTabKey] {
+        let tabs = services.agentTabs
+        return tabs.newTabPages.keys.filter { key in !known.contains(key) && !old.contains { $0 === tabs.views[key] } }
     }
 
     /// The registry's focus context, as a number for a print.
@@ -424,7 +427,7 @@ struct NewTabCommandListKeptTests {
             pool.makeSpare = { _ in nil }
             defer { pool.makeSpare = nil }
             let tabs = services.agentTabs
-            let known = Set(tabs.newTabPages.keys)
+            let known = Set(tabs.newTabPages.keys), old = tabs.views.values
             let start = focus(services)
             NewTabPage.open(in: pane, seed: nil)
             let key = focus(services)
@@ -433,13 +436,13 @@ struct NewTabCommandListKeptTests {
             // The focus goes to the page in its first frames. A second ask gives the list of that focus.
             let settled = await listed(services)
             let list = try #require(settled.list, "the first page's second ask never got a list")
-            let page = try #require(tabs.newTabPages.keys.first { !known.contains($0) }, "Cmd-T opened no New Tab page")
+            let page = try #require(opened(services, after: known, old).first { tabs.views[$0] != nil }, "Cmd-T opened no New Tab page with a view")
             let first = try #require(tabs.views[page], "the first page has no view after its listing")
             try #require(!list.actions.isEmpty && first.model.newTab?.omnibar.actions.isEmpty == false, "the first page did not get a list")
             let counts = services.newTabActions.counts
             print("new-tab-list: the first web page: \(counts.started) listings started in two asks, \(cold.frames) + \(settled.frames) frames with a lister "
                 + "task; the focus context \(start) before the key, \(key) in the key's turn, \(read) after the first hand-over, \(focus(services)) now")
-            try await body(Web(services: services, pane: pane, first: first, list: list, known: known))
+            try await body(Web(services: services, pane: pane, first: first, list: list, known: known, old: old))
         }
     }
 
@@ -522,10 +525,8 @@ struct NewTabCommandListKeptTests {
     /// The lister's frame queue, as the frame scheduler names its clients.
     private static let lister = "NewTab.paletteActions"
 
-    /// The most frames with a lister task that a row fires for one ask. A listing reads one catalog action or more
-    /// in each task, so it has at most as many tasks as the catalog has entries, and one to start, one to arrange
-    /// and one to hand over. Four times that is far above any listing (ten times the largest cold listing of the
-    /// runs so far, 315 tasks, at the least).
+    /// The most frames with a lister task that a row fires for one ask. A listing reads one catalog action or more in
+    /// each task: at most one task for each entry and 3 more. Four times that is ten times the largest listing so far.
     private static func frameLimit(_ services: AppServices) -> Int {
         max(4 * (services.registry.entries.count + 3), 3150)
     }
@@ -548,9 +549,8 @@ struct NewTabCommandListKeptTests {
         await handOver(to: ask(services), services, inFrame: inFrame)
     }
 
-    /// Is the display until the lister hands the list to `waiter`: one frame after another, with no clock. No
-    /// hand-over in ``frameLimit(_:)`` frames with a lister task is an issue. `inFrame` runs before each frame
-    /// that the lister has a task for.
+    /// Is the display until the lister hands the list to `waiter`: one frame after another, with no clock. No hand-over
+    /// in ``frameLimit(_:)`` frames with a lister task is an issue. `inFrame` runs before each of those frames.
     private static func handOver(to waiter: Waiter, _ services: AppServices, inFrame: @escaping @MainActor @Sendable () -> Void = {}) async -> Asked {
         let (lists, feed) = waiter
         let limit = frameLimit(services)
