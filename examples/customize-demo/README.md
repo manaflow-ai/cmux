@@ -43,5 +43,34 @@ CARGO_TARGET_DIR=/tmp/demo-check cargo run -q --manifest-path examples/customize
 One setup at a time: each brings its own `local/customize` app, so the next one replaces its views.
 Views that read the network or run actions say which scope to turn on in Settings > Apps.
 
-`record-steps.py` writes the same order as a hot-verify steps file, for a recording in a copy of
-NIGHTLY (`cmux-ci hot-verify PR --look --video --state FILE`).
+`record-steps.py` writes the same order for an isolated copy of the published NIGHTLY. The
+capture has a fresh home and does not copy this checkout. Pass a **pushed full commit SHA**;
+the steps fetch those profile files on the capture Mac and wait for the download to finish.
+An examples-only PR has no web or daemon layer, so `hot-verify --look` can skip its capture.
+Use the NIGHTLY capture route for these profiles:
+
+```sh
+python3 examples/customize-demo/record-steps.py --ref "$(git rev-parse HEAD)" > /tmp/demo-steps.json
+cmux-ci capture --nightly latest --state /tmp/demo-steps.json --on fleet
+```
+
+Every profile opens a fresh New Tab so its own start page appears. The result includes all 13
+looks and a reset shot. The library status before and after is recorded too; `discard` resets
+the profile, but does not turn off library overlays. Inspect those answers and every step's
+`ok` result, as the runner continues after a failed step.
+
+For a short video, choose a few profiles (repeat `--only`); the runner limits each clip to
+120 seconds and each state to 60 steps. A video records the whole display on an isolated fleet
+lease, so inspect it for private content before posting it:
+
+```sh
+python3 examples/customize-demo/record-steps.py --ref "$(git rev-parse HEAD)" --video \
+  --only looks/claude.json --only looks/codex.json --only looks/studio.json > /tmp/demo-video.json
+cmux-ci capture --nightly latest --state /tmp/demo-video.json --on fleet
+```
+
+`--root /absolute/path` uses profiles already staged on the capture Mac instead of downloading
+them. Set `CMUX_AGENT_ID` to your session identity when the fleet capture asks for a lease owner.
+These shots prove the New Tab and visible sidebar; feature verification also needs Session
+Info, hover cards, and the actions and data sources each profile promises. The manifest check
+and fixture renderer alone are not proof that those features work in NIGHTLY.
