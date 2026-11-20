@@ -250,7 +250,7 @@ public struct CloudMachineRoute: Sendable {
     /// The exec route's refusal codes for a machine that does not run now: paused (an idle pause, or a spare the Cloud
     /// service paused again after its warm), or still starting. cmux-platform `MachineGuest.ts` (`vm_not_running`: "the
     /// machine is not running; start it first"), and the Rust start's clone wait resumes on the same ones.
-    public static let notRunningCodes: Set<String> = ["vm_not_running", "vm_state_conflict", "cloud.machine.paused", "cloud.machine.not_running"]
+    public nonisolated static let notRunningCodes: Set<String> = ["vm_not_running", "vm_state_conflict", "cloud.machine.paused", "cloud.machine.not_running"]
 
     /// Whether `error` is the exec route's refusal of a machine that does not run (``notRunningCodes``).
     public nonisolated static func isNotRunning(_ error: any Error) -> Bool {
