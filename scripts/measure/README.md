@@ -27,6 +27,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | xbench | `perf-bench.sh` (`scripts/perf-bench/xbench.py`); `--import` reads `results.json` and `scripts/perf-bench/baseline/*.json` | Against other browsers, and the resource budget rows. |
 | idle | `perf-10x-idle.sh` | Idle CPU, wakeups and footprint per process kind. |
 | tui-idle | `tui-idle-ram.sh` (`tui-idle-ram.py`, `dhat-top.py`) on Linux CI | The idle cmux-tui daemon's anonymous PSS, PSS, threads, binary sections and (dhat=1) Rust heap at commits. |
+| typing | `webviews/bench/composer-typing.bench.ts` (load modes L0-L3, Chromium and WebKit) on Linux CI | Composer keydown-to-paint p95/p99 and key integrity under idle, stream, ten streaming documents and a 100k-row stream. |
 | mcp-fanout | `mcp-fanout.sh` (`mcp-fanout.py`) on a fleet Mac, any published app (`app=`) | MCP tool-server processes, RSS, idle CPU per kind at N open chats; first cmux tool call latency. |
 | workspace-factory | `workspace-factory.sh` (`workspace-factory/`, the `wsfactory` Rust factory) on a fleet Mac | A per-job throwaway workspace (APFS clone of a read-only seed) against today's cold and warm-slot step workspaces: start, build, cache hit, disk left behind. |
 
@@ -49,11 +50,12 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `fresh-home-launch.sh` | Fresh-home launch of any commit's app on a fleet Mac. | - | 2026-11-14 | active |
 | `nightly-fresh-launch.sh` | Where a published nightly's fresh-home launch spends its time. | CMUX-571 | 2026-11-15 | active |
 | `nightly-fresh-launch.py` | Python driver for nightly-fresh-launch.sh. | CMUX-571 | 2026-11-15 | active |
-| `relaunch-restore.sh` | Quit to usable time after Quit and Keep Sessions, on a published build. | hq#7149 L5 | 2026-11-05 | active |
+| `relaunch-restore.sh` | Quit to usable time after Quit and Keep Sessions, on a published build; `base=SHA head=SHA` runs two builds as interleaved pairs with the load (`relaunch-restore-pairs.py`). | hq#7149 L5 | 2026-11-05 | active |
 | `relaunch-shift.sh` | Layout shift when the app relaunches after an update. | - | 2026-11-04 | active |
 | `first-load-after-restart.sh` | A chat's first load after a restart, frame by frame, at commits (shift and blank frames, settle time). | - | 2026-11-16 | active |
 | `update-click-ab.sh` | Real Sparkle update, Restart to Update clicked soon after staging, base vs head. | CMUX-571 | 2026-11-15 | active |
 | `update-click-ab.py` | Summarizes update-click-ab.sh runs into medians. | CMUX-571 | 2026-11-15 | active |
+| `update-idle-e2e.sh` | Update When Idle end to end: a staged update installs by itself only after the running turn ended, the draft was cleared and the idle time passed; agent host counts and pids before and after; base as the control (`update-harness/idle_e2e.py`). | update-when-idle | 2026-11-19 | active |
 | `update-e2e.sh` | End to end auto-update of a real nightly (correctness, not a timing). | R114 | 2026-10-04 | stale |
 | `stable-next-smoke.sh` | Fresh-home launch smoke of the NEXT Stable build on a console worker. | - | 2026-10-30 | active |
 | `daemon-registry-start.sh` | Start time of the cmux-tui daemon on a large registry. | - | 2026-11-13 | active |
@@ -69,6 +71,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `held-new-tab.sh` | Held Cmd-T with Cmd-W now and then, in a session of many workspaces. | - | 2026-11-15 | active |
 | `held-new-tab.py` | Python driver for held-new-tab.sh. | - | 2026-11-16 | active |
 | `recent-pages.py` | Recent pages with site icons for a bench session (`held-new-tab.py --recent-sites N --recent-pages M`): loopback sites with one 64 x 64 icon each, the visits through one Chromium tab of the app, and the read of the app's own list of recent pages. Not a step's script: held-new-tab.py loads it. | - | 2026-11-18 | active |
+| `new-tab-letters.py` | The letter cases of the held New Tab measure (`held-new-tab.py --letter-cases N`): a letter typed directly after a New Tab key, as key sequences of the app in a page's window, in 7 forms; each form's word from the key hold's log and the first new tab's field. Not a step's script: held-new-tab.py loads it. | - | 2026-11-20 | active |
 | `build-flags.py` | The form of a tagged reload's build, from the reload's own log: its `bench configuration` line, the optimization settings, the count of Swift compile lines with each -O level (held-new-tab.sh and pane-motion-films.sh call it). | - | 2026-11-17 | active |
 | `burst-bench.sh` | Bursts of Cmd-W, Cmd-D and Cmd-Shift-D: per-press input to next commit. | PL-burst | 2026-10-27 | active |
 | `palette-open.sh` | Command palette open time, per stage, from several page types. | - | 2026-10-27 | active |
@@ -94,6 +97,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `action-signposts.sh` | Action perform, commit and gate signposts, light and STRESS. | perf-lead row 23 | 2026-10-27 | active |
 | `sidebar-stress.sh` | Sidebar scroll, switch, theme switch during a scroll and custom sidebar sections (install, save to render) at 20 and 500 workspaces. | - | 2026-11-17 | active |
 | `main-thread-large-session.sh` | Main thread under the LARGE session (60 workspaces x 6 tabs). | MTS-0 | 2026-11-10 | active |
+| `mobile-bench-mac-capture.sh` | Reference clips for the mobile bench: an iPhone app the App Store offers on the Mac, recorded at 120 fps (ScreenCaptureKit, every frame's own time) on a 120 Hz virtual display through the bench's flows, one `clip.mp4` + `meta.json` per flow (driver `scripts/mobile-bench/mac/`). | Leo 2026-11-19, mobile reference bench | 2026-11-19 | active |
 
 ## Rendering and frames
 
