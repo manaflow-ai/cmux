@@ -1263,7 +1263,7 @@ check_queue_janitor_runs_off_the_pools_it_judges() {
   # sweep judges the owned labels (starved_labels.py: every FLEET_PREFIX label
   # and FLEET_LINUX) and moves the Blacksmith pools (runner_pools.py), so a
   # busy pool would hold back the sweep that relieves it: on 2026-11-20 a
-  # sweep waited 77 minutes for cmux-fleet-linux-x64. Its runs-on names no
+  # sweep waited 77 minutes to start. Its runs-on names no
   # Blacksmith label, and in manaflow-ai with no repository variable set it
   # takes a label the janitor does not judge. The variable-set fallback may
   # name a judged label: an operator picks it while that pool is not busy.
