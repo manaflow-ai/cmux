@@ -288,6 +288,69 @@ import Testing
         #expect(drains.stalls == 0)
     }
 
+    /// A page acking a push the host never made (a seq past the newest pushed) must not clear what
+    /// it has not acked, nor end a stall: else a buggy page walks past the bound and its renderer
+    /// grows without limit again.
+    @Test func anAckPastTheNewestPushNeitherClearsNorResumes() {
+        var ledger = PagePushLedger(bounds: .init(maximumUnackedBytes: 100, maximumUnackedPushes: 240))
+        ledger.pushed(seq: 1, bytes: 60)
+        ledger.pushed(seq: 2, bytes: 60)
+        let held = ledger.deadlinePassed()
+        #expect(!held && ledger.stalled)
+        let before = ledger.unacked
+
+        let future = ledger.acked(seq: 3)
+        #expect(!future, "an ack past the newest push resumes nothing")
+        #expect(ledger.stalled, "still held")
+        #expect(ledger.unacked == before && ledger.unackedBytes == 120, "the unacked pushes are kept")
+        let farFuture = ledger.acked(seq: .max)
+        #expect(!farFuture && ledger.stalled && ledger.unacked == before)
+
+        let valid = ledger.acked(seq: 2)
+        #expect(valid, "an ack of the newest push still resumes")
+        #expect(!ledger.stalled && ledger.unacked.isEmpty && ledger.unackedBytes == 0)
+
+        // Not stalled: a future ack still leaves the unacked pushes alone.
+        var flowing = PagePushLedger()
+        flowing.pushed(seq: 7, bytes: 10)
+        let notHeld = flowing.acked(seq: 8)
+        #expect(!notHeld && flowing.unacked == [PagePushLedger.Push(seq: 7, bytes: 10)])
+        let applied = flowing.acked(seq: 7)
+        #expect(!applied && flowing.unacked.isEmpty)
+    }
+
+    /// An ignored ack is reported once per stall episode, so a misbehaving page shows in the log
+    /// (AgentPaneTransport logs `.pastNewestPush` with `report`) but cannot flood it.
+    @Test func anAckPastTheNewestPushIsReportedOncePerStall() {
+        var ledger = PagePushLedger(bounds: .init(maximumUnackedBytes: 100, maximumUnackedPushes: 240))
+        ledger.pushed(seq: 1, bytes: 120)
+        let held = ledger.deadlinePassed()
+        #expect(!held && ledger.stalled)
+
+        let first = ledger.ack(seq: 5)
+        #expect(first == .pastNewestPush(newest: 1, report: true))
+        for _ in 0..<1000 {
+            let again = ledger.ack(seq: 6)
+            #expect(again == .pastNewestPush(newest: 1, report: false), "one report per stall episode")
+        }
+        #expect(ledger.acksPastNewest == 1001 && ledger.stalled && ledger.unackedBytes == 120)
+
+        let valid = ledger.ack(seq: 1)
+        #expect(valid == .resumed)
+
+        // The next stall is a new episode: its first ignored ack is reported again.
+        ledger.pushed(seq: 2, bytes: 120)
+        let heldAgain = ledger.deadlinePassed()
+        #expect(!heldAgain && ledger.stalls == 2)
+        let second = ledger.ack(seq: 9)
+        #expect(second == .pastNewestPush(newest: 2, report: true))
+
+        // A new connection forgets its pushes: any ack before the first push is past the newest.
+        ledger.reset()
+        let none = ledger.ack(seq: 1)
+        #expect(none == .pastNewestPush(newest: nil, report: true))
+    }
+
     @Test func anEpisodeHoldsKeptRecordsBehindItsOneMarker() {
         var episode = PageShedEpisode()
         let heldOutside = episode.deferRecord("r0", bytes: 2)
