@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { AgentMark } from "../../shared/AgentMark";
 import { Spinner } from "../conversation/icons";
@@ -197,13 +197,14 @@ export function HarnessesScreen({
   }, [callNative, waiting, signInPollMs]);
   useEscapeCloses(true, onClose);
   const rows = harnessRows(catalog, acpmux, health, checking);
-  needsOf.current = Object.fromEntries(rows.flatMap((row) => (row.needs ? [[row.harness, row.needs.harness]] : [])));
+  const needs: Record<string, string> = Object.fromEntries(
+    rows.flatMap((row) => (row.needs ? [[row.harness, row.needs.harness]] : [])),
+  );
   /// The harness a row's checks ask about: the one it needs, else its own.
   const target = (row: HarnessRow) => row.needs?.harness ?? row.harness;
   /// Rows whose install finished while acpmux still cannot run the harness: coming back to the page
   /// (from a terminal tab, Finder or System Settings) has acpmux look for them again.
-  const stuckRows = useRef<HarnessRow[]>([]);
-  stuckRows.current = rows.filter(
+  const stuckRows = rows.filter(
     (row) => progress[row.harness]?.kind === "done" && (row.status === "notInstalled" || row.status === "unavailable"),
   );
   const inFolder = cwd ? { cwd } : {};
@@ -261,9 +262,14 @@ export function HarnessesScreen({
     mark(row.harness, { kind: "installing" });
     void rescan(row).then(() => mark(row.harness, { kind: "done" }));
   };
-  lookAgain.current = () => {
-    for (const row of stuckRows.current) checkAgain(row);
-  };
+  // The refs read outside render (the sign-in poll, the focus listener) take this render's values
+  // once it commits, never during render: React may replay or discard a render.
+  useLayoutEffect(() => {
+    needsOf.current = needs;
+    lookAgain.current = () => {
+      for (const row of stuckRows) checkAgain(row);
+    };
+  });
   /// The one fix a row acpmux cannot run offers: its update when acpmux has one that needs no
   /// admin rights (through the channel it was installed with), its setup page, or another look.
   const fix = (row: HarnessRow): { label: string; run(): void } => {
