@@ -32,6 +32,7 @@
     ],
     "sidebar.style": "standard",
     "sidebar.workspaceRow.icon": true,
-    "sidebar.workspaceRow.notification": true
+    "sidebar.workspaceRow.notification": true,
+    "workspaceColors.indicatorStyle": "fill"
   }
 }

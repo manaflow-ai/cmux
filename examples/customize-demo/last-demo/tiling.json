@@ -52,7 +52,8 @@
     "sidebar.workspaceRow.icon": true,
     "sidebar.workspaceRow.process": true,
     "sidebar.workspaceRow.ports": true,
-    "sidebar.workspaceRow.notification": true
+    "sidebar.workspaceRow.notification": true,
+    "workspaceColors.indicatorStyle": "leftRail"
   },
   "files": {
     "customize/cmux-app.json": "{\n  \"$schema\": \"https://cmux.dev/schemas/cmux-app/2.json\",\n  \"manifestVersion\": 2,\n  \"id\": \"local/customize\",\n  \"name\": \"Tiling\",\n  \"version\": \"2.0.0\",\n  \"description\": \"Numbered workspace rows, like a tiling window manager's tags, and a status bar at the bottom of the sidebar: the time, the focused workspace's panes and tabs, and agents at work.\",\n  \"engines\": { \"cmux\": \"^2.0\" },\n  \"runtime\": { \"main\": \"main.js\" },\n  \"implements\": {\n    \"cmux.sidebar.rows/1\": { \"export\": \"numberRows\" },\n    \"cmux.section/1\": {\n      \"export\": \"renderBar\",\n      \"title\": \"Status bar\",\n      \"symbol\": \"rectangle.split.3x1\",\n      \"options\": { \"defaultRegion\": \"bottom\" }\n    }\n  },\n  \"scopes\": {\n    \"workspace:read\": \"Number the workspace rows and count the focused workspace's panes and tabs.\",\n    \"agent_chat:read\": \"Count the agents at work.\"\n  }\n}\n",

@@ -33,7 +33,8 @@
     ],
     "sidebar.style": "standard",
     "sidebar.workspaceRow.icon": true,
-    "sidebar.workspaceRow.notification": true
+    "sidebar.workspaceRow.notification": true,
+    "workspaceColors.indicatorStyle": "fill"
   },
   "files": {
     "agent-pane/theme.css": "/* Glass: liquid, in the agent pane. Over clear glass and a bright painting the chat's own glass (the\n   composer, popovers, menus, hover cards) needs a tint floor to keep text at 4.5:1: the glass lab\n   measured 3.9:1 on a selected row at a 60% tint and 5.0:1 at 70% (the tint floor skin).\n   This raises each text-bearing level to 70% or more and leaves the blur alone, so Reduce\n   Transparency still turns the glass off. The material keeps its colors vivid behind the frost. */\n:root {\n  --ds-glass-chrome-tint: 70%;\n  --ds-glass-popover-tint: 74%;\n  --ds-glass-popover-art-tint: 70%;\n  --ds-glass-chip-tint: 72%;\n  --glass-material-saturate: 2;\n}\n",

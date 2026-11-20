@@ -45,6 +45,7 @@
     ],
     "sidebar.groupHeader.background": "solid",
     "sidebar.workspaceRow.icon": false,
-    "sidebar.workspaceRow.notification": false
+    "sidebar.workspaceRow.notification": false,
+    "workspaceColors.indicatorStyle": "dot"
   }
 }

@@ -50,6 +50,7 @@
     "sidebar.workspaceRow.icon": true,
     "sidebar.workspaceRow.process": true,
     "sidebar.workspaceRow.ports": true,
-    "sidebar.workspaceRow.notification": true
+    "sidebar.workspaceRow.notification": true,
+    "workspaceColors.indicatorStyle": "leftRail"
   }
 }

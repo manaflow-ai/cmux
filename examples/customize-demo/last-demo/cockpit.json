@@ -42,7 +42,8 @@
     "sidebar.style": "standard",
     "sidebar.workspaceRow.icon": true,
     "sidebar.workspaceRow.process": true,
-    "sidebar.workspaceRow.notification": true
+    "sidebar.workspaceRow.notification": true,
+    "workspaceColors.indicatorStyle": "fill"
   },
   "files": {
     "customize/cmux-app.json": "{\n  \"$schema\": \"https://cmux.dev/schemas/cmux-app/2.json\",\n  \"manifestVersion\": 2,\n  \"id\": \"local/customize\",\n  \"name\": \"Cockpit\",\n  \"version\": \"2.0.0\",\n  \"description\": \"A New Tab page that is a cockpit (a greeting, live counters, launch tiles, what needs you, your PRs, your workspaces) and a Needs You section on top of the sidebar.\",\n  \"engines\": { \"cmux\": \"^2.0\" },\n  \"runtime\": { \"main\": \"main.js\" },\n  \"implements\": {\n    \"cmux.newtab/1\": { \"export\": \"renderCockpit\", \"title\": \"Cockpit\", \"symbol\": \"gauge.with.dots.needle.67percent\" },\n    \"cmux.section/1\": {\n      \"export\": \"renderNeedsYou\",\n      \"title\": \"Needs you\",\n      \"symbol\": \"bell.badge\",\n      \"options\": { \"defaultRegion\": \"top\", \"maxRows\": 12 }\n    }\n  },\n  \"scopes\": {\n    \"agent_chat:read\": \"Read your agent chats, to list the ones waiting on you.\",\n    \"workspace:read\": \"List your workspaces.\",\n    \"workspace:write\": \"Show a workspace or a chat's workspace when you click it.\",\n    \"actions:run\": \"Open a chat, a terminal, a browser or a PR from the page.\",\n    \"integration:github:read\": \"Read your pull requests with the connected GitHub account.\"\n  }\n}\n",

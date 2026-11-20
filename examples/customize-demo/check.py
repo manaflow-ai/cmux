@@ -68,6 +68,9 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
+        if "workspaceColors.indicatorStyle" not in profile.get("settings", {}):
+            print(f"{relative}: sidebar customization does not choose an indicator style", file=sys.stderr)
+            return 1
 
     if len(expected) != 13:
         print(f"expected 13 demo profiles, found {len(expected)}", file=sys.stderr)

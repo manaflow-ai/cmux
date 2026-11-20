@@ -57,6 +57,7 @@
     ],
     "sidebar.style": "standard",
     "sidebar.workspaceRow.notification": true,
-    "sidebar.workspaceRow.working": true
+    "sidebar.workspaceRow.working": true,
+    "workspaceColors.indicatorStyle": "leftRail"
   }
 }

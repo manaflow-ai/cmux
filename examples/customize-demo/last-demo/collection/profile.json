@@ -36,6 +36,7 @@
     "sidebar.style": "standard",
     "sidebar.groupGradient": "sunset",
     "sidebar.workspaceRow.pullRequest": true,
-    "sidebar.workspaceRow.notification": true
+    "sidebar.workspaceRow.notification": true,
+    "workspaceColors.indicatorStyle": "dot"
   }
 }
