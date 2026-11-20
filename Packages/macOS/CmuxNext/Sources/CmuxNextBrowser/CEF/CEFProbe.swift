@@ -1,5 +1,5 @@
 // PROBE (scratch, never lands): a timed log of key-window changes and Chromium focus calls around Cmd-N.
-import AppKit
+public import AppKit
 
 @MainActor public enum CEFProbe {
     public static var log: [String] { CEFRuntime.shared.probeLog }
