@@ -4329,7 +4329,11 @@ class GitHub:
                     truncated = True  # no older bound to move to (over 1,000 runs created in one second)
                     break
                 before = oldest
-            self.run_listing[status] = {"listed": len(seen), "total": total if total is not None else len(seen),
+            # GitHub's total_count for a status-filtered listing stops at 2,500 (status=queued on 2026-11-18: 2,500
+            # while the sweep listed 3,948), so it is never taken below the runs actually listed, and a cut listing's
+            # total is only a lower bound (`total_at_least`).
+            counted = max(total if total is not None else 0, len(seen))
+            self.run_listing[status] = {"listed": len(seen), "total": counted, "total_at_least": truncated,
                                         "pages": pages, "truncated": truncated}
         return list(runs.values())
 
@@ -4617,7 +4621,8 @@ def listing_state(github: Any, unlisted: set[int]) -> dict[str, Any]:
     return {
         "truncated": truncated,
         "listed": sum(int(entry.get("listed") or 0) for entry in statuses.values()),
-        "total": sum(int(entry.get("total") or 0) for entry in statuses.values()),
+        "total": sum(max(int(entry.get("total") or 0), int(entry.get("listed") or 0)) for entry in statuses.values()),
+        "total_at_least": any(entry.get("total_at_least") for entry in statuses.values()),
         "jobs_unlisted": len(unlisted),
         "statuses": statuses,
     }
@@ -4628,7 +4633,8 @@ def render_listing(listing: Mapping[str, Any]) -> str:
     parts = ", ".join(f"{status} {entry.get('listed', 0)}/{entry.get('total', 0)}"
                       + (" truncated" if entry.get("truncated") else "")
                       for status, entry in (listing.get("statuses") or {}).items())
-    text = f"Listed {listing.get('listed', 0)} of {listing.get('total', 0)} in-flight runs ({parts or 'none'})"
+    bound = "at least " if listing.get("total_at_least") else ""
+    text = f"Listed {listing.get('listed', 0)} of {bound}{listing.get('total', 0)} in-flight runs ({parts or 'none'})"
     if listing.get("jobs_unlisted"):
         text += f"; {listing['jobs_unlisted']} run(s) past the {MAX_JOB_LISTINGS} job listings a sweep left unread"
     return text
@@ -4866,7 +4872,7 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
             github.rate_limited = github.rate_limited or str(error)
             return 1
         # How much of the queue this sweep saw: `truncated` makes every pool reader take the queue as unknown.
-        snapshot.update({key: listing[key] for key in ("truncated", "listed", "total")})
+        snapshot.update({key: listing[key] for key in ("truncated", "listed", "total", "total_at_least")})
         snapshot["listing"] = {key: listing[key] for key in ("jobs_unlisted", "statuses")}
         if unread or listing["truncated"]:
             # Read from every run but these: their jobs are missing, so a label one of them is running on

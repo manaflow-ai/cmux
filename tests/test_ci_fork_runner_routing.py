@@ -173,6 +173,30 @@ LINUX_RUNNER_KEY_JOBS = {
     ("sdk-release-cut.yml", "cut-tags"), ("test-e2e.yml", "runner"), ("test-ios.yml", "runner"),
 }
 HOSTED_LITERAL_LABEL = re.compile(r"ubuntu-latest|ubuntu-\d{2}\.\d{2}(?:-arm)?|macos-\d+(?:-intel)?|windows-\d{4}")
+# Our own one-job Linux label: the fleet reconciler boots one cloud VM per queued job with a
+# JIT config, no service account, and deletes it after that job, so a key held there leaves with the VM as on a
+# Blacksmith one. Accepted only as a literal operand: no variable may name it, and no other owned label is.
+# The queue janitors take it first so they never queue on the hosted pools they drain (2026-11-19: about 28,700
+# queued jobs, the janitors among them).
+FLEET_EPHEMERAL_LABELS = frozenset({"cmux-fleet-linux-x64"})
+# The janitors' fleet-first operand, exactly: a switch-off variable compared with a literal, an optional
+# schedule-or-dispatch event test, then the fleet literal. Placed after the fork branch of an otherwise accepted
+# expression (the trusted selector included), it can only ever add that one label.
+FLEET_FIRST_OPERAND = re.compile(
+    r"(?:\(github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch' && !inputs\.run_id\) && )?"
+    r"vars\.CI_REPAIR_SKIP_FLEET != '1' && '(" + "|".join(map(re.escape, sorted(FLEET_EPHEMERAL_LABELS))) + r")' \|\| "
+)
+FORK_BRANCH_PREFIX = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+
+
+def without_fleet_first(runs_on: str) -> str:
+    """RUNS_ON with the janitors' fleet-first operand removed, when it sits right after the fork branch."""
+    if runs_on.startswith(FORK_BRANCH_PREFIX):
+        rest = runs_on[len(FORK_BRANCH_PREFIX):]
+        matched = FLEET_FIRST_OPERAND.match(rest)
+        if matched:
+            return FORK_BRANCH_PREFIX + rest[matched.end():]
+    return runs_on
 # Values the selector test tries for LINUX_RUNNER: owned and hosted labels, case and list forms.
 ADVERSARIAL_VARIABLE_VALUES = (
     "", "glaeda-std-xcode-26.6", "glaeda-gui-xcode-26.6", "self-hosted", "cmux-lawrence", "ubuntu-24.04",
@@ -304,6 +328,8 @@ def runner_label_errors(runs_on: str, *, allow_linux_runner: bool = False) -> li
     """
     if runs_on in (*TRUSTED_RUNNER_EXPRESSIONS, FAST_CHECKS_ADMISSION_EXPRESSION):
         return []
+    if without_fleet_first(runs_on) in TRUSTED_RUNNER_EXPRESSIONS:
+        return []
     expression = re.fullmatch(r"\$\{\{(.*)\}\}", runs_on.strip(), re.DOTALL)
     if expression is None:
         if re.fullmatch(r"blacksmith-[a-z0-9-]+", runs_on) or HOSTED_LITERAL_LABEL.fullmatch(runs_on):
@@ -319,7 +345,7 @@ def runner_label_errors(runs_on: str, *, allow_linux_runner: bool = False) -> li
     for index, operand in enumerate(chain):
         conditions, result = (operand[1][:-1], operand[1][-1]) if operand[0] == "and" else ([], operand)
         label = _string(result)
-        if label is not None and blacksmith.fullmatch(label):
+        if label is not None and (blacksmith.fullmatch(label) or label in FLEET_EPHEMERAL_LABELS):
             continue
         if (label is not None and index == 0 and HOSTED_LITERAL_LABEL.fullmatch(label) and len(conditions) == 1
                 and conditions[0][0] == "cmp" and conditions[0][1] == "!="
@@ -1561,6 +1587,28 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                         f"${{{{ {fork}contains(fromJSON('[\"blacksmith-6vcpu-macos-26\"]'), fromJSON(needs.r.outputs.map).a) "
                         "&& fromJSON(needs.r.outputs.map).a || 'blacksmith-6vcpu-macos-26' }}"):
             self.assertEqual(runner_label_errors(allowed), [], allowed)
+
+    def test_the_fleet_one_job_label_passes_only_as_a_literal(self) -> None:
+        # The queue janitors lead with cmux-fleet-linux-x64 (one VM per job, deleted after it) so they do not
+        # queue on the pools they drain. Only that literal passes; a variable, a bounded pick or a persistent
+        # owned label still fails.
+        fork = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+        switch = "vars.CI_REPAIR_SKIP_FLEET != '1' && "
+        self.assertEqual(runner_label_errors(f"${{{{ {fork}{switch}'cmux-fleet-linux-x64' || {BOUNDED_LINUX_SELECTOR} }}}}"), [])
+        self.assertEqual(runner_label_errors("cmux-fleet-linux-x64"), ["'cmux-fleet-linux-x64' is not an ephemeral label"])
+        # Ahead of the exact trusted selector, on schedule and dispatch only (the owned-pool sweeper).
+        scheduled = "(github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && " + switch
+        self.assertEqual(runner_label_errors(TRUSTED_RUNNER_EXPRESSION.replace(
+            fork, f"{fork}{scheduled}'cmux-fleet-linux-x64' || ", 1)), [])
+        self.assertNotEqual(runner_label_errors(TRUSTED_RUNNER_EXPRESSION.replace(
+            fork, f"{fork}{scheduled}'cmux-gcp-lane-x64' || ", 1)), [])
+        for refused in (f"${{{{ {fork}{switch}'cmux-gcp-lane-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
+                        f"${{{{ {fork}{switch}'glaeda-std-xcode-26.6' || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
+                        f"${{{{ {fork}{switch}vars.CI_REPAIR_SKIP_FLEET || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
+                        f"${{{{ {fork}contains(fromJSON('[\"cmux-fleet-linux-x64\",\"cmux-gcp-lane-x64\"]'), vars.X) "
+                        "&& vars.X || 'blacksmith-4vcpu-ubuntu-2404' }}"):
+            with self.subTest(runs_on=refused):
+                self.assertNotEqual(runner_label_errors(refused), [])
 
     def test_trusted_runner_selector_admits_only_ephemeral_labels(self) -> None:
         self.assertEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {TRUSTED_RUNNER_EXPRESSION}\n"), [])

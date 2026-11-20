@@ -811,7 +811,7 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertEqual(workflow["jobs"]["sweep"]["if"], "${{ !(" + no_sweep + ") }}")
         self.assertEqual(workflow["concurrency"], {
             "group": "${{ (" + no_sweep + ") && format('ci-queue-janitor-noop-{0}', github.run_id) "
-                     "|| 'ci-queue-janitor' }}",
+                     "|| 'ci-queue-janitor-v2' }}",
             "cancel-in-progress": False,
         })
 
@@ -848,9 +848,10 @@ class WorkflowShapeTests(unittest.TestCase):
                          .replace("workflow_run.pull_requests[0]", ""))
         self.assertIn("\npermissions: {}\n", text)
         self.assertIn("  sweep:\n    permissions:\n      actions: write\n      pull-requests: read\n      contents: read\n", text)
-        # It mints GLAEDA_ROUTE_APP_KEY and CMUX_BOT_APP_KEY and follows RUNNER_POOLS.linux, then
-        # LINUX_RUNNER, owned runners included (Leo 2026-11-18 removed the ephemeral-only rule).
-        self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS || '{}').linux || !startsWith(vars.LINUX_RUNNER, 'cmux-fleet-linux-') && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}", text)
+        # It mints GLAEDA_ROUTE_APP_KEY and CMUX_BOT_APP_KEY: RUNNER_POOLS and LINUX_RUNNER move it only
+        # among the Blacksmith Linux sizes the expression names (tests/test_ci_fork_runner_routing.py).
+        # It leads with the fleet's one-job label, so it never queues on the hosted pools it sheds (2026-11-19).
+        self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-fleet-linux-x64' || contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\",\"blacksmith-32vcpu-ubuntu-2404\"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux) && fromJSON(vars.RUNNER_POOLS || '{}').linux || contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\",\"blacksmith-32vcpu-ubuntu-2404\"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}", text)
         self.assertIn("concurrency:\n  group: ${{ (github.event_name == 'workflow_run'", text)
         self.assertIn("vars.CI_JANITOR_QUEUE_THRESHOLD", text)
         self.assertIn("ORPHAN_MINUTES: ${{ vars.CI_JANITOR_ORPHAN_MINUTES }}", text)
@@ -941,11 +942,6 @@ class SweepRunnerTests(unittest.TestCase):
                 for key in (node[3].lstrip(".").split(".") if len(node) > 3 and node[3] else ()):
                     parsed = parsed.get(key, "") if isinstance(parsed, dict) else ""
                 return parsed
-            if kind == "not":
-                return not value(node[1])
-            if kind == "call" and node[1] == "startsWith":
-                haystack, needle = (str(value(arg)).lower() for arg in node[2])
-                return haystack.startswith(needle)
             if kind == "call" and node[1] == "contains":
                 haystack, needle = (value(arg) for arg in node[2])
                 return any(str(item).lower() == str(needle).lower() for item in haystack)
@@ -953,27 +949,31 @@ class SweepRunnerTests(unittest.TestCase):
 
         return str(value(tree))
 
+    def test_the_sweep_leads_with_the_fleet_label_off_the_pool_it_sheds(self):
+        # 2026-11-19: about 28,700 queued jobs, and the janitor's own sweep queued among them on Blacksmith.
+        self.assertEqual(self.runner({}), "cmux-fleet-linux-x64")
+        self.assertEqual(self.runner({"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"}), "cmux-fleet-linux-x64")
+        self.assertEqual(self.runner({"CI_REPAIR_SKIP_FLEET": "0"}), "cmux-fleet-linux-x64")
+        self.assertEqual(self.runner({"CI_REPAIR_SKIP_FLEET": "1"}), "blacksmith-4vcpu-ubuntu-2404")
+
     def test_a_stalled_linux_runner_size_does_not_hold_the_sweep(self):
         # The pool moved to 16 vCPU while the legacy mirror stayed stale at 32 vCPU.
-        frozen = {"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404",
+        frozen = {"CI_REPAIR_SKIP_FLEET": "1", "LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404",
                   "RUNNER_POOLS": json.dumps({"linux": "blacksmith-16vcpu-ubuntu-2404",
                                               "_dead": {"blacksmith-32vcpu-ubuntu-2404": "2026-11-01T05:30:00Z"}})}
         self.assertEqual(self.runner(frozen), "blacksmith-16vcpu-ubuntu-2404")
 
     def test_eight_vcpu_pool_member_wins_over_stale_linux_runner(self):
-        frozen = {"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404",
+        frozen = {"CI_REPAIR_SKIP_FLEET": "1", "LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404",
                   "RUNNER_POOLS": json.dumps({"linux": "blacksmith-8vcpu-ubuntu-2404"})}
         self.assertEqual(self.runner(frozen), "blacksmith-8vcpu-ubuntu-2404")
 
     def test_falls_back_to_linux_runner_then_four_vcpu(self):
-        self.assertEqual(self.runner({"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"}), "blacksmith-32vcpu-ubuntu-2404")
-        # An owned runner is followed too (Leo 2026-11-18): the pool member first, then LINUX_RUNNER.
-        self.assertEqual(self.runner({"RUNNER_POOLS": json.dumps({"linux": "cmux-gcp-lane-build-x64"}),
-                                      "LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"}), "cmux-gcp-lane-build-x64")
-        self.assertEqual(self.runner({"LINUX_RUNNER": "cmux-gcp-lane-build-x64"}), "cmux-gcp-lane-build-x64")
-        # cmux-fleet-linux-x64 boots no runners (it held every Linux job queued on 2026-11-19): skipped for the fallback.
-        self.assertEqual(self.runner({"LINUX_RUNNER": "cmux-fleet-linux-x64"}), "blacksmith-4vcpu-ubuntu-2404")
-        self.assertEqual(self.runner({}), "blacksmith-4vcpu-ubuntu-2404")
+        off = {"CI_REPAIR_SKIP_FLEET": "1"}
+        self.assertEqual(self.runner({**off, "LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"}), "blacksmith-32vcpu-ubuntu-2404")
+        self.assertEqual(self.runner({**off, "RUNNER_POOLS": json.dumps({"linux": "glaeda-std-xcode-26.6"}),
+                                      "LINUX_RUNNER": "cmux-lawrence"}), "blacksmith-4vcpu-ubuntu-2404")
+        self.assertEqual(self.runner(off), "blacksmith-4vcpu-ubuntu-2404")
 
 
 class OrphanDetectionTests(unittest.TestCase):
@@ -4640,9 +4640,11 @@ class InFlightRunListingTests(unittest.TestCase):
         self.assertEqual(len(ids), 400)  # four full pages, then the empty fifth: no cap at three
 
 
-def github_listing(runs, *, result_pages=10):
+def github_listing(runs, *, result_pages=10, count_cap=None):
     """A janitor client whose run listing answers like GitHub: newest first, 100 a page, `status` and
-    `created<=` filters, and nothing past `result_pages` pages (its 1,000-result cap). Returns (client, asked)."""
+    `created<=` filters, and nothing past `result_pages` pages (its 1,000-result cap). `count_cap` caps
+    total_count the way GitHub's filtered listing does (2,500 for `status=queued` on 2026-11-18 while about
+    3,600 runs were queued). Returns (client, asked)."""
     github = janitor.GitHub("token", "manaflow-ai/cmux")
     asked = []
     ordered = sorted(runs, key=lambda run: (run["created_at"], run["id"]), reverse=True)
@@ -4655,7 +4657,8 @@ def github_listing(runs, *, result_pages=10):
         rows = [run for run in ordered if run["status"] == status
                 and (not created or run["created_at"] <= created.removeprefix("<="))]
         batch = rows[(page - 1) * 100:page * 100] if page <= result_pages else []
-        return {"workflow_runs": batch, "total_count": len(rows)}
+        count = len(rows) if count_cap is None else min(len(rows), count_cap)
+        return {"workflow_runs": batch, "total_count": count}
 
     github.request = request
     return github, asked
@@ -4695,6 +4698,25 @@ class FullQueueListingTests(unittest.TestCase):
         self.assertIs(state["truncated"], True)
         self.assertEqual((state["listed"], state["total"]), (200, 500))
         self.assertIs(state["statuses"]["queued"]["truncated"], True)
+
+    def test_a_capped_total_count_never_reads_below_the_runs_listed(self):
+        # 2026-11-18 15:12Z: "Listed 4680 of 3255 in-flight runs" (queued 3948/2500): GitHub's total_count for
+        # status=queued stops at 2,500, so the total read below what the sweep had listed.
+        github, _ = github_listing(queued_runs(3000), count_cap=2500)
+        github.in_flight_runs()
+        state = janitor.listing_state(github, set())
+        self.assertEqual((state["truncated"], state["listed"], state["total"]), (False, 3000, 3000))
+        self.assertIn("Listed 3000 of 3000 in-flight runs", janitor.render_listing(state))
+        # Cut by the page ceiling, the total is only a lower bound, and says so.
+        github, _ = github_listing(queued_runs(3000), count_cap=2500)
+        with mock.patch.object(janitor, "MAX_RUN_PAGES", 20):
+            github.in_flight_runs()
+        state = janitor.listing_state(github, set())
+        self.assertIs(state["truncated"], True)
+        self.assertLess(state["listed"], 3000)
+        self.assertGreaterEqual(state["total"], state["listed"])
+        self.assertIs(state["statuses"]["queued"]["total_at_least"], True)
+        self.assertIn(f"Listed {state['listed']} of at least 2500 in-flight runs", janitor.render_listing(state))
 
     def test_runs_left_past_the_job_listing_cap_truncate_the_listing(self):
         runs = [make_run(status="queued", age=age, branch=f"b{age}") for age in (5, 10, 15)]
