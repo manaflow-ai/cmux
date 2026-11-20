@@ -1989,7 +1989,7 @@ final class WindowBrowserPortal: NSObject {
     private var nextHostedWebViewRefreshGeneration: UInt64 = 0
     private var pendingHostedWebViewRefreshes: [ObjectIdentifier: PendingHostedWebViewRefresh] = [:]
 
-    private struct Entry {
+    struct Entry {
         weak var webView: WKWebView?
         weak var containerView: WindowBrowserSlotView?
         weak var anchorView: NSView?
@@ -2018,7 +2018,7 @@ final class WindowBrowserPortal: NSObject {
         let delayedScheduler = MainActorDeferredActionScheduler()
     }
 
-    private var entriesByWebViewId: [ObjectIdentifier: Entry] = [:]
+    private(set) var entriesByWebViewId: [ObjectIdentifier: Entry] = [:]
     private var webViewByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
 
 #if DEBUG
@@ -4147,7 +4147,7 @@ enum BrowserWindowPortalRegistry {
         let frameInWindow: CGRect
     }
 
-    private static var portalsByWindowId: [ObjectIdentifier: WindowBrowserPortal] = [:]
+    private(set) static var portalsByWindowId: [ObjectIdentifier: WindowBrowserPortal] = [:]
     private static var webViewToWindowId: [ObjectIdentifier: ObjectIdentifier] = [:]
     private static func postRegistryDidChange(for webView: WKWebView) {
         NotificationCenter.default.post(name: .browserPortalRegistryDidChange, object: webView)

@@ -126,6 +126,17 @@ struct SidebarToggleSlideMachine: Equatable {
         return [.commitHiddenLayout, .animate(startSlide(from: width, to: 0, velocity: 0, visible: false, now: now))]
     }
 
+    /// The layout under a running slide changed (a split, a close): the
+    /// motion goes on from where it is to the same end, as a new slide, so
+    /// it can be rebuilt for the new layout. Nil when nothing moves.
+    mutating func restart(now: Double) -> Slide? {
+        guard let current = slide else { return nil }
+        let elapsed = now - current.begin
+        let from = spring.position(from: current.from, to: current.to, velocity: current.velocity, at: elapsed)
+        let velocity = spring.velocity(from: current.from, to: current.to, velocity: current.velocity, at: elapsed)
+        return startSlide(from: from, to: current.to, velocity: velocity, visible: current.landsVisible, now: now)
+    }
+
     /// The motion with `generation` finished. Stale generations (a slide
     /// that was retargeted, or a repeated landing) do nothing.
     mutating func land(generation landed: Int) -> [Effect] {
