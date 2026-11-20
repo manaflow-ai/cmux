@@ -227,19 +227,28 @@ fn user_cross_session_inbound(
     getenv: impl Fn(&str) -> Option<OsString>,
     host: AgentStartHost,
 ) -> Option<Value> {
+    let personal = getenv("CLAUDE_CONFIG_DIR")
+        .filter(|dir| !dir.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            getenv("HOME")
+                .filter(|home| !home.is_empty())
+                .map(|home| PathBuf::from(home).join(".claude"))
+        })
+        .and_then(|config| read_settings_argument(config.join("settings.json").as_os_str()).ok())
+        .and_then(|mut settings| settings.remove(CROSS_SESSION_INBOUND));
+    // A profile switch must not loosen a refusal the person already set in the
+    // incoming config. The shared profile's refusal also wins below.
+    if personal.as_ref().is_some_and(|value| value == "refuse") {
+        return personal;
+    }
     let config = if matches!(host, AgentStartHost::TeamVm | AgentStartHost::UnknownCloud) {
         PathBuf::from(
             getenv("HOME").filter(|home| !home.is_empty()).unwrap_or_else(|| "/root".into()),
         )
         .join(".config/cmux/claude-team")
     } else {
-        getenv("CLAUDE_CONFIG_DIR").filter(|dir| !dir.is_empty()).map(PathBuf::from).or_else(
-            || {
-                getenv("HOME")
-                    .filter(|home| !home.is_empty())
-                    .map(|home| PathBuf::from(home).join(".claude"))
-            },
-        )?
+        return personal;
     };
     read_settings_argument(config.join("settings.json").as_os_str())
         .ok()?
@@ -898,6 +907,12 @@ mod tests {
             assert_eq!(user_cross_session_inbound(env, host), Some(Value::from("accept")));
         }
         assert_eq!(fs::read_to_string(team.join("settings.json")).unwrap(), body);
+        fs::write(personal.join("settings.json"), body).unwrap();
+        fs::write(team.join("settings.json"), r#"{"crossSessionInbound":"accept"}"#).unwrap();
+        assert_eq!(
+            user_cross_session_inbound(env, AgentStartHost::TeamVm),
+            Some(Value::from("refuse"))
+        );
     }
 
     /// Hook commands match `agent hook install`, or call `agent hook emit` without a helper.
