@@ -31,7 +31,7 @@ use serde_json::{Value, json};
 pub const HOOK_ARG: &str = "__bg-hook";
 
 /// How the chat reaches `bg_start`, from its Claude Code MCP config.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Route {
     /// `mcp__acpmux__bg_start`: the server stands on its own.
     Direct,
