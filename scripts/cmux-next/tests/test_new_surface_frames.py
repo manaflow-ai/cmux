@@ -261,7 +261,9 @@ class OneKeyTests(unittest.TestCase):
         for frame in rows["frames"]:
             frame["ms"] *= 2
         got = nsf.one_key(rows, "n", asked_hz=120)
-        self.assertEqual([reason.split(":")[0] for reason in got["invalid"]], ["no-row"])
+        # No 8 steps of the rows come at the asked rate: the rows do not judge it, and that is a reason of its own.
+        self.assertEqual([reason.split(":")[0] for reason in got["invalid"]], ["no-row", "display"])
+        self.assertIn("display: the asked rate is not judged", got["invalid"][1])
         self.assertEqual((got["refresh_ms"], got["content_first"]["frame"], got["content_first"]["ms"]), (round(STEP, 3), 2, 16))
         self.assertAlmostEqual(got["refresh_measured_ms"], 2 * STEP, delta=0.1)
         self.assertEqual(nsf.one_key(rows, "n")["invalid"], [])  # no asked rate: the rows' own step, with no sign
@@ -555,6 +557,12 @@ class ScreenTests(unittest.TestCase):
         for line in cases:
             self.assertIn("valid 0/1 (INVALID: display); frames with no row from the key to content_first: not known (no asked display rate); tab ", line)
             self.assertNotIn("ms early", line)
+        # A run with no asked rate has no check of it: its head has no sentence of that check's limit.
+        self.assertNotIn("against the rows", "; ".join(report["head"]))
+        # The saved report has no number for what is not known.
+        saved = json.loads(Path(self.folder, "report.json").read_text())["cases"]
+        self.assertEqual([(case.get("first_frame_no_row", "no such fact"), case["recorder_lost"], case.get("no_row_not_known_rows"))
+                          for case in saved.values()], [(None, None, 1)] * 2)
 
     def test_the_line_of_a_row_with_no_asked_display_rate_says_not_known_for_the_second_keys_frames_too(self):
         span = {"frames": 3, "rows": 3, "no_row": 0, "no_row_frames": [], "longest_gap_ms": 9.0, "early_ms_at_most": 0.0}
@@ -606,9 +614,10 @@ class ScreenTests(unittest.TestCase):
         check = "\n".join(lines[starts[0]:lines.index("fi", starts[0]) + 1])
         self.assertLess(starts[0], next(index for index, line in enumerate(lines) if "./scripts/reload.sh" in line and not line.lstrip().startswith("#")))
 
-        def checked(rate, screen="1"):
+        def checked(rate, screen="1", locale=None):
             done = subprocess.run(["bash", "-c", f'screen="$1" vdisplay_hz="$2"\n{check}\necho went on', "check", screen, rate],
-                                  capture_output=True, text=True, timeout=60, check=False)
+                                  capture_output=True, text=True, encoding="utf-8", timeout=60, check=False,
+                                  env={**os.environ, "LC_ALL": locale} if locale else None)
             return done.returncode, done.stdout, done.stderr.strip()
 
         for bad in ("0", "0.0", "00", "-120", "inf", "nan", "fast", "1e3", "120."):
@@ -617,6 +626,17 @@ class ScreenTests(unittest.TestCase):
             self.assertEqual(checked(good), (0, "went on\n", ""), good)
         # A run with no --vdisplay, and a run with no --screen: the check is not theirs.
         self.assertEqual((checked(""), checked("0", screen="0")), ((0, "went on\n", ""), (0, "went on\n", "")))
+        # The match has the C locale: in a UTF-8 locale `[0-9]` also takes the digits of other scripts (here 3
+        # Arabic-Indic digits), which are no rate for the driver. By a run in each UTF-8 locale that this host has.
+        self.assertIn("LC_ALL=C", check.splitlines()[0])
+        other = "\u0661\u0662\u0660"
+        try:
+            names = subprocess.run(["locale", "-a"], capture_output=True, text=True, timeout=60, check=False).stdout.split()
+        except OSError:
+            names = []
+        for name in [name for name in names if name.lower().replace("-", "").endswith(".utf8")][:8]:
+            self.assertEqual(checked(other, locale=name), (2, "", f"instant-new-surfaces: --screen: --vdisplay={other} is not a rate in Hz above 0"), name)
+            self.assertEqual(checked("59.94", locale=name), (0, "went on\n", ""), name)
 
     def test_the_mode_itself_takes_no_value_that_is_not_a_finite_number_above_0_as_a_rate(self):
         # An options object that no argument check made (a caller that is not the driver): the mode's own guard.
@@ -626,7 +646,7 @@ class ScreenTests(unittest.TestCase):
             self.assertEqual(report["rows"][0]["invalid"], [nsf.NO_RATE], rate)
             self.assertIsNone(report["display_hz_asked"], rate)
 
-    def test_a_run_with_an_asked_rate_that_is_lower_than_the_displays_has_no_valid_row_and_no_count(self):
+    def test_a_run_whose_rows_prove_that_the_asked_rate_is_too_low_has_no_valid_row_and_no_count(self):
         # The made rows of a 120 Hz display, through the mode with 60 asked: Rule 1 does not see frame 2.
         said = io.StringIO()
         with contextlib.redirect_stdout(said):
@@ -645,6 +665,9 @@ class ScreenTests(unittest.TestCase):
         # sentence, because the run has no valid row.
         self.assertIn(" refresh_ms=16.667 rate_share=0.63 capture=", row)
         self.assertNotIn("SMALL MARGIN", head)
+        # The saved report has no number for what is not known.
+        saved = json.loads(Path(self.folder, "report.json").read_text())["cases"]["cmd-n/idle"]
+        self.assertEqual((saved.get("first_frame_no_row", "no such fact"), saved["recorder_lost"], saved.get("no_row_not_known_rows")), (None, None, 1))
 
     def test_the_rows_line_and_the_head_say_the_margin_of_the_asked_rate(self):
         # Rows of a 120 Hz display with 104 asked: 8 steps take 66 ms, which is 0.858 of 8 asked frame times (76.9 ms).
@@ -659,20 +682,30 @@ class ScreenTests(unittest.TestCase):
         head = next(line for line in lines if line.startswith("NEW-SURFACE-SCREEN-HEAD "))
         self.assertIn("THE ASKED DISPLAY RATE HAS A SMALL MARGIN: in 1 of the 1 valid rows the smallest time of 8 steps one after the other "
                       "is below 0.88 of 8 asked frame times (the smallest: 0.858 in cmd-n-idle-0; below 0.85 a row is INVALID by `display`)", head)
-        self.assertIn(report["head"][-1 - len(report["settings"]["lines"])], head)
+        # The head's order: the rows that the recorder lost, the limit of the asked rate's check, the margin, and
+        # then the app's settings lines.
+        rate = report["head"][-3 - len(report["settings"]["lines"]):len(report["head"]) - len(report["settings"]["lines"])]
+        self.assertEqual([said.split(":")[0] for said in rate],
+                         ["rows lost to the recorder (INVALID by `no-row` or `refresh`, a fault of the tool's yield)",
+                          "the asked display rate (104 Hz) against the rows", "THE ASKED DISPLAY RATE HAS A SMALL MARGIN"])
+        self.assertEqual(rate[1], nsf.rate_limit_sentence(104.0))
         # At the display's own rate the margin is large: no sentence.
         said = io.StringIO()
         with contextlib.redirect_stdout(said):
             report, _ = self.run_mode(FakeApp(self.folder, [(NEW, ROW_NEW)] * 240), keys="n", runs=1)
         self.assertEqual((report["rows"][0].get("rate_share"), report["rows"][0]["invalid"]), (0.99, []))
         self.assertNotIn("SMALL MARGIN", said.getvalue())
+        # The limit of the check is in the head of each run with an asked rate, directly after the recorder's rows.
+        at = report["head"].index(nsf.rate_limit_sentence(120.0))
+        self.assertTrue(report["head"][at - 1].startswith("rows lost to the recorder ("), report["head"])
+        self.assertEqual(report["head"][at + 1:], report["settings"]["lines"])
 
     def test_the_asked_display_rate_gets_to_the_reader_of_a_key(self):
         # Frame 2 has no row and the page is in frame 3; after it the recorder gives a row for each third frame of the
         # display. Only the asked rate's frame time sees frame 2: by the rows' own median step (25 ms) the page's
         # row is frame 1 and no frame is before it.
-        pictures = [(OLD, ROW_OLD), None, (NEW, ROW_NEW)] + [None, None, (NEW, ROW_NEW)] * 79
-        report, _ = self.run_mode(FakeApp(self.folder, pictures), keys="t", runs=1)
+        # (25 ms after 8 steps at the display's rate: without those the asked rate is not judged.)
+        report, _ = self.run_mode(FakeApp(self.folder, JUDGED_AT_120), keys="t", runs=1)
         row = report["rows"][0]
         self.assertEqual((row["refresh_ms"], row["content_first"]["frame"]), (round(STEP, 3), 3))
         self.assertEqual([reason.split(":")[0] for reason in row["invalid"]], ["no-row"])
@@ -1072,6 +1105,17 @@ class FirstFrameSpanTests(unittest.TestCase):
 # Rows of a 120 Hz display: the old picture in frame 1, no row in frame 2 (the page can have come in it), the page
 # from frame 3, then a still part in which the recorder gives a row for each third frame of the display.
 HIDDEN_AT_120 = [(OLD, ROW_OLD), None] + [(NEW, ROW_NEW)] * 6 + [None, None, (NEW, ROW_NEW)] * 78
+# The same with 9 rows one after the other from the page's frame: 8 steps at the display's rate, so the rate is judged.
+JUDGED_AT_120 = [(OLD, ROW_OLD), None] + [(NEW, ROW_NEW)] * 9 + [None, None, (NEW, ROW_NEW)] * 77
+EACH_FRAME = [(OLD, ROW_OLD)] * 2 + [(NEW, ROW_NEW)] * 238  # a row for each frame of a 120 Hz display, the page in frame 3
+
+
+def at_step(reply, step_ms):
+    """The rows of `reply` with one row each `step_ms` from its first row (whole ms, as the app's rows are)."""
+    first = reply["frames"][0]["ms"]
+    for index, frame in enumerate(reply["frames"]):
+        frame["ms"] = round(first + index * step_ms)
+    return reply
 
 
 def kinds(got):
@@ -1082,7 +1126,7 @@ class AskedRateTests(unittest.TestCase):
     """An asked rate that is lower than the display's makes Rule 1 blind: the rows say that the rate is too low."""
 
     def test_the_made_rows_are_invalid_by_no_row_at_the_displays_own_rate(self):
-        got = nsf.one_key(take(HIDDEN_AT_120), "n", asked_hz=120)
+        got = nsf.one_key(take(JUDGED_AT_120), "n", asked_hz=120)
         self.assertEqual((kinds(got), got["content_first"]["frame"], got["first_frame_span"]["no_row_frames"]), (["no-row"], 3, [2]))
 
     def test_rows_of_a_120_hz_display_with_60_asked_have_the_display_reason(self):
@@ -1174,6 +1218,11 @@ class AskedRateTests(unittest.TestCase):
         self.assertTrue(hasattr(nsf, "asked_rate"), "new_surface_frames.py has no `asked_rate`: the mode and the reader have 2 rules")
         self.assertEqual([nsf.asked_rate(rate) for rate in (120, 59.94, 0, -120.0, float("inf"), float("-inf"), float("nan"), None, True, "120")],
                          [120, 59.94, None, None, None, None, None, None, None, None])
+        # A whole number that is too large for a float is no rate, and no error of the reader.
+        try:
+            self.assertIsNone(nsf.asked_rate(10 ** 400))
+        except OverflowError as error:
+            self.fail(f"asked_rate(10 ** 400) raised OverflowError: {error}")
 
     def test_the_head_does_not_count_the_rows_lost_to_the_recorder_of_a_case_with_a_display_reason(self):
         # No asked rate: the count of rows with a frame with no row is not known, and `0 of 1` reads as `none lost`.
@@ -1191,6 +1240,122 @@ class AskedRateTests(unittest.TestCase):
                          "cmd-t/idle not known (the asked display rate is not proved); cmd-w/idle 0 of 1")
         self.assertIn("frames with no row from the key to content_first: not known (the asked display rate is not proved)",
                       nsf.cell(too_low))
+        # The saved report has no number there: no count of rows with a frame with no row, and no count of lost rows.
+        self.assertEqual((too_low.get("first_frame_no_row", "no such fact"), too_low["recorder_lost"], too_low.get("no_row_not_known_rows")),
+                         (None, None, 1))
+        self.assertEqual((seen["first_frame_no_row"]["rows"], seen["recorder_lost"], seen.get("no_row_not_known_rows")),
+                         (1, {"rows": 0, "of": 1, "not_known": 0, "no_row": 0, "refresh": 0}, 0))
+
+    def test_a_case_with_rows_of_both_kinds_says_how_many_are_not_known_and_counts_the_others(self):
+        low = nsf.one_key(take(HIDDEN_AT_120), "n", asked_hz=60)  # `display`: its counts are not known
+        lost = nsf.one_key(take(JUDGED_AT_120), "n", asked_hz=120)  # `no-row`: a row that the recorder lost
+        good = nsf.one_key(take(EACH_FRAME), "n", asked_hz=120)
+        self.assertEqual((kinds(low), kinds(lost), kinds(good)), (["display"], ["no-row"], []))
+        case = nsf.summarize([low, lost, good])
+        case["recorder_lost"] = nsf.recorder_lost([low, lost, good])
+        self.assertEqual((case["no_row_not_known"], case.get("no_row_not_known_rows")), ("the asked display rate is not proved", 1))
+        self.assertEqual(case["recorder_lost"], {"rows": 1, "of": 2, "not_known": 1, "no_row": 1, "refresh": 0})
+        self.assertEqual((case["first_frame_no_row"]["rows"], case["first_frame_no_row"]["with_a_frame_with_no_row"]), (2, 1))
+        self.assertEqual(nsf.recorder_sentence({"cmd-n/idle": case}),
+                         "rows lost to the recorder (INVALID by `no-row` or `refresh`, a fault of the tool's yield): cmd-n/idle not known "
+                         "for 1 of 3 rows (the asked display rate is not proved), 1 of the 2 others (no-row 1, refresh 0)")
+        self.assertIn("valid 1/3 (INVALID: display, no-row); frames with no row from the key to content_first: not known for 1 of 3 "
+                      "rows (the asked display rate is not proved); over EACH of 2 other rows (also the INVALID ones): in 1 rows (1 with "
+                      "one directly before content_first: the time is not proved; ", nsf.cell(case))
+        # A summary of an older tool has no count of such rows: its case is `not known` as before.
+        older = {name: value for name, value in case.items() if name != "no_row_not_known_rows"}
+        older["recorder_lost"] = {"rows": 1, "of": 3, "no_row": 1, "refresh": 0}
+        self.assertIn("cmd-n/idle not known (the asked display rate is not proved)", nsf.recorder_sentence({"cmd-n/idle": older}))
+        self.assertIn("; frames with no row from the key to content_first: not known (the asked display rate is not proved); tab ", nsf.cell(older))
+
+    def test_a_display_reason_that_is_not_the_first_reason_of_a_row_makes_its_counts_not_known(self):
+        self.assertEqual(nsf.rate_not_known(["no-row: 1 of the 3 frames have no row", "display: 8 steps one after the other"]),
+                         "the asked display rate is not proved")
+        self.assertEqual(nsf.rate_not_known(["no-row: 1 of the 3 frames have no row", nsf.NO_RATE]), "no asked display rate")
+        self.assertIsNone(nsf.rate_not_known(["no-row: 1 of the 3 frames have no row", "frames: the take ended"]))
+        # By made rows: frame 2 has no row (`no-row` first), and no 8 steps of the rows come at the asked rate.
+        got = nsf.one_key(take(HIDDEN_AT_120), "n", asked_hz=120)
+        self.assertEqual((kinds(got), nsf.rate_not_known(got["invalid"])), (["no-row", "display"], "the asked display rate is not proved"))
+
+    def test_the_invalid_decision_has_its_limit_at_0_85_of_8_asked_frame_times(self):
+        # A row for each frame of a 120 Hz display: 8 steps take 66 ms at the least (the rows' times are whole ms).
+        # 102 asked: 66 ms of 78.43 ms = 0.841, INVALID. 103 asked: 66 ms of 77.67 ms = 0.8497, and the judged number
+        # is the rounded one (0.85): valid, at the limit itself.
+        low = nsf.one_key(take(EACH_FRAME), "n", asked_hz=102)
+        self.assertEqual((low.get("rate_share"), kinds(low)), (0.841, ["display"]))
+        self.assertIn("display: 8 steps one after the other of the rows took 0.841 of 8 asked frame times (9.80 ms each; under 0.85)", low["invalid"][0])
+        at = nsf.one_key(take(EACH_FRAME), "n", asked_hz=103)
+        self.assertEqual((at.get("rate_share"), at["invalid"], at["refresh_ms"]), (0.85, [], 9.709))
+
+    def test_the_limit_is_one_number_for_the_decision_the_frame_time_and_the_words(self):
+        # With another limit each of its 3 uses follows: at 0.4, a row for each frame of a 120 Hz display with 60 asked
+        # (0.495) passes the decision, keeps the asked frame time and has 8 steps at the asked rate.
+        with mock.patch.object(nsf, "RATE_SHARE", 0.4):
+            got = nsf.one_key(take(EACH_FRAME), "n", asked_hz=60)
+            self.assertEqual((got.get("rate_share"), got["refresh_ms"], got["invalid"]), (0.495, 16.667, []))
+        # The words of the reason for a frame time that is the rows' own have the limit's number, not a copy of it.
+        reply = take(EACH_FRAME)
+        at = reply["frames"][0]["ms"]
+        for index, frame in enumerate(reply["frames"][1:]):
+            at += (4, 4, 17)[index % 3]
+            frame["ms"] = at
+        for share, said in ((0.85, "by more than 15 %"), (0.8, "by more than 20 %")):
+            with mock.patch.object(nsf, "RATE_SHARE", share):
+                got = nsf.one_key(reply, "n", asked_hz=120)
+                self.assertIn(f"display: the rows come faster than the asked rate {said}, so the frame time is the rows' own",
+                              "; ".join(got["invalid"]), share)
+
+    def test_a_recording_with_no_8_steps_at_the_asked_rate_is_not_judged_and_is_invalid(self):
+        # A 120 Hz display with 60 asked, the page hidden in frame 2. The recorder gives some rows one after the
+        # other and then a row for each third frame: the smallest sum of 8 steps is then a sum of long and short
+        # steps, and it is above the limit from 4 rows down. Such a sum proves no rate, so the row is not judged.
+        for dense, share in ((4, 0.877), (3, 1.005), (2, 1.125), (1, 1.252)):
+            pictures = [(OLD, ROW_OLD), None] + [(NEW, ROW_NEW)] * dense + [None, None, (NEW, ROW_NEW)] * 78
+            got = nsf.one_key(take(pictures), "n", asked_hz=60)
+            self.assertEqual((got.get("rate_share"), kinds(got)), (share, ["display"]), dense)
+            self.assertIn("display: the asked rate is not judged: no 8 steps one after the other of the recording's "
+                          f"{81 + dense} rows come at the asked rate (16.67 ms each; the sum of 8 steps is {share:g} of 8 asked frame "
+                          "times at the least", got["invalid"][0])
+            self.assertEqual(nsf.rate_not_known(got["invalid"]), "the asked display rate is not proved", dense)
+        # With 5 rows or more one after the other the sum itself is under the limit: the rate is proved too low.
+        proved = nsf.one_key(take([(OLD, ROW_OLD), None] + [(NEW, ROW_NEW)] * 5 + [None, None, (NEW, ROW_NEW)] * 78), "n", asked_hz=60)
+        self.assertEqual(proved.get("rate_share"), 0.75)
+        self.assertIn("took 0.75 of 8 asked frame times", proved["invalid"][0])
+        # 9 rows, one each 25 ms, with 60 asked: 1.5 of 8 asked frame times, and not judged.
+        slow = nsf.one_key(at_step(take([(OLD, ROW_OLD)] + [(NEW, ROW_NEW)] * 6), 25), "n", asked_hz=60)
+        self.assertEqual((slow.get("rate_share"), kinds(slow)[0]), (1.5, "display"))
+        self.assertIn("display: the asked rate is not judged", slow["invalid"][0])
+        # At the display's own rate the same rule holds: 6 rows one after the other (5 steps) do not judge 120 asked,
+        # 9 rows (8 steps) do. A row for each frame with an asked rate that is too HIGH by more than 15 % is not judged.
+        self.assertEqual(kinds(nsf.one_key(take(HIDDEN_AT_120), "n", asked_hz=120)), ["no-row", "display"])
+        self.assertEqual(kinds(nsf.one_key(take(JUDGED_AT_120), "n", asked_hz=120)), ["no-row"])
+        high = nsf.one_key(take(EACH_FRAME), "n", asked_hz=141)
+        self.assertEqual((high.get("rate_share"), kinds(high)), (1.163, ["display"]))
+        self.assertIn("display: the asked rate is not judged", high["invalid"][0])
+        # 8 steps with one frame of the display that has no row are still rows at the asked rate (the 9 rows of the
+        # test of too few rows: the step over the reply's zero is 2 frame times).
+        self.assertTrue(nsf.rate_on_grid(take([(OLD, ROW_OLD)] + [(NEW, ROW_NEW)] * 6)["frames"], STEP))
+        # 8 rows at the rate (7 steps) and a ninth row 3 frames later: not 8 steps at the rate.
+        self.assertFalse(nsf.rate_on_grid(take([(OLD, ROW_OLD)] + [(NEW, ROW_NEW)] * 5 + [None, None, (NEW, ROW_NEW)])["frames"], STEP))
+
+    def test_what_the_check_of_the_asked_rate_does_not_find_is_said_in_the_head_and_is_true_by_made_rows(self):
+        self.assertTrue(hasattr(nsf, "rate_limit_sentence"), "new_surface_frames.py has no `rate_limit_sentence`")
+        self.assertEqual(nsf.rate_limit_sentence(120.0),
+                         "the asked display rate (120 Hz) against the rows: a row is INVALID by `display` when 8 steps one after the "
+                         "other of its rows took less than 0.85 of 8 asked frame times (an asked rate that is more than 15 % too low), "
+                         "and when no 8 steps one after the other come at the asked rate (not judged); an error of 15 % or less is not "
+                         "found (rows of a 132 Hz display with 120 asked pass with no word), and rows that come each second frame of a "
+                         "display at 2 times the asked rate pass too")
+        self.assertIn("the asked display rate (59.94 Hz) against the rows: ", nsf.rate_limit_sentence(59.94))
+        self.assertEqual([nsf.rate_limit_sentence(rate) for rate in (None, 0, float("inf"))], [None, None, None])
+        # The sentence's 2 examples, by made rows. Rows of a 132 Hz display with 120 asked: valid, with a wrong frame
+        # for the page (its row is at 13 ms, which is frame 2 of 120 Hz), and the head's margin sentence does not come.
+        fast = nsf.one_key(at_step(take(EACH_FRAME), 1000 / 132), "n", asked_hz=120)
+        self.assertEqual((fast.get("rate_share"), fast["invalid"], fast["content_first"]["frame"]), (0.9, [], 2))
+        self.assertIsNone(nsf.rate_margin_sentence([fast]))
+        # A 120 Hz display whose rows come each second frame, with 60 asked: valid, as rows of a 60 Hz display.
+        half = nsf.one_key(at_step(take(EACH_FRAME), 2 * STEP), "n", asked_hz=60)
+        self.assertEqual((half.get("rate_share"), half["invalid"], half["first_frame_span"]["no_row"]), (0.997, [], 0))
 
 
 class SecondFirstTests(unittest.TestCase):
