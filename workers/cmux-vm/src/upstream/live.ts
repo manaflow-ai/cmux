@@ -29,7 +29,6 @@ import {
 } from "./client.ts";
 import { execResultStream } from "./exec-stream.ts";
 import { timedUpstream, timedUpstreamBody } from "./timing.ts";
-import { timedUpstream } from "./timing.ts";
 
 const DirListing = Schema.Struct({
   entries: Schema.Array(Schema.Struct({ name: Schema.String, kind: Schema.String })),
