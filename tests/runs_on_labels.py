@@ -49,6 +49,9 @@ OVERFLOW_HOSTED_LINUX = "ubuntu-24.04"
 # The GCP fleet's Linux label. tree-preflight's linux-placement step (scripts/ci/portable_job_placement.py
 # with REQUIRE_LIVE_CAPACITY) emits it only when the runner census shows an idle Linux member, else ''.
 GCP_FLEET_LINUX = "cmux-fleet-linux-x64"
+# The same fleet's light label: one 4 vCPU one-job VM per queued job (cmuxterm-hq#15307). RUNNER_POOLS linux_2 and
+# linux_4 lead with it, so a pool read there can resolve to it.
+GCP_FLEET_LINUX_LIGHT = "cmux-fleet-linux-x64-light"
 FLEET_LINUX_OUTPUTS = ("needs.tree-preflight.outputs.linux_runner",)
 # Our persistent GCP build-lane runners (Ubuntu, one label each). The cmux-tui tree's short jobs take it on
 # attempt 1 of a nightly-path run (cmux-tui-artifacts.yml's jobs: comment).
@@ -413,7 +416,7 @@ def disallowed_labels(runs_on, variables: Mapping[str, Iterable[str]] | None = N
 
     GitHub-hosted labels and the personal workstation are refused first, even if a fleet declares them.
     """
-    fleet_linux = declared_fleet_linux_labels(root) | {GCP_FLEET_LINUX, GCP_LANE_BUILD_LINUX}
+    fleet_linux = declared_fleet_linux_labels(root) | {GCP_FLEET_LINUX, GCP_FLEET_LINUX_LIGHT, GCP_LANE_BUILD_LINUX}
     personal = personal_machine_names()
     if isinstance(runs_on, str):
         for output in FLEET_LINUX_OUTPUTS:
