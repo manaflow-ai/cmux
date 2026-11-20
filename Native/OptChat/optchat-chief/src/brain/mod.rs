@@ -341,6 +341,16 @@ pub enum Input {
     StopTurn {
         reply: Sender<Result<String, String>>,
     },
+    /// A check-in's PR check ended (memory.rs): the loops whose PR merged.
+    CheckInReady {
+        slot: String,
+        merged: Vec<(String, String)>,
+    },
+    /// `follow_up`, `follow_ups`, `check_ins`, `nothing`, `ask` (memory.rs).
+    WakeTool {
+        call: crate::tools::WakeCall,
+        reply: Sender<Result<String, String>>,
+    },
     /// `sleep(seconds, note, until)` (wakes.rs).
     Sleep {
         call: crate::tools::SleepCall,
@@ -1121,10 +1131,22 @@ pub struct Brain {
     memory_files: Option<Arc<crate::memory_files::MemoryFiles>>,
     /// The self-paced check-ins (check_in.rs).
     check_ins: crate::check_in::Mode,
+    /// What the person set for the Chief's own wakes (check_ins tool).
+    wake_settings: crate::check_in::WakeSettings,
     /// The last check-in slot taken (`YYYY-MM-DD HH:MM`).
     check_in_last: Option<String>,
     /// The `<chief-memory>` block the last turn read.
     last_memory_block: Option<String>,
+    /// The running wake run (memory.rs), when the turn is one.
+    wake_run: Option<memory::WakeRunState>,
+    /// The planned time (ms) of each wake note queued (a follow-up's or
+    /// sleep's time, a check-in slot), by its text, for `scheduled_at`.
+    wake_planned: std::collections::HashMap<String, i64>,
+    /// A wake run whose turn was cut: its resume turn goes on as it.
+    cut_wake_run: Option<memory::WakeRunState>,
+    /// This Chief's measured $/token rates and when they were read.
+    rates: Option<(std::time::Instant, std::collections::BTreeMap<String, f64>)>,
+
     /// Turns cut in a row by a lost acpmux link (`Brain::turn_cut`): past
     /// `turns::MAX_CUTS` the next one fails as before, never a loop.
     cuts: u32,
@@ -1301,8 +1323,14 @@ impl Brain {
             previewer: None,
             memory_files: None,
             check_ins: crate::check_in::Mode::Off,
+            wake_settings: crate::check_in::WakeSettings::default(),
             check_in_last: None,
             last_memory_block: None,
+            wake_run: None,
+            cut_wake_run: None,
+            wake_planned: std::collections::HashMap::new(),
+            rates: None,
+
             cuts: 0,
             cut_ran: false,
             resume_at: None,
@@ -1823,6 +1851,13 @@ impl Brain {
             Input::Sleep { call, reply } => {
                 let _ = reply.send(self.sleep(call));
             }
+            Input::WakeTool { call, reply } => {
+                let _ = reply.send(self.wake_tool(call));
+            }
+            Input::CheckInReady { slot, merged } => {
+                self.close_merged(&merged);
+                self.check_in_ready(slot);
+            }
             Input::Watch { call, reply } => {
                 let _ = reply.send(self.watch(call));
             }
@@ -2342,6 +2377,11 @@ impl Brain {
         };
         let wakes = item.wakes();
         let owner = item.is_owner_message();
+        // A person's message for the running wake run lifts its cost limit
+        // (memory.rs): the person is answered whatever the run cost.
+        if owner && same {
+            self.lift_wake_budget();
+        }
         self.queue.push_back(item);
         if human && same && wakes {
             self.interrupt_for_newer();
