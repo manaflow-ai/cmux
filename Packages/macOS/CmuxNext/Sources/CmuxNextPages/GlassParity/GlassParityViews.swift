@@ -79,8 +79,8 @@ final class GlassParityHostLayer: NSView {
             views[id] = nil
         }
     }
-    /// The App's glass under the web surface `id`, for the measure's diagnostics.
-    func surface(_ id: String) -> NSView? { views[id]?.view }
+    /// The App's chip glass (the web tooltip's), for the measure's diagnostics.
+    var tooltipSurface: NSView? { views.values.first { $0.level == .chip && $0.role == nil }?.view }
 }
 
 /// A view's tree as the measure reports it (class, frame, alpha, layer fill, filters, shadow), so two surfaces

@@ -1,6 +1,6 @@
 import { composerPickerEntries } from "./composerPickerEntries";
 import { acpmuxPerf } from "./perf";
-import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useContext, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
 import { useClaudeConnectFlow } from "./ClaudeConnectRow";
@@ -1949,9 +1949,9 @@ export type Section = { title?: string; choices: Choice[]; current?: string; onP
 /// flips it; the tooltip names the mode it is in and the key.
 function PlanToggle({ planning, label, onToggle }: { planning: boolean; label: string; onToggle(): void }) {
   const shortcut = useShortcut(SHORTCUT_ACTIONS.composerTogglePlan);
-  const latest = useRef(onToggle);
-  latest.current = onToggle;
-  useEffect(() => registerPicker(PLAN_TOGGLE_OPENER, () => latest.current()), []);
+  // An effect event always calls the latest onToggle, so the shortcut registers once per mount.
+  const toggle = useEffectEvent(() => onToggle());
+  useEffect(() => registerPicker(PLAN_TOGGLE_OPENER, () => toggle()), []);
   return (
     <button
       type="button"
