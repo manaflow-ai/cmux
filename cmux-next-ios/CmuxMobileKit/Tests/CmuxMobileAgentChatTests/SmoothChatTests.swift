@@ -145,7 +145,7 @@ import Testing
         let store = AgentChatStore(source: Silent())
         store.apply(.batch((0..<5).flatMap { Self.turn($0, edit: $0 == 4) }))
         let builder = ChatTranscriptBuilder(diffs: ChatDiffCache())
-        let ids = builder.build(turns: store.turns, pendingPermission: nil, askOpen: false, permissionBarHidden: false).flatMap { $0.rows.map(\.id) }
+        let ids = builder.build(turns: store.turns, pendingPermission: nil, askOpen: false, permissionBarHidden: false).flatMap { $0.rows.unfolded.map(\.id) }
         #expect(Set(ids).count == ids.count)
         #expect(ids.first == "session-start")
         #expect(ids.contains("u-t0") && ids.contains("a-t4") && ids.contains("e-c4"))
@@ -199,7 +199,7 @@ import Testing
             _ = builder.build(turns: store.turns, pendingPermission: nil, askOpen: false, permissionBarHidden: false)
         }
         #expect(cache.computations == 2)
-        let rows = builder.build(turns: store.turns, pendingPermission: nil, askOpen: false, permissionBarHidden: false).last?.rows ?? []
+        let rows = builder.build(turns: store.turns, pendingPermission: nil, askOpen: false, permissionBarHidden: false).last?.rows.unfolded ?? []
         let card = rows.first { $0.id == "f-t2" }
         let snippet = rows.first { $0.id == "e-c2" }
         guard case .editedFiles(let changes)? = card?.kind, case .edit(_, let files)? = snippet?.kind else {

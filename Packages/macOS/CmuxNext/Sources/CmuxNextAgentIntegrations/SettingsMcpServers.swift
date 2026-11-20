@@ -39,25 +39,31 @@ public final class SettingsMcpServers: PageProvider {
 
     private(set) var rows: [Row] = []
     private(set) var loading = false
-    /// `unavailable` (this build has no optchat-chief) or `failed` (the list did not answer).
+    /// `unavailable` (no executable optchat-chief beside the CLI) or `failed` (the list did not answer).
     private(set) var problem: String?
     @ObservationIgnored private let chief: @MainActor () async -> URL?
-    @ObservationIgnored private let runCLI: @Sendable (URL, [String]) async throws -> (Int32, Data, Data)
-    @ObservationIgnored private let streamCLI: @Sendable (URL, [String], @escaping @Sendable (JSONValue) -> Void) async -> Int32
+    @ObservationIgnored private let home: @MainActor () async -> URL?
+    @ObservationIgnored private let runCLI: @Sendable (URL, [String], [String: String]) async throws -> (Int32, Data, Data)
+    @ObservationIgnored private let streamCLI: @Sendable (URL, [String], [String: String], @escaping @Sendable (JSONValue) -> Void) async -> Int32
     @ObservationIgnored private let openPage: @MainActor (URL) -> Void
+    @ObservationIgnored private var resolvedHome: URL??
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var signIns: [String: Task<Void, Never>] = [:]
 
-    /// The helper beside the bundled cmux CLI that `cli` finds; a sign-in page opens through `openPage`.
-    public convenience init(cli: @escaping @MainActor () async -> URL?, openPage: @escaping @MainActor (URL) -> Void) {
-        self.init(chief: { Self.chief(besideCLI: await cli()) }, openPage: openPage)
+    /// The helper beside the bundled cmux CLI that `cli` finds, run in `home` (the app's own acpmux
+    /// home, so the page shows the store this build's agents use); a sign-in page opens through `openPage`.
+    public convenience init(cli: @escaping @MainActor () async -> URL?, home: @escaping @MainActor () async -> URL?,
+                            openPage: @escaping @MainActor (URL) -> Void) {
+        self.init(chief: { await Self.chief(besideCLI: await cli()) }, home: home, openPage: openPage)
     }
 
     public init(chief: @escaping @MainActor () async -> URL?,
+                home: @escaping @MainActor () async -> URL?,
                 openPage: @escaping @MainActor (URL) -> Void,
-                runCLI: @escaping @Sendable (URL, [String]) async throws -> (Int32, Data, Data) = SettingsAgentIntegrations.run,
-                streamCLI: @escaping @Sendable (URL, [String], @escaping @Sendable (JSONValue) -> Void) async -> Int32 = SettingsMcpServers.stream) {
+                runCLI: @escaping @Sendable (URL, [String], [String: String]) async throws -> (Int32, Data, Data) = SettingsMcpServers.run,
+                streamCLI: @escaping @Sendable (URL, [String], [String: String], @escaping @Sendable (JSONValue) -> Void) async -> Int32 = SettingsMcpServers.stream) {
         self.chief = chief
+        self.home = home
         self.openPage = openPage
         self.runCLI = runCLI
         self.streamCLI = streamCLI
@@ -113,7 +119,7 @@ public final class SettingsMcpServers: PageProvider {
                 signIns.removeValue(forKey: name)?.cancel()
                 // No answer at all is a refusal with no words of its own.
                 let refusal: String?
-                if let reply = try? await runCLI(chief, ["integrations", "--json", "remove", name]) {
+                if let reply = try? await runCLI(chief, ["integrations", "--json", "remove", name], await environment()) {
                     refusal = Self.refusal(reply)
                 } else {
                     refusal = ""
@@ -123,7 +129,7 @@ public final class SettingsMcpServers: PageProvider {
                     rows[index].error = refusal
                 }
             } else {
-                startSignIn(name, chief: chief)
+                startSignIn(name, chief: chief, environment: await environment())
             }
         default:
             throw PageError.invalidParams("unknown MCP servers action \(action)")
@@ -134,7 +140,7 @@ public final class SettingsMcpServers: PageProvider {
     /// Runs `signin <name>` until it ends: its sign-in page opens for the person, the row shows it
     /// waiting, and the list is read again at the end. A second click while it waits opens the
     /// page again instead of starting another sign-in.
-    private func startSignIn(_ name: String, chief: URL) {
+    private func startSignIn(_ name: String, chief: URL, environment: [String: String]) {
         if signIns[name] != nil, let page = rows.first(where: { $0.name == name })?.page, let url = URL(string: page) {
             openPage(url)
             return
@@ -146,7 +152,7 @@ public final class SettingsMcpServers: PageProvider {
             // A sign-in prints two or three lines; the newest few are all that matter.
             let lines = AsyncStream<JSONValue>(bufferingPolicy: .bufferingNewest(16)) { continuation in
                 Task {
-                    _ = await stream(chief, ["integrations", "--json", "signin", name]) { continuation.yield($0) }
+                    _ = await stream(chief, ["integrations", "--json", "signin", name], environment) { continuation.yield($0) }
                     continuation.finish()
                 }
             }
@@ -166,6 +172,17 @@ public final class SettingsMcpServers: PageProvider {
             await self.refresh()
             if let failure { self.set(name) { $0.error = failure } }
         }
+    }
+
+    /// What the helper's environment changes: the app's acpmux home, when it has one. Looked up
+    /// once (a path search and a signature check), then kept: the app's home does not move.
+    private func environment() async -> [String: String] {
+        if resolvedHome == nil { resolvedHome = .some(await home()) }
+        guard let home = resolvedHome ?? nil else { return [:] }
+        // A folder URL's path ends in `/`; the home is named without it, as acpmux names it.
+        var path = home.path(percentEncoded: false)
+        while path.count > 1, path.hasSuffix("/") { path.removeLast() }
+        return ["ACPMUX_HOME": path]
     }
 
     private func set(_ name: String, _ change: (inout Row) -> Void) {
@@ -189,7 +206,7 @@ public final class SettingsMcpServers: PageProvider {
         generation += 1
         let mine = generation
         loading = true
-        let reply = try? await runCLI(chief, ["integrations", "--json", "list"])
+        let reply = try? await runCLI(chief, ["integrations", "--json", "list"], await environment())
         guard mine == generation else { return }
         loading = false
         guard let reply, reply.0 == 0, var read = Self.rows(reply.1) else {

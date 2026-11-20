@@ -4,6 +4,7 @@
 import { parsePatchFiles } from "@pierre/diffs";
 import { useMemo } from "react";
 import { componentEntry } from "../gallery/format";
+import type { Play } from "../gallery/play";
 import { PlainEnglishView, type PlainEnglishFile } from "./PlainEnglishView";
 import { hunkRefs, SummaryStore, type SummaryFileDiff } from "./hunkSummaries";
 
@@ -74,12 +75,22 @@ type Props = { design?: Design; state?: "ready" | "loading" | "arriving" | "mixe
 function storeFor(state: NonNullable<Props["state"]>): SummaryStore {
   return new SummaryStore(async (_path, patch) => {
     if (state === "loading") return new Promise<string>(() => {});
+    // gallery-capture: `rows-arriving`'s play `arrived` waits for every sentence.
     if (state === "arriving") await new Promise((resolve) => setTimeout(resolve, 700));
     if (state === "mixed" && patch === ORDER[1]!.patch) throw new Error("signed out");
     if (state === "mixed" && patch === ORDER[3]!.patch) return new Promise<string>(() => {});
     return sentenceFor(patch);
   }, 4);
 }
+
+/// The capture moment of `rows-arriving`: every sentence landed (the store's 700 ms beat above) and
+/// its slide-in settled, not whichever rows had arrived when the stage first went quiet.
+const arrived: Play = ({ waitFor, document }) =>
+  waitFor(
+    () =>
+      document.querySelector(".plain-english-row") &&
+      !document.querySelector('.plain-english-row[data-state="loading"]'),
+  );
 
 function PlainEnglishStage({ design = "rows", state = "ready" }: Props) {
   const store = useMemo(() => storeFor(state), [state]);
@@ -145,6 +156,7 @@ export default componentEntry<Props>({
     },
     "rows-arriving": {
       props: { design: "rows", state: "arriving" },
+      play: arrived,
       note: "Sentences slide in over the preview without moving any row (Reduce Motion: a fade).",
     },
     "rows-mixed": {
