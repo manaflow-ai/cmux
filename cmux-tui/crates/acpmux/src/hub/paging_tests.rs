@@ -487,16 +487,75 @@ fn a_restored_chats_log_load_reads_the_copies_not_its_log() {
     }
 }
 
+/// Leo, 2026-11-16: "how about speeding up the scrolling up of chats?" An older page of a long
+/// Codex chat costs the page, not the log between it and the end: in a real 353,235-record chat
+/// one record in a hundred is a transcript record, and the rest are load replays and the
+/// harness's raw `codex.response` lines (1.5 MB each there), so a 2,000-record page read back
+/// 100-600 MB and parsed every raw line on the way (2.7-7.4 s). Here 1 seq in 100 is a reply
+/// chunk and the others carry 14 KB payloads, half raw harness lines and half replays: the page
+/// parses only its own records, and reads at most a few times its own bytes.
+#[test]
+fn an_older_transcript_page_costs_its_records_not_the_log_it_skips() {
+    let root = std::env::temp_dir().join(format!("acpmux-older-page-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    let payload = "x".repeat(14 << 10);
+    let mut log: Vec<EventRecord> = (0..6_000u64)
+        .map(|n| {
+            if n % 100 == 99 {
+                agent(0, "agent_message_chunk", json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": format!("reply {n}")}}))
+            } else if n % 2 == 0 {
+                EventRecord {
+                    seq: 0,
+                    at: 0,
+                    dir: "in".into(),
+                    kind: "codex.response".into(),
+                    msg: json!({"jsonrpc": "2.0", "method": "codex.response", "params": {"text": payload}}),
+                    host_seq: None,
+                }
+            } else {
+                agent(0, "tool_call.replay", json!({"sessionUpdate": "tool_call", "toolCallId": format!("r{n}"), "title": payload}))
+            }
+        })
+        .collect();
+    let log_bytes = write_chat(&sessions, &mut log, 8 << 20);
+    let hub = deferred_hub(&sessions, 8 << 20);
+    let last = log.last().unwrap().seq;
+    let filter = transcript(true);
+    // Half way back, as a scroll up reads it: 20 records before a seq.
+    let before = last / 2;
+    let (r0, b0) = (read_bytes(), PARSED_BYTES.with(std::cell::Cell::get));
+    let page = hub.events_page("c", 0, Some(before), 20, Some(1 << 20), true, &filter).unwrap();
+    let (read, parsed) = (read_bytes() - r0, PARSED_BYTES.with(std::cell::Cell::get) - b0);
+    assert_eq!(page.events.len(), 20);
+    assert!(page.events.iter().all(|r| r.kind == "agent_message_chunk"));
+    let page_bytes: u64 =
+        page.events.iter().map(|r| serde_json::to_vec(r).unwrap().len() as u64).sum();
+    assert!(parsed <= 4 * page_bytes, "the page parsed {parsed} bytes for its {page_bytes}");
+    if cfg!(target_os = "linux") {
+        // A page may read its records, an index of them and a few blocks of probes; never the
+        // 28 MB of the log the 20 records are spread over (of {log_bytes} in all).
+        assert!(
+            read <= 64 * 1024 + 8 * page_bytes,
+            "the page read {read} bytes for its {page_bytes} (log {log_bytes})"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// The web pane's older page of a real chat (`direct.ts` `olderPage`: before a seq, 2,000
 /// records, 1 MiB, the transcript), at each depth, `OLDER_PAGE_REPS` times: its time, the bytes
 /// its read took from the log, and the records and bytes it parsed. Run over a copy of a chat's
 /// folder: `OLDER_PAGE_SESSIONS=<dir holding the chat's folder> OLDER_PAGE_ID=<chat id>
 /// [OLDER_PAGE_DEPTHS=0.02,0.5] cargo test -p acpmux --release -- --ignored --nocapture
 /// older_page_perf`. Evict the copy from the page cache first for a cold read.
+/// `OLDER_PAGE_OLD_WAY=1` reads as before the transcript index (`store/transcript_index.rs`).
 #[test]
 #[ignore = "a measurement, not a check"]
 fn older_page_perf() {
     let Ok(sessions) = std::env::var("OLDER_PAGE_SESSIONS") else { return };
+    if std::env::var_os("OLDER_PAGE_OLD_WAY").is_some() {
+        super::READ_THE_OLD_WAY.with(|old| old.set(true));
+    }
     let id = std::env::var("OLDER_PAGE_ID").expect("OLDER_PAGE_ID");
     let reps: usize =
         std::env::var("OLDER_PAGE_REPS").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
@@ -507,26 +566,41 @@ fn older_page_perf() {
         .collect();
     let hub = deferred_hub(std::path::Path::new(&sessions), 8 << 20);
     let last = hub.store.load(&id).unwrap().expect("the chat's meta").last_seq;
-    let filter = transcript(true);
-    for depth in depths {
-        let before = ((last as f64) * (1.0 - depth)).max(2.0) as u64;
-        for rep in 0..reps {
-            let (r0, l0, b0, t0) = (
-                read_bytes(),
-                PARSED_LINES.with(std::cell::Cell::get),
-                PARSED_BYTES.with(std::cell::Cell::get),
-                std::time::Instant::now(),
-            );
-            let page =
-                hub.events_page(&id, 0, Some(before), 2000, Some(1 << 20), true, &filter).unwrap();
-            let ms = t0.elapsed().as_secs_f64() * 1000.0;
-            println!(
-                "older page: before {before} (depth {depth}) rep {rep}: {ms:.1} ms, {} records, read {:.1} MB, parsed {} lines {:.1} MB",
-                page.events.len(),
-                (read_bytes() - r0) as f64 / 1e6,
-                PARSED_LINES.with(std::cell::Cell::get) - l0,
-                (PARSED_BYTES.with(std::cell::Cell::get) - b0) as f64 / 1e6,
-            );
+    // The pane's older page (`direct.ts` `olderPage` on a local acpmux: the transcript and the
+    // preset approval cards, bounded so superseded tool output is left out), and `transcript`
+    // alone (a remote pane's). `OLDER_PAGE_FILTER=pane` or `transcript` reads one.
+    let only = std::env::var("OLDER_PAGE_FILTER").ok();
+    let pane = EventFilter::parse(Some(&json!([
+        "transcript",
+        "preset_approval_request",
+        "preset_approval_decision"
+    ])))
+    .unwrap()
+    .omitting_superseded(true);
+    let filters = [("pane", pane), ("transcript", transcript(true))];
+    for (name, filter) in filters.iter().filter(|(n, _)| only.as_deref().is_none_or(|o| o == *n)) {
+        for &depth in &depths {
+            let before = ((last as f64) * (1.0 - depth)).max(2.0) as u64;
+            for rep in 0..reps {
+                let (r0, l0, b0, t0) = (
+                    read_bytes(),
+                    PARSED_LINES.with(std::cell::Cell::get),
+                    PARSED_BYTES.with(std::cell::Cell::get),
+                    std::time::Instant::now(),
+                );
+                let page = hub
+                    .events_page(&id, 0, Some(before), 2000, Some(1 << 20), true, filter)
+                    .unwrap();
+                let ms = t0.elapsed().as_secs_f64() * 1000.0;
+                println!(
+                    "older page ({name}): before {before} (depth {depth}) rep {rep}: {ms:.1} ms, {} records (more: {}), read {:.1} MB, parsed {} lines {:.1} MB",
+                    page.events.len(),
+                    page.has_more,
+                    (read_bytes() - r0) as f64 / 1e6,
+                    PARSED_LINES.with(std::cell::Cell::get) - l0,
+                    (PARSED_BYTES.with(std::cell::Cell::get) - b0) as f64 / 1e6,
+                );
+            }
         }
     }
 }
@@ -1052,3 +1126,6 @@ fn subagent_page_perf() {
         std::fs::remove_dir_all(&root).ok();
     }
 }
+
+#[path = "paging_index_tests.rs"]
+mod index_tests;

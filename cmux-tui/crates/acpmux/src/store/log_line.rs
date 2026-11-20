@@ -243,6 +243,16 @@ pub(super) fn for_each_line_rev_between(
     end: u64,
     visit: &mut dyn FnMut(&[u8]) -> bool,
 ) -> Result<()> {
+    for_each_line_rev_at(file, start, end, &mut |_, line| visit(line))
+}
+
+/// [`for_each_line_rev_between`], with each line's offset in the file.
+pub(super) fn for_each_line_rev_at(
+    file: &mut File,
+    start: u64,
+    end: u64,
+    visit: &mut dyn FnMut(u64, &[u8]) -> bool,
+) -> Result<()> {
     use std::io::{Seek, SeekFrom};
     const BLOCK: u64 = 64 * 1024;
     let floor = start;
@@ -277,7 +287,8 @@ pub(super) fn for_each_line_rev_between(
                 whole = joined(head, &mut carry);
                 whole.as_slice()
             };
-            if !line.iter().all(u8::is_ascii_whitespace) && !visit(line) {
+            if !line.iter().all(u8::is_ascii_whitespace) && !visit(start + newline as u64 + 1, line)
+            {
                 return Ok(());
             }
             cut = newline;
@@ -288,13 +299,29 @@ pub(super) fn for_each_line_rev_between(
     }
     let line = joined(&[], &mut carry);
     if !line.iter().all(u8::is_ascii_whitespace) {
-        visit(&line);
+        visit(floor, &line);
     }
     Ok(())
 }
 
 pub(super) fn first_seq(path: &Path) -> Result<Option<u64>> {
-    let mut reader = BufReader::new(crate::config::private_state_file(path)?);
+    // The first line's head, without reading the rest of it: a segment may begin with a raw
+    // harness line of megabytes, and a page asks this of every segment past it.
+    let mut file = crate::config::private_state_file(path)?;
+    let mut head = [0u8; 64];
+    let mut filled = 0;
+    while filled < head.len() {
+        let n = file.read(&mut head[filled..])?;
+        if n == 0 {
+            break;
+        }
+        filled += n;
+    }
+    if let Some(seq) = record_seq(&head[..filled]) {
+        return Ok(Some(seq));
+    }
+    std::io::Seek::rewind(&mut file)?;
+    let mut reader = BufReader::new(file);
     let mut line = Vec::new();
     loop {
         line.clear();

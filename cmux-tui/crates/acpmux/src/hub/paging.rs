@@ -238,6 +238,20 @@ impl EventFilter {
             })
     }
 
+    /// Whether a newest-first page can match only lines the log's transcript index names
+    /// (`store/transcript_index.rs` `holds`): kinds among `TRANSCRIPT_INDEX_KINDS` (`transcript`
+    /// and the web pane's preset approval cards), and no subagent. Such a page is read with
+    /// `Store::scan_back_transcript` (`Hub::events_page`).
+    fn reads_transcript_index(&self) -> bool {
+        self.subagent.is_none()
+            && self.kinds.as_ref().is_some_and(|kinds| {
+                !kinds.is_empty()
+                    && kinds
+                        .iter()
+                        .all(|k| crate::store::TRANSCRIPT_INDEX_KINDS.contains(&k.as_str()))
+            })
+    }
+
     pub fn is_all(&self) -> bool {
         match &self.kinds {
             None => true,
@@ -341,8 +355,9 @@ fn is_raw_harness_kind(kind: &[u8]) -> bool {
 }
 
 /// Whether a record with this `dir` and `kind` may be a transcript record
-/// (`is_transcript`); false only when it surely is not.
-fn transcript_may_match(dir: &[u8], kind: &[u8]) -> bool {
+/// (`is_transcript`); false only when it surely is not. The log's transcript index names every
+/// line this says may be one (`store/transcript_index.rs` `holds`).
+pub(crate) fn transcript_may_match(dir: &[u8], kind: &[u8]) -> bool {
     match dir {
         b"mux" => TRANSCRIPT_MUX_KINDS.iter().any(|k| k.as_bytes() == kind),
         // A live agent update's kind is its `sessionUpdate` (hub/tap.rs); a raw
@@ -665,6 +680,13 @@ pub fn fit_reply(reply: &mut Value) {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Tests: this thread's pages read the log as before the transcript index (a measurement's
+    /// "before", `older_page_perf`).
+    pub(crate) static READ_THE_OLD_WAY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 /// One page of a session's log, oldest first.
 #[derive(Debug, Default)]
 pub struct EventPage {
@@ -748,10 +770,18 @@ impl Hub {
         // for one (`turn_opener.rs`), 4 s for a 1 GB chat. The superseded fold below touches tool
         // calls only, so it changes nothing on such a page.
         let indexed = filter.reads_indexed_kinds();
+        // A page of the transcript reads the lines the log's transcript index names, not the
+        // log between them (`store/transcript_index.rs`): an older page of a long chat read
+        // 100-600 MB of load replays and raw harness lines back to its records.
+        let transcript = !indexed && filter.reads_transcript_index();
+        #[cfg(test)]
+        let transcript = transcript && !READ_THE_OLD_WAY.with(std::cell::Cell::get);
         let back = |skip: &dyn Fn(&[u8], &[u8]) -> bool,
                     visit: &mut dyn FnMut(EventRecord) -> bool| {
             if indexed {
                 self.store.scan_back_indexed(id, after, before, skip, visit)
+            } else if transcript {
+                self.store.scan_back_transcript(id, after, before, skip, visit)
             } else {
                 self.store.scan_back(id, after, before, skip, visit)
             }

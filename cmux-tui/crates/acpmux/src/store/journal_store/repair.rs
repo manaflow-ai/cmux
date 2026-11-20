@@ -392,6 +392,9 @@ impl Inner {
         let segments = self.local.segments(id)?;
         for (index, _) in segments.iter().filter(|(index, _)| *index >= segment) {
             self.forget_index_copy(id, *index)?;
+            // Its transcript index names lines the cut takes away, and the lines written again
+            // after it are indexed from where they start (`store/transcript_index.rs`).
+            self.local.forget_transcript_index(id, *index)?;
         }
         sync_if_there(&self.local.dir(id).join(kind_index::DIR))?;
         for (index, path) in segments.iter().rev() {

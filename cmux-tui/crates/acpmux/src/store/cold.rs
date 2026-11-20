@@ -443,6 +443,7 @@ impl LocalStore {
         let _ = crate::home_fs::remove_dir_all(dir.join(DROP_DIR));
         let _ = crate::home_fs::remove_dir_all(dir.join(super::kind_index::DIR));
         let _ = crate::home_fs::remove_dir_all(dir.join(super::text_index::DIR));
+        let _ = crate::home_fs::remove_dir_all(dir.join(super::transcript_index::DIR));
         Ok(true)
     }
 
