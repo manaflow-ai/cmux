@@ -4,7 +4,7 @@ Keep repo-wide decisions here; procedures belong in [CONTRIBUTING.md](CONTRIBUTI
 [area instructions](#area-instructions) and [task skills](skills/README.md).
 Read the matching skill before changing an area, then only the references needed.
 
-**Manaflow AI team members and their agents:** read the private [cmuxterm-hq CLAUDE.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/CLAUDE.md) and [AGENTS.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/AGENTS.md) before fleet or CI work. They are the entry point for fleet builds, CI routing, agent coordination, and landing rules. Start fleet work at [Fleet and CI: start here](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/FLEET-AND-CI.md). External contributors can ignore this block; those links return 404 for them.
+**Manaflow AI team members and their agents:** read the private [cmuxterm-hq CLAUDE.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/CLAUDE.md) and [AGENTS.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/AGENTS.md) before fleet or CI work. They are the entry point for fleet builds, CI routing, agent coordination, and landing rules. Start fleet work at [Fleet and CI: start here](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/FLEET-AND-CI.md). Before building a tool or calling yourself blocked, find the team's existing one in the [team-tools catalog](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/skills/agents/team-tools/SKILL.md) (exact commands, proven runs); with an hq checkout beside this one it is `../cmuxterm-hq/skills/agents/team-tools/SKILL.md`, and `scripts/install-team-tools.sh` there puts it in every session. External contributors can ignore this block; those links return 404 for them.
 
 ## The loop: use it first, then test
 
@@ -115,7 +115,8 @@ use it before the build is done. The agent itself runs it there only when asked;
 - **iOS:** the iPhone app is `cmux-next-ios/`. Run `cmux-next-ios/scripts/review.sh --tag <task-slug>`.
   In one command it builds the same-tag Mac app and the iPhone app on the fleet, publishes the Mac
   app to HQ, and leaves the build on every connected iPhone signed in and paired with that Mac
-  (`--manual-pairing` to pair by hand, `--no-auth` for a signed-out install). It proves both
+  (`--manual-pairing` to pair by hand, `--approve-first` to test the Mac's Allow prompt, `--no-auth`
+  for a signed-out install; a tagged dev Mac otherwise pairs its own tag's iPhone app with no prompt). It proves both
   survive a relaunch, and checks the build in a fleet simulator signed in with the agent account,
   whose session comes from this Mac (`cmux-ci run --sign-in agent`; no credential lives on a
   worker). Never install with raw `devicectl`, and nothing boots in a simulator on the person's
