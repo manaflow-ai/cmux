@@ -9,7 +9,8 @@ runs on a cron instead, only on idle fleet capacity, behind every nightly and de
   plan (Linux)      reads the state (the newest `perf-cron-state` artifact), picks the work: the next part of
                     the measurement in flight, else the newest feat-cmux-next commit whose cmux-tui tree is
                     published (a fleet build needs it) when it is newer than the last measured one (commits
-                    in between are skipped), else one bisect step of an open regression. While a nightly
+                    in between are skipped; when none has a tree, the newest commit, whose Linux parts run at
+                    once and whose Mac parts wait for its tree), else one bisect step of an open regression. While a nightly
                     or dev build waits for a Mac on GitHub, a Mac part runs only on cmux20-bench (it runs no
                     CI job); a measurement pinned to another host waits, and gives that host up after 2 h.
   measure (gateway) runs only on its own runner label (vars.CI_PERF_CRON_GATEWAY), skips unless the part's host
@@ -81,6 +82,10 @@ HOST_WAIT_HOURS = 2
 HOST_GONE_HOURS = 72
 LATENCY_TARGET_MS = 10.0
 STALE_HOURS = 24
+# A part whose newest stored rows are older than this runs ahead of the PARTS order (part_order), so each row the
+# cron feeds gets a pass within STALE_HOURS: the goals in cmuxterm-hq's NOW (terminal-throughput reads
+# terminal.throughput.ratio) need one every 24 h. Four hours under that leave room for one queue wait and the part.
+PART_STALE_HOURS = 20
 ABANDON_HOURS = 12          # of active time: the hours a measurement spent yielding to the fleet do not count
 ABANDON_WALL_HOURS = 48     # the hard cap, yielding included
 MAX_YIELDS = 3
@@ -91,6 +96,11 @@ CANDIDATE_DEPTH = 80
 # always exists: while a regression range can be bisected, a tip measurement starts at most once per TIP_EVERY_HOURS
 # and the ticks in between go to the bisect.
 TIP_EVERY_HOURS = 6
+# When no commit since the last tip has a published cmux-tui tree, the tip is the newest commit anyway: its Linux
+# parts run at once, and its Mac parts (a fleet build needs the tree) wait this long for its tree, then are recorded
+# as not run ('no_tree'). 2026-11-17 07:13Z: none of the 10 commits since the last tip had a tree, so no tip started,
+# and the web-ui rows of new Linux benches (cmux#44534) waited on a prerequisite only the Mac parts have.
+TREE_WAIT_HOURS = 2
 # The plan's checkout is shallow (fetch-depth 300): a culprit range older than that is deepened this many commits at
 # a time, at most DEEPEN_ROUNDS times, before its commits are listed.
 DEEPEN_STEP = 500
@@ -219,6 +229,10 @@ PARTS = [
     {"name": "web-ui-flat", "where": "linux", "kind": "webui", "needs": "web-ui-flat"},
     # Its 20 chats grown live to 100k rows each, about 28 minutes on its own (chat_100k_flat.grown_many.*).
     {"name": "web-ui-flat-grown", "where": "linux", "kind": "webui", "needs": "web-ui-flat"},
+    # Composer typing under load (webviews/bench/composer-typing.bench.ts, CMUX-571): 500 keys in Chromium and WebKit
+    # under idle, a focused stream, ten streaming documents and a focused 100k-row stream; keydown to paint p95/p99
+    # (webui.composer_typing.*) against report-only 16/33 ms targets. Its own part, under the 30-minute run cap.
+    {"name": "web-ui-typing", "where": "linux", "kind": "webui", "needs": "web-ui-typing"},
     # One live chat's disk growth (scripts/measure/chat-disk-growth.py, the same goal): a release acpmux streams one
     # chat to 100k rows on simulated time against an empty chat; bytes per simulated hour and their ratio
     # (chat_disk.growth_ratio). About 30 s after the build, which runs first under its own cap.
@@ -238,6 +252,7 @@ ROW_PARTS = [
     (r"^webui\.million_event_chat\.", "web-ui-million"),
     (r"^webui\.chat_100k_flat\.grown_many\.", "web-ui-flat-grown"),
     (r"^webui\.chat_100k_flat\.", "web-ui-flat"),
+    (r"^webui\.composer_typing\.", "web-ui-typing"),
     (r"^webui\.chat_disk\.", "chat-disk"),
     (r"^webui\.", "web-ui"),
 ]
@@ -944,12 +959,16 @@ def linux_bench_runs(root, part="diff-viewer"):
     if part == "web-ui-flat-grown":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat-grown"],
                           os.path.join(root, "webviews"), {})}
+    if part == "web-ui-typing":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "composer-typing"], os.path.join(root, "webviews"), {})}
     if part == "chat-disk":
         script = os.path.join(root, CHAT_DISK)
         return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
     if part == "infinite-items":
-        # The release build first, in a run of its own: a cold one takes about 15 minutes, and each run has its own
-        # 30-minute cap. The suite's build is then a no-op; its rows are the part's (a webui part keeps the last run's).
+        # The release build first, in a run of its own: each run has its own 30-minute cap (LINUX_RUN_SECONDS) and the
+        # linux job's cap covers both (linux_job_minutes). A cold build of acpmux, cmux-tui and its Zig terminal engine
+        # outlasted 38 minutes on a 4-vCPU runner (2026-11-17), so the workflow runs this part on 16 vCPUs.
+        # The suite's build is then a no-op; its rows are the part's (a webui part keeps the last run's).
         script = os.path.join(root, INFINITE_ITEMS)
         return {"build": (["bash", script, "build-only"], root or ".", {}),
                 "suite": (["bash", script, "pages=0", "days=1", "--window=5"], root or ".", {})}
@@ -1043,6 +1062,23 @@ def with_build(parts):
     """A measurement's parts in order: the build first whenever a fleet part needs the app."""
     fleet = [p for p in parts if p != "build" and not is_linux_part(p)]
     return (["build"] if fleet else []) + [p for p in parts if p != "build"]
+
+
+def part_order(state, todo, t):
+    """The order a tick takes a measurement's parts to do in (pure): the build first (every other Mac part reuses its
+    app), then each part whose newest stored rows (state['part_stored'], store_part_rows) are older than
+    PART_STALE_HOURS, oldest first, then the rest in their PARTS order. A part with no stored rows yet keeps its
+    place. A yielded part stays first in todo, so without this a part that keeps yielding, or a measurement dropped
+    before its tail, starved the last parts: throughput, the 13th Mac part, went 38 h without a row (2026-11-19)."""
+    stored = state.get("part_stored") if isinstance(state.get("part_stored"), dict) else {}
+    stale = []
+    for i, name in enumerate(todo):
+        e = stored.get(name)
+        at = parse_iso(e.get("at")) if isinstance(e, dict) else None
+        if name != "build" and at and hours_between(at, t) > PART_STALE_HOURS:
+            stale.append((at, i, name))
+    first = [n for _, _, n in sorted(stale)]
+    return [n for n in todo if n == "build"] + first + [n for n in todo if n != "build" and n not in first]
 
 
 def measurement_id(cur):
@@ -1267,8 +1303,30 @@ def tip_due(state, t):
     return not times or hours_between(max(times), t) >= TIP_EVERY_HOURS
 
 
+def wait_for_tree(cur, t, tree_ready):
+    """A tip measurement's Mac parts wait for its commit's published cmux-tui tree (a fleet build needs it); its Linux
+    parts never do. Returns why the Mac parts wait now, or "" (the tree is published, or no Mac part is left to do).
+    Past TREE_WAIT_HOURS of waiting, its Mac parts still to do end as 'no_tree' (not run): the measurement finishes
+    with the parts that ran, as after no_host_for_tip, and the next tip starts on a newer commit."""
+    if cur.get("kind") != "tip" or not needs_mac(cur) or cur.get("tree_seen"):
+        return ""
+    if tree_ready(cur["sha"]):
+        cur["tree_seen"] = True
+        cur.pop("tree_wait_since", None)
+        return ""
+    since = parse_iso(cur.setdefault("tree_wait_since", iso(t)))
+    if hours_between(since, t) <= TREE_WAIT_HOURS:
+        return f"the Mac parts wait for the cmux-tui tree of {cur['sha'][:12]} (since {iso(since)})"
+    why = f"no published cmux-tui tree of {cur['sha'][:12]} for {TREE_WAIT_HOURS} h"
+    for name in [p for p in cur["parts_todo"] if not is_linux_part(p)]:
+        cur["parts"][name] = {"state": "no_tree", "reason": why}
+        cur["parts_todo"].remove(name)
+    cur.pop("tree_wait_since", None)
+    return ""
+
+
 def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable=lambda sha: True, mac_disabled=None,
-           controller_route=False):
+           controller_route=False, tree_ready=lambda sha: True):
     """The tick's work: {'action': 'part'|'none'|'finish', 'part': a fleet part or '', 'linux_part': '' or one}.
     May set state['current'] (a new measurement). With both a candidate and a bisect step, the bisect goes first
     unless a tip measurement is due (tip_due): a newer tip always exists, so 'bisect when idle' would never bisect.
@@ -1282,7 +1340,8 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     gateway runner label), or None: a tip measurement records its Mac parts as not run (so it is incomplete), and a
     bisect step measures only Linux rows. controller_route: the Mac part goes to the build controller as a request
     that has no answer until the part's result run, so the time from the request to the result is the fleet's wait
-    (start_yield; record_part ends it), not the measurement's active time."""
+    (start_yield; record_part ends it), not the measurement's active time. tree_ready(sha): the commit's cmux-tui
+    tree is published; a tip whose tree is not runs only its Linux parts until it is (wait_for_tree)."""
     drop_dead_measurement(state, t, measurable)
     no_host = no_host_for_tip(state, t)
     give_up_host(state, t)
@@ -1302,15 +1361,19 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
             cur["host"] = pin
     if cur and mac_disabled:
         disable_mac_parts(cur, mac_disabled)
+    tree_wait = wait_for_tree(cur, t, tree_ready) if cur else ""
     if not cur:
         return {"action": "none", "reason": "nothing new to measure: the newest measurable feat-cmux-next commit "
                                             "was measured, and no regression range to bisect"}
     if not cur["parts_todo"]:
         return {"action": "finish", "sha": cur["sha"],
                 "reason": f"its Mac parts have no host ({no_host}); report only" if no_host else "every part ran; report only"}
-    linux = next((p for p in cur["parts_todo"] if is_linux_part(p)), "")
-    fleet = next((p for p in cur["parts_todo"] if not is_linux_part(p)), "")
+    todo = part_order(state, cur["parts_todo"], t)  # a part past PART_STALE_HOURS goes first
+    linux = next((p for p in todo if is_linux_part(p)), "")
+    fleet = "" if tree_wait else next((p for p in todo if not is_linux_part(p)), "")
     done = f"{len(cur['parts'])} of {len(cur['parts']) + len(cur['parts_todo'])} done"
+    if tree_wait and not linux:
+        return {"action": "none", "sha": cur["sha"], "reason": tree_wait}
     # A nightly or dev build waiting for a Mac holds back only a part that could take a Mac from it. The bench host
     # runs no CI job (it is a controller worker only), so a part there takes nothing: a measurement not pinned to
     # another host goes to it. From 2026-11-13 16:43Z to 11-14 02:29Z a nightly job was queued for a signing runner
@@ -1331,7 +1394,7 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     if fleet and controller_route:
         start_yield(cur, t)
     what = " and ".join(x for x in (fleet, linux) if x)
-    waits = ""
+    waits = f"; {tree_wait}" if tree_wait else ""
     if github_busy and bench_only:
         waits = f"; only on {BENCH_WORKER}, which runs no CI job: {github_busy}"
     elif github_busy and linux:
@@ -1857,6 +1920,8 @@ def supported_parts_at(sha):
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{STATE_GROWTH_BENCH}"], capture_output=True).returncode == 0
         elif need == "web-ui-flat":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{FLAT_100K_BENCH}"], capture_output=True).returncode == 0
+        elif need == "web-ui-typing":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{COMPOSER_TYPING_ROWS}"], capture_output=True).returncode == 0
         elif need == "web-ui-million":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{MILLION_EVENT_BENCH}"], capture_output=True).returncode == 0
         elif need == "infinite-items":
@@ -1915,6 +1980,8 @@ UPDATE_ONE_BENCH = "webviews/bench/update-one.bench.ts"
 STATE_GROWTH_BENCH = "webviews/bench/state-growth.bench.ts"
 MILLION_EVENT_BENCH = "webviews/bench/million-event-chat.bench.ts"
 FLAT_100K_BENCH = "webviews/bench/chat-100k-flat.bench.ts"
+# The web-ui-typing part needs the load modes (composer-load.ts) and their rows (composerTypingRows.ts).
+COMPOSER_TYPING_ROWS = "webviews/bench/composerTypingRows.ts"
 INFINITE_ITEMS = "scripts/measure/infinite-items-linux.sh"
 CHAT_DISK = "scripts/measure/chat-disk-growth-linux.sh"
 # The web-ui-god part: the benches that take FIXTURE=god (web-ui-suite.ts lists each as NAME and NAME-god) and the
@@ -2870,7 +2937,13 @@ def plan(o):
     if dead:
         print(f"perf-cron: the measurement in flight ended ({dead}); looking for a new commit")
     last_sha = (state.get("last_tried") or state.get("last") or {}).get("sha")
-    candidate = None
+    candidate, newest = None, None
+    trees = {}
+
+    def tree_ready(sha):
+        if sha not in trees:
+            trees[sha] = tree_published(sha)
+        return trees[sha]
     if not state.get("current"):
         for sha in git("rev-list", "--first-parent", f"-n{CANDIDATE_DEPTH}", tip).split():
             if sha == last_sha or (last_sha and is_ancestor(sha, last_sha)):
@@ -2878,10 +2951,16 @@ def plan(o):
             if not fleet_runs(sha, tip_version):
                 print(f"perf-cron: {sha[:12]} has another {MEASURE_SCRIPT} measurement version than the tip's ({tip_version})")
                 break
-            if tree_published(sha):
+            newest = newest or sha
+            if tree_ready(sha):
                 candidate = sha
                 break
             print(f"perf-cron: {sha[:12]} has no published cmux-tui tree yet; trying its parent")
+        if not candidate and newest:
+            # Only the Mac parts need the tree: the Linux parts measure the newest commit now (wait_for_tree).
+            candidate = newest
+            print(f"perf-cron: no commit since the last tip has a published cmux-tui tree; the tip is {newest[:12]}, "
+                  f"its Mac parts wait for its tree (at most {TREE_WAIT_HOURS} h)")
     bisect = None
     if not state.get("current") and not (candidate and tip_due(state, t)):
         for group in bisect_groups(state):
@@ -2905,7 +2984,7 @@ def plan(o):
     if not no_mac and (candidate or bisect or state.get("current")):
         busy, busy_known = github_busy(o.repo, o.yield_mode), True
     d = decide(state, t, candidate, bisect, supported_parts_at, busy, lambda sha: fleet_runs(sha, tip_version), no_mac,
-               controller_route=bool(getattr(o, "controller", False)) and not no_mac)
+               controller_route=bool(getattr(o, "controller", False)) and not no_mac, tree_ready=tree_ready)
     state["mac_off"] = no_mac  # the issue says why no Mac row is measured
     if state.get("current") and isinstance(tip_version, int):
         # The measurement version its Mac rows carry (fleet_runs measures only commits of the tip's version).
@@ -2919,6 +2998,8 @@ def plan(o):
     out = {"action": d["action"], "sha": d.get("sha", ""), "part": d.get("part", ""), "linux_part": d.get("linux_part", ""),
            "worker": d.get("worker", ""), "reason": d["reason"], "stale_hours": round(stale_hours(state, t), 1),
            "not_measuring": state.get("not_measuring") or ""}
+    if d.get("linux_part"):
+        out["linux_minutes"] = linux_job_minutes(d["linux_part"])
     if d.get("part"):
         p = PART_BY_NAME[d["part"]]
         out["run_seconds"] = p.get("run_seconds", PART_RUN_SECONDS)
@@ -3190,6 +3271,43 @@ def restart_note(restarts):
             + (f" and {len(names) - 6} more" if len(names) > 6 else "") + ". Close this issue when they are checked")
 
 
+# Each of a Linux part's bench runs gets LINUX_RUN_SECONDS (cmd_run_linux_part); the linux job's cap is the sum of its
+# runs' caps plus LINUX_SETUP_MINUTES (checkout, bun install, browsers, artifact upload), never under the old fixed
+# 40 minutes. With that one fixed cap for every part, infinite-items' build-only run alone outlasted the job on a
+# 4-vCPU runner (2026-11-17, runs 44104871256 and 44112712262: still in rustc at 38 minutes when GitHub cancelled the
+# job), so the job left no result three ticks running, the part ended yielded_out, and no infinite_items row was
+# stored after 2026-11-17 06:41Z.
+LINUX_RUN_SECONDS = 1800
+LINUX_SETUP_MINUTES = 10
+LINUX_JOB_MIN_MINUTES = 40
+
+
+def linux_job_minutes(name):
+    """The linux job's timeout-minutes for Linux part NAME (pure): its runs' caps and the setup. web-ui-god's paired
+    rounds stop at GOD_PAIRED_DEADLINE_S of the part's time, so they add no run of their own."""
+    runs = [n for n in linux_bench_runs("", name) if n != "paired"]
+    return max(LINUX_JOB_MIN_MINUTES, LINUX_SETUP_MINUTES + len(runs) * -(-LINUX_RUN_SECONDS // 60))
+
+
+def run_capped(argv, cwd, env, timeout):
+    """(stdout, stderr, exit code) of argv; the exit code is None when it ran past timeout seconds. It runs in its
+    own process group, and a timeout kills the whole group: subprocess.run's timeout kills only the direct child (bash),
+    so a build-only run past its cap left its cargo building, and the suite's own cargo build then waited on that
+    build's lock until GitHub cancelled the job and the part left no result at all."""
+    proc = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            start_new_session=True)
+    try:
+        out, err = proc.communicate(timeout=timeout)
+        return out or "", err or "", proc.returncode
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, 9)
+        except OSError:
+            pass
+        out, err = proc.communicate()
+        return out or "", err or "", None
+
+
 def last_json_object(text):
     """The last top-level JSON object a bench printed (it may log lines before it), or None."""
     starts = [i for i in range(len(text)) if text[i] == "{" and (i == 0 or text[i - 1] == "\n")]
@@ -3243,11 +3361,10 @@ def cmd_run_linux_part(o):
             tail += [f"paired: {len(report['paired']['rounds'])} rounds, {report['paired']['stopped']}"]
             continue
         before = host_contention() if part != "web-ui" else []
-        try:
-            proc = subprocess.run(argv, cwd=cwd, env={**env, **extra}, capture_output=True, text=True, timeout=1800)
-            value, code, stderr = last_json_object(proc.stdout), proc.returncode, proc.stderr or ""
-        except subprocess.TimeoutExpired:
-            value, code, stderr = None, "timeout (1800 s)", ""
+        stdout, stderr, code = run_capped(argv, cwd, {**env, **extra}, LINUX_RUN_SECONDS)
+        value = last_json_object(stdout) if code is not None else None
+        if code is None:
+            code = f"timeout ({LINUX_RUN_SECONDS} s)"
         tail += [f"{name}: exit {code}"] + stderr.splitlines()[-10:]
         if before:
             load[name] = contention_factor(before + host_contention())
