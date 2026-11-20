@@ -1125,9 +1125,14 @@ jobs:
             branch_owner_takeover=false
             owner_stuck=false
             if past_lease "$owner_json"; then owner_stuck=true; fi
-            if [[ "${EVENT_NAME:-}" == push && "${REF:-}" == refs/heads/feat-cmux-next ]] &&
+            # A nightly-next push takes over a stuck owner's key too: its build runs on the nightly label, and the
+            # nightly's await-tree-client gives up on an owner queued past the runner stall (2026-11-20: nightly
+            # 44818589315 failed at 21:58Z behind feat-cmux-next owner 5aa11fb2daf6, its preflight queued 140 min
+            # on cmux-gcp-lane-build-x64, while this push's own run deferred to it).
+            if { [[ "${EVENT_NAME:-}" == push && "${REF:-}" == refs/heads/feat-cmux-next ]] &&
                 { [[ "$owner_stuck" == true ]] ||
-                  python3 -c 'import json,sys; d=json.loads(sys.argv[1]); sys.exit(0 if d.get("status") in ("queued", "in_progress", "waiting", "pending", "requested") and not (d.get("event") == "push" and d.get("head_branch") == "feat-cmux-next") else 1)' "$owner_json" 2>/dev/null; }; then
+                  python3 -c 'import json,sys; d=json.loads(sys.argv[1]); sys.exit(0 if d.get("status") in ("queued", "in_progress", "waiting", "pending", "requested") and not (d.get("event") == "push" and d.get("head_branch") == "feat-cmux-next") else 1)' "$owner_json" 2>/dev/null; }; } ||
+               [[ "${EVENT_NAME:-}" == push && "${REF:-}" == refs/heads/nightly-next && "$owner_stuck" == true ]]; then
               if builders="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
                   -u "x-access-token:$GH_TOKEN" \
                   -H 'Accept: application/vnd.github+json' \
@@ -1193,7 +1198,7 @@ jobs:
               # Both may publish; the publish jobs keep whichever complete
               # commit and tree publication exists first (write-once objects).
               if [[ "$owner_stuck" == true ]]; then
-                echo "Owner run $OWNER_RUN_ID ($owner_state) is past its ${OWNER_LEASE_MINUTES:-25}-minute lease without publishing tree $KEY; this feat-cmux-next head takes the key over and builds it."
+                echo "Owner run $OWNER_RUN_ID ($owner_state) is past its ${OWNER_LEASE_MINUTES:-25}-minute lease without publishing tree $KEY; this ${REF#refs/heads/} head takes the key over and builds it."
               else
                 echo "Owner run $OWNER_RUN_ID ($owner_state) is not a feat-cmux-next push; this feat-cmux-next head builds tree $KEY itself instead of waiting for that run's daemon tests."
               fi
