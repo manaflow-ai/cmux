@@ -168,12 +168,13 @@ test("waiting on a subagent times the wait, not the whole turn (Leo, 2026-11-20:
   );
   const line = container.querySelector(".cv-worked")!;
   expect(line.textContent).toContain("Waiting on 1 subagent");
-  expect(container.querySelector(".cv-worked__own")?.textContent).toBe("2m");
-  // A wait from the turn's very start has the turn's clock alone, which is already the wait's.
+  // The default look shows one clock: the wait's, never the turn's 7m 39s.
+  expect(line.textContent).not.toContain("7m 39s");
+  expect(container.querySelector(".cv-worked__time")?.textContent).toBe("2m");
+  // A wait from the turn's very start has the turn's clock, which is already the wait's.
   act(() =>
     root!.render(<Thinking since={T0} now={now} liveState="subagents" liveAgents={1} waitAt={T0 + 200} turnTotal />),
   );
-  expect(container.querySelector(".cv-worked__own")).toBeNull();
   expect(container.querySelector(".cv-worked__time")?.textContent).toBe("7m 39s");
 });
 

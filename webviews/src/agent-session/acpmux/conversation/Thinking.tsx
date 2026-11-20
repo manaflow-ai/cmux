@@ -590,7 +590,11 @@ export function Thinking({
         : undefined
     : silentFor !== undefined && own === undefined
       ? silentFor
-      : (own ?? turnTime);
+      : waitsOnAgents && own === undefined && ownMs !== undefined
+        ? // One clock (the `turn` look): beside "Waiting on 1 subagent" it is the wait's, never the
+          // turn's, which read 7m 39s for a two-minute wait (Leo, 2026-11-20).
+          formatDuration(ownMs)
+        : (own ?? turnTime);
   // Background-work counts remain available when the running tray is off.
   const counts = useContext(WorkingCountsContext);
   // The label already names the subagents it waits on: no second count of them.
