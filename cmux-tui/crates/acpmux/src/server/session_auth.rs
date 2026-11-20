@@ -96,6 +96,8 @@ async fn ask_peer(
             route_id: route_id.map(str::to_owned),
             login: None,
             from_session_id: None,
+            credential: None,
+            provider: None,
         }
     };
     let down = || {
