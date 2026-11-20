@@ -5,6 +5,11 @@ use std::sync::atomic::AtomicUsize;
 use super::*;
 use crate::manifest::Item;
 
+fn me() -> Who {
+    // SAFETY: getuid and getgid have no preconditions.
+    unsafe { Who { uid: libc::getuid(), gid: libc::getgid() } }
+}
+
 /// Serves bytes by entry from memory and counts every call.
 #[derive(Default)]
 pub(crate) struct Fake {
@@ -86,7 +91,7 @@ fn setup(away: bool) -> (tempfile::TempDir, Arc<Manifest>, Arc<Fake>) {
 }
 
 fn open(state: &Path, manifest: &Arc<Manifest>, fake: &Arc<Fake>) -> Overlay {
-    Overlay::open(manifest.clone(), state, fake.clone(), (1000, 1000)).unwrap()
+    Overlay::open(manifest.clone(), state, fake.clone(), (me().uid, me().gid)).unwrap()
 }
 
 fn path_ino(overlay: &Overlay, path: &str) -> u64 {
@@ -109,9 +114,9 @@ fn stat_and_listing_never_ask_the_mac() {
     let src = path_ino(&overlay, "src");
     assert_eq!(names(&overlay, src), ["a.rs", "b.rs", "c.rs", "deep"]);
     let deep = overlay.lookup(src, "deep").unwrap();
-    assert_eq!(deep.kind, Kind::Dir);
+    assert_eq!(deep.kind, Type::Dir);
     let big = overlay.getattr(path_ino(&overlay, "big.bin")).unwrap();
-    assert_eq!((big.size, big.mode, big.uid), (BIG, 0o644, 1000));
+    assert_eq!((big.size, big.mode, big.uid), (BIG, 0o644, me().uid));
     assert_eq!(overlay.readlink(path_ino(&overlay, "link")).unwrap(), b"README.md");
     assert_eq!(overlay.lookup(src, "nope"), Err(ENOENT));
     assert_eq!(fake.calls.load(Ordering::Relaxed), 0);
@@ -154,7 +159,7 @@ fn a_write_copies_up_and_leaves_the_mac_alone() {
     assert_eq!(overlay.read(readme, 0, 100).unwrap(), b"README");
     assert_eq!(fs::read(overlay.upper_dir().join("README.md")).unwrap(), b"README");
     assert_eq!(fake.bytes[&manifest.resolve("README.md").unwrap()], b"readme");
-    let attr = overlay.setattr(readme, Some(2), None, None).unwrap();
+    let attr = overlay.setattr(readme, None, Set { size: Some(2), ..Set::default() }).unwrap();
     assert_eq!(attr.size, 2);
     // A big file copies up whole.
     let big = path_ino(&overlay, "big.bin");
@@ -178,7 +183,7 @@ fn a_deleted_lower_file_stays_deleted_after_a_reopen() {
     let src = path_ino(&overlay, "src");
     assert_eq!(overlay.lookup(src, "b.rs"), Err(ENOENT));
     // Making it again brings a new file, not the Mac's.
-    let made = overlay.create(src, "b.rs", 0o644).unwrap();
+    let made = overlay.create(src, "b.rs", 0o644, me()).unwrap().0;
     assert_eq!(overlay.read(made.ino, 0, 10).unwrap(), b"");
     assert!(overlay.whiteouts().is_empty());
 }
@@ -188,25 +193,25 @@ fn create_rename_and_rmdir_of_a_full_folder() {
     let (state, manifest, fake) = setup(false);
     let overlay = open(state.path(), &manifest, &fake);
     let src = path_ino(&overlay, "src");
-    let new = overlay.create(src, "new.rs", 0o644).unwrap();
+    let new = overlay.create(src, "new.rs", 0o644, me()).unwrap().0;
     overlay.write(new.ino, 0, b"new").unwrap();
-    overlay.rename(src, "new.rs", overlay.root(), "moved.rs").unwrap();
+    overlay.rename(src, "new.rs", overlay.root(), "moved.rs", 0).unwrap();
     assert_eq!(overlay.lookup(src, "new.rs"), Err(ENOENT));
     let moved = overlay.lookup(overlay.root(), "moved.rs").unwrap();
     assert_eq!(moved.ino, new.ino);
     assert_eq!(overlay.read(moved.ino, 0, 10).unwrap(), b"new");
     // A lower file renamed: its bytes move, its old name is gone.
-    overlay.rename(src, "a.rs", src, "z.rs").unwrap();
+    overlay.rename(src, "a.rs", src, "z.rs", 0).unwrap();
     assert_eq!(overlay.read(path_ino(&overlay, "src/z.rs"), 0, 100).unwrap(), b"fn a() {}");
     assert_eq!(overlay.lookup(src, "a.rs"), Err(ENOENT));
     // A lower folder cannot move in this slice.
-    assert_eq!(overlay.rename(src, "deep", overlay.root(), "deep2"), Err(EXDEV));
+    assert_eq!(overlay.rename(src, "deep", overlay.root(), "deep2", 0), Err(EXDEV));
     assert_eq!(overlay.rmdir(overlay.root(), "src"), Err(ENOTEMPTY));
     let deep = path_ino(&overlay, "src/deep");
     overlay.unlink(deep, "d.rs").unwrap();
     overlay.rmdir(src, "deep").unwrap();
     assert_eq!(overlay.lookup(src, "deep"), Err(ENOENT));
-    let made = overlay.mkdir(src, "deep", 0o755).unwrap();
+    let made = overlay.mkdir(src, "deep", 0o755, me()).unwrap();
     assert!(overlay.readdir(made.ino).unwrap().is_empty());
 }
 
@@ -224,7 +229,7 @@ fn a_file_made_read_only_is_still_written_through_its_create() {
     // git makes each loose object 0444 and writes it through the descriptor create returned.
     let (state, manifest, fake) = setup(false);
     let overlay = open(state.path(), &manifest, &fake);
-    let made = overlay.create(overlay.root(), "object", 0o444).unwrap();
+    let made = overlay.create(overlay.root(), "object", 0o444, me()).unwrap().0;
     overlay.write(made.ino, 0, b"blob").unwrap();
     assert_eq!(overlay.read(made.ino, 0, 10).unwrap(), b"blob");
     assert_eq!(overlay.getattr(made.ino).unwrap().mode, 0o444);

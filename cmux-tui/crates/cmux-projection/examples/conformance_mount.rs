@@ -2,7 +2,7 @@
 //! would, through the real wire ([`cmux_projection::link`]) and mounts it the way the machine does,
 //! so file system suites (pjdfstest, fsx, xfstests) run against the same code the agent sees.
 //!
-//!     conformance_mount SOURCE MOUNT STATE [--lower]
+//!     conformance_mount SOURCE MOUNT STATE [--lower] [--allow-other]
 //!
 //! SOURCE is the stand-in Mac folder (files, folders and links, every one shared). MOUNT is an
 //! empty folder. STATE holds the upper layer and the cache. `--lower` mounts the read-only lower
@@ -29,6 +29,7 @@ mod linux {
 
     use cmux_projection::link::{Link, Source, answer_asks};
     use cmux_projection::manifest::{Item, Kind, Manifest};
+    use cmux_projection::mount::Options;
     use cmux_projection::overlay::Overlay;
     use cmux_projection::wire::{self, Part};
 
@@ -117,9 +118,10 @@ mod linux {
         let signals = block_signals();
         let args: Vec<String> = std::env::args().skip(1).collect();
         let lower_only = args.iter().any(|arg| arg == "--lower");
+        let allow_other = args.iter().any(|arg| arg == "--allow-other");
         let places: Vec<&String> = args.iter().filter(|arg| !arg.starts_with("--")).collect();
         let [source, at, state] = places.as_slice() else {
-            anyhow::bail!("usage: conformance_mount SOURCE MOUNT STATE [--lower]");
+            anyhow::bail!("usage: conformance_mount SOURCE MOUNT STATE [--lower] [--allow-other]");
         };
         let source = std::fs::canonicalize(source)?;
         let (mut items, mut paths) = (Vec::new(), Vec::new());
@@ -151,9 +153,17 @@ mod linux {
         let owner = (unsafe_uid(), unsafe_gid());
         let overlay = Arc::new(Overlay::open(Arc::new(manifest), Path::new(state), link, owner)?);
         let mounted = if lower_only {
-            cmux_projection::mount::mount_lower(overlay, Path::new(at))?
+            cmux_projection::mount::mount_with(
+                overlay,
+                Path::new(at),
+                Options { read_only: true, allow_other },
+            )?
         } else {
-            cmux_projection::mount::mount(overlay, Path::new(at))?
+            cmux_projection::mount::mount_with(
+                overlay,
+                Path::new(at),
+                Options { read_only: false, allow_other },
+            )?
         };
         std::fs::metadata(at)?;
         println!("mounted");

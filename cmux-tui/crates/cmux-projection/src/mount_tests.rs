@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::*;
-use crate::manifest::{Item, Manifest};
+use crate::manifest::{Item, Kind, Manifest};
 use crate::{Fetch, FetchError};
 
 struct Files(HashMap<u32, Vec<u8>>);
