@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCompat
+import CmuxNextBrowser
 import CmuxNextTerminal
 
 /// Owns the short interval between Cmd-T (or Cmd-N's new workspace) and the New Tab field's
@@ -95,17 +96,15 @@ final class NewTabInputCoordinator {
     var followsNewWindow: Bool { buffers.values.contains { $0.incoming?.followsNewWindow == true } }
 
     /// The last hold events (begin, capture, drain, release and why), for `debug.focus`.
-    private(set) var log: [String] = []
+    var log: [String] { CEFProbe.log }
     /// PROBE (scratch): every key-down the app dispatches, with where it goes.
     func probeKey(_ event: NSEvent, in window: NSWindow?) {
         let key = NSApp.keyWindow, chars = event.modifierFlags.contains(.command) ? "cmd-\(event.charactersIgnoringModifiers ?? "")" : (event.characters ?? "")
-        log.append("KEY \(chars) t=\(Int(event.timestamp * 1000) % 100000) win=\(window.map { String(describing: type(of: $0)) } ?? "nil") key=\(key.map { String(describing: type(of: $0)) } ?? "nil") fr=\(key?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil") held=\(buffers.isEmpty ? 0 : 1)")
-        if log.count > 60 { log.removeFirst(log.count - 60) }
+        CEFProbe.note("KEY \(chars) win=\(CEFProbe.name(window)) key=\(CEFProbe.name(key)) fr=\(key?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil") held=\(buffers.isEmpty ? 0 : 1)")
     }
     private func note(_ event: String, _ entry: Entry?) {
         let age = entry.map { " +\(Int((now() - $0.buffer.began) / .milliseconds(1)))ms" } ?? ""
-        log.append("\(event)\(age)")
-        if log.count > 60 { log.removeFirst(log.count - 60) }
+        CEFProbe.note("HOLD \(event)\(age)")
     }
 
     func begin(for pane: PaneController) -> String? {
