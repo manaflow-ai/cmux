@@ -12,11 +12,14 @@ struct RemoteKeyTextDecisionTests {
         func send(_ event: RemoteInputEvent) { events.append(event) }
     }
 
-    /// A controller in control mode; the fleet Mac's US layout types "a" on key code 0.
+    /// A controller in control mode on a US layout, where key code 0 types "a".
     func controller(_ recorder: Recorder) -> RemoteInputController {
         let controller = RemoteInputController()
         controller.sink = recorder
         controller.inputSourceIsASCIICapable = { true }
+        controller.layoutCharacters = { keyCode, modifiers in
+            keyCode == 0 ? (modifiers.contains(.shift) ? "A" : "a") : nil
+        }
         controller.isActive = true
         return controller
     }
@@ -43,5 +46,17 @@ struct RemoteKeyTextDecisionTests {
         #expect(controller.keyDown(try keyEvent(.keyDown, keyCode: 0, characters: "a")) == .handled)
         controller.keyUp(try keyEvent(.keyUp, keyCode: 0, characters: "a"))
         #expect(recorder.events == [.key(usage: 0x0007_0004, down: true), .key(usage: 0x0007_0004, down: false)])
+    }
+
+    @Test func policyKeepsChordsDeadKeysAndControlCharactersPhysical() {
+        let policy = RemoteKeyboardPolicy()
+        #expect(policy.sendsAsText(characters: "é", layoutCharacters: "a", modifiers: []))
+        #expect(policy.sendsAsText(characters: "😀", layoutCharacters: "a", modifiers: []))
+        #expect(!policy.sendsAsText(characters: "A", layoutCharacters: "A", modifiers: [.shift]))
+        #expect(!policy.sendsAsText(characters: "x", layoutCharacters: "a", modifiers: [.command]))
+        #expect(!policy.sendsAsText(characters: "", layoutCharacters: "´", modifiers: [.option]))
+        #expect(!policy.sendsAsText(characters: "\r", layoutCharacters: "a", modifiers: []))
+        #expect(!policy.sendsAsText(characters: "\u{F702}", layoutCharacters: nil, modifiers: []))
+        #expect(!policy.sendsAsText(characters: "x", layoutCharacters: nil, modifiers: []))
     }
 }
