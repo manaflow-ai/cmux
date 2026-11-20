@@ -5,6 +5,7 @@ import { chatPlace } from "./chatMachine";
 import React, {
   useCallback,
   useEffect,
+  useId,
   useImperativeHandle,
   useInsertionEffect,
   useLayoutEffect,
@@ -660,6 +661,7 @@ function ComposerFrame({
   const [text, setText] = useState(() => draft ?? readPersistedDraft(sessionId) ?? "");
   const textRef = useRef(text);
   const [doneWhen, setDoneWhen] = useState("");
+  const outcomeFieldId = useId();
   const doneWhenRef = useRef(doneWhen);
   doneWhenRef.current = doneWhen;
   const outcomeAskEnabled = experimentArm(outcomeAsk) === "on";
@@ -1778,12 +1780,9 @@ function ComposerFrame({
     unsentDraft.current?.flush();
     // Each paste still in the text as pasted goes as a pasted block, never as typed words
     // (composer/pasteMarks.ts); a slash command's text stays the command.
-    const marked = isCommand
-      ? placed
-      : markPastes(
-          { ...placed, text: withOutcomeAsk(placed.text, outcomeAskEnabled ? doneWhen : "") },
-          box.current?.pastes() ?? [],
-        );
+    const marked = isCommand ? placed : markPastes(placed, box.current?.pastes() ?? []);
+    const sentDoneWhen = outcomeAskEnabled && !isCommand ? doneWhen : undefined;
+    if (sentDoneWhen !== undefined) marked.text = withOutcomeAsk(marked.text, sentDoneWhen);
     const sent = marked.attachments;
     // What the composer draws of the prompt as it goes: sent from the latest row, it becomes the
     // sent message from there (conversation/sendMorph.ts).
@@ -1801,7 +1800,6 @@ function ComposerFrame({
     if (taken === false || taken instanceof Promise) keepSendOrigins();
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
-    const sentDoneWhen = doneWhen;
     const clear = (rest = "") => {
       if (tuck) tuckSent(composerBox.current, tuck);
       const went = new Set(sent.map((attachment) => attachment.id));
@@ -1811,7 +1809,7 @@ function ComposerFrame({
       plusDraft.current = undefined;
       if (field.current && rest) field.current.type(rest);
       else edit(rest, rest.length);
-      if (doneWhenRef.current === sentDoneWhen) setDoneWhen("");
+      if (sentDoneWhen !== undefined && doneWhenRef.current === sentDoneWhen) setDoneWhen("");
       // The sent text is no draft any more: a read still on its way never brings it back.
       noteDraftSent(persistedSession.current);
       sentAt.current = Date.now();
@@ -2863,20 +2861,14 @@ function ComposerFrame({
       )}
       {outcomeAskEnabled && !shell && (
         <div className="acpmux-outcome-ask" data-outcome-ask="on">
-          <label htmlFor="acpmux-outcome-ask-field">{t("composer.outcomeAskLabel")}</label>
+          <label htmlFor={outcomeFieldId}>{t("composer.outcomeAskLabel")}</label>
           <textarea
-            id="acpmux-outcome-ask-field"
+            id={outcomeFieldId}
             rows={1}
             value={doneWhen}
             aria-label={t("composer.outcomeAskLabel")}
             placeholder={t("composer.outcomeAskPlaceholder")}
             onChange={(event) => setDoneWhen(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                submitNow.current(true);
-              }
-            }}
           />
         </div>
       )}

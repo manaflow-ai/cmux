@@ -1124,3 +1124,4 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-outcome-ask label{flex:none}
 .acpmux-outcome-ask textarea{field-sizing:content;min-height:18px;max-height:72px;flex:1;resize:none;border:0;border-bottom:1px solid var(--acpmux-composer-edge);background:transparent;color:var(--agent-text);font:inherit;outline:none;padding:0 0 2px}
 .acpmux-outcome-ask textarea::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
+.acpmux-outcome-ask textarea:focus-visible{border-bottom-color:var(--agent-accent)}
