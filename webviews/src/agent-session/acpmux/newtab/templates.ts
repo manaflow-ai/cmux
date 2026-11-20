@@ -37,11 +37,11 @@ export type ScreenSections = {
 };
 
 const SECTIONS: Record<ScreenTemplate, ScreenSections> = {
-  // Minimal (Leo 2026-10-20: "only do the composer for the default"): the composer, about the
-  // window's middle, with no greeting (Leo 2026-10-22). The rest is widgets the user
-  // turns on (pageWidgets.ts); with the project card, the actions or the chats on, the page takes
-  // Default's stage around them. What an unset template shows (shownTemplate).
-  minimal: { chats: "list", allChats: false, recent: 5, prompt: false, closed: false, stage: true },
+  // Minimal (Leo 2026-10-20: "only do the composer for the default"): the composer alone, about the
+  // window's middle, with no greeting (Leo 2026-10-22) and no widgets (Lawrence 2026-11-09: "remove
+  // widgets completely"): NewTabScreen draws none of its lists. What an unset template shows
+  // (shownTemplate).
+  minimal: { chats: "none", allChats: false, recent: 0, prompt: false, closed: false, stage: false },
   // Cards (u2851, from a scrawl of Aside's New Tab page): one rounded field, the project and
   // the agent's chips in a row under it, then three chat cards.
   cards: { chats: "cards", allChats: false, recent: 3, prompt: false, closed: false, stage: false },
@@ -68,13 +68,16 @@ export function parseNewTabTemplate(value: unknown): NewTabTemplate | undefined 
 }
 
 /// The styles the page's style switch offers, in its order (Leo 2026-10-13, cx-txe89). Terminal is
-/// not one: New Tab never opens a terminal by itself.
-export const PAGE_STYLES = ["minimal", "cards", "default", "composer", "threads", "console", "classic"] as const;
+/// not one: New Tab never opens a terminal by itself. The legacy `composer` id remains parseable
+/// for saved settings, but is not offered: it was the same one-composer page as Minimal.
+export const PAGE_STYLES = ["minimal", "cards", "default", "threads", "console", "classic"] as const;
 export type PageStyle = (typeof PAGE_STYLES)[number];
 
 /// The style the switch marks for a template (Terminal draws the Cards screen).
 export function pageStyle(template: NewTabTemplate): PageStyle {
-  return template === "terminal" ? "cards" : template;
+  if (template === "terminal") return "cards";
+  if (template === "composer") return "minimal";
+  return template;
 }
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -91,5 +94,6 @@ export const DEFAULT_NEW_TAB_TEMPLATE: NewTabTemplate = "minimal";
 
 /// The template to show: the saved one, else the Debug Settings design (`a` is Classic), else Minimal.
 export function shownTemplate(host: { template?: NewTabTemplate; layout: "a" | "b" }): NewTabTemplate {
-  return host.template ?? (host.layout === "a" ? "classic" : DEFAULT_NEW_TAB_TEMPLATE);
+  const saved = host.template === "composer" ? DEFAULT_NEW_TAB_TEMPLATE : host.template;
+  return saved ?? (host.layout === "a" ? "classic" : DEFAULT_NEW_TAB_TEMPLATE);
 }

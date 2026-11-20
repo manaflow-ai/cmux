@@ -47,8 +47,8 @@ extension BrowserProfileService {
     /// snapshot twice at each launch, with nothing changed (cx-8w027.23, I2).
     func refreshPresentation() {
         for (key, entry) in services.cache.browsers {
-            entry.chrome.addressBar.setProfileBadge(omnibarBadge(forTab: key))
-            entry.chrome.toolbarButtons.profileName = BrowserToolbarHandlers.profileName(forTab: key, services: services)
+            entry.state.profileBadge = omnibarBadge(forTab: key)
+            entry.state.profileName = BrowserToolbarHandlers.profileName(forTab: key, services: services)
         }
     }
 }

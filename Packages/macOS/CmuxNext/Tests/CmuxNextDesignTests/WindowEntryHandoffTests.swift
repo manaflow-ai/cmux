@@ -1,10 +1,12 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// ``WindowEntryHandoff``: a container in no window that shows a view in a window gets the view when
 /// it enters the window, unless the view moved meanwhile.
 @MainActor
+@Suite(.closesItsWindows)
 struct WindowEntryHandoffTests {
     final class Scene {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],

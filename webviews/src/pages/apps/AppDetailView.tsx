@@ -1,13 +1,27 @@
 // A listing's page: header (icon, name, publisher, tier, state, Open and the item action),
 // description, then the shared detail sections (items.tsx): screenshots (the live preview comes
 // later with a web scene renderer; coordinator Q6), what it adds, permissions with reasons (grant
-// switches once installed), settings once installed, versions, repository.
+// switches once installed), settings once installed, versions, repository. A deployed app also says
+// which kinds of machine its server runs on ("Runs on").
 import type { Strings } from "../shared/i18n";
 import { GrantsPanel } from "./GrantsPanel";
 import { AddsList, DetailSection, ItemAction, ItemSettings, ScreenshotStrip, StateBadge } from "./items";
 import { orderScopes, RiskLabel, TierLabel } from "./model";
 import { AppIcon, Badge } from "./parts";
 import type { AppsSnapshot, AppsStore } from "./store";
+
+/** The person's words for a manifest deploy target; an unknown kind shows as its name. */
+export function targetLabel(target: string, { t }: Strings): string {
+  const key = DEPLOY_TARGET_LABELS[target];
+  return key ? t(key) : target;
+}
+
+const DEPLOY_TARGET_LABELS: Record<string, string> = {
+  "self-hosted": "store.deploy.target.selfHosted",
+  "cloud-vm": "store.deploy.target.cloudVM",
+  "team-vm": "store.deploy.target.teamVM",
+  local: "store.deploy.target.local",
+};
 
 export function AppDetailView({
   snap,
@@ -99,6 +113,17 @@ export function AppDetailView({
         <p className="apps-detail-description selectable">{detail.description}</p>
         <ScreenshotStrip screenshots={detail.screenshots} strings={strings} />
         <AddsList contributes={detail.contributes} strings={strings} />
+        {detail.deploy && detail.deploy.targets.length > 0 && (
+          <DetailSection title={t("store.detail.runsOn")}>
+            <ul className="apps-deploy-targets">
+              {detail.deploy.targets.map((target) => (
+                <li key={target}>
+                  <span>{targetLabel(target, strings)}</span> <code className="apps-muted">{target}</code>
+                </li>
+              ))}
+            </ul>
+          </DetailSection>
+        )}
         <DetailSection title={t("store.detail.permissions")}>
           {detail.scopes.length === 0 ? (
             <p className="apps-muted">{t("store.detail.noPermissions")}</p>

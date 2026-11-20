@@ -1,33 +1,42 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-23 (screenshot 1.07.56 AM): "left alignment is bad btw, the bar, left side, should be
 /// aligned with the header part left side". A group's members' rail started left of its header's colored
 /// bar. The rule: at every nesting level, sidebar density and Minimal Mode, the rail's left edge is the
 /// header bar's left edge, in points, while the member rows keep the ungrouped rows' left edge (#23975).
-@MainActor @Suite(.serialized) struct SidebarGroupRailAlignmentTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarGroupRailAlignmentTests {
     nonisolated struct Case: CustomTestStringConvertible, Sendable {
         var density: SidebarDensity
         var minimal: SidebarMinimalMode
         var scenario: SidebarNestedFixture.Scenario
-        var testDescription: String { "\(density.rawValue)/minimal-\(minimal.rawValue)/\(scenario.rawValue)" }
+        /// `sidebar.textSize` (Lawrence msg 17752): the rail holds at every text size too.
+        var textSize: SidebarTextSize = .standard
+        var testDescription: String { "\(density.rawValue)/minimal-\(minimal.rawValue)/\(scenario.rawValue)/text-\(textSize.rawValue)" }
     }
 
-    nonisolated static let cases: [Case] = SidebarDensity.allCases.flatMap { density in
-        [SidebarMinimalMode.off, .both].flatMap { minimal in
-            [SidebarNestedFixture.Scenario.after, .deep, .narrow].map { Case(density: density, minimal: minimal, scenario: $0) }
+    nonisolated static let cases: [Case] = SidebarTextSize.allCases.flatMap { textSize in
+        SidebarDensity.allCases.flatMap { density in
+            [SidebarMinimalMode.off, .both].flatMap { minimal in
+                [SidebarNestedFixture.Scenario.after, .deep, .narrow].map {
+                    Case(density: density, minimal: minimal, scenario: $0, textSize: textSize)
+                }
+            }
         }
     }
 
-    /// Runs `body` with the shared sidebar density and Minimal Mode set, then puts them back.
-    static func with(_ density: SidebarDensity, _ minimal: SidebarMinimalMode, _ body: () throws -> Void) rethrows {
+    /// Runs `body` with the shared sidebar density, Minimal Mode and text size set, then puts them back.
+    static func with(_ density: SidebarDensity, _ minimal: SidebarMinimalMode, textSize: SidebarTextSize = .standard,
+                     _ body: () throws -> Void) rethrows {
         let design = DesignSettings.shared
         let saved = design.sidebarSections
         defer { design.sidebarSections = saved }
         design.sidebarSections.density = density
         design.sidebarSections.minimalMode = minimal
+        design.sidebarSections.textSize = textSize
         try body()
     }
 
@@ -52,7 +61,7 @@ import Testing
     /// Each drawn rail's left edge against its header bar's left edge, in list points, for every open group.
     @Test(arguments: cases)
     func theRailStartsAtTheHeaderBarsLeftEdge(_ c: Case) throws {
-        try Self.with(c.density, c.minimal) {
+        try Self.with(c.density, c.minimal, textSize: c.textSize) {
             let fixture = SidebarNestedFixture(scenario: c.scenario)
             let (list, window) = Self.list(fixture)
             defer { window.close() }
@@ -65,7 +74,7 @@ import Testing
                 offByDepth[line.level, default: []].insert(line.frame.minX - bar.minX)
             }
             for (depth, offs) in offByDepth.sorted(by: { $0.key < $1.key }) {
-                #expect(offs == [0], "\(c.testDescription): depth \(depth) rail starts \(offs.sorted()) pt from its header bar's left edge")
+                #expect(offs == [SidebarStyle.groupRailInset], "\(c.testDescription): depth \(depth) rail starts \(offs.sorted()) pt from its header bar's left edge")
             }
         }
     }
@@ -85,7 +94,7 @@ import Testing
             header.needsLayout = true
             header.layoutSubtreeIfNeeded()
             let mark = list.convert(header.leadingMarkFrame, from: header)
-            #expect(line.frame.minX == mark.minX, "\(style.rawValue) depth \(line.level): rail \(line.frame.minX), mark \(mark.minX)")
+            #expect(line.frame.minX == mark.minX + SidebarStyle.groupRailInset, "\(style.rawValue) depth \(line.level): rail \(line.frame.minX), mark \(mark.minX)")
         }
     }
 
@@ -99,7 +108,7 @@ import Testing
                 guard case let .group(id) = row.key, let header = list.rowViews[row.key] as? GroupHeaderRowView else { continue }
                 let name = list.convert(header.titleFrame, from: header).minX
                 let membersX = list.frame(for: row).minX + list.railReach(for: row)
-                #expect(name == membersX + SidebarStyle.horizontalInset - Metrics.space1,
+                #expect(name == membersX + SidebarStyle.contentInset - Metrics.space1,
                         "\(density.rawValue) \(id.rawValue): name at \(name), members at \(membersX)")
             }
         }

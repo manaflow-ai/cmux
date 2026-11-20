@@ -188,7 +188,7 @@ export interface VmActiveLimitMachine {
   /** Provider machine id, or the row id while provisioning has none yet. */
   readonly id: string;
   readonly name: string;
-  readonly status: "provisioning" | "running";
+  readonly status: "provisioning" | "running" | "paused";
 }
 
 export class VmLimitExceededError extends Data.TaggedError("VmLimitExceededError")<{

@@ -41,7 +41,7 @@
 #include "include/wrapper/cef_library_loader.h"
 
 #include "chromium_host_wire.h"
-#include "command_line_switches.h"
+#include "command_line_apply.h"
 #include "page_scheme_registration.h"
 
 @interface ChromiumHostApplication : NSApplication <CefAppProtocol> {
@@ -245,6 +245,9 @@ void CreateBrowserIfReady() {
                   CefRect(0, 0, static_cast<int>(g_screen_rect.size.width), static_cast<int>(g_screen_rect.size.height)));
   info.runtime_style = CEF_RUNTIME_STYLE_CHROME;
   CefBrowserSettings settings;
+  // Chrome's status bubble would be a window of this process over cmux's
+  // other panes; the host's page shows no hovered link.
+  settings.chrome_status_bubble = STATE_DISABLED;
   g_creating = CefBrowserHost::CreateBrowser(info, new Client(), g_pending_url, settings, nullptr, nullptr);
   if (!g_creating) SendText(cmux_host::kError, "CreateBrowser refused");
 }
@@ -453,18 +456,8 @@ class App : public CefApp, public CefBrowserProcessHandler {
 
   void OnBeforeCommandLineProcessing(const CefString& process_type, CefRefPtr<CefCommandLine> command_line) override {
     if (!process_type.empty()) return;
-    for (const std::string& entry : switches_) {
-      size_t eq = entry.find('=');
-      if (eq == std::string::npos) {
-        command_line->AppendSwitch(entry);
-        continue;
-      }
-      const std::string name = entry.substr(0, eq);
-      std::string value = entry.substr(eq + 1);
-      if (cmux_shim::IsFeatureListSwitch(name) && command_line->HasSwitch(name)) {
-        value = cmux_shim::MergeFeatureList(command_line->GetSwitchValue(name).ToString(), value);
-      }
-      command_line->AppendSwitchWithValue(name, value);
+    for (const std::string& name : cmux_shim::ApplySwitches(command_line, switches_)) {
+      NSLog(@"cmux host: Chromium switch refused (weakens the sandbox): %s", name.c_str());
     }
   }
 

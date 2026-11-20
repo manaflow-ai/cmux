@@ -87,6 +87,28 @@ public final class VideoPlayback {
         onChange(key)
     }
 
+    /// Pauses a playing video in place (another view, such as a large viewer, plays it now); a
+    /// fetch in flight is cancelled. A poster or paused video stays as it is.
+    public func pause(_ key: String) {
+        guard var entry = entries[key] else { return }
+        switch entry.state {
+        case .playing:
+            entry.player?.pause()
+            entry.state = .paused
+        case .loading:
+            entry.load?.cancel()
+            entry.load = nil
+            entry.state = entry.player == nil ? .poster : .paused
+        case .poster, .paused:
+            return
+        }
+        entries[key] = entry
+        onChange(key)
+    }
+
+    /// Where a video's player is now; zero without a player.
+    public func currentTime(_ key: String) -> CMTime { entries[key]?.player?.currentTime() ?? .zero }
+
     /// Fetches the URL (again) and plays from `time`.
     private func fetch(_ key: String, media: any HomeVideoSource, at time: CMTime) {
         guard var entry = entries[key] else { return }

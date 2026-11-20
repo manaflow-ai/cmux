@@ -4,6 +4,7 @@
 // nothing and says why.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -36,14 +37,10 @@ Object.assign(scope, replacements);
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { ComposerContext } = await import("../src/agent-session/acpmux/ComposerContext");
-const { newWorktree } = await import("../src/agent-session/acpmux/startFolder");
+const { newChatInWorktree, newWorktree } = await import("../src/agent-session/acpmux/startFolderModel");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const settle = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
@@ -160,4 +157,63 @@ test("a folder question about the worktree comes back to ask, and starts nothing
   const made = await newWorktree(native, FOLDER, (cwd) => used.push(cwd));
   expect(made).toEqual({ root: ROOT, branch: "cmux/chat-1a2b3c", ask: { cwd: ROOT, reason: "home" } });
   expect(used).toEqual([]);
+});
+
+// cmuxterm-hq#7856 ("whatever works on a local chat should work on a Cloud chat"): a new chat on a
+// Cloud machine offers New Worktree for its folder there; the host makes it on that machine.
+const VM_FOLDER = "/home/cmux/work/app";
+const cloudSummary = { sessionId: "", cwd: VM_FOLDER, host: "kind-aqua-sandpiper", hostKind: "cloud" as const };
+
+const anyButton = (name: string) =>
+  [...dom.window.document.querySelectorAll<HTMLElement>("button, [role=menuitem], [role=option]")].find((item) =>
+    item.textContent?.includes(name),
+  );
+
+test("a new Cloud chat's folder menu offers New Worktree for its folder on that machine", async () => {
+  const asked: string[] = [];
+  const root = await renderTray({
+    summary: cloudSummary,
+    projectChoices: [],
+    machineFolders: [{ cwd: VM_FOLDER, label: "app" }],
+    onNewWorktree: (cwd: string) => asked.push(cwd),
+  });
+  try {
+    await openFolderMenu();
+    const item = anyButton("New Worktree");
+    expect(item).toBeDefined();
+    await act(async () => item!.click());
+    await settle();
+    expect(asked).toEqual([VM_FOLDER]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a Cloud chat offers no worktree when the page gives none", async () => {
+  const root = await renderTray({
+    summary: cloudSummary,
+    projectChoices: [],
+    machineFolders: [{ cwd: VM_FOLDER, label: "app" }],
+  });
+  try {
+    await openFolderMenu();
+    expect(anyButton("New Worktree")).toBeUndefined();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a worktree made for a chat that started meanwhile opens a new chat on the same machine", async () => {
+  const calls: [string, Record<string, unknown> | undefined][] = [];
+  const native = async (method: string, params?: Record<string, unknown>) => {
+    calls.push([method, params]);
+    return undefined;
+  };
+  await newChatInWorktree(native, ROOT, false);
+  await newChatInWorktree(native, "/home/cmux/.cmux/worktrees/app/chat-1", true);
+  expect(calls).toEqual([
+    ["chat.new", { cwd: ROOT }],
+    // A Cloud or SSH chat's worktree is that machine's folder: never a chat of this Mac there.
+    ["chat.newHere", { cwd: "/home/cmux/.cmux/worktrees/app/chat-1" }],
+  ]);
 });

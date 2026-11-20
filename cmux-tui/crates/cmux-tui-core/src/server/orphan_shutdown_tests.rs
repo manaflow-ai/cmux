@@ -22,14 +22,23 @@ fn client_presence_is_signalled_on_every_connect_and_leave() {
     let mux = mux("presence");
     let calls = Arc::new(AtomicUsize::new(0));
     let seen = calls.clone();
-    mux.set_client_presence_observer(move || {
+    mux.add_client_presence_observer(move || {
         seen.fetch_add(1, Ordering::SeqCst);
+    });
+    // A second observer (the lost-paths exit beside the DEV orphan exit)
+    // hears every change too.
+    let second = Arc::new(AtomicUsize::new(0));
+    let heard = second.clone();
+    mux.add_client_presence_observer(move || {
+        heard.fetch_add(1, Ordering::SeqCst);
     });
     let client = connect(&mux);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(second.load(Ordering::SeqCst), 1);
     assert_eq!(mux.client_count(), 1);
     assert!(disconnect_client(&mux, client, false));
     assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert_eq!(second.load(Ordering::SeqCst), 2);
     assert_eq!(mux.client_count(), 0);
 }
 

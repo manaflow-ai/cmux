@@ -6,6 +6,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -23,7 +24,7 @@ let dom: JSDOM;
 let root: Root | undefined;
 
 beforeAll(() => {
-  dom = new JSDOM("<!doctype html><div id=root></div>", { url: "cmux-page://cmux.changelog/" });
+  dom = new JSDOM("<!doctype html><div id=root></div>", { url: "cmux-page://cmux.changelog/#/?design=ledger" });
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -36,12 +37,9 @@ beforeAll(() => {
   });
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const pic = "data:image/png;base64,iVBORw0KGgo=";

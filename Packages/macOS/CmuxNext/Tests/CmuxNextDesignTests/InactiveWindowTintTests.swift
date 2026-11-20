@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 import CmuxNextDesignTokens
 
@@ -7,7 +8,7 @@ import CmuxNextDesignTokens
 /// pointless?" A window that is not key looks exactly like the key one: the glass keeps its key look
 /// (``ActiveLookGlassEffectView``) and no wash covers it. Only `appearance.inactiveWindowDim`, 0 by
 /// default, dims a window that is not key.
-@MainActor @Suite struct InactiveWindowTintTests {
+@MainActor @Suite(.closesItsWindows) struct InactiveWindowTintTests {
     static let glassMaterials: [WindowMaterial] = [.glass(.regular), .glass(.clear)]
     static let materials: [WindowMaterial] = glassMaterials + [.frosted, .translucent, .opaque]
 
@@ -65,7 +66,7 @@ import CmuxNextDesignTokens
     }
 
     /// Only a window that has held an `ActiveLookGlassEffectView` keeps the glass's key look; a
-    /// window with plain glass alone (popups, the palette) follows the key state.
+    /// window with plain glass alone, and no app window owning it, follows the key state.
     @Test func onlyTheBackdropWindowKeepsTheActiveLook() {
         guard #available(macOS 26.0, *) else { return }
         func window() -> NSWindow {
@@ -75,6 +76,8 @@ import CmuxNextDesignTokens
             return window
         }
         let shell = window(), popup = window(), scope = ActiveLookScope()
+        defer { shell.closeAfterTest() }
+        defer { popup.closeAfterTest() }
         shell.contentView?.addSubview(ActiveLookGlassEffectView(scope: scope))
         popup.contentView?.addSubview(NSGlassEffectView())
         #expect(scope.keepsActiveLook(shell))
@@ -93,6 +96,8 @@ import CmuxNextDesignTokens
             return window
         }
         let first = window(), second = window(), scope = ActiveLookScope()
+        defer { first.closeAfterTest() }
+        defer { second.closeAfterTest() }
         let glass = ActiveLookGlassEffectView(scope: scope), other = ActiveLookGlassEffectView(scope: scope)
         first.contentView?.addSubview(glass)
         first.contentView?.addSubview(other)
@@ -109,7 +114,9 @@ import CmuxNextDesignTokens
     /// nest; an unrelated window never is, and nothing is after the update.
     @Test func theScopeNamesOnlyTheUpdatingWindow() {
         let first = NSWindow(contentRect: .init(x: 0, y: 0, width: 10, height: 10), styleMask: [], backing: .buffered, defer: true)
+        defer { first.closeAfterTest() }
         let second = NSWindow(contentRect: .init(x: 0, y: 0, width: 10, height: 10), styleMask: [], backing: .buffered, defer: true)
+        defer { second.closeAfterTest() }
         first.isReleasedWhenClosed = false
         second.isReleasedWhenClosed = false
         let scope = ActiveLookScope()

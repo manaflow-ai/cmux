@@ -8,6 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, webkit, type BrowserType, type CDPSession, type Page } from "playwright";
+import { launchSelectedEngines, type EngineCoverage, type EngineLaunchFailure } from "./engine-selection";
 import { PAGES } from "../../test/latency/actions";
 import {
   BUDGET_120HZ,
@@ -21,6 +22,7 @@ import {
 } from "../../test/latency/measure";
 import { installLatencyProbe } from "../../test/latency/probe";
 import { installPaintedFrames } from "../../test/support/paintedFrames";
+import { startRawTrace } from "./trace";
 
 const webviews = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const ENGINES: Array<[string, BrowserType]> = [
@@ -37,6 +39,7 @@ export function parseOptions(args: string[]) {
       [
         "--runs",
         "--page",
+        "--pages",
         "--action",
         "--engine",
         "--cpu-throttle",
@@ -44,6 +47,7 @@ export function parseOptions(args: string[]) {
         "--idle-ms",
         "--base",
         "--require",
+        "--trace-dir",
       ].includes(args[i]) &&
       args[i + 1] &&
       !args[i + 1].startsWith("--")
@@ -79,10 +83,17 @@ export function parseOptions(args: string[]) {
     idleMs,
     required,
     pageFilter: values.get("--page"),
+    // Exact page names, comma separated: the trusted gate measures exactly its budget's pages, where
+    // --page's substring match would also pick up pages like "chat rail pointer".
+    pageNames: values
+      .get("--pages")
+      ?.split(",")
+      .map((name) => name.trim()),
     actionFilter: values.get("--action"),
     engineFilter: values.get("--engine"),
     base: values.get("--base"),
     jsonOut: values.get("--json") ?? (ci ? path.join(webviews, "latency-results.json") : undefined),
+    traceDir: values.get("--trace-dir"),
   };
 }
 
@@ -114,6 +125,34 @@ async function closeServer(server: ChildProcess) {
 /** A terminal colour escape (ESC [ ... m), as a server banner may wrap its port in one. */
 const SGR = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
+export function waitForServerReady(server: ChildProcess, port: number, timeoutMs = 30_000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let output = "";
+    const finish = (error?: Error) => {
+      clearTimeout(timer);
+      server.stdout!.off("data", ready);
+      server.stderr!.off("data", ready);
+      server.off("error", failed);
+      server.off("exit", exited);
+      if (error) reject(error);
+      else resolve();
+    };
+    const ready = (chunk: Buffer) => {
+      // The banner may color the port ("127.0.0.1:" ESC[1m port ESC[22m) and arrive split across
+      // chunks: match the output so far (its last 4 KB) with SGR escapes dropped, or startup times out.
+      output = `${output}${String(chunk)}`.slice(-4096);
+      if (output.replaceAll(SGR, "").includes(`127.0.0.1:${port}`)) finish();
+    };
+    const failed = (error: Error) => finish(error);
+    const exited = (code: number | null) => finish(new Error(`server exited ${code}`));
+    const timer = setTimeout(() => finish(new Error("server startup timed out")), timeoutMs);
+    server.stdout!.on("data", ready);
+    server.stderr!.on("data", ready);
+    server.once("error", failed);
+    server.once("exit", exited);
+  });
+}
+
 async function startServer(dev: boolean) {
   const port = await freePort();
   const vp = path.join(webviews, "node_modules/.bin/vp");
@@ -140,29 +179,7 @@ async function startServer(dev: boolean) {
       [dev ? "dev" : "preview", "--config", "vite.config.latency.ts", "--port", String(port), "--strictPort"],
       { cwd: webviews, env, stdio: ["ignore", "pipe", "pipe"] },
     );
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("server startup timed out")), 30_000);
-      // The banner may color the port ("127.0.0.1:" ESC[1m port ESC[22m) and arrive split across
-      // chunks: match the output so far (its last 4 KB) with SGR escapes dropped, or startup times out.
-      let banner = "";
-      const ready = (chunk: Buffer) => {
-        banner = (banner + String(chunk)).slice(-4096);
-        if (banner.replaceAll(SGR, "").includes(`127.0.0.1:${port}`)) {
-          clearTimeout(timer);
-          resolve();
-        }
-      };
-      server!.stdout!.on("data", ready);
-      server!.stderr!.on("data", ready);
-      server!.once("error", (error) => {
-        clearTimeout(timer);
-        reject(error);
-      });
-      server!.once("exit", (code) => {
-        clearTimeout(timer);
-        reject(new Error(`server exited ${code}`));
-      });
-    });
+    await waitForServerReady(server, port);
     return { base: `http://127.0.0.1:${port}`, close };
   } catch (error) {
     await close();
@@ -252,13 +269,16 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
   const options = parseOptions(args);
   if (options.help) {
     console.log(
-      "latency [--ci] [--no-fail] [--engine chromium|webkit] [--runs N] [--json PATH] [--page FILTER] [--action FILTER] [--idle-ms N] [--base REF] [--require longTasks,reactCommits,cpu,wakeups,trace] [--cpu-throttle N] [--dev]",
+      "latency [--ci] [--no-fail] [--engine chromium|webkit] [--runs N] [--json PATH] [--page FILTER] [--pages NAME,NAME] [--action FILTER] [--idle-ms N] [--base REF] [--require longTasks,reactCommits,cpu,wakeups,trace] [--cpu-throttle N] [--dev]",
     );
     return 0;
   }
   const engines = ENGINES.filter(([name]) => !options.engineFilter || name === options.engineFilter);
+  const selectedEngines = engines.map(([name]) => name);
   const specs = PAGES.filter(
-    (spec) => !options.pageFilter || spec.name.includes(options.pageFilter) || spec.path.includes(options.pageFilter),
+    (spec) =>
+      (!options.pageFilter || spec.name.includes(options.pageFilter) || spec.path.includes(options.pageFilter)) &&
+      (!options.pageNames || options.pageNames.includes(spec.name)),
   ).map((spec) => ({
     ...spec,
     actions: spec.actions.filter((action) => !options.actionFilter || action.name.includes(options.actionFilter)),
@@ -268,6 +288,8 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
   );
   const results: ActionResult[] = [];
   const errors: string[] = [];
+  const engineFailures: EngineLaunchFailure[] = [];
+  const measuredEngines: string[] = [];
   const source = {
     repository: git("config", "--get", "remote.origin.url"),
     head: git("rev-parse", "HEAD"),
@@ -281,18 +303,37 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
     },
     viewport: { width: 1280, height: 800 },
     mode: options.dev ? "development" : "production",
+    // The gate swaps in the target base's harness (these two directories) before measuring a candidate,
+    // and names that base here; everything else must still be the candidate's clean tracked tree.
+    harness: process.env.CMUX_LATENCY_HARNESS_SHA ?? null,
     dirty:
-      spawnSync("git", ["status", "--porcelain", "--untracked-files=no"], {
-        cwd: webviews,
-        encoding: "utf8",
-      }).stdout.trim().length > 0,
+      spawnSync(
+        "git",
+        [
+          "status",
+          "--porcelain",
+          "--untracked-files=no",
+          "--",
+          ".",
+          ...(process.env.CMUX_LATENCY_HARNESS_SHA ? [":(exclude)scripts/latency", ":(exclude)test/latency"] : []),
+        ],
+        { cwd: webviews, encoding: "utf8" },
+      ).stdout.trim().length > 0,
   };
   if (!expectedCases.length) throw new Error("no cases selected");
   if (options.ci && source.dirty) throw new Error("CI evidence requires a clean tracked source tree");
   const server = await startServer(options.dev);
   try {
     for (const [engineName, engine] of engines) {
-      const browser = await engine.launch({ headless: true });
+      // A missing browser must be recorded as an incomplete sweep while the other
+      // selected engine continues and contributes its evidence.
+      const selection = await launchSelectedEngines([engineName], () =>
+        engine.launch({ headless: true, ...(engineName === "chromium" ? { channel: "chrome" } : {}) }),
+      );
+      engineFailures.push(...selection.failures);
+      const browser = selection.launched[0]?.value;
+      if (!browser) continue;
+      measuredEngines.push(engineName);
       source.browsers.push({ engine: engineName, version: browser.version() });
       try {
         for (const spec of specs) {
@@ -320,13 +361,28 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
               await page.goto(`${server.base}${spec.path}`);
               await page.waitForFunction(spec.ready, undefined, { timeout: 30_000 });
               await page.evaluate(() => document.fonts.ready);
-              const result = await measureAction(
-                page,
-                { page: spec.name, engine: engineName },
-                action,
-                options.runs,
-                metrics,
-              );
+              const traceSession =
+                options.traceDir && engineName === "chromium" ? await context.newCDPSession(page) : undefined;
+              const stopTrace = traceSession
+                ? await startRawTrace(
+                    traceSession,
+                    options.traceDir!,
+                    `${engineName}/${spec.name}/${action.id ?? action.name}`,
+                  )
+                : undefined;
+              let result: ActionResult;
+              try {
+                result = await measureAction(
+                  page,
+                  { page: spec.name, engine: engineName },
+                  action,
+                  options.runs,
+                  metrics,
+                );
+                if (stopTrace) result.rawTrace = await stopTrace();
+              } finally {
+                await traceSession?.detach().catch(() => undefined);
+              }
               if (!page.isClosed()) result.idle = await sampleIdle(page, options.idleMs, metrics);
               else {
                 result.unsupportedReasons.cpu = "adapter failure closed the page before idle CPU sampling";
@@ -350,6 +406,15 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
     await server.close();
   }
   errors.push(...evidenceErrors(results, expectedCases, options.required));
+  const coverage: EngineCoverage = {
+    expectedEngines: selectedEngines,
+    measuredEngines,
+    expectedCount: selectedEngines.length,
+    measuredCount: measuredEngines.length,
+    complete: engineFailures.length === 0 && measuredEngines.length === selectedEngines.length,
+  };
+  for (const failure of engineFailures)
+    errors.push(`engine launch failure (${failure.stage}): ${failure.engine}: ${failure.error}`);
   if (git("rev-parse", "HEAD") !== source.head) errors.push("source head changed during measurement");
   const report = {
     schemaVersion: 1,
@@ -359,12 +424,16 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
     cpuThrottle: options.cpuThrottle,
     budget60: BUDGET_60HZ,
     budget120: BUDGET_120HZ,
+    coverage,
+    engineFailures,
     results,
     errors,
   };
   if (options.jsonOut) fs.writeFileSync(options.jsonOut, `${JSON.stringify(report, null, 2)}\n`);
   const summary = [
     "## Web UI latency (ms)",
+    "",
+    `Engine coverage: ${coverage.measuredCount}/${coverage.expectedCount} (${coverage.measuredEngines.join(", ") || "none"} of ${coverage.expectedEngines.join(", ")}) — ${coverage.complete ? "complete" : "INCOMPLETE"}.`,
     "",
     "| case | metric | p50 | p95 | max |",
     "| --- | --- | ---: | ---: | ---: |",

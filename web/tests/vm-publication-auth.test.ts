@@ -58,7 +58,7 @@ describe("Cloud VM publication auth exchange", () => {
     )));
     expect(results).toEqual(Array.from({ length: 32 }, () => ({ kind: "allow" })));
     expect(reads).toEqual(Array.from({ length: 32 }, () => ({
-      providerTlsRuleId: "tls-rule-1", sessionTokenHash: hashPublicationToken(sessionToken), now,
+      providerTlsRuleId: "tls-rule-1", sessionTokenHash: hashPublicationToken(sessionToken), apiKeyHash: null, now,
     })));
   });
 

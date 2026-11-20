@@ -149,7 +149,10 @@ pub enum FocusEvent {
     SidebarVisibility {
         hidden: bool,
     },
-    /// The pane this window's record saved for `workspace` (relaunch).
+    /// The pane this window's record saved for `workspace` (relaunch). For a
+    /// workspace the window does not show it is remembered for when it shows;
+    /// for the shown one it takes the focus while no user intent happened
+    /// in the window (generation 0).
     RestoredPane {
         #[serde(rename = "_0")]
         pane: String,

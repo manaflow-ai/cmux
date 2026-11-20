@@ -1,0 +1,38 @@
+.run-edit-counts-gallery {
+  --rec-space-12: 12px;
+  --rec-space-22: 22px;
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: var(--rec-space-22);
+  color: var(--cv-text, #222);
+  background: var(--cv-page, #f4f5f7);
+  font-family: var(--cv-font, var(--font-ui));
+}
+.run-edit-counts-gallery[data-mode="light"] {
+  --cv-page: #f4f5f7;
+  --cv-text: #22252b;
+  --cv-text-muted: #626a76;
+  --cv-tool-strong: #30343b;
+}
+.run-edit-counts-gallery[data-mode="dark"] {
+  --cv-page: #17181d;
+  --cv-text: #f4f5f7;
+}
+.run-edit-counts-gallery__row + .run-edit-counts-gallery__row {
+  margin-top: var(--rec-space-12);
+}
+.run-edit-counts-gallery .cv-tools {
+  margin: 0;
+}
+/* Before: the run's own line carries no totals. */
+.run-edit-counts-gallery[data-look="before"] .cv-tools > .cv-tool .cv-tool__counts {
+  display: none;
+}
+/* Totals at the trailing edge, before the chevron. */
+.run-edit-counts-gallery[data-look="trailing"] .cv-tools > .cv-tool .cv-tool__summary {
+  flex: 1 1 auto;
+}
+/* Added lines only. */
+.run-edit-counts-gallery[data-look="added-only"] .cv-tools > .cv-tool .cv-tool__counts .cv-edit-diff__del {
+  display: none;
+}

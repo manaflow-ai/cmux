@@ -34,7 +34,7 @@ struct AppServicesKeyWindowSourceTests {
     @Test func everyLookupAndTheStartedTasksAskTheInjectedSources() async {
         let asks = SourceAsks()
         let services = AppServices(environment: AppEnvironment.current([:]), keyWindowSource: { asks.keyWindow += 1; return nil },
-                                   appActiveSource: { asks.appActiveAsked(); return false })
+                                   appActiveSource: { asks.appActiveAsked(); return false }, heldKeyReplay: { _, _, _ in })
         let windows = services.windows
         var before = asks.keyWindow
         #expect(windows.active == nil)

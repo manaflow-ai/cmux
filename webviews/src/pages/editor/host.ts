@@ -55,6 +55,8 @@ export const EDITOR_READ_ONLY = "cmux.editor.read_only";
 export const EDITOR_NOT_FOUND = "cmux.editor.not_found";
 export const EDITOR_NOT_FILE = "cmux.editor.not_file";
 export const EDITOR_TOO_LARGE = "cmux.editor.too_large";
+/** The file's machine cannot answer (#25581, a Cloud workspace's file): `message` is the host's reason. */
+export const EDITOR_UNAVAILABLE = "cmux.editor.unavailable";
 
 /** Why a file opens read only. */
 export type ReadOnlyReason = "outside" | "encoding" | "binary" | "permission";
@@ -109,12 +111,17 @@ export interface EditorSaveResult {
   hash: string;
 }
 
-/** A disk change of the page's file. `text` is the new content; `deleted` when the file is gone. */
+/**
+ * A disk change of the page's file. `text` is the new content; `deleted` when the file is gone.
+ * `unavailable` (hash null) reports the file's machine instead: its reason while it cannot
+ * answer, null once it answers again; the file is unchanged either way.
+ */
 export interface EditorChange {
   path: string;
   hash: string | null;
   text?: string;
   deleted?: boolean;
+  unavailable?: string | null;
 }
 
 /** The details of a `cmux.editor.conflict` error. */

@@ -51,7 +51,9 @@ public struct ContentLifecycle<Key: Hashable & Sendable>: Sendable {
         /// Creation or restore failed; the tab falls back to unmounted.
         case mountFailed(Key, Token)
         /// Content was created while no pane showed the tab (a tab opened in the background): it is
-        /// live and hidden, so hibernation may release it and a show reveals or restores it.
+        /// live and hidden, so hibernation may release it and a show reveals or restores it. It is
+        /// concealed like any tab that stops showing, so its hidden clock starts and it freezes
+        /// after `browser.freezeHiddenTabs` (it never froze before it was shown once).
         /// Ignored when the tab already has a record.
         case adopted(Key)
         /// The content was released without hibernation (warm set eviction,
@@ -238,10 +240,10 @@ public struct ContentLifecycle<Key: Hashable & Sendable>: Sendable {
         case .adopted(let key):
             guard records[key] == nil else { return [] }
             var record = Record()
-            _ = bump(&record)
+            let token = bump(&record)
             record.phase = .mountedHidden
             records[key] = record
-            return []
+            return [.conceal(key, token)]
 
         case .removed(let key):
             records[key] = nil

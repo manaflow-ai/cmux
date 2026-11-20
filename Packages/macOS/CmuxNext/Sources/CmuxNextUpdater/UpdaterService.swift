@@ -1,5 +1,6 @@
 public import CmuxUpdater
 public import CmuxNextWakeups
+import CmuxNextSettings
 import Network
 public import Foundation
 import Observation
@@ -30,6 +31,11 @@ public final class UpdaterService {
     /// The Sparkle driver; nil when Sparkle cannot run in this build.
     public let controller: UpdateController?
     public private(set) var lastProbe: UpdateProbeResult?
+    /// The feed's last answer for a ring (``probe()`` or ``readFeedAhead()``), on ``now``: the
+    /// install click decides at once on one this recent (``StagedUpdateRefresh/clickReadFreshness``).
+    @ObservationIgnored public internal(set) var lastFeedRead: FeedRead?
+    /// A read ahead of the install click in flight (``readFeedAhead()``); never joined by a probe.
+    @ObservationIgnored var feedReadAheadTask: Task<Void, Never>?
     public private(set) var lastProbeError: String?
     public private(set) var isProbing = false
     /// The running stable <-> NIGHTLY switch, if any.
@@ -39,8 +45,7 @@ public final class UpdaterService {
     public internal(set) var managedChannel: AppChannelSwitchTarget?
     /// `MinimumVersion` from the managed policy, or nil.
     public internal(set) var managedMinimumVersion: String?
-    /// Whether the circle shows the last probe's result (the user asked, in a
-    /// build without Sparkle).
+    /// Whether the circle shows the last probe's result (the user asked, in a build without Sparkle).
     public internal(set) var showsProbeResult = false
     /// A fixed circle phase for screenshots (`debug.update_indicator`).
     public var debugIndicatorPhase: UpdateIndicatorPhase? {
@@ -62,8 +67,7 @@ public final class UpdaterService {
     /// The app-owned per-PR kill-switch reader; retaining it cancels its observation with the updater.
     /// ``startKillSwitchReader()`` stops the one before through this property.
     @ObservationIgnored var killSwitchReader: KillSwitchReader?
-    /// The notice whose timeout is pending, and its one-shot deadline on the
-    /// injected clock (no `asyncAfter`).
+    /// The notice whose timeout is pending, and its one-shot deadline on the injected clock (no `asyncAfter`).
     @ObservationIgnored var expiringCard: UpdateCard?
     @ObservationIgnored let cardTimer: DemandTimer
     /// When the install phase began (``installStatus``), nil outside it.
@@ -87,9 +91,9 @@ public final class UpdaterService {
     @ObservationIgnored var releasePushRetry: DemandTimer
     /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
-    /// Opens the changelog page for the releases after `from` up to `to`
-    /// (set by the App).
-    @ObservationIgnored public var openChangelogSpan: ((_ from: String, _ to: String) -> Bool)?
+    /// Opens the changelog page for the releases after `from` up to `to`, scrolled to `focus`
+    /// when given (set by the App).
+    @ObservationIgnored public var openChangelogSpan: ((_ from: String, _ to: String, _ focus: ChangelogFocus?) -> Bool)?
     /// Opens a web release notes page in a browser tab (set by the App;
     /// "See all changes" when the staged build has no signed notes).
     @ObservationIgnored public var openReleaseNotesURL: ((URL) -> Bool)?
@@ -105,18 +109,27 @@ public final class UpdaterService {
     /// What's New after an update (WHATS-NEW-AFTER-UPDATE): the bundled
     /// documents and this feed's nightly digests. The App loads it at launch.
     public let whatsNew: WhatsNewCenter
-    /// Where a staged update is recorded for the next build's What's New
-    /// (nil: not recorded).
+    /// The one-time ask to star cmux on GitHub, in the tip card's slot (``StarPromptCenter``).
+    public let starPrompt: StarPromptCenter
+    /// Where a staged update is recorded for the next build's What's New (nil: not recorded).
     @ObservationIgnored let lastUpdates: WhatsNewLastUpdateStore?
     /// The record last written, so an unchanged one is not written again.
     @ObservationIgnored var recordedUpdate: WhatsNewLastUpdate?
+    /// What the switch or rollback the person started is doing, step by step (Settings > Updates'
+    /// Channels card shows it on the pressed button); nil when none runs.
+    public internal(set) var buildSwitchProgress: BuildSwitchProgress?
+    /// A switch or rollback runs (``UpdateDropBack``): a second one from any entry point is refused.
+    @ObservationIgnored var switchRunning = false
+    /// Signing teams already read: the running app's, and kept builds the Channels card asks about.
+    @ObservationIgnored let signingTeams = SigningTeamCache()
     /// The running bundle's keep for rollback (``keepRunningBuildForRollback()``).
     @ObservationIgnored var keptRunningBuild: KeepState?
     @ObservationIgnored var keepTask: Task<Void, Never>?
-    /// The click that installs, before Sparkle takes over (set by the App:
-    /// the windows go at once). ``installAbandoned`` undoes it when the
-    /// install ends without a relaunch.
-    @ObservationIgnored public var willInstallStaged: (() -> Void)?
+    /// Takes the windows off the screen as Sparkle commits to a relaunch the
+    /// person asked for (set by the App: ``UpdateWindowHandoff/hide()``), not
+    /// at the click. ``installAbandoned`` undoes it when the install ends
+    /// without a relaunch.
+    @ObservationIgnored public var hidesForRelaunch: (() -> Void)?
     @ObservationIgnored public var installAbandoned: (() -> Void)?
     /// Reads a build's verified notes (``releaseNotes`` in the app; replaced by tests).
     @ObservationIgnored var notesLoader: (@Sendable (String) async -> ReleaseNotes?)?
@@ -125,6 +138,17 @@ public final class UpdaterService {
     public internal(set) var stagedVersion: String?
     public internal(set) var stagedNotes: ReleaseNotes?
     @ObservationIgnored var stagedNotesTask: (build: String, task: Task<Void, Never>)?
+    /// The staged build's pre-warm, running or ended (``prewarmStagedUpdate(trigger:)``, once per build).
+    @ObservationIgnored var prewarmRun: StagedPrewarmRun?
+    /// The install click waiting for that pre-warm (``installAfterPrewarm(_:)``), and the bound of its wait.
+    @ObservationIgnored var prewarmWaitingInstall: PrewarmWaitingInstall?
+    @ObservationIgnored let prewarmWaitTimer: DemandTimer
+    /// ``prewarmInstallBound``; tests shorten or lengthen it.
+    @ObservationIgnored var prewarmInstallWait: Duration = UpdaterService.prewarmInstallBound
+    /// The last skipped pre-warm's build and reason (``prewarmStagedUpdate(trigger:)``), logged once.
+    @ObservationIgnored var prewarmSkipLogged: String?
+    /// Replaces a staged build's pre-warm (``StagedUpdatePrewarm/perform(work:processes:timeout:marker:urgency:progress:)``) in tests; returns its log line.
+    @ObservationIgnored var prewarmRunner: (@Sendable (StagedUpdatePrewarm) async -> String)?
     /// This build's own verified notes, read once when the Updated card has
     /// no change list of its record (``loadCurrentBuildNotesIfNeeded()``).
     public internal(set) var currentBuildNotes: ReleaseNotes?
@@ -176,9 +200,24 @@ public final class UpdaterService {
     /// The cancel returns whether an installer was held and is now cancelled.
     @ObservationIgnored var cancelStaged: () -> Bool = { false }
     @ObservationIgnored var acceptAvailable: () -> Void = {}
+    /// Stops Sparkle's running download (its cancellation deletes the partial file); returns
+    /// whether a download was running. Replaced by tests.
+    @ObservationIgnored var cancelDownloadNow: () -> Bool = { false }
+    /// The download the person cancelled: the card shows its found update again until another
+    /// check or download starts (``cancelDownloadClicked()``).
+    var cancelledDownload: CancelledDownload?
+    /// The Update click on a cancelled download's card started a check: the update it finds
+    /// downloads (``followCancelledDownload(_:)``).
+    @ObservationIgnored var downloadAfterCheck = false
+    /// The phase ``followCancelledDownload(_:)`` saw last.
+    @ObservationIgnored var lastCancelFollowed: UpdateIndicatorPhase = .hidden
     @ObservationIgnored var phaseObservation: Task<Void, Never>?
     @ObservationIgnored var pathMonitor: NWPathMonitor?
     @ObservationIgnored var network: (constrained: Bool, expensive: Bool) = (false, false)
+    /// ``followNetwork()`` started the monitor and its first path has not arrived: until it does the
+    /// link counts as metered, so a launch check's update does not download on Low Data Mode before
+    /// the monitor says which link this is (#39680 review F1).
+    @ObservationIgnored var networkPending = false
     /// `updates.downloadAutomatically` and `meteredNetwork` as last configured; nothing downloads
     /// by itself until the settings load (``configure``).
     @ObservationIgnored var downloadSetting: (enabled: Bool, metered: UpdateMeteredMode) = (false, .deferLowData)
@@ -194,6 +233,9 @@ public final class UpdaterService {
     /// The App's observation of the `updates.*` settings.
     @ObservationIgnored public var settingsObservation: Task<Void, Never>?
     @ObservationIgnored let now: () -> Date
+    /// The running download's speed and time left (``syncFlowPhase()`` records each byte count). Read
+    /// only when the card's phase changes, so it needs no observation of its own.
+    @ObservationIgnored var transferRate = UpdateTransferRate()
     #if DEBUG || CMUX_BENCH_HOOKS
     /// The card kind last written to the update harness's timeline.
     @ObservationIgnored var markedCardKind: String?
@@ -215,10 +257,21 @@ public final class UpdaterService {
     @ObservationIgnored let relaunchMomentHold: UpdateRelaunchMomentHold
     /// How long input must be quiet before a nightly installs by itself (`updates.idleInstallQuietSeconds`).
     @ObservationIgnored public internal(set) var idleInstallQuiet: Duration = UpdateRelaunchBlockers.quietInputPeriod
+    /// Update When Idle's idle time (`updates.installWhenIdleMinutes`), nil while `updates.installWhenIdle` is off.
+    @ObservationIgnored public internal(set) var installWhenIdle: Duration?
+    /// Why Update When Idle holds a staged install now, nil when nothing does (set by the App: it reads the
+    /// input time, agent turns and drafts and asks cmux-window-rules `update_idle`). Without it the
+    /// setting installs nothing by itself.
+    @ObservationIgnored public var idleInstallGate: (@MainActor () -> UpdateRelaunchMoment.Interruption?)?
+    /// Stands in for the Mac's last input for Update When Idle (`debug.updater {action: "input"}` in DEV and bench
+    /// builds; the update-idle harness: a fleet Mac has no person). Nil reads the real input time.
+    @ObservationIgnored public var debugLastInput: Date?
     /// The install in flight started by itself (the idle policy): a failure opens nothing.
     @ObservationIgnored var automaticInstallInFlight = false
     /// The build Sparkle said it installs (`updaterWillInstallUpdate`): the relaunch's focus record names it.
     @ObservationIgnored var installingBuild: String?
+    /// The build whose install the last relaunch left undone, and why (``UpdateInstallCheck``).
+    public internal(set) var failedInstall: (build: String, failure: UpdateInstallFailure)?
     /// The frontmost app when the automatic install in flight started (``UpdateRelaunchFocus``).
     @ObservationIgnored var automaticInstallFrontmost: UpdateFrontmostApp?
     /// Whether this app is the frontmost one, and the app that is (``UpdateRelaunchFocus``); AppKit in
@@ -245,7 +298,8 @@ public final class UpdaterService {
     /// - Parameter enableSparkle: false builds no Sparkle driver even for a
     ///   release identity (tests, demos).
     /// - Parameter recordsUpdates: false neither writes nor reads the update
-    ///   record What's New shows after an update (tests, demos).
+    ///   record What's New shows after an update, nor the updater's log file
+    ///   (tests, demos).
     public init(identity: UpdateBuildIdentity = .main(),
                 policy: ManagedUpdatePolicy = .live(),
                 prober: UpdateProber = UpdateProber(),
@@ -262,6 +316,7 @@ public final class UpdaterService {
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
         installTimer = DemandTimer(owner: "UpdaterService.install", clock: clock)
         snoozeTimer = DemandTimer(owner: "UpdaterService.snooze", clock: clock)
+        prewarmWaitTimer = DemandTimer(owner: "UpdaterService.prewarmWait", clock: clock)
         stagedRefresh = StagedUpdateRefresh(clock: clock)
         tipCheck = TipUpdateCheck(clock: clock)
         releasePushRetry = DemandTimer(owner: "UpdaterService.releasePush", clock: clock)
@@ -272,11 +327,18 @@ public final class UpdaterService {
         self.switcher = switcher
         let lastUpdates = recordsUpdates ? WhatsNewLastUpdateStore.app(bundleIdentifier: identity.bundleIdentifier) : nil
         self.lastUpdates = lastUpdates
+        starPrompt = StarPromptCenter(defaults: defaults, now: now)
         whatsNew = WhatsNewCenter(currentVersion: identity.shortVersion, currentBuild: identity.build, defaults: defaults,
                                   sources: Self.whatsNewSources(identity: identity), lastUpdates: lastUpdates)
-        let log = UpdateLogBuffer()
+        // On disk too (``UpdateLogFile``): unified logging kept none of a nightly's updater lines.
+        let file = recordsUpdates ? identity.bundleIdentifier.flatMap { UpdateLogFile.app(bundleIdentifier: $0, work: work) } : nil
+        let log = UpdateLogBuffer(file: file)
         self.log = log
-        relaunchMomentHold = UpdateRelaunchMomentHold(clock: clock, log: { [log] in log.append($0) })
+        // Which build this launch runs, and whether an automatic install reopened it behind the
+        // person's app: with the lines before the quit, the file says what relaunched cmux.
+        log.append("launch \(identity.shortVersion) build \(identity.build) (\(identity.track)), pid \(ProcessInfo.processInfo.processIdentifier)"
+            + (CommandLine.arguments.contains(UpdateRelaunchFocus.reopenArgument) ? ", reopened behind by an automatic install" : ""))
+        relaunchMomentHold = UpdateRelaunchMomentHold(clock: clock, now: now, log: { [log] in log.append($0) })
         releasePush = ReleasePushListener(runningBuild: identity.build, clock: clock, log: { [log] in log.append($0) })
         // The managed policy is re-read by the driver on every start and check,
         // so it is not a reason to skip building it.
@@ -311,6 +373,11 @@ public final class UpdaterService {
             installStaged = { [weak controller] in controller?.installStagedUpdate() }
             cancelStaged = { [weak controller] in controller?.cancelStagedUpdate() ?? false }
             acceptAvailable = { [weak controller] in controller?.acceptAvailableUpdate() }
+            cancelDownloadNow = { [weak controller] in
+                guard case .downloading(let download)? = controller?.model.state else { return false }
+                download.cancel()
+                return true
+            }
             stagedBuild = { [weak controller] in controller?.stagedUpdate?.versionString }
             availableBuild = { [weak controller] in
                 guard case .updateAvailable(let available)? = controller?.model.state else { return nil }
@@ -323,8 +390,12 @@ public final class UpdaterService {
         }
         restorePinnedTestFeed()
         restoreRollbackSkip()
+        failedInstall = UpdateInstallCheck.launchFailure(defaults: defaults, build: identity.build, now: now(), log: log)
         releasePush.onNewerBuild = { [weak self] in self?.releasePushed($0) }
         tipState = TipState(defaults: defaults)
+        // The app settled the install before making the updater (AppServices): an install that ran
+        // before tips counts as having used the catalog's basics.
+        storeTipState(TipChooser.settleInstall(tipState, catalog: TipCatalog.all, install: tipBudget.install))
         updateSnooze = UpdateSnooze(defaults: defaults)
     }
 
@@ -432,13 +503,12 @@ public final class UpdaterService {
         }
     }
 
-    /// Reads the feed and records what it offers this Mac. Joins a probe
-    /// already in flight.
+    /// Reads the feed and records what it offers this Mac. Joins a probe already in flight.
     @discardableResult
     public func probe() -> Task<String?, Never> {
         if let probeTask { return probeTask }
         isProbing = true
-        let prober = prober
+        let prober = prober, ring = ring
         // Sparkle's allowedChannels reads the baked feed, not a test feed: the probe does the same.
         let allowed = identity.feed().channel.allowedSparkleChannels(ring: ring)
         var identity = identity
@@ -449,12 +519,14 @@ public final class UpdaterService {
                 let result = try await prober.probe(identity, allowedChannels: allowed)
                 self?.lastProbe = result
                 self?.lastProbeError = nil
+                if let self { self.lastFeedRead = FeedRead(result, at: self.now(), ring: ring) }
                 self?.log.append("probe \(result.outcome.kind) feed=\(result.feedURL) items=\(result.itemCount)")
                 failure = nil
             } catch {
-                let reason = String(describing: error)
+                // The sheet and the indicator show plain words; the log keeps the error.
+                let reason = UpdateFailureText.plain(error)
                 self?.lastProbeError = reason
-                self?.log.append("probe failed: \(reason)")
+                self?.log.append("probe failed: \(String(describing: error))")
                 failure = reason
             }
             self?.isProbing = false
@@ -462,6 +534,28 @@ public final class UpdaterService {
             return failure
         }
         probeTask = task
+        return task
+    }
+
+    /// Reads the feed ahead of the install click and records only ``lastFeedRead``: no probe state,
+    /// no on-screen answer, nothing a pending probe, a ring pick or an install click waits on. It
+    /// never joins ``probe()`` and a probe never joins it, so it cannot consume, delay or reschedule
+    /// a check. Joins a read ahead already in flight.
+    @discardableResult
+    func readFeedAhead() -> Task<Void, Never> {
+        if let feedReadAheadTask { return feedReadAheadTask }
+        let prober = prober, ring = ring
+        let allowed = identity.feed().channel.allowedSparkleChannels(ring: ring)
+        var identity = identity
+        if let testFeedURL { identity.infoFeedURL = testFeedURL }
+        let task = Task { [weak self] in
+            let result = try? await prober.probe(identity, allowedChannels: allowed)
+            guard let self else { return }
+            self.feedReadAheadTask = nil
+            // A ring picked while it read makes it another ring's answer: kept under that ring, never used.
+            if let result { self.lastFeedRead = FeedRead(result, at: self.now(), ring: ring) }
+        }
+        feedReadAheadTask = task
         return task
     }
 
@@ -491,7 +585,7 @@ public final class UpdaterService {
             // flow (a fresh check that installs the newest at once). The
             // user asked, so its progress and result show on the notice
             // card (up to date, downloading, the failure), as for a check.
-            send(.checkRequested)
+            send(.attemptRequested)
             controller.attemptUpdate()
         }
     }
@@ -520,9 +614,9 @@ public final class UpdaterService {
                 let outcome = try await switcher.switchTo(target) { phase in sink.yield(phase) }
                 self?.log.append("channel switch to \(target.rawValue): \(outcome)")
             } catch {
-                failure = String(describing: error)
+                failure = UpdateFailureText.plain(error)
                 self?.channelSwitchError = failure
-                self?.log.append("channel switch to \(target.rawValue) failed: \(failure ?? "")")
+                self?.log.append("channel switch to \(target.rawValue) failed: \(String(describing: error))")
             }
             sink.finish()
             await applier.value
@@ -561,7 +655,8 @@ public final class UpdaterService {
             ring: ring,
             card: card,
             cardPresentation: cardPresentation,
-            badge: footerPill?.title
+            badge: footerPill?.title,
+            relaunchHold: relaunchHold
         )
     }
 
@@ -571,19 +666,21 @@ public final class UpdaterService {
 }
 
 extension UpdaterService {
-    /// ``switchChannel(to:)`` by name (`stable`, `nightly`); nil means the
-    /// counterpart of the running app.
+    /// ``switchChannel(to:)`` by name (`stable`, `nightly`, `dev`); nil means the counterpart of
+    /// the running app. On the DEV app `nightly` names cmux NEXT's NIGHTLY, its counterpart.
     @discardableResult
     public func switchChannel(named name: String?) throws -> Task<String?, Never> {
-        let requested = name.flatMap { AppChannelSwitchTarget(rawValue: $0.lowercased()) }
+        let counterpart = identity.channelSwitchTarget
+        let requested = name.flatMap { name in
+            counterpart.flatMap { $0.isNamed(name) ? $0 : nil } ?? AppChannelSwitchTarget(rawValue: name.lowercased())
+        }
         guard let target = requested ?? identity.channelSwitchTarget, name == nil || requested != nil else {
             throw UpdaterUnavailable.cannotSwitch(to: name ?? "?", from: identity.track)
         }
         return try switchChannel(to: target)
     }
 
-    /// Why switching channels is impossible here (DEV/RC builds have no
-    /// counterpart), or nil.
+    /// Why switching channels is impossible here (DEV/RC builds have no counterpart), or nil.
     public var channelSwitchUnavailableReason: String? {
         guard let target = identity.channelSwitchTarget else {
             return UpdaterUnavailable.cannotSwitch(to: "stable/nightly", from: identity.track).description
@@ -594,5 +691,25 @@ extension UpdaterService {
     /// Why installing is impossible here, or nil.
     public var installUnavailableReason: String? {
         controller != nil && disabledReason == nil ? nil : UpdaterUnavailable(reason: disabledReason).description
+    }
+}
+
+/// The feed's newest build for a ring, and when that was known (``UpdaterService/lastFeedRead``).
+public struct FeedRead: Sendable, Equatable {
+    /// The newest build the feed offers this Mac, or nil when it offers nothing newer than the running one.
+    public let newest: String?
+    public let at: Date
+    public let ring: UpdateRing
+
+    public init(newest: String?, at: Date, ring: UpdateRing) {
+        self.newest = newest
+        self.at = at
+        self.ring = ring
+    }
+
+    init(_ result: UpdateProbeResult, at: Date, ring: UpdateRing) {
+        if case .updateAvailable(let item) = result.outcome { newest = item.version } else { newest = nil }
+        self.at = at
+        self.ring = ring
     }
 }

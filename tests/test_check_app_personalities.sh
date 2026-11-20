@@ -24,7 +24,7 @@ cat > "$tmp/bin/xcrun" <<'SH'
 #!/bin/sh
 for arg in "$@"; do last="$arg"; done
 case "$last" in
-  *.debug.dylib)
+  *.debug.dylib|*/CmuxNextApp)
     echo "Contents of __unwind_info section:"
     echo "  Personality functions: (count = $COUNT)"
     i=1; while [ "$i" -le "$COUNT" ]; do echo "    personality[$i]: 0x0$i"; i=$((i + 1)); done
@@ -38,4 +38,10 @@ run() { COUNT="$1" PATH="$tmp/bin:$PATH" bash "$CHECK" "$tmp/App.app" >/dev/null
 run 3 || { echo "FAIL: three routines with a long table must pass" >&2; exit 1; }
 if run 4; then echo "FAIL: four routines must fail" >&2; exit 1; fi
 if run 0; then echo "FAIL: no personality table at all must fail" >&2; exit 1; fi
+# Release: the code is CmuxNextApp.framework behind a stub executable (CMUX-629).
+rm "$tmp/App.app/Contents/MacOS/App.debug.dylib"
+mkdir -p "$tmp/App.app/Contents/Frameworks/CmuxNextApp.framework/Versions/A"
+touch "$tmp/App.app/Contents/Frameworks/CmuxNextApp.framework/Versions/A/CmuxNextApp"
+run 3 || { echo "FAIL: the framework's three routines must pass" >&2; exit 1; }
+if run 4; then echo "FAIL: four routines in the framework must fail" >&2; exit 1; fi
 echo "PASS: check-app-personalities.sh counts routines and survives a long table"

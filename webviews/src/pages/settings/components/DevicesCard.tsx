@@ -5,6 +5,9 @@
 // only draws and forwards. A relay secret typed in the editor lives in that form's state until it
 // is sent, never in the store, is cleared after Save, and is never drawn back.
 import { useCallback, useId, useState, type ReactNode } from "react";
+import { Button } from "../../../ui/Button";
+import { Icon } from "../icons";
+import { Input } from "../../../ui/Input";
 import { useSettingsState, useStore } from "../context";
 import { Select } from "../editors/Select";
 import { Switch } from "../editors/ToggleEditor";
@@ -48,6 +51,12 @@ export function DevicesCard() {
 function JoinGroup({ join }: { join: DevicesJoinState }) {
   const store = useStore();
   const [setting, setSetting] = useState<string | null>(null);
+  // The host's refusal of the last switch press itself (not the person's own click): shown, never silent.
+  const [refusal, setRefusal] = useState<string | null>(null);
+  // Both when they differ: a later host error (a failed read) never hides behind an older refusal.
+  const errors = [refusal, join.error].filter(
+    (text, index, all): text is string => !!text && all.indexOf(text) === index,
+  );
   const titleId = useId();
   return (
     <section className="group" data-devices-group="join">
@@ -77,25 +86,29 @@ function JoinGroup({ join }: { join: DevicesJoinState }) {
                   labelId={`${titleId}-${item.surface}`}
                   onToggle={(on) => {
                     setSetting(item.surface);
-                    void store.setJoinConsent(item.surface, on).finally(() => setSetting(null));
+                    setRefusal(null);
+                    void store
+                      .setJoinConsent(item.surface, on)
+                      .then(setRefusal)
+                      .finally(() => setSetting(null));
                   }}
                 />
               </div>
             </div>
           </div>
         ))}
-        {join.error && (
-          <div className="row">
+        {errors.map((error) => (
+          <div className="row" key={error}>
             <div className="row-help" role="alert">
-              {join.error}
+              {error}
             </div>
           </div>
-        )}
+        ))}
         {join.revoke_all && (
           <div className="row">
             <div className="row-control">
-              {/* Off always works, from any input: turning both off needs no record to be read. */}
-              <button
+              {/* Off always works, from any input: turning every switch off needs no record to be read. */}
+              <Button
                 type="button"
                 className="button"
                 data-devices-join-action="revokeAll"
@@ -103,13 +116,12 @@ function JoinGroup({ join }: { join: DevicesJoinState }) {
                 onClick={() => {
                   setSetting("all");
                   void (async () => {
-                    await store.setJoinConsent("screen", false);
-                    await store.setJoinConsent("control", false);
+                    for (const item of join.switches) await store.setJoinConsent(item.surface, false);
                   })().finally(() => setSetting(null));
                 }}
               >
                 {join.revoke_all}
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -160,24 +172,24 @@ function DevicesBody({ state, join }: { state: DevicesState; join: DevicesJoinSt
           <span data-devices-status="">{state.status.text}</span>
         </Status>
         {state.available && state.signIn && (
-          <button
+          <Button
             type="button"
             className="button"
             data-devices-action="signIn"
             onClick={() => void run({ action: "signIn" })}
           >
             {state.signIn}
-          </button>
+          </Button>
         )}
         {state.available && (
-          <button
+          <Button
             type="button"
             className="button"
             data-devices-action="refresh"
             onClick={() => void run({ action: "refresh" })}
           >
             {labels.refresh}
-          </button>
+          </Button>
         )}
       </div>
       {state.available && state.error && (
@@ -251,12 +263,18 @@ function Confirm({
       <div className="row-title">{title}</div>
       {body && <div className="row-help">{body}</div>}
       <div className="accounts-buttons">
-        <button type="button" className="button danger" data-devices-confirm-action="confirm" onClick={onConfirm}>
+        <Button
+          danger
+          type="button"
+          className="button danger"
+          data-devices-confirm-action="confirm"
+          onClick={onConfirm}
+        >
           {confirm}
-        </button>
-        <button type="button" className="button" data-devices-confirm-action="cancel" onClick={onCancel}>
+        </Button>
+        <Button type="button" className="button" data-devices-confirm-action="cancel" onClick={onCancel}>
           {cancel}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -312,14 +330,14 @@ function DeviceRow({ device, labels }: { device: DevicesDevice; labels: DevicesL
               {device.fingerprintFull && (
                 <>
                   {" "}
-                  <button
+                  <Button
                     type="button"
                     className="button devices-copy"
                     data-device-copy-fingerprint=""
                     onClick={() => void store.copy(device.fingerprintFull!)}
                   >
                     {labels.copy}
-                  </button>
+                  </Button>
                 </>
               )}
             </div>
@@ -331,6 +349,28 @@ function DeviceRow({ device, labels }: { device: DevicesDevice; labels: DevicesL
           )}
         </div>
         <div className="row-control">
+          {device.screenAction && (
+            <Button
+              type="button"
+              className="button devices-screen-action"
+              size="sm"
+              aria-label={device.screenAction.title}
+              title={device.screenAction.title}
+              data-device-action={device.screenAction.kind === "share" ? "shareScreen" : "viewScreen"}
+              aria-describedby={titleId}
+              disabled={device.screenAction.disabled}
+              onClick={() =>
+                void run(
+                  device.screenAction!.kind === "share"
+                    ? { action: "shareThisMac", id: device.id }
+                    : { action: "openScreen", id: device.id },
+                )
+              }
+            >
+              <Icon name={device.screenAction.kind === "share" ? "arrow.up.to.line" : "eye"} />
+              <span>{device.screenAction.title}</span>
+            </Button>
+          )}
           {!device.thisDevice && device.access !== null && (
             <span className="devices-access" data-device-access="">
               <span className="row-help" id={`${titleId}-access`}>
@@ -352,7 +392,7 @@ function DeviceRow({ device, labels }: { device: DevicesDevice; labels: DevicesL
               </Select>
             </span>
           )}
-          <button
+          <Button
             type="button"
             className="button"
             data-device-action="rename"
@@ -364,8 +404,9 @@ function DeviceRow({ device, labels }: { device: DevicesDevice; labels: DevicesL
             }}
           >
             {labels.rename}
-          </button>
-          <button
+          </Button>
+          <Button
+            danger
             type="button"
             className="button danger"
             data-device-action="remove"
@@ -376,7 +417,7 @@ function DeviceRow({ device, labels }: { device: DevicesDevice; labels: DevicesL
             }}
           >
             {labels.remove}
-          </button>
+          </Button>
         </div>
       </div>
       {mode === "rename" && (
@@ -389,7 +430,7 @@ function DeviceRow({ device, labels }: { device: DevicesDevice; labels: DevicesL
           }}
         >
           <div className="row-title">{labels.renameTitle}</div>
-          <input
+          <Input
             className="field"
             type="text"
             aria-label={labels.nameField}
@@ -398,12 +439,12 @@ function DeviceRow({ device, labels }: { device: DevicesDevice; labels: DevicesL
             onChange={(event) => setName(event.target.value)}
           />
           <div className="accounts-buttons">
-            <button type="submit" className="button" data-device-action="saveName" disabled={!name.trim()}>
+            <Button type="submit" className="button" data-device-action="saveName" disabled={!name.trim()}>
               {labels.save}
-            </button>
-            <button type="button" className="button" data-device-action="cancelRename" onClick={() => setMode(null)}>
+            </Button>
+            <Button type="button" className="button" data-device-action="cancelRename" onClick={() => setMode(null)}>
               {labels.cancel}
-            </button>
+            </Button>
           </div>
         </form>
       )}
@@ -460,14 +501,14 @@ function SharingGroup({ sharing, labels }: { sharing: NonNullable<DevicesState["
                   {permission.granted ? (
                     <Status tone="success">{labels.allowed}</Status>
                   ) : (
-                    <button
+                    <Button
                       type="button"
                       className="button"
                       data-devices-action="openPermission"
                       onClick={() => void run({ action: "openPermission", id: permission.id })}
                     >
                       {labels.openSettings}
-                    </button>
+                    </Button>
                   )}
                 </div>
               </div>
@@ -487,7 +528,7 @@ function RelaysGroup({ relays, labels }: { relays: DevicesRelay[]; labels: Devic
       <h3 className="group-title">{labels.relaysSection}</h3>
       <div className="accounts-header devices-relays-header">
         <div className="row-help devices-relays-help">{labels.relaysHelp}</div>
-        <button
+        <Button
           type="button"
           className="button"
           data-devices-action="addRelay"
@@ -495,7 +536,7 @@ function RelaysGroup({ relays, labels }: { relays: DevicesRelay[]; labels: Devic
           onClick={() => setEditing("new")}
         >
           {labels.addRelay}
-        </button>
+        </Button>
       </div>
       {editing === "new" && <RelayEditor key="new" relay={null} labels={labels} onDone={() => setEditing(null)} />}
       {relays.length === 0 ? (
@@ -570,7 +611,7 @@ function RelayRow({
           )}
         </div>
         <div className="row-control">
-          <button
+          <Button
             type="button"
             className="button"
             data-relay-action="check"
@@ -579,11 +620,12 @@ function RelayRow({
             onClick={() => void check()}
           >
             {labels.checkRelay}
-          </button>
-          <button type="button" className="button" data-relay-action="edit" aria-describedby={titleId} onClick={onEdit}>
+          </Button>
+          <Button type="button" className="button" data-relay-action="edit" aria-describedby={titleId} onClick={onEdit}>
             {labels.editRelay}
-          </button>
-          <button
+          </Button>
+          <Button
+            danger
             type="button"
             className="button danger"
             data-relay-action="delete"
@@ -594,7 +636,7 @@ function RelayRow({
             }}
           >
             {labels.deleteRelay}
-          </button>
+          </Button>
         </div>
       </div>
       {confirming && (
@@ -697,7 +739,7 @@ function RelayEditor({
       <div className="row-title">{editing ? labels.editRelay : labels.addRelay}</div>
       <label className="devices-field">
         <span className="row-help">{labels.relayName}</span>
-        <input
+        <Input
           className="field"
           type="text"
           data-relay-field="name"
@@ -737,7 +779,7 @@ function RelayEditor({
       {mode === "shared_secret" ? (
         <label className="devices-field">
           <span className="row-help">{labels.relaySecret}</span>
-          <input
+          <Input
             className="field"
             type="password"
             autoComplete="off"
@@ -752,7 +794,7 @@ function RelayEditor({
         <>
           <label className="devices-field">
             <span className="row-help">{labels.relayUsername}</span>
-            <input
+            <Input
               className="field"
               type="text"
               autoComplete="off"
@@ -766,7 +808,7 @@ function RelayEditor({
           </label>
           <label className="devices-field">
             <span className="row-help">{labels.relayPassword}</span>
-            <input
+            <Input
               className="field"
               type="password"
               autoComplete="off"
@@ -787,7 +829,7 @@ function RelayEditor({
       </div>
       <label className="devices-field">
         <span className="row-help">{labels.relayPriority}</span>
-        <input
+        <Input
           className="field devices-priority"
           type="number"
           step={1}
@@ -808,15 +850,15 @@ function RelayEditor({
       )}
       <RunError error={error} />
       <div className="accounts-buttons">
-        <button
+        <Button
           type="submit"
           className="button"
           data-relay-action="save"
           disabled={name.trim() === "" || relayURLs(urls).length === 0}
         >
           {labels.save}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           className="button"
           data-relay-action="checkDraft"
@@ -824,10 +866,10 @@ function RelayEditor({
           onClick={() => void check()}
         >
           {labels.checkRelay}
-        </button>
-        <button type="button" className="button" data-relay-action="cancel" onClick={onDone}>
+        </Button>
+        <Button type="button" className="button" data-relay-action="cancel" onClick={onDone}>
           {labels.cancel}
-        </button>
+        </Button>
       </div>
     </form>
   );

@@ -46,9 +46,11 @@
       "reason": "planned in cx-0op"
     },
     "list_firewall_rules": {
-      "status": "planned",
-      "bead": "cx-0op",
-      "reason": "planned in cx-0op"
+      "status": "wrapped",
+      "by": [
+        "vms.getVmPublicEgress",
+        "vms.allowVmPublicEgress"
+      ]
     },
     "create_firewall_rule": {
       "status": "wrapped",
@@ -56,7 +58,8 @@
         "mesh.putMeshAcl",
         "mesh.enrollDevice",
         "meshEnroll.codeEnrollDevice",
-        "mesh.attachMeshVm"
+        "mesh.attachMeshVm",
+        "vms.allowVmPublicEgress"
       ]
     },
     "delete_firewall_rule": {

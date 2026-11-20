@@ -22,6 +22,10 @@ public nonisolated struct ColumnScrollState: Hashable, Sendable {
     public var remembered: [ColumnID: PaneID] = [:]
     /// A sync skipped its reveal (live resize drag); the next one reveals.
     public var revealDeferred = false
+    /// A keyboard resize press that trades width between two columns (`PaneResize.press`): the next sync keeps this
+    /// column where it shows and reveals nothing, so only the divider the press moves moves (the camera rule L1 would
+    /// keep the focused column, whose left edge is that divider when it is the last one). That sync clears it.
+    public var keptColumn: ColumnID?
 
     public struct Gesture: Hashable, Sendable {
         /// Unbanded offset accumulated from the deltas.

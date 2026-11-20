@@ -17,7 +17,7 @@ pub(in crate::cli) fn print(args: &[String]) -> Option<i32> {
     Some(0)
 }
 
-/// `help acp|mcp|coderouter|link` runs that command's own `--help`, so the
+/// `help acp|mcp|coderouter|billing|auth|link` runs that command's own `--help`, so the
 /// two spellings print the same text.
 fn process_help(args: &[String]) -> Option<i32> {
     let [help, scope] = args else { return None };
@@ -31,21 +31,38 @@ fn process_help(args: &[String]) -> Option<i32> {
         "mcp" => super::super::mcp::run_if_requested(&flag()),
         "coderouter" => super::super::coderouter::run_if_requested(&flag()),
         "billing" => super::super::billing::run_if_requested(&flag()),
+        "auth" => super::super::auth_token::run_if_requested(&flag()),
         _ => None,
     }
 }
 
-fn text(args: &[String]) -> Option<String> {
+/// The help words of `args`: the words before `--`, without options or a leading `help`.
+fn help_words(args: &[String]) -> Vec<&str> {
     let words = args
         .iter()
         .take_while(|arg| arg.as_str() != "--")
         .filter(|arg| !arg.starts_with('-'))
         .map(String::as_str)
         .collect::<Vec<_>>();
-    let words = match words.as_slice() {
-        ["help", rest @ ..] => rest,
-        all => all,
-    };
+    match words.as_slice() {
+        ["help", rest @ ..] => rest.to_vec(),
+        all => all.to_vec(),
+    }
+}
+
+/// A scope's whole help (`cmux <scope> --help`) ends with the catalog's app
+/// verbs for it (cli/app_action_help.rs); a verb's or a page's help does not.
+pub(in crate::cli) fn text(args: &[String]) -> Option<String> {
+    let text = scope_text(args)?;
+    match help_words(args).as_slice() {
+        [scope] => Some(super::super::app_action_help::append(scope, &text).unwrap_or(text)),
+        _ => Some(text),
+    }
+}
+
+fn scope_text(args: &[String]) -> Option<String> {
+    let words = help_words(args);
+    let words = words.as_slice();
     let messages = &crate::localization::catalog().app_control;
     let usage = match words {
         ["browser", target, ..]
@@ -54,6 +71,7 @@ fn text(args: &[String]) -> Option<String> {
             format!("{}\n", messages.browser_page_usage)
         }
         ["notify", ..] => return Some(super::super::scope_help::NOTIFY_HELP.to_owned()),
+        ["space", ..] => return Some(super::super::scope_help::SPACE_HELP.to_owned()),
         ["status", ..] => return Some(super::super::scope_help::STATUS_HELP.to_owned()),
         ["agent", "open"] => return Some(messages.agent_open_usage.to_owned()),
         ["agent", "open-tab"] => return Some(messages.agent_open_tab_usage.to_owned()),
@@ -73,6 +91,10 @@ fn text(args: &[String]) -> Option<String> {
         ["identify" | "ping" | "capabilities"] => {
             return Some(format!("{APP_HELP}\n\n{}", APP_FOOTER.replace("{scope}", "app")));
         }
+        ["settings" | "config", ..] => return Some(format!("{}\n", messages.settings_usage)),
+        ["live", ..] => return Some(format!("{}\n", messages.live.usage)),
+        ["nightly", ..] => return Some(format!("{}\n", messages.nightly.usage)),
+        ["app", "try", ..] => return Some(format!("{}\n", messages.app_try.usage)),
         [scope, ..] if super::super::app::APP_SCOPES.contains(scope) => app_usage(scope, messages)?,
         _ => return None,
     };
@@ -82,7 +104,6 @@ fn text(args: &[String]) -> Option<String> {
 
 fn app_usage(scope: &str, messages: &crate::localization::AppControlMessages) -> Option<String> {
     let text = match scope {
-        "settings" | "config" => messages.settings_usage,
         "keybinding" => messages.keybinding_usage,
         "app" => APP_HELP,
         "window" => WINDOW_HELP,
@@ -114,6 +135,15 @@ action with that CLI name: `cmux action list --noun {scope}` lists them.
 const APP_HELP: &str = "\
 usage: cmux app ping | identify | capabilities
        cmux identify | ping | capabilities      (the classic spelling, same answer)
+       cmux app renderers [--interval-ms <n>]   (Chromium renderer pids, their pages and tabs)
+       cmux app chat perf --tab <tab> [--seconds <1-60>]  (a chat's frames and record-to-paint times)
+       cmux app remote-views [--tab <tab>]      (Cloud desktop tabs: viewer, connected, who has control)
+       cmux app mac-screens [--tab <tab>]       (Mac Screen tabs: phase, first frame ms, fps, round trip, drops)
+       cmux app machines [--no-refresh]         (the Machines section's machines and their link state)
+       cmux app try . [--from APP] | . --extract | . --stop  (your working tree in a copy of your NIGHTLY: no dev build)
+       cmux app try <PR|branch|sha> [--dry-run] | undo | status  (another commit's cmux in this app, live when it can)
+       cmux app join-line [--mint] [--name <name>] [--no-open]  (Add Device's join line)
+       cmux app launch-times [--limit <n>] [--file <path>] [--phases]  (the last launches' times and phases, from a file; no app needed)
        cmux app call <method> [<json-object>]   (debug builds only)
        cmux app <verb...> [--<argument> <value>]...";
 
@@ -126,8 +156,18 @@ const ACTION_LIST_USAGE: &str =
 
 const EVENTS_HELP: &str = "\
 usage: cmux events [--after <seq>] [--name <name>]... [--category <category>]...
-       [--no-heartbeats]
-Prints one JSON line per app event until interrupted.";
+       [--no-heartbeats] [--timeout <duration>]
+       [--until <name>|<prefix>*] [--match <path>=<value>]...
+Prints one JSON line per app event until interrupted.
+--timeout 30s|5m|1500ms|<seconds>  stop then: exit 124; --json/--jsonl print a
+  last line {\"type\":\"timeout\",\"timed_out\":true,\"waited_ms\":...}.
+--until <name>  wait for one event and print only it, then exit 0: an exact
+  name (action.catalog.changed) or a prefix ending in * (mobile.*). Waits on
+  workspaces and agents: cmux agents events --until workspace.changed.
+--match <path>=<value>  (repeatable, with or without --until) the event's
+  field at a dotted path equals value: payload.state=ready, seq=3.
+A wait has no default timeout: agents pass --timeout. Start the wait before
+the action it waits for, or pass --after <seq> so replayed events count.";
 
 const HISTORY_HELP: &str = "\
 usage: cmux history list [--kind <kind,...>] [--range <range>] [--profile <profile>] [--limit <n>]
@@ -151,12 +191,16 @@ Lists the app's AI provider accounts; secrets are never printed.";
 
 const OPEN_HELP: &str = "\
 usage: cmux open <path|url>... [--workspace <ws_…>] [--focus [true|false]] [--no-focus]
+       cmux open --as-text <file>... [--focus [true|false]] [--no-focus]
        cmux open - [--workspace <ws_…>] [--focus [true|false]] [--no-focus]
        cmux open --link [--caller <names>] [--target <target>] (<url>... | -)
 URLs open as a browser tab in the caller's pane (or the --workspace pane),
 folders in a new workspace, files in the app. `open -` reads one http(s) URL
 per stdin line, so a URL with a token never appears in argv; it checks every
 line first and stops at the first URL the app refuses.
+--as-text (or --source) opens HTML, SVG and Markdown files as their source in
+the code editor instead of rendered; Edit Source and Open as Page on a tab
+switch between the two (cmux browser edit-source, cmux file open-as-page).
 --link opens each URL the way a program's browser in a cmux terminal does
 (BROWSER=cmux-open-url): where the terminal.linkOpener setting says, a cmux
 browser tab beside the caller by default. --caller names the programs that

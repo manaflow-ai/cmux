@@ -64,6 +64,29 @@ struct PageWebViewCrashReloadTests {
         #expect(view.webView.url == nil)
         view.reloadAfterCrashes()
         #expect(!view.webKitLoadsOnReload)
+        #expect(view.webView.url != nil, "Reload started no WebKit load, so no new web content process")
+        view.close()
+    }
+
+    /// Leo's Mac, 2026-11-01: WebKit's GPU process failed three times, WebKit ended every web
+    /// content process, and 19 agent chats that showed in Chromium got the crash notice and a
+    /// reset bridge, though their Chromium renderer still ran. The hidden WebKit view's end ends
+    /// nothing of a page that shows in Chromium.
+    @Test func aHiddenWebKitEndUnderAChromiumPageEndsNothing() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (view, page) = try await started(FakeChromiumHosting())
+        view.reloadsAfterCrash = false
+        var reports: [Bool] = []
+        view.onCrash = { _, reloading in reports.append(reloading) }
+        view.webContentEnded(PageTermination(reason: .unknown))
+        view.webViewWebContentProcessDidTerminate(view.webView)
+        #expect(reports.isEmpty, "the host was told a live Chromium page crashed")
+        #expect(view.showsChromium && view.lastTermination == nil)
+        #expect(page.reloads == 0)
+
+        // Its Chromium renderer ending is still the page's end.
+        page.onEvent?(.crashed)
+        #expect(reports == [false])
         view.close()
     }
 

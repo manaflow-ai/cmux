@@ -61,7 +61,7 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
 
     // One VM per turn, from the snapshot, with Freestyle's own timers as the backstop; each deleted by its exact id.
     expect(cloud.made).toHaveLength(2)
-    for (const m of cloud.made) expect(m.body).toMatchObject({ snapshotId: "sh-test-chief-cc", idleTimeoutSeconds: 300, automaticRestart: false, firewall: { rules: [{ action: "allow", destination: { public: true } }] } })
+    for (const m of cloud.made) expect(m.body).toMatchObject({ snapshotId: "sh-test-chief-cc", idleTimeoutSeconds: -1, automaticRestart: false, firewall: { rules: [{ action: "allow", destination: { public: true } }] } })
     for (const m of cloud.made) expect(m.body.slug).toMatch(/^cmuxnp-test-ccb-[0-9a-f]{12}$/)
     // Each turn VM is tagged with the Chief's owner as its Freestyle customer.
     for (const m of cloud.made) expect(m.body.customer).toEqual({ customerId: user })
@@ -414,6 +414,9 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     // Small disks by default: the 16 GB Ubuntu base, grown to 4 vCPU / 8 GiB; below the base is refused; image chief is the Chief's own.
     expect(cloud.made.find((m) => m.id === id)!.body.snapshotId).toBe("freestyle/ubuntu-sm")
     expect(seen.a.body.resources).toEqual({ cpu: 4, memory_mb: 8192, disk_gb: 16 })
+    // No idle pause by default (CLOUD_IDLE_PAUSE unset; auto-pause.ts, Leo 2026-10-30): Freestyle never pauses it for idleness.
+    expect(cloud.made.find((m) => m.id === id)!.body.idleTimeoutSeconds).toBe(-1)
+    expect(seen.a.body.idle_pause_seconds).toBe(-1)
     expect(seen.tiny.status).toBe(400)
     expect(seen.tiny.body.error).toMatch(/16 GB/)
     expect(seen.chiefImage.status, JSON.stringify(seen.chiefImage.body)).toBe(429)

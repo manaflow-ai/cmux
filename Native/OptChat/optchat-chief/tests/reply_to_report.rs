@@ -179,6 +179,7 @@ fn a_send_to_a_report_line_goes_into_the_thread_of_the_message_that_started_it()
         text: Some("a1 landed the sidebar fix.".into()),
         attachments: Vec::new(),
         reply_to: Some(line),
+        long: false,
     };
     let answer = run(&mut h, move || sp.send(call)).expect("a send to a report line is no error");
     assert!(answer.starts_with("outcome: done"), "{answer}");
@@ -216,6 +217,7 @@ fn a_send_to_a_line_with_no_message_behind_it_goes_to_the_top_level() {
         text: Some("Top level instead.".into()),
         attachments: Vec::new(),
         reply_to: Some(line),
+        long: false,
     };
     let answer = run(&mut h, move || sp.send(call)).expect("a send is no error");
     assert!(answer.contains("top level"), "{answer}");

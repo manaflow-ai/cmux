@@ -30,11 +30,10 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
-from test_execution_registry import load_registry
+from test_execution_registry import load_tree
 
 
 ROOT = Path(__file__).resolve().parents[2]
-MANIFEST = ROOT / "tests" / "test-execution.toml"
 NON_RUNNABLE_LANES = {"legacy", "manual"}
 SUPPORTED_REQUIREMENTS = {"fish"}
 # A hung test must fail on its own rather than hold every later test's
@@ -160,6 +159,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SECONDS, help="seconds before one test is killed")
     parser.add_argument("--list", action="store_true", help="print lane members without executing them")
     parser.add_argument("--shard", type=shard_argument, help="K/N: run only the K-th of N balanced parts")
+    parser.add_argument("--path", action="append", default=[],
+                        help="run only this registered test (repeatable; before --shard splits them). "
+                             "scripts/ci/affected_tests.py passes the tests a change selects")
     args = parser.parse_args(argv)
     if args.jobs < 1:
         raise SystemExit("--jobs must be at least 1")
@@ -171,7 +173,7 @@ def main(argv: list[str]) -> int:
             raise SystemExit(f"{lane!r} is inventory, not an executable lane")
 
     try:
-        entries = load_registry(MANIFEST)
+        entries = load_tree(ROOT)
     except (OSError, ValueError) as error:
         raise SystemExit(str(error)) from error
 
@@ -185,6 +187,12 @@ def main(argv: list[str]) -> int:
     for entry in tests:
         if not isinstance(entry.get("path"), str):
             raise SystemExit(f"lane {entry.get('lane')!r} contains an entry without a string path")
+    if args.path:
+        unknown = sorted(set(args.path) - {str(entry["path"]) for entry in tests})
+        if unknown:
+            raise SystemExit(f"not in lanes {', '.join(args.lane)}: {' '.join(unknown)}")
+        wanted = set(args.path)
+        tests = [entry for entry in tests if entry["path"] in wanted]
     if args.shard:
         chosen = set(shard([str(entry["path"]) for entry in tests], recorded_seconds(), *args.shard))
         tests = [entry for entry in tests if entry["path"] in chosen]

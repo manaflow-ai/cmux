@@ -1,0 +1,21 @@
+.cv-tool-row-shimmer-looks {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 24px;
+  color: var(--cv-text);
+}
+.cv-tool-row-shimmer-looks[data-look="narrow"] .cv-tool {
+  --cv-row-shimmer-width: 48px;
+}
+.cv-tool-row-shimmer-looks[data-look="wide"] .cv-tool {
+  --cv-row-shimmer-width: 70%;
+}
+.cv-tool-row-shimmer-looks[data-look="quick"] .cv-tool {
+  --cv-row-shimmer-period: 1.8s;
+}
+.cv-tool-row-shimmer-looks[data-look="accent"] .cv-tool {
+  --cv-row-shimmer-lit: color-mix(in srgb, var(--agent-accent, var(--cv-text)) 70%, var(--cv-text));
+}
+.cv-tool-row-shimmer-looks[data-look="still"] .cv-row-shimmer {
+  display: none !important;
+}

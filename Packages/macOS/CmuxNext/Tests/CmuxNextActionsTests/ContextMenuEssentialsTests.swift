@@ -36,7 +36,7 @@ struct ContextMenuEssentialsTests {
 
     private static let sidebarTrimmedActions: [ActionID] = [
         "workspace.setTheme", "workspace.setTint", "workspace.removeAllColors",
-        "sidebar.workspaceTabs.toggle", "sidebar.density.compact", "sidebar.density.comfortable",
+        "sidebar.density.compact", "sidebar.density.comfortable",
         // Copy Workspace ID and Copy Workspace Link came back under More > Copy (#27709, classic parity).
         "sidebar.density.expanded", "workspace.copyPath", "palette.copyWorkspaceIDAndRef", "copyWorkspaceSSHError",
         "agentChat.copyIdentifier", "workspace.showResources", "revealWorkspaceInFinder",
@@ -47,7 +47,7 @@ struct ContextMenuEssentialsTests {
         let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"))
         // The group rows keep their own top-level section (Lawrence 2026-10-14: "my groups UI is lost").
         // Move ▸ (its first row: Move to Top) stays on top (u2418: Move to Top of Group was not found under More).
-        #expect(rows(menu) == ["renameWorkspace", "palette.toggleWorkspacePin", "palette.workspaceColor", "workspace.newBelow", "workspace.duplicate",
+        #expect(rows(menu) == ["renameWorkspace", "palette.toggleWorkspacePin", "palette.workspaceColor", "workspace.newBelow",
                                "home.messageAbout", "palette.moveWorkspaceToTop", "—",
                                "moveWorkspaceToGroup", "groupSelectedWorkspaces", "removeWorkspaceFromGroup", "—", "palette.copyWorkspaceLink", "More", "—",
                                "closeWorkspace"])
@@ -163,10 +163,11 @@ struct ContextMenuEssentialsTests {
         #expect(!allActions(menu).contains("palette.workspaceCustomColor"))
     }
 
-    @Test func theTabAndPaneMenusEndWithMoreAndClose() {
+    @Test func theTabAndPaneMenusKeepTheirFrequentRows() {
         let registry = registry()
         let tab = rows(registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: "t")))
-        #expect(tab.suffix(5) == ["More", "—", "closeTab", "closeOtherTabsInPane", "closeTabsToRight"])
+        #expect(tab.suffix(6) == ["closeTab", "closeOtherTabsInPane", "closeTabsToRight", "—", "palette.copySurfaceLink", "More"])
+        // The group rows stay at the top (Lawrence 2026-10-14, "my groups UI is lost"; check-group-menus.py).
         #expect(["tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab"].allSatisfy(tab.contains))
         #expect(allActions(registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: "t"))).contains("renameTab") && tab.contains("palette.toggleTabPin"))
         let pane = rows(registry.makeContextMenu(for: .pane, target: ActionTargetRef(kind: .pane, id: "p")))
@@ -175,17 +176,16 @@ struct ContextMenuEssentialsTests {
         #expect(pane.contains("splitRight") && pane.contains("splitDown"))
     }
 
-    /// The tab menu is Chrome's, in its order (`TabMenuModel::Build`; Leo 2026-10-19): New Tab to
-    /// the Right and the group rows; Reload, Duplicate, Pin, Mute; then Close Tab, Close Other Tabs
-    /// and Close Tabs to the Right at the top level, not in More.
+    /// New Tab to the Right and the group rows (Lawrence's guard, check-group-menus.py), then the
+    /// frequent rows; moves remain in More.
     @Test func theTabMenuFollowsChromesOrder() {
         let menu = registry().makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: "t"))
         let tab = rows(menu)
         #expect(tab == ["newTab.toRight", "tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab", "—",
                         "reloadTab", "duplicateTab", "palette.toggleTabPin", "toggleTabAudioMute",
-                        "palette.copySurfaceLink", "More", "—", "closeTab", "closeOtherTabsInPane", "closeTabsToRight"])
+                        "closeTab", "closeOtherTabsInPane", "closeTabsToRight", "—", "palette.copySurfaceLink", "More"])
         // The rest moved into More, not gone: Close Tabs to the Left (not in Chrome) and Move Tab to New Window.
-        for id in ["closeTabsToLeft", "tab.moveToNewWindow", "renameTab", "tab.restart", "browser.resetPinnedTab"] {
+        for id in ["closeTabsToLeft", "tab.moveToNewWindow", "renameTab", "tab.restart"] {
             #expect(allActions(menu).contains(id), "\(id)")
         }
     }

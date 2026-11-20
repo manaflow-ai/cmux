@@ -549,7 +549,9 @@ async fn a_peer_that_does_not_save_attachments_is_refused_before_anything_is_sen
             let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
             let counted = counted.clone();
             tokio::spawn(async move {
-                while let Some(Ok(Ws::Text(text))) = ws.next().await {
+                // Non-text frames (the client's pings, #38015) are not requests: skip them.
+                while let Some(Ok(frame)) = ws.next().await {
+                    let Ws::Text(text) = frame else { continue };
                     let Ok(Message::Request { id, method: m, .. }) = Message::parse(&text) else {
                         continue;
                     };
@@ -583,7 +585,7 @@ async fn a_peer_that_does_not_save_attachments_is_refused_before_anything_is_sen
     let mut ca = client(&a, Origin::Local);
     let (reply, _) = ca.send("old-1", &v7(), "see", vec![image("a.png", &png(32))]).await;
     assert_eq!(reply["error"]["data"]["reason"], "attach.unsupported", "{reply}");
-    assert!(reply["error"]["message"].as_str().unwrap().contains("acpmux host update old"));
+    assert!(reply["error"]["message"].as_str().unwrap().contains("acpmux machine update old"));
     assert_eq!(prompts.load(Ordering::SeqCst), 0);
     // A message with no attachment still goes.
     let (reply, _) = ca.send("old-1", &v7(), "plain", vec![]).await;

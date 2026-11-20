@@ -16,13 +16,16 @@ const { act } = await import("react");
 const SET = "cmux.settings.context_menus.set";
 
 const editor = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-card="context-menus"]')!;
-const row = (container: HTMLElement, key: string) => editor(container).querySelector<HTMLElement>(`.menu-row[data-key="${key}"]`)!;
+const row = (container: HTMLElement, key: string) =>
+  editor(container).querySelector<HTMLElement>(`.menu-row[data-key="${key}"]`)!;
 const drawn = (container: HTMLElement) =>
   [...editor(container).querySelectorAll<HTMLElement>(".menu-preview > [data-flat]")].map(
     (element) => `${element.dataset.depth}:${element.dataset.key ?? "-"}`,
   );
-const action = (element: HTMLElement, name: string) => element.querySelector<HTMLButtonElement>(`[data-action="${name}"]`)!;
-const saved = (provider: Parameters<typeof ops>[0]) => (ops(provider, SET).at(-1) as { menu: string; layout: MenuLayout | null }).layout;
+const action = (element: HTMLElement, name: string) =>
+  element.querySelector<HTMLButtonElement>(`[data-action="${name}"]`)!;
+const saved = (provider: Parameters<typeof ops>[0]) =>
+  (ops(provider, SET).at(-1) as { menu: string; layout: MenuLayout | null }).layout;
 
 /** The rows of submenu `key` in `nodes`, at any depth. */
 function folder(nodes: MenuNode[], key: string): MenuNode[] | undefined {
@@ -34,7 +37,8 @@ function folder(nodes: MenuNode[], key: string): MenuNode[] | undefined {
   }
   return undefined;
 }
-const keys = (nodes: MenuNode[] | undefined) => (nodes ?? []).map((node) => (typeof node === "object" ? node.key : node));
+const keys = (nodes: MenuNode[] | undefined) =>
+  (nodes ?? []).map((node) => (typeof node === "object" ? node.key : node));
 
 /** Move to… on `key`'s row, then the destination labelled `label` (the page's list in tests). */
 async function moveTo(container: HTMLElement, key: string, label: string) {
@@ -50,7 +54,17 @@ async function moveTo(container: HTMLElement, key: string, label: string) {
 function layOut(container: HTMLElement) {
   const list = editor(container).querySelector<HTMLElement>(".menu-preview")!;
   const box = (top: number) => () =>
-    ({ top, bottom: top + 24, left: 0, right: 400, width: 400, height: 24, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+    ({
+      top,
+      bottom: top + 24,
+      left: 0,
+      right: 400,
+      width: 400,
+      height: 24,
+      x: 0,
+      y: top,
+      toJSON: () => ({}),
+    }) as DOMRect;
   list.getBoundingClientRect = box(100);
   list.querySelectorAll<HTMLElement>(":scope > [data-flat]").forEach((element, position) => {
     element.getBoundingClientRect = box(100 + position * 24);
@@ -144,9 +158,14 @@ test("dragging a row onto a closed submenu's name puts it in that submenu", asyn
   const page = await renderPage({ path: "/settings/menus?focus=workspaceRow" });
   await settle();
   // Rename lifted out, Move ▸ shows a row higher: its middle there.
-  await dragRow(page.container, "renameWorkspace", liftedY(page.container, "folder:move", "renameWorkspace") + 12, () => {
-    expect(row(page.container, "folder:move").hasAttribute("data-drop-into")).toBe(true);
-  });
+  await dragRow(
+    page.container,
+    "renameWorkspace",
+    liftedY(page.container, "folder:move", "renameWorkspace") + 12,
+    () => {
+      expect(row(page.container, "folder:move").hasAttribute("data-drop-into")).toBe(true);
+    },
+  );
   expect(keys(folder(saved(page.provider)!.items, "folder:move")).at(-1)).toBe("renameWorkspace");
   // The submenu opens to show where it went.
   expect(drawn(page.container)).toContain("1:renameWorkspace");
@@ -157,13 +176,18 @@ test("dragging a row between two rows of an open submenu puts it there, the gap 
   const page = await renderPage({ path: "/settings/menus?focus=workspaceRow" });
   await settle();
   // Between Copy Path and Reveal in Finder, More's first two rows.
-  await dragRow(page.container, "renameWorkspace", liftedY(page.container, "revealWorkspaceInFinder", "renameWorkspace"), () => {
-    // The gap opens under Copy Path: Reveal moves down into its old place, Copy Path stays up.
-    expect(row(page.container, "revealWorkspaceInFinder").style.transform).toBe("");
-    expect(row(page.container, "workspace.copyPath").style.transform).toBe("translateY(-24px)");
-    // The dragged row moves one level in, to the depth it lands at.
-    expect(row(page.container, "renameWorkspace").style.transform).toContain("translate(18px");
-  });
+  await dragRow(
+    page.container,
+    "renameWorkspace",
+    liftedY(page.container, "revealWorkspaceInFinder", "renameWorkspace"),
+    () => {
+      // The gap opens under Copy Path: Reveal moves down into its old place, Copy Path stays up.
+      expect(row(page.container, "revealWorkspaceInFinder").style.transform).toBe("");
+      expect(row(page.container, "workspace.copyPath").style.transform).toBe("translateY(-24px)");
+      // The dragged row moves one level in, to the depth it lands at.
+      expect(row(page.container, "renameWorkspace").style.transform).toContain("translate(18px");
+    },
+  );
   expect(keys(folder(saved(page.provider)!.items, "folder:more"))).toEqual([
     "workspace.copyPath",
     "renameWorkspace",
@@ -268,7 +292,15 @@ test("separators add and go, and Reset brings back the app's menu", async () => 
   expect(reset().disabled).toBe(false);
   const separator = editor(page.container).querySelector<HTMLElement>(".menu-separator")!;
   await click(action(separator, "remove"));
-  expect(keys(saved(page.provider)?.items)).toEqual(["copy", "paste", "splitRight", "splitDown", "-", "clearTerminal", "-"]);
+  expect(keys(saved(page.provider)?.items)).toEqual([
+    "copy",
+    "paste",
+    "splitRight",
+    "splitDown",
+    "-",
+    "clearTerminal",
+    "-",
+  ]);
   await click(reset());
   expect(saved(page.provider)).toBeNull();
   page.unmount();

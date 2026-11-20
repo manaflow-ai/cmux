@@ -1,0 +1,19 @@
+[package]
+name = "cmux-url-input"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Normalization of typed browser addresses (scheme inference, loopback and intranet hosts, search fallback), with no daemon dependencies so the app can link it"
+
+[features]
+# The C ABI (src/ffi.rs, include/cmux_url_input.h). Only cmux-app-ffi is to enable it
+# (it links the crate in step A of the FFI move), so the daemon binaries
+# export no C symbols of this crate.
+ffi = []
+
+[dependencies]
+
+[lints]
+workspace = true

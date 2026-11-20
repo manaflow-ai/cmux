@@ -4,6 +4,7 @@ use std::sync::{Mutex, PoisonError};
 
 use cmux_remote_protocol::Lane;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 
 const MAX_TRACKED_REQUESTS: usize = 4096;
 
@@ -14,8 +15,8 @@ pub(crate) struct MuxLaneTracker {
 
 #[derive(Default)]
 struct MuxLaneState {
-    requests: HashMap<u64, TrackedResponse>,
-    order: VecDeque<(u64, u64)>,
+    requests: HashMap<MuxId, TrackedResponse>,
+    order: VecDeque<(MuxId, u64)>,
     next_token: u64,
 }
 
@@ -29,6 +30,50 @@ struct TrackedResponse {
 enum ResponseDisposition {
     Forward(Lane),
     Suppress,
+}
+
+// Keep the reply table bounded in bytes as well as entries: a peer's string
+// id can be as large as its request line. Hash the decoded string, so escaped
+// and literal spellings match, while numbers keep their allocation-free path.
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+enum MuxId {
+    Number(u64),
+    Negative(i64),
+    Text([u8; 32]),
+}
+
+impl<'de> Deserialize<'de> for MuxId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct IdVisitor;
+
+        impl serde::de::Visitor<'_> for IdVisitor {
+            type Value = MuxId;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("an integer or string mux request id")
+            }
+
+            fn visit_u64<E: serde::de::Error>(self, value: u64) -> Result<MuxId, E> {
+                Ok(MuxId::Number(value))
+            }
+
+            fn visit_i64<E: serde::de::Error>(self, value: i64) -> Result<MuxId, E> {
+                Ok(match u64::try_from(value) {
+                    Ok(value) => MuxId::Number(value),
+                    Err(_) => MuxId::Negative(value),
+                })
+            }
+
+            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<MuxId, E> {
+                Ok(MuxId::Text(Sha256::digest(value.as_bytes()).into()))
+            }
+        }
+
+        deserializer.deserialize_any(IdVisitor)
+    }
 }
 
 struct MuxName<'a>(Cow<'a, str>);
@@ -81,7 +126,7 @@ impl<'de: 'a, 'a> Deserialize<'de> for MuxName<'a> {
 
 #[derive(Deserialize)]
 struct MuxEnvelope<'a> {
-    id: Option<u64>,
+    id: Option<MuxId>,
     #[serde(borrow)]
     cmd: Option<MuxName<'a>>,
     #[serde(borrow)]
@@ -107,7 +152,7 @@ impl MuxLaneTracker {
     }
 
     pub(crate) fn suppress_response(&self, id: u64) {
-        self.track(id, ResponseDisposition::Suppress);
+        self.track(MuxId::Number(id), ResponseDisposition::Suppress);
     }
 
     pub(crate) fn classify_server_line(&self, line: &[u8]) -> Option<Lane> {
@@ -116,6 +161,15 @@ impl MuxLaneTracker {
         };
         if let Some(event) = envelope.event.as_ref().map(MuxName::as_str) {
             return Some(match event {
+                // A snapshot viewer's READY and history pages (`snapshot`) and
+                // its idle drift check (`digest`) are cut at one generation
+                // and offset of the same byte stream as `output`. On another
+                // lane, output tagged with the new generation can overtake its
+                // READY, pass the app's generation check, and then be wiped
+                // when the READY lands: bytes printed just after a reconnect
+                // vanish. One ordered lane keeps the cut and the bytes after
+                // it in host order.
+                "snapshot" | "digest" => Lane::Bulk,
                 "output" | "vt-state" | "render-state" | "render-delta" | "frame"
                 | "browser-state" | "resized" | "colors-changed" | "scroll-changed"
                 | "detached" => Lane::Bulk,
@@ -144,7 +198,7 @@ impl MuxLaneTracker {
         }
     }
 
-    fn track(&self, id: u64, disposition: ResponseDisposition) {
+    fn track(&self, id: MuxId, disposition: ResponseDisposition) {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if state.next_token == u64::MAX {
             state.requests.clear();
@@ -198,6 +252,10 @@ pub(crate) fn classify_client_line(line: &[u8]) -> Lane {
             | "ids" | "list-agents" | "pane-neighbor" | "process-info" | "terminal-ports"
             | "terminal-resources" | "subscribe" | "resolve-terminal",
         ) => Lane::Control,
+        // A projection's dial (`projection-v1`): its line, then its manifest and the Mac's
+        // answers as non-JSON lines, which go on the control lane; the line goes with them so
+        // the manifest never overtakes it.
+        Some("projection.serve") => Lane::Control,
         // Mutations default to one ordered lane with compact PTY input. This
         // keeps a later close, move, focus, resize, or configuration change
         // from overtaking input already accepted from the local mux client.
@@ -208,6 +266,50 @@ pub(crate) fn classify_client_line(line: &[u8]) -> Lane {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn decoded_string_ids_and_negative_ids_match_their_replies() {
+        let tracker = MuxLaneTracker::default();
+        tracker
+            .observe_request(br#"{"id":"chaos-\u0037","cmd":"agent-session-attach"}"#, Lane::Bulk);
+        assert_eq!(
+            tracker.classify_server_line(br#"{"id":"chaos-7","ok":true}"#),
+            Some(Lane::Bulk)
+        );
+        tracker.observe_request(br#"{"id":-7,"cmd":"agent-session-events"}"#, Lane::Bulk);
+        assert_eq!(tracker.classify_server_line(br#"{"id":-7,"ok":true}"#), Some(Lane::Bulk));
+    }
+
+    #[test]
+    fn string_ids_keep_attach_replies_with_live_records() {
+        let tracker = MuxLaneTracker::default();
+        for command in
+            ["agent-session-attach", "agent-session-events", "attach-surface", "loopback-open"]
+        {
+            let request = format!(r#"{{"id":"chaos-7","cmd":"{command}"}}"#);
+            let lane = classify_client_line(request.as_bytes());
+            assert_eq!(lane, Lane::Bulk, "{command}");
+            tracker.observe_request(request.as_bytes(), lane);
+            assert_eq!(
+                tracker.classify_server_line(br#"{"id":"chaos-7","ok":true}"#),
+                Some(Lane::Bulk),
+                "{command} reply must precede its live records"
+            );
+        }
+    }
+
+    #[test]
+    fn string_and_numeric_ids_have_separate_reply_slots() {
+        let tracker = MuxLaneTracker::default();
+        tracker.observe_request(br#"{"id":"7","cmd":"agent-session-attach"}"#, Lane::Bulk);
+        tracker.observe_request(br#"{"id":7,"cmd":"send"}"#, Lane::Interactive);
+        assert_eq!(tracker.classify_server_line(br#"{"id":7,"ok":true}"#), Some(Lane::Interactive));
+        assert_eq!(tracker.classify_server_line(br#"{"id":"7","ok":true}"#), Some(Lane::Bulk));
+        tracker.suppress_response(7);
+        tracker.observe_request(br#"{"id":"7","cmd":"agent-session-events"}"#, Lane::Bulk);
+        assert_eq!(tracker.classify_server_line(br#"{"id":"7","ok":true}"#), Some(Lane::Bulk));
+        assert_eq!(tracker.classify_server_line(br#"{"id":7,"ok":true}"#), None);
+    }
+
     #[test]
     fn loopback_forward_lines_use_the_bulk_lane_in_both_directions() {
         for line in [
@@ -332,5 +434,26 @@ mod tests {
             tracker.classify_server_line(br#"{"event":"output","surface":1,"data":"Yg=="}"#),
             Some(Lane::Bulk)
         );
+    }
+
+    #[test]
+    fn snapshot_and_digest_share_the_output_lane() {
+        let tracker = MuxLaneTracker::default();
+        let output = br#"{"event":"output","surface":1,"data":"Yg==","generation":2,"offset":9}"#;
+        let output = tracker.classify_server_line(output);
+        assert_eq!(output, Some(Lane::Bulk));
+        for line in [
+            &br#"{"event":"snapshot","surface":1,"phase":"ready","generation":2,"offset":9,"version":1,"cols":80,"rows":24,"data":""}"#[..],
+            br#"{"event":"snapshot","surface":1,"phase":"history","generation":2,"offset":9,"version":1,"compression":"deflate","raw_bytes":0,"data":"","done":true}"#,
+            br#"{"event":"digest","surface":1,"generation":2,"offset":9,"version":1,"sha256":"00"}"#,
+        ] {
+            let lane = tracker.classify_server_line(line);
+            assert_eq!(lane, output, "{}", String::from_utf8_lossy(line));
+        }
+        // The attach reply that starts the stream rides the same lane too.
+        let attach = br#"{"id":3,"cmd":"attach-surface","surface":1}"#;
+        let lane = classify_client_line(attach);
+        tracker.observe_request(attach, lane);
+        assert_eq!(tracker.classify_server_line(br#"{"id":3,"ok":true}"#), output);
     }
 }

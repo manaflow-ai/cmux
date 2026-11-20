@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextWindowRules
 import Foundation
 
 /// Strings of the room handlers and prompts (Resources/Rooms.xcstrings).
@@ -21,7 +22,6 @@ nonisolated enum RoomStrings {
     /// The name a New Incognito Space gets when none is given.
     static var incognitoName: String { text("rooms.incognitoName", "Incognito") }
     static func noRoom(_ id: String) -> String { String(format: text("rooms.refusal.noRoom", "no space %@"), id) }
-    static var defaultCannotBeDeleted: String { text("rooms.refusal.defaultCannotBeDeleted", "the Default space cannot be deleted") }
     static var roomAtEdge: String { text("rooms.refusal.atEdge", "the space is already at the edge") }
     static var noOtherRoom: String { text("rooms.refusal.noOtherRoom", "there is no space that way") }
     static var iconArgumentRequired: String { text("rooms.refusal.iconRequired", "an icon argument (SF Symbol name or one emoji) is required") }
@@ -65,37 +65,50 @@ enum RoomConfirmation {
 
     /// The question asked only when a closing workspace runs a program and
     /// `app.warnBeforeClosingTab` is on (the rule of every close); a move
-    /// closes nothing and never asks. Nil runs without asking.
+    /// closes nothing and never asks (cmux-window-rules `workspaces::space_delete`). Nil runs without asking.
     @MainActor
     static func prompt(_ invocation: ActionInvocation, _ context: AppActionContext) async -> DestructiveConfirmation.Prompt? {
-        guard context.services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback,
-              let room = try? context.room(invocation), !room.isDefault,
-              (try? context.optionalRoom(invocation["moveTo"])).flatMap({ $0 }) == nil else { return nil }
+        let warn = context.services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.warnBeforeClosingTabDefault
+        let room = try? context.room(invocation), moves = (try? context.optionalRoom(invocation["moveTo"])).flatMap { $0 } != nil
+        let rules = WindowRules()
+        let ask = { (programs: [String]?) in
+            rules.spaceDelete(warn: warn, resolved: room != nil, defaultSpace: room?.isDefault == true, moves: moves, programs: programs)
+        }
+        guard let room, ask(nil) == .readPrograms else { return nil }
         let closing = closing(room.id, context)
         let programs = await DestructiveConfirmation.runningPrograms(
             of: closing.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs), on: context.services.machines.local)
-        guard !programs.isEmpty else { return nil }
-        let body = [RoomStrings.deleteClosesBody(closing.count), ConfirmationStrings.stillRunning(programs.joined(separator: ", "))]
+        guard case .prompt(let running) = ask(programs) else { return nil }
+        let body = [RoomStrings.deleteClosesBody(closing.count), ConfirmationStrings.stillRunning(running.joined(separator: ", "))]
         return DestructiveConfirmation.Prompt(title: RoomStrings.deleteTitle(room.name), body: body.joined(separator: "\n"),
                                               button: RoomStrings.delete, suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
     }
 
-    /// Clear Space Terminal Defaults…: asked while the space has defaults; one with none
-    /// has nothing at stake and runs at once. The app's mirror lags a reply, so a space it shows
-    /// without defaults still asks while a defaults run for it is in flight, and asks the daemon
-    /// (whose defaults the clear acts on) before running unasked; a daemon that does not answer asks.
+    /// Clear Space Terminal Defaults…: asked while the space has defaults; one with none has nothing
+    /// at stake and runs at once. The mirror lags a reply, so a run in flight asks, and the daemon
+    /// (whose defaults the clear acts on) is asked before running unasked; no answer asks
+    /// (`workspaces::space_clear_defaults`).
     @MainActor
     static func clearDefaultsPrompt(_ invocation: ActionInvocation, _ context: AppActionContext) async -> DestructiveConfirmation.Prompt? {
         guard let room = try? context.room(invocation) else { return nil }
         let prompt = DestructiveConfirmation.Prompt(title: RoomStrings.clearDefaultsTitle(room.name), body: RoomStrings.clearDefaultsBody,
                                                     button: RoomStrings.clearDefaults)
-        if let defaults = room.defaults, !defaults.isEmpty { return prompt }
-        if context.services.roomDefaults.inFlight(room.id) { return prompt }
-        guard let connection = context.services.machines.local.connection else { return nil }
-        let id = room.id
-        guard let personal = try? await connection.listPersonal() else { return prompt }
-        let held = personal.profiles.first(where: { $0.id == id })?.defaults
-        return (held?.isEmpty ?? true) ? nil : prompt
+        let rules = WindowRules(), connection = context.services.machines.local.connection
+        let decide = { (held: WindowRules.HeldDefaults) in
+            rules.spaceClearDefaults(resolved: true, shown: room.defaults.map { !$0.isEmpty } ?? false,
+                                     inFlight: context.services.roomDefaults.inFlight(room.id), connected: connection != nil, held: held)
+        }
+        var answer = decide(.notAsked)
+        if answer == .readDaemon, let connection {
+            let id = room.id
+            let held: WindowRules.HeldDefaults = if let personal = try? await connection.listPersonal() {
+                (personal.profiles.first(where: { $0.id == id })?.defaults?.isEmpty ?? true) ? .empty : .held
+            } else {
+                .unanswered
+            }
+            answer = decide(held)
+        }
+        return answer == .ask ? prompt : nil
     }
 
     static let toastID = "space-deleted"

@@ -9,7 +9,9 @@ import {
   diffLineTotals,
   NO_HOST_CAPABILITIES,
   overflowMenuItems,
+  plainEnglishMenuItem,
   sourceMenuModel,
+  type PlainEnglishPill,
   toolbarPillButtons,
   type OverflowCapabilities,
   type OverflowMenuItemId,
@@ -63,6 +65,7 @@ export function Toolbar({
         activeSessionSource={activeSessionSource}
         hideWhitespace={state.options.hideWhitespace}
         items={state.items}
+        loading={state.items.length === 0 && (state.status.loading || state.status.pending)}
         label={label}
         onNavigate={onNavigate}
         onSelectSessionSource={onSelectSessionSource}
@@ -93,6 +96,8 @@ export function DiffPill({
   onReload,
   onSetLayout,
   onSetOption,
+  onTogglePlainEnglish,
+  plainEnglish,
   state,
 }: {
   /** Which "..." rows this host and source can apply (toolbar-model.ts); none by default. */
@@ -104,6 +109,9 @@ export function DiffPill({
   onReload: () => void;
   onSetLayout: (layout: DiffViewerLayout) => void;
   onSetOption: (key: keyof DiffViewerOptions, value: any) => void;
+  /** Plain English's button; none leaves it out. */
+  plainEnglish?: PlainEnglishPill;
+  onTogglePlainEnglish?: () => void;
   state: AppState;
 }) {
   const onButton = (id: PillButtonId) => {
@@ -129,6 +137,9 @@ export function DiffPill({
       case "files":
         dispatch({ type: "set-files-visible", visible: !state.filesVisible });
         return;
+      case "plainEnglish":
+        onTogglePlainEnglish?.();
+        return;
     }
   };
   const onMenuItem = (id: OverflowMenuItemId) => {
@@ -151,6 +162,9 @@ export function DiffPill({
       case "copy-git-apply":
         onCopyGitApply();
         return;
+      case "plain-english":
+        onTogglePlainEnglish?.();
+        return;
       case "rich-preview":
         // No reload: the Preview buttons show or hide.
         onSetOption("richPreview", !state.options.richPreview);
@@ -161,9 +175,12 @@ export function DiffPill({
   };
   return (
     <FloatingToolbar
-      buttons={toolbarPillButtons(state)}
+      buttons={toolbarPillButtons(state, plainEnglish)}
       label={label}
-      menuItems={overflowMenuItems(state.options, capabilities, state.whitespaceHidden)}
+      menuItems={[
+        ...overflowMenuItems(state.options, capabilities, state.whitespaceHidden),
+        ...(plainEnglish ? [plainEnglishMenuItem(plainEnglish)] : []),
+      ]}
       menuOpen={state.optionsOpen}
       onButton={onButton}
       onCloseMenu={() => dispatch({ type: "set-options-open", open: false })}
@@ -293,6 +310,7 @@ function SourceControls({
   hideWhitespace,
   items,
   label,
+  loading,
   onNavigate,
   onSelectSessionSource,
   payload,
@@ -305,6 +323,8 @@ function SourceControls({
   hideWhitespace: boolean;
   items: DiffItem[];
   label: DiffViewerLabelResolver;
+  /** No item has arrived yet: the source pill's counts are not known. */
+  loading: boolean;
   onNavigate: (url: string) => void;
   onSelectSessionSource: SelectSessionSource;
   payload: any;
@@ -336,8 +356,8 @@ function SourceControls({
     <div className="toolbar-left flex min-w-0 items-center gap-1.5">
       {showSourceMenu ? (
         <SourceMenu
-          additions={totals.additions}
-          deletions={totals.deletions}
+          additions={loading ? null : totals.additions}
+          deletions={loading ? null : totals.deletions}
           label={label}
           model={sourceModel}
           onSelect={selectSource}

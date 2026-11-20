@@ -388,6 +388,78 @@ import Testing
         #expect(try WireHomeSource.readPart(size: 4, read) == Data())
     }
 
+    @Test func directPartsGoToTheirPresignedURLsAndTheCompletionRepeatsWhileVerifying() async throws {
+        let source = makeSource()
+        let log = try await connect(source)
+        defer { log.stop() }
+        let bytes = Data("elevenbytes".utf8)
+        let path = "/v1/home/attachments/multipart/\(WireFixture.conversationID)/slot.k1.mac"
+        let complete = "/v1/home/attachments/multipart/complete"
+        http.script { [http] route, _ in
+            switch route {
+            case "/v1/home/attachments/intent":
+                return HomeWireHTTPReply(json: ["ok": true, "value": [
+                    "state": "upload", "mode": "multipart", "transport": "direct", "method": "PUT", "part_size": 4, "slot": "slot",
+                    "upload_url": .string("http://mini.tail1234.ts.net:7320\(path)"),
+                ]])
+            case path:
+                let request = try #require(http.requests.last)
+                let number = try #require(request.value(forHTTPHeaderField: "x-cmux-part-number").flatMap(Int.init))
+                return HomeWireHTTPReply(json: ["ok": true, "value": [
+                    "part_number": .number(Double(number)), "method": "PUT",
+                    "url": .string("https://bucket.r2.test/home/object?partNumber=\(number)&X-Amz-Signature=sig"),
+                    "headers": ["content-length": .string(number < 3 ? "4" : "3")],
+                ]])
+            case "/home/object":
+                let request = try #require(http.requests.last)
+                let url = try #require(request.url)
+                let number = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?.first { $0.name == "partNumber" }?.value)
+                return HomeWireHTTPReply(status: 200, body: Data(), etag: "\"r2-\(number)\"")
+            case complete:
+                // Two bounded verification steps, then the record.
+                let value: HomeWireJSON = http.bodies(complete).count < 3
+                    ? ["state": "verifying", "verified_bytes": 4, "byte_count": 11]
+                    : ["state": "stored"]
+                return HomeWireHTTPReply(json: ["ok": true, "value": value])
+            default: return nil
+            }
+        }
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("wire-direct-\(UUID().uuidString)")
+        try bytes.write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let ref = AttachmentRef(hash: String(repeating: "ab", count: 32), name: "note.txt", mimeType: "text/plain", byteCount: bytes.count)
+        #expect(try await source.upload(AttachmentUpload(conversation: conversation, fileURL: file, ref: ref)) == ref)
+        let asks = http.requests.filter { $0.url?.path == path }
+        #expect(asks.map(\.httpMethod) == ["POST", "POST", "POST"])
+        let puts = http.requests.filter { $0.url?.path == "/home/object" }
+        #expect(puts.map { $0.httpBody?.count } == [4, 4, 3])
+        // The presigned URL is signed by its query: no auth header goes to the bucket.
+        #expect(puts.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == nil })
+        let completions = http.bodies(complete)
+        #expect(completions.count == 3)
+        #expect(completions.first?["parts"].array?.map { $0["etag"].string } == ["\"r2-1\"", "\"r2-2\"", "\"r2-3\""])
+        await source.shutdown()
+    }
+
+    @Test func aDirectPartIsCopiedToItsOwnFileInBoundedChunks() throws {
+        let source = FileManager.default.temporaryDirectory.appendingPathComponent("wire-part-src-\(UUID().uuidString)")
+        try Data("0123456789abcdef".utf8).write(to: source)
+        defer { try? FileManager.default.removeItem(at: source) }
+        let handle = try FileHandle(forReadingFrom: source)
+        defer { try? handle.close() }
+        // A 7-byte part at offset 4, copied 3 bytes at a time.
+        let (piece, count) = try WireHomeSource.partFile(handle, offset: 4, length: 7, chunk: 3)
+        defer { try? FileManager.default.removeItem(at: piece) }
+        #expect(count == 7)
+        #expect(try Data(contentsOf: piece) == Data("456789a".utf8))
+        // The last part stops at the end of the file.
+        let (tail, tailCount) = try WireHomeSource.partFile(handle, offset: 12, length: 8, chunk: 3)
+        defer { try? FileManager.default.removeItem(at: tail) }
+        #expect(tailCount == 4)
+        #expect(try Data(contentsOf: tail) == Data("cdef".utf8))
+    }
+
     @Test func theBackoffGrowsToThirtySeconds() {
         #expect((0..<7).map { reconnectDelay(attempt: $0) } == [1, 2, 4, 8, 16, 30, 30].map { Duration.seconds($0) })
     }

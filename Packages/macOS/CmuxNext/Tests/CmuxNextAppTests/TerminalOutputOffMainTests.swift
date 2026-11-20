@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextTerminal
+import CmuxNextTestSupport
 import Dispatch
 import Foundation
 import Testing
@@ -10,7 +11,7 @@ import Testing
 /// `GHOSTTY_SURFACE_IO_MANUAL` (its IO does not answer queries), so Ghostty parses a device
 /// attributes query on the output lane and writes its reply back to the IO; the reply arriving while
 /// the main thread is blocked proves the output was parsed without it.
-@MainActor @Suite(.serialized) struct TerminalOutputOffMainTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TerminalOutputOffMainTests {
     @Test func outputIsParsedWhileTheMainThreadIsBusy() async throws {
         _ = NSApplication.shared
         _ = GhosttyRuntime.shared

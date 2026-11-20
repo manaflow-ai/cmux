@@ -395,10 +395,11 @@ impl Forum {
 
 #[cfg(unix)]
 fn append_private(path: &Path) -> std::io::Result<std::fs::File> {
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-    // Never into a lost home (`config::mark_home_lost`).
+    use std::os::unix::fs::PermissionsExt;
+    // Never into a lost home (`config::mark_home_lost`), and through the folder this daemon holds
+    // (`home_fs`), so a home replaced after the check never gets the line.
     crate::config::refuse_lost_home(path).map_err(std::io::Error::other)?;
-    let file = std::fs::OpenOptions::new()
+    let file = crate::home_fs::OpenOptions::new()
         .append(true)
         .create(true)
         .mode(0o600)
@@ -412,7 +413,8 @@ fn append_private(path: &Path) -> std::io::Result<std::fs::File> {
 
 #[cfg(windows)]
 fn append_private(path: &Path) -> std::io::Result<std::fs::File> {
-    std::fs::OpenOptions::new().append(true).create(true).open(path)
+    // The home checked again right before the open (`home_fs`).
+    crate::home_fs::OpenOptions::new().append(true).create(true).open(path)
 }
 
 #[cfg(test)]

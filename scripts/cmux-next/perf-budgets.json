@@ -9,7 +9,8 @@
   "home": ["home\\.typing\\.key_dispatch", "home\\.scroll\\.frame"],
   "acp": ["acp\\..*\\.typing\\.(to_frame|to_paint)"],
   "idle": ["idle\\..*\\.app_cpu_pct"],
-  "anim": ["anim\\..*\\.(frame|dropped|main_ms_max|over_8_33|main_ms_p95)"]
+  "anim": ["anim\\..*\\.(frame|dropped|main_ms_max|over_8_33|main_ms_p95)"],
+  "terminal_burst": ["terminal_burst\\.(open|close)\\.\\d+\\.key_to_visible", "terminal_burst\\.new_terminal\\.(first|last)\\.key_to_visible", "terminal_burst\\.new_terminal\\.growth", "terminal_burst\\.close_terminal\\.key_to_state"]
  },
  "rows": {
   "anim\\..*\\.frame": {
@@ -125,6 +126,30 @@
    "unit": "ms",
    "floor": 1.0,
    "what": "ACP chat composer: keydown to next frame / paint"
+  },
+  "terminal_burst\\.(open|close)\\.\\d+\\.key_to_visible": {
+   "p95": 16.7,
+   "unit": "ms",
+   "floor": 1.0,
+   "what": "Cmd-T opens a tab (the New Tab page shown, its strip tab drawn) and Cmd-W closes it: key to the display frame that shows it, in a pane of 1 tab and of 31 (tab-churn-bench.py; ask-8a0837950b)"
+  },
+  "terminal_burst\\.new_terminal\\.(first|last)\\.key_to_visible": {
+   "p95": 16.7,
+   "unit": "ms",
+   "floor": 1.0,
+   "what": "30 Ctrl-` terminals opened in a row in one pane: the first ten and the last ten, key to the display frame that shows each"
+  },
+  "terminal_burst\\.new_terminal\\.growth": {
+   "p95": 1.25,
+   "unit": "x",
+   "floor": 0.1,
+   "what": "the 30-terminal burst's last ten p50 over its first ten: 1.0 is the same cost at any count"
+  },
+  "terminal_burst\\.close_terminal\\.key_to_state": {
+   "p95": 33.3,
+   "unit": "ms",
+   "floor": 2.0,
+   "what": "Cmd-W on each of the 30 terminals: key to the pane's new selected tab, read from debug.focus every 2 ms (an upper bound: socket reads, no frame)"
   },
   "sidebar\\.\\d+\\.ticking\\.cpu_pct": {
    "p95": 10.0,

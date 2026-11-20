@@ -7,8 +7,8 @@ the fleet benches drive and the main-thread blocking detector (record only, as a
 is not byte-for-byte the shipped Release app. This compares it with a Release build of the same commit on what both builds have:
 
   * the always-on action signposts (`action.perform`, `action.commit`; CmuxNextSignposts), for the
-    same actions run through `action.run` (a normal socket method): --rounds of newTab + closeTab
-    and splitRight + closeTab per launch;
+    same actions run through `action.run` (a normal socket method): --rounds of newTab (New Workspace,
+    Cmd-N) + closeTab and splitRight + closeTab per launch;
   * the app process's CPU time over --idle seconds of idle after a settle (ps cputime).
 
 Runs alternate (Release, bench, Release, bench, ...) --runs times each, each a fresh launch with a

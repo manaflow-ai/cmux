@@ -6,11 +6,14 @@ import { cmux, CmuxError, createCmux, deliverEvent, fireTimer, log, resolveCall,
 import { installCompat } from "./compat-sidebar-data.ts"
 import { menuHandler, mount, mountExists, nodeRecord, sendPendingOps, setSceneSink, unmount } from "./materialize.ts"
 import { act, palette, paletteCancel, paletteDetail, paletteOpen, setPaletteScopes } from "./palette.ts"
-import { batch, computed, effect, flush, onCleanup, signal, untrack } from "./reactive.ts"
+import { batch, computed, effect, flush, onCleanup, signal, untrack, type Write } from "./reactive.ts"
 import * as views from "./view.ts"
+import { watch } from "./watch.ts"
 
 const g = globalThis as Record<string, unknown>
-export const RUNTIME_VERSION = "1.1.0"
+/** Each widget mount's now() clock, set by `__cmuxAppTick`. */
+const widgetClocks = new Map<string, Write<number>>()
+export const RUNTIME_VERSION = "1.3.0"
 
 const exportsOf = (): Record<string, unknown> => (g.__cmuxAppExports as Record<string, unknown> | undefined) ?? {}
 
@@ -42,7 +45,7 @@ function install() {
   const native = g.__cmuxAppNative as Native | undefined
   if (native) state.native = native
   // Globals for app code (the old custom sidebar API plus `cmux`, `palette` and `act`).
-  Object.assign(sharedMembers, { palette, act })
+  Object.assign(sharedMembers, { palette, act, watch })
   Object.assign(g, views, { cmux, signal, computed, effect, untrack, onCleanup, CmuxError, palette, act })
   if (typeof g.console === "undefined") {
     g.console = { log: (...a: unknown[]) => log("info", ...a), info: (...a: unknown[]) => log("info", ...a), warn: (...a: unknown[]) => log("warn", ...a), error: (...a: unknown[]) => log("error", ...a), debug: (...a: unknown[]) => log("debug", ...a) }
@@ -82,10 +85,21 @@ function install() {
         const render = exportsOf()[exportName]
         if (typeof render !== "function") throw new Error(`the app does not export a function named ${exportName}`)
         const ctx = JSON.parse(ctxJSON || "{}")
-        mount(mountId, () => render(ctx))
+        widgetClocks.delete(mountId)
+        if (ctx && ctx.surface === "widget") {
+          // `cmux.widget/1`: the host owns the clock (`__cmuxAppTick`); a render that reads now() redraws on each tick.
+          const [now, setNow] = signal<number>(Date.now())
+          widgetClocks.set(mountId, setNow)
+          ctx.now = now
+        }
+        state.context = ctx
+        mount(mountId, () => render(ctx), ctx)
+        state.context = null
       })
       return ""
     } catch (e) {
+      state.context = null
+      widgetClocks.delete(mountId)
       unmount(mountId)
       const message = describe(e)
       log("error", `mount ${exportName}: ${message}`)
@@ -95,7 +109,16 @@ function install() {
     }
   }
 
-  g.__cmuxAppUnmount = (mountId: string) => entry("unmount", () => unmount(mountId), undefined)
+  g.__cmuxAppUnmount = (mountId: string) =>
+    entry("unmount", () => {
+      widgetClocks.delete(mountId)
+      unmount(mountId)
+    }, undefined)
+  /** A widget mount's host-owned tick (`cmux.widget/1`): its now() clock moves to `nowMs`; an unknown mount is ignored. */
+  g.__cmuxAppTick = (mountId: string, nowMs: number) =>
+    entry("tick", () => {
+      if (Number.isFinite(nowMs)) widgetClocks.get(mountId)?.(nowMs)
+    }, undefined)
 
   g.__cmuxAppDispatch = (mountId: string, nodeId: string, event: string, payloadJSON: string) =>
     entry("dispatch", () => {
@@ -105,10 +128,12 @@ function install() {
       const payload = payloadJSON ? JSON.parse(payloadJSON) : {}
       // The host attests user events with a gesture token; it is ambient only while the handler runs synchronously.
       state.gesture = typeof payload.gesture === "string" ? payload.gesture : null
+      state.context = record.mount.context
       try {
         dispatchEvent(record, event, payload)
       } finally {
         state.gesture = null
+        state.context = null
       }
     }, undefined)
 
@@ -125,6 +150,19 @@ function install() {
         case "dragChange": {
           const h = record.handlers.dragChange as ((s: unknown) => unknown) | undefined
           runHandler("dragChange", h && (() => h(payload.state ?? null)))
+          break
+        }
+        case "change": {
+          // Toggle and Slider: the new value, typed as the node's kind expects.
+          const h = record.handlers.change as ((v: unknown) => unknown) | undefined
+          // A value of the wrong shape is dropped, never coerced (no "false" read as true, no NaN).
+          const raw = payload.value
+          const typed =
+            record.kind === "Toggle"
+              ? typeof raw === "boolean" ? raw : typeof raw === "number" ? raw !== 0 : undefined
+              : typeof raw === "number" ? raw : typeof raw === "string" && raw.trim() !== "" ? Number(raw) : undefined
+          if (typed === undefined || (typeof typed === "number" && !Number.isFinite(typed))) break
+          runHandler("change", h && (() => h(typed)))
           break
         }
         case "submit":

@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextServer
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// u3849 "add server UI is very bad": the Add Server sheet walks one explicit step at a time
-/// (enter code, looking up, refused, review, approving, approve failed, added), every step has a
-/// Return and an Escape answer that a click on the same button also runs, a stale result never
-/// greets the next opening, and the code field takes the keyboard as the sheet opens.
+/// u3849 "add server UI is very bad": the Add Server card walks one explicit step at a time
+/// (enter code, looking up, refused, review, approving, approve failed, added), and a stale result
+/// never greets the next opening. The card's buttons and keys follow from the step in the page
+/// (webviews/src/pages/server-cards/server/model.test.ts).
 @MainActor @Suite(.serialized) struct AddServerFlowTests {
     let source: MockServerSource
     let model: ServerModel
@@ -29,9 +30,6 @@ import Testing
         model.handle(.candidate(MockServerScenario.candidate))
         try settleLast(reject: nil)
     }
-
-    private var returnButton: AddServerButton? { model.addServerButtons.first(where: \.isDefault) }
-    private var escapeButton: AddServerButton? { model.addServerButtons.first(where: { !$0.isDefault }) }
 
     // MARK: - Steps
 
@@ -64,55 +62,48 @@ import Testing
         model.approve()
         try settleLast(reject: "Could not reach cmux.")
         #expect(model.addServerStep == .approveFailed(MockServerScenario.candidate, "Could not reach cmux."))
-        #expect(returnButton == AddServerButton(action: .retry, isDefault: true, enabled: true))
+        #expect(model.canApprove)
         let before = source.received.count
-        #expect(model.perform(.retry) == false)
+        model.approve()
         #expect(source.received.count == before + 1)
         #expect(model.addServerStep == .approving(MockServerScenario.candidate))
     }
 
-    // MARK: - Keys
+    // MARK: - Approve
 
-    @Test func everyStepButAddedHasCancelOnEscape() throws {
-        #expect(escapeButton == AddServerButton(action: .cancel, isDefault: false, enabled: true))
+    @Test func approveGoesOnlyWhenTheServerIsFoundAndOnce() throws {
+        #expect(!model.canApprove)
         model.setApprovalCode(MockServerScenario.offerCode)
-        #expect(escapeButton?.action == .cancel)
+        #expect(!model.canApprove)
         model.handle(.candidate(MockServerScenario.candidate))
         try settleLast(reject: nil)
-        #expect(escapeButton?.action == .cancel)
+        #expect(model.canApprove)
         model.approve()
-        #expect(escapeButton?.action == .cancel)
-    }
-
-    @Test func returnApprovesOnlyWhenTheServerIsFound() throws {
-        #expect(returnButton == AddServerButton(action: .approve, isDefault: true, enabled: false))
-        model.setApprovalCode(MockServerScenario.offerCode)
-        #expect(returnButton?.enabled == false)
-        model.handle(.candidate(MockServerScenario.candidate))
-        try settleLast(reject: nil)
-        #expect(returnButton == AddServerButton(action: .approve, isDefault: true, enabled: true))
-        #expect(model.perform(.approve) == false)
         let approve = try #require(source.received.last)
         #expect(approve.kind == .approveCode(code: MockServerScenario.offerCode, team: "team_personal", name: "build-01", placeChief: false))
-        // In flight: Return is off, so a second press sends nothing.
-        #expect(returnButton?.enabled == false)
+        // In flight: a second approve sends nothing.
+        #expect(!model.canApprove)
         let sent = source.received.count
-        _ = model.perform(.approve)
+        model.approve()
         #expect(source.received.count == sent)
     }
 
-    @Test func addedHasOnlyDoneOnReturnAndDoneCloses() throws {
+    @Test func cancelDropsTheDraftAndTheLastAnswer() throws {
         try find()
-        model.approve()
-        try settleLast(reject: nil)
-        #expect(model.addServerButtons == [AddServerButton(action: .done, isDefault: true, enabled: true)])
-        #expect(model.perform(.done) == true)
+        model.dismissApproval()
+        #expect(model.approval == ServerApprovalDraft())
+        #expect(model.addServerStep == .enterCode)
     }
 
-    @Test func cancelDropsTheDraftAndCloses() throws {
-        try find()
-        #expect(model.perform(.cancel) == true)
-        #expect(model.approval == ServerApprovalDraft())
+    /// The menu bar item hidden and shown again with a lookup in flight: that lookup's refusal is
+    /// the stopped session's and never shows on the new one.
+    @Test func aRefusalForAnIntentNoLongerPendingIsIgnored() throws {
+        model.setApprovalCode(MockServerScenario.offerCode)
+        let key = try #require(model.pending.last?.key)
+        model.stop()
+        model.start()
+        model.handle(.settled(key: key, reject: "Could not reach cmux."))
+        #expect(model.lastReject == nil)
         #expect(model.addServerStep == .enterCode)
     }
 
@@ -134,19 +125,5 @@ import Testing
         model.beginApproval()
         #expect(source.received.count == sent + 1)
         #expect(model.addServerStep == .lookingUp)
-    }
-
-    @Test func theCodeFieldTakesTheKeyboardWhenTheSheetOpens() throws {
-        let view = ServerHostView(model: model, surface: .approver, material: .opaque)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 400), styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        window.contentView = view
-        view.layoutSubtreeIfNeeded()
-        view.displayIfNeeded()
-        let editor = try #require(window.firstResponder as? NSTextView)
-        #expect(editor.isFieldEditor)
-        #expect((editor.delegate as? NSTextField) != nil)
     }
 }

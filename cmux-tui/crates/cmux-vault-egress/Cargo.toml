@@ -1,0 +1,33 @@
+[package]
+name = "cmux-vault-egress"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The machine's vault egress proxy: agents hold cmux-secret://NAME placeholders, and this local HTTPS proxy puts the real value into request headers only on connections to the hosts that secret allows."
+
+[dependencies]
+base64 = "0.22"
+bytes.workspace = true
+http.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util = { workspace = true, features = ["service", "tokio"] }
+# CA and per-host leaf certificates, kept in this process's memory only.
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring", "pem"] }
+rustls.workspace = true
+# Upstream servers are verified against the OS trust store.
+rustls-native-certs = "0.8"
+time = { workspace = true, features = ["std"] }
+tokio = { workspace = true, features = ["net", "io-util", "rt", "sync", "time", "macros"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+tracing = "0.1"
+zeroize.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "io-util", "time"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
+
+[lints]
+workspace = true

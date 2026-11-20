@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSidebar
+import CmuxNextWindowRules
 
 /// Rooms (plans/cmux-next/data-model.md 8; the daemon calls them profiles):
 /// create, edit, delete, reorder, switch, and the workspace and group moves.
@@ -36,10 +37,18 @@ enum RoomHandlers {
             let adoptable = windows.adoptableWorkspaces(in: room.id, for: windowID)
             windows.state(for: windowID).enterProfile(room.id)
             if adoptable.isEmpty {
+                // Its workspaces show in another window: the new window is one more view of them (rule 6), never a new workspace beside them.
+                if windows.openView(id: windowID, of: room.id) != nil { return }
                 Task { await windows.createWorkspace(into: windowID, newTabPage: invocation.origin == .user) }
             } else {
                 windows.openWindow(id: windowID, workspaces: adoptable)
             }
+        }
+        // Move Space to This Window, the inverse: the acting window takes the space's workspaces from
+        // every other normal window and shows the space; a window left with none closes.
+        bind("space.bringHere") { invocation in
+            let room = try context.room(invocation)
+            try context.services.windows.bringSpace(room.id, into: context.window(invocation).state)
         }
         bind("space.newWorkspace") { invocation in
             let room = try context.room(invocation)
@@ -120,7 +129,6 @@ enum RoomHandlers {
         }
         bind("space.delete") { invocation in
             let room = try context.room(invocation)
-            guard !room.isDefault else { throw ActionFailure.invalidTarget(RoomStrings.defaultCannotBeDeleted) }
             let moveTo = try context.optionalRoom(invocation["moveTo"])?.id
             let id = room.id, name = room.name, services = context.services
             // Delete Space closes the workspaces only this space shows, in
@@ -132,11 +140,14 @@ enum RoomHandlers {
             // A person's delete gets the Reopen toast; automation does not.
             let toast = moveTo == nil && invocation.origin == .user
             services.machines.local.send("delete-profile") { connection in
+                // With `moveTo` the daemon also moves the space's sidebar pins and groups, in the same commit.
                 let response = try await connection.deleteProfile(id, moveTo: moveTo)
                 guard toast, let closedID = response.closedID else { return }
                 await RoomConfirmation.showDeleted(name, closedID: closedID, services: services)
             }
         }
+        // The only space (the Default space, which the daemon keeps) is refused with its reason before any question.
+        context.setTargetReason("space.delete") { (try? context.room($0)).flatMap { RefusalStrings.spaceDelete($0.id, in: context.services.machines.local.store) } }
         bind("space.moveLeft") { try move($0, context) { from, _ in from - 1 } }
         bind("space.moveRight") { try move($0, context) { from, _ in from + 1 } }
         bind("space.moveToStart") { try move($0, context) { _, _ in 0 } }
@@ -150,8 +161,9 @@ enum RoomHandlers {
         bind("space.selectByNumber") { invocation in
             guard let number = invocation["index"]?.intValue, let state = context.activeWindow?.state else { return }
             let order = context.services.machines.local.store.profileIDs
-            let pick = number >= 9 ? order[order.count - 1] : order[min(number - 1, order.count - 1)]
-            context.services.windows.switchProfile(pick, in: state)
+            // 9 and past the end are the last space (`targets::ordinal`).
+            guard let index = WindowRules().ordinal(number, count: order.count, pastEnd: .clamp), order.indices.contains(index) else { return }
+            context.services.windows.switchProfile(order[index], in: state)
         }
         bind("space.switch") { invocation in
             let room = try context.room(invocation)
@@ -175,9 +187,8 @@ enum RoomHandlers {
         let store = context.services.machines.local.store
         let name = invocation["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
             ?? (incognito ? RoomStrings.incognitoName : RoomStrings.defaultName(store.profileIDs.count + 1))
-        let used = Set(store.profiles.compactMap(\.color))
         let color = invocation["color"]?.stringValue.flatMap(GroupColor.init(rawValue:))
-            ?? GroupColor.automatic(used: used) ?? .grey
+            ?? GroupColor.automatic(after: store.profiles.compactMap(\.color))
         let icon = invocation["icon"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? (incognito ? "eyeglasses" : nil)
         let active = context.activeWindow?.state
         // A new room shares the current room's browser profile, so logins
@@ -185,6 +196,8 @@ enum RoomHandlers {
         let browser = incognito ? nil : active.flatMap { store.profile($0.profileID)?.browserProfileID }
         let id = ProfileID.generate()
         let services = context.services
+        // Marked before the daemon mirrors it, so no normal window's space bar lists it for a frame.
+        if incognito { services.windows.incognitoSpaceMarks.mark(id) }
         services.registry.track(Task {
             guard let connection = services.machines.local.connection else { return ActionWorkFailure(action.rawValue, DaemonError.notConnected) }
             do {

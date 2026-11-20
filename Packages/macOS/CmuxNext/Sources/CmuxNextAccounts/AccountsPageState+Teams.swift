@@ -84,6 +84,24 @@ extension AccountsPageState {
         public let detail: TeamDetails?
     }
 
+    /// One invitation addressed to the person: `accept` runs `team.accept`, `decline` runs
+    /// `team.decline`, each with the invitation's id as `team`.
+    public struct ReceivedInvitation: Encodable, Equatable, Sendable {
+        public let id: String
+        public let team: String
+        public let detail: String
+        public let expires: String?
+        public let accept: Button
+        public let decline: Button
+    }
+
+    /// Invitations to You: the teams that invited one of the person's verified emails.
+    public struct ReceivedInvitations: Encodable, Equatable, Sendable {
+        public let title: String
+        public let rows: [ReceivedInvitation]
+        public let error: String?
+    }
+
     /// The account's teams. `newTeam` runs `team.new`, which opens `create`.
     public struct TeamList: Encodable, Equatable, Sendable {
         public let title: String
@@ -92,6 +110,8 @@ extension AccountsPageState {
         public let empty: String?
         public let create: TeamForm?
         public let notice: Notice?
+        /// Invitations to the person; nil when there are none.
+        public let received: ReceivedInvitations?
     }
 }
 
@@ -106,8 +126,12 @@ extension AccountsPageAction {
         case delete(String)
         case confirmDelete(String)
         case cancel
+        /// Accepts the received invitation with this id (`team` carries the invitation id).
+        case accept(String)
+        /// Declines the received invitation with this id (`team` carries the invitation id).
+        case decline(String)
 
-        /// Parses `details|new|create|rename|saveName|delete|confirmDelete|cancel`; nil when a field it needs is missing.
+        /// Parses `details|new|create|rename|saveName|delete|confirmDelete|cancel|accept|decline`; nil when a field it needs is missing.
         public init?(action: String, team: String?, name: String?) {
             let team = team.flatMap { $0.isEmpty ? nil : $0 }
             switch (action, team, name) {
@@ -119,6 +143,8 @@ extension AccountsPageAction {
             case ("delete", let team?, _): self = .delete(team)
             case ("confirmDelete", let team?, _): self = .confirmDelete(team)
             case ("cancel", _, _): self = .cancel
+            case ("accept", let team?, _): self = .accept(team)
+            case ("decline", let team?, _): self = .decline(team)
             default: return nil
             }
         }
@@ -137,6 +163,8 @@ extension AccountsModel {
         case .delete(let id): teamsModel.beginDelete(id)
         case .confirmDelete(let id): return await teamsModel.delete(id)
         case .cancel: teamsModel.cancelForm()
+        case .accept(let id): return await teamsModel.accept(id)
+        case .decline(let id): return await teamsModel.decline(id)
         }
         return nil
     }
@@ -164,7 +192,28 @@ extension AccountsModel {
             create: model.form == .create
                 ? teamForm(kind: "create", title: AccountsStrings.teamsCreateTitle, help: AccountsStrings.teamsCreateHelp,
                            value: "", submit: AccountsStrings.teamsCreate) : nil,
-            notice: model.notice.map { AccountsPageState.Notice(kind: "success", text: $0) })
+            notice: model.notice.map { AccountsPageState.Notice(kind: "success", text: $0) },
+            received: pageReceived)
+    }
+
+    private var pageReceived: AccountsPageState.ReceivedInvitations? {
+        let model = teamsModel
+        guard !model.received.isEmpty || model.receivedError != nil else { return nil }
+        let busy = model.answering != nil || model.isSaving
+        return .init(
+            title: AccountsStrings.teamsReceivedTitle,
+            rows: model.received.map { invitation in
+                AccountsPageState.ReceivedInvitation(
+                    id: invitation.id, team: invitation.teamName,
+                    detail: AccountsStrings.teamsReceivedDetail(invitedBy: invitation.invitedBy, joining: invitation.role,
+                                                                email: invitation.email),
+                    expires: Self.expiryDate(invitation.expiresAt).map(AccountsStrings.teamsExpires),
+                    accept: .init(id: "team.accept", title: AccountsStrings.teamsReceivedAccept, disabled: busy, help: nil,
+                                  destructive: false),
+                    decline: .init(id: "team.decline", title: AccountsStrings.teamsReceivedDecline, disabled: busy, help: nil,
+                                   destructive: false))
+            },
+            error: model.receivedError)
     }
 
     private func pageTeamDetail(_ team: CMUXAuthTeam) -> AccountsPageState.TeamDetails {

@@ -5,6 +5,7 @@ import { memberOf, memberUpsert, teamIndexItem, type Member } from "./team-membe
 import type { TeamState } from "./team.ts"
 import { appendAudit } from "./team-audit.ts"
 import { usesSeat } from "./team-roles.ts"
+import { memberAuthorityWrites } from "./team-authority.ts"
 
 /**
  * Shared (Stack) teams in TeamDO (cx-3bi.43). TeamDO asks Stack for the current team and
@@ -64,7 +65,7 @@ export const reduceMemberProvision = (state: TeamState, params: unknown, ctx: Re
   return {
     ok: true as const,
     state: owners.state,
-    writes: [memberUpsert(member)],
+    writes: [memberUpsert(member), ...memberAuthorityWrites(member.user, ctx)],
     value: { user: v.user, added: !prior, role: member.role, ...(prior ? { previous_role: prior.role } : {}) },
     outbox: [
       { kind: "membership.upsert", entity: `${state.team.id}:${v.user}`, payload: { team: state.team.id, ...member } },

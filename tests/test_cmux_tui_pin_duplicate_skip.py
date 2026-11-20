@@ -2,11 +2,12 @@
 """A cmux-tui-pin-* push of an already published tree builds nothing (cx-urd.26).
 
 Pin pushes always built, even when their tree key was published: 222 pin runs
-built on 2026-10-12, 25,215 job-minutes. A pin ref is also the repair path for
-a missing Windows daemon (pin-cmux-tui.sh points at it), so only a true
-duplicate is skipped: the key's arm64 binaries, completion manifest and Windows
-completion are all published. A pin push also publishes its commit's binaries for cmux-tui.pin, so those
-must be published too. A manual dispatch still republishes.
+built on 2026-10-12, 25,215 job-minutes. Only a true
+duplicate is skipped: the key's arm64 binaries and completion manifest are
+published. A pin push also publishes its commit's binaries for cmux-tui.pin, so those
+must be published too. A missing Windows daemon does not count: pushes never
+build Windows, only a dispatch with include_windows does. A manual dispatch
+still republishes.
 
 This runs tree-preflight's own inspect step on this checkout with a fake curl
 that serves files.cmux.com.
@@ -19,6 +20,13 @@ import sys
 import tempfile
 
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKFLOW = os.path.join(ROOT, ".github", "workflows", "cmux-tui-artifacts.yml")
@@ -122,8 +130,8 @@ def main():
            f"a pin push of a fully published tree builds nothing ({result.returncode}, {out.get('run_macos')}, {result.stderr.strip()[-300:]})")
 
     result, out = preflight(pin, FAKE_PUBLISHED="1", FAKE_WINDOWS="0")
-    _check(result.returncode == 0 and out.get("run_macos") == "true",
-           f"a pin push whose Windows daemon is missing still builds to repair it ({out.get('run_macos')})")
+    _check(result.returncode == 0 and out.get("run_macos") == "false",
+           f"a pin push whose only gap is the Windows daemon builds nothing; pushes never build Windows ({out.get('run_macos')})")
 
     result, out = preflight(pin, FAKE_PUBLISHED="1", FAKE_WINDOWS="1", FAKE_COMMIT="0")
     _check(result.returncode == 0 and out.get("run_macos") == "true",

@@ -19,7 +19,7 @@ public struct CookieSourceQuery: Sendable, Equatable {
         case unknownBrowser(String, known: [String])
         /// The browser has no profile named `profile`; `known` lists its profiles.
         case unknownProfile(browser: String, profile: String, known: [String])
-        /// The browser keeps its data in a store cmux does not read (Orion, Tor).
+        /// The browser keeps its data in a store cmux does not read (Tor, a WebKit app with no cookie store).
         case unsupported(String)
     }
 
@@ -46,7 +46,9 @@ public struct CookieSourceQuery: Sendable, Equatable {
             throw .unknownBrowser(browser, known: sources.map(\.browser.rawValue))
         }
         let family = source.browser.family
-        guard !family.isPrivateStore, !source.browser.refusesSessionData else { throw .unsupported(source.browser.displayName) }
+        // A WebKit app counts when detection found its cookie store (Orion, ChatGPT Classic).
+        let readsCookies = !family.isPrivateStore || source.profiles.contains { $0.availability(of: .cookies) == .available }
+        guard readsCookies, !source.browser.refusesSessionData else { throw .unsupported(source.browser.displayName) }
         guard let profile else {
             if let first = source.profiles.first(where: { $0.directoryName == "Default" }) ?? source.profiles.first { return first }
             throw .unknownProfile(browser: source.browser.rawValue, profile: "Default", known: [])

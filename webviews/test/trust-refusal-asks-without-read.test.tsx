@@ -5,6 +5,7 @@
 // fails gets the pane the same nothing as one that times out (`readFolderTrust`), without a wait.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -32,13 +33,9 @@ type TrustSource = import("../src/agent-session/acpmux/folderTrust").TrustSource
 
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const peerFolder = "/home/you/src/atlas";
@@ -323,4 +320,22 @@ test("a throwing trust retry shows the failed trust question instead of escaping
   expect(attempts).toBe(1);
   expect(latest!.ask).toMatchObject({ cwd: peerFolder, state: "failed" });
   expect(latest!.blocked?.reason).toBe("trust.answerFirst");
+});
+
+test("a refusal whose prompt the pane's hold took replaces the start a refused chat.new kept", async () => {
+  // A new chat's send: acpmux refuses its start (client.create keeps a re-run of the start), then
+  // the pane puts the prompt into its hold, whose flush starts the chat after Trust (trustHeld.ts).
+  // The pane's refusal passes a step that does nothing (App.tsx `heldGoesAfterTrust`): Trust then
+  // starts no second chat beside the hold's own send.
+  const { source } = slowPeer();
+  await open(source, "new-chat-start");
+  await readGivesUp();
+  let starts = 0;
+  await act(async () => {
+    latest!.refused({ reason: "trust.pending", cwd: peerFolder }, () => starts++);
+    latest!.refused({ reason: "trust.pending", cwd: peerFolder }, () => undefined);
+  });
+  await readGivesUp();
+  await act(async () => latest!.trust());
+  expect(starts).toBe(0);
 });

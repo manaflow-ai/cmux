@@ -5,20 +5,24 @@
 
 use serde::{Deserialize, Serialize};
 
-/// A call's context above this many tokens warns. A session that never compacts carries its
-/// whole history into every call; 400k is past the sr2 `--autocompact` window (380k-420k).
-pub const DEFAULT_CONTEXT_TOKENS: u64 = 400_000;
+/// The `contextTokens` line for a session whose own window acpmux does not know (no autocompact
+/// cap it could read, no window its harness reported or the catalog has): the autocompact window
+/// acpmux starts Claude Code with (`harness_limits::CLAUDE_AUTOCOMPACT_WINDOW`). Every session
+/// whose window is known is held to that window instead (`UsageLimits::context_tokens`).
+pub const FALLBACK_CONTEXT_TOKENS: u64 = 400_000;
 /// More subagents started in the last hour than this warns. Measured 2026-10-30 (the PR that
 /// added it has the table): ordinary lanes peaked at 0-9 an hour and the busiest coordinator at
 /// 27, while the runaway deputies started 67-90.
 pub const DEFAULT_SUBAGENTS_PER_HOUR: u64 = 40;
 
 /// `usageWarnings` in config.json: `{"contextTokens": 400000, "subagentsPerHour": 40,
-/// "autocompactCap": true}`. Each threshold 0 (or `autocompactCap` false) turns its rule off.
+/// "autocompactCap": true}`. Each threshold 0 (or `autocompactCap` false) turns its rule off;
+/// `contextTokens` unset holds each session to its own window.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct UsageWarningsConfig {
-    /// `contextTokens`: warn when a call's context is above this. Default 400000.
+    /// `contextTokens`: warn when a call's context is above this, for every session. Unset: above
+    /// the session's own window, so it did not compact.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context_tokens: Option<u64>,
     /// `subagentsPerHour`: warn when more subagents than this started in the last hour.
@@ -31,10 +35,23 @@ pub struct UsageWarningsConfig {
     pub autocompact_cap: Option<bool>,
 }
 
+/// Where the `contextTokens` rule draws its line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContextLimit {
+    /// `contextTokens: 0`: the rule is off.
+    Off,
+    /// `contextTokens: N`: one line for every session.
+    Fixed(u64),
+    /// No `contextTokens`: each session's own window, the autocompact cap it runs with, else its
+    /// model's window (`usageStats.autocompactCap`, `contextWindow`), else
+    /// [`FALLBACK_CONTEXT_TOKENS`]. A call past it means the session did not compact.
+    SessionWindow,
+}
+
 /// The thresholds in force: None (or false) is a rule turned off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UsageLimits {
-    pub context_tokens: Option<u64>,
+    pub context_tokens: ContextLimit,
     pub subagents_per_hour: Option<u64>,
     pub autocompact_cap: bool,
 }
@@ -54,7 +71,11 @@ impl UsageWarningsConfig {
     pub fn limits(&self) -> UsageLimits {
         let on = |n: u64| (n > 0).then_some(n);
         UsageLimits {
-            context_tokens: on(self.context_tokens.unwrap_or(DEFAULT_CONTEXT_TOKENS)),
+            context_tokens: match self.context_tokens {
+                None => ContextLimit::SessionWindow,
+                Some(0) => ContextLimit::Off,
+                Some(n) => ContextLimit::Fixed(n),
+            },
             subagents_per_hour: on(self.subagents_per_hour.unwrap_or(DEFAULT_SUBAGENTS_PER_HOUR)),
             autocompact_cap: self.autocompact_cap.unwrap_or(true),
         }

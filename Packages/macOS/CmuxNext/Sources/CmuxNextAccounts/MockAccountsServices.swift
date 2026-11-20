@@ -41,6 +41,11 @@ public final class MockAccountsServices: AccountsServices, AccountsTeamBackend {
         get { teamSource.adminTeams }
         set { teamSource.adminTeams = newValue }
     }
+    /// Invitations addressed to the demo person.
+    public var receivedInvitations: [CMUXReceivedTeamInvitation] {
+        get { teamSource.received }
+        set { teamSource.received = newValue }
+    }
     /// Teams with an active subscription: deleting one is refused.
     public var subscribedTeamIDs: Set<String> {
         get { teamSource.subscribedTeams }
@@ -58,6 +63,11 @@ public final class MockAccountsServices: AccountsServices, AccountsTeamBackend {
     public var linkedFailure: (any Error)?
     /// False: no local pane, so a login or logout opens nothing.
     public var opensTabs = true
+    /// Optional async tab opener for exercising delayed workspace creation.
+    @ObservationIgnored public var openProviderTab: ((ReauthPlan) async -> Bool)?
+    /// Optional gate before a detection result is produced. Tests use this to
+    /// reproduce a refresh completing after a local login has started.
+    @ObservationIgnored public var beforeDetect: (() async -> Void)?
     public private(set) var calls: [String] = []
 
     public init() {
@@ -65,6 +75,7 @@ public final class MockAccountsServices: AccountsServices, AccountsTeamBackend {
     }
 
     public func detect() async -> [ProviderDetection] {
+        if let beforeDetect { await beforeDetect() }
         calls.append("detect")
         let found = Dictionary(uniqueKeysWithValues: detections.map { ($0.provider, $0) })
         return AIProvider.allCases.map { found[$0] ?? .missing($0) }
@@ -122,6 +133,23 @@ public final class MockAccountsServices: AccountsServices, AccountsTeamBackend {
         try teamSource.delete(id)
     }
 
+    public func receivedTeamInvitations() async throws -> [CMUXReceivedTeamInvitation] {
+        calls.append("receivedInvitations")
+        if let failure = teamSource.managementFailure { throw failure }
+        return teamSource.received
+    }
+
+    @discardableResult
+    public func acceptTeamInvitation(id: String) async throws -> CMUXTeamJoin {
+        calls.append("acceptInvitation:\(id)")
+        return try teamSource.accept(id)
+    }
+
+    public func declineTeamInvitation(id: String) async throws {
+        calls.append("declineInvitation:\(id)")
+        try teamSource.decline(id)
+    }
+
     public func linkedAccounts() async throws -> [LinkedAccount] {
         calls.append("linked")
         if let failure = failure ?? linkedFailure { throw failure }
@@ -144,8 +172,9 @@ public final class MockAccountsServices: AccountsServices, AccountsTeamBackend {
     }
 
     @discardableResult
-    public func reauthenticate(_ provider: AIProvider, plan: ReauthPlan) -> Bool {
+    public func reauthenticate(_ provider: AIProvider, plan: ReauthPlan) async -> Bool {
         calls.append(plan == provider.signOutPlan ? "signOut:\(provider.rawValue)" : "reauth:\(provider.rawValue)")
+        if let openProviderTab { return await openProviderTab(plan) }
         return opensTabs
     }
 

@@ -13,10 +13,12 @@ import {
   NEW_TAB_TEMPLATES,
   PAGE_STYLES,
   parseNewTabTemplate,
+  pageStyle,
   screenSections,
   screenTemplate,
   shownTemplate,
 } from "../src/agent-session/acpmux/newtab/templates";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -64,11 +66,8 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 const noop = () => {};
@@ -90,6 +89,13 @@ test("Cards is a template and a style", () => {
   expect(shownTemplate({ layout: "b" })).toBe("minimal");
   expect(shownTemplate({ layout: "a" })).toBe("classic");
   expect(shownTemplate({ layout: "b", template: "default" })).toBe("default");
+});
+
+test("the retired Composer id migrates to Minimal without a selectable Composer style", () => {
+  expect(parseNewTabTemplate("composer")).toBe("composer");
+  expect(pageStyle("composer")).toBe("minimal");
+  expect(PAGE_STYLES).not.toContain("composer");
+  expect(shownTemplate({ layout: "b", template: "composer" })).toBe("minimal");
 });
 
 test("the Cards page: one field, a chip row under it, three chat cards", async () => {
@@ -127,7 +133,7 @@ test("the Cards page: one field, a chip row under it, three chat cards", async (
     expect(toolbar!.querySelector(".nt-location")).not.toBeNull();
     expect(toolbar!.querySelector(".nt-pickers .acpmux-mic")).not.toBeNull();
     expect(box.querySelector(".nt-location")).toBeNull();
-    // Return sends; the page draws no Send disc and no create row.
+    // Return sends; creation is available through search.
     expect(host.querySelector(".nt-send")).toBeNull();
     expect(host.querySelector(".nt-create")).toBeNull();
     // Three cards in a grid, "All Chats >" beside the Chats header.
@@ -223,7 +229,7 @@ test("Cards with the agent's chips draws the split, and the mic stays in the box
     expect(above.contains(strip)).toBe(true);
     expect(above.compareDocumentPosition(box) & window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(box.compareDocumentPosition(foot) & window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // Cards draws no create row with the split either (u2851): the app always passes the chips.
+    // The split composer leaves creation in searchable suggestions.
     expect(host.querySelector(".nt-create")).toBeNull();
     const mic = box.querySelector<HTMLElement>(".acpmux-mic");
     expect(mic).not.toBeNull();

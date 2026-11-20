@@ -130,25 +130,38 @@ public final class AgentPaneMachineLink {
     func awaitLink(_ machine: String) async -> Bool {
         guard !Task.isCancelled else { return false }
         let first = waiting[machine] == nil
+        // At most one Reconnect per wait: now when the link is down, else once if a link that was
+        // on its way turns out down (a Cloud link that ended reads as on its way while the app
+        // reads the machine list to learn whether a pause ended it).
+        let reconnected = ReconnectOnce(done: !first)
         switch use(machine) {
         case .up, .stuck: return false
         case .coming: break
-        case .down: if first { reconnect(machine) }
+        case .down: if first { reconnected.done = true; reconnect(machine) }
         }
         waiting[machine, default: 0] += 1
         defer {
             let left = (waiting[machine] ?? 1) - 1
             waiting[machine] = left > 0 ? left : nil
         }
-        let use = use
+        let (use, reconnect) = (use, reconnect)
         let back = await Self.settles(within: budget) { () -> Bool? in
             switch use(machine) {
-            case .up: true
-            case .stuck: false
-            case .coming, .down: nil
+            case .up: return true
+            case .stuck: return false
+            case .coming: return nil
+            case .down:
+                if !reconnected.done { reconnected.done = true; reconnect(machine) }
+                return nil
             }
         }
         return back && !Task.isCancelled
+    }
+
+    /// Whether one wait already ran its Reconnect (main actor only).
+    @MainActor private final class ReconnectOnce: Sendable {
+        var done: Bool
+        init(done: Bool) { self.done = done }
     }
 
     /// The first answer `settled` gives (nil: not yet) within `limit`, else false: an observation,

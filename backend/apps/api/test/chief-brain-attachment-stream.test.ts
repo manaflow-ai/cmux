@@ -68,6 +68,64 @@ const fixture = (chunks: number, options: StreamOptions = {}) => {
 }
 
 describe("Chief original attachment streaming", () => {
+  it("stages all 64 referenced files, including the oldest, with bounded reads", async () => {
+    const piece = new Uint8Array(64 * 1024)
+    const records = new Map<string, { index: number; hash: string }>()
+    const paths = Array.from({ length: 64 }, (_, index) => {
+      piece.fill(index)
+      const digest = createHash("sha256")
+      for (let i = 0; i < 4; i++) digest.update(piece)
+      const hash = digest.digest("hex")
+      records.set(hash, { index, hash })
+      return `${directory}/${hash}.bin`
+    })
+    const downloaded: string[] = []
+    let opened = 0
+    let closed = 0
+    let received = 0
+    let largestWrite = 0
+    const env = {
+      CHIEF_CC_FREESTYLE_API_URL: "https://freestyle.test", CHIEF_CC_FREESTYLE_API_KEY: "test-key",
+      CONVERSATION_DO: { idFromName: (id: string) => id, get: () => ({
+        async downloadAccess(conversation: string, actor: string, by: { hash: string }) {
+          expect([conversation, actor]).toEqual(["conv_test", "agent_test"])
+          downloaded.push(by.hash)
+          return { record: { object_key: by.hash, byte_count: 4 * piece.length, mime_type: "application/octet-stream" } }
+        }
+      }) },
+      HOME_ATTACHMENTS: { async get(key: string) {
+        expect(opened).toBe(closed) // Finish one stream before opening another.
+        opened++
+        const { index } = records.get(key)!
+        let pulls = 0
+        return { body: new ReadableStream<Uint8Array>({ pull(controller) {
+          if (pulls++ === 4) { closed++; return controller.close() }
+          controller.enqueue(new Uint8Array(piece.length).fill(index))
+        } }, { highWaterMark: 0 }), arrayBuffer() { throw new Error("must stream") } }
+      } }
+    } as unknown as Env
+    let digest = createHash("sha256")
+    vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string) as { command: string; stdin?: string }
+      if (body.stdin) {
+        const chunk = Buffer.from(body.stdin, "base64")
+        received += chunk.length
+        largestWrite = Math.max(largestWrite, chunk.length)
+        digest.update(chunk)
+      } else if (body.command.includes("mv -f")) {
+        expect(body.command).toContain(`/${digest.digest("hex")}.bin && echo ok`)
+        digest = createHash("sha256")
+      }
+      return Response.json({ statusCode: 0, stdout: "ok\n" })
+    })
+    const result = await stageAttachments(env, "test-vm", "agent_test", "user_test", "conv_test", paths.join("\n"))
+    expect(result).toEqual({ written: 64, bytes: 16 * 1024 * 1024, missing: [] })
+    expect(received).toBe(result.bytes)
+    expect(largestWrite).toBe(piece.length)
+    expect(downloaded).toEqual([...records.keys()].reverse())
+    expect(closed).toBe(64)
+  })
+
   it("streams an original beyond both old byte limits, without buffering it or exceeding exec stdin", async () => {
     const f = fixture(49)
     expect(await f.run()).toEqual({ written: 1, bytes: 49 * sourceChunk.length, missing: [] })

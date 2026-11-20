@@ -8,7 +8,7 @@ import { parseArtifact } from "./geometry";
 const fleetTest = process.env.CMUX_GALLERY_IN_VM === "1" ? test : test.skip;
 fleetTest("collector captures every header and nearest row, excluding transparent controls", async () => {
   const dir = await mkdtemp(join(process.cwd(), "geometry-collector-"));
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ ...(process.env.CMUX_CHROME_HEADLESS_SHELL ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL } : { channel: "chrome" }) });
   try {
     const page = await browser.newPage({ viewport: { width: 400, height: 400 }, deviceScaleFactor: 1 });
     await page.setContent(`<style>button{width:24px;height:24px}.row{height:28px}.hidden{opacity:0}</style>

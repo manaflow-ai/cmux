@@ -5,6 +5,7 @@ import CmuxNextDesign
 @testable import CmuxNextNowPlaying
 import CmuxNextSettings
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Observation
 import Testing
@@ -14,7 +15,7 @@ import Testing
 /// artwork and controls, its controls and scrubber reach the source, a seek the source ignores does
 /// not freeze the scrubber, a tab's artwork that failed to load comes in later, it draws in the
 /// terminal theme, nothing on it moves under Reduce Motion, and it is there only while Now Playing is on.
-@MainActor @Suite(.serialized) struct NowPlayingCardTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct NowPlayingCardTests {
     @Observable final class FakeSource: NowPlayingSource {
         var nowPlaying: SidebarNowPlaying?
         @ObservationIgnored var commands: [SidebarNowPlayingCommand] = []

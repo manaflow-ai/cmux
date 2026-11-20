@@ -1,9 +1,23 @@
+import { envForObject } from "./build-space.ts"
 import { createHash } from "node:crypto"
 import { canonicalJson, LEDGER_RETENTION_MS, type OwnerFrame, type Principal, type RejectFrame } from "@cmux/ownership"
 import { cloudOpByName, PENDING_CONNECTION_TTL_MS, type Connection, type IntegrationProvider } from "@cmux/protocol"
-import { connectionsDomain, expiredForgets, githubRepoAllowed, lockNoticePending, lockOf, mayUse, pendingExpiries, policyOf, providerAllowed, type ConnectionsState } from "./domains/connections.ts"
+import { chiefJobsEvent } from "./chief-brain-cc/jobs-upstash.ts"
+import {
+  connectionsDomain,
+  expiredForgets,
+  githubRepoAllowed,
+  lockNoticePending,
+  lockOf,
+  mayUse,
+  pendingExpiries,
+  policyOf,
+  providerAllowed,
+  type ConnectionsState,
+  githubInstallationOf,
+} from "./domains/connections.ts";
 import { decodeParams } from "./domains/common.ts"
-import type { Env } from "./env.ts"
+import type { Env, RawEnv } from "./env.ts"
 import { createFallbackTable, loadCredential, nextResealAt, resealFallbacks, storeCredential } from "./integrations/credentials.ts"
 import type { ExternalReply, ProviderEvent } from "./integrations/external.ts"
 import { runLedgered } from "./integrations/external-ledger.ts"
@@ -14,7 +28,22 @@ import { createWatchTable, nextWatchAt, recordStopFailure, watchOf } from "./int
 import { onDisconnect, onGmailPush, runWatchWork, startWatchSafely, stopWatchWith, watchSoon, type GooglePush, type WatchHost } from "./integrations/google-watches.ts"
 import { createRevocationTable, drainRevocations, nextRevocationAt, takeCredentialForRevocation } from "./integrations/revocations.ts"
 import * as ghTokens from "./integrations/github-tokens.ts"
-import { ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
+import {
+  githubConnectTarget,
+  type GithubConnectTarget,
+  createConfigurePageTable,
+  installationConfigureUrl,
+} from "./integrations/github-connect.ts";
+import { addListener, createListenerTable, githubChangeOf, GithubPushCoalescer, listeners, removeListener, type IntegrationChangedFrame } from "./integrations/github-push.ts"
+import {
+  ProviderError,
+  providerForOp,
+  providers,
+  scopesToRequest,
+  type Credential,
+  type Http,
+  github,
+} from "./integrations/providers.ts";
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 import { isAgentGatewayPrincipal, resolveConnectionPrincipal } from "./agent-gateway-principal.ts"
@@ -42,7 +71,8 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
   /** One token refresh at a time per connection (rotating refresh tokens are single use). */
   private readonly refreshing = new Map<string, Promise<Credential>>()
 
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    const env = envForObject(ctx, raw)
     super(ctx, env, connectionsDomain, "connections", (p) => ({
       identity: p.kind === "system" ? p.identity : (p.install ?? `user:${p.user}`),
       ...(p.kind ? { kind: p.kind } : {}),
@@ -64,6 +94,8 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     createFallbackTable(sql)
     createApprovalTable(sql)
     ghTokens.createGithubTokenTable(sql)
+    createListenerTable(sql)
+    createConfigurePageTable(sql)
   }
 
   protected read(state: ConnectionsState, op: string, _params: unknown, principal: Principal): ReadResult {
@@ -194,6 +226,17 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const result = frames.find((f) => f.t === "result")
     const c = result && result.t === "result" ? (result.value as Connection) : undefined
     if (!c || c.status !== "revoked") return
+    if (c.provider === "github") {
+      // Mark the revoked connection's issued tokens before returning; the alarm
+      // completes provider DELETE even if this isolate stops during the first try.
+      const marked = ghTokens.markConnectionTokensRevoked(this.ledger(), c.id, Date.now())
+      if (marked > 0) {
+        this.scheduleAlarm()
+        void ghTokens.drainTokenRevocations(this.ledger(), Date.now()).catch((e) =>
+          console.error(JSON.stringify({ msg: "github disconnect token revoke failed", error: e instanceof Error ? e.name : "unknown" })),
+        )
+      }
+    }
     // Gmail: users.stop runs with the credential before the revoke (google-watches.ts onDisconnect).
     const stopAlias = watchOf(this.ctx.storage.sql, c.id)?.alias ?? null
     const taken = takeCredentialForRevocation(this.ctx.storage.sql, c, providers[c.provider], Date.now(), stopAlias)
@@ -218,7 +261,20 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
 
   async githubStatus(entity: string, principal: Principal) {
     if (principal.team !== entity) return { configured: false, app_slug: null, connection: null }
-    return ghTokens.githubStatus(this.env, this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial(), principal)
+    const state = this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial()
+    const c = ghTokens.githubStatusConnection(state, principal)
+    const installation = c ? githubInstallationOf(c) : undefined
+    // Cached per installation (one GitHub read a day at most), so the picker's status read stays cheap.
+    const configureUrl = c?.account && installation !== undefined && github.configured(this.env)
+      ? await installationConfigureUrl(this.ctx.storage.sql, this.env, this.http, installation, c.account.name, Date.now())
+      : null
+    return ghTokens.githubStatus(this.env, state, principal, configureUrl)
+  }
+
+  /** integration.connect with a repo: which GitHub page to open (github-connect.ts), asked with this object's injectable HTTP. */
+  async githubConnectTarget(entity: string, principal: Principal, repo: string): Promise<GithubConnectTarget> {
+    if (principal.team !== entity) return { kind: "install" }
+    return githubConnectTarget(this.env, this.http, repo)
   }
 
   async githubRepos(entity: string, principal: Principal, query: { readonly query?: string; readonly cursor?: string }) {
@@ -243,7 +299,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     return {
       sql: this.ctx.storage.sql, env: this.env, http: this.http, team, buckets: this.ghBuckets, inflight: this.ghInflight, revokes: this.ghRevokes,
       // UserDO's socket registry calls closeInstall here on a revoke (socket-registry.ts); false when the install is no longer active.
-      register: (p, at) => (this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user!)) as unknown as Users).registerSocket(p.user!, p.install!, p.grant, "ConnectionDO", team, at),
+      register: (p, at) => this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user!)).registerSocket(p.user!, p.install!, p.grant, "ConnectionDO", team, at),
       audit: (record) => void this.runSystem("integration.github.token_minted", record, `ghtok:${String(record.token_id)}`),
       needsReauth: this.markNeedsReauth,
       installActive: this.installActive
@@ -253,7 +309,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
   private installActive = async (p: Principal) => {
     type Users = { installGrant(e: string, install: string, grant: string): Promise<{ ok: boolean }> }
     if (!p.user || !p.install || !p.grant) return false
-    return (await (this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user)) as unknown as Users).installGrant(p.user, p.install, p.grant)).ok
+    return (await this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user)).installGrant(p.user, p.install, p.grant)).ok
   }
 
   private markNeedsReauth = (c: Connection, detail: string) => void this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail }, `status:${c.id}:needs_reauth:${Date.now()}`)
@@ -380,6 +436,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       policy: { githubScope: policy.github.scope, requireOrgAdmin: policy.github.require_org_admin },
       ...(typeof params.code === "string" ? { code: params.code } : {}),
       ...(typeof params.installation_id === "string" ? { installation_id: params.installation_id } : {}),
+      ...(typeof params.setup_action === "string" ? { setup_action: params.setup_action } : {}),
       redirectUri: frame.redirect_uri,
       connection: c.id,
       state: String(params.state),
@@ -431,7 +488,9 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       alias: async (op, alias, owner, connection) => void (await this.index(alias)[op](owner, connection)),
       deliver: async (c, m) => {
         const scheduler = this.env.SCHEDULER_DO.get(this.env.SCHEDULER_DO.idFromName(c.owner))
-        await scheduler.deliverEvent(c.owner, { connection: c.id, sharing: c.sharing, created_by: c.created_by, provider: "gmail", event: "mail.message.received", delivery_id: m.message_id, payload: { connection: c.id, ...m } })
+        const ev = { connection: c.id, sharing: c.sharing, created_by: c.created_by, provider: "gmail", event: "mail.message.received", delivery_id: m.message_id, payload: { connection: c.id, ...m } }
+        await scheduler.deliverEvent(c.owner, ev)
+        await chiefJobsEvent(this.env, c.owner, ev)
       },
       background: (work) => {
         this.scheduleAlarm()
@@ -511,6 +570,11 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
   }
 
   private async callProvider(principal: Principal, op: string, params: Record<string, unknown>): Promise<unknown> {
+    if (isAgentGatewayPrincipal(principal)) {
+      const current = await resolveConnectionPrincipal(this.env, principal)
+      if (!current || "refused" in current) throw new ProviderError("policy.denied", "the caller no longer has access")
+      principal = current
+    }
     const { provider, c } = this.usableFor(principal, op, params)
     const impl = providers[provider]
     if (!impl.configured(this.env)) throw new ProviderError("integration.unavailable", `${provider} is not configured`)
@@ -558,8 +622,50 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     if (event.provider === "github" && event.event === "installation.deleted") {
       this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail: "the GitHub App was uninstalled" }, `status:${c.id}:uninstalled:${event.delivery_id}`)
     }
+    this.pushGithubChange(c, event)
     const scheduler = this.env.SCHEDULER_DO.get(this.env.SCHEDULER_DO.idFromName(entity))
-    const r = (await scheduler.deliverEvent(entity, { connection: c.id, sharing: c.sharing, created_by: c.created_by, ...event })) as { runs: number }
-    return { status: "forwarded", runs: r.runs }
+    const ev = { connection: c.id, sharing: c.sharing, created_by: c.created_by, ...event }
+    const r = (await scheduler.deliverEvent(entity, ev)) as { runs: number }
+    // Chief jobs take the same events; a store failure propagates so the provider can retry the delivery.
+    const chief = await chiefJobsEvent(this.env, entity, ev)
+    return { status: "forwarded", runs: r.runs + chief }
+  }
+
+  /** GitHub changes for watching feed sockets (integrations/github-push.ts): coalesced per listener. */
+  private readonly githubPush = new GithubPushCoalescer({ send: (user, frame) => void this.sendGithubChange(user, frame) })
+
+  /** A pull request, review, check or status delivery tells each listener who may use `c` that its repo changed. */
+  private pushGithubChange(c: Connection, event: ProviderEvent): void {
+    const change = githubChangeOf(event)
+    if (!change) return
+    for (const user of listeners(this.ctx.storage.sql, Date.now())) if (mayUse(c, { identity: `user:${user}`, user })) this.githubPush.add(user, change)
+  }
+
+  private async sendGithubChange(user: string, frame: IntegrationChangedFrame): Promise<void> {
+    try {
+      const r = await this.env.FEED_DO.get(this.env.FEED_DO.idFromName(user)).integrationChanged(user, frame)
+      // No watching socket is left: forget the listener (its next connect registers it again).
+      if (r.delivered === 0) removeListener(this.ctx.storage.sql, user)
+    } catch (e) {
+      console.error(JSON.stringify({ msg: "github push failed", error: String(e).slice(0, 200) }))
+    }
+  }
+
+  /**
+   * RPC from FeedDO: `user`'s feed socket asked for GitHub changes (`integration.watch`). `live` says
+   * whether an active GitHub connection here that this user may use can push any: without one the
+   * client keeps its slow re-read.
+   */
+  async watchChanges(entity: string, user: string): Promise<{ live: boolean }> {
+    if (!this.isBound(entity)) return { live: false }
+    const state = this.bind(entity).currentState
+    addListener(this.ctx.storage.sql, user, Date.now())
+    const live = providerAllowed(policyOf(state), "github") && Object.values(state.connections).some((c) => c.provider === "github" && c.status === "active" && mayUse(c, { identity: `user:${user}`, user }))
+    return { live }
+  }
+
+  /** RPC from FeedDO: `user`'s last watching socket closed. */
+  async unwatchChanges(entity: string, user: string): Promise<void> {
+    if (this.isBound(entity)) removeListener(this.ctx.storage.sql, user)
   }
 }

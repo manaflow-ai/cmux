@@ -22,8 +22,8 @@ await requireBrowserLane("composer-search-row-geometry.test.ts", async () => {
       name: "compact model",
       entry: "agent-pane.model-picker",
       variant: "quick-search-field",
-      field: ".acpmux-quick-search",
-      row: ".acpmux-quick-item",
+      field: ".acpmux-cols-search",
+      row: ".acpmux-cols [role=listbox] [role=option]",
     },
     {
       name: "full model",
@@ -74,7 +74,7 @@ await requireBrowserLane("composer-search-row-geometry.test.ts", async () => {
   }
 
   for (const item of cases) {
-    test(`${item.name} search row matches its menu rows`, async () => {
+    test(`${item.name} search row aligns with its menu rows`, async () => {
       const context = await browser.newContext({ viewport: { width: 760, height: 420 } });
       const page = await context.newPage();
       try {
@@ -85,13 +85,35 @@ await requireBrowserLane("composer-search-row-geometry.test.ts", async () => {
           const option = document.querySelector<HTMLElement>(row)!;
           const searchStyle = getComputedStyle(search);
           const optionStyle = getComputedStyle(option);
+          const icon = search.querySelector(":scope > svg");
+          const name = option.querySelector(".acpmux-cols-name");
+          const input = search.querySelector("input");
           return {
             searchHeight: search.getBoundingClientRect().height,
             optionHeight: option.getBoundingClientRect().height,
             searchInset: Number.parseFloat(searchStyle.paddingLeft),
             optionInset: Number.parseFloat(optionStyle.paddingLeft),
+            rowHeight: Number.parseFloat(optionStyle.minHeight),
+            iconLeft: icon?.getBoundingClientRect().left,
+            nameLeft: name?.getBoundingClientRect().left,
+            inputTop: input?.getBoundingClientRect().top,
+            inputBottom: input?.getBoundingClientRect().bottom,
+            searchTop: search.getBoundingClientRect().top,
+            searchBottom: search.getBoundingClientRect().bottom,
           };
         }, item);
+        if (item.name === "compact model") {
+          // The avatar heads the rail; the search icon starts at the model text inset. The
+          // shared search spans all columns and is taller than the compact option rows.
+          expect(geometry.optionHeight).toBe(geometry.rowHeight);
+          expect(geometry.searchHeight).toBeGreaterThanOrEqual(geometry.optionHeight);
+          expect(geometry.iconLeft).toBeDefined();
+          expect(geometry.nameLeft).toBeDefined();
+          expect(Math.abs(geometry.iconLeft! - geometry.nameLeft!)).toBeLessThanOrEqual(1);
+          expect(geometry.inputTop!).toBeGreaterThanOrEqual(geometry.searchTop);
+          expect(geometry.inputBottom!).toBeLessThanOrEqual(geometry.searchBottom);
+          return;
+        }
         if (item.name === "project search") {
           // Project options have a second path line; the search matches their minimum row height.
           expect(geometry.optionHeight).toBeGreaterThanOrEqual(geometry.searchHeight);

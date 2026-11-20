@@ -238,6 +238,8 @@ impl Drop for Node {
     }
 }
 
+const LISTENER_CLOSED: &str = "listener closed";
+
 /// A TCP listener on the tailnet. Each accepted connection carries the
 /// peer's tailnet IP, which is what [`Node::whois`] takes.
 pub struct Listener {
@@ -250,7 +252,7 @@ impl Listener {
         let mut conn = -1;
         match unsafe { ffi::tailscale_accept(self.fd, &mut conn) } {
             0 => {}
-            libc::EBADF => return Err(Error("listener closed".into())),
+            libc::EBADF => return Err(Error(LISTENER_CLOSED.into())),
             _ => return Err(Error("accept failed".into())),
         }
         close_on_exec(conn);
@@ -308,7 +310,15 @@ impl Listener {
             }
             return Ok(None);
         }
-        self.accept().map(Some).map_err(|e| std::io::Error::other(e.0))
+        // EBADF keeps its errno, so a caller can tell a closed listener (stop) from one record
+        // that failed (accept again).
+        self.accept().map(Some).map_err(|e| {
+            if e.0 == LISTENER_CLOSED {
+                std::io::Error::from_raw_os_error(libc::EBADF)
+            } else {
+                std::io::Error::other(e.0)
+            }
+        })
     }
 }
 

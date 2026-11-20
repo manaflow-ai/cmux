@@ -13,6 +13,17 @@ public struct FeedLocalHandoffBeginRequest: DaemonRequest {
     public init(item: String) { self.item = item }
 }
 
+/// `feed-local-handoff-abort {item}` (the verified app connection only): the
+/// cloud owner answered `feed.adopt.cancel` with `cancelled: true`, so the
+/// item is open here again. Never on a timeout or a lost reply.
+public struct FeedLocalHandoffAbortRequest: DaemonRequest {
+    public typealias Response = FeedLocalHandoffBeginRequest.Response
+    public static let command = "feed-local-handoff-abort"
+    public static let requiredCapability: String? = DaemonCapability.feedLocalOwner.rawValue
+    public var item: String
+    public init(item: String) { self.item = item }
+}
+
 /// `feed-local-handoff-done {item, home}` (the verified app connection only):
 /// the new owner committed the item; it becomes `moved`.
 public struct FeedLocalHandoffDoneRequest: DaemonRequest {

@@ -227,6 +227,45 @@ import Testing
         #expect(coordinator.currentUser == user)
         #expect(store.bool(forKey: "has_tokens") == true)
     }
+
+    // The same discriminator for the non-throwing path. Stack answers a nil
+    // user for every `/users/me` failure, a dropped or timed-out request
+    // included, so a nil user with a surviving refresh token is a network blip,
+    // not a dead session: the cached session and its tokens stay.
+    @Test func noCurrentUserWithSurvivingRefreshTokenPreservesSession() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        let (coordinator, store) = try await signedInCoordinator(client: client)
+        let clearsBefore = await client.clearLocalSessionCount
+
+        await client.setTokens(access: "a", refresh: "r")
+        await client.setUser(nil)
+
+        await coordinator.revalidateSession()
+
+        #expect(coordinator.isAuthenticated == true)
+        #expect(coordinator.currentUser == user)
+        #expect(store.bool(forKey: "has_tokens") == true)
+        #expect(await client.clearLocalSessionCount == clearsBefore)
+        #expect(await client.refreshToken() == "r")
+    }
+
+    // A nil user with no refresh token left is a genuinely gone session: it
+    // routes to the sign-in page.
+    @Test func noCurrentUserWithNoRefreshTokenRoutesToLogin() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        let (coordinator, store) = try await signedInCoordinator(client: client)
+
+        await client.setTokens(access: "stale", refresh: nil)
+        await client.setUser(nil)
+
+        await coordinator.revalidateSession()
+
+        #expect(coordinator.isAuthenticated == false)
+        #expect(coordinator.currentUser == nil)
+        #expect(store.bool(forKey: "has_tokens") == false)
+    }
 }
 
 private actor AuthRevalidationCompletionRecorder {

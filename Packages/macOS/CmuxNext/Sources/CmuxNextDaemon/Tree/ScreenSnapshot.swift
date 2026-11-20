@@ -65,6 +65,11 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
     public var pinned: Bool
     /// The screen group this screen belongs to (`screen-groups-v1`).
     public var group: ScreenGroupID?
+    /// Splits whose divider draws no line (`split-divider-visibility-v1`); they still drag.
+    public var hiddenDividers: Set<SplitID>
+    /// The panes shown above the tiled layout, back to front (`floating-panes-v1`), as the daemon sent it; not
+    /// checked against the layout, the range or repeats. The daemon keeps each one a leaf of `layout`.
+    public var floating: [FloatingPaneSnapshot]
 
     public init(
         id: ScreenID,
@@ -82,7 +87,9 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
         color: String? = nil,
         icon: String? = nil,
         pinned: Bool = false,
-        group: ScreenGroupID? = nil
+        group: ScreenGroupID? = nil,
+        hiddenDividers: Set<SplitID> = [],
+        floating: [FloatingPaneSnapshot] = []
     ) {
         self.id = id
         self.resourceID = resourceID
@@ -100,16 +107,19 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
         self.icon = icon
         self.pinned = pinned
         self.group = group
+        self.hiddenDividers = hiddenDividers
+        self.floating = floating
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, active, layout, columns, panes, color, icon, pinned, group
+        case id, name, active, layout, columns, panes, color, icon, pinned, group, floating
         case resourceID = "resource_id"
         case shortID = "short_id"
         case activePane = "active_pane"
         case zoomedPane = "zoomed_pane"
         case viewportBaseWidth = "viewport_base_width"
         case viewportSplits = "viewport_splits"
+        case hiddenDividers = "hidden_dividers"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -130,5 +140,7 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
         icon = try c.decodeIfPresent(String.self, forKey: .icon)
         pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
         group = try c.decodeIfPresent(ScreenGroupID.self, forKey: .group)
+        hiddenDividers = Set(((try? c.decodeIfPresent([SplitID].self, forKey: .hiddenDividers)) ?? nil) ?? [])
+        floating = FloatingPaneSnapshot.list(in: c, forKey: .floating)
     }
 }

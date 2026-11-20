@@ -25,17 +25,6 @@ pub(crate) fn router_owner_fifo() -> PathBuf {
     home().join("router").join("owner.fifo")
 }
 
-/// An agent host's owner end of the local router: held for the host's
-/// whole life (close-on-exec, so the harness never inherits it). None when
-/// no router runs (no reader: the open fails at once) or there is no FIFO.
-pub(crate) fn open_router_owner(fifo: &std::path::Path) -> Option<std::fs::File> {
-    use std::os::unix::fs::{FileTypeExt, OpenOptionsExt};
-    if !std::fs::symlink_metadata(fifo).ok()?.file_type().is_fifo() {
-        return None;
-    }
-    std::fs::OpenOptions::new().write(true).custom_flags(libc::O_NONBLOCK).open(fifo).ok()
-}
-
 /// How long the shutdown path waits for a router it started to exit after
 /// `shutdown`, before it kills that child.
 const ROUTER_STOP_BUDGET: Duration = Duration::from_secs(2);
@@ -47,7 +36,7 @@ fn open_owner_rw(fifo: &std::path::Path) -> std::io::Result<std::fs::File> {
     if !std::fs::symlink_metadata(fifo)?.file_type().is_fifo() {
         return Err(std::io::Error::other("the router owner path is not a FIFO"));
     }
-    std::fs::OpenOptions::new().read(true).write(true).open(fifo)
+    crate::home_fs::OpenOptions::new().read(true).write(true).open(fifo)
 }
 
 impl RouterOwner for FifoOwner {
@@ -73,7 +62,7 @@ fn start_or_adopt() -> Option<FifoOwner> {
     use std::os::unix::process::CommandExt;
     let fifo = router_owner_fifo();
     if let Ok(status) = ask_router(b"{\"op\":\"status\"}\n") {
-        let same_build = status.get("build").and_then(Value::as_str) == Some(crate::hub::BUILD);
+        let same_build = status.get("build").and_then(Value::as_str) == Some(crate::hub::build());
         let kept_hosts = crate::agent_host::sweep::running_hosts(&crate::agent_host::hosts_dir())
             .iter()
             .any(|host| !host.pooled);
@@ -178,9 +167,9 @@ fn let_go(owner: FifoOwner, stop: bool) {
 fn make_owner_fifo(fifo: &std::path::Path) -> std::io::Result<()> {
     use std::os::unix::ffi::OsStrExt;
     if let Some(dir) = fifo.parent() {
-        std::fs::create_dir_all(dir)?;
+        crate::home_fs::create_dirs(dir)?;
     }
-    let _ = std::fs::remove_file(fifo);
+    let _ = crate::home_fs::remove_file(fifo);
     let path = std::ffi::CString::new(fifo.as_os_str().as_bytes())?;
     // SAFETY: a valid NUL-terminated path.
     if unsafe { libc::mkfifo(path.as_ptr(), 0o600) } != 0 {
@@ -196,7 +185,7 @@ fn router_command(
     fifo: &std::path::Path,
 ) -> std::process::Command {
     let mut command = this.command(&["router", "serve"]);
-    command.env("CMUX_ROUTER_BUILD", crate::hub::BUILD).env("CMUX_ROUTER_OWNER_FIFO", fifo);
+    command.env("CMUX_ROUTER_BUILD", crate::hub::build()).env("CMUX_ROUTER_OWNER_FIFO", fifo);
     command
 }
 

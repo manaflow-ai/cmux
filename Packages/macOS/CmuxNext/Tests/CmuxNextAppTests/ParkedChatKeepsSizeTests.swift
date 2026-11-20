@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Leo (2026-10-21): "THIS WHOLE THING CAUSES A LAYOUT SHIFT WHEN I SIMPLY SWITCH TO IT FROM ANOTHER
@@ -9,7 +10,7 @@ import Testing
 /// the strip. The parked chat followed the content host, so every switch away shrank its page by the
 /// strip's height and the switch back grew it again: the page laid out at a size it never shows at,
 /// and the transcript moved as the chat came back. A parked chat keeps the frame it shows at.
-@MainActor @Suite(.serialized) struct ParkedChatKeepsSizeTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct ParkedChatKeepsSizeTests {
     /// The page's tools: drawn in the row whenever the pane offers it, as the chat page does.
     final class RowTools: NSView, PaneTabRowSharing {
         private(set) var shared: CGFloat = 0

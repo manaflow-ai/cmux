@@ -15,11 +15,29 @@
 # install and the service, or to finish a join that was cut off; a joined
 # machine never spends a new token.
 #
-# The join grants mesh membership only. Screen sharing and control stay off
-# until a person at this machine allows them.
+# The join grants mesh membership. On Linux it also shares the screen with
+# your own account only: the person who joined this machine can view its
+# screen from their other devices with nothing to do here, and other
+# accounts can't reach it (the device hub pairs only one account's own
+# devices). The acpmux daemon sets that up itself at its start, through
+# cmux-rd (~/.local/bin/cmux-rd, the path its screen host unit runs); this
+# script does not install cmux-rd yet: no channel publishes it.
+#
+# Once joined: Claude Code (its official installer) and Codex (acpmux's
+# pinned, checked runtime) are installed when missing; the person's vault (env
+# vars and API keys, when their Mac shared it: `cmux machine add --vault`) is
+# pulled into this machine's keychain through `acpmux host vault pull`,
+# printing names only; and last, the agents' sign-in is the person's own, on
+# this machine, through each vendor's own flow (`claude auth login`, `codex
+# login`), offered right here on a terminal. No sign-in is ever read, copied
+# or sent by this script.
 #
 # Knobs: CMUX_JOIN_NAME (this machine's name), CMUX_JOIN_CHANNEL (default
-# feat-cmux-next), CMUX_JOIN_REPLACE=1 (swap an existing credential).
+# feat-cmux-next), CMUX_JOIN_REPLACE=1 (swap an existing credential),
+# CMUX_JOIN_HARNESSES (default claude,codex; none installs and offers
+# nothing), CMUX_JOIN_INTERACTIVE=0 (never ask on the terminal),
+# CMUX_JOIN_STEP=signin (only the sign-in step, on a joined machine: what
+# `cmux machine add USER@HOST` runs over `ssh -t`).
 #
 # Source: cmux-tui/scripts/machine-join.sh in manaflow-ai/cmux; the
 # platform serves a copy with its own origin written in.
@@ -85,8 +103,110 @@ esac
 
 files="https://files.cmux.com/cmux-tui"
 join_capability="machine.join.stdin.v1"
+vault_capability="machine.vault.pull.v1"
 bin_dir="$HOME/.local/bin"
 acpmux="$bin_dir/acpmux"
+step="${CMUX_JOIN_STEP:-}"
+case "$step" in
+  '' | signin) ;;
+  *) die 2 "unknown CMUX_JOIN_STEP $step (signin, or leave it unset)" ;;
+esac
+if [ "$step" = signin ] && [ -n "$t" ]; then
+  die 2 "the sign-in step takes no token; run the line without one"
+fi
+
+# The harnesses to install and sign in: CMUX_JOIN_HARNESSES, a comma list.
+harnesses="${CMUX_JOIN_HARNESSES:-claude,codex}"
+case ",$harnesses," in
+  *,none,*) harnesses="" ;;
+esac
+case "$harnesses" in
+  *[!a-z,]*) die 2 "CMUX_JOIN_HARNESSES takes claude, codex or none" ;;
+esac
+wants() {
+  case ",$harnesses," in
+    *",$1,"*) return 0 ;;
+  esac
+  return 1
+}
+# Where a harness's CLI is: PATH, then where its own installer puts it.
+find_claude() {
+  command -v claude 2>/dev/null && return 0
+  [ -x "$HOME/.local/bin/claude" ] || return 1
+  printf '%s\n' "$HOME/.local/bin/claude"
+}
+find_codex() {
+  command -v codex 2>/dev/null && return 0
+  [ -x "$acpmux" ] || return 1
+  # Line breaks go, spaces stay: the runtime's path may hold them ("Application Support").
+  st="$("$acpmux" harness codex-runtime status 2>/dev/null | tr -d '\r\n')" || return 1
+  printf '%s' "$st" | grep -q '"ready"[[:space:]]*:[[:space:]]*true' || return 1
+  p="$(printf '%s' "$st" | sed -n 's/.*"path"[[:space:]]*:[[:space:]]*"\([^"\\]*\)".*/\1/p')"
+  [ -n "$p" ] && [ -x "$p" ] || return 1
+  printf '%s\n' "$p"
+}
+# Whether a harness is signed in, by its own status command; nothing it says is shown.
+signed_in() {
+  case "$1" in
+    claude) "$2" auth status </dev/null 2>/dev/null | tr -d ' \t\r\n' | grep -q '"loggedIn":true' ;;
+    codex) "$2" login status </dev/null >/dev/null 2>&1 ;;
+    *) return 1 ;;
+  esac
+}
+
+# The last step: each harness's own sign-in, on this machine. On a terminal
+# it offers to run the vendor's own login right here; otherwise it says what
+# to run. The person signs in; nothing here reads or moves a sign-in.
+signin_step() {
+  ask=0
+  if [ "${CMUX_JOIN_INTERACTIVE:-1}" != 0 ] && [ -t 2 ] && (: </dev/tty) 2>/dev/null; then
+    ask=1
+  fi
+  for h in claude codex; do
+    wants "$h" || continue
+    if [ "$h" = claude ]; then
+      bin="$(find_claude || true)"
+      label="Claude Code"
+      hint="run '$bin' here and sign in with its /login"
+    else
+      bin="$(find_codex || true)"
+      label="Codex"
+      # The managed runtime is not on PATH: name the binary that was found.
+      hint="run '$bin' login here"
+    fi
+    [ -n "$bin" ] || continue
+    if signed_in "$h" "$bin"; then
+      say "$label is signed in"
+      continue
+    fi
+    if [ "$ask" = 1 ]; then
+      printf 'cmux join: sign in to %s on this machine now, with its own sign-in? [Y/n] ' "$label" >&2
+      ans=""
+      IFS= read -r ans </dev/tty || ans=n
+      case "$ans" in
+        n | N | no | No | NO) ;;
+        *)
+          if [ "$h" = claude ]; then
+            "$bin" auth login </dev/tty >/dev/tty 2>&1 || say "$label did not finish signing in; $hint"
+          else
+            # Over ssh no browser opens here: Codex's device sign-in shows a code to enter anywhere.
+            set -- login
+            [ -z "${SSH_CONNECTION:-}" ] || set -- login --device-auth
+            "$bin" "$@" </dev/tty >/dev/tty 2>&1 || say "$label did not finish signing in; $hint"
+            set --
+          fi
+          continue
+          ;;
+      esac
+    fi
+    say "sign in to $label: $hint"
+  done
+}
+
+if [ "$step" = signin ]; then
+  signin_step
+  exit 0
+fi
 
 # 2. Platform.
 os="$(uname -s)"
@@ -111,7 +231,24 @@ tmp="$(mktemp -d "${TMPDIR:-/tmp}/cmux-join.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 trap 'exit 130' HUP INT TERM
 
-fetch() { curl --proto '=https' --tlsv1.2 -fsSL "$1" -o "$2"; }
+# A transport failure (a reset, a timeout, DNS: curl's 5 6 7 18 28 35 52 55
+# 56) is retried, 4 tries with waits of 2, 8 and 20 s: a 23 s network blip
+# failed a whole join (run 44192875334). An HTTP status the server sent
+# (curl's 22) is an answer, not a blip: no retry. Not --retry-all-errors: it
+# needs curl 7.71.
+fetch() {
+  for fetch_wait in 2 8 20 ''; do
+    fetch_rc=0
+    curl --proto '=https' --tlsv1.2 -fsSL "$1" -o "$2" || fetch_rc=$?
+    case "$fetch_rc" in
+      0) return 0 ;;
+      5 | 6 | 7 | 18 | 28 | 35 | 52 | 55 | 56) [ -n "$fetch_wait" ] || return "$fetch_rc" ;;
+      *) return "$fetch_rc" ;;
+    esac
+    say "the network dropped $1 (curl exit $fetch_rc); retrying in $fetch_wait s"
+    sleep "$fetch_wait"
+  done
+}
 
 # The value of "name": "<hex>" in a JSON file, pretty or not.
 json_hex() {
@@ -204,14 +341,20 @@ if [ -n "$t" ] && ! has_capability "$acpmux"; then
 fi
 
 # 4. The service and the daemon. `daemon service install` writes the same
-# systemd user unit or LaunchAgent `host setup` writes; an acpmux without it
-# gets a daemon that runs until the next reboot.
+# systemd user unit or LaunchAgent `host setup` writes and says where it
+# stands (on a Mac no one is logged in to at the screen, it loads at the next
+# login there); an acpmux without it gets a daemon that runs until the next
+# reboot.
 if "$acpmux" daemon service --help >/dev/null 2>&1; then
   if [ "$os" = "Linux" ] && command -v loginctl >/dev/null 2>&1; then
     loginctl enable-linger "$(id -un)" >/dev/null 2>&1 ||
       say "warning: loginctl enable-linger was refused; the daemon stops when you log out"
   fi
-  "$acpmux" daemon service install >/dev/null || say "warning: the acpmux service did not install"
+  if svc="$("$acpmux" daemon service install 2>&1)"; then
+    [ -z "$svc" ] || say "$svc"
+  else
+    say "warning: the acpmux service did not install${svc:+: $svc}"
+  fi
 else
   say "warning: this acpmux cannot install its service yet; the daemon runs until the next reboot"
 fi
@@ -239,6 +382,7 @@ fi
 # with --replace.
 status_json() { "$acpmux" host join --status --json 2>/dev/null | tr -d ' \t\r\n'; }
 fresh_line="paste a new line: cmux machine add (or Add Machine in the app)"
+is_joined=0
 joined=0
 resume=0
 revoked=0
@@ -260,6 +404,7 @@ elif [ "$joined" = 1 ] && [ -n "$t" ] && [ "$replace" != 1 ]; then
   say "already joined; nothing redeemed (CMUX_JOIN_REPLACE=1 swaps the credential)"
   t=""
 fi
+[ "$joined" = 0 ] || is_joined=1
 if [ -n "$t" ] || [ "$resume" = 1 ]; then
   with_token=0
   [ -z "$t" ] || with_token=1
@@ -309,11 +454,15 @@ if [ -n "$t" ] || [ "$resume" = 1 ]; then
   fi
   case "$rc" in
     0)
+      is_joined=1
       if tr -d ' \t\r\n' <"$tmp/join.json" | grep -q '"alreadyJoined":true'; then
         say "already joined; nothing redeemed"
       else
         if [ "$resume" = 1 ]; then say "joined"; else say "joined as $name"; fi
-        "$acpmux" daemon restart >/dev/null 2>&1 || true
+        # The daemon reads the join (its mesh relay) when it starts: until this
+        # restart it sends no heartbeat.
+        "$acpmux" daemon restart >/dev/null 2>&1 ||
+          say "warning: the daemon did not restart onto the join, so it sends no heartbeat yet: run $acpmux daemon restart"
       fi
       ;;
     2) die 2 "the line was damaged; copy it again from cmux" ;;
@@ -342,12 +491,92 @@ if [ -n "$t" ] || [ "$resume" = 1 ]; then
   esac
 fi
 
-# 7. Where this machine stands.
+# 7. Once joined: the missing harnesses, then the vault.
+install_harnesses() {
+  if wants claude && [ -z "$(find_claude || true)" ]; then
+    # Claude Code's own native installer (https://claude.ai/install.sh).
+    if ! command -v bash >/dev/null 2>&1; then
+      say "warning: Claude Code needs bash to install; later: curl -fsSL https://claude.ai/install.sh | bash"
+    elif fetch https://claude.ai/install.sh "$tmp/claude-install.sh" &&
+      bash "$tmp/claude-install.sh" </dev/null >/dev/null; then
+      say "installed Claude Code"
+    else
+      say "warning: Claude Code did not install; later: curl -fsSL https://claude.ai/install.sh | bash"
+    fi
+  fi
+  if wants codex && [ -z "$(find_codex || true)" ]; then
+    if [ "$os" = Darwin ] && "$acpmux" harness codex-runtime --help >/dev/null 2>&1; then
+      if "$acpmux" harness codex-runtime install </dev/null >/dev/null 2>&1; then
+        say "installed Codex (acpmux's pinned, checked runtime)"
+      else
+        say "warning: Codex did not install; later: $acpmux harness codex-runtime install"
+      fi
+    else
+      say "Codex is not installed: npm install -g @openai/codex (acpmux installs it on macOS only)"
+    fi
+  fi
+}
+
+# The vault: env var names and a count only; acpmux keeps the values in
+# this machine's keychain and never prints them.
+pull_vault() {
+  "$acpmux" capabilities 2>/dev/null | grep -qx "$vault_capability" || return 0
+  vrc=0
+  # Read into memory only: acpmux's answer never reaches disk.
+  v="$("$acpmux" host vault pull --json </dev/null 2>/dev/null)" || vrc=$?
+  v="$(printf '%s' "$v" | tr -d ' \t\r\n')"
+  # The env names in acpmux's answer, as one space-separated list (names only).
+  names="$(printf '%s' "$v" | sed -n 's/.*"env":\[\([^]]*\)\].*/\1/p' | tr ',' '\n' |
+    sed -n 's/^"\([A-Za-z_][A-Za-z0-9_]*\)"$/\1/p' | tr '\n' ' ')"
+  count=0
+  for n in $names; do count=$((count + 1)); done
+  case "$v" in
+    *'"state":"not_granted"'*)
+      say "vault: not shared with this machine (from your Mac: cmux machine vault grant $name)"
+      ;;
+    # The hub has no vault: nothing to pull, nothing to say.
+    *'"state":"off"'*) ;;
+    *'"state":"ok"'*)
+      if [ "$count" = 0 ]; then
+        say "vault: no env vars yet"
+      else
+        say "vault: $count env vars (${names% })"
+      fi
+      ;;
+    *'"state":"partial"'*)
+      say "warning: the vault pull got $count env vars${names:+ (${names% })}, not all of them; retry: $acpmux host vault pull"
+      ;;
+    *) say "warning: the vault pull did not finish (acpmux exit $vrc); retry: $acpmux host vault pull" ;;
+  esac
+  v=""
+}
+
+if [ "$is_joined" = 1 ]; then
+  install_harnesses
+  pull_vault
+fi
+
+# 8. Where this machine stands.
 rc=0
 if "$acpmux" host doctor --help 2>/dev/null | grep -q -- '--here'; then
   "$acpmux" host doctor --here || rc=$?
 elif has_capability "$acpmux"; then
   "$acpmux" host join --status || rc=$?
 fi
-printf '%s\n' "Screen sharing and control are off on this machine. To allow them, run here: acpmux host consent grant --screen (or --control). Your team's machines cannot turn them on."
+if [ "$os" != Linux ]; then
+  printf '%s\n' "Screen sharing and control are off on this machine. To allow them, run here: acpmux host consent grant --screen (or --control). Your team's machines cannot turn them on."
+elif [ "$is_joined" != 1 ]; then
+  # Only a join's daemon sets cmux-rd's host up (acpmux share_host/linux.rs).
+  printf '%s\n' "This machine is not joined, so its screen is not shared."
+elif [ -x "$bin_dir/cmux-rd" ]; then
+  # The daemon runs cmux-rd's enable at its start (acpmux share_host/linux.rs).
+  printf '%s\n' "Your own account can view this machine's screen from your other devices, with nothing to do here. Other accounts can't reach it."
+else
+  printf '%s\n' "This machine's screen is not shared: cmux-rd is not installed at $bin_dir/cmux-rd. Once it is there, run $acpmux daemon restart and your own account can view this screen from your other devices, with nothing to do here. Other accounts can't reach it."
+fi
+
+# 9. Last: the agents' own sign-in, on this machine.
+if [ "$is_joined" = 1 ]; then
+  signin_step
+fi
 exit "$rc"

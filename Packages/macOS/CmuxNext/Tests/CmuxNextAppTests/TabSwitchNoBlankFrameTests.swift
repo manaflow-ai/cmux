@@ -3,12 +3,13 @@ import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Leo's chrome call (BACKLOG "Ideas without a PR"): a tab switch never shows a blank frame. A pane
 /// switching to a tab that has not drawn yet (an agent or New Tab page before its first paint) keeps
 /// the tab it showed until the new one paints, then swaps in one frame. Runs a real pane in a window.
-@MainActor @Suite(.serialized) struct TabSwitchNoBlankFrameTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabSwitchNoBlankFrameTests {
     /// A tab that draws nothing until it paints, as an agent page does.
     final class UnpaintedPage: NSView, PaneFirstPaintGated {
         private var painted = false

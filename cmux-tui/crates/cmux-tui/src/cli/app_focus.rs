@@ -129,11 +129,18 @@ impl AppWorkspaces {
     }
 }
 
-/// What the app's windows show (`snapshot.get`).
-pub(super) fn app_workspaces(stream: &mut UnixStream) -> Option<AppWorkspaces> {
-    let reply = super::app::request(stream, "snapshot.get", json!({}), super::app::READ_TIMEOUT)
-        .ok()?
-        .ok()?;
+/// What the app's windows show (`snapshot.get`) after the read barrier
+/// `after` (`0`: the last published snapshot; `"sync"`: one that includes
+/// every daemon write so far).
+pub(super) fn app_workspaces(stream: &mut UnixStream, after: Value) -> Option<AppWorkspaces> {
+    let reply = super::app::request(
+        stream,
+        "snapshot.get",
+        json!({ "after": after }),
+        super::app::READ_TIMEOUT,
+    )
+    .ok()?
+    .ok()?;
     let shown = reply.pointer("/topology/focus/workspace").and_then(Value::as_str)?.to_owned();
     let known = reply
         .pointer("/topology/workspaces")
@@ -147,6 +154,23 @@ pub(super) fn app_workspaces(stream: &mut UnixStream) -> Option<AppWorkspaces> {
         })
         .unwrap_or_default();
     Some(AppWorkspaces { shown, known })
+}
+
+/// Whether `value` is a workspace list of the app's session (it names a
+/// workspace the app has) that lacks the workspace the app's window shows:
+/// the app's snapshot is older than the daemon's answer.
+fn window_left_the_list(value: &Value, app: &AppWorkspaces) -> bool {
+    let list = value.as_array().or_else(|| value.get("value").and_then(Value::as_array));
+    let Some(list) = list else { return false };
+    let ids = list.iter().filter_map(|item| item.get("id").and_then(Value::as_str));
+    let mut ours = false;
+    for id in ids {
+        if id == app.shown {
+            return false;
+        }
+        ours |= app.known.contains(id);
+    }
+    ours
 }
 
 /// Sets `focused` on the workspace records in `value` (objects with a `ws_`
@@ -240,7 +264,23 @@ pub(super) fn after_daemon_with(
             focus_in_app(stream, focus, &id)
         }
         Follow::Focused => {
-            if let Some(app) = app_workspaces(stream) {
+            // Which workspace a window shows is the app's own state: the
+            // overlay reads the app's last published snapshot, answered
+            // without the `after: "sync"` barrier, which waits for a daemon
+            // round trip and for the app to publish past it (CLI-1: under
+            // load each `workspace list` waited up to two 2 s app
+            // deadlines). The focus actions answer after the window moved,
+            // so a focus is in that snapshot. Only a daemon write can leave
+            // it behind: the window's workspace was closed. When the
+            // window's workspace is missing from a list of the app's
+            // session, the window is read again with the barrier.
+            let app = match app_workspaces(stream, json!(0)) {
+                Some(app) if window_left_the_list(result, &app) => {
+                    app_workspaces(stream, json!("sync"))
+                }
+                app => app,
+            };
+            if let Some(app) = app {
                 overlay_focused(result, &app);
             }
             Ok(())

@@ -76,9 +76,11 @@ struct FixtureTheme: Equatable, Sendable {
             // Display P3 like its palette (Fixture.p3; the measurements are P3).
             typingDot = light ? c(p.typingDot) : Fixture.p3(91, 91, 94)
             typingDotHighlight = light ? c(p.typingDotHighlight) : Fixture.p3(133, 133, 135)
-            // The dark placeholder and waveform are see-through inks over the field glass (MessagesLab
-            // compose-parity, Fixture.placeholderInk / waveformInk: white 0.316, 212 at 0.556).
-            placeholder = light ? c(p.placeholder) : NSColor(white: 1, alpha: 0.316)
+            // The placeholder is the palette's, 4.5:1 on the field in light and dark (user 2026-10-19: the
+            // composer's placeholder looked dark). MessagesLab's measured dark ink (white 0.316 over the
+            // field glass, Fixture.placeholderInk) is 2.6:1 on Messages' 59 field. The dark waveform keeps
+            // MessagesLab's see-through ink (212 at 0.556): it is a graphic, not text.
+            placeholder = c(p.placeholder)
             waveform = light ? c(p.placeholder) : NSColor(white: 212 / 255, alpha: 0.556)
             caret = light || !measured ? c(p.caret) : Fixture.p3(63, 143, 247)
             fieldEdge = c(p.composeStroke)

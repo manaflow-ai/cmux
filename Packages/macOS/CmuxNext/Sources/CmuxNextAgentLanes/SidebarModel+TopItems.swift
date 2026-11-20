@@ -12,9 +12,10 @@ import Observation
 /// top band holds Home and what the person put there (Lawrence 2026-10-26); those chats are in the
 /// Priority view and Home.
 extension SidebarModel {
-    /// Keeps `transientTopItems` current until cancelled. `document`: the sidebar document every window draws from.
+    /// Keeps `transientTopItems` current until cancelled. `document`: the app's own sidebar document, which every
+    /// window of that app draws from.
     public func followTopItems(chief: ChiefSidebar = .shared,
-                               document: @escaping @MainActor @Sendable () -> SidebarDocStore? = { SidebarDocStore.current }) -> Task<Void, Never> {
+                               document: @escaping @MainActor @Sendable () -> SidebarDocStore?) -> Task<Void, Never> {
         // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
         Task { [weak self] in
             for await (items, placed) in ObservationStream({ [weak self] in

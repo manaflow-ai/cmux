@@ -19,6 +19,34 @@ export interface Attachment {
   teamId: string
   /** Set before the hub closes a socket that a newer connection of the same device replaced. */
   replaced?: boolean
+  /** When the socket was accepted (ms): proof the device was awake then, before its first ping. */
+  connectedAt?: number
+}
+
+/**
+ * The application ping a signaling client sends beside its WebSocket pings (PROTOCOL.md "Signaling
+ * WebSocket"), answered by the runtime without waking the hub. Its time is how the hub knows a device is
+ * awake: a Mac that sleeps keeps its socket half open (and so "online") but stops pinging.
+ */
+export const APP_PING = "ping"
+export const APP_PONG = "pong"
+
+/** Whether a Mac's signaling socket is open, and its last application ping that can speak for a moment. */
+export interface MacLiveness {
+  readonly connected: boolean
+  /**
+   * The last application ping (ms) of the socket that was open at the asked moment: the current socket when
+   * it connected before that moment, else the last ping recorded when an earlier socket closed or was
+   * replaced (a Mac that wakes from sleep reconnects, and its new pings say nothing about the sleep). Null
+   * when that socket never pinged.
+   */
+  readonly lastPingAt: number | null
+  /** Whether this Mac's host sends application pings at all (one that predates them never does). */
+  readonly pings: boolean
+  /** When the Mac's current signaling socket connected (ms), if connected: a host that restarted reconnects. */
+  readonly connectedAt?: number | null
+  /** The Mac's last signaling connects (ms, oldest first, at most 8): restarts inside a window, judged late. */
+  readonly connects?: ReadonlyArray<number>
 }
 
 /** A sealed reply for a Mac (PROTOCOL.md "Reply mailbox"): the hub never holds a key that opens it. */
@@ -53,6 +81,8 @@ export interface HubDevice {
   deviceId: string
   /** The owner key of src/index.ts (`<sub>` or `<projectId>:<sub>`): must be this hub's owner. */
   ownerKey: string
+  /** The build space of the registration ("" for stable): must be this hub's space. */
+  space?: string
   kind: "mac" | "phone"
   name: string
   teamId: string
@@ -93,8 +123,21 @@ export const RELAY_ERROR_INTERVAL_MS = 5000
  */
 export const BUCKETS = { text: { rate: 20, burst: 60 }, binary: { rate: 12000, burst: 24000 } } as const
 
-/** The Durable Object name of a user's hub: `user:` and the owner key (src/index.ts), never a client value. */
-export const userHubName = (ownerKey: string) => `user:${ownerKey}`
+/**
+ * The Durable Object name of a user's hub: `user:` and the owner key (src/index.ts), never a client value. In a
+ * dev build space (src/index.ts `spaceOf`) the space comes first, `dev:<slug>|user:<owner key>`, so each dev
+ * build gets its own hub; stable and nightly (space "") keep the names their hubs always had. A space never
+ * contains `|` and an owner key never starts with `dev:`, so two (space, owner) pairs never share a name.
+ */
+export const userHubName = (ownerKey: string, space = "") => (space ? `${space}|user:${ownerKey}` : `user:${ownerKey}`)
+
+/**
+ * Who a hub call is for: the owner key and the build space. A bare string is the owner key in the stable
+ * space (""), the only form before build spaces. The hub accepts it only when (space, owner) names this very
+ * object, so a call that leaves out a dev space is refused by a dev hub rather than served there.
+ */
+export type HubOwner = string | { readonly ownerKey: string; readonly space: string }
+const ownerOf = (o: HubOwner): { ownerKey: string; space: string } => (typeof o === "string" ? { ownerKey: o, space: "" } : o)
 
 /** Thrown when a call names a device of another owner than the hub's: a Worker bug, never served. */
 export class WrongHubError extends Error {}
@@ -112,8 +155,9 @@ export const bytesToUuid = (b: Uint8Array): string => {
 }
 
 /**
- * One per user (idFromName(userHubName(ownerKey)), PROTOCOL.md "Signaling WebSocket"): signaling
- * (introductions, `wg-endpoints`) and Mac presence among one user's own devices, on hibernating WebSockets.
+ * One per user and build space (idFromName(userHubName(ownerKey, space)), PROTOCOL.md "Signaling WebSocket" and
+ * "Build spaces"): signaling (introductions, `wg-endpoints`) and Mac presence among one user's own devices of
+ * one build, on hibernating WebSockets.
  * The class keeps its old name so no Durable Object migration is needed; only the name it is reached by
  * changed (it was the team id). A hub only ever holds the devices of its owner: the first call binds the
  * owner key in storage and every later call naming another owner throws `WrongHubError`, so a routing bug
@@ -137,6 +181,8 @@ export class TeamHub extends DurableObject<Env> {
     super(ctx, env)
     this.sql = ctx.storage.sql
     this.schema()
+    // Answered by the runtime, without waking the hub; getWebSocketAutoResponseTimestamp records it.
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(APP_PING, APP_PONG))
   }
 
   /** The tables (again after `retireTeamHub` deleted them: the constructor does not rerun while the object stays in memory). */
@@ -153,6 +199,10 @@ export class TeamHub extends DurableObject<Env> {
     addColumn("macs", "team_id")
     addColumn("devices", "team_id")
     addColumn("macs", "machine_id")
+    // The last application ping of a Mac's closed or replaced socket (connectivity alerts, `macLiveness`).
+    addColumn("macs", "last_ping_at")
+    // The Mac's last signaling connects, JSON ms (connectivity alerts: a host that restarted).
+    addColumn("macs", "connects")
     // Devices deleted here, so a database read that raced the deletion cannot seed them back.
     this.sql.exec(`CREATE TABLE IF NOT EXISTS forgotten (device_id TEXT PRIMARY KEY)`)
     // The last turn-ending push per Mac and session (`turnPushAllowed`); rows older than the window go.
@@ -169,8 +219,8 @@ export class TeamHub extends DurableObject<Env> {
   // ---- RPC from the Worker -------------------------------------------------------------------
 
   /** Team membership through Stack, cached 60 s (15 s for a refusal) per team. Throws when Stack fails. */
-  async isMember(teamId: string, caller: Caller, ownerKey: string): Promise<boolean> {
-    this.bind(ownerKey)
+  async isMember(teamId: string, caller: Caller, owner: HubOwner): Promise<boolean> {
+    this.bind(owner)
     const hit = this.members.get(teamId)
     const now = Date.now()
     if (hit && now - hit.at < (hit.ok ? MEMBER_TTL_MS : NON_MEMBER_TTL_MS)) return hit.ok
@@ -187,7 +237,7 @@ export class TeamHub extends DurableObject<Env> {
    * new, renamed or moved is announced to the sockets of its team.
    */
   async register(d: HubDevice): Promise<void> {
-    this.bind(d.ownerKey)
+    this.bind({ ownerKey: d.ownerKey, space: d.space ?? "" })
     this.sql.exec(`DELETE FROM forgotten WHERE device_id = ?`, d.deviceId)
     const prevTeam = this.sql.exec<{ team_id: string | null }>(`SELECT team_id FROM devices WHERE device_id = ?`, d.deviceId).toArray()[0]?.team_id ?? null
     const prevMac = this.macRow(d.deviceId)
@@ -245,8 +295,8 @@ export class TeamHub extends DurableObject<Env> {
    * hubs) would otherwise list no offline Mac in `hello` until each registers again. Rows the hub already has
    * win, and a device deleted here since (the database read may have raced the deletion) is not brought back.
    */
-  async seed(ownerKey: string, owner: { userId: string; projectId: string }, macs: ReadonlyArray<SeedMac>): Promise<void> {
-    this.bind(ownerKey)
+  async seed(hubOwner: HubOwner, owner: { userId: string; projectId: string }, macs: ReadonlyArray<SeedMac>): Promise<void> {
+    this.bind(hubOwner)
     if (this.seeded()) return
     for (const m of macs)
       this.sql.exec(
@@ -268,8 +318,8 @@ export class TeamHub extends DurableObject<Env> {
    * A device was deleted (PROTOCOL.md `DELETE /v1/devices/:deviceId`): drop a Mac from presence with a last
    * `removed` frame, close the device's socket with 4002 `removed`, and end its signaling sessions.
    */
-  async forgetDevice(ownerKey: string, deviceId: string): Promise<void> {
-    this.bind(ownerKey)
+  async forgetDevice(owner: HubOwner, deviceId: string): Promise<void> {
+    this.bind(owner)
     this.sql.exec(`DELETE FROM devices WHERE device_id = ?`, deviceId)
     this.sql.exec(`INSERT INTO forgotten (device_id) VALUES (?) ON CONFLICT(device_id) DO NOTHING`, deviceId)
     const mac = this.macRow(deviceId)
@@ -297,8 +347,8 @@ export class TeamHub extends DurableObject<Env> {
    * go now, at most one per `windowMs`. Here and not in a Workers rate limit, which counts per location and lags:
    * a burst passed it whole in the 2026-10-21 check.
    */
-  async turnPushAllowed(ownerKey: string, key: string, windowMs: number): Promise<boolean> {
-    this.bind(ownerKey)
+  async turnPushAllowed(owner: HubOwner, key: string, windowMs: number): Promise<boolean> {
+    this.bind(owner)
     const now = Date.now()
     this.sql.exec(`DELETE FROM turn_pushes WHERE at <= ?`, now - windowMs)
     if (this.sql.exec(`SELECT 1 FROM turn_pushes WHERE key = ?`, key).toArray().length > 0) return false
@@ -307,8 +357,8 @@ export class TeamHub extends DurableObject<Env> {
   }
 
   /** Account data deletion (`DELETE /v1/me`): close every socket with 4002 `removed` and wipe this hub. */
-  async purge(ownerKey: string): Promise<void> {
-    this.bind(ownerKey)
+  async purge(owner: HubOwner): Promise<void> {
+    this.bind(owner)
     for (const ws of this.ctx.getWebSockets()) {
       this.setAttach(ws, { ...this.attach(ws), replaced: true })
       try {
@@ -331,7 +381,7 @@ export class TeamHub extends DurableObject<Env> {
    */
   async retireTeamHub(): Promise<{ closed: number }> {
     const owner = this.sql.exec<{ value: string }>(`SELECT value FROM meta WHERE key = 'owner'`).toArray()[0]?.value
-    if (owner !== undefined && this.isUserHubOf(owner)) return { closed: 0 }
+    if (owner !== undefined && this.isUserHubOf(owner, this.boundSpace())) return { closed: 0 }
     const open = this.ctx.getWebSockets().filter((ws) => !this.attach(ws)?.replaced)
     // Already retired and nothing parked since (the sweep's common case): no writes.
     if (open.length === 0 && this.sql.exec(`SELECT 1 FROM meta WHERE key = 'retired'`).toArray().length > 0) return { closed: 0 }
@@ -354,8 +404,8 @@ export class TeamHub extends DurableObject<Env> {
   }
 
   /** The colo this hub runs in (diagnostics: a hub stays where it was first created). */
-  async placement(ownerKey: string): Promise<{ colo: string | null }> {
-    this.bind(ownerKey)
+  async placement(owner: HubOwner): Promise<{ colo: string | null }> {
+    this.bind(owner)
     if (this.env.ENVIRONMENT === "test") return { colo: null }
     if (this.colo === undefined) {
       try {
@@ -369,9 +419,53 @@ export class TeamHub extends DurableObject<Env> {
   }
 
   /** The owner's Macs with presence; only one team's when `teamId` is given. */
-  async macs(ownerKey: string, teamId?: string): Promise<Array<MacPresence>> {
-    this.bind(ownerKey)
+  async macs(owner: HubOwner, teamId?: string): Promise<Array<MacPresence>> {
+    this.bind(owner)
     return this.macList(teamId)
+  }
+
+  /**
+   * Whether one of the owner's Macs is connected, and the last application ping that speaks for the moment
+   * `at` (ms; connectivity alerts judge an incident at the time the phone saw it, not when its report came).
+   */
+  async macLiveness(owner: HubOwner, deviceId: string, at: number = Date.now()): Promise<MacLiveness> {
+    this.bind(owner)
+    const recorded = this.recordedPing(deviceId)
+    const connects = this.connectsOf(deviceId)
+    const ws = this.open(deviceId)
+    if (!ws || this.attach(ws).kind !== "mac") return { connected: false, lastPingAt: recorded, pings: recorded !== null, connectedAt: null, connects }
+    const pinged = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? null
+    const connectedAt = this.attach(ws).connectedAt ?? 0
+    // A socket opened after the moment cannot speak for it: the last socket before it does.
+    const lastPingAt = connectedAt > at ? recorded : pinged
+    return { connected: true, lastPingAt, pings: pinged !== null || recorded !== null, connectedAt: connectedAt || null, connects }
+  }
+
+  /** A Mac's last signaling connects (ms, oldest first). */
+  private connectsOf(deviceId: string): Array<number> {
+    const row = this.sql.exec<{ connects: string | null }>(`SELECT connects FROM macs WHERE device_id = ?`, deviceId).toArray()[0]
+    try {
+      const list = JSON.parse(row?.connects ?? "[]") as unknown
+      return Array.isArray(list) ? list.filter((n): n is number => typeof n === "number") : []
+    } catch {
+      return []
+    }
+  }
+
+  /** The last application ping recorded for a Mac when one of its sockets closed or was replaced. */
+  private recordedPing(deviceId: string): number | null {
+    const row = this.sql.exec<{ last_ping_at: string | null }>(`SELECT last_ping_at FROM macs WHERE device_id = ?`, deviceId).toArray()[0]
+    const value = row?.last_ping_at == null ? NaN : Number(row.last_ping_at)
+    return Number.isFinite(value) ? value : null
+  }
+
+  /** Keeps a closing or replaced Mac socket's last application ping (the newest one wins). */
+  private recordPing(ws: WebSocket, deviceId: string) {
+    const at = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime()
+    if (at === undefined) return
+    const known = this.recordedPing(deviceId)
+    if (known !== null && known >= at) return
+    this.sql.exec(`UPDATE macs SET last_ping_at = ? WHERE device_id = ?`, String(at), deviceId)
   }
 
   // ---- Reply mailbox (PROTOCOL.md "Sealed pushes and the reply mailbox") ------------------------------
@@ -387,8 +481,8 @@ export class TeamHub extends DurableObject<Env> {
    * the same item (a retried request); with another blob it is a conflict. At most MAILBOX_PENDING_LIMIT wait
    * per Mac. `ttlMs` is MAILBOX_TTL_MS outside tests.
    */
-  async mailboxPost(ownerKey: string, item: MailboxItem, ttlMs: number = MAILBOX_TTL_MS): Promise<MailboxPost> {
-    this.bind(ownerKey)
+  async mailboxPost(owner: HubOwner, item: MailboxItem, ttlMs: number = MAILBOX_TTL_MS): Promise<MailboxPost> {
+    this.bind(owner)
     const now = Date.now()
     this.mailboxSweep(now)
     const existing = this.sql.exec<{ mac: string; from_device: string; sealed: string; state: string }>(`SELECT mac, from_device, sealed, state FROM mailbox WHERE id = ?`, item.id).toArray()[0]
@@ -421,8 +515,8 @@ export class TeamHub extends DurableObject<Env> {
   }
 
   /** The outcome of one item of `mac`, or null when there is none (never posted, or long gone). */
-  async mailboxState(ownerKey: string, mac: string, id: string): Promise<MailboxState | null> {
-    this.bind(ownerKey)
+  async mailboxState(owner: HubOwner, mac: string, id: string): Promise<MailboxState | null> {
+    this.bind(owner)
     const now = Date.now()
     this.mailboxSweep(now)
     const row = this.sql.exec<{ state: string; reason: string | null; expires_at: number; sig: string | null }>(
@@ -480,11 +574,13 @@ export class TeamHub extends DurableObject<Env> {
     if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return new Response("expected websocket", { status: 426 })
     let att = JSON.parse(req.headers.get("x-cmux-mobile-attachment") ?? "null") as Attachment | null
     // The Worker's fast path: only the caller's identity, device id and team; the device row is this hub's.
-    const claim = JSON.parse(req.headers.get("x-cmux-mobile-claim") ?? "null") as { userId: string; projectId: string; deviceId: string; ownerKey: string; teamId: string } | null
+    const claim = JSON.parse(req.headers.get("x-cmux-mobile-claim") ?? "null") as { userId: string; projectId: string; deviceId: string; ownerKey: string; teamId: string; space?: string } | null
     const ownerKey = claim?.ownerKey ?? req.headers.get("x-cmux-mobile-owner-key")
     if (!ownerKey) return new Response("missing owner", { status: 400 })
+    // The build space the Worker resolved ("" for stable): a dev hub refuses a request without its own.
+    const space = claim ? (claim.space ?? "") : (req.headers.get("x-cmux-mobile-space") ?? "")
     try {
-      this.bind(ownerKey)
+      this.bind({ ownerKey, space })
     } catch {
       return new Response("wrong hub", { status: 500 })
     }
@@ -515,6 +611,7 @@ export class TeamHub extends DurableObject<Env> {
     }
     // One live socket per device: a reconnect replaces the old socket without an offline blip.
     for (const old of this.ctx.getWebSockets(att.deviceId)) {
+      if (att.kind === "mac") this.recordPing(old, att.deviceId)
       this.setAttach(old, { ...this.attach(old), replaced: true })
       try {
         old.close(4000, "replaced")
@@ -523,7 +620,7 @@ export class TeamHub extends DurableObject<Env> {
     const pair = new WebSocketPair()
     const [client, server] = [pair[0], pair[1]]
     this.ctx.acceptWebSocket(server, [att.deviceId])
-    this.setAttach(server, att)
+    this.setAttach(server, { ...att, connectedAt: Date.now() })
     this.live.set(att.deviceId, server)
     if (att.kind === "mac") {
       this.sql.exec(
@@ -536,7 +633,10 @@ export class TeamHub extends DurableObject<Env> {
         att.teamId,
         Date.now()
       )
+      const connects = [...this.connectsOf(att.deviceId), Date.now()].slice(-8)
+      this.sql.exec(`UPDATE macs SET connects = ? WHERE device_id = ?`, JSON.stringify(connects), att.deviceId)
     }
+
     server.send(
       JSON.stringify({
         type: "hello",
@@ -602,21 +702,36 @@ export class TeamHub extends DurableObject<Env> {
     return primaryProject(this.env).id
   }
 
-  /** Whether this object is the hub named `user:<ownerKey>` (its id derives from its name). */
-  private isUserHubOf(ownerKey: string): boolean {
-    return this.env.TEAM_HUB.idFromName(userHubName(ownerKey)).equals(this.ctx.id)
+  /** Whether this object is the hub named `userHubName(ownerKey, space)` (its id derives from its name). */
+  private isUserHubOf(ownerKey: string, space: string): boolean {
+    return this.env.TEAM_HUB.idFromName(userHubName(ownerKey, space)).equals(this.ctx.id)
   }
 
   /**
-   * Binds this hub to its owner: the key must name this very object (`user:<ownerKey>`), so neither a routing bug
-   * nor an older Worker calling a team hub can bind one, and once bound any other owner is refused.
+   * The build space this hub was bound in ("" for stable, and for every hub bound before build spaces). Kept in
+   * storage because `ctx.id.name` is not always set: a hub reached by id rather than by name (as on some wakes)
+   * has none (test/build-space.test.ts).
    */
-  private bind(ownerKey: unknown) {
-    if (typeof ownerKey !== "string" || !ownerKey || !this.isUserHubOf(ownerKey)) throw new WrongHubError("not this user's hub")
+  private boundSpace(): string {
+    return this.sql.exec<{ value: string }>(`SELECT value FROM meta WHERE key = 'space'`).toArray()[0]?.value ?? ""
+  }
+
+  /**
+   * Binds this hub to its owner and build space: the pair must name this very object (`userHubName`), so
+   * neither a routing bug, a call that left out its dev space, nor an older Worker calling a team hub can bind
+   * one, and once bound any other owner is refused. A dev hub records its space; a stable hub records none, so
+   * hubs bound before build spaces read as stable.
+   */
+  private bind(o: unknown) {
+    const owner = typeof o === "string" || (typeof o === "object" && o !== null) ? ownerOf(o as HubOwner) : undefined
+    if (!owner || typeof owner.ownerKey !== "string" || !owner.ownerKey || typeof owner.space !== "string" || !this.isUserHubOf(owner.ownerKey, owner.space))
+      throw new WrongHubError("not this user's hub")
+    const { ownerKey, space } = owner
     if (this.ownerKey === undefined)
       this.ownerKey = this.sql.exec<{ value: string }>(`SELECT value FROM meta WHERE key = 'owner'`).toArray()[0]?.value ?? null
     if (this.ownerKey === null) {
       this.sql.exec(`INSERT INTO meta (key, value) VALUES ('owner', ?)`, ownerKey)
+      if (space) this.sql.exec(`INSERT INTO meta (key, value) VALUES ('space', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, space)
       this.ownerKey = ownerKey
       return
     }
@@ -647,6 +762,7 @@ export class TeamHub extends DurableObject<Env> {
       ws.close(1000, "bye")
     } catch {}
     if (!att || att.replaced || att.kind !== "mac") return
+    this.recordPing(ws, att.deviceId)
     if (this.open(att.deviceId, ws)) return
     this.sql.exec(`UPDATE macs SET last_seen_at = ? WHERE device_id = ?`, Date.now(), att.deviceId)
     const mac = this.macRow(att.deviceId)

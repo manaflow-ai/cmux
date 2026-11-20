@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextTestSupport
 import CmuxTheme
 @testable import CmuxNextDesign
 import Testing
@@ -7,8 +8,8 @@ import CmuxNextDesignTokens
 /// Theme sweep 3: a dialog's text field drew AppKit's bezel, text and gray placeholder whatever the
 /// room's theme, and the editors' placeholders were macOS's `placeholderTextColor`. In a themed
 /// scope a field's text is the scope's primary ink, its placeholder the scope's tertiary ink, and
-/// a dialog field sits on the theme's field fill instead of the system bezel.
-@MainActor @Suite(.serialized) struct ThemedTextFieldTests {
+/// a native card's field (`ThemedFieldBox`) sits on the theme's field fill instead of the system bezel.
+@MainActor @Suite(.serialized, .closesItsWindows) struct ThemedTextFieldTests {
     /// A dark purple room theme: its inks are far from any system gray.
     private static func purpleScope() throws -> ThemeScope {
         let input = ThemeInput(background: ThemeRGB(hex: 0x2B1650), foreground: ThemeRGB(hex: 0xF4E3FF))
@@ -34,7 +35,7 @@ import CmuxNextDesignTokens
             .text(id: "name", label: nil, initial: "", placeholder: "Workspace name", secure: false),
             .text(id: "token", label: nil, initial: "", placeholder: "Token", secure: true),
         ], buttons: [.ok("Save")])
-        let dialog = CmuxDialogView(spec: spec)
+        let dialog = Self.form(spec)
         let window = try Self.host(dialog, in: scope)
         defer { window.close() }
 
@@ -68,6 +69,24 @@ import CmuxNextDesignTokens
         let placeholder = try #require(Self.placeholderInk(field), "the placeholder has a theme ink")
         #expect(Self.distance(placeholder, hint) < 0.03, "placeholder \(placeholder) vs theme hint \(hint)")
         #expect(field.placeholderString == "Group name")
+    }
+
+    /// The text fields of `spec` as a native card lays them out: each a themed input in its
+    /// `ThemedFieldBox` (the overlay page draws the dialog's own).
+    private static func form(_ spec: CmuxDialogSpec) -> NSView {
+        let form = NSStackView()
+        form.orientation = .vertical
+        form.frame = NSRect(x: 20, y: 20, width: 380, height: 120)
+        for case .text(let id, _, let initial, let placeholder, let secure) in spec.fields {
+            let input: NSTextField = secure ? ThemedSecureTextField(string: initial) : ThemedTextField(string: initial)
+            input.font = Typography.body
+            input.placeholderString = placeholder
+            input.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.\(id)")
+            let box = ThemedFieldBox(field: input, height: 24)
+            box.widthAnchor.constraint(equalToConstant: 340).isActive = true
+            form.addArrangedSubview(box)
+        }
+        return form
     }
 
     private static func placeholderInk(_ field: NSTextField) -> NSColor? {

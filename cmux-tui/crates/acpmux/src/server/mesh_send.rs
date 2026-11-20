@@ -33,12 +33,17 @@ fn idempotency_key(id: &str) -> String {
     }
 }
 
-/// Whom `target` names: `HOST/NAME`, or a bare name.
+/// Whom `target` names: `HOST/ID`, `HOST/NAME`, or a bare name.
 fn recipient(target: &str) -> Target {
     if target.starts_with('@') {
         return Target { team_address: Some(target.to_owned()), ..Target::default() };
     }
     match target.split_once('/') {
+        // `HOST/ID` names that session by its id (session ids are UUIDs), as a read does
+        // (`mesh_read.rs`): the hub matches a name only against names.
+        Some((host, id)) if !host.is_empty() && uuid::Uuid::try_parse(id).is_ok() => {
+            Target { session_id: Some(id.into()), host: Some(host.into()), ..Target::default() }
+        }
         Some((host, name)) if !host.is_empty() && !name.is_empty() => {
             Target { name: Some(name.into()), host: Some(host.into()), ..Target::default() }
         }
@@ -87,7 +92,7 @@ pub(super) async fn relay(
             let carried = carried(&delivery.request, &delivery.target).ok()?;
             let message = OutMessage {
                 to,
-                from: sender(hub, delivery.caller.as_deref(), carried.named),
+                from: sender(hub, delivery.caller.as_deref(), carried.named, carried.claim),
                 kind: Kind::Prompt,
                 op: None,
                 body: carried.body,
@@ -99,6 +104,9 @@ pub(super) async fn relay(
         }
     };
     Some(mesh.send(&message).await.map(|receipt| {
+        // Its sender reads the hub's status of it, as a direct send's (`status`).
+        let caller = delivery.caller.as_deref();
+        hub.outbox.record_mesh_origin(&receipt.message_id, &delivery.target, caller, false);
         json!({
             "via": "mesh",
             "relayDeliveryId": format!("{PREFIX}{}", receipt.message_id),
@@ -109,13 +117,14 @@ pub(super) async fn relay(
     }))
 }
 
-/// What the relay carries of a `session/prompt` request: its text, its mode, its prompt id and
-/// the display name it claims.
+/// What the relay carries of a `session/prompt` request: its text, its mode, its prompt id, the
+/// display name it claims and the harness it says it came from.
 struct Carried {
     body: String,
     mode: Mode,
     prompt_id: String,
     named: Option<String>,
+    claim: Option<Value>,
 }
 
 /// `request` as the relay carries it, or the refusal for what it cannot carry: an attachment,
@@ -162,16 +171,19 @@ fn carried(request: &Value, target: &str) -> Result<Carried, RpcError> {
             .filter(|id| !id.is_empty())
             .map_or_else(|| uuid::Uuid::now_v7().to_string(), str::to_owned),
         named: field("fromAgent").and_then(Value::as_str).map(str::to_owned),
+        // Sanitized, without what this daemon checked: the receiver keeps it as the sender's word.
+        claim: field(crate::sender_harness::META_KEY).and_then(crate::sender_harness::sanitized),
     })
 }
 
 /// The proven caller names the sender; `fromAgent` (anything a client writes) only when no
-/// session is proven, as a display name.
-fn sender(hub: &Hub, caller: Option<&str>, named: Option<String>) -> Sender {
+/// session is proven, as a display name. `claim` is provenance only, never the sender.
+fn sender(hub: &Hub, caller: Option<&str>, named: Option<String>, claim: Option<Value>) -> Sender {
     Sender {
         name: caller.map(|id| hub.session_name(id)).or(named),
         session_id: caller.map(str::to_owned),
         host: Some(crate::pairing::machine_name()),
+        claim,
         ..Sender::default()
     }
 }
@@ -196,7 +208,7 @@ pub(super) async fn send(
     let caller = conn.caller().filter(|_| !conn.is_person());
     let message = OutMessage {
         to: recipient(target),
-        from: sender(hub, caller, carried.named),
+        from: sender(hub, caller, carried.named, carried.claim),
         kind: Kind::Prompt,
         op: None,
         body: carried.body,
@@ -210,6 +222,9 @@ pub(super) async fn send(
     let receipt = mesh.send(&message).await.map_err(|e| refusal(target, e))?;
     if target.starts_with('@') {
         super::team::remember_sender(hub, conn, &receipt.message_id, target)?;
+    } else {
+        // Sent either way; unrecorded, its status is gated as a team message's (`status`).
+        hub.outbox.record_mesh_origin(&receipt.message_id, target, caller, false);
     }
     Ok(status_of(&receipt, target))
 }
@@ -233,10 +248,22 @@ pub(super) async fn status(
             )
         }
     })?;
-    let origin = hub.outbox.team_receipt(message);
-    // Stored origin is authoritative even when resolution strips teamAddress/startWork.
-    // Hub markers also protect receipts created before this daemon recorded their origin.
-    if origin.is_some() || receipt.to.team_address.is_some() || receipt.start_work.is_some() {
+    let origin = hub.outbox.mesh_origin(message);
+    let direct = origin.as_ref().filter(|d| !d.team_origin());
+    if let Some(sent) = direct {
+        // A direct `HOST/NAME` send's, which the hub stamps with `startWork` as it does every
+        // message: its proven sender's, or the person's when no session sent it.
+        if let Some(sender) = sent.caller.as_deref()
+            && !conn.is_person()
+            && conn.caller() != Some(sender)
+        {
+            return Err(RpcError::invalid_params(format!("{id} was sent by another session"))
+                .with_data(json!({"reason": "mesh.not_sender", "deliveryId": id})));
+        }
+    } else if origin.is_some() || receipt.to.team_address.is_some() || receipt.start_work.is_some()
+    {
+        // Stored origin is authoritative even when resolution strips teamAddress/startWork.
+        // Hub markers also protect receipts created before this daemon recorded their origin.
         super::team::authorize(hub, conn).await?;
         if !conn.is_person()
             && let Some(caller) = conn.caller()
@@ -335,6 +362,18 @@ pub(super) fn valid_team_address(address: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn host_and_a_session_id_name_that_session_by_id() {
+        let id = "01a1acb2-5bb4-75a3-b5eb-a0eeea1d59d5";
+        let to = recipient(&format!("machine-b/{id}"));
+        assert_eq!(
+            (to.session_id.as_deref(), to.name, to.host.as_deref()),
+            (Some(id), None, Some("machine-b"))
+        );
+        let to = recipient("machine-b/own-e2e");
+        assert_eq!((to.name.as_deref(), to.session_id), (Some("own-e2e"), None));
+    }
 
     #[test]
     fn a_prompt_id_the_hub_would_refuse_as_a_key_is_digested() {

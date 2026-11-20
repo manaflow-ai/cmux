@@ -38,17 +38,21 @@ public final class LagSpikeReporter: Sendable {
     /// workspaces, tabs). Must be cheap.
     private let contextProvider: Mutex<(@Sendable () -> [String: String])?>
 
-    /// Reports to `reporter` when it runs.
+    /// Every finished stall's count (also the ones too short to send), when set.
+    private let summary: StallSummaryRecorder?
+
+    /// Reports to `reporter` when it runs; counts every stall in its ``CrashReporter/stallSummary``.
     public convenience init(reporter: CrashReporter,
                             limiter: LagSpikeRateLimiter = LagSpikeRateLimiter(minimumNanos: LagSpikeReporter.environmentMinimumNanos())) {
-        self.init(limiter: limiter, isEnabled: { reporter.isStarted }, sink: { reporter.reportLagSpike($0) })
+        self.init(limiter: limiter, isEnabled: { reporter.isStarted }, summary: reporter.stallSummary, sink: { reporter.reportLagSpike($0) })
     }
 
-    /// Test seam: an explicit enabled check, sink and monotonic clock.
-    public init(limiter: LagSpikeRateLimiter, isEnabled: @escaping @Sendable () -> Bool, sink: @escaping Sink,
-                uptime: @escaping @Sendable () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }) {
+    /// Test seam: an explicit enabled check, summary, sink and monotonic clock.
+    public init(limiter: LagSpikeRateLimiter, isEnabled: @escaping @Sendable () -> Bool, summary: StallSummaryRecorder? = nil,
+                sink: @escaping Sink, uptime: @escaping @Sendable () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }) {
         self.limiter = Mutex(limiter)
         self.isEnabled = isEnabled
+        self.summary = summary
         self.sink = sink
         self.uptime = uptime
         self.contextProvider = Mutex(nil)
@@ -56,7 +60,7 @@ public final class LagSpikeReporter: Sendable {
 
     /// Sets the context read for each admitted spike (main thread).
     public func setContextProvider(_ provider: (@Sendable () -> [String: String])?) {
-        contextProvider.withLock { $0 = provider }
+        contextProvider.store(provider)
     }
 
     /// One finished main-thread stall.
@@ -66,9 +70,11 @@ public final class LagSpikeReporter: Sendable {
         guard isEnabled() else { return false }
         let nanos = UInt64(clamping: max(Int64(0), duration.components.seconds) * 1_000_000_000
             + duration.components.attoseconds / 1_000_000_000)
+        summary?.record(.stall(nanos: nanos))
         let now = uptime()
         guard limiter.withLock({ $0.admit(durationNanos: nanos, nowNanos: now) }) else { return false }
-        let context = contextProvider.withLock { $0 }?() ?? [:]
+        summary?.record(.spikeSent)
+        let context = contextProvider.load()?() ?? [:]
         let event = LagSpikeEvent(duration: duration, cpu: cpu, addresses: addresses, context: context)
         let sink = self.sink
         Task.detached(priority: .utility) { sink(event) }

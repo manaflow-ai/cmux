@@ -2,12 +2,14 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// With the sidebar hidden, the pointer anywhere over the top-left corner, the traffic lights and
 /// the strip's first tab where the open band would be, opens the 0-wide toolbar band (cx-fi0i,
 /// Lawrence 2026-10-09). A region taken from the collapsed band's frame was the traffic lights
 /// alone, so the pointer over the first tab did nothing.
+@Suite(.closesItsWindows)
 @MainActor struct CornerHoverBandTests {
     /// A window root in a titled, full-size-content window, as the app shows it, sidebar hidden.
     func collapsedRoot() -> (NSWindow, WindowRootView) {
@@ -36,7 +38,7 @@ import Testing
         // The middle of the open band's extent, past the traffic lights: the strip's first tab
         // sits there while the band is collapsed.
         let lights = try #require(WindowTitlebar.trafficLightsFrame(in: window))
-        let firstTab = CGPoint(x: root.convert(lights, from: nil).maxX + Metrics.space3 + TitlebarToolbarBand.width / 2, y: top)
+        let firstTab = CGPoint(x: root.convert(lights, from: nil).maxX + Metrics.space3 + root.toolbarBand.slots().width / 2, y: top)
         #expect(region.contains(firstTab))
         // The rest of the strip does not reveal.
         #expect(!region.contains(CGPoint(x: root.bounds.midX, y: top)))
@@ -57,7 +59,8 @@ import Testing
         let forward = try CollapsedTitlebarZoneGalleryTests.openForwardFrame(root)
         // The open band does not move the zone (no flicker at its edge).
         #expect(root.titlebarRevealRegion.frame == zone)
-        #expect(abs(zone.maxX - forward.maxX) < 0.5)
+        // The zone is never drawn, so it ends exactly at Forward, not at the band's pixel-aligned edge.
+        #expect(abs(zone.maxX - forward.maxX) < 0.001)
         let y = forward.midY
         #expect(!zone.contains(CGPoint(x: forward.maxX + 1, y: y)))
         #expect(zone.contains(CGPoint(x: forward.maxX - 1, y: y)))

@@ -97,10 +97,11 @@ final class HangReportsController {
 
     /// Follows the setting from the first load on (``HangReportAskPolicy``): sends only with this
     /// Mac's consent record; otherwise shows the confirm or the one-time invitation card after
-    /// `firstWindow` resolves. A managed `DisableTelemetry` turns everything off and clears what
-    /// an earlier opted-in period left (read once per launch).
-    func start(settings: SettingsController, asks: SidebarAsks, firstWindow: @escaping @MainActor () async -> Void) {
+    /// `firstWindow` resolves, never on `isFirstLaunch` (its first-run steps come first). A managed
+    /// `DisableTelemetry` turns everything off and clears what an earlier opted-in period left.
+    func start(settings: SettingsController, asks: SidebarAsks, isFirstLaunch: Bool = false, firstWindow: @escaping @MainActor () async -> Void) {
         guard service != nil else { return }
+        if isFirstLaunch { askedThisLaunch = [.confirm, .invite] }
         settings.userWillWrite = { [defaults] descriptor, value in
             Self.recordUserWrite(defaults: defaults, path: descriptor.path, value: value)
         }
@@ -183,7 +184,7 @@ final class HangReportsController {
     /// removes it. Returns the undo `setSetting` runs when the write then fails, so a failed `true`
     /// leaves no record that a later synced or edited file could use.
     static func recordUserWrite(defaults: UserDefaults, path: [String], value: CmuxNextSettings.JSONValue?) -> (@MainActor () -> Void)? {
-        guard path == HangReportsSetting.path else { return nil }
+        guard path == HangReportsSetting.configPath else { return nil }
         guard value == .bool(true) else {
             // Off stays off even if the write fails: with no record nothing sends.
             defaults.removeObject(forKey: consentKey)
@@ -221,7 +222,7 @@ final class HangReportsController {
             await apply(true, settingOn: true)
             return
         }
-        guard let descriptor = SettingsSchema.descriptor(for: HangReportsSetting.path) else { return }
+        guard let descriptor = SettingsSchema.descriptor(for: HangReportsSetting.configPath) else { return }
         do { try await settings.setSetting(descriptor, to: .bool(true), by: .user) } catch {
             logger.error("diagnostics.hangReports not written: \(String(describing: error), privacy: .public)")
         }

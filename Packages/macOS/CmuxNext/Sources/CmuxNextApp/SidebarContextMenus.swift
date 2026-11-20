@@ -14,18 +14,9 @@ enum SidebarContextMenus {
                      trailing: [NSMenuItem] = [], workspaceMachineID: String? = nil) -> NSMenu? {
         let registry = services.registry
         switch target {
-        case .tab(let workspace, let tab):
-            // The tab's own menu, as on its strip; the row is not selected by the right-click.
-            let owner = services.machines.daemon(forWorkspace: workspace.rawValue)
-            let model = owner.flatMap { services.locateTab(tab.rawValue, onMachine: $0.machineID)?.0 }
-            let menu = PaneController.tabMenu(tab.rawValue, tab: model, keepsTab: TabPromotion.staysPut(tab: tab.rawValue, in: services.workspace(id: workspace.rawValue)),
-                                              sameKind: NewTabKind.of(tab.rawValue, tab: model, services: services), registry: registry,
-                                              machineID: owner?.machineID)
-            menu.themeRows(in: scope)
-            return menu
         case .workspaces(let ids):
             // A connecting SSH machine's row (cx-gaq9) has its machine's menu: Reconnect, Disconnect, Forget.
-            if ids.count == 1, let machine = ids.first.flatMap(SSHConnectingRows.machine(of:)) {
+            if ids.count == 1, let machine = ids.first.map(\.rawValue).flatMap(ConnectingRowWindows.machine(of:)) {
                 return registry.makeContextMenu(for: .sshMachine, target: ActionTargetRef(kind: .machine, id: machine)).themeRows(in: scope)
             }
             // A placeholder row is no workspace yet: no menu, not one that does nothing.
@@ -90,7 +81,9 @@ enum SidebarContextMenus {
             }
             return registry.makeContextMenu(for: .sidebarBackground).themeRows(in: scope)
         case .profile(let id):
-            return registry.makeContextMenu(for: .profile, target: ActionTargetRef(kind: .profile, id: id.rawValue)).themeRows(in: scope)
+            let target = ActionTargetRef(kind: .profile, id: id.rawValue), menu = registry.makeContextMenu(for: .profile, target: target), space = model.profiles.first { $0.id == id }
+            MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: space?.name ?? "", rename: "space.rename", current: space?.color, noColor: space?.color == nil) // the group menu's header
+            return menu.themeRows(in: scope)
         case .nowPlaying:
             // The media card's rows (u2437): Play/Pause, Picture in Picture (on the tab the card
             // shows), Hide, Hide Until Relaunch, Never Show Media Card.

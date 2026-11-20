@@ -199,6 +199,58 @@ fn pins_groups_and_room_deletion() {
     assert_eq!(closed[0]["group"]["id"], "grp_b", "the raw delete is recorded: {closed:?}");
 }
 
+/// Delete Space into another space moves the space's sidebar document items
+/// (a Pinned link by its `room`, a group by its `profile`) in the delete's
+/// own commit. The app used to send that as a second change after the
+/// delete answered, planned from records that could be stale, and its
+/// refusal showed as "The sidebar did not make this move." (Leo, 2026-11-14).
+#[test]
+fn deleting_a_space_into_another_moves_its_document_items_in_the_same_commit() {
+    use cmux_layout_reducer::sidebar_doc::{Body, PINNED_SECTION_ID};
+    let mux = personal_mux();
+    run(&mux, json!({"cmd":"create-profile","profile":"prof_b","name":"B"})).unwrap();
+    mux.state_sidebar_apply(
+        &WorkspaceMutation::local("space-delete-test", crate::Actor::local_user()),
+        "sidebar.apply",
+        json!({"ops": [
+            {"op": "item.add", "item": {"id": "itm_link", "body": {"type": "url", "url": "https://a.example"},
+                                        "extra": {"room": "prof_b"}},
+             "to": {"section": PINNED_SECTION_ID}},
+            {"op": "item.add", "item": {"id": "itm_other", "body": {"type": "url", "url": "https://o.example"},
+                                        "extra": {"room": "prof_other"}},
+             "to": {"section": PINNED_SECTION_ID}},
+            {"op": "group.create", "id": "itm_grp", "name": "G", "profile": "prof_b",
+             "to": {"section": PINNED_SECTION_ID}},
+        ]})
+        .as_object()
+        .unwrap(),
+    )
+    .unwrap();
+    run(&mux, json!({"cmd":"delete-profile","profile":"prof_b","move_to":"default"})).unwrap();
+    let doc = mux
+        .read_registry_state(|connection| {
+            crate::state::sidebar_doc_store::with_doc(connection, |doc| Ok(doc.clone()))
+        })
+        .unwrap();
+    let room = |id: &str| doc.item(id).unwrap().extra.get("room").cloned();
+    assert_eq!(
+        room("itm_link"),
+        Some(json!("default")),
+        "the space's link stayed in the deleted space"
+    );
+    assert_eq!(room("itm_other"), Some(json!("prof_other")), "another space's link moved");
+    match &doc.item("itm_grp").unwrap().body {
+        Body::Group { profile, .. } => {
+            assert_eq!(
+                profile.as_deref(),
+                Some("default"),
+                "the space's group stayed in the deleted space"
+            );
+        }
+        body => panic!("itm_grp is not a group: {body:?}"),
+    }
+}
+
 #[test]
 fn sessions_register_import_once_and_forget() {
     let mux = personal_mux();
@@ -257,6 +309,32 @@ fn sessions_register_import_once_and_forget() {
         listed["workspaces"].as_array().unwrap().iter().all(|row| row["session_id"] != "remote-1")
     );
     assert_eq!(listed["pins"], json!([]));
+}
+
+#[test]
+fn repeated_session_puts_emit_no_personal_changed() {
+    let mux = personal_mux();
+    let request = json!({"cmd":"put-session","session_id":"remote-1","machine_name":"build-box",
+        "session_name":"main","transport":{"kind":"ssh","host":"build-box"},
+        "capabilities":["profiles-v1"]});
+    let first = run(&mux, request.clone()).unwrap();
+    assert_eq!(first["created"], true);
+    let before = revision(&mux);
+    let events = mux.subscribe();
+    for _ in 0..16 {
+        let repeated = run(&mux, request.clone()).unwrap();
+        assert_eq!(repeated["created"], false);
+        assert_eq!(repeated["session"], first["session"]);
+    }
+    assert_eq!(revision(&mux), before);
+    assert!(!events.try_iter().any(|event| matches!(event, MuxEvent::PersonalChanged { .. })));
+    let mut changed = request;
+    changed["machine_name"] = json!("renamed-box");
+    let updated = run(&mux, changed).unwrap();
+    assert_eq!(updated["session"]["machine_name"], "renamed-box");
+    assert_eq!(updated["created"], false);
+    assert_eq!(revision(&mux), before + 1);
+    assert!(events.try_iter().any(|event| matches!(event, MuxEvent::PersonalChanged { .. })));
 }
 
 /// The app records each connected session with the capabilities its

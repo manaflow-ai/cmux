@@ -311,6 +311,30 @@ class AdmitCase(unittest.TestCase):
         data["annotations"][200] = [a for a in data["annotations"][200] if a["title"] != "nightly-prepared-app"]
         self.assert_refused(self.run_tool(data), "recorded 0 prepared app digests")
 
+    def test_a_no_op_fallback_leg_takes_the_primary_legs_digest(self) -> None:
+        # After a successful primary the fallback leg (prepare-nightly-variant) reuses the
+        # primary's upload and records no digest; the primary leg's record is the producer's.
+        data = scenario("main")
+        record = data["annotations"][200][1]
+        data["annotations"][200] = [a for a in data["annotations"][200] if a["title"] != "nightly-prepared-app"]
+        data["jobs"].append({"id": 290, "name": "prepare-nightly-variant-primary (arm64)", "conclusion": "success",
+                             "run_id": RUN_ID, "head_sha": HEAD, "run_attempt": ATTEMPT})
+        data["annotations"][290] = [copy.deepcopy(record)]
+        result = self.run_tool(data)
+        self.assert_admitted(result, data, "nightly", "nightly")
+        admission = json.loads((result["out"] / "admission.json").read_text(encoding="utf-8"))
+        self.assertIn({"variant": "arm64", "job_id": 290},
+                      [{"variant": v["variant"], "job_id": v["job_id"]} for v in admission["variants"]])
+
+    def test_a_failed_primary_leg_lends_no_digest(self) -> None:
+        data = scenario("main")
+        record = data["annotations"][200][1]
+        data["annotations"][200] = [a for a in data["annotations"][200] if a["title"] != "nightly-prepared-app"]
+        data["jobs"].append({"id": 290, "name": "prepare-nightly-variant-primary (arm64)", "conclusion": "failure",
+                             "run_id": RUN_ID, "head_sha": HEAD, "run_attempt": ATTEMPT})
+        data["annotations"][290] = [copy.deepcopy(record)]
+        self.assert_refused(self.run_tool(data), "recorded 0 prepared app digests")
+
     def test_producer_with_two_digest_records_is_refused(self) -> None:
         data = scenario("main")
         data["annotations"][200].append(copy.deepcopy(data["annotations"][200][1]))

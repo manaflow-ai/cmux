@@ -72,12 +72,12 @@
 
 .acpmux-inspector-tools button {
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--ds-radius-control);
   padding: 4px 10px;
   background: var(--agent-control);
   color: var(--agent-text);
   font: inherit;
-  cursor: pointer;
+  cursor: default;
 }
 
 .acpmux-inspector-tools button:hover {
@@ -113,7 +113,7 @@
   color: var(--agent-text);
   font: inherit;
   text-align: left;
-  cursor: pointer;
+  cursor: default;
 }
 
 .acpmux-inspector-row > button:hover {

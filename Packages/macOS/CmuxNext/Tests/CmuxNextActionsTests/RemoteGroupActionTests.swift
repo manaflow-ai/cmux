@@ -13,6 +13,16 @@ import Testing
         #expect(action.arguments.contains { $0.name == "destination" })
     }
 
+    /// The palette lists the hosts to pick (connected, Tailscale, `~/.ssh/config`) and still takes typed
+    /// text; the CLI's `--name` names the group.
+    @Test func newRemoteGroupSuggestsHostsAndTakesAName() throws {
+        let action = try #require(ActionCatalog.all.first { $0.id == "remote.newGroup" })
+        let destination = try #require(action.arguments.first { $0.name == "destination" })
+        #expect(destination.suggestions?.source == ActionSuggestions.remoteHosts)
+        let name = try #require(action.arguments.first { $0.name == "name" })
+        #expect(!name.isRequired)
+    }
+
     @Test func theSidebarBackgroundMenuOffersIt() {
         func ids(_ entries: [ContextMenuEntry]) -> [ActionID] {
             entries.flatMap { entry -> [ActionID] in

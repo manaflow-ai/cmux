@@ -414,6 +414,39 @@ async fn approve_reads_asks_for_git_reads_under_a_defaults_env_that_runs_a_progr
     std::fs::remove_dir_all(repo).unwrap();
 }
 
+/// The `review` policy (a reviewer's read-only shell): a read and every read-only shell command
+/// (git status, ls, sed -n) are allowed once, everything else (git push, rm, an edit, an
+/// unknown tool) is denied at once, and nothing waits for a person. Two review sessions in a
+/// row could not grep, because every shell call waited for a person who was not there.
+#[tokio::test]
+async fn review_policy_runs_read_only_shell_and_denies_the_rest_without_asking() {
+    let (hub, mut c) = setup(PermissionPolicy::Review).await;
+    let repo = git_repo(&[]);
+    let id = session_in(&mut c, "review", &repo).await;
+    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: review", None)).await;
+    let done = tokio::time::timeout(std::time::Duration::from_secs(30), c.response(rid)).await;
+    assert!(done.expect("a review turn waited for a person").0.is_ok());
+    let events = hub.events(&id, 0, 1000).unwrap();
+    let answers: BTreeMap<String, String> = find(&events, "permission_auto")
+        .iter()
+        .map(|e| {
+            let title = e.msg["request"]["toolCall"]["title"].as_str().unwrap().to_owned();
+            (title, e.msg["optionId"].as_str().unwrap_or("none").to_owned())
+        })
+        .collect();
+    for title in ["git status", "ls", "sed", "Read notes.txt"] {
+        let answer = answers.get(title).map(String::as_str).unwrap_or("none");
+        assert!(answer.starts_with("yes-"), "{title} under review: {answer} ({answers:?})");
+    }
+    for title in ["git push", "rm", "Write a.txt", "Unknown operation"] {
+        let answer = answers.get(title).map(String::as_str).unwrap_or("none");
+        assert!(answer.starts_with("no-"), "{title} under review: {answer} ({answers:?})");
+    }
+    let detail = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(detail["pending"].as_array().map_or(0, Vec::len), 0, "{detail}");
+    std::fs::remove_dir_all(repo).unwrap();
+}
+
 /// A fresh git repository with `config` in its local config.
 fn git_repo(config: &[(&str, &str)]) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("acpmux-shell-reads-{}", uuid::Uuid::now_v7()));

@@ -23,6 +23,8 @@ pub fn coalesce(entries: &mut Vec<OutboxEntry>) {
     while i + 1 < entries.len() {
         let mergeable = !entries[i].attempted
             && !entries[i + 1].attempted
+            && entries[i].pending_media.is_empty()
+            && entries[i + 1].pending_media.is_empty()
             && entries[i].conversation == entries[i + 1].conversation
             // A message in a voice and a turn's reply stay two messages (voice.rs).
             && crate::voice::of(&entries[i].idempotency_key)

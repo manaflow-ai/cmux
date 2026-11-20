@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextPagesTestSupport
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -8,7 +9,7 @@ import Testing
 /// computer-use agent, a script) on the permission card reaches the page, but it is not the
 /// person's gesture, so the Allow it sends grants nothing and the prompt stays pending (cx-1l61).
 /// A click from the HID system (source pid 0) is the person's.
-@Suite(.serialized)
+@Suite(.serialized, .closesItsWindows)
 @MainActor
 struct AgentPanePostedClickTests {
     private actor NoHost: AgentPaneHostProviding {
@@ -59,7 +60,7 @@ struct AgentPanePostedClickTests {
     /// A screenshot/file interaction can leave Chromium's child window temporarily not key while
     /// the pane still receives the person's Return. The send must keep its person proof in that
     /// transition; otherwise an attached prompt is refused as “Not sent”.
-    @Test func aReturnFromChromiumStillCountsWhenItsChildWindowIsNotKey() async throws {
+    @Test func aReturnFromChromiumStillCountsWhileHeldOrItsChildWindowIsNotKey() async throws {
         let file = try #require(AgentPageTestRoot.page)
         let hosting = FakeChromiumHosting()
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file),
@@ -92,6 +93,42 @@ struct AgentPanePostedClickTests {
         let gestures = view.model.transport.gestures
         view.judge(keyDown, eventWindow: childWindow)
         #expect(gestures.consume(), "the person's Return after an attachment was rejected while Chromium was not key")
+        // Consuming the ordinary grant is a separate use of this physical key. It revokes the
+        // question proof, so the same event cannot authorize both paths.
+        #expect(gestures.questionReturnWitness == nil)
+
+        // A second physical Return exercises the isolated question proof independently.
+        let questionEvent = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: true))
+        questionEvent.setIntegerValueField(.eventSourceUnixProcessID, value: 0)
+        let questionKeyDown = try #require(NSEvent(cgEvent: questionEvent))
+        view.judge(questionKeyDown, eventWindow: childWindow)
+        let witness = try #require(gestures.questionReturnWitness)
+        #expect(gestures.isAvailable, "the question Return also has its ordinary grant credit")
+        // A held Return can repeat while the isolated DOM proof is still crossing the bridge.
+        // It must neither revoke that original witness nor mint another one.
+        questionEvent.setIntegerValueField(.keyboardEventAutorepeat, value: 1)
+        let repeated = try #require(NSEvent(cgEvent: questionEvent))
+        try #require(repeated.isARepeat)
+        view.judge(repeated, eventWindow: childWindow)
+        #expect(gestures.questionReturnWitness == witness)
+        #expect(gestures.isAvailable, "a held Return repeat neither mints nor consumes generic credit")
+        #expect(gestures.consumeQuestionReturn(witness))
+        #expect(!gestures.consume(), "consuming the question proof must revoke its generic grant")
+        #expect(!gestures.consumeQuestionReturn(witness))
+
+        event.setIntegerValueField(.keyboardEventAutorepeat, value: 0)
+        view.judge(try #require(NSEvent(cgEvent: event)), eventWindow: childWindow)
+        let next = try #require(gestures.questionReturnWitness)
+        // The numeric keypad's Enter is a distinct native key (76), but it is still Return
+        // for the isolated question-key listener.
+        event.setIntegerValueField(.keyboardEventKeycode, value: 76)
+        view.judge(try #require(NSEvent(cgEvent: event)), eventWindow: childWindow)
+        let keypad = try #require(gestures.questionReturnWitness)
+        #expect(!gestures.consumeQuestionReturn(next), "keypad Enter revived the previous Return proof")
+        #expect(gestures.consumeQuestionReturn(keypad), "keypad Enter did not mint a Return proof")
+        event.setIntegerValueField(.eventSourceUnixProcessID, value: Int64(getpid()) + 1)
+        view.judge(try #require(NSEvent(cgEvent: event)), eventWindow: childWindow)
+        #expect(!gestures.consumeQuestionReturn(keypad), "new posted page input left the keypad proof usable")
     }
 
     /// While the person types, a click another process posts on Allow must not spend the typing's

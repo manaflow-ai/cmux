@@ -49,7 +49,9 @@ public nonisolated struct ManagedPreferences: Sendable, Equatable {
         ManagedPolicyKey("MinimumVersion", type: .string, help: "Oldest cmux version allowed to sign in, for example 1.2.0."),
         ManagedPolicyKey("AllowedSignInMethods", type: .stringArray(["sso", "password", "oauth"]), help: "Sign-in methods the app offers."),
         ManagedPolicyKey("DisableAutoUpdate", type: .boolean, help: "Turn off automatic updates (also honored in the legacy com.cmuxterm.app domain)."),
-        ManagedPolicyKey("DisableTelemetry", type: .boolean, help: "Turn off anonymous telemetry, crash reports included, whatever the user chose (also honored in the legacy com.cmuxterm.app domain).")
+        ManagedPolicyKey("DisableTelemetry", type: .boolean, help: "Turn off anonymous telemetry, crash reports included, whatever the user chose (also honored in the legacy com.cmuxterm.app domain)."),
+        ManagedPolicyKey("ComputerUseActsAsPerson", type: .boolean,
+                         help: "Computer use can act as me: clicks and key presses computer use makes in a chat count as the person's for Send, Retry and Approve, and nothing else. Off by default. Honored only as a forced value from an installed profile; the person can still turn it off until cmux restarts, and every action it lets through is logged."),
     ]
 
     /// Whether `key` names a cmux.json setting (as opposed to a policy key).
@@ -81,4 +83,14 @@ public nonisolated struct ManagedPreferences: Sendable, Equatable {
 /// call on every settings load and must not block on the network.
 public protocol ManagedPreferenceReader: Sendable {
     func read() -> ManagedPreferences
+}
+
+public extension ManagedSource {
+    /// The managed source as the Settings page reads it (`managed` of a row or of its snapshot).
+    nonisolated var pageInfo: JSONValue {
+        switch self {
+        case .device: ["source": "device", "reason": "device", "team": .null]
+        case .team(let name): ["source": "team", "reason": "team", "team": name.isEmpty ? .null : .string(name)]
+        }
+    }
 }

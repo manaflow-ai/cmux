@@ -169,6 +169,14 @@ pub(super) fn apply(
                 params.insert("tab".into(), Value::String(tab));
             }
             Resolve::Caller => {
+                // A `current` browser is the one nearest the caller (#26648).
+                #[cfg(unix)]
+                if caller_route
+                    && super::caller_browser::wants(params)
+                    && let Some(identity) = caller_identity(socket)
+                {
+                    super::caller_browser::apply(params, &identity).map_err(Failure::Resource)?;
+                }
                 caller_scopes(params, caller_route, || caller_path(reader, &route, socket))?;
             }
         }
@@ -396,8 +404,9 @@ fn caller_scopes(
     if explicit && !caller_route {
         return Err(lookup_error(
             "selector.invalid",
-            "`caller` names the caller's own objects, which are not in a session or machine \
-             named with --socket, --session or --machine; name an id instead"
+            "`caller` names the caller's own objects, and --socket or --session names \
+             another session than the caller's terminal is in (or --machine another \
+             machine); name an id instead, or drop --session to act in your own session"
                 .into(),
         ));
     }
@@ -411,8 +420,10 @@ fn caller_scopes(
                     .into(),
             ));
         }
-        Err(failure) if explicit => return Err(failure),
-        // A caller that cannot be found leaves `current` the focused object.
+        Err(failure) if explicit || unplaced_agent(&failure) => return Err(failure),
+        // A caller that cannot be found leaves `current` the focused object,
+        // except an agent the app cannot place: its tabs never go to the
+        // focused workspace, Home (user, 2026-11-18).
         Ok(None) | Err(_) => return Ok(()),
     };
     // An explicit id or name below a `current` keeps that `current` the
@@ -469,10 +480,17 @@ fn caller_path(
 ) -> Result<Option<Map<String, Value>>, Failure> {
     let env = |key: &str| std::env::var(key).ok().filter(|value| !value.is_empty());
     #[cfg(unix)]
-    if env("CMUX_AGENT_SESSION").is_some()
-        && let Some(path) = agent_caller_path(socket)?
-    {
-        return Ok(Some(path));
+    if env("CMUX_AGENT_SESSION").is_some() {
+        match agent_caller_path(socket) {
+            Ok(Some(path)) => return Ok(Some(path)),
+            // An unplaced agent in a cmux terminal is still placed by its terminal.
+            Err(failure)
+                if !(unplaced_agent(&failure) && env("CMUX_TUI_TERMINAL_ID").is_some()) =>
+            {
+                return Err(failure);
+            }
+            _ => {}
+        }
     }
     let Some(terminal) = env("CMUX_TUI_TERMINAL_ID") else { return Ok(None) };
     registered_caller_path(reader, route, &terminal, socket).map(Some)
@@ -489,7 +507,10 @@ fn agent_caller_path(socket: &SocketRoute<'_>) -> Result<Option<Map<String, Valu
     let identity = reply.map_err(Failure::Transport)?.map_err(Failure::Resource)?;
     let Some(caller) = identity.get("caller").and_then(Value::as_object) else { return Ok(None) };
     if caller.get("workspace").and_then(Value::as_str).is_none() {
-        return Ok(None);
+        // An agent (not a Chief turn) the app shows nowhere: neither a chat
+        // tab nor its session's workspace (`CMUX_WORKSPACE_ID`) is open.
+        let chief_turn = std::env::var("CMUX_CALLER_HOME_CHAT").is_ok_and(|flag| flag == "1");
+        return if chief_turn { Ok(None) } else { Err(unplaced_agent_failure()) };
     }
     let mut path = Map::new();
     for (scope, field) in [
@@ -504,6 +525,18 @@ fn agent_caller_path(socket: &SocketRoute<'_>) -> Result<Option<Map<String, Valu
         }
     }
     Ok(Some(path))
+}
+
+/// The app's `system.identify` answer for this caller (agent session, Chief
+/// turn or terminal), or `None` when nothing names a caller, no app owns
+/// this daemon, or the app does not answer (down, restarting, slow): the
+/// `current` chain then goes to the daemon as before.
+#[cfg(unix)]
+fn caller_identity(socket: &SocketRoute<'_>) -> Option<Value> {
+    let app = socket.app.as_ref()?;
+    super::app::caller_from(|key| std::env::var(key).ok())?;
+    let mut stream = super::app::connect(app).ok()?;
+    super::app::request(&mut stream, "system.identify", json!({}), APP_IDENTIFY_WAIT).ok()?.ok()
 }
 
 #[cfg(unix)]
@@ -566,6 +599,22 @@ fn caller_path_of(
         path.insert(parent_scope.into(), Value::String(id.clone()));
     }
     Ok(path)
+}
+
+/// The app shows neither the agent's chat nor its session's workspace.
+fn unplaced_agent_failure() -> Failure {
+    Failure::Resource(json!({
+        "code": "caller_unavailable",
+        "message": "cmux shows neither this agent's chat nor the workspace its session runs in \
+                    (CMUX_WORKSPACE_ID); name a workspace by id: cmux workspace <workspace> …",
+        "retryable": false,
+    }))
+}
+
+/// Whether `failure` is [`unplaced_agent_failure`], which `current` never
+/// turns into the focused object.
+fn unplaced_agent(failure: &Failure) -> bool {
+    matches!(failure, Failure::Resource(error) if error["code"] == "caller_unavailable")
 }
 
 fn not_in_a_workspace(terminal: &str) -> Failure {
@@ -747,6 +796,19 @@ pub(super) fn call_as(
     idempotency_key: Option<&str>,
     credential: Option<&str>,
 ) -> Result<Value, Failure> {
+    call_as_on(reader, None, operation, params, idempotency_key, credential)
+}
+
+/// [`call_as`] on the daemon at `socket`, which an older daemon's error
+/// names in its restart fix (cli/older_daemon.rs).
+pub(super) fn call_as_on(
+    reader: &mut Reader,
+    socket: Option<&Path>,
+    operation: ResourceOperation,
+    params: Map<String, Value>,
+    idempotency_key: Option<&str>,
+    credential: Option<&str>,
+) -> Result<Value, Failure> {
     let id = random_request_id().map_err(|error| Failure::Transport(format!("cmux: {error}")))?;
     let mut request = json!({
         "protocol": PROTOCOL,
@@ -765,7 +827,10 @@ pub(super) fn call_as(
     send_request(reader, &encoded)?;
     match read_response(reader, &id).map_err(response_failure)? {
         Ok(result) => Ok(result),
-        Err(error) => Err(Failure::Resource(error)),
+        Err(error) => Err(Failure::Resource(
+            super::older_daemon::replace(reader, &error, operation.wire_name(), socket)
+                .unwrap_or(error),
+        )),
     }
 }
 
@@ -919,6 +984,20 @@ mod tests {
         let mut params = caller.as_object().unwrap().clone();
         let lost = || Err(Failure::Transport("app did not answer".into()));
         assert!(caller_scopes(&mut params, true, lost).is_err());
+    }
+
+    /// An agent the app shows nowhere (no chat tab, no open workspace for its
+    /// session) is refused: its `current` never becomes the focused workspace,
+    /// Home (user, 2026-11-18).
+    #[test]
+    fn an_agent_the_app_cannot_place_never_takes_the_focused_workspace() {
+        let current = json!({"workspace": "current", "pane": "current"});
+        let mut params = current.as_object().unwrap().clone();
+        let unplaced = || Err(unplaced_agent_failure());
+        let Err(Failure::Resource(error)) = caller_scopes(&mut params, true, unplaced) else {
+            panic!("an unplaced agent must be refused");
+        };
+        assert_eq!(error["code"], "caller_unavailable");
     }
 
     #[test]

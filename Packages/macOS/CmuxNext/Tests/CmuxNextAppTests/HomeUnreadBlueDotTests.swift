@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextTestSupport
 import CmuxTheme
 @testable import CmuxNextApp
 @testable import CmuxNextDesign
@@ -10,7 +11,7 @@ import Testing
 /// dot of a workspace row: the same glyph (the shared indicator's done dot, `Palette.notificationBlue`),
 /// the same size, on the same trailing column (the group header chevron's x), at every sidebar
 /// density, in light and dark. Each case prints a `HOMEDOT|` line so a fleet log shows the numbers.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct HomeUnreadBlueDotTests {
     static let home = LayoutItemID("itm_home")
     static let unreadWorkspace = WorkspaceID("ws-unread")
@@ -120,6 +121,10 @@ struct HomeUnreadBlueDotTests {
 
     @Test(arguments: cases)
     func homeDrawsTheWorkspaceRowsBlueDot(_ density: SidebarDensity, _ dark: Bool) throws {
+        // The static look (Reduce Motion) draws done as a green check, not the blue dot. Pin it off:
+        // a runner with the system's Reduce Motion on (Blacksmith macOS) otherwise fails here.
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
         let saved = DesignSettings.shared.sidebarSections.density
         DesignSettings.shared.sidebarSections.density = density
         defer { DesignSettings.shared.sidebarSections.density = saved }
@@ -164,9 +169,10 @@ struct HomeUnreadBlueDotTests {
         row.badge.updateLayer()
         #expect(!row.badge.isHidden && row.badge.state == .dot, "\(style): Home draws no dot on its glyph")
         let fill = try #require(row.badge.layer?.backgroundColor.flatMap(NSColor.init(cgColor:))?.usingColorSpace(.sRGB))
-        // Lawrence msg 11983: the sidebar's unread blue is the system blue.
+        // Lawrence msg 11983: the sidebar's unread blue is the system blue's hue, at 3:1 on the theme's
+        // rows (c0230efd501), read in the scope that draws it.
         var resolved: NSColor?
-        row.effectiveAppearance.performAsCurrentDrawingAppearance { resolved = Palette.statusUnread.usingColorSpace(.sRGB) }
+        row.effectiveAppearance.performAsCurrentDrawingAppearance { resolved = row.performWithTheme { Palette.statusUnread }.usingColorSpace(.sRGB) }
         let blue = try #require(resolved)
         #expect(abs(fill.redComponent - blue.redComponent) < 0.01 && abs(fill.blueComponent - blue.blueComponent) < 0.01,
                 "\(style): Home's glyph dot is \(fill), not the unread blue")

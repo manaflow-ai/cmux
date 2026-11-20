@@ -122,7 +122,7 @@ pub(super) fn try_handle(
         _ => return None,
     };
     let id = fields.remove("id");
-    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+    if !mux.agent_carrier_allowed(client) {
         return Some(reply(writer, id, Err(Failure::NotTrusted)));
     }
     let expected_machine = fields.remove("expected_machine_id");

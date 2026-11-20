@@ -25,12 +25,14 @@ extension UpdaterService {
             }
         }
         return Self.channelsPage(tracks: tracks, installed: installed, prs: prs, installedVersion: identity.shortVersion,
-                                 ring: shown, way: await way)
+                                 ring: shown, way: await way, switches: switchesBuilds)
     }
 
+    /// - Parameter switches: this app can switch builds (``switchesBuilds``): every build but the
+    ///   installed and pulled ones gets the Switch button.
     nonisolated static func channelsPage(tracks: [ChannelTrack], installed: ChannelBuild?, prs: [String: [Int]],
                                          installedVersion: String, ring: UpdateRing = .nightly,
-                                         way: RingReturn = .none) -> [String: Any] {
+                                         way: RingReturn = .none, switches: Bool = false) -> [String: Any] {
         [
             "title": UpdaterStrings.channelsTitle,
             "installed": UpdaterStrings.channelsInstalled(installedVersion),
@@ -39,6 +41,7 @@ extension UpdaterService {
                 "you_are_here": UpdaterStrings.channelsYouAreHere, "following": UpdaterStrings.channelsFollowing,
                 "kept": UpdaterStrings.channelsKept, "compare": UpdaterStrings.channelsCompare,
                 "commit": UpdaterStrings.channelsCommit, "release": UpdaterStrings.channelsRelease,
+                "switch": UpdaterStrings.channelsSwitch,
             ],
             "tracks": tracks.map { track -> [String: Any] in
                 [
@@ -54,6 +57,7 @@ extension UpdaterService {
                             "health": build.health.rawValue, "health_title": healthTitle(build.health) ?? NSNull(),
                             "pulled_reason": build.pulledReason ?? NSNull(),
                             "installed": build.isInstalled, "kept": build.isKept,
+                            "switch": switches && !build.isInstalled && build.health != .pulled,
                             "prs": (prs[build.build] ?? []).map { ["number": $0, "url": "\(ChannelBuild.repository)/pull/\($0)"] as [String: Any] },
                         ]
                     },

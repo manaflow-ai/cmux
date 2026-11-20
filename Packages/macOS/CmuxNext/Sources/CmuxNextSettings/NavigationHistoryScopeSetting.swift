@@ -4,9 +4,6 @@
 /// own list (a browser page's back and forward). The app maps the value to `HistoryScope`.
 public nonisolated struct NavigationHistoryScopeSetting {
     public nonisolated init() {}
-    public static let configPath = ["navigation", "historyScope"]
-    public static let values = ["workspace", "window", "surface"]
-    public static let fallback = "workspace"
 
     /// A missing key is the default with no diagnostic; a bad value is the default plus a diagnostic.
     static func parse(_ root: JSONValue) -> (String, SettingsDiagnostic?) {

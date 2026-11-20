@@ -33,10 +33,11 @@ export interface UploadSlot {
   readonly quota_user: string
   readonly object_id: string
   readonly object_key: string
-  readonly mode: "stream" | "presigned" | "multipart"
+  /** `direct`: multipart whose parts go straight to R2 (presigned UploadPart), hashed back after the join. */
+  readonly mode: "stream" | "presigned" | "multipart" | "direct"
   readonly expires_at: number
   readonly state?: "open" | "uploading" | "tombstone"
-  /** A multipart slot's R2 upload (made with the slot) and its SHA-256 state after the parts so far. */
+  /** A multipart slot's R2 upload (made with the slot) and its SHA-256 state after the parts so far (direct: after the bytes hashed back so far, null until the join). */
   readonly multipart_upload_id?: string | null
   readonly multipart_hash?: string | null
   /** The request uploading the next part now (`<part>:<random>`) and when it claimed it (claimMultipartPart). */
@@ -198,10 +199,19 @@ export const slotIn = (sql: Sql, id: string, state: NonNullable<UploadSlot["stat
   return s ? slotRow(s) : null
 }
 
+/**
+ * When an open slot of `mode` stops being usable. A direct slot's parts go to R2 on URLs signed
+ * until its expiry, and a PUT started before then may finish after it; its key and upload are
+ * kept until the expiry grace (DUE), so its next part URL (leaseDirect, which renews the lease),
+ * its completion and its verification steps are taken until then: a part slower than the idle
+ * lease never strands the upload.
+ */
+const usableUntil = (s: UploadSlot): number => (s.mode === "direct" ? s.expires_at + UPLOADING_GRACE_MS : s.expires_at)
+
 /** The live open slot `id` of `mode` (and of `actor` when given); `consume` moves it to `uploading`, so it works once. */
 export const takeSlot = (sql: Sql, id: string, mode: UploadSlot["mode"], consume: boolean, actor?: string): UploadSlot | null => {
   const s = slotIn(sql, id, "open")
-  if (!s || s.mode !== mode || s.expires_at <= Date.now() || (actor !== undefined && s.actor !== actor)) return null
+  if (!s || s.mode !== mode || usableUntil(s) <= Date.now() || (actor !== undefined && s.actor !== actor)) return null
   if (consume) sql.exec(`UPDATE ${SLOTS} SET state = 'uploading' WHERE id = ?`, id)
   return { ...s, state: consume ? "uploading" : "open" }
 }
@@ -288,6 +298,23 @@ export const reopenMultipart = (sql: Sql, id: string): boolean => {
   return true
 }
 
+/** Open direct slot `id` still taking parts (not joined yet): renews its idle lease for the next part URL. */
+export const leaseDirect = (sql: Sql, id: string): UploadSlot | null => {
+  const slot = slotIn(sql, id, "open")
+  if (!slot || slot.mode !== "direct" || slot.multipart_hash || usableUntil(slot) <= Date.now()) return null
+  const expires_at = Date.now() + conversation.ATTACHMENT_LIMITS.uploadTtlMs
+  sql.exec(`UPDATE ${SLOTS} SET expires_at = ? WHERE id = ?`, expires_at, id)
+  return { ...slot, expires_at }
+}
+
+/** Stores the hash state of open direct slot `id` after a verification step, only if no other step stored one since `before`; renews its lease. */
+export const advanceDirect = (sql: Sql, id: string, before: string | null, after: string): boolean => {
+  const slot = slotIn(sql, id, "open")
+  if (!slot || slot.mode !== "direct" || (slot.multipart_hash ?? null) !== before || usableUntil(slot) <= Date.now()) return false
+  sql.exec(`UPDATE ${SLOTS} SET multipart_hash = ?, expires_at = ? WHERE id = ?`, after, Date.now() + conversation.ATTACHMENT_LIMITS.uploadTtlMs, id)
+  return true
+}
+
 /** The recorded part etags of slot `id`, in part order. */
 export const multipartEtags = (sql: Sql, id: string): Array<string> => sql.exec<{ etag: string }>(`SELECT etag FROM ${PARTS} WHERE slot = ? ORDER BY part`, id).map((r) => r.etag)
 
@@ -318,7 +345,7 @@ export const settleSlot = (sql: Sql, slot: UploadSlot, kept: boolean): void => {
   else sql.exec(`UPDATE ${SLOTS} SET state = 'tombstone' WHERE id = ?`, slot.id)
 }
 
-const DUE = `CASE WHEN state = 'uploading' OR mode IN ('presigned', 'multipart') THEN expires_at + ${UPLOADING_GRACE_MS} ELSE expires_at END`
+const DUE = `CASE WHEN state = 'uploading' OR mode IN ('presigned', 'multipart', 'direct') THEN expires_at + ${UPLOADING_GRACE_MS} ELSE expires_at END`
 
 /** Slots whose time is up: open stream slots at expiry; uploading and remote slots (open or tombstone) after the grace. */
 export const dueSlots = (sql: Sql, now: number, limit: number): Array<UploadSlot> =>

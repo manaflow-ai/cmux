@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 
 use cmux_server_core::layout::LAUNCHD_LABEL;
-use cmux_server_core::units::launch_agent_plist;
+use cmux_server_core::units::{launch_agent_plist, session_launch_agent_plist};
 
 use super::{ServiceReport, ServiceState, Services};
 use crate::error::{Error, Result};
@@ -30,8 +30,11 @@ fn loaded(s: &Services<'_>) -> bool {
 }
 
 pub fn plist(s: &Services<'_>) -> Result<String> {
-    launch_agent_plist(s.layout)
-        .map_err(|e| Error::rejected(format!("cannot render the plist: {e:?}")))
+    match &s.session {
+        Some(host) => session_launch_agent_plist(s.layout, &host.binary, &host.session),
+        None => launch_agent_plist(s.layout),
+    }
+    .map_err(|e| Error::rejected(format!("cannot render the plist: {e:?}")))
 }
 
 pub fn install(s: &Services<'_>, restart: bool) -> Result<ServiceReport> {
@@ -51,6 +54,8 @@ pub fn install(s: &Services<'_>, restart: bool) -> Result<ServiceReport> {
         report.restarted = true;
     }
     if !was_loaded || changed {
+        // A `server down` override would refuse the bootstrap; installing starts the server.
+        let _ = s.runner.run(&launchctl().args(["enable", &target(s)]));
         s.runner.check(&launchctl().args(["bootstrap", &domain(s)]).arg(&plist))?;
     } else if restart {
         s.runner.check(&launchctl().args(["kickstart", "-k", &target(s)]))?;
@@ -61,6 +66,24 @@ pub fn install(s: &Services<'_>, restart: bool) -> Result<ServiceReport> {
 
 pub fn restart(s: &Services<'_>) -> Result<()> {
     s.runner.check(&launchctl().args(["kickstart", "-k", &target(s)])).map(|_| ())
+}
+
+/// Clears a `down` override, then loads the plist when it is not loaded.
+pub fn start(s: &Services<'_>) -> Result<()> {
+    s.runner.check(&launchctl().args(["enable", &target(s)]))?;
+    if !loaded(s) {
+        s.runner.check(&launchctl().args(["bootstrap", &domain(s)]).arg(s.unit_path()?))?;
+    }
+    Ok(())
+}
+
+/// Records a disabled override (kept across logins), then unloads the job.
+pub fn stop(s: &Services<'_>) -> Result<()> {
+    s.runner.check(&launchctl().args(["disable", &target(s)]))?;
+    if loaded(s) {
+        s.runner.check(&launchctl().args(["bootout", &target(s)]))?;
+    }
+    Ok(())
 }
 
 pub fn uninstall(s: &Services<'_>) -> Result<Vec<PathBuf>> {

@@ -33,6 +33,43 @@ struct ReleaseMediaStoreTests {
         let url = try #require(URL(string: "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/123/screen%20shot.png"))
         #expect(ReleaseMediaStore.isPublicHighlightURL(url))
     }
+
+    @Test func aMediaRoleRoundTripsAndALonePictureHasNone() throws {
+        let json = Data("""
+        [{"url": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/1/after.png", "sha256": "a", "kind": "image", "alt": "After", "role": "after"},
+         {"url": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/1/shot.png", "sha256": "b", "kind": "image", "alt": "Shot"}]
+        """.utf8)
+        let media = try JSONDecoder().decode([ReleaseNotes.Media].self, from: json)
+        #expect(media.map(\.role) == ["after", nil])
+        let again = try JSONDecoder().decode([ReleaseNotes.Media].self, from: JSONEncoder().encode(media))
+        #expect(again == media)
+        let lone = try #require(String(bytes: JSONEncoder().encode(media[1]), encoding: .utf8))
+        #expect(!lone.contains("role"))
+    }
+
+    @Test func inliningKeepsEachPictureRole() async throws {
+        let cache = FileManager.default.temporaryDirectory.appending(path: "release-media-role-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: cache) }
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        var pictures: [ReleaseNotes.Media] = []
+        for (index, role) in ["after", "before"].enumerated() {
+            let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, UInt8(index)])
+            let hash = ReleaseMediaStore.sha256(png)
+            try png.write(to: cache.appending(path: "sha256-\(hash)"))
+            let url = try #require(URL(string: "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/1/\(role).png"))
+            pictures.append(ReleaseNotes.Media(url: url, sha256: hash, kind: "image", alt: role, role: role))
+        }
+        let notes = ReleaseNotes(version: 1, build: "1", shortVersion: "1.0.0", date: "2026-11-08",
+                                 highlights: [.init(id: "pair", title: "Pair", body: "", media: pictures, action: nil)], changes: [])
+        let store = ReleaseMediaStore(cache: cache, bundledDirectories: [], fetcher: NoNetwork(), siteBase: nil, reelBase: nil)
+        let inlined = await store.inlined(notes).highlights[0].media
+        #expect(inlined.map(\.role) == ["after", "before"])
+        #expect(inlined.allSatisfy { $0.url.scheme == "data" })
+    }
+}
+
+private struct NoNetwork: AppcastFetching {
+    func fetch(_ url: URL) async throws -> Data { throw URLError(.notConnectedToInternet) }
 }
 
 @Suite(.serialized) struct ReleaseMediaRedirectTests {

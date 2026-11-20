@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextFocus
 import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation

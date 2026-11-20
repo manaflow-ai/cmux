@@ -48,6 +48,8 @@ pub fn tokens(request: &Value) -> Vec<String> {
         out.push(k.to_lowercase());
     }
     if let Some(t) = tc.get("title").and_then(Value::as_str) {
+        // A subagent's command is matched as it was written, not on the hook's mark line.
+        let t = crate::bg_hook::without_subagent_mark(t);
         out.push(t.to_lowercase());
         let head = t.split(|c: char| c == ':' || c.is_whitespace()).next().unwrap_or("").trim();
         if !head.is_empty() {
@@ -89,5 +91,35 @@ pub fn decide(rules: &Value, request: &Value) -> Option<RuleDecision> {
         Some("deny") => Some(RuleDecision::Deny),
         Some("ask") => Some(RuleDecision::Ask),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    mod caller_identity {
+        use super::super::*;
+        use serde_json::json;
+
+        /// A Claude Code subagent's Bash title starts with the hook's mark line
+        /// (`bg_hook::subagent_mark`); a rule still matches the command it was written as.
+        #[test]
+        fn a_rule_matches_a_subagents_marked_command_as_written() {
+            let rules = json!({"autoDeny": ["rm", "git push"], "autoApprove": ["cargo build"]});
+            let mark = "export ACPMUX_CALLER_SUBAGENT=general-purpose:a0a68e7af3df5967e\n";
+            let request = |title: &str| json!({"toolCall": {"kind": "execute", "title": title}});
+            for (command, want) in [
+                ("rm -rf build", Some(RuleDecision::Deny)),
+                ("git push origin HEAD", Some(RuleDecision::Deny)),
+                ("cargo build --release", Some(RuleDecision::Approve)),
+                ("./scripts/tell beta hi", None),
+            ] {
+                assert_eq!(decide(&rules, &request(command)), want, "{command}");
+                let marked = format!("{mark}{command}");
+                assert_eq!(decide(&rules, &request(&marked)), want, "marked {command}");
+            }
+            // Only the hook's exact mark is passed over: another first line is the command.
+            let other = request("export X=1\nrm -rf build");
+            assert_eq!(decide(&rules, &other), None);
+        }
     }
 }

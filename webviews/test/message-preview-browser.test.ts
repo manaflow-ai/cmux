@@ -35,9 +35,22 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
     const { port } = vite.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant })}`);
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+    // Received messages next to each other draw as one "Received N messages" row (#32720), whose
+    // messages show once it opens; inside, each message keeps its own line, toggle and preview.
+    const batch = page.locator(".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle");
+    if ((await batch.count()) === 0) return;
+    if ((await batch.first().getAttribute("aria-expanded")) !== "true") await batch.first().click();
+    await page.locator(".cv-lane-batch__body .cv-received").first().waitFor();
+    await page
+      .locator(".cv-lane-batch")
+      .first()
+      .evaluate((row) =>
+        Promise.all(row.getAnimations({ subtree: true }).map((animation) => animation.finished.catch(() => undefined))),
+      );
   };
-  /// The received messages' toggles: each message is its own disclosure line (IncomingMessageCard.tsx).
-  const toggle = () => page.locator(".cv-received .cv-disclosure__toggle");
+  /// The received messages' toggles: each message is its own message line (IncomingMessageCard.tsx,
+  /// AgentMessageRow.tsx).
+  const toggle = () => page.locator(".cv-received .cv-agentmsg__toggle");
   /// Resolves once nothing in the first received message is moving.
   const folded = () =>
     page
@@ -89,7 +102,7 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
             // One line: no taller than the 26px line it sits on.
             oneLine:
               box.getBoundingClientRect().height <=
-              box.closest(".cv-disclosure__line")!.getBoundingClientRect().height + 0.5,
+              box.closest(".cv-agentmsg__line")!.getBoundingClientRect().height + 0.5,
           };
         });
       expect(preview).toEqual({ overflow: "ellipsis", wrap: "nowrap", oneLine: true });
@@ -110,7 +123,9 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
         .first()
         .evaluate((box) => box.clientHeight >= box.scrollHeight && box.textContent!.includes("Step 12")),
     ).toBe(true);
-    await toggle().first().click();
+    // Open, the toggle button holds no preview and has no width; the whole line toggles, so close
+    // it from its chevron, as the sent test does.
+    await page.locator(".cv-received .cv-agentmsg__chevron").first().click();
     await page.locator(".cv-received__text").first().waitFor({ state: "detached" });
   });
   test("sent preview has no fade or partial chip and Show more reveals all of it", async () => {
@@ -122,7 +137,9 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
     expect(await intact(".cv-message__text")).toEqual({ mask: "none", split: 0, visible: true });
     await page.locator(".cv-message__more").click();
     expect(await page.locator(".cv-message__text").evaluate((box) => box.clientHeight >= box.scrollHeight)).toBe(true);
-    await page.locator(".cv-message .cv-agentmsg__toggle").click();
+    // Open, the toggle button holds no preview and has no width since #32867 put the chevron right
+    // after the words; the whole line still toggles, so close it from its chevron.
+    await page.locator(".cv-message .cv-agentmsg__chevron").click();
     await page.locator(".cv-message .cv-agentmsg__toggle").click();
     expect(await page.locator(".cv-message__more").getAttribute("aria-expanded")).toBe("true");
     await page.locator(".cv-message__more").press("Enter");
@@ -146,7 +163,7 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
     test(`Tab reaches ${direction} code controls inside the shown text`, async () => {
       await open("code-first");
       const row = page.locator(direction === "received" ? ".cv-received" : ".cv-message");
-      const toggle = row.locator(direction === "received" ? ".cv-disclosure__toggle" : ".cv-agentmsg__toggle");
+      const toggle = row.locator(".cv-agentmsg__toggle");
       const text = row.locator(direction === "received" ? ".cv-received__text" : ".cv-message__text");
       if (direction === "sent") {
         await toggle.click();

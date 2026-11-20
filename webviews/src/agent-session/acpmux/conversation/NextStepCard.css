@@ -1,0 +1,111 @@
+/* A tagged ask at the end of a turn (NextStepCard.tsx), as Claude desktop's next-step box: a quiet
+   bordered card in the question card's tokens, the question in the text colour, a muted line under
+   it, then the answers as pills in one row. The first is filled and carries its ⌘↩ keycap; the
+   rest are a neutral fill. Answered, it is the answered question card (styles.css
+   .acpmux-question-answered). No transition: a click sends at once. */
+.acpmux-next-step:not(.acpmux-next-step--answered) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2, 8px);
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  padding: var(--ds-space-3, 12px) var(--ds-space-4, 16px);
+  border: var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);
+  border-radius: 12px;
+  background: var(--acpmux-question-bg);
+  color: var(--agent-text);
+  font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
+  line-height: var(--text-body--line-height);
+}
+.acpmux-next-step__question,
+.acpmux-next-step__detail {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.acpmux-next-step__detail {
+  margin-top: calc(var(--ds-space-1, 4px) * -1);
+  color: var(--agent-muted);
+}
+.acpmux-next-step__answers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-2, 8px);
+  padding-top: var(--ds-space-1, 4px);
+}
+.acpmux-next-step__answer {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2, 8px);
+  min-height: var(--ds-control-primary, 32px);
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--acpmux-question-hover);
+  color: var(--agent-text);
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+.acpmux-next-step__answer:hover {
+  background: var(--acpmux-question-highlight);
+}
+.acpmux-next-step__answer:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
+  outline-offset: 1px;
+}
+/* The ink is the page's opaque base (--acpmux-base, the theme's accentText), never --agent-page-bg:
+   that one is the translucent glass page, so under a see-through window the label drew in the
+   fill's own white (Leo 2026-11-03: "that "YES" was styled bad it was white font on white button"). */
+.acpmux-next-step__answer.is-primary {
+  background: var(--agent-text);
+  color: var(--acpmux-base);
+}
+.acpmux-next-step__answer.is-primary:hover {
+  opacity: 0.9;
+}
+.acpmux-next-step__answer.is-primary .acpmux-keycap {
+  margin: 0 -4px 0 2px;
+  border-color: color-mix(in srgb, var(--acpmux-base) 30%, transparent);
+  color: inherit;
+  opacity: 0.7;
+}
+.acpmux-next-step__answer:disabled {
+  opacity: 0.6;
+}
+/* Answered, the box keeps its width and inset, so it folds in place instead of shrinking to the
+   answered question card's fit-content width (Leo's answered reference keeps the full box). */
+.acpmux-next-step.acpmux-next-step--answered {
+  align-self: stretch;
+  width: auto;
+  padding: var(--ds-space-3, 12px) var(--ds-space-4, 16px);
+}
+/* The agent's wrap-up recap (wrapUp.ts): muted at the top of the box, a paragraph's gap above the
+   question, as Claude desktop's next-step box. Alone, it is the whole box. */
+.acpmux-next-step__recap {
+  margin: 0 0 var(--ds-space-2, 8px);
+  color: var(--agent-muted);
+  overflow-wrap: anywhere;
+}
+.acpmux-next-step--recap .acpmux-next-step__recap,
+.acpmux-next-step--answered .acpmux-next-step__recap {
+  margin-bottom: 0;
+}
+.acpmux-next-step--answered .acpmux-next-step__recap {
+  margin-bottom: var(--ds-space-2, 8px);
+}
+.acpmux-next-step.acpmux-next-step--recap {
+  display: block;
+  box-sizing: border-box;
+  padding: var(--ds-space-3, 12px) var(--ds-space-4, 16px);
+  border: var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);
+  border-radius: 12px;
+  background: var(--acpmux-question-bg);
+  font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
+  line-height: var(--text-body--line-height);
+}

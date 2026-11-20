@@ -235,3 +235,28 @@ fn tab_update_latency_while_the_history_feed_catches_up() {
     mux.shutdown();
     assert_eq!(samples.len(), WRITES, "every write answered");
 }
+
+/// `history.entries.list` right after an agent hook lists it. The writer acknowledges the hook
+/// once its commit is durable, but the shared ring gets it only on the tailer's next pass; a
+/// fold that read the ring then stopped at the ring's head and called itself complete without
+/// the hook (`agent_history_save_does_not_wait_for_the_workspace_registry_lock`, red in 2 of
+/// 16 full Linux runs, BASE RED SUITE 2026-11-04). The tailer is held here so the ring trails
+/// the commit every time.
+#[test]
+fn a_fold_right_after_an_acknowledged_hook_includes_it_while_the_ring_trails() {
+    let root = Root::new("ring-trails");
+    let mux = open("history-feed-ring-trails", &root.0);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal = surface.terminal_public_id().cloned().expect("workspace terminal");
+    // Fold what is there, so the cursor is at the ring's head.
+    assert!(catch_up(&mux, None).unwrap().complete);
+    let kernel = mux.shared_journal_handle();
+    let hold = kernel.hold_tailer_for_test();
+    append_agent_hook(&mux, &terminal, "history-feed-trailing-agent");
+    assert!(!kernel.ring_is_current(), "the held tailer has not published the hook");
+    let caught = catch_up(&mux, None).unwrap();
+    drop(hold);
+    assert!(caught.complete);
+    assert_eq!(caught.changed, vec![HistoryKind::Agent], "the fold missed the acknowledged hook");
+    mux.shutdown();
+}

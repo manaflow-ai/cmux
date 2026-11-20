@@ -23,7 +23,7 @@ enum PaletteRowControls {
                 id: "usage.forget", title: PaletteStrings.resetRanking, symbol: "arrow.counterclockwise",
                 effect: .performKeepingOpen { [weak model] in
                     usage.forget(key: key)
-                    model?.frecency = usage.history
+                    model?.syncHistory()
                 }
             ))
         }

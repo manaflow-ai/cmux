@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -15,7 +16,10 @@ import unittest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts/ci/nightly_next_canary_mode.py"
+sys.path.insert(0, str(ROOT / "tests"))
+from nightly_workflow_text import nightly_text  # noqa: E402
+
+SCRIPT =ROOT / "scripts/ci/nightly_next_canary_mode.py"
 spec = importlib.util.spec_from_file_location("canary_mode", SCRIPT)
 mode = importlib.util.module_from_spec(spec)
 sys.modules["canary_mode"] = mode
@@ -114,7 +118,7 @@ class CliTests(unittest.TestCase):
 
 class WiringTests(unittest.TestCase):
     canary = (ROOT / ".github/workflows/nightly-next-canary.yml").read_text()
-    nightly = (ROOT / ".github/workflows/nightly.yml").read_text()
+    nightly = nightly_text()
 
     def test_post_publication_verifier_uses_the_compatibility_mode(self):
         self.assertIn("scripts/ci/nightly_next_canary_mode.py resolve", self.canary)
@@ -160,7 +164,7 @@ class VerdictDurabilityTests(unittest.TestCase):
             step_file = Path(tmp) / "step.sh"
             step_file.write_text(script)
             result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", str(step_file)],
-                                    env=full, capture_output=True, text=True, timeout=60)
+                                    env=full, cwd=tmp, capture_output=True, text=True, timeout=60)
             return result, output.read_text()
 
     def record(self, app: str, app_class: str = "") -> str:
@@ -298,16 +302,33 @@ class VerdictDurabilityTests(unittest.TestCase):
                 (bin_dir / "doc").write_text(document)
             (bin_dir / "curl").write_text(f"""#!/bin/bash
 out=
-while [ $# -gt 0 ]; do [ "$1" = -o ] && {{ out=$2; shift; }}; shift; done
+while [ $# -gt 0 ]; do [ "$1" = -o ] && {{ out=$2; shift; }}; case "$1" in https://*) echo "$1" >> {tmp}/urls ;; esac; shift; done
 [ -f {tmp}/doc ] || {{ echo "curl: (22) 404" >&2; exit 22; }}
 cp {tmp}/doc "$out"
 """)
             (bin_dir / "curl").chmod(0o755)
+            env = yaml.safe_load((ROOT / ".github/workflows/nightly-next-canary.yml").read_text())["env"]
             result, output = self.run_step("pick", "Read the build's durable verdict",
-                                           {"BUILD": "4100", "NIGHTLY_NEXT_FEED": "https://x/nightly-next/next/appcast-arm64.xml"},
+                                           {"BUILD": "4100", "NIGHTLY_NEXT_FEED": env["NIGHTLY_NEXT_FEED"],
+                                            "NIGHTLY_NEXT_VERDICTS_BASE": env["NIGHTLY_NEXT_VERDICTS_BASE"]},
                                            path=bin_dir)
             self.assertEqual(result.returncode, 0, result.stderr)
+            # The verdicts' folder nightly-next-verdict.yml writes (nightly-next/next/verdicts/), not the feed's.
+            self.assertTrue((bin_dir / "urls").read_text().startswith(
+                "https://files-next.cmux.com/nightly-next/next/verdicts/4100.json?"), (bin_dir / "urls").read_text())
             return output
+
+    def test_a_step_writes_nothing_where_the_tests_run(self):
+        # The durable-verdict step downloads verdict.json into its working
+        # folder; run from a checkout, it must not leave the file there.
+        with tempfile.TemporaryDirectory() as here:
+            before = os.getcwd()
+            os.chdir(here)
+            try:
+                self.durable('{"build": "4100", "verdict": "pass"}')
+            finally:
+                os.chdir(before)
+            self.assertEqual(os.listdir(here), [])
 
     def test_a_marked_build_is_checked_only_while_its_verdict_document_exists(self):
         # The dispatch was accepted, but nightly-next-verdict.yml failed before

@@ -12,6 +12,7 @@
 
 use std::collections::HashSet;
 use std::future::Future;
+use std::io::{self, Write};
 
 use anyhow::Result;
 use cmux_json::JsonSet as _;
@@ -19,8 +20,8 @@ use serde_json::Value;
 
 use crate::cli::errors::{AppError, Code};
 
-/// Rows per page: about 4 MB at the 3 to 4 KB a row takes on a busy host, a quarter of the
-/// message limit, and four requests for 3,700 sessions.
+/// Initial rows per page. A complete census learns a fuller page size from the first
+/// successful reply; explicit one-page reads keep the requested count.
 pub(super) const PAGE_ROWS: u64 = 1000;
 
 /// The most times in a row a read takes a cursor it had already followed, each with a page twice
@@ -78,6 +79,10 @@ where
     // way past it.
     let mut cursors: HashSet<String> = cursor.iter().cloned().collect();
     let mut cursor = cursor;
+    // Learn once, from a successful ordinary first page. A size refusal fixes the
+    // smaller fallback for the rest of this read, so heterogeneous rows cannot
+    // repeatedly make us grow and retry the same oversized page.
+    let mut learn_size = plan.size == PAGE_ROWS && !plan.one && plan.want.is_none();
     loop {
         let left = plan.want.map(|want| want.saturating_sub(rows.len()));
         let ask = match left {
@@ -94,6 +99,7 @@ where
             Ok(reply) => reply,
             Err(e) => match too_large(&e) {
                 Some(_) if ask > 1 => {
+                    learn_size = false;
                     (size, widen) = (ask / 2, 0);
                     continue;
                 }
@@ -101,6 +107,10 @@ where
                 None => return Err(e),
             },
         };
+        if learn_size && reply.get("nextCursor").is_some_and(Value::is_string) {
+            size = fuller_page(&reply).max(size);
+        }
+        learn_size = false;
         // A daemon that pages answers a `limit` with `nextCursor` (null on the last page); one
         // too old for pages sends its whole list, with no cursor and from the start.
         let pages = reply.get("nextCursor").is_some();
@@ -165,6 +175,30 @@ where
         }
         cursor = Some(next);
     }
+}
+
+/// Size the next page from measured serialized bytes, leaving the protocol's existing
+/// near-cap headroom for the reply envelope and variation between rows. Count bytes
+/// without allocating another copy of the page. The daemon's byte bound and the
+/// halve-on-error path remain authoritative when later rows are larger.
+fn fuller_page(reply: &Value) -> u64 {
+    struct Bytes(usize);
+    impl Write for Bytes {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0 = self.0.saturating_add(bytes.len());
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    let rows = reply.get("sessions").and_then(Value::as_array).map_or(0, Vec::len);
+    let mut bytes = Bytes(0);
+    if serde_json::to_writer(&mut bytes, reply).is_err() || bytes.0 == 0 {
+        return PAGE_ROWS;
+    }
+    let count = rows.saturating_mul(crate::wire_size::NEAR_CAP_BYTES) / bytes.0;
+    u64::try_from(count).unwrap_or(PAGE_ROWS)
 }
 
 /// One session on one host: a chat's copies on peers are different rows.

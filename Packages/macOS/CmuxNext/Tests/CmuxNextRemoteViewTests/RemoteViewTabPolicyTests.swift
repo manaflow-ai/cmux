@@ -97,4 +97,34 @@ import Testing
 
         #expect(decision == .confirm(expected))
     }
+
+    /// Leo, 2026-11-16, on "Open chat-800dd580cab0487c" over two centered paragraphs: "is is a weirdly
+    /// styled thing :(". The title is the name a person reads and the status is its own chip.
+    @Test func connectionGateTitlesTheNameWithStatusApart() {
+        let target = RemoteConnectionTarget(name: "Nightly desktop", status: "Running", region: "us-west", kind: .desktop, isLive: true)
+        let text = RemoteViewUnavailableView.text(for: .confirmTarget(target))
+        #expect(text.title == "Nightly desktop")
+        #expect(text.status == "Running · us-west")
+        #expect(text.live)
+    }
+
+    @Test func aMachineWithNoHumanNameIsACloudMachine() {
+        for name in ["", "  "] {
+            let text = RemoteViewUnavailableView.text(for: .confirmTarget(.desktop(name: name, status: nil, region: nil)))
+            #expect(text.title == "Cloud machine")
+            #expect(text.status == nil)
+        }
+    }
+
+    /// Leo, 2026-11-16, on "Another action opened this tab. Nothing connects until you choose Connect.":
+    /// "why even say lal that b******t? esp the second line." The card is its name, status and Connect.
+    @Test(arguments: RemoteConnectionTarget.Kind.allCases)
+    func connectionGateSaysNothingPastItsNameForEveryTarget(_ kind: RemoteConnectionTarget.Kind) {
+        for confirm in [true, false] {
+            let target = RemoteConnectionTarget(name: "Studio", kind: kind, requiresConfirmation: confirm)
+            let text = RemoteViewUnavailableView.text(for: .confirmTarget(target))
+            #expect(text.title == "Studio")
+            #expect(text.detail == nil)
+        }
+    }
 }

@@ -44,16 +44,19 @@ describe("composer fit steps", () => {
   });
 
   test("a width step skips the quiet row without outranking the hiding rules", () => {
-    // The quiet row is the plain look, not the element: ComposerFoot draws the same
-    // `.acpmux-composer-bar.acpmux-composer-foot` in both looks, so the guard reads
-    // `data-footer-look`, and with the plain footer off the row still takes every step.
+    // The guard skips the plain quiet row only: ComposerFoot draws the same
+    // `.acpmux-composer-bar.acpmux-composer-foot` in both footer looks, so it reads
+    // `data-footer-look` on that element, and with the plain footer off the row still takes every
+    // step. New Tab's row takes the steps in either footer look.
     // The steps come after the rules that lay a part of another form out of the row, so they must stay
     // less specific than those: the row's measured fit (#24151, data-fit-model="icon" at a width whose
     // step only asks for "family") has to keep winning. A bare `:not([data-footer-look="plain"])` adds
     // an attribute, ties the hiding rule at (0,4,0) and brings back a label the fit had taken away.
-    const GUARD = ':where(:not([data-footer-look="plain"]))';
+    const GUARD = ':where(:not(.acpmux-composer-foot[data-footer-look="plain"]))';
     const bare = blocks
-      .filter(({ body }) => /:not\(\[data-footer-look="plain"\]\)/.test(body.replaceAll(GUARD, "")))
+      .filter(({ body }) =>
+        /:not\((\.acpmux-composer-foot)?\[data-footer-look="plain"\]\)/.test(body.replaceAll(GUARD, "")),
+      )
       .map(({ width }) => width);
     expect(bare, `use ${GUARD}, which adds no specificity`).toEqual([]);
     // Every rule that lays a label out of the row carries the guard. The widths' other rules (the

@@ -2,6 +2,8 @@
 // backgrounds folder and becomes the background, as a picked or dropped file does. The host
 // judges the bytes, caps the size and words nothing; the refusal codes are worded here.
 import { useState } from "react";
+import { Button } from "../../../ui/Button";
+import { Input } from "../../../ui/Input";
 import { useStore } from "../context";
 import { t } from "../strings";
 
@@ -40,7 +42,7 @@ export function BackdropLink({ onClose }: { onClose: () => void }) {
           void add();
         }}
       >
-        <input
+        <Input
           className="field"
           type="url"
           aria-label={t("settingsWindow.backdropPicker.linkField")}
@@ -48,12 +50,12 @@ export function BackdropLink({ onClose }: { onClose: () => void }) {
           value={link}
           onChange={(event) => setLink(event.target.value)}
         />
-        <button type="submit" className="button" disabled={busy || !link.trim()}>
+        <Button type="submit" className="button" disabled={busy || !link.trim()}>
           {t("settingsWindow.backdropPicker.add")}
-        </button>
-        <button type="button" className="button" onClick={onClose}>
+        </Button>
+        <Button type="button" className="button" onClick={onClose}>
           {t("settingsWindow.artBrowser.close")}
-        </button>
+        </Button>
       </form>
       <output className="row-help">{busy ? t("settingsWindow.artBrowser.downloading") : refusal}</output>
     </div>

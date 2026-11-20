@@ -91,9 +91,54 @@ export const makeServiceKeys = (keys: ReadonlyArray<ServiceKey>): ServiceKeysSer
   return { find: (sha256) => Effect.succeed(Option.fromNullable(byHash.get(sha256))) };
 };
 
-/** The live layer from the Worker secret. A secret that does not parse is logged (never its content) and disables service keys. */
-export const serviceKeysLayer = (raw: string | undefined): Layer.Layer<ServiceKeys> => {
+/**
+ * Scopes a plain Worker var may add to a configured service key: the mesh ACL only. A key's entry lives in a
+ * write-only secret, so a missing ACL scope could otherwise be added only by rotating the key. Never `admin`,
+ * never a VM, file or exec scope: those stay in the secret entry.
+ */
+export const GRANTABLE_SERVICE_SCOPES = ["acl:read", "acl:write"] as const;
+
+const SERVICE_KEY_ID = /^[a-z][a-z0-9-]{0,39}$/u;
+const ServiceScopeGrants = Schema.Record({
+  key: Schema.String,
+  value: Schema.Array(Schema.Literal(...GRANTABLE_SERVICE_SCOPES)).pipe(Schema.minItems(1), Schema.maxItems(GRANTABLE_SERVICE_SCOPES.length)),
+});
+
+/**
+ * Parses CMUX_VM_SERVICE_KEY_SCOPE_GRANTS, a JSON object of service key id to grantable scopes, e.g.
+ * `{"cloud-platform-dev":["acl:read","acl:write"]}`. Absent or blank: none. Invalid: none, and `ok` is false.
+ */
+export const parseServiceScopeGrants = (
+  raw: string | undefined,
+): { readonly ok: boolean; readonly grants: ReadonlyMap<string, ReadonlyArray<Scope>> } => {
+  if (raw === undefined || raw.trim().length === 0) return { ok: true, grants: new Map() };
+  let json: unknown;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    return { ok: false, grants: new Map() };
+  }
+  const decoded = Schema.decodeUnknownOption(ServiceScopeGrants)(json);
+  // A malformed id fails the whole var instead of being dropped, so a typo is logged rather than silently granting less.
+  if (Option.isNone(decoded) || !Object.keys(decoded.value).every((id) => SERVICE_KEY_ID.test(id))) return { ok: false, grants: new Map() };
+  return { ok: true, grants: new Map(Object.entries(decoded.value)) };
+};
+
+/** Adds each key's granted scopes; a grant naming no configured key does nothing. Labels and teams are unchanged. */
+export const applyServiceScopeGrants = (keys: ReadonlyArray<ServiceKey>, grants: ReadonlyMap<string, ReadonlyArray<Scope>>): ReadonlyArray<ServiceKey> =>
+  keys.map((key) => {
+    const extra = grants.get(key.id);
+    return extra === undefined ? key : { ...key, scopes: new Set([...key.scopes, ...extra]) };
+  });
+
+/**
+ * The live layer from the Worker secret. A secret that does not parse is logged (never its content) and disables
+ * service keys. Invalid scope grants are logged and ignored: the keys keep exactly their secret entry's scopes.
+ */
+export const serviceKeysLayer = (raw: string | undefined, rawGrants?: string): Layer.Layer<ServiceKeys> => {
   const parsed = parseServiceKeys(raw);
   if (!parsed.ok) console.error("cmux-vm CMUX_VM_SERVICE_KEYS is invalid; service keys are disabled");
-  return Layer.succeed(ServiceKeys, makeServiceKeys(parsed.keys));
+  const grants = parseServiceScopeGrants(rawGrants);
+  if (!grants.ok) console.error("cmux-vm CMUX_VM_SERVICE_KEY_SCOPE_GRANTS is invalid; no scope is added");
+  return Layer.succeed(ServiceKeys, makeServiceKeys(applyServiceScopeGrants(parsed.keys, grants.grants)));
 };

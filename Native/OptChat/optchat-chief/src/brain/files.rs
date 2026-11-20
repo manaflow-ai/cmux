@@ -12,9 +12,6 @@ use cmux_conversation::{Message, Part};
 
 use crate::daemon::ConversationPort;
 
-/// Largest file read for a turn: the owner's per-file cap (any type).
-pub const MAX_FILE_BYTES: u64 = cmux_conversation::MAX_ATTACHMENT_BYTES;
-
 /// One non-image file of a turn.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TurnFile {
@@ -98,10 +95,6 @@ pub fn read_file(
         path: None,
         note: None,
     };
-    if *byte_count > MAX_FILE_BYTES {
-        file.note = Some(format!("over {MAX_FILE_BYTES} bytes"));
-        return Some(file);
-    }
     match save(port, conversation, hash, name, *byte_count, root) {
         Ok(path) => file.path = Some(path),
         Err(e) => file.note = Some(e),
@@ -466,6 +459,31 @@ mod tests {
         assert_eq!(
             std::fs::read_dir(path.parent().unwrap()).unwrap().count(),
             1
+        );
+    }
+
+    #[test]
+    fn an_original_above_the_former_cap_reaches_the_stream_and_cleans_up_on_failure() {
+        let root = tempfile::tempdir().unwrap();
+        let mut owner = Owner {
+            generated_bytes: Some(100_000_001),
+            interrupt: true,
+            ..Owner::default()
+        };
+        let hash = "a".repeat(64);
+        let saved = read_file(
+            &mut owner,
+            "c1",
+            &part(&hash, "large.bin", "application/octet-stream", 100_000_001),
+            root.path(),
+        )
+        .unwrap();
+        assert_eq!(owner.reads, 1);
+        assert!(saved.path.is_none());
+        assert!(saved.note.unwrap().contains("disconnected"));
+        assert_eq!(
+            std::fs::read_dir(root.path().join(hash)).unwrap().count(),
+            0
         );
     }
 

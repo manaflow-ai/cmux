@@ -1,7 +1,7 @@
 import Foundation
 
-/// Offers an acpmux ssh peer to ``DaemonUpdatePolicy/shared`` when it connects later in the
-/// launch. The launch's discovery (``DaemonUpdatePolicy/startOnce(build:environment:download:)``)
+/// Offers an acpmux ssh peer to the app's ``DaemonUpdatePolicy`` when it connects later in the
+/// launch. The launch's discovery (``DaemonUpdates/startOnce(build:environment:download:)``)
 /// sees only the peers connected within its settling window, and a peer the policy dropped while
 /// it was off the network is not asked again by itself: without this, a teammate's machine that
 /// comes online an hour later keeps its old daemon until the next launch.
@@ -12,20 +12,10 @@ import Foundation
 /// first live change of a peer not known connected reads the local daemon's status once
 /// (``AcpmuxPeerUpdateSource/check(peer:)``) and offers the peer when it is a connected ssh peer
 /// that named its build; the policy and its ledger keep that to one update per build. What those
-/// changes cannot show, ``sweep(_:every:clock:)`` catches within ten minutes.
+/// changes cannot show, ``sweep(_:every:clock:)`` catches within ten minutes. The app has one
+/// (``DaemonUpdates/reconnects``): the app's turn-state watch feeds it, the launch's discovery arms it.
 @MainActor
 public final class AcpmuxPeerReconnects {
-    // lint:allow one per app process: the app's turn-state watch feeds it, the launch's discovery arms it
-    public static let shared = AcpmuxPeerReconnects.app()
-
-    /// The app's: offers go to ``DaemonUpdatePolicy/shared``, `enabled` reads `agent.updatePeers`.
-    /// Built in a function, not the property's initializer, so its closures are not checked as part
-    /// of that initializer's isolation (Swift 6 refuses one that mixes the main actor and another).
-    private static func app() -> AcpmuxPeerReconnects {
-        AcpmuxPeerReconnects(offer: { await DaemonUpdatePolicy.shared.offer($0) },
-                             enabled: { AgentPaneTunables.updatePeersAutomatically.value })
-    }
-
     /// The acpmux side, set by the launch's discovery; nil before, when every note is ignored.
     var source: AcpmuxPeerUpdateSource?
     private let offer: @Sendable (any DaemonUpdateTarget) async -> Void

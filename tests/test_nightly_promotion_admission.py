@@ -31,8 +31,12 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 GUARD = ROOT / "scripts" / "ci" / "promote-nightly-next.mjs"
@@ -922,7 +926,7 @@ def test_only_the_wait_for_the_approval_is_cancellable() -> None:
     assert "scan_failed == 'true' && format('-wait-{0}', github.run_id)" in wait["concurrency"]["group"]
     assert "'release-surface-ack'" in wait["environment"] and "action == 'needs-ack'" in wait["environment"]
     assert wait["permissions"] == {}
-    assert "secrets." not in json.dumps(wait)
+    assert not workflow_jobs.secret_names(wait)
     # The writers are never in a cancelling group.
     assert move["concurrency"]["cancel-in-progress"] is False and "github.run_id" in move["concurrency"]["group"]
     assert decide_job["concurrency"] == {"group": "nightly-next-promote", "cancel-in-progress": False}
@@ -1039,8 +1043,17 @@ console.log(JSON.stringify({ ok, bad, crashed }));
 
 
 def test_both_promote_decisions_pass_the_train_verifier() -> None:
+    import yaml
+
     assert WORKFLOW.count("verifyTrain: guard.trainVerifier(") == 2
-    assert WORKFLOW.count("scripts/ci/nightly_next_train.py\n") >= 2
+    # Each job that verifies the train checks out the verifier. Read the parsed workflow: the two
+    # jobs share their checkout step through a YAML anchor (#30471), so its text appears once.
+    jobs = yaml.safe_load(WORKFLOW)["jobs"]
+    verifying = [job for job in jobs.values() if "verifyTrain: guard.trainVerifier(" in yaml.safe_dump(job)]
+    assert len(verifying) == 2
+    for job in verifying:
+        sparse = [str((step.get("with") or {}).get("sparse-checkout", "")) for step in job["steps"]]
+        assert any("scripts/ci/nightly_next_train.py\n" in paths for paths in sparse), job["steps"][0]
 
 
 def test_by_default_a_tip_without_a_release_compile_is_promoted_itself() -> None:

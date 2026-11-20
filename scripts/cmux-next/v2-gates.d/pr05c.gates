@@ -1,0 +1,10 @@
+# The gates whose tests write the design doc's row 5c (`v2.pr05c.*`). A line is GROUP FILTER; see run-v2-gates.sh.
+core replay_frame_gate
+core replay_append_gate
+core replay_open_hold_gate
+core single_encode_gate
+acpmux-lib tee_change_gate
+acpmux-lib stream_chunk_gate
+acpmux-lib walk_rss_gate
+acpmux-lib live_view_gate
+acpmux-lib keyed_page_gate

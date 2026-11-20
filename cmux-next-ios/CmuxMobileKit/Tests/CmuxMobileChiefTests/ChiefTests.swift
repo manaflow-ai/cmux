@@ -68,6 +68,79 @@ import Testing
         #expect(read.sentAt.timeIntervalSince1970 > 1_791_000_000)
         #expect(wire.message(object, peerReadSeq: 3)?.delivery == .delivered)
     }
+
+    private func chiefSays(_ text: String) throws -> ConversationMessage {
+        try #require(wire.message([
+            "id": "msg_t", "conversation": "conv_1", "seq": 5, "client_msg_id": "t", "author": "agent_mux",
+            "parts": [["type": "text", "text": text]], "created_at": "2026-10-12T09:41:07.123Z", "reactions": [],
+        ], peerReadSeq: 5))
+    }
+
+    /// CMUX-19: Chief's Markdown tables show as a table, not pipe syntax.
+    /// A narrow one becomes rows of tab-separated cells (the bubble puts each
+    /// on a column's tab stop); every cell's text is kept.
+    @Test func chiefTableShowsAsColumns() throws {
+        let read = try chiefSays("Agents:\n\n| Agent | State |\n| --- | :---: |\n| a12 | done |\n| [a13](cmux://agent/x) | open |\n\nThat's all.")
+        #expect(read.text == "Agents:\n\nAgent\tState\na12\tdone\na13\topen\n\nThat's all.")
+        #expect(!read.text.contains("|"))
+        #expect(!read.text.contains("---"))
+        #expect(read.tables.map(\.alignments) == [[.leading, .center]])
+        let table = try #require(read.tables.first)
+        #expect((read.text as NSString).substring(with: table.range) == "Agent\tState\na12\tdone\na13\topen")
+        // The header is bold; the link inside a cell still opens.
+        #expect(read.textRuns.map { (read.text as NSString).substring(with: $0.range) } == ["Agent", "State"])
+        #expect(read.links.map { (read.text as NSString).substring(with: $0.range) } == ["a13"])
+        #expect(read.links.first?.url.absoluteString == "cmux://agent/x")
+    }
+
+    /// A table too wide for a phone bubble becomes one record per row, each
+    /// cell after its bold header, so it reads on a narrow screen.
+    @Test func wideChiefTableShowsAsRecords() throws {
+        let read = try chiefSays("| Workspace | Agent | Status |\n|---|---|---|\n| cmux-next iOS | Claude (a42) | building on aws-m4pro-5 |\n| Feed chips | Codex | waiting for review |")
+        #expect(read.text == "Workspace: cmux-next iOS\nAgent: Claude (a42)\nStatus: building on aws-m4pro-5\n\nWorkspace: Feed chips\nAgent: Codex\nStatus: waiting for review")
+        #expect(read.tables.isEmpty)
+        #expect(read.textRuns.count == 6)
+    }
+
+    /// A Chief transcript kept on the phone by a build before tables
+    /// (no "tables" key) still loads, so relaunching shows it with no spinner.
+    @Test func messageKeptBeforeTablesStillDecodes() throws {
+        let read = try chiefSays("| a | b |\n| - | - |\n| 1 | 2 |")
+        let data = try JSONEncoder().encode(read)
+        var object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["tables"] != nil)
+        #expect(try JSONDecoder().decode(ConversationMessage.self, from: data) == read)
+        object["tables"] = nil
+        let old = try JSONDecoder().decode(ConversationMessage.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(old.tables.isEmpty)
+        #expect(old.text == read.text)
+    }
+
+    /// Text that is not a table is left as it was: pipes in prose, a table
+    /// inside a code fence, and my own messages.
+    @Test func nonTableMarkdownIsUnchanged() throws {
+        for text in [
+            "Run `a | b` then pick yes | no.",
+            "Heading\n---\nbody",
+            "```\n| a | b |\n| - | - |\n| 1 | 2 |\n```",
+            "See [#1](https://github.com/o/r/pull/1) and more.",
+        ] {
+            let read = try chiefSays(text)
+            #expect(read.tables.isEmpty, "\(text)")
+            #expect(read.textRuns.isEmpty, "\(text)")
+            #expect(read.text == text.replacingOccurrences(of: "[#1](https://github.com/o/r/pull/1)", with: "#1"), "\(text)")
+        }
+        // Bold (CMUX-20) inside a table cell stays bold once the table is rewritten.
+        let bold = try chiefSays("| Agent | State |\n| - | - |\n| a1 | **done** |")
+        #expect(bold.text == "Agent\tState\na1\tdone")
+        #expect(bold.textRuns.map { (bold.text as NSString).substring(with: $0.range) } == ["Agent", "State", "done"])
+        let mine = try #require(wire.message([
+            "id": "msg_m", "conversation": "conv_1", "seq": 6, "client_msg_id": "m", "author": "user_local",
+            "parts": [["type": "text", "text": "| a | b |\n| - | - |\n| 1 | 2 |"]], "created_at": "2026-10-12T09:41:07.123Z", "reactions": [],
+        ], peerReadSeq: 6))
+        #expect(mine.text == "| a | b |\n| - | - |\n| 1 | 2 |")
+        #expect(mine.tables.isEmpty)
+    }
 }
 
 /// A fake cmux-tui daemon behind `MockMacLink`: the local conversation
@@ -370,29 +443,38 @@ func within<T: Sendable>(_ limit: Duration, _ work: @escaping @Sendable () async
     }
 }
 
-/// How long a wait may take before it gives up: a watchdog against a hang, not a
-/// time the work is expected to take. In the full target a synchronous UIKit suite
-/// held the main thread 11.6 s on a cold simulator, and work waited on here (main-actor
-/// tasks) waits behind such a hold however fast it is, so a short limit failed tests
-/// that had nothing wrong with them.
+/// How long a wait may run before it gives up: a watchdog against a hang, not a
+/// time the work is expected to take. It counts only time the wait could run: in
+/// the full kit the main thread was held over a minute, every main-actor Chief test
+/// ran about 85 s instead of 7, and waits that woke past a wall-clock deadline gave up on
+/// their first look, before the work they waited on (held just as long) got its turn.
 let waitWatchdog: Duration = .seconds(60)
 
-/// Whether `condition` came to hold before `watchdog` passed or the task was cancelled.
-/// It waits on the condition's own state rather than on time: it wakes when observable
-/// state the condition read changes (Observation), and checks again every `tick` for
-/// state that isn't observable, such as a test double's log of requests.
+/// A wall-clock stop for a wait whose main thread stays busy but keeps coming back to
+/// it, whatever watchdog the wait asked for: only a backstop. A main thread blocked
+/// for good stops the wait too; the suite's time limit ends that.
+let waitBackstop: Duration = .seconds(600)
+
+/// Whether `condition` came to hold within `watchdog` of the wait's own running time,
+/// before the task was cancelled. It waits on the condition's own state rather than on
+/// time: it wakes when observable state the condition read changes (Observation), and
+/// checks again every `tick` for state that isn't observable, such as a test double's
+/// log of requests. A wake that comes late because the main thread was held counts only
+/// the time it asked for, so a hold never uses up the wait.
 @MainActor func eventually(watchdog: Duration = waitWatchdog, tick: Duration = .milliseconds(20),
                            _ condition: @MainActor () -> Bool) async -> Bool {
-    let deadline = ContinuousClock.now.advanced(by: watchdog)
+    let backstop = ContinuousClock.now.advanced(by: waitBackstop)
+    var left = watchdog
     while true {
         let wake = Wake()
         let met = withObservationTracking { condition() } onChange: {
             Task { @MainActor in wake.fire() }
         }
         if met { return true }
-        if Task.isCancelled || ContinuousClock.now >= deadline { return false }
-        // Never past the deadline, however long the tick.
-        let nap = min(tick, deadline - ContinuousClock.now)
+        if Task.isCancelled || left <= .zero || ContinuousClock.now >= backstop { return false }
+        // Never past what is left, however long the tick.
+        let nap = min(max(tick, .milliseconds(1)), left)
+        let start = ContinuousClock.now
         let ticker = Task { @MainActor in
             try? await Task.sleep(for: nap)
             wake.fire()
@@ -403,6 +485,7 @@ let waitWatchdog: Duration = .seconds(60)
             Task { @MainActor in wake.fire() }
         }
         ticker.cancel()
+        left -= min(ContinuousClock.now - start, nap)
     }
 }
 
@@ -460,6 +543,19 @@ let waitWatchdog: Duration = .seconds(60)
     func preferences() -> ChiefPreferences {
         let suite = "cmuxMobile.chief.tests.\(UUID().uuidString)"
         return ChiefPreferences(defaults: UserDefaults(suiteName: suite)!)
+    }
+
+    /// A long live reply keeps the newest text visible so each token can update
+    /// a bounded view instead of laying out the whole reply again.
+    @Test func liveReplyTailKeepsNewestLines() {
+        let lines = (1...12).map { "Reply line \($0): continuing the answer.\n" }
+        let tail = ChiefLive.liveTail(of: lines.joined())
+        #expect(tail.hasPrefix("…Reply line 5:"))
+        #expect(tail.hasSuffix("Reply line 12: continuing the answer."))
+        #expect(tail.count <= 481)
+
+        let short = ChiefLive.liveTail(of: "first\nsecond")
+        #expect(short == "first\nsecond")
     }
 
     /// The phone never creates Chief: a Mac whose Home has not run yet is an
@@ -544,22 +640,48 @@ let waitWatchdog: Duration = .seconds(60)
     }
 }
 
-/// Audit B9: a message written to Chief before it connects is kept and sent
-/// once it does, never dropped.
-@Suite @MainActor struct ChiefOutboxTests {
-    @Test func waitsOnDiskAndSendsOnConnect() async throws {
-        let file = FileManager.default.temporaryDirectory.appendingPathComponent("outbox-\(UUID().uuidString).json")
-        let outbox = ChiefOutbox(file: file)
-        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: outbox)
-        session.send(ConversationComposeMessage(text: "run the tests"))
-        #expect(session.outbox.count == 1)
-        #expect(outbox.load().map(\.message.text) == ["run the tests"])
-        // A relaunch keeps it.
-        #expect(ChiefSession(backend: ChiefOfflineBackend(), outbox: outbox).outbox.count == 1)
-        session.use(ChiefMockBackend(sleep: { _ in }))
-        try await waitUntil("the outbox message to go out") { session.store.messages.contains(where: { $0.text == "run the tests" && $0.seq != nil }) }
-        #expect(session.outbox.isEmpty)
-        #expect(outbox.load().isEmpty)
+/// A Mac Chief whose sends never come back (a link that died mid-send): the
+/// rest of the conversation is the mock Chief's.
+private final class StalledSendBackend: ConversationBackend, @unchecked Sendable {
+    let inner = ChiefMockBackend(sleep: { _ in })
+    func events() -> AsyncStream<ConversationBackendEvent> { inner.events() }
+    func history(beforeSeq: Int?, limit: Int) async throws -> ConversationHistoryPage { try await inner.history(beforeSeq: beforeSeq, limit: limit) }
+    func send(_ draft: ConversationOutgoingDraft) async throws -> ConversationMessage {
+        try await Task.sleep(for: .seconds(3600))
+        throw CancellationError()
+    }
+    func react(messageID: String, reaction: ConversationReaction?) async throws -> ConversationMessage { try await inner.react(messageID: messageID, reaction: reaction) }
+    func edit(messageID: String, text: String) async throws -> ConversationMessage { try await inner.edit(messageID: messageID, text: text) }
+    func unsend(messageID: String) async throws -> ConversationMessage { try await inner.unsend(messageID: messageID) }
+    func setTyping(_ isTyping: Bool) async { await inner.setTyping(isTyping) }
+    func markRead(upToSeq: Int) async { await inner.markRead(upToSeq: upToSeq) }
+    func uploadImage(_ data: Data, mimeType: String) async throws -> ConversationAttachment { try await inner.uploadImage(data, mimeType: mimeType) }
+    func close() { inner.close() }
+    func linkPreview(for url: URL) async throws -> ConversationLinkPreview? { nil }
+    func votePoll(messageID: String, optionID: String, selected: Bool) async throws -> ConversationMessage {
+        try await inner.votePoll(messageID: messageID, optionID: optionID, selected: selected)
+    }
+    func addPollOption(messageID: String, text: String) async throws -> ConversationMessage { try await inner.addPollOption(messageID: messageID, text: text) }
+    func scheduledMessages() async throws -> [ConversationMessage] { [] }
+    func scheduleSend(_ draft: ConversationOutgoingDraft, at date: Date) async throws -> ConversationMessage { try await inner.scheduleSend(draft, at: date) }
+    func reschedule(scheduledID: String, to date: Date) async throws -> ConversationMessage { try await inner.reschedule(scheduledID: scheduledID, to: date) }
+    func cancelScheduled(scheduledID: String) async throws { try await inner.cancelScheduled(scheduledID: scheduledID) }
+    func sendScheduledNow(scheduledID: String) async throws -> ConversationMessage { try await inner.sendScheduledNow(scheduledID: scheduledID) }
+}
+
+/// No outbox (Aziz 2026-11-14), and nothing lost on a backend swap: a send the old store never
+/// confirmed (the link died mid-send) comes back into Chief's composer, to send again.
+@Suite @MainActor struct ChiefSwapKeepsUnsentTextTests {
+    @Test(.timeLimit(.minutes(1))) func anUnconfirmedSendComesBackToTheComposer() async throws {
+        let session = ChiefSession(backend: StalledSendBackend())
+        defer { session.store.stop() }
+        try await waitUntil("Chief to connect") { session.store.meID != nil }
+        #expect(session.send(ConversationComposeMessage(text: "in flight when the link died"), asksForAlerts: false))
+        try await waitUntil("the send to show as sending") { session.store.messages.contains { $0.text == "in flight when the link died" } }
+        session.use(ChiefOfflineBackend())
+        #expect(session.takeUnsentText() == "in flight when the link died")
+        // Not resent on its own: the offline store has no message for it.
+        #expect(!session.store.messages.contains { $0.text == "in flight when the link died" && $0.seq == nil })
     }
 }
 
@@ -662,6 +784,8 @@ private let tinyPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAA
 }
 
 #if os(iOS)
+import UIKit
+
 @Suite @MainActor struct ChiefDirectoryTests {
     func directory() -> ChiefDirectory {
         let chief = ChiefDirectory.recipients(store: AppStore(teams: [], activeTeamID: "", workspaces: [], feed: []), identity: .standard, place: .mac)
@@ -760,6 +884,50 @@ private let tinyPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAA
         #expect(prompt.attachments[0].name.hasSuffix(".png"))
         #expect(prompt.attachments[1].name.hasSuffix(".jpg"))
         #expect(Set(prompt.attachments.map(\.id)).count == 2)
+    }
+
+    @Test func encodedImageBytesOverrideDeclaredMimeType() throws {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2))
+        let validPNG = renderer.pngData { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+        }
+        let image = ConversationComposeImage(data: validPNG, width: 2, height: 2, mimeType: "image/heic")
+        let attachment = try #require(ChiefComposer.attachments([image]).first)
+        #expect(attachment.name.hasSuffix(".png"))
+        #expect(attachment.imageMIMEType == "image/png")
+        #expect(attachment.data == validPNG)
+    }
+
+    @Test func imageBytesWinOverTheDeclaredMimeType() throws {
+        let image = ConversationComposeImage(data: Self.png, width: 1, height: 1, mimeType: "image/heic")
+        let attachment = try #require(ChiefComposer.attachments([image]).first)
+        #expect(attachment.kind == .image)
+        #expect(attachment.name.hasSuffix(".png"))
+        #expect(attachment.imageMIMEType == "image/png")
+    }
+
+    @Test func unsupportedDecodedImageIsConvertedToJpeg() throws {
+        // A complete 1x1, 24-bit BMP (red pixel, padded four-byte row).
+        let bmp = try #require(Data(base64Encoded: "Qk06AAAAAAAAADYAAAAoAAAAAQAAAAEAAAABABgAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAD/AA=="))
+        try #require(UIImage(data: bmp) != nil)
+        #expect(AgentAttachment(kind: .image, name: "source", data: bmp).imageMIMEType == nil)
+        let attachment = try #require(ChiefComposer.attachments([
+            ConversationComposeImage(data: bmp, width: 1, height: 1, mimeType: "image/jpeg")
+        ]).first)
+        #expect(attachment.kind == .image)
+        #expect(attachment.name.hasSuffix(".jpg"))
+        #expect(attachment.imageMIMEType == "image/jpeg")
+        #expect(attachment.data != bmp)
+        let jpeg = try #require(attachment.data)
+        #expect(UIImage(data: jpeg) != nil)
+    }
+
+    @Test func undecodableImageIsSentAsAFile() throws {
+        let image = ConversationComposeImage(data: Data([0x01, 0x02, 0x03]), width: 1, height: 1, mimeType: "image/png")
+        let attachment = try #require(ChiefComposer.attachments([image]).first)
+        #expect(attachment.kind == .file)
+        #expect(attachment.imageMIMEType == nil)
     }
 
     @Test func anImageOnlyMessageStillSends() throws {

@@ -47,6 +47,16 @@ opened in Home's right pane):
 
 ## What was built (F)
 
+**Now React (2026-11-06).** The card is the `#/add-server` route of the server card page
+(`webviews/src/pages/server-cards/server`, design/server-cards.md) in the one floating card panel
+(`WebCardPanel`); the Swift views below (`AddServerCardPanel`, `ServerApproverView`,
+`ServerHostView`) are deleted. `ServerModel` still owns the steps and the draft; the page derives
+the buttons and keys (`server/model.ts`). Approve and Try Again are now the card panel's native
+footer button (`PersonControl`, named by `ServerPageProvider`), as Pair Another Machine's Confirm:
+only the person's own click on it approves (`WebCard.personPressed`), the page has no approve op,
+and Return no longer approves.
+The rest of this section is the design as first built.
+
 **Card.** `AddServerCardPanel` (CmuxNextServer): a borderless, non-activating floating panel,
 `canJoinAllSpaces` and `fullScreenAuxiliary`, the `ServerHostView` glass (Liquid Glass on macOS 26,
 tinted blur before, opaque under Reduce Transparency) with its 14 pt corners. It sits 56 pt below
@@ -71,8 +81,8 @@ Each is a `CmuxDialogActionButton`, which shows and binds its key; the click and
 **Type and style.** `Typography` fonts and `TypeScale` sizes only, `Metrics` spacing, theme colors,
 `glassButtonStyle()` buttons as in the update sheet.
 
-**Menu bar.** Add Server no longer shows or uses the menu bar item. The server panel and health
-views keep it for now (they are prototypes behind Debug Settings).
+**Menu bar.** Add Server no longer shows or uses the menu bar item. The server panel and Health
+keep it: its popover hosts the same page (`#/server-panel`, `#/server-health`).
 
 ## What did not change
 
@@ -94,9 +104,11 @@ views keep it for now (they are prototypes behind Debug Settings).
 
 ## Tests
 
-- `AddServerFlowTests`: step flow, refusal clearing, retry, Return and Escape per step, Done, Cancel,
-  clean reopen, re-lookup on reopen, code field takes the keyboard.
-- `AddServerCardTests`: panel style and collection behavior, top-center placement and clamping, an
-  arriving request does not take the keys, Approve and Deny titles.
+- `AddServerFlowTests`: step flow, refusal clearing, retry, Cancel, clean reopen, re-lookup on
+  reopen.
+- `ServerPageProviderTests`: the page ops, the person-only gate on the switch, Show Pairing Code,
+  Fix, Revoke, Run my Chief and Approve, team validation, the QR without the key fingerprint.
+- `server/model.test.ts` and `test/server-cards-server.test.tsx` (bun): the keys per step (Return
+  never approves), Approve and Deny titles, the code field rules, Done and Cancel close the card.
 - `hostSections.test.tsx`: Settings > Machines > Add Server… runs `server.addServer` with no code.
-- `AddServerShotsTests`: renders all states to one PNG (look, not a pass/fail gate beyond size).
+- The look: gallery `pages.server-cards-add-server` (every step and the three words layouts).

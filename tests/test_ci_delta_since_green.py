@@ -8,15 +8,24 @@ that merge commit, as actions/checkout leaves it in ci.yml's `changes` job.
 
 from __future__ import annotations
 
+import re
 import importlib.util
 import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "delta_since_green.py"
@@ -312,6 +321,19 @@ class DecideTests(Case):
         self.addCleanup(setattr, delta.Git, "run", original)
         self.assertIn("fatal: remote hung up", self.skip_reason({}))
 
+    def test_a_git_call_past_the_budget_skips_instead_of_hanging(self) -> None:
+        # A step timeout cancels the whole CI run (it skips every later step of
+        # `changes`), so a slow fetch must end in the usual diff, never a hang.
+        self.pr_head()
+        self.origin.commit("main", {"web/w.txt": "w1\n"})
+        self.origin.merge_main_into_pr()
+        merge, head = self.origin.tested_merge()
+        work = self.origin.checkout(merge)
+        spent = delta.Git(work, deadline=time.monotonic() - 1)
+        with self.assertRaises(delta.Skip) as caught:
+            delta.decide(spent, merge, head, lambda oids: {})
+        self.assertIn("budget", str(caught.exception))
+
     def test_head_that_is_not_the_tested_merge_parent_does_not_apply(self) -> None:
         self.pr_head()
         merge, _ = self.origin.tested_merge()
@@ -385,14 +407,14 @@ class VerdictTests(unittest.TestCase):
         import io
         import json
 
-        def fake_urlopen(request, timeout=0):
+        def fake_request(request, seconds=None, **_kwargs):
             calls.append(request.full_url)
             body = graphql if request.full_url.endswith("/graphql") else {"workflow_runs": runs}
-            return io.BytesIO(json.dumps(body).encode())
+            return 200, json.dumps(body).encode(), {}
 
-        original = delta.urllib.request.urlopen
-        delta.urllib.request.urlopen = fake_urlopen
-        self.addCleanup(setattr, delta.urllib.request, "urlopen", original)
+        original = delta.deadline_http.request
+        delta.deadline_http.request = fake_request
+        self.addCleanup(setattr, delta.deadline_http, "request", original)
         return delta.github_verdicts("o/r", "t", "https://api.github.com/graphql", 7, "main")
 
     def test_a_retargeted_pull_request_keeps_its_whole_diff(self) -> None:
@@ -418,19 +440,19 @@ class VerdictTests(unittest.TestCase):
             with self.subTest(label):
                 calls = []
 
-                def fake_urlopen(request, timeout=0, runs=runs):
+                def fake_request(request, seconds=None, runs=runs, **_kwargs):
                     calls.append(request.full_url)
                     body = graphql if request.full_url.endswith("/graphql") else {"workflow_runs": runs}
-                    import io, json
-                    return io.BytesIO(json.dumps(body).encode())
+                    import json
+                    return 200, json.dumps(body).encode(), {}
 
-                original = delta.urllib.request.urlopen
-                delta.urllib.request.urlopen = fake_urlopen
+                original = delta.deadline_http.request
+                delta.deadline_http.request = fake_request
                 try:
                     lookup = delta.github_verdicts("o/r", "t", "https://api.github.com/graphql", 7, "main")
                     self.assertEqual(lookup([oid]), {oid: expected})
                 finally:
-                    delta.urllib.request.urlopen = original
+                    delta.deadline_http.request = original
                 self.assertIn(f"head_sha={oid}", calls[1])
 
 
@@ -509,6 +531,8 @@ class WorkflowTests(unittest.TestCase):
             with self.subTest(event=event, head_repo=head_repo, switch=switch):
                 self.assertIs(evaluate_condition(step["if"], context), expected)
         self.assertIs(step["continue-on-error"], True)
+        # The selector gives up inside its own budget, well before the step's timeout cancels the run.
+        self.assertLess(delta.BUDGET_SECONDS + 30, step["timeout-minutes"] * 60)
         self.assertIn('--pull-request "$PR_NUMBER" --base-ref "$BASE_REF"', step["run"])
         self.assertEqual(step["env"]["PR_NUMBER"], "${{ github.event.pull_request.number }}")
         self.assertEqual(step["env"]["BASE_REF"], "${{ github.event.pull_request.base.ref }}")
@@ -534,6 +558,13 @@ class WorkflowTests(unittest.TestCase):
         condition = jobs["dogfood-build"]["if"]
         self.assertIn(label, condition)
         condition = condition.replace(label, "github.has_dev_build == 'true'")
+        # These runs are not cancelled; why the job calls !cancelled() is tested in
+        # tests/test_ci_portable_job_placement.py (SkippedPlacementKeepsRouting).
+        self.assertIn("(!cancelled() && ", condition)
+        condition = condition.replace("(!cancelled() && ", "(", 1)
+        # The label-event guard is tested in tests/test_ci_label_events_skip_full_ci.py.
+        condition = re.sub(r" && !\(github\.event_name == 'pull_request' && github\.event\.pull_request\.base\.ref == "
+                           r"'feat-cmux-next' && \(github\.event\.action == 'labeled'.*\)\) }}$", " }}", condition)
         trusted = {
             "github.event_name": "pull_request",
             "github.event.pull_request.base.ref": "main",

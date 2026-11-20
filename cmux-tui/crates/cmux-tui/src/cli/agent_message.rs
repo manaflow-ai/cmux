@@ -14,7 +14,7 @@ use cmux_tui_core::resource::ResourceOperation;
 use serde_json::{Map, Value, json};
 
 use super::codex_app_server;
-use super::resolve::{Failure, call, call_as};
+use super::resolve::{Failure, call_as_on};
 use super::{GlobalArgs, OutputMode, UsageError};
 
 /// Every delivery state `agent inbox --state` takes.
@@ -165,6 +165,8 @@ type Reader = BufReader<Box<dyn cmux_tui_core::platform::transport::Stream>>;
 
 struct Connection {
     reader: Reader,
+    /// The daemon's socket, named in an older daemon's restart fix.
+    socket: std::path::PathBuf,
     route: Map<String, Value>,
     /// This process's launch credential, for its own terminal's session only.
     credential: Option<String>,
@@ -196,12 +198,12 @@ impl Connection {
             "session".into(),
             Value::String(global.session.clone().unwrap_or_else(|| "current".into())),
         );
-        Ok(Self { reader, route, credential })
+        Ok(Self { reader, socket, route, credential })
     }
 
     fn read(&mut self, operation: ResourceOperation, fields: Value) -> Result<Value, Failure> {
         let params = self.params(fields);
-        call(&mut self.reader, operation, params, None)
+        call_as_on(&mut self.reader, Some(&self.socket), operation, params, None, None)
     }
 
     fn mutate(
@@ -217,7 +219,9 @@ impl Connection {
         };
         let params = self.params(fields);
         let credential = self.credential.as_deref();
-        let result = call_as(&mut self.reader, operation, params, Some(&key), credential)?;
+        let socket = Some(self.socket.as_path());
+        let result =
+            call_as_on(&mut self.reader, socket, operation, params, Some(&key), credential)?;
         Ok(result.get("value").cloned().unwrap_or(Value::Null))
     }
 
@@ -757,10 +761,12 @@ fn inbox_text(messages: &[Value], recipient: Option<&str>) -> String {
 }
 
 #[cfg(unix)]
-mod acp {
+pub(super) mod acp {
     //! acpmux, linked into this binary, reached at the same home `cmux acp`
     //! uses. A message never starts the acpmux daemon: an acpmux recipient
     //! exists only while its daemon runs.
+
+    use serde_json::Value;
 
     fn runtime() -> Result<tokio::runtime::Runtime, String> {
         crate::acp::configure_home();
@@ -780,13 +786,27 @@ mod acp {
                 .map_err(|error| format!("{error:#}"))
         })
     }
+
+    /// The running daemon's session summaries, without starting it.
+    pub(in crate::cli) fn sessions() -> Result<Vec<Value>, String> {
+        runtime()?.block_on(async {
+            let client = acpmux::deliver::connect().await.map_err(|error| format!("{error:#}"))?;
+            acpmux::deliver::sessions(&client).await.map_err(|error| format!("{error:#}"))
+        })
+    }
 }
 
 #[cfg(not(unix))]
-mod acp {
+pub(super) mod acp {
     const UNSUPPORTED: &str = "acpmux sessions are not available on this platform";
 
+    use serde_json::Value;
+
     pub(super) fn resolve(_key: &str) -> Result<String, String> {
+        Err(UNSUPPORTED.to_owned())
+    }
+
+    pub(in crate::cli) fn sessions() -> Result<Vec<Value>, String> {
         Err(UNSUPPORTED.to_owned())
     }
 }

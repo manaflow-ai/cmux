@@ -1,0 +1,8 @@
+{
+  "source": "schemas/settings/source/chief-sidebar.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+ChiefSidebar.generated.swift",
+  "type": "ChiefSidebarSettingsSchema",
+  "lists": {
+    "chiefSidebar": ["descriptors", "ChiefSidebarSettingsSchema"]
+  }
+}

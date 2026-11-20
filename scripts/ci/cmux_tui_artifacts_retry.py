@@ -61,7 +61,10 @@ def decide(run: dict, jobs: list[dict], annotations: dict[int, list[dict]]) -> D
     attempt = int(run.get("run_attempt") or 1)
     if attempt >= MAX_ATTEMPTS:
         return Decision("skip", f"attempt {attempt} reached the cap of {MAX_ATTEMPTS}")
-    failed = [job for job in jobs if job.get("conclusion") == "failure"]
+    # A job that its own timeout cancels ends `cancelled` in a run that ends `failure` (a cancelled run ends
+    # `cancelled` and is skipped above), and "Re-run failed jobs" reruns it. 2026-11-13: run 43346255778's macOS
+    # leg timed out, no job had failed, and the run was left as it was with its tree unpublished.
+    failed = [job for job in jobs if job.get("conclusion") in ("failure", "cancelled", "timed_out")]
     if not failed:
         return Decision("skip", "no job failed (the failure is not a job failure)")
     conflicts = [

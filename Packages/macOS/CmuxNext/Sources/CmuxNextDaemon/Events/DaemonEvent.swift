@@ -9,6 +9,8 @@ public enum DaemonEvent: Sendable, Hashable {
     case connected(DaemonIdentity, generationChanged: Bool)
     /// The socket dropped. The connection retries on its own.
     case disconnected(reason: String)
+    /// The authenticated screen worker became ready, rotated its UUID, or removed its identity.
+    case screenDeviceChanged(String?)
 
     // Tree deltas (`tree_events:"deltas"`).
     case workspaceAdded(WorkspaceDelta)
@@ -32,6 +34,11 @@ public enum DaemonEvent: Sendable, Hashable {
     /// Full resync barrier: refetch `list-workspaces`. `transaction` echoes
     /// the client transaction id of the command that caused it, when any.
     case treeChanged(transaction: ClientTransactionID?)
+    /// One workspace's whole selection (`tree-selection-deltas-v1`): a selection change that rode with a
+    /// tree delta, applied without a snapshot (#32408).
+    case selectionChanged(SelectionDelta)
+    /// One workspace's entity after its title, color or icon changed (`tree-selection-deltas-v1`, #32408).
+    case workspacePresentationChanged(WorkspacePresentationDelta)
     /// Personal state (`profiles-v1`) changed: the store refetches `list-personal` alone, never the
     /// tree (a sidebar group's fold writes `personal_groups`; plans/cmux-next/state-ownership-DESIGN.md).
     case personalChanged
@@ -41,7 +48,9 @@ public enum DaemonEvent: Sendable, Hashable {
     case layoutChanged(screen: ScreenID, layout: ScreenLayoutDelta?, transaction: ClientTransactionID?)
 
     // Surface state.
-    case titleChanged(surface: SurfaceID, title: String)
+    /// What a tab shows of a surface's title changed: its text (a terminal's without its status glyphs, as the daemon
+    /// split it) or its activity. A spinner frame changes neither and the daemon does not send it (D2).
+    case titleChanged(surface: SurfaceID, title: String, activity: TerminalTitle.Activity? = nil)
     case surfaceResized(surface: SurfaceID, size: CellSize)
     case surfaceExited(surface: SurfaceID)
     case scrollChanged(surface: SurfaceID, offset: UInt64, atBottom: Bool)
@@ -98,7 +107,7 @@ extension DaemonEvent {
     /// which `list-workspaces` does not carry.
     var outlivesSnapshot: Bool {
         switch self {
-        case .connected, .disconnected, .daemonShutdown, .sessionState: true
+        case .connected, .disconnected, .daemonShutdown, .sessionState, .screenDeviceChanged: true
         // Transient questions to this connection; a snapshot never holds them.
         case .terminalClipboardRead, .terminalClipboardReadCancelled: true
         // Terminal outcomes live outside list-workspaces, including background jobs.

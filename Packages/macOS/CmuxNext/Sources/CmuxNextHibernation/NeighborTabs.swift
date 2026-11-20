@@ -51,6 +51,6 @@ package struct NeighborTabs {
     /// The radius in effect: the setting, or 0 under memory pressure or in Low Power Mode.
     package static func radius(setting: Int, pressure: MemoryPressureLevel, lowPower: Bool) -> Int {
         guard pressure == .normal, !lowPower else { return 0 }
-        return max(0, min(setting, BrowserHibernationSetting.neighborRadiusRange.upperBound))
+        return max(0, min(setting, BrowserHibernationSetting.neighborRadii.upperBound))
     }
 }

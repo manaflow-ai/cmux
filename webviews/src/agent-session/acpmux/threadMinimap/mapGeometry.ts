@@ -1,7 +1,8 @@
 // The full-height thread minimap's model (ScrollMap.tsx): the rail spans the transcript's viewport
 // and maps the whole scroll height onto it, so every message draws where it is in the chat. Pure
 // functions over the transcript's layout, so nothing here measures a row.
-import type { AcpmuxRow, ConversationLayout } from "../model";
+import type { AcpmuxRow } from "../model";
+import { geometryOf, type GeometrySource } from "../conversationGeometry";
 import { THREAD_PADDING_TOP, type MinimapTurn } from "./model";
 
 /// Space kept above and below the rail inside the transcript's viewport.
@@ -91,24 +92,30 @@ export function mapThumb(
 export function mapMarks(
   rows: readonly AcpmuxRow[],
   turns: readonly MinimapTurn[],
-  layout: ConversationLayout,
+  layout: GeometrySource & { readonly totalHeight: number },
   height: number,
 ): MapMark[] {
   const marks: MapMark[] = [];
   let turn = -1;
   let lastAgent = -Infinity;
-  for (let index = 0; index < rows.length; index += 1) {
+  const total = layout.totalHeight;
+  // One ordered walk of the rows' places (O(rows), as the loop over the rows always was).
+  const visit = (index: number, top: number) => {
     const row = rows[index]!;
     if (row.kind === "user") {
       while (turn + 1 < turns.length && turns[turn + 1]!.index <= index) turn += 1;
-      marks.push({ kind: "user", row: index, turn, y: mapY(layout.tops[index] ?? 0, layout.totalHeight, height) });
+      marks.push({ kind: "user", row: index, turn, y: mapY(top, total, height) });
     } else if (row.kind === "assistant" && row.text) {
-      const y = mapY(layout.tops[index] ?? 0, layout.totalHeight, height);
-      if (y - lastAgent < MERGE_PX) continue;
+      const y = mapY(top, total, height);
+      if (y - lastAgent < MERGE_PX) return;
       lastAgent = y;
       marks.push({ kind: "agent", row: index, turn, y });
     }
-  }
+  };
+  const geometry = geometryOf(layout);
+  geometry.scan(0, rows.length, visit);
+  // Rows past the layout's (a layout a render behind) sit at the top, as an unplaced row did.
+  for (let index = geometry.count; index < rows.length; index += 1) visit(index, 0);
   return marks;
 }
 

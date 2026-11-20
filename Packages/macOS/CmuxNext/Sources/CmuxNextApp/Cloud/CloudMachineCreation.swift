@@ -1,4 +1,5 @@
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
@@ -47,8 +48,13 @@ final class CloudMachineCreation: Identifiable {
     private(set) var isTornDown = false
     /// How the requested machine config's apply started (``CloudMachineRequest/machineConfig``).
     private(set) var machineConfig: CloudMachineBootstrap.Outcome?
+    /// The progress page a window shows this creation on, while it shows it: the create asks there.
+    @ObservationIgnored weak var progressHost: CloudProgressHost?
     /// The flow's work for this creation; cancelled on dismiss and retry.
     @ObservationIgnored var task: Task<Void, Never>?
+    /// What opens the ready machine's workspace instead of the flow's own (the Cloud toggle's,
+    /// in a copied folder); kept here so a Retry from any surface opens the same one.
+    @ObservationIgnored var open: (@MainActor (CloudMachineSession) async throws -> String)?
     /// What `cloud new-machine` asked for (size, idle pause); a Retry asks for the same, with
     /// the same idempotency key.
     private(set) var request: CloudMachineRequest
@@ -57,10 +63,10 @@ final class CloudMachineCreation: Identifiable {
     /// part of ``request``: a named request is a request option the app server's create refuses.
     var pinnedMachineName: String?
 
-    /// The create went to the server once, to `team`: a Retry may find the machine it made, and
-    /// goes to that same team.
-    func markRequestSent(team: String?) {
-        if !request.wasSent { request.team = team }
+    /// The create went to the server once, to `team` on `route`: a Retry may find the machine it made, and
+    /// goes to that same team on that same route (the server keeps each key per caller).
+    func markRequestSent(team: String?, route: CloudCreateRoute = .relay) {
+        if !request.wasSent { request.team = team; request.route = route }
         request.wasSent = true
     }
 
@@ -220,7 +226,7 @@ final class CloudMachineCreation: Identifiable {
         startedAt = now
         readyAfter = nil
         planRefusal = nil
-        if session == nil { phase = .requesting }
+        phase = session == nil ? .requesting : .created
     }
 }
 
@@ -315,8 +321,11 @@ struct CloudCreationFlow {
     /// The ``bootstrap`` hook's work on `machine`: starts the requested bootstrap and, in the creation's own
     /// task (``CloudMachineCreation/awaitBootstrapCompletion(_:attempt:wait:)``), waits for its end without holding
     /// up the open; then applies the requested machine config. The first workspace still opens at the
-    /// machine's default folder: a caller that wants the clone opens its own at the completion's `repoPath`.
-    static func startBootstrap(_ creation: CloudMachineCreation, on machine: CloudMachineBootstrap.Machine) async {
+    /// machine's default folder: a caller that wants the clone opens its own at the completion's `repoPath`. Nothing goes
+    /// out before `running` returns: a create answers while the machine binds, whose routes refuse it until it runs.
+    static func startBootstrap(_ creation: CloudMachineCreation, on machine: CloudMachineBootstrap.Machine, running: @MainActor () async -> Void) async {
+        await running()
+        guard !Task.isCancelled, !creation.isTornDown else { return }
         if let script = creation.request.script, needsScript(creation) {
             let attempt = creation.beginBootstrapAttempt()
             let outcome = await script.start(name: creation.request.name, on: machine)
@@ -332,9 +341,12 @@ struct CloudCreationFlow {
 
     /// Starts a creation and, when a window asked, shows it there at once
     /// (before any await): the click focuses the new work, not the old one.
+    /// `open`, when given, opens the machine's workspace instead of ``open`` (on every Retry too).
     @discardableResult
-    func start(in window: WindowState?, existing: CloudMachineSession?, request: CloudMachineRequest = CloudMachineRequest()) -> CloudMachineCreation {
+    func start(in window: WindowState?, existing: CloudMachineSession?, request: CloudMachineRequest = CloudMachineRequest(),
+               open: (@MainActor (CloudMachineSession) async throws -> String)? = nil) -> CloudMachineCreation {
         let creation = creations.begin(window: window?.id, session: existing, request: request)
+        creation.open = open
         if let window {
             window.page = nil
             window.cloudCreation = creation.id
@@ -358,27 +370,19 @@ struct CloudCreationFlow {
     }
 
     private func run(_ creation: CloudMachineCreation) {
-        let create = create, open = open, show = show, bootstrap = bootstrap, creations = creations, planRequired = planRequired
+        let create = create, open = creation.open ?? open, show = show, bootstrap = bootstrap, creations = creations, planRequired = planRequired
         let startedByPerson = startedByPerson
         // task-owner: the creation's one run; cancelled by retry, dismiss or machine removal
         creation.task = Task { @MainActor in
             do {
-                let session: CloudMachineSession
-                if let existing = creation.session {
-                    session = existing
-                    if Self.needsBootstrap(creation) {
-                        await bootstrap(creation, session)
-                        try Task.checkCancellation()
-                    }
-                } else {
-                    session = try await create(creation)
+                let existing = creation.session, session: CloudMachineSession
+                if let existing { session = existing } else { session = try await create(creation) }
+                try Task.checkCancellation()
+                // Attached first: a create answers once attached (30 s); the bootstrap waits up to 180 s for the machine to run.
+                if existing == nil { creation.attach(session) }
+                if Self.needsBootstrap(creation) {
+                    await bootstrap(creation, session)
                     try Task.checkCancellation()
-                    // Before attach: a caller waiting for the machine reads the bootstrap's outcome with it.
-                    if Self.needsBootstrap(creation) {
-                        await bootstrap(creation, session)
-                        try Task.checkCancellation()
-                    }
-                    creation.attach(session)
                 }
                 guard await Self.ready(creation) else { return }
                 creation.markReady()
@@ -412,7 +416,7 @@ struct CloudCreationFlow {
 
     private static func mirrored(_ id: String, on session: CloudMachineSession) async -> Bool {
         let store = session.daemon.store
-        for await known in ObservationStream({ store.workspaces.contains { $0.id == id } }) where known { return true }
+        for await known in ObservationStream({ store.workspace(id: id) != nil }) where known { return true } // O(1), the index
         return false
     }
 }

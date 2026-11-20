@@ -70,7 +70,7 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
         // A tab of this workspace already shows it: that tab, never a second one.
         if let shown = workspace.tabs.first(where: { tree.agentTabs[$0.id]?.session == chat.id }) { return shown }
         guard let pane = tree.panes[workspace.id] else {
-            throw WorkspaceCreationError("The Mac hasn't listed this workspace's panes yet")
+            throw WorkspaceCreationError("The Mac hasn't listed this workspace's panes")
         }
         do {
             let reply = try await client.request("new-conversation-tab", params: [
@@ -127,12 +127,25 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
         return now
     }
 
+    /// Stop: `session/cancel` as a request, so acpmux's refusal (a chat the Mac started,
+    /// `remote.session_cancel_ownership`) comes back instead of being dropped.
+    public func stopAgentChat(_ chat: AgentChatListing, on macID: String) async throws {
+        let acpmux = try readyAcpmux(macID)
+        do {
+            _ = try await acpmux.request("session/cancel", .object(["sessionId": .string(chat.id)]), timeout: .seconds(20))
+        } catch let error as AcpmuxConnection.RPCError where error.reason == "remote.session_cancel_ownership" {
+            throw AgentChatOwnedByMac(error.message)
+        } catch let error as AcpmuxConnection.RPCError {
+            throw WorkspaceCreationError(error.message, isForPerson: true)
+        }
+    }
+
     public func openChatFolderInTerminal(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
         guard canManage(on: workspace.macID), let client = sync.daemon, let tree = sync.tree else {
             throw WorkspaceCreationError("Not connected")
         }
         guard let session = tree.agentTabs[tab.id]?.session else {
-            throw WorkspaceCreationError("This chat hasn't started yet.", isForPerson: true)
+            throw WorkspaceCreationError("This chat hasn't started.", isForPerson: true)
         }
         guard let place = tree.tabPlaces[tab.id] ?? tree.panes[workspace.id].map({ DaemonTree.TabPlace(pane: $0, index: 0) }) else {
             throw WorkspaceCreationError("The Mac doesn't list this tab")
@@ -141,6 +154,29 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
         guard let line = Self.changeDirectoryLine(folder) else {
             throw WorkspaceCreationError(Self.untypableFolder, isForPerson: true)
         }
+        do {
+            let reply = try await client.request("new-tab", params: ["pane": place.pane])
+            guard let surface = (try WorkspaceSync.check(reply)["data"] as? [String: Any])?["surface"] as? Int else {
+                throw WorkspaceCreationError("The Mac didn't say which tab it opened")
+            }
+            try WorkspaceSync.check(await client.request("send", params: ["surface": surface, "text": line]))
+            return try await listedTab(DaemonTree.tabID(surface: surface), workspace: workspace.id)
+        } catch let error as DaemonReplyError {
+            throw WorkspaceCreationError(error.message)
+        }
+    }
+
+    public func launchAgentTeams(_ teams: AgentTeamsLaunch, beside tab: WorkspaceTab?, folder: String?,
+                                 in workspace: Workspace) async throws -> WorkspaceTab {
+        guard canManage(on: workspace.macID), let client = sync.daemon, let tree = sync.tree else {
+            throw WorkspaceCreationError("Not connected")
+        }
+        guard let place = tab.flatMap({ tree.tabPlaces[$0.id] }) ?? tree.panes[workspace.id].map({ DaemonTree.TabPlace(pane: $0, index: 0) }) else {
+            throw WorkspaceCreationError("The Mac doesn't list this workspace's panes")
+        }
+        // The Mac opens the tab in the focused tab's folder; a new tab here starts in the
+        // pane's, so it changes to that folder first when it can be typed safely.
+        let line = (folder.flatMap(Self.changeDirectoryLine) ?? "") + teams.line
         do {
             let reply = try await client.request("new-tab", params: ["pane": place.pane])
             guard let surface = (try WorkspaceSync.check(reply)["data"] as? [String: Any])?["surface"] as? Int else {
@@ -183,7 +219,7 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
     private func readyAcpmux(_ macID: String) throws -> AcpmuxHub {
         guard canManage(on: macID) else { throw WorkspaceCreationError("Not connected") }
         guard let acpmux, acpmux.isReady else {
-            throw WorkspaceCreationError("Agents on this Mac aren't connected yet. Try again in a moment.", isForPerson: true)
+            throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true)
         }
         return acpmux
     }
@@ -203,5 +239,61 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
             throw WorkspaceCreationError("The new tab didn't appear on the Mac")
         }
         return tab
+    }
+}
+
+/// Toggle Terminal and Chat from the phone: the Mac's chats a terminal's session pairs with
+/// (read from the chats acpmux already sent, no request), and the View Only chat the Mac's
+/// Toggle opens, asked for with the same `session/new` adopt the Mac sends
+/// (`TerminalChatHandler`, `AgentPaneAdopt(watch: true)`).
+extension LiveWorkspaceCreationBackend: TerminalChatBackend {
+    public func terminalChatListings(on macID: String) -> [TerminalChatListing] {
+        guard canManage(on: macID), let acpmux else { return [] }
+        return acpmux.sessions.values.compactMap(Self.terminalChatListing)
+    }
+
+    public func terminalChatListedWhole(on macID: String) -> Bool {
+        guard canManage(on: macID), let acpmux else { return false }
+        return acpmux.isReady && acpmux.listWhole
+    }
+
+    /// One acpmux session as a pairing candidate; nil for a peer's (another machine's) chat.
+    nonisolated static func terminalChatListing(_ session: AcpmuxSession) -> TerminalChatListing? {
+        guard session.peer == nil else { return nil }
+        return TerminalChatListing(sessionID: session.id, harness: session.harness, agentSessionID: session.agentSessionID,
+                                   watching: session.watching, status: session.status)
+    }
+
+    public func openTerminalChat(harness: String, session: String, terminalTabID: String,
+                                 on macID: String) async throws -> TerminalChatOpen {
+        let acpmux = try readyAcpmux(macID)
+        let reply: JSONValue
+        do {
+            reply = try await acpmux.request("session/new", Self.terminalChatParams(
+                harness: harness, session: session, cwd: sync.tree?.directories[terminalTabID]), timeout: .seconds(30))
+        } catch let error as AcpmuxConnection.RPCError where error.reason == "remote.adopt_refused" {
+            return .refused
+        } catch let error as AcpmuxConnection.RPCError {
+            throw WorkspaceCreationError(error.message, isForPerson: true)
+        }
+        guard let chat = reply["sessionId"]?.stringValue, !chat.isEmpty else {
+            throw WorkspaceCreationError("The Mac didn't open the chat")
+        }
+        return .chat(chat)
+    }
+
+    /// The Mac's adopt (`AgentPaneAdopt.reply` with `watch`), in the terminal's folder when known
+    /// (acpmux otherwise reads it from the harness's own record), under the asking policy every
+    /// chat a phone starts has.
+    nonisolated static func terminalChatParams(harness: String, session: String, cwd: String?) -> JSONValue {
+        var params: [String: JSONValue] = [
+            "mcpServers": .array([]),
+            "_meta": .object(["acpmux": .object([
+                "policy": .string("ask"),
+                "adopt": .object(["harness": .string(harness), "agentSessionId": .string(session), "watch": .bool(true)]),
+            ])]),
+        ]
+        if let cwd, cwd.hasPrefix("/") { params["cwd"] = .string(cwd) }
+        return .object(params)
     }
 }

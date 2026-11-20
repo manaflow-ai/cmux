@@ -1,0 +1,10 @@
+# Commands the bundled bin/cmux must run with nothing but the bundle
+# (scripts/cmux-next/check-bundled-cli-commands.sh, run on every NEXT nightly).
+# A subcommand that execs a companion binary belongs here, so a bundle that
+# lacks the companion fails before it ships. One command per line, no shell.
+--version
+vm --help
+vm run --help
+vm token --help
+vm token status --help
+vm creation cancel --help

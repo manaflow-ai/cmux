@@ -1,5 +1,6 @@
 public import CmuxNextWakeups
 public import Foundation
+import os
 
 /// One open text WebSocket.
 public protocol DeviceHubSocketConnection: Sendable {
@@ -29,7 +30,33 @@ public struct URLSessionDeviceHubConnector: DeviceHubSocketConnector {
         let task = session.webSocketTask(with: handshake.request)
         task.maximumMessageSize = 1 << 20
         task.resume()
+        // Connected means upgraded: the first pong comes only once the hub accepted the socket. A
+        // refused upgrade (a stale signature, a 401) throws here with its status, so it is a
+        // failed connect that backs off and says why, not a "connected" that drops at once.
+        do { try await Self.firstPong(task) } catch {
+            let status = (task.response as? HTTPURLResponse)?.statusCode
+            task.cancel(with: .goingAway, reason: nil)
+            if let status, status != 101 { throw DeviceHubError.http(status: status) }
+            throw error
+        }
         return URLSessionSocketConnection(task: task)
+    }
+
+    private static func firstPong(_ task: URLSessionWebSocketTask) async throws {
+        // URLSession may call a ping's handler twice during teardown: the continuation resumes once.
+        // lint:allow lock -- the URLSession callback is synchronous; it claims the one resume without an async hop.
+        let resumed = OSAllocatedUnfairLock(initialState: false)
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, any Error>) in
+                task.sendPing { error in
+                    guard resumed.withLock({ let first = !$0; $0 = true; return first }) else { return }
+                    if let error { done.resume(throwing: error) } else { done.resume() }
+                }
+            }
+        } onCancel: {
+            // Cancelling the task fails the ping, which resumes the wait.
+            task.cancel(with: .goingAway, reason: nil)
+        }
     }
 }
 
@@ -44,7 +71,7 @@ public struct URLSessionSocketConnection: DeviceHubSocketConnection {
     public func receive() async throws -> String {
         let message: URLSessionWebSocketTask.Message
         do { message = try await task.receive() } catch {
-            // The server's close code, when it closed the socket (4000 replaced, 4001 removed).
+            // The server's close code, when it closed the socket (4000 replaced, 4001 removed, 4003 signed out).
             if task.closeCode != .invalid { throw DeviceHubSocket.Closed(code: task.closeCode.rawValue) }
             throw error
         }
@@ -78,6 +105,8 @@ public final class DeviceHubSocket: Sendable {
         case replaced
         /// The hub removed this device (close code 4001): no reconnect.
         case removed
+        /// This device signed out of the hub (close code 4003): no reconnect.
+        case signedOut
     }
 
     /// The server closed the socket with `code`.
@@ -126,8 +155,8 @@ public final class DeviceHubSocket: Sendable {
                 failure = "\(error)"
             }
             if Task.isCancelled { break }
-            if closeCode == 4000 || closeCode == 4001 {
-                await handler(.state(closeCode == 4000 ? .replaced : .removed))
+            if let terminal = closeCode.flatMap(Self.terminalState(closeCode:)) {
+                await handler(.state(terminal))
                 return
             }
             await handler(.state(.reconnecting(failure)))
@@ -135,6 +164,17 @@ public final class DeviceHubSocket: Sendable {
             do { try await backoff.wait(owner: "device-hub.socket", clock: clock) } catch { break }
         }
         await handler(.state(.disconnected))
+    }
+
+    /// The state a server close code ends the socket in, with no reconnect (PROTOCOL.md,
+    /// WebSocket: User DO); nil for a close the socket reconnects after.
+    static func terminalState(closeCode: Int) -> State? {
+        switch closeCode {
+        case 4000: .replaced
+        case 4001: .removed
+        case 4003: .signedOut
+        default: nil
+        }
     }
 
     /// Reads frames and pings until the socket fails or the task is cancelled.

@@ -1,10 +1,13 @@
 import AppKit
 @testable import CmuxNextLayout
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
-/// Closing a column revealed beside a chat must bring the chat back while its workspace stays visible.
+/// Closing a column revealed beside a chat brings the chat back in the turn of the close, while its
+/// workspace stays visible: the close is one commit, with no pane and no camera on a spring.
 @MainActor
+@Suite(.closesItsWindows)
 struct ColumnCloseMotionTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
@@ -43,6 +46,7 @@ struct ColumnCloseMotionTests {
     @Test(arguments: [false, true], [false, true])
     func closingTheRevealedColumnBringsTheChatBack(collapseToLeaf: Bool, reduceMotion: Bool) throws {
         let fixture = Screen(reduceMotion: reduceMotion)
+        defer { fixture.window.closeAfterTest() }
         let screen = try #require(fixture.root.screenViews["s"])
         fixture.model.revealColumn(containing: "files")
         fixture.root.syncWithModel()
@@ -60,11 +64,14 @@ struct ColumnCloseMotionTests {
         #expect(screen.scroll.value >= 0 && screen.scroll.value <= screen.geometry.maxOffset,
                 "the camera stayed beyond the removed column")
         #expect(screen.scroll.target >= 0 && screen.scroll.target <= screen.geometry.maxOffset)
-        // A manual clock would mask a missing frame request. A scroll sync must report the pane
-        // spring that settleCarried created after resetting or clamping the camera (Lucas 2026-10-19).
+        // The close is one commit: its own turn puts the camera at its place in the strip that stays
+        // and leaves no pane on a spring, so the chat is on screen at once, with motion on or off.
+        #expect(!screen.hasMotion, "the close left a pane or the camera on a spring")
+        #expect(screen.visiblePanes().contains("chat"), "the chat is not on screen in the turn of the close")
+        // A manual clock would mask a frame request: a scroll sync after the close asks for none.
         let needsFrames = screen.syncScroll(focused: "chat", source: .programmatic,
                                             mode: fixture.model.centerFocusedColumn, animated: !reduceMotion)
-        #expect(needsFrames == !reduceMotion)
+        #expect(!needsFrames, "a scroll sync after the close asked for frames")
         fixture.settle()
 
         let shown = try #require(screen.displayedFrame(of: "chat"))

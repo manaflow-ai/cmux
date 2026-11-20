@@ -8,7 +8,7 @@
 
 use std::io::Write as _;
 
-use super::pty_custody::{kill_shell_then_host, send_line, wait_for_dead_host};
+use super::pty_custody::{kill_shell_then_host, send_line, signal_pid, wait_for_dead_host};
 use super::*;
 
 const MARKER: &str = "session restored (previous process ended)";
@@ -363,10 +363,19 @@ fn an_unadoptable_host_that_dies_without_a_record_is_respawned() {
     );
     assert_ne!(resolved["lifecycle"], "exited", "{resolved}");
 
-    // The host and its shell die with no exit record.
+    // The host and its shell die with no exit record. The host is stopped
+    // first, as `kill_shell_then_host` does: a host that still ran when its
+    // shell died could record that end (SIGKILL), and a recorded end is a
+    // process end, which never respawns.
+    // The stop must take before the shell is killed: `signal_pid` fails the
+    // test if the signal is refused, and every host thread is stopped once
+    // `wait_until_stopped` returns (a kill can return before that).
     let host_pid = record.host_pid as libc::pid_t;
+    signal_pid(record.host_pid, libc::SIGSTOP);
+    wait_until_stopped(host_pid);
     let _ = Command::new("/usr/bin/pkill").args(["-KILL", "-P", &host_pid.to_string()]).status();
-    // SAFETY: the record PID is the harness-owned terminal host.
+    // SAFETY: the record PID is the harness-owned terminal host; SIGKILL also
+    // ends a stopped process.
     unsafe { libc::kill(host_pid, libc::SIGKILL) };
     wait_for_process_and_group_absent(host_pid);
 

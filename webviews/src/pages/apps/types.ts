@@ -66,6 +66,25 @@ export interface AppContribution {
   title: string;
 }
 
+/**
+ * Where a deployed app's server may run (the manifest's `deploy`, cmux-tui-core apps/store.rs):
+ * machine kinds (`self-hosted`, `cloud-vm`, `team-vm`, `local`) and whose instance it is.
+ */
+export interface AppDeploy {
+  targets: string[];
+  tenancy: string[];
+}
+
+/** A deployed app's running server (`instance` on an installed row; apps/deploy.rs). */
+export interface AppInstance {
+  id: string;
+  /** `self-hosted:<ssh destination>` or `cloud-vm:<machine id>`. */
+  target: string;
+  state: "deploying" | "running";
+  /** Its tailnet or loopback address once it runs. */
+  url?: string;
+}
+
 /** `cmux.apps.catalog.get`. */
 export interface AppDetail extends CatalogApp {
   scopes: ScopeRequest[];
@@ -75,6 +94,8 @@ export interface AppDetail extends CatalogApp {
   notices?: string[];
   /** "What it adds" on the app's page; absent until the owner sends it. */
   contributes?: AppContribution[];
+  /** Where the app's server runs; absent for an app with no `deploy` block. */
+  deploy?: AppDeploy;
 }
 
 /** One row of `cmux.apps.installed.list`. */
@@ -94,6 +115,8 @@ export interface InstalledApp {
   update?: { version: string };
   /** The host's last failure for this app, when it has one. */
   failure?: string;
+  /** The deployed instance of an app with a `deploy` block, while it exists. */
+  instance?: AppInstance;
 }
 
 /** One row returned by `cmux.apps.updates.list`. The supervisor owns the versions. */
@@ -177,7 +200,8 @@ export const AppsOps = {
   updatesList: "cmux.apps.updates.list",
   update: "cmux.apps.update",
   logs: "cmux.apps.logs",
-  watch: "cmux.apps.watch",
+  /** The daemon's `apps-changed` on the page relay (page-router.json `events`; DaemonPageRelay). */
+  watch: "cmux.apps.changed",
 } as const;
 
 /** Open is a host verb: the page runs the host action `app.open` (cx-hnmbt.13). */

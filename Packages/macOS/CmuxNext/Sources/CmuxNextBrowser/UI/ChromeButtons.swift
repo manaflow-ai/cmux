@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextWakeups
 import CmuxNextDesign
 import CmuxNextIcons
@@ -16,14 +17,14 @@ final class ChromeIconButton: ClickableButton {
     /// Toolbar buttons use the omnibar geometry (`OmnibarStyle`); others the
     /// compact overlay size.
     private let isToolbar: Bool
-    /// False where the tooltip would only repeat the icon's name (Back,
-    /// Forward, Reload/Stop, More: Lawrence 2026-10-13). The accessibility
-    /// label stays.
+    /// False where the tooltip would only repeat the icon's name (Back, Forward,
+    /// Reload/Stop, More: Lawrence 2026-10-13). The accessibility label stays.
     var showsToolTip: Bool {
         didSet { if showsToolTip != oldValue { themedToolTip = showsToolTip ? iconLabel : nil } }
     }
     /// A menu for right-click and long-press (Back / Forward entries).
     var menuProvider: (() -> NSMenu?)?
+    var onPointerEnter: (() -> Void)?  // the pointer came onto it (the Extensions button's bubble is made then)
     private let holdTimer = DemandTimer(owner: "ChromeIconButton.hold")
     private var showedHoldMenu = false
 
@@ -43,37 +44,73 @@ final class ChromeIconButton: ClickableButton {
         setAccessibilityLabel(label)
         wantsLayer = true
         NSLayoutConstraint.activate([
-            density.bind(widthAnchor.constraint(equalToConstant: 0)) { toolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight },
-            density.bind(heightAnchor.constraint(equalToConstant: 0)) { toolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight },
+            density.bind(widthAnchor.constraint(equalToConstant: 0)) { [weak self] in self?.side(toolbar: toolbar) ?? 0 },
+            density.bind(heightAnchor.constraint(equalToConstant: 0)) { [weak self] in self?.side(toolbar: toolbar) ?? 0 },
         ])
         density.update { [weak self] in
             guard let self else { return }
-            layer?.cornerRadius = isToolbar ? OmnibarStyle.buttonCornerRadius : BrowserMetrics.controlCornerRadius
+            // The tab's ratio on its own side (Lucas 2026-11-15: one shape at every density).
+            layer?.cornerRadius = Metrics.buttonCornerRadius(proportionalTo: side(toolbar: toolbar))
             applyIcon()
         }
         density.start()
-        hover = PointerHover(self) { [weak self] _ in self?.updateFill(animated: true) }
+        hover = PointerHover(self) { [weak self] in self?.updateFill(animated: true); if $0 { self?.onPointerEnter?() } }
         hover?.isHoverable = { [weak self] in self?.isEnabled ?? false }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// The button's side: a toolbar button's on the window's pixels (square on a 1x display too), else the overlay's.
+    private func side(toolbar: Bool) -> CGFloat {
+        toolbar ? OmnibarStyle.buttonSize(scale: OmnibarStyle.scale(of: self)) : BrowserMetrics.controlHeight
+    }
+
+    /// A move to a screen with another scale snaps the side again.
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        density.reapply()
+    }
+
     /// Unchanged icon and label keep the current image: a new NSImage
     /// makes AppKit lay out and redraw the button.
     func setIcon(_ icon: IconName, label: String) {
-        guard icon != iconName || label != iconLabel || image == nil else { return }
+        guard icon != iconName || label != iconLabel || drawnGlyph == nil else { return }
         iconName = icon
         iconLabel = label
         applyIcon()
     }
 
+    /// The icon's side instead of the toolbar's or the overlay's (More draws the app's ⋮ at
+    /// `OverflowButton.glyphSize`); read on each density change.
+    var iconSide: (() -> CGFloat)? { didSet { applyIcon() } }
+
+    /// A toolbar button's glyph, its ink in the middle of the hover box on whole pixels (Lucas 2026-11-18: "the
+    /// containers/hover is not centered within the icon"); the cell would center the glyph's image instead.
+    private lazy var glyphView: InkCenteredGlyphView = {
+        let view = InkCenteredGlyphView(frame: bounds)
+        view.autoresizingMask = [.width, .height]
+        addSubview(view)
+        return view
+    }()
+
+    /// The glyph the button draws: the toolbar's in ``glyphView``, an overlay's as the cell's image.
+    var drawnGlyph: NSImage? { isToolbar ? glyphView.glyph : image }
+    /// The image the button shows, centered in its square: a toolbar button's is the box's size, its ink centered.
+    var drawnImage: NSImage? { isToolbar ? glyphView.image : image }
+
     private func applyIcon() {
         let label = iconLabel
-        let side = isToolbar ? OmnibarStyle.toolbarIconSize : CGFloat.iconRowSize(forLabelPointSize: BrowserMetrics.symbolPointSize)
+        let side = iconSide?() ?? (isToolbar ? OmnibarStyle.toolbarIconSize : CGFloat.iconRowSize(forLabelPointSize: BrowserMetrics.symbolPointSize))
         let icon = NSImage.icon(iconName, size: side)
         icon.accessibilityDescription = label
-        image = icon
+        if isToolbar {
+            image = nil
+            glyphView.glyph = icon
+            glyphView.contentTintColor = contentTintColor
+        } else {
+            image = icon
+        }
         themedToolTip = showsToolTip ? label : nil
         setAccessibilityLabel(label)
     }
@@ -153,6 +190,7 @@ final class ChromeIconButton: ClickableButton {
 
     override func layout() {
         super.layout()
+        if isToolbar { glyphView.frame = bounds }
         if progress != nil { updateProgressRing() }
     }
 
@@ -211,9 +249,15 @@ final class ChromeIconButton: ClickableButton {
     private func showHoldMenu() {
         guard let menu = menuProvider?() else { return }
         showedHoldMenu = true
-        isMenuOpen = true
-        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(for: menu, in: self, gap: 2), in: self)
-        isMenuOpen = false
+        // From a run-loop callout, not the timer's main-actor job: a menu tracking inside a main-queue
+        // job holds the main queue until it closes, and the click that closes it waits on everything
+        // queued meanwhile (Leo, 2026-10-29: "clicking out of a fucking context menu is sometimes slow").
+        MainRunLoopBlock.perform { [weak self] in
+            guard let self, window != nil else { return }
+            isMenuOpen = true
+            menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(for: menu, in: self, gap: 2), in: self)
+            isMenuOpen = false
+        }
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -241,6 +285,7 @@ final class ChromeIconButton: ClickableButton {
             // Hover eases in and clears at once; a press shows at once (ChromeHover.fade).
             if let layer { ChromeHover.paint(layer, color, animated: animated && window != nil, pressed: isHighlighted) }
             contentTintColor = isToolbar ? Palette.textPrimary : Palette.textSecondary
+            if isToolbar { glyphView.contentTintColor = contentTintColor }
         }
         // The ring's colors follow the theme with the fill.
         if progress != nil { updateProgressRing() }
@@ -269,7 +314,7 @@ class ChromeTextButton: ClickableButton {
         titleText = title
         density.update { [weak self] in
             guard let self else { return }
-            layer?.cornerRadius = BrowserMetrics.controlCornerRadius
+            layer?.cornerRadius = Metrics.buttonCornerRadius(proportionalTo: BrowserMetrics.controlHeight)
             applyTitle()
             invalidateIntrinsicContentSize()
         }
@@ -359,7 +404,7 @@ class ChromeTextField: NSTextField {
         cell?.wraps = false
         density.update { [weak self] in
             guard let self else { return }
-            font = BrowserMetrics.bodyFont
+            font = densityFont
             applyPlaceholder()
         }
         density.start()
@@ -367,6 +412,11 @@ class ChromeTextField: NSTextField {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// The font the field takes at every density change. A subclass with its own size (the omnibar's field) returns it,
+    /// so this binding and the subclass's never race to set two fonts (Lucas 2026-11-16: the omnibar's text came back
+    /// at the body size after some density switches).
+    var densityFont: NSFont { BrowserMetrics.bodyFont }
 
     func setPlaceholder(_ text: String) {
         placeholderText = text

@@ -11,7 +11,7 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 
 const row = (
   kind: string,
-  tools: { id: string; kind: string; status: string }[] = [],
+  tools: { id: string; kind: string; status: string; background?: { state: string } }[] = [],
   extra: Partial<AcpmuxRow> = {},
 ): AcpmuxRow =>
   ({
@@ -60,6 +60,13 @@ describe("foregroundCalls", () => {
       ]),
     ];
     expect(foregroundCalls(rows)).toEqual(["agent", "build"]);
+  });
+
+  test("a command already in the background holds nothing up, so neither Ctrl-B nor the hint offers it", () => {
+    const moved = { id: "moved", kind: "execute", status: "in_progress", background: { state: "running" } };
+    const rows = [row("user"), row("tools", [moved, { id: "build", kind: "execute", status: "in_progress" }])];
+    expect(foregroundCalls(rows)).toEqual(["build"]);
+    expect(foregroundCalls([row("user"), row("tools", [moved])])).toEqual([]);
   });
 
   test("a command left pending after its permission prompt was answered still counts", () => {

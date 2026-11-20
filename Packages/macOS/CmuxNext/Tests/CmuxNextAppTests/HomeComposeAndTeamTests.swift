@@ -1,13 +1,16 @@
 import AppKit
 import CmuxHomeCore
 @testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 @testable import MessagesLabSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// The user, 2026-10-21: "for compose button default should make it look like imessage, so the
 /// compose button is always in the body area not the sidebar, even on big screen sizes. and by
 /// default i should be able to see everyone in my team as people i can chat to".
 @MainActor
+@Suite(.closesItsWindows)
 struct HomeComposeAndTeamTests {
     static let me = HomeNewMessageTests.me
     static let ada = HomeNewMessageTests.ada
@@ -31,7 +34,7 @@ struct HomeComposeAndTeamTests {
     func theChatHoldsComposeAtEveryWidth(_ window: CGFloat, _ list: CGFloat) throws {
         _ = NSApplication.shared
         let suite = "cmux.tests.composeTeam.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 800))
         let content = NSView()

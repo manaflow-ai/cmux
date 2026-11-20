@@ -147,6 +147,7 @@ mod tests {
             stream: false,
             resolve: Vec::new(),
             view: ResponseView::Full,
+            filter: Default::default(),
         }
     }
 

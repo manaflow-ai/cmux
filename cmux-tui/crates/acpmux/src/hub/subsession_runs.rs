@@ -97,29 +97,38 @@ impl Runs {
         self.wake();
     }
 
-    fn mark(&self, parent: &str, child: &str) {
-        *self
-            .lock()
+    /// Whether this is the first wait for this child.
+    fn mark(&self, parent: &str, child: &str) -> bool {
+        let mut state = self.lock();
+        let count = state
             .waiting
             .entry(parent.to_owned())
             .or_default()
             .entry(child.to_owned())
-            .or_default() += 1;
+            .or_default();
+        let edge = *count == 0;
+        *count += 1;
+        edge
     }
 
-    fn unmark(&self, parent: &str, child: &str) {
-        let mut s = self.lock();
-        if let Some(map) = s.waiting.get_mut(parent) {
-            if let Some(n) = map.get_mut(child) {
-                *n = n.saturating_sub(1);
-                if *n == 0 {
+    /// Whether this removed the child's last wait. The guard is released
+    /// before a caller marks the v1 row.
+    fn unmark(&self, parent: &str, child: &str) -> bool {
+        let mut state = self.lock();
+        let mut edge = false;
+        if let Some(map) = state.waiting.get_mut(parent) {
+            if let Some(count) = map.get_mut(child) {
+                *count = count.saturating_sub(1);
+                if *count == 0 {
                     map.remove(child);
+                    edge = true;
                 }
             }
             if map.is_empty() {
-                s.waiting.remove(parent);
+                state.waiting.remove(parent);
             }
         }
+        edge
     }
 
     /// The workspace's own `maxRunning`, if the person set one.
@@ -141,7 +150,7 @@ impl Runs {
             let bytes = serde_json::to_vec_pretty(&*map)?;
             let path = crate::config::home().join(WORKSPACES_FILE);
             if let Some(dir) = path.parent() {
-                std::fs::create_dir_all(dir)?;
+                crate::home_fs::create_dirs(dir)?;
             }
             crate::config::write_atomic(&path, &bytes)?;
         }
@@ -177,15 +186,41 @@ impl Drop for RunSlot {
 }
 
 /// A sub-session counted as waiting for a slot while this lives.
-pub(super) struct WaitMark {
+pub(super) struct WaitMark<'a> {
     runs: Arc<Runs>,
     parent: String,
-    child: String,
+    child: &'a Session,
+    events: &'a super::list_guard::Events,
 }
 
-impl Drop for WaitMark {
+impl Drop for WaitMark<'_> {
     fn drop(&mut self) {
-        self.runs.unmark(&self.parent, &self.child);
+        if self.runs.unmark(&self.parent, &self.child.id) {
+            self.events.row_changed(self.child);
+        }
+    }
+}
+
+/// The turn lock a prompt took for its turn, marked so (`Session::turn_claimed`): a prompt that
+/// comes before the turn shows queues behind it and is accepted at once (`queue.rs`
+/// `queue_slot`). The mark clears before the lock is released, so it never clears the mark of
+/// the prompt that takes the lock next.
+pub(super) struct ClaimedTurn<'a> {
+    claimed: &'a AtomicBool,
+    _lock: tokio::sync::MutexGuard<'a, ()>,
+}
+
+impl<'a> ClaimedTurn<'a> {
+    pub(super) fn new(session: &'a Session, lock: tokio::sync::MutexGuard<'a, ()>) -> Self {
+        session.turn_claimed.store(true, Ordering::SeqCst);
+        Self { claimed: &session.turn_claimed, _lock: lock }
+    }
+}
+
+impl Drop for ClaimedTurn<'_> {
+    // Runs before the fields drop: the mark clears while the lock is still held.
+    fn drop(&mut self) {
+        self.claimed.store(false, Ordering::SeqCst);
     }
 }
 
@@ -195,11 +230,11 @@ pub(super) struct TurnGuard<'a> {
     // Fields drop in order: the slot frees while the turn lock is still held, so the same
     // child's next turn (which takes the lock first) never finds its old slot still counted.
     _slot: Option<RunSlot>,
-    _lock: tokio::sync::MutexGuard<'a, ()>,
+    _lock: ClaimedTurn<'a>,
 }
 
 impl<'a> TurnGuard<'a> {
-    pub(super) fn new(lock: tokio::sync::MutexGuard<'a, ()>, slot: Option<RunSlot>) -> Self {
+    pub(super) fn new(lock: ClaimedTurn<'a>, slot: Option<RunSlot>) -> Self {
         Self { _slot: slot, _lock: lock }
     }
 
@@ -247,12 +282,19 @@ impl Hub {
     }
 
     /// Counts `session` as waiting for a slot of `parent` until the mark is dropped.
-    pub(super) fn mark_waiting_for_slot(&self, parent: &str, session: &Session) -> WaitMark {
-        self.subsession_runs.mark(parent, &session.id);
+    pub(super) fn mark_waiting_for_slot<'a>(
+        &'a self,
+        parent: &str,
+        session: &'a Session,
+    ) -> WaitMark<'a> {
+        if self.subsession_runs.mark(parent, &session.id) {
+            self.events.row_changed(session);
+        }
         WaitMark {
             runs: self.subsession_runs.clone(),
             parent: parent.to_owned(),
-            child: session.id.clone(),
+            child: session,
+            events: &self.events,
         }
     }
 

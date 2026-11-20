@@ -1,10 +1,8 @@
 public import CmuxNextDesign
 
-/// `layout.closeFocus` in cmux.json: "previousNeighbor" (default) or
-/// "mostRecent" (plans/cmux-next/close-focus.md, REWRITE.md round 5).
+/// `layout.closeFocus` in cmux.json: "mostRecent" (default, cmux classic's Bonsplit rule;
+/// issue 38194) or "previousNeighbor" (plans/cmux-next/close-focus.md, REWRITE.md round 5).
 public nonisolated enum CloseFocusSetting {
-    public static let configPath = ["layout", "closeFocus"]
-    public static let fallback: CloseFocusPolicy = .previousNeighbor
 
     /// A missing key is the default with no diagnostic; a bad value is the
     /// default plus a diagnostic.

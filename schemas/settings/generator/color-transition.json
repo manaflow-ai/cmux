@@ -1,0 +1,8 @@
+{
+  "source": "schemas/settings/source/color-transition.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+ColorTransition.generated.swift",
+  "type": "ColorTransitionSettingsSchema",
+  "lists": {
+    "colorTransition": ["descriptors", "ColorTransitionSetting"]
+  }
+}

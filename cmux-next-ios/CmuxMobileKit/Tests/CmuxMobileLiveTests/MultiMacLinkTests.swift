@@ -16,11 +16,15 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
     /// Each Mac's `acpmux` service (by Mac id and request); nil leaves it unanswered.
     let acpmux: (@Sendable (String, Data) -> [Data])?
     let silentNotifications: Bool
+    /// Macs whose dials the cmux service refuses as unauthorized (a revoked session).
+    let refused: Set<String>
 
-    init(screens: [String: String] = [:], acpmux: (@Sendable (String, Data) -> [Data])? = nil, silentNotifications: Bool = false) {
+    init(screens: [String: String] = [:], acpmux: (@Sendable (String, Data) -> [Data])? = nil, silentNotifications: Bool = false,
+         refused: Set<String> = []) {
         self.screens = screens
         self.acpmux = acpmux
         self.silentNotifications = silentNotifications
+        self.refused = refused
     }
 
     func dialCount(_ macID: String) -> Int { lock.withLock { dials[macID] ?? 0 } }
@@ -28,6 +32,9 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
     func dial(_ endpoint: LinkEndpoint, transport: CmuxMobileTransport.TransportKind, accessToken: String) async throws -> any MacLink {
         let mac = endpoint.macDeviceID
         lock.withLock { dials[mac, default: 0] += 1 }
+        if refused.contains(mac) {
+            throw LinkError(code: LinkError.unauthorized, message: "signaling connect failed: 401 Unauthorized")
+        }
         let screen = screens[mac] ?? mac
         let acpmux = acpmux
         let silentNotifications = silentNotifications
@@ -70,6 +77,14 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         let decision = MacLinkPolicy().decide(macs: macs, focused: "m2", showing: ["m1", "m2", "m3"], lastShown: [:], now: now)
         #expect(decision.linked == ["m2", "m1", "m3"])
         #expect(decision.nextExpiry == nil)
+    }
+
+    /// Opening the Cloud sheet keeps the whole authenticated Mac directory
+    /// shown, so selecting one Cloud VM cannot evict another Mac's link.
+    @Test func cloudSheetKeepsOtherMacLinksShown() {
+        let all = Set(macs.map(\.id))
+        let decision = MacLinkPolicy(maxLinks: 4).decide(macs: macs, focused: "m1", showing: all, lastShown: [:], now: now)
+        #expect(decision.linked == ["m1", "m2", "m3", "m4"])
     }
 
     /// Lazy: a Mac nothing shows, and never shown, is not dialed.
@@ -130,7 +145,7 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
 /// one of its workspaces) closed the first Mac's link, so its workspaces said
 /// "Can't connect" and its terminals ended until it was chosen again.
 @MainActor
-@Suite(.serialized) struct MultiMacLinkTests {
+@Suite(.serialized, .timeLimit(.minutes(2))) struct MultiMacLinkTests {
     let host = "svc-\(UUID().uuidString.prefix(8).lowercased()).cmuxMobile.test"
     let userID = "user-\(UUID().uuidString)"
 
@@ -159,7 +174,9 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
     }
 
     func settle(_ done: () -> Bool) async {
-        for _ in 0..<3000 where !done() { try? await Task.sleep(for: .milliseconds(1)) }
+        // No deadline of its own: 3000 sleeps ended before a busy kit run's main actor had
+        // applied the state waited for (cmux#40635). The suite's time limit bounds a hang.
+        while !done(), !Task.isCancelled { try? await Task.sleep(for: .milliseconds(1)) } // test: polls the condition
     }
 
     func drain() async {
@@ -220,6 +237,27 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         #expect(live.terminalSession(tabID: "s1", programName: "zsh", macID: "m2")?.macName == "MacBook Pro")
     }
 
+    /// A notification names the originating Mac. A stale push cannot use a
+    /// tab on another Mac, including when the same surface id exists on both.
+    @Test func notificationDestinationIsScopedToItsMac() async throws {
+        let key = "cmuxMobile.live.mac.t-multimac"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let store = emptyStore()
+        let live = coordinator(store: store, dialer: PerMacDialer())
+        defer { live.stop() }
+        live.showing(macIDs: nil)
+        await settle { store.macDataPhase("m1") == .live && store.macDataPhase("m2") == .live }
+        let workspace = try #require(store.workspaces.first { $0.macID == "m1" })
+        let tab = try #require(workspace.tabs.first)
+        let destination = AgentChatDestination(workspaceID: workspace.id, tabID: tab.id)
+
+        #expect(live.destination(sessionID: nil, workspaceID: workspace.id, tabID: tab.id, macID: "m1") == destination)
+        #expect(live.destination(sessionID: nil, workspaceID: workspace.id, tabID: tab.id, macID: "m2") == nil)
+        // An ordinary deep link has no source Mac; keep its existing lookup.
+        #expect(live.destination(sessionID: nil, workspaceID: workspace.id, tabID: tab.id) == destination)
+    }
+
     /// Lazy and idle: a Mac no screen shows closes its link after the idle
     /// window, quietly (its list is last-known, not "Can't connect"), and opens
     /// it again when it is shown.
@@ -246,6 +284,41 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         await settle { store.macConnection["m2"] == .connected }
         #expect(store.macConnection["m2"] == .connected)
         #expect(dialer.dialCount("m2") == 2)
+    }
+
+    /// A Mac whose dials the service refuses even with a refreshed token is
+    /// signed out. Closing its link as idle (`applyLinks`) and showing it
+    /// again must not redial it: only a new sign-in does.
+    @Test func aSignedOutMacStaysSignedOutWhenItsIdleLinkReopens() async {
+        let key = "cmuxMobile.live.mac.t-multimac"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let store = emptyStore()
+        let dialer = PerMacDialer(refused: ["m2"])
+        let live = coordinator(store: store, dialer: dialer)
+        defer { live.stop() }
+        live.linkPolicy = MacLinkPolicy(idleAfter: .milliseconds(200))
+        live.showing(macIDs: nil)
+        // The store hears a phase one main-actor hop after the link (observe(_:)'s onChange Task), so wait
+        // for the store too: on a busy runner the phase alone settled while m2 still read .connecting.
+        await settle {
+            store.macConnection["m1"] == .connected && live.sessions["m2"]?.link.phase == .signedOut
+                && store.macConnection["m2"] == .failed("Signed out")
+        }
+        #expect(live.sessions["m2"]?.link.phase == .signedOut)
+        #expect(store.macConnection["m2"] == .failed("Signed out"))
+        // The first refusal, then one dial with a refreshed token.
+        #expect(dialer.dialCount("m2") == 2)
+        // Only the first Mac on screen: the second's link closes as idle.
+        live.showing(macIDs: ["m1"])
+        await settle { live.sessions["m2"]?.link.target == nil }
+        #expect(live.sessions["m2"]?.link.target == nil)
+        // Shown again: still signed out, and no dial.
+        live.showing(macIDs: nil)
+        await drain()
+        #expect(dialer.dialCount("m2") == 2)
+        #expect(live.sessions["m2"]?.link.phase == .signedOut)
+        #expect(store.macConnection["m1"] == .connected)
     }
 
     /// Transport settings reach every Mac's link.

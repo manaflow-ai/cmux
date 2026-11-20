@@ -1,0 +1,59 @@
+{
+  "id": "zoom-pane",
+  "priority": "P0",
+  "title": "Cmd-Shift-Return zooms a pane to the whole window and back: the grid and the PTY follow both ways",
+  "why": "Zooming a pane is how a person reads a long log in a split. The zoomed terminal must refit to the whole window (its PTY too), the other pane must hide, and unzooming must give both panes their halves and grids back.",
+  "source": "window life: zoom a pane (holistic-quality.md 1), Ghostty's Cmd-Shift-Return",
+  "budget_seconds": 75,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-zoom"},
+    {"do": "neutral_prompt"},
+    {"do": "name_pane", "as": "left"},
+    {"do": "window_place", "title": "set-up: the window at 70% x 70% of the screen", "fraction": [0.05, 0.05, 0.7, 0.7]},
+    {"do": "expect", "title": "the terminal fits the placed window", "timeout": 10, "all": [{"grid_fits": {}}]},
+    {"do": "remember", "as": "full"},
+    {"do": "key", "title": "Cmd-D", "key": "d", "modifiers": ["cmd"]},
+    {"do": "adopt_pane", "as": "right"},
+    {"do": "neutral_prompt"},
+    {"do": "expect", "title": "two fitted panes", "timeout": 10,
+     "all": [{"pane_frame": {"pane": "right", "vs": "full", "w": 0.5, "tol": 0.06}}, {"grid_fits": {"pane": "right"}}]},
+    {"do": "remember", "as": "half", "pane": "right"},
+
+    {"do": "key", "title": "Cmd-Shift-Return in the right pane", "key": "return", "modifiers": ["cmd", "shift"], "mark": "zoom"},
+    {"do": "expect", "title": "zoomed: the right pane has the whole window, the left one is hidden", "since": "zoom", "timeout": 10,
+     "all": [
+       {"pane_frame": {"pane": "right", "vs": "full", "w": 1.0, "h": 1.0, "tol": 0.05}},
+       {"grid_fits": {"pane": "right", "vs": "half", "cols": "wider"}},
+       {"pane_state": {"pane": "left", "fields": {"visible": false}}},
+       {"app_prompt": true}
+     ]},
+    {"do": "type", "text": "echo zoomed-${nonce} $(stty size)", "enter": true, "mark": "tz"},
+    {"do": "expect", "title": "the zoomed PTY has the whole window's grid", "since": "tz", "timeout": 10,
+     "all": [
+       {"pty_size": {"tag": "zoomed-${nonce}", "pane": "right"}},
+       {"daemon_prompt": true},
+       {"app_text_contains": "zoomed-${nonce} "},
+       {"pane_frame_text": "zoomed-${nonce}"}
+     ]},
+
+    {"do": "key", "title": "Cmd-Shift-Return again", "key": "return", "modifiers": ["cmd", "shift"], "mark": "unzoom"},
+    {"do": "expect", "title": "unzoomed: both panes back at their halves, both fitted", "since": "unzoom", "timeout": 10,
+     "all": [
+       {"pane_frame": {"pane": "right", "vs": "half", "w": 1.0, "h": 1.0, "tol": 0.03}},
+       {"pane_frame": {"pane": "right", "right_of": "left"}},
+       {"pane_state": {"pane": "left", "fields": {"visible": true}}},
+       {"grid_fits": {"pane": "right", "vs": "half", "cols": "same", "rows": "same"}},
+       {"grid_fits": {"pane": "left"}},
+       {"app_prompt": true}
+     ]},
+    {"do": "type", "text": "echo back-${nonce} $(stty size)", "enter": true, "mark": "tb"},
+    {"do": "expect", "title": "the PTY has the half grid again", "since": "tb", "timeout": 10,
+     "all": [
+       {"pty_size": {"tag": "back-${nonce}", "pane": "right"}},
+       {"daemon_prompt": true},
+       {"app_text_contains": "back-${nonce} "},
+       {"pane_frame_text": "back-${nonce}"}
+     ]}
+  ],
+  "finally": [{"do": "restore_window", "from": "before-place"}]
+}

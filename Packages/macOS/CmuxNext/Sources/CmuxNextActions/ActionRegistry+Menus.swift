@@ -84,7 +84,9 @@ final class ActionMenuTarget: NSObject, NSMenuItemValidation {
 
     @objc func performAction(_ sender: NSMenuItem) {
         guard let registry, let payload = Self.payload(of: sender) else { return }
-        registry.perform(payload.id, invocation: payload.invocation(in: registry))
+        var invocation = payload.invocation(in: registry)
+        invocation.menuPick = !registry.isDispatchingKeyDown() // a key equivalent's own key dispatch names the person
+        registry.perform(payload.id, invocation: invocation)
     }
 
     /// A key equivalent also asks the registry's `menuKeyEquivalentGate`,
@@ -109,7 +111,10 @@ final class ActionMenuTarget: NSObject, NSMenuItemValidation {
             menuItem.title = title
         }
         if let route = registry.keyWindowRoute?(registry.canonicalID(for: payload.id), invocation) { return route.enablesMenuItem }
-        guard ActionTargetReasons.canPerform(payload.id, invocation: payload.invocation(in: registry, withArguments: false), in: registry) else { return false }
+        let run = payload.invocation(in: registry, withArguments: false)
+        // A row a recovery covers stays clickable: the click signs in, then runs it (``ActionRecovery``).
+        guard ActionTargetReasons.canPerform(payload.id, invocation: run, in: registry)
+            || registry.personRecovery(for: payload.id, run) != nil else { return false }
         if let gate = registry.menuKeyEquivalentGate, !menuItem.keyEquivalent.isEmpty, registry.isDispatchingKeyDown() {
             return gate(payload.id)
         }

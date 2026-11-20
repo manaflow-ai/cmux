@@ -83,8 +83,17 @@ export async function listComments(repoRoot: string): Promise<DiffCommentRecord[
   return Array.isArray(value?.comments) ? value.comments : [];
 }
 
-export async function saveComment(repoRoot: string, comment: DiffCommentSaveInput): Promise<DiffCommentRecord> {
-  const value = await callDiffComments<{ comment?: DiffCommentRecord }>("comments.save", { repoRoot, comment });
+/** `opid` names the save's intent: the host stores a repeat of it (a double click, a retry) once. */
+export async function saveComment(
+  repoRoot: string,
+  comment: DiffCommentSaveInput,
+  opid?: string,
+): Promise<DiffCommentRecord> {
+  const value = await callDiffComments<{ comment?: DiffCommentRecord }>(
+    "comments.save",
+    { repoRoot, comment },
+    opid === undefined ? {} : { opid },
+  );
   if (value?.comment == null) {
     throw new DiffCommentsBridgeError("Diff comments save returned no comment.");
   }
@@ -93,4 +102,25 @@ export async function saveComment(repoRoot: string, comment: DiffCommentSaveInpu
 
 export async function deleteComment(repoRoot: string, id: string): Promise<void> {
   await callDiffComments<unknown>("comments.delete", { repoRoot, id });
+}
+
+/**
+ * Sends `text` (the comments `ids` as one prompt, `commentsPromptText`) to the chat that owns the
+ * diff. The host then clears those comments, except any edited since (`versions`: each id's
+ * `updatedAt` as sent), and answers the ids it cleared. `opid` keeps a resend from delivering it
+ * twice.
+ */
+export async function sendComments(
+  repoRoot: string,
+  ids: string[],
+  versions: Record<string, string>,
+  text: string,
+  opid: string,
+): Promise<string[]> {
+  const value = await callDiffComments<{ cleared?: unknown }>(
+    "comments.send",
+    { repoRoot, ids, versions, text },
+    { opid },
+  );
+  return Array.isArray(value?.cleared) ? value.cleared.filter((id): id is string => typeof id === "string") : ids;
 }

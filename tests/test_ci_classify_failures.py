@@ -405,6 +405,55 @@ class RerunDecisionTests(unittest.TestCase):
                                       "triggering_actor": {"login": "teamleaderleo"}})
         self.assertTrue(rerun)
 
+    # cmux#33162's run 41698414997 attempt 1 (2026-11-03): react-apps-base-check (3), job 126154996598, lost its
+    # runner, and its gate react-apps-check failed for it. As a job of its own the gate read unknown and nothing was
+    # re-run; as a gate the lost runner is the run's one failure.
+    LOST = "The self-hosted runner lost communication with the server. Verify the machine is running and has a " \
+           "healthy network connection."
+
+    def lost_report(self, attempt: int = 1, real: str = "") -> dict:
+        report = self.report([], attempt=attempt)
+        jobs = [job(126154996598, "web / react-apps-base-check (3)"), job(2, "web / react-apps-check")]
+        texts = {126154996598: ("", [self.LOST]), 2: ("##[error]Process completed with exit code 1.\n", [])}
+        if real:
+            jobs.append(job(3, "web / react-apps-check (1)"))
+            texts[3] = (real, [])
+        report["jobs"] = cf.classify_jobs(jobs, texts)
+        return report
+
+    def test_a_lost_runner_is_rerun_once(self) -> None:
+        report = self.lost_report()
+        self.assertEqual([(j["name"], j["signature"]) for j in report["jobs"]],
+                         [("web / react-apps-base-check (3)", "runner-lost")])
+        rerun, line = cf.rerun_decision(report, self.LATEST)
+        self.assertTrue(rerun, line)
+        self.assertIn("attempt 2", line)
+        # Already re-run (by this bot or a person): not asked twice for the same attempt.
+        rerun, line = cf.rerun_decision(report, {"run_attempt": 2, "status": "in_progress"})
+        self.assertFalse(rerun)
+        self.assertIn("re-run already", line)
+
+    def test_a_second_lost_runner_is_reported_not_looped(self) -> None:
+        rerun, line = cf.rerun_decision(self.lost_report(attempt=2),
+                                        {"run_attempt": 2, "status": "completed",
+                                         "triggering_actor": {"login": cf.BOT}})
+        self.assertFalse(rerun)
+        self.assertIn("lost its runner again on the automatic re-run (attempt 2); reported", line)
+        # A person's re-run that loses its runner gets its one automatic re-run.
+        rerun, _ = cf.rerun_decision(self.lost_report(attempt=2),
+                                     {"run_attempt": 2, "status": "completed",
+                                      "triggering_actor": {"login": "teamleaderleo"}})
+        self.assertTrue(rerun)
+
+    def test_a_real_test_failure_beside_a_lost_runner_is_still_a_red(self) -> None:
+        report = self.lost_report(real="##[group]Run bun test\n##[endgroup]\n(fail) a > b [1.00ms]\n"
+                                        "##[error]Process completed with exit code 1.\n")
+        verdicts = {j["name"]: j["verdict"] for j in report["jobs"]}
+        self.assertEqual(verdicts["web / react-apps-check (1)"], cf.CODE)
+        rerun, line = cf.rerun_decision(report, self.LATEST)
+        self.assertFalse(rerun)
+        self.assertIn("`web / react-apps-check (1)` is not a machine failure", line)
+
     def test_a_cancelled_run_is_reported_not_rerun(self) -> None:
         # owned_pool_rescue cancels a stuck run before its own full re-run.
         self.assertFalse(cf.rerun_decision(self.report([cf.MACHINE], conclusion="cancelled"), self.LATEST)[0])
@@ -1259,6 +1308,87 @@ class WebTestTests(unittest.TestCase):
         self.assertEqual(set(recorded[DEADLINE_KEY]), {"21651", "7"})
         self.assertEqual(set(recorded["test:vm-workflows.test.ts:VM workflows > pause records a wake"]), {"7"})
 
+
+
+# The webview verdict's step at #28611's head (job 124990008677, run 41352140447), trimmed: the base
+# replay's bun output (both composer tests fail on the base too, so the verdict warns), then
+# guards_new_reds.py's verdict, whose `##[error]` lines are the change's own reds.
+BASE_CHECK_JOB = "web / react-apps-base-check (4)"
+COMPOSER_TEST = "a terminal-only spelling waits for its pending image and sends as an attachment prompt"
+SLASH_TEST = "Codex slash commands are available before the first message and selecting one keeps its arguments"
+ART_TEST = ("the New Tab field on a wallpaper theme in {} > a suggestion row is a menu row: "
+            "the same height, corners and inset")
+BASE_CHECK_LOG = (
+    "2026-11-01T21:51:05.8037000Z ##[group]Run files=\"$RUNNER_TEMP/base-files\"\n"
+    f"2026-11-01T21:51:05.8038000Z {ESC}[36;1mfiles=\"$RUNNER_TEMP/base-files\"{ESC}[0m\n"
+    f"2026-11-01T21:51:05.8043364Z {ESC}[36;1mpython3 \"$runner/guards_new_reds.py\" --label \"Webview test\" "
+    f"--flaky \"$flaky\" \"$HEAD_RESULTS\" \"$BASE_RESULTS\"{ESC}[0m\n"
+    "2026-11-01T21:51:05.8064234Z ##[endgroup]\n"
+    "2026-11-01T21:51:05.8640633Z running 3 webviews test files, 1 at a time\n"
+    "2026-11-01T21:51:09.3187096Z FAIL test/composer-return-sends.test.tsx (raw log retained for the final bounded summary)\n"
+    "2026-11-01T21:51:12.2694364Z ##[group]FAIL test/composer-return-sends.test.tsx\n"
+    "2026-11-01T21:51:12.2766124Z bun test v1.4.4 (38afee6c8)\n"
+    "2026-11-01T21:51:12.2766425Z ##[group]test/composer-return-sends.test.tsx:\n"
+    "2026-11-01T21:51:12.2772728Z error: expect(received).toBeNull()\n"
+    f"2026-11-01T21:51:12.3553771Z (fail) {COMPOSER_TEST} [2454.90ms]\n"
+    "2026-11-01T21:51:12.3558686Z ##[endgroup]\n"
+    "2026-11-01T21:51:12.3560163Z ##[group]FAIL test/new-tab-composer-layout.test.tsx\n"
+    "2026-11-01T21:51:12.3560569Z ##[group]test/new-tab-composer-layout.test.tsx:\n"
+    "2026-11-01T21:51:12.3585647Z ##[error]\n"
+    "      at singleRect (/home/runner/_work/cmux/cmux/webviews/node_modules/prosemirror-view/dist/index.js:524:24)\n"
+    f"2026-11-01T21:51:12.3591037Z (fail) {SLASH_TEST} [204.16ms]\n"
+    "2026-11-01T21:51:12.3593065Z ##[endgroup]\n"
+    "2026-11-01T21:51:12.3593802Z ##[endgroup]\n"
+    "2026-11-01T21:51:13.1966449Z ### webviews tests: 3 files, 2 failed or timed out (0 retried alone, 0 passed alone)\n"
+    f"2026-11-01T21:51:13.2701073Z ##[warning]test/composer-return-sends.test.tsx > {COMPOSER_TEST}\n"
+    f"2026-11-01T21:51:13.2702222Z ##[warning]test/new-tab-composer-layout.test.tsx > {SLASH_TEST}\n"
+    f"2026-11-01T21:51:13.2703294Z ##[error]test/new-tab-field-on-art.test.ts > {ART_TEST.format('chromium')}\n"
+    f"2026-11-01T21:51:13.2704344Z ##[error]test/new-tab-field-on-art.test.ts > {ART_TEST.format('webkit')}\n"
+    "2026-11-01T21:51:13.2704961Z 2 webview test steps red on this change, 2 red on the base too, 0 flaky on the base, 0 fixed\n"
+    "2026-11-01T21:51:13.2724542Z ##[error]Process completed with exit code 1.\n"
+)
+
+
+class WebviewVerdictTests(unittest.TestCase):
+    """A react-apps-base-check job's failures are the verdict's own reds, never the base replay's `(fail)` lines."""
+
+    def test_the_verdict_names_the_change_s_reds_and_not_the_base_s(self) -> None:
+        (result,) = red_report(BASE_CHECK_LOG, BASE_CHECK_JOB)["jobs"]
+        self.assertEqual((result["verdict"], result["signature"]), (cf.CODE, "webview-verdict-new-red"))
+        self.assertEqual([(f["file"], f["test"]) for f in result["failures"]], [
+            ("webviews/test/new-tab-field-on-art.test.ts", ART_TEST.format("chromium")),
+            ("webviews/test/new-tab-field-on-art.test.ts", ART_TEST.format("webkit")),
+        ])
+        tests = [f["test"] for f in result["failures"]]
+        self.assertNotIn(COMPOSER_TEST, tests)
+        self.assertNotIn(SLASH_TEST, tests)
+        self.assertNotIn("(fail)", result["evidence"])
+        self.assertIn("new-tab-field-on-art.test.ts", result["evidence"])
+
+    def test_a_red_the_change_s_test_file_holds_is_yours(self) -> None:
+        body = OwnershipTests().comment(red_report(BASE_CHECK_LOG, BASE_CHECK_JOB),
+                                        ["webviews/test/new-tab-field-on-art.test.ts"])
+        self.assertTrue(OwnershipTests.verdict(body).startswith("**Yours to fix:** `new-tab-field-on-art.test.ts`"),
+                        OwnershipTests.verdict(body))
+        self.assertNotIn(COMPOSER_TEST, body)
+
+    def test_a_file_red_without_tests_is_named_by_its_file(self) -> None:
+        log = "2026-11-01T21:51:13.2703294Z ##[error]test/glass-never-opaque.test.ts\n" \
+              "2026-11-01T21:51:13.2724542Z ##[error]Process completed with exit code 1.\n"
+        self.assertEqual([(f["file"], f["test"]) for f in cf.base_check_reds(log)],
+                         [("webviews/test/glass-never-opaque.test.ts", "")])
+
+    def test_a_base_check_with_no_verdict_reds_lists_no_base_replay_tests(self) -> None:
+        log = BASE_CHECK_LOG.replace("##[error]test/new-tab-field-on-art", "##[warning]test/new-tab-field-on-art")
+        (result,) = red_report(log, BASE_CHECK_JOB)["jobs"]
+        self.assertEqual([f for f in result["failures"] if f["kind"] == "test"], [])
+
+    def test_other_web_jobs_still_read_bun_s_fail_lines(self) -> None:
+        self.assertTrue(cf.is_base_check(BASE_CHECK_JOB))
+        self.assertFalse(cf.is_base_check("web / react-apps-check (4)"))
+        self.assertFalse(cf.is_base_check(WEB_SHARD))
+        (result,) = red_report(WEB_SHARD_LOG, WEB_SHARD)["jobs"]
+        self.assertEqual(result["signature"], "bun-test-failure")
 
 if __name__ == "__main__":
     unittest.main()

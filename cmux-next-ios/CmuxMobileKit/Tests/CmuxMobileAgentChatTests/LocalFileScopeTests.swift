@@ -101,4 +101,39 @@ import Testing
         guard case .text("one") = try await source.load(file.artifact) else { Issue.record("text"); return }
         #expect(scope.starts == 0)
     }
+    @Test(arguments: ["notes.md", "page.html", "code.swift", "notes.txt"])
+    func pickedTextKeepsItsRenderedAndSourcePreview(name: String) async throws {
+        let url = try Self.pickedFile(name)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let body = "# Text preview\n<p>Still available</p>"
+        try Data(body.utf8).write(to: url)
+        let file = LocalFile(id: "text", name: name, data: nil, isImage: false, fileURL: url)
+        let scope = PreviewScope()
+        do {
+            let source = LocalFileArtifactSource(files: [file], scope: scope)
+            guard case .text(let loaded) = try await source.load(file.artifact) else {
+                Issue.record("small picked text must use the custom preview"); return
+            }
+            #expect(loaded == body)
+            #expect(scope.starts == 1)
+            #expect(scope.stops == 0)
+            withExtendedLifetime(source) {}
+        }
+        #expect(scope.stops == 1)
+    }
+
+    @Test func largePickedTextUsesQuickLookWithoutDecodingTheWholeFile() async throws {
+        let url = try Self.pickedFile("large.log")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.truncate(atOffset: UInt64(LocalFileArtifactSource.inMemoryPreviewBytes + 1))
+        try handle.close()
+        let file = LocalFile(id: "large", name: "large.log", data: nil, isImage: false, fileURL: url)
+        let source = LocalFileArtifactSource(files: [file])
+        guard case .quickLook(let shown) = try await source.load(file.artifact) else {
+            Issue.record("large picked text must stay on disk"); return
+        }
+        #expect(shown == url)
+    }
+
 }

@@ -19,9 +19,12 @@ public actor ImportHistorySync {
 
     private let store: ImportedDataStore
     private let grants: BrowserFolderGrants?
+    private let reader: BrowserDataReader
     private let delay: Duration
     private let limit: Int
     private let deliver: Deliver
+    /// Imported cookies' sync, matched to the store with the history watches (after an import or a removal).
+    public nonisolated let cookies: ImportCookieSync?
     private var watches: [String: HistoryFileWatch] = [:]
     private var timers: [String: DemandTimer] = [:]
     /// Each watched database's files (size and change time) at its last read.
@@ -31,11 +34,14 @@ public actor ImportHistorySync {
     /// Runs between a read's save and its hand-on (tests: pause sync in that window).
     var afterSave: (@Sendable () async -> Void)?
 
-    /// `grants`: the folder grants reads need (nil: folders are read directly).
-    public init(store: ImportedDataStore, grants: BrowserFolderGrants?, delay: Duration = .seconds(20),
-                limit: Int = ImportPlan.defaultHistoryLimit, deliver: @escaping Deliver) {
+    /// `grants`: the folder grants reads need (nil: folders are read directly). `reader` reads the
+    /// history databases (the daemon's `browser_import.read`).
+    public init(store: ImportedDataStore, grants: BrowserFolderGrants?, reader: BrowserDataReader, delay: Duration = .seconds(20),
+                limit: Int = ImportPlan.defaultHistoryLimit, cookies: ImportCookieSync? = nil, deliver: @escaping Deliver) {
+        self.cookies = cookies
         self.store = store
         self.grants = grants
+        self.reader = reader
         self.delay = delay
         self.limit = limit
         self.deliver = deliver
@@ -47,6 +53,7 @@ public actor ImportHistorySync {
     /// Watches every synced source of the store: new ones start (and read
     /// once), ones no longer synced stop.
     public func reconcile() async {
+        await cookies?.reconcile()
         guard !isPaused else { return endAll() }
         let records = await store.syncedSources()
         // Paused while the store answered: watch nothing.
@@ -172,7 +179,7 @@ public actor ImportHistorySync {
         guard stamp != lastRead[key], let record = await store.syncedSources().first(where: { $0.sourceKey == key }) else { return }
         // Paused (browser import turned off) or rewatched while the store answered: read nothing.
         guard isCurrent(watch, key) else { return }
-        guard let pages = try? BrowserImporter.readHistory(record.browser.family, file: watch.file, limit: limit),
+        guard let pages = try? await reader.history(record.browser.family, file: watch.file, limit: limit),
               let saved = try? await store.replaceHistory(key, with: pages) else { return }
         await afterSave?()
         // Only a watch still current records the read: paused or rewatched meanwhile, the next

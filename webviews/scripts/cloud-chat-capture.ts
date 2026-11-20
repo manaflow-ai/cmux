@@ -12,7 +12,7 @@ async function capture() {
     server: { port: 0, host: "127.0.0.1" },
     logLevel: "warn",
   });
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({ channel: "chrome", headless: true });
   try {
     await vite.listen();
     const address = vite.httpServer!.address() as { port: number };

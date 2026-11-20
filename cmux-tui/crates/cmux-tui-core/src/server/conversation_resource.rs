@@ -130,7 +130,7 @@ fn answer(
         Operation::ConversationSend => send(mux, request, conversation, &principal),
         Operation::ConversationTyping => {
             let on = fields["on"].as_bool().unwrap_or(false);
-            super::conversations::publish_typing(mux, conversation, &principal, on)
+            super::conversations::publish_typing(mux, client, conversation, &principal, on)
                 .map_err(owner)?;
             Ok(publish_result(conversation, mux, true))
         }
@@ -256,8 +256,6 @@ pub(super) fn publish_draft(
         participant: principal,
         turn,
         seq,
-        fresh,
-        text_bytes: text.len(),
     };
     let published = mux
         .admit_conversation_draft(draft, Instant::now())

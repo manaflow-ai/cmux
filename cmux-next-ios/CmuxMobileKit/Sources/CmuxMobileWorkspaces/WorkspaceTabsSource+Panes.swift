@@ -19,6 +19,16 @@ extension WorkspaceTabsSource {
     /// The workspace's panes as its Mac listed them last (nil: not listed yet).
     public var layout: WorkspaceLayout? { workspace?.layout }
 
+    /// The workspace's Mac has not sent its live list yet (dialing, or last-known rows while the
+    /// link comes up): a list it has not shown is still on its way, not empty, and its page loads.
+    public var awaitsMacList: Bool {
+        guard let macID = workspace?.macID else { return false }
+        switch store.macDataPhase(macID) {
+        case .loading, .cached: return true
+        case .live, .empty, .failed, .offline, .idle: return false
+        }
+    }
+
     /// The page menu's way to the Panes page, once the Mac listed the workspace's panes.
     func panesItems() -> [TabsKitMenuItem] {
         guard let layout, !layout.panes.isEmpty else { return [] }
@@ -31,8 +41,12 @@ extension WorkspaceTabsSource {
     /// The pane's name, else "Pane 2".
     public func title(of pane: WorkspaceLayout.Pane) -> String { layout?.title(of: pane) ?? "Pane" }
 
-    /// The listed tabs of `pane`, in its order.
-    public func tabs(of pane: WorkspaceLayout.Pane) -> [WorkspaceTab] { pane.tabIDs.compactMap(workspaceTab) }
+    /// The tabs of `pane`, in its order, read from the workspace (observed: the Panes page
+    /// redraws when a tab changes; `workspaceTab` is the unobserved listed copy).
+    public func tabs(of pane: WorkspaceLayout.Pane) -> [WorkspaceTab] {
+        let tabs = workspace?.tabs ?? []
+        return pane.tabIDs.compactMap { id in tabs.first { $0.id == id } }
+    }
 
     /// Runs one pane action on the Mac; a refusal shows in the toast ("Couldn't zoom Pane 2.").
     private func onMac(_ verb: String, _ title: String, _ body: @MainActor (any WorkspacePaneBackend, Workspace) async throws -> Void) async {
@@ -122,6 +136,37 @@ extension WorkspaceTabsSource {
     /// Move Tab to Pane…: the end of `pane`'s tabs.
     public func moveTab(_ tab: WorkspaceTab, to pane: WorkspaceLayout.Pane) async {
         await onMac("move", tab.title) { try await $0.moveTab(tab, toPane: pane.id, in: $1) }
+    }
+
+    /// Resize Pane: the divider one step toward its second side (`+1`) or its first (`-1`).
+    public func resize(_ split: WorkspaceLayout.ResizableSplit, _ direction: Int) async {
+        guard let ratio = split.stepped(direction) else { return }
+        await onMac("resize", "the pane") { try await $0.setSplitRatio(split.split, to: ratio, in: $1) }
+    }
+
+    /// Move Tab to New Dock Column on `edge`.
+    public func moveTab(_ tab: WorkspaceTab, toNewDock edge: DockEdge) async {
+        await onMac("move", tab.title) { try await $0.moveTab(tab, toNewDock: edge, in: $1) }
+    }
+
+    /// Move Pane to New Workspace: the toast says where its tabs went; the phone stays here.
+    public func movePaneToNewWorkspace(_ pane: WorkspaceLayout.Pane) async {
+        let title = self.title(of: pane)
+        await onMac("move", title) { backend, workspace in
+            let created = try await backend.movePaneToNewWorkspace(pane.id, in: workspace)
+            show("Moved \(title) to \(created.title).")
+            CmuxMobileTheme.standard.haptics.success()
+        }
+    }
+
+    /// The dividers of a screen with the pane names on each side ("Pane 1 | logs").
+    public func resizeTitle(_ split: WorkspaceLayout.ResizableSplit) -> String {
+        guard let layout else { return "Split" }
+        func side(_ panes: [Int]) -> String {
+            let names = panes.compactMap { layout.pane($0).map(layout.title(of:)) }
+            return names.count > 2 ? "\(names[0]) and \(names.count - 1) more" : names.joined(separator: ", ")
+        }
+        return "\(side(split.first)) \(split.axis == .horizontal ? "|" : "/") \(side(split.second))"
     }
 
     /// Fork Conversation…: a copy of the chat at `destination`. In this workspace it comes to the

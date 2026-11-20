@@ -16,12 +16,12 @@ import Testing
         let before = identity(pid: 100, generation: "gen-1", capabilities: ["profiles-v1"])
         let more = identity(pid: 100, generation: "gen-1", capabilities: ["profiles-v1", "window-records-v1"])
         let restarted = identity(pid: 200, generation: "gen-2", capabilities: ["profiles-v1"])
-        let key = SessionRegistrar.homeKey(.connected(before))
-        #expect(key != SessionRegistrar.homeKey(.connected(restarted)), "a restarted home daemon does not change the key")
-        #expect(key == SessionRegistrar.homeKey(.connected(more)), "the key depends on the capability list")
+        let key = SessionRegistrar.homeKey(.connected(before), epoch: 1)
+        #expect(key != SessionRegistrar.homeKey(.connected(restarted), epoch: 1), "a restarted home daemon does not change the key")
+        #expect(key == SessionRegistrar.homeKey(.connected(more), epoch: 1), "the key depends on the capability list")
         #expect(!key.contains("profiles-v1"), "the key holds the identity's capabilities: \(key)")
-        #expect(key != SessionRegistrar.homeKey(.connecting))
-        #expect(SessionRegistrar.homeKey(.disconnected("a")) == SessionRegistrar.homeKey(.disconnected("b")),
+        #expect(key != SessionRegistrar.homeKey(.connecting, epoch: 1))
+        #expect(SessionRegistrar.homeKey(.disconnected("a"), epoch: 1) == SessionRegistrar.homeKey(.disconnected("b"), epoch: 1),
                 "the key changes with each disconnect message")
     }
 
@@ -30,5 +30,14 @@ import Testing
         #expect(!SessionRegistrar.canRegister(.connecting))
         #expect(!SessionRegistrar.canRegister(.disconnected("down")))
         #expect(!SessionRegistrar.canRegister(.failed("refused")))
+    }
+
+    /// Review 6: a disconnect and a reconnect to the same daemon process can both land before the
+    /// observation checks its key once; the connection epoch still changes, so the key must too, or a
+    /// record waiting for an event after its retries is not sent again.
+    @Test func aReconnectToTheSameDaemonProcessChangesTheKey() {
+        let same = identity(pid: 100, generation: "gen-1", capabilities: ["profiles-v1"])
+        #expect(SessionRegistrar.homeKey(.connected(same), epoch: 1) != SessionRegistrar.homeKey(.connected(same), epoch: 3),
+                "a reconnect to the same daemon process does not change the key")
     }
 }

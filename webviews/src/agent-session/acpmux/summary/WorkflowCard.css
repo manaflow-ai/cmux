@@ -8,13 +8,13 @@
   align-self: flex-start;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-1);
   width: min(100%, 360px);
   box-sizing: border-box;
-  margin: 4px 0;
-  padding: 8px 16px 12px;
+  margin: var(--ds-space-1) 0;
+  padding: var(--ds-space-2) var(--ds-space-4) var(--ds-space-3);
   border: 1px solid var(--agent-hairline, color-mix(in oklab, currentColor 12%, transparent));
-  border-radius: 10px;
+  border-radius: var(--grid-cards-radius);
   background: none;
   color: inherit;
   font: inherit;
@@ -39,7 +39,7 @@
   height: calc(var(--ds-control-icon) + 2px);
   padding: 0;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--ds-radius-control);
   background: none;
   color: var(--agent-muted);
 }
@@ -62,7 +62,7 @@
 .acpmux-workflow-card__head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
   min-width: 0;
   line-height: 20px;
   padding-right: var(--ds-control-row);
@@ -80,7 +80,7 @@
 }
 .acpmux-workflow-card__meta {
   display: flex;
-  gap: 8px;
+  gap: var(--ds-space-2);
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -89,6 +89,22 @@
   font-variant-numeric: tabular-nums;
   line-height: 18px;
   letter-spacing: var(--text-detail--letter-spacing);
+}
+/* The running phase names give way first, so the count, the clock, the tokens and the model stay. */
+.acpmux-workflow-card__meta > span,
+.acpmux-workflow-card__focus > span {
+  flex: none;
+}
+.acpmux-workflow-card__meta > .acpmux-workflow-card__running,
+.acpmux-workflow-card__focus > .acpmux-workflow-card__running {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Whose line it is, at the row's weight, so five running agents never read as one. */
+.acpmux-workflow-card__agent {
+  color: var(--agent-text);
 }
 .acpmux-workflow-card__latest,
 .acpmux-workflow-card__focus {
@@ -103,7 +119,7 @@
 }
 .acpmux-workflow-card__focus {
   display: flex;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 .acpmux-workflow-card__progress {
   display: block;
@@ -123,7 +139,7 @@
 }
 .acpmux-workflow-card__phases {
   display: flex;
-  gap: 4px;
+  gap: var(--ds-space-1);
   min-width: 0;
   overflow: hidden;
 }

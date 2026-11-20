@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import next_batch as nb  # noqa: E402
 import next_batch_groups as groups  # noqa: E402
+nb.log = lambda message: None  # fixture verdicts stay out of the CI log (see tests/test_next_batch.py)
 
 NEW_TAB = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTab/NewTabPageView.swift"
 AGENT_PANE = "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView.swift"
@@ -143,12 +144,54 @@ class GroupWeb(unittest.TestCase):
     def test_web_is_compared_with_the_web_run_at_the_stacks_base(self):
         item = controller()
         item.gh.runs.return_value = [{"id": 2, "head_branch": nb.BASE, "status": "completed", "head_sha": "b" * 40}]
-        item.failed_jobs = lambda run_id, detail=False: {1: ["web / react-apps-check: step Check"],
+        item.failed_jobs = lambda run_id, *, detail, base: {1: ["web / react-apps-check: step Check"],
                                                        2: ["web / react-apps-check: step Check"]}[run_id]
         self.assertEqual(item.judge_web({"id": 1, "conclusion": "failure"}, "b" * 40), "passed")
         self.assertIn("head_sha=" + "b" * 40, item.gh.runs.call_args.args[1])
-        item.failed_jobs = lambda run_id, detail=False: []
+        item.failed_jobs = lambda run_id, *, detail, base: []
         self.assertTrue(item.judge_web({"id": 1, "conclusion": "startup_failure"}, "b" * 40).startswith("did not run"))
+
+
+    def coalesced_base(self, base_jobs):
+        # The stack's base push run at "b" ended cancelled; the newest web run on an ancestor of it is run 3.
+        item = controller()
+        cancelled = {"id": 2, "event": "push", "conclusion": "cancelled", "head_branch": nb.BASE,
+                     "status": "completed", "head_sha": "b" * 40}
+        older = {"id": 3, "event": "push", "conclusion": "failure", "head_branch": nb.BASE, "status": "completed",
+                 "head_sha": "a" * 40}
+        item.gh.runs.side_effect = lambda workflow, query: [cancelled] if "head_sha=" in query else [cancelled, older]
+        item.gh.api.side_effect = lambda path: {"jobs": base_jobs} if "/runs/2/jobs" in path else {"jobs": []}
+        item.is_ancestor = lambda sha, base: True
+        item.failed_jobs = lambda run_id, *, detail, base: {1: ["web / react-apps-check: step Check"], 2: [],
+                                                       3: ["web / react-apps-check: step Check"]}[run_id]
+        return item.judge_web({"id": 1, "conclusion": "failure"}, "b" * 40)
+
+    def test_a_coalesced_base_run_leaves_the_comparison_to_an_ancestors_run(self):
+        replaced = [{"name": "coalesce", "conclusion": "cancelled"}, {"name": "web", "conclusion": "skipped"}]
+        self.assertEqual(self.coalesced_base(replaced), "passed")
+
+    def test_a_yielded_base_run_leaves_the_comparison_to_an_ancestors_run(self):
+        # web_coalesce.py #33872: a coalesce job that slept yields to a newer push; its run ends success, checks
+        # skipped. It is no web verdict, so it must not read as a green base.
+        item = controller()
+        yielded = {"id": 2, "event": "push", "conclusion": "success", "head_branch": nb.BASE,
+                   "status": "completed", "head_sha": "b" * 40}
+        older = {"id": 3, "event": "push", "conclusion": "failure", "head_branch": nb.BASE, "status": "completed",
+                 "head_sha": "a" * 40}
+        jobs = [{"name": "coalesce", "conclusion": "success"}, {"name": "web", "conclusion": "skipped"},
+                {"name": "web bisect", "conclusion": "skipped"}]
+        item.gh.runs.side_effect = lambda workflow, query: [yielded] if "head_sha=" in query else [yielded, older]
+        item.gh.api.side_effect = lambda path: {"jobs": jobs} if "/runs/2/jobs" in path else {"jobs": []}
+        item.is_ancestor = lambda sha, base: True
+        item.failed_jobs = lambda run_id, *, detail, base: {1: ["web / react-apps-check: step Check"], 2: [],
+                                                       3: ["web / react-apps-check: step Check"]}[run_id]
+        self.assertEqual(item.judge_web({"id": 1, "conclusion": "failure"}, "b" * 40), "passed")
+
+    def test_a_cancelled_base_run_whose_web_job_passed_is_the_base_verdict(self):
+        # Cancelled by hand after its web checks passed: that green stands, so the stack's red is its own.
+        ran = [{"name": "coalesce", "conclusion": "success"},
+               {"name": "web / react-apps-check", "conclusion": "success"}]
+        self.assertTrue(self.coalesced_base(ran).startswith("failed"))
 
 
 class GroupBisectAndLand(unittest.TestCase):
@@ -336,7 +379,7 @@ class GroupCycle(unittest.TestCase):
         item.push = lambda sha, ref: None
         item.delete_branch = lambda ref: None
         item.find_run = lambda workflow, branch, match, since: {"id": 5, "html_url": "https://probe"}
-        item.failed_jobs = lambda run_id, detail=False: ["cmux-next swift test: test cancelled()"]
+        item.failed_jobs = lambda run_id, *, detail, base: ["cmux-next swift test: test cancelled()"]
 
         def wait_run(run_id, timeout):
             item.reset_base()  # feat-cmux-next moved while the old base's probe ran
@@ -436,6 +479,14 @@ class GroupCycle(unittest.TestCase):
                  run("build", "SUCCESS", "2026-10-06T02:00:00Z", workflow="b")]
         self.assertEqual(sorted(nb.newest_checks(nb.parse_contexts(twins))),
                          [("build", "completed", "failure"), ("build", "completed", "success")])
+        # A skipped newest run (a label event the workflow skips, cmux#29747) gives way to the red before it.
+        relabeled = [run("check", "FAILURE", "2026-10-06T01:00:00Z", workflow="cmux VM"),
+                     run("check", "SKIPPED", "2026-10-06T02:00:00Z", workflow="cmux VM")]
+        checks = nb.newest_checks(nb.parse_contexts(relabeled))
+        self.assertEqual(checks, [("check", "completed", "failure")])
+        self.assertEqual(nb.red_fast_checks(pr(1, checks=checks)), ["check"])
+        # Skipped with no other run: the skip stands.
+        self.assertEqual(nb.newest_checks(nb.parse_contexts(relabeled[1:])), [("check", "completed", "skipped")])
         # A queued rerun (no start time yet) is the newest run.
         queued = [run("lint", "FAILURE", "2026-10-06T01:00:00Z"), run("lint", None, None, status="QUEUED")]
         self.assertEqual(nb.newest_checks(nb.parse_contexts(queued)), [("lint", "queued", "")])

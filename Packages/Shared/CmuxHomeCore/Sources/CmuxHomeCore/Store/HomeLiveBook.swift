@@ -241,15 +241,15 @@ struct HomeLiveBook {
         if ended.count > Self.endedLimit { ended.removeFirst(ended.count - Self.endedLimit) }
     }
 
-    /// What each conversation shows: its most recently touched run with reply
-    /// text or an activity line.
-    var shown: [ConversationID: HomeLiveRun] {
-        var best: [ConversationID: (Key, Run)] = [:]
-        for (key, run) in runs where run.activity != nil || run.hasTalk {
-            if let current = best[key.conversation], current.1.touched >= run.touched { continue }
-            best[key.conversation] = (key, run)
+    /// What `conversation` shows: its most recently touched run with reply text or an activity
+    /// line, nil when none. Only that conversation's runs are read and joined.
+    func shown(in conversation: ConversationID) -> HomeLiveRun? {
+        var best: (Key, Run)?
+        for (key, run) in runs where key.conversation == conversation && (run.activity != nil || run.hasTalk) {
+            if let current = best, current.1.touched >= run.touched { continue }
+            best = (key, run)
         }
-        return best.mapValues { liveRun($0.0, $0.1) }
+        return best.map { liveRun($0.0, $0.1) }
     }
 
     /// Every run of `conversation` with reply text, in the order the runs began: each is one

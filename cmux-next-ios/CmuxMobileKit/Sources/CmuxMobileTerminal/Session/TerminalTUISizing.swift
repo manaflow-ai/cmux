@@ -16,19 +16,29 @@ import CoreGraphics
 ///   (`DaemonTerminalInbound.resetMirror(alternate:)`), so this cannot
 ///   resize the PTY back and forth.
 public struct TerminalTUISizing: Equatable, Sendable {
-    /// The composer stack's top when the keyboard last settled above its
-    /// resting place (nil: the keyboard is down).
-    public private(set) var settledStackTop: CGFloat?
-    /// Whether the rows follow `settledStackTop` (a TUI was showing when the
+    /// How far the keyboard lifted the composer stack above its resting place
+    /// when it last settled (nil: the keyboard is down). A distance, not a
+    /// page position: a later dock or page change moves the resting top, and
+    /// the rows follow it (a kept position gave a TUI rows under the
+    /// composer, or a band of black above it).
+    public private(set) var keyboardLift: CGFloat?
+    /// Whether the rows follow `keyboardLift` (a TUI was showing when the
     /// keyboard settled, or started since).
     public private(set) var followsKeyboard = false
 
     public init() {}
 
     /// The keyboard finished showing or hiding; `stackTop` is the composer
-    /// stack's top now, `restingStackTop` its top with the keyboard down.
-    public mutating func keyboardSettled(stackTop: CGFloat, restingStackTop: CGFloat, isTUI: Bool) {
-        settledStackTop = stackTop < restingStackTop - 0.5 ? stackTop : nil
+    /// stack's top now, `restingStackTop` its top with the keyboard down,
+    /// `keyboardShown` whether the soft keyboard is on screen, docked.
+    ///
+    /// Only a shown keyboard lifts the stack. With the keyboard down a gap
+    /// between the two tops is the page's own layout catching up (a tab's
+    /// insets arriving after its first settle left the stack 8 pt above the
+    /// resting top it was measured against), never a lift: kept as one, it
+    /// cost a full-screen app in a tab a row until the keyboard next came.
+    public mutating func keyboardSettled(stackTop: CGFloat, restingStackTop: CGFloat, keyboardShown: Bool, isTUI: Bool) {
+        keyboardLift = keyboardShown && stackTop < restingStackTop - 0.5 ? restingStackTop - stackTop : nil
         followsKeyboard = isTUI
     }
 
@@ -42,11 +52,89 @@ public struct TerminalTUISizing: Equatable, Sendable {
         followsKeyboard = false
     }
 
-    /// The rows for the PTY.
+    /// The area's bottom (a page y): the resting top of the composer stack,
+    /// lifted by the settled keyboard for a TUI.
+    public func areaBottom(restingStackTop: CGFloat) -> CGFloat {
+        restingStackTop - (followsKeyboard ? keyboardLift ?? 0 : 0)
+    }
+
+    /// The rows for the PTY: toolbar to the composer, lifted by the settled
+    /// keyboard for a TUI.
     public func rows(restingStackTop: CGFloat, chromeTop: CGFloat, cellHeight: CGFloat) -> Int {
-        let bottom = (followsKeyboard ? settledStackTop : nil) ?? restingStackTop
+        let bottom = restingStackTop - (followsKeyboard ? keyboardLift ?? 0 : 0)
         return max(1, Int(floor((bottom - chromeTop) / max(1, cellHeight))))
     }
+}
+
+/// The rows a full-screen app's area shows while the Mac redraws it at the
+/// rows the keyboard settled to (design/terminal R1-1, M-BLACK).
+///
+/// The page's rows change when the keyboard settles, but the grid on screen
+/// is still the Mac's old one until the resize's mirror reset and replay are
+/// in (a settle and a round trip later). Sized to the new rows at once, the
+/// area moved the old grid off the composer: with the keyboard up its top
+/// rows took the area and its status line went under the composer; with the
+/// keyboard down it hung from the toolbar over a band of black, with the
+/// letterbox note ("53×25 · set by another device") in it. Then the replay
+/// moved it again.
+///
+/// So while that answer is on its way, the area keeps the old grid's rows,
+/// pinned to the composer as it was during the keyboard's animation; the
+/// replay's frame swaps in the new grid in one step (behind the held frame).
+public struct TerminalTUIGridHold: Equatable, Sendable {
+    /// The rows of the grid on screen, kept while the Mac's new grid is on
+    /// its way (nil: the area shows the page's rows).
+    public private(set) var heldRows: Int?
+
+    /// The longest the old grid is kept: the resize's settle and a claim's
+    /// round trip (`TerminalReclaimHold.reclaimWait`). Past it, no answer is
+    /// coming (the Mac kept its grid) and the area shows the page's rows.
+    public static let cap: Duration = TerminalResizeSettle.settle + TerminalReclaimHold.reclaimWait
+    /// `cap` in seconds.
+    public static var capSeconds: Double {
+        Double(cap.components.seconds) + Double(cap.components.attoseconds) / 1e18
+    }
+
+    public init() {}
+
+    /// The page's rows changed from `old` to `new` while the screen shows the
+    /// Mac's grid of `shownRows` rows (nil: a local session, whose grid
+    /// follows a resize at once).
+    public mutating func rowsChanged(from old: Int, to new: Int, shownRows: Int?) {
+        guard let shownRows, shownRows != new else {
+            heldRows = nil
+            return
+        }
+        // Held already (the keyboard turned back before the Mac answered):
+        // the grid on screen is still the one held.
+        if heldRows != nil { return }
+        // Only the phone's own grid is held: a grid another device set is
+        // shown letterboxed or shifted as it is (TerminalHostGridLayout).
+        heldRows = shownRows == old ? shownRows : nil
+    }
+
+    /// A replay at the Mac's grid of `rows` rows is parsed; the page has
+    /// `page` rows, and `claimPending` says a resize to them is still to be
+    /// answered (unsent, or sent after the size this replay answers). The
+    /// grid on screen is now the replay's: the area shows the page's rows,
+    /// or, while the page's own answer is still coming, the replay's grid
+    /// (a second toggle before the first answer: 40, then 25 asked, then 30).
+    public mutating func replayed(rows: Int?, page: Int, claimPending: Bool) {
+        guard let rows, rows != page, claimPending else {
+            heldRows = nil
+            return
+        }
+        heldRows = rows
+    }
+
+    /// The app left the alternate screen, or no answer came: the area shows
+    /// the page's rows.
+    public mutating func release() {
+        heldRows = nil
+    }
+
+    /// The rows the area shows for the page's `rows`.
+    public func rows(page rows: Int) -> Int { heldRows ?? rows }
 }
 
 /// When a new grid size reaches the Mac (user report 2026-10-14, "blinking
@@ -95,6 +183,18 @@ public struct TerminalResizeSettle: Equatable, Sendable {
         if pending == size { return .nothing }
         pending = size
         return .wait
+    }
+
+    /// A keyboard toggle's target size, sent at once (no settle): the target
+    /// is known (the keyboard's end, or the height it last had), not measured
+    /// mid-change. Nil when it is the size the Mac was last given: a toggle
+    /// reversed back to it sends nothing, and a reversal to anything else
+    /// sends that at once, so the size claimed is always the newest target.
+    public mutating func claim(_ size: Size) -> Size? {
+        pending = nil
+        guard size != applied else { return nil }
+        applied = size
+        return size
     }
 
     /// `settle` passed since the last change: the size to send, if any.

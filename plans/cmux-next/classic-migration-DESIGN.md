@@ -150,14 +150,16 @@ Gate before that release:
    `scripts/cmux-next/legacy-appcast-item.xml` for the final classic build
    (`skills/cmux-release/references/cmux-next-update-floor.md`).
 2. Per-arch feeds: classic stable rewrites the feed to `appcast-<arch>.xml`
-   (`UpdateFeedResolver.swift`). cmux-next stable publishes only `appcast.xml` today. **Before the
-   switch release, `release.yml` on feat-cmux-next must also publish `appcast-arm64.xml` and
-   `appcast-x86_64.xml` (or classic's last release must stop rewriting)**, otherwise classic
-   clients keep reading the last classic per-arch feed and never see cmux-next.
-3. Staging check: publish the candidate appcast to a staging key (`files.cmux.com/staging-handoff/`),
-   point a classic stable build at it with the `SUFeedURL` default override
-   (`defaults write com.cmuxterm.app SUFeedURL …`), update, and confirm: app relaunches as cmux-next,
-   migration toast, windows/groups present, a second launch makes nothing.
+   (`UpdateFeedResolver.swift` on `main`). Done 2026-11-05: `release.yml` on feat-cmux-next
+   publishes `appcast-arm64.xml` and `appcast-x86_64.xml` as copies of the universal
+   `appcast.xml` (GitHub release assets and `files.cmux.com/stable/`, per-arch first,
+   `appcast.xml` last). cmux-next's own resolver keeps reading `appcast.xml`.
+3. Staging check: publish the candidate appcast to a test feed, point one classic stable install at it,
+   update, and confirm: app relaunches as cmux-next, migration toast, windows/groups present, a second
+   launch makes nothing. A `defaults write com.cmuxterm.app SUFeedURL …` override does NOT work: shipped
+   classic answers Sparkle's `feedURLString(for:)` with its Info.plist URL. Use
+   `scripts/cmux-next/classic-handoff-rc.sh on|off|back` (2026-11-16 dry run; runbook
+   `plans/cmux-next/classic-handoff-go-live-RUNBOOK.md`, test guide `docs/cmux-next/classic-handoff-test.md`).
 4. Then the production release as usual (`/release`), approved by the user's standing deploy rule.
 
 ### Nightly
@@ -189,8 +191,11 @@ cmux-next nightly under their bundle ID. The legacy-identity jobs (`nightly.yml`
 - UserDefaults: same domain per bundle ID; cmux-next reads classic's keys (shortcuts, prefs) and
   writes its own. Classic after a downgrade reads the same domain: keys cmux-next writes must not
   break classic's readers (see risks).
-- WebKit website data (cookies) is per bundle ID: same ID keeps WebKit cookies; the Chromium
-  engine's profile is separate (browser import flow).
+- Browser sign-ins do NOT come over (corrected 2026-11-16): classic used `WKWebsiteDataStore.default()`
+  and per-profile UUID stores; cmux-next defaults to Chromium and its WebKit profiles use their own
+  identified stores, never `.default()`, and nothing imports classic's. Runbook blocker B5.
+- Socket mode: classic kept the Settings choice in UserDefaults `socketControlMode`; cmux-next now falls
+  back to it when `cmux-next.json` names none (`ControlService.classicStoredMode`).
 
 ## 6. Open risks
 
@@ -198,7 +203,8 @@ cmux-next nightly under their bundle ID. The legacy-identity jobs (`nightly.yml`
   differently could misbehave in classic. Not audited key by key.
 - Selected tab per pane, browser back/forward history and profile, canvas positions, workspace
   descriptions, status/log entries, notifications and unread state do not come over.
-- The per-arch stable feed gap (5, Stable step 2) blocks the stable handoff until fixed.
+- The per-arch stable feeds (5, Stable step 2) are published but not yet seen by a real classic
+  stable install; the staging check (step 3) must confirm it.
 - Groups need a daemon with state resources; an older daemon brings workspaces over loose.
 - A workspace made between `createWorkspace` returning and the `created` ledger write (one daemon
   round trip) is not closed by a resume; it would remain as one extra workspace.

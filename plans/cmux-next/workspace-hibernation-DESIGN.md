@@ -13,7 +13,7 @@ note is the memory half and reuses its idle signal and exemptions.
 
 | Holder | Where | Freed today |
 | --- | --- | --- |
-| Parked `WorkspaceContentController` (views, panes, strips, observations) | app | only at critical pressure (`releaseParked`) |
+| Parked `WorkspaceContentController` (views, panes, strips, observations) | app | only at critical pressure (`releaseParked`); since issue 26046 also past 32 per window (`ParkedWorkspaceBudget`) |
 | Terminal GPU surfaces | app | LRU warm set (4 to 12 hidden surfaces) |
 | Browser pages (WebKit / Chromium renderer) | other processes, counted by the app's footprint | frozen after 30 s; discarded only when cmux.json sets `browser.hibernation` (off by default since #25791) |
 | Agent chat pages (one web content process each, about 75 MB) | other processes | only when `browser.hibernation` is set |
@@ -113,3 +113,22 @@ Showing a workspace and hiding one each add a dictionary write.
   an idle host's ring to disk is a host-protocol change (the host is meant to never update,
   pty-holder.md D1-D5) and is left for that lane.
 - Measured numbers: see the report in the commit that lands this.
+
+## Untouched New Tab residency (2026-11-03)
+
+Keep visible New Tabs and the two most recently hidden untouched local New Tabs warm.
+An older untouched hidden page may release after the existing ten-second quick-switch grace.
+The existing SurfaceRetention reducer supplies the warm cap; the existing hidden-page deadline
+executes releases. This is separate from browser and chat timeout settings.
+
+A page with a draft, attachment, edit, pending send, popup or composition stays loaded.
+Pinned tabs, remote or Chief pages, crash notices, shells, chats and unknown agent turns
+keep their existing exemptions. A wake read must answer safely, and eligibility is checked
+again after capture before the view is removed. Its native New Tab context and tab remain.
+WebKit keeps an encoded first-frame cover; Chromium uses its existing New Tab rebuild and
+never captures a hidden Chromium surface. Shutdown cancels the existing release/freeze
+deadlines and turn observation. No per-page polling or new idle timer is added.
+
+Chat pages retain their existing residency defaults. A separate change may release them only
+after wake state can restore scroll, draft, attachments and open panels; page-only state must
+keep a page alive.

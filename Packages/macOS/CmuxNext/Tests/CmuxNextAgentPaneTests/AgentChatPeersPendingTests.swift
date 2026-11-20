@@ -54,7 +54,7 @@ struct AgentChatPeersPendingTests {
         let daemon = try AcpmuxSlowDaemonTests.SlowDaemon(socketPath: environment.socketPath, home: home.path,
                                                           statusDelay: .seconds(3))
         defer { daemon.stop() }
-        let host = AcpmuxHost(resolve: { environment })
+        let host = AcpmuxHost(daemons: AcpmuxLocalDaemons(), resolve: { environment })
         let destinations = AgentChatDestinations(localTitle: "This Mac", peers: { try await host.chatPeers() },
                                                  cloud: { .init(signedIn: false, loaded: false, machines: []) })
         var lists = destinations.updates(peerBound: .milliseconds(200)).makeAsyncIterator()

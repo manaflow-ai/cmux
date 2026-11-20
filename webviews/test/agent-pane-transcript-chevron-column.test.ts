@@ -1,8 +1,5 @@
-// The real transcript controls share a trailing chevron column through hover, keyboard focus,
-// nested expansion and a Shell block's own Copy. The obsolete floating row Copy is not a fixture.
-// The steps of an opened run inside its card (`.cv-steps`, #27896) are the exception: each step's
-// caret sits inline right after its label, as Leo asked of the transcript's carets ("we can fit
-// stuff closer", #28018), within the same 4.5px #28018 checks.
+// Transcript carets follow their labels through hover, focus and nested expansion.
+// Durations remain trailing and the message toggle still covers the blank part of its row.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -30,7 +27,10 @@ await requireBrowserLane("agent-pane-transcript-chevron-column.test.ts", async (
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
-    await warmGalleryFrame(vite, "agent-pane.transcript-chevron-column", { browser, params: { variant: "shipped" } });
+    await warmGalleryFrame(vite, "agent-pane.transcript-chevron-column", {
+      browser,
+      params: { variant: "light", colorScheme: "light" },
+    });
   });
   afterAll(async () => {
     await browser?.close();
@@ -38,71 +38,107 @@ await requireBrowserLane("agent-pane-transcript-chevron-column.test.ts", async (
   });
 
   for (const width of [760, 420]) {
-    test(`pins chevrons at the same x edge at ${width}px`, async () => {
-      const port = (vite!.httpServer!.address() as { port: number }).port;
-      const page = await browser!.newPage({ viewport: { width, height: 640 }, reducedMotion: "reduce" });
-      await page.goto(
-        `http://127.0.0.1:${port}${galleryFrame("agent-pane.transcript-chevron-column", { variant: "shipped" })}`,
-      );
-      await page.locator("[data-chevron-column]").waitFor({ state: "attached" });
-      const before = await page
-        .locator("[data-chevron-column] .cv-tool__chevron")
-        .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().right * 10) / 10));
-      expect(before).toHaveLength(5);
-      const command = page.locator('[data-label="command"] .cv-command');
-      await command.hover();
-      await command.focus();
-      const after = await page
-        .locator("[data-chevron-column] .cv-tool__chevron")
-        .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().right * 10) / 10));
-      expect(new Set(before).size).toBe(1);
-      expect(after).toEqual(before);
-      const action = await command.evaluate((row) => {
-        const meta = row.querySelector(".cv-command__meta")!.getBoundingClientRect();
-        const chevron = row.querySelector(".cv-tool__chevron")!.getBoundingClientRect();
-        return { meta: meta.toJSON(), chevron: chevron.toJSON() };
-      });
-      expect(action.meta.right).toBeLessThan(action.chevron.left);
-      await command.click();
-      const copy = page.locator('[data-label="command"] .cv-shell__actions button[aria-label="Copy"]');
-      await copy.waitFor();
-      await copy.hover();
-      await copy.focus();
-      await page.locator('[data-label="group"] > .cv-tools > button').click();
-      await page.locator('[data-label="run"] > .cv-tools > button').click();
-      await page.locator('[data-label="thought"] .cv-thought').click();
-      const carets = await page.locator("[data-chevron-column] .cv-tool__chevron").evaluateAll((nodes) =>
-        nodes.map((node) => {
-          const caret = node.getBoundingClientRect();
-          const label = node.closest(".cv-steps")
-            ? node
-                .closest(".cv-tool")!
-                .querySelector(".cv-tool__text, .cv-command__text, .cv-thought__label, .cv-thought__preview")!
-                .getBoundingClientRect()
-            : undefined;
-          return { right: Math.round(caret.right * 10) / 10, gap: label ? caret.left - label.right : undefined };
-        }),
-      );
-      expect(carets).toHaveLength(9);
-      // Rows outside a run's card keep the one trailing edge.
-      const expanded = carets.filter((caret) => caret.gap === undefined).map((caret) => caret.right);
-      expect(expanded).toHaveLength(7);
-      expect(new Set(expanded)).toEqual(new Set(before));
-      // The opened group's two steps, in its card: each caret right after its label.
-      const steps = carets.flatMap((caret) => (caret.gap === undefined ? [] : [caret.gap]));
-      expect(steps).toHaveLength(2);
-      expect(steps.every((gap) => gap >= -0.5 && gap <= 4.5)).toBe(true);
-      expect(await page.locator("[data-chevron-column] .acpmux-row__copy").count()).toBe(0);
-      if (process.env.CMUX_CHEVRON_ARTIFACT_DIR) {
-        const directory = process.env.CMUX_CHEVRON_ARTIFACT_DIR;
-        await mkdir(directory, { recursive: true });
-        await writeFile(
-          path.join(directory, `rects-${width}.json`),
-          JSON.stringify({ width, before, after, expanded, steps, action }, null, 2),
+    for (const variant of ["light", "dark"] as const)
+      test(`keeps chevrons inline in ${variant} at ${width}px`, async () => {
+        const port = (vite!.httpServer!.address() as { port: number }).port;
+        const page = await browser!.newPage({
+          viewport: { width, height: 640 },
+          deviceScaleFactor: 2,
+          reducedMotion: "reduce",
+        });
+        await page.goto(
+          `http://127.0.0.1:${port}${galleryFrame("agent-pane.transcript-chevron-column", { variant, colorScheme: variant })}`,
         );
-        await page.screenshot({ path: path.join(directory, `chevrons-${width}.png`), fullPage: true });
-      }
-      await page.close();
-    });
+        await page.locator("[data-chevron-column]").waitFor({ state: "attached" });
+        const before = await page
+          .locator("[data-chevron-column] .cv-tool__chevron")
+          .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().right * 10) / 10));
+        expect(before).toHaveLength(6);
+        const command = page.locator('[data-label="command"] .cv-command');
+        await command.hover();
+        await command.focus();
+        const after = await page
+          .locator("[data-chevron-column] .cv-tool__chevron")
+          .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().right * 10) / 10));
+        expect(after).toEqual(before);
+        const inlineGaps = await page
+          .locator("[data-chevron-column] .chevron-column-gallery__row")
+          .evaluateAll((rows) =>
+            rows.map((row) => {
+              const caret = row.querySelector<HTMLElement>(".cv-tool__chevron")!.getBoundingClientRect();
+              const label = row
+                .querySelector<HTMLElement>(
+                  ".cv-tool__text, .cv-command__text, .cv-thought__label, .cv-agentmsg__preview",
+                )!
+                .getBoundingClientRect();
+              return {
+                gap: caret.left - label.right,
+                token: Number.parseFloat(getComputedStyle(row).getPropertyValue("--cv-disclosure-gap")),
+              };
+            }),
+          );
+        expect(inlineGaps.every(({ gap, token }) => Number.isFinite(token) && gap >= -0.5 && gap <= token + 0.5)).toBe(
+          true,
+        );
+        const action = await command.evaluate((row) => {
+          const meta = row.querySelector(".cv-command__meta")!.getBoundingClientRect();
+          const chevron = row.querySelector(".cv-tool__chevron")!.getBoundingClientRect();
+          return { meta: meta.toJSON(), chevron: chevron.toJSON() };
+        });
+        expect(action.chevron.left).toBeLessThan(action.meta.left);
+        if (process.env.CMUX_CHEVRON_ARTIFACT_DIR) {
+          await mkdir(process.env.CMUX_CHEVRON_ARTIFACT_DIR, { recursive: true });
+          await page.locator("[data-chevron-column]").screenshot({
+            path: path.join(process.env.CMUX_CHEVRON_ARTIFACT_DIR, `collapsed-${variant}-${width}.png`),
+          });
+        }
+        if (width === 760) {
+          const toggle = page.locator(".cv-agentmsg__toggle");
+          const size = await toggle.boundingBox();
+          await toggle.click({ position: { x: size!.width - 2, y: size!.height / 2 } });
+          expect(await toggle.getAttribute("aria-expanded")).toBe("true");
+          await page.locator(".cv-agentmsg__chevron").click();
+          expect(await toggle.getAttribute("aria-expanded")).toBe("false");
+        }
+        await command.click();
+        const copy = page.locator('[data-label="command"] .cv-shell__actions button[aria-label="Copy"]');
+        await copy.waitFor();
+        await copy.hover();
+        await copy.focus();
+        await page.locator('[data-label="group"] > .cv-tools > button').click();
+        await page.locator('[data-label="run"] > .cv-tools > button').click();
+        await page.locator('[data-label="thought"] .cv-thought').click();
+        const expanded = await page
+          .locator("[data-chevron-column] .cv-tool__chevron")
+          .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().right * 10) / 10));
+        const stepGaps = await page.locator(".cv-steps .cv-tool").evaluateAll((rows) =>
+          rows.map((row) => {
+            const caret = row.querySelector(".cv-tool__chevron")!.getBoundingClientRect();
+            const label = row.querySelector(".cv-command__text, .cv-tool__text")!.getBoundingClientRect();
+            return {
+              gap: caret.left - label.right,
+              token: Number.parseFloat(getComputedStyle(row).getPropertyValue("--cv-disclosure-gap")),
+            };
+          }),
+        );
+        expect(stepGaps).toHaveLength(2);
+        expect(stepGaps.every(({ gap, token }) => gap >= -0.5 && gap <= token + 0.5)).toBe(true);
+        expect(expanded).toHaveLength(10);
+        expect(expanded.length).toBeGreaterThan(before.length);
+        expect(await page.locator("[data-chevron-column] .acpmux-row__copy").count()).toBe(0);
+        if (process.env.CMUX_CHEVRON_ARTIFACT_DIR) {
+          const directory = process.env.CMUX_CHEVRON_ARTIFACT_DIR;
+          await mkdir(directory, { recursive: true });
+          await writeFile(
+            path.join(directory, `rects-${variant}-${width}.json`),
+            JSON.stringify({ width, before, after, expanded, action }, null, 2),
+          );
+          await page.screenshot({
+            path: path.join(directory, `chevrons-${variant}-${width}.png`),
+            fullPage: true,
+          });
+        }
+        await page.close();
+      });
   }
 });

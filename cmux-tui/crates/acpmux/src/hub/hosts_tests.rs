@@ -135,16 +135,24 @@ fn hosted_log() -> Log {
 /// A hub over `sessions` chats that each hold `log`, written after the hub loaded so its start
 /// settles nothing in them: the log is as the previous daemon left it.
 async fn hub_with(sessions: usize, log: &Log) -> (Arc<Hub>, std::path::PathBuf) {
+    hub_with_meta(sessions, log, json!({})).await
+}
+
+/// ``hub_with``, each chat's meta also holding `extra`'s fields.
+async fn hub_with_meta(sessions: usize, log: &Log, extra: Value) -> (Arc<Hub>, std::path::PathBuf) {
     let root = std::env::temp_dir().join(format!("acpmux-adopt-reads-{}", uuid::Uuid::now_v7()));
     let mut cfg = Config::default();
     cfg.store.mode = StoreMode::Local;
     let store = crate::store::open(&cfg.store, &root).unwrap();
     for n in 0..sessions {
         let id = format!("chat{n}");
-        let meta = json!({
+        let mut meta = json!({
             "schema": crate::store::META_SCHEMA, "id": id, "name": id, "harness": "claude",
             "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2,
         });
+        for (k, v) in extra.as_object().into_iter().flatten() {
+            meta[k] = v.clone();
+        }
         store.save(&serde_json::from_value(meta).unwrap()).unwrap();
     }
     drop(store);
@@ -241,8 +249,9 @@ async fn adoption_recovers_a_main_compaction_in_progress() {
 fn work_fields(w: &OpenWork) -> String {
     let permissions: std::collections::BTreeMap<_, _> = w.permissions.iter().collect();
     format!(
-        "{:?} {} {:?} {} {} {:?} {:?} {:?} {:?} {:?} {} {:?} {:?} {} {} {:?} {:?} {:?} {:?} {:?} {:?}",
+        "{:?} {:?} {} {:?} {} {} {:?} {:?} {:?} {:?} {:?} {} {:?} {:?} {} {} {:?} {:?} {:?} {:?} {:?} {:?}",
         w.turn.as_ref().map(|t| (t.0, &t.1, &t.2, &t.3, &t.4, t.5)),
+        w.turn_line,
         w.turn_carried,
         w.carry_next,
         w.turn_at,
@@ -300,7 +309,7 @@ async fn adoption_finds_a_carried_turn_whose_prompt_had_not_gone_out() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 
-    let started = json!({"turnId": "t2", "promptId": "p-late", "prompt": "late", "client": "cli", "carried": {"fromTurnId": "t1", "promptIds": ["p-late"]}});
+    let started = json!({"turnId": "t2", "promptId": "p-late", "prompt": "[coord] late", "promptLine": "coord: late", "client": "cli", "carried": {"fromTurnId": "t1", "promptIds": ["p-late"]}});
     log.push("mux", "turn_started", started, false);
     let steer = json!({"jsonrpc": "2.0", "id": 3, "method": "session/prompt", "params": {"sessionId": "own", "_meta": {"steer": true}}});
     log.push("out", "session/prompt", steer, true);
@@ -310,6 +319,8 @@ async fn adoption_finds_a_carried_turn_whose_prompt_had_not_gone_out() {
     assert_eq!(work.turn.as_ref().map(|t| t.1.as_str()), Some("t2"));
     assert_eq!(work.turn.as_ref().map(|t| t.5), Some(Control::Web), "raised before its start");
     assert!(work.turn_carried && work.carry_next.is_none());
+    // The line the turn showed (`prompt_line.rs`), which its record keeps for a restart.
+    assert_eq!(work.turn_line.as_deref(), Some("coord: late"));
     assert_eq!(work.prompt_request, None, "a steer is not a carried turn's prompt");
     assert_eq!(work.steers, vec![(json!(3), None)]);
     hub.shutdown_all().await;
@@ -425,6 +436,30 @@ async fn open_work_from_heads_matches_a_parse_of_every_record() {
         hub.shutdown_all().await;
         let _ = std::fs::remove_dir_all(&root);
     }
+}
+
+/// A Codex chat whose native root changed: its earlier root is a root, never one of its
+/// subagents. A record that echoes the earlier root as legacy subagent activity makes no child
+/// of it, so that root's tool in the open turn is still the turn's own (as the tap reads it).
+#[tokio::test]
+async fn open_work_never_reads_an_earlier_native_root_as_a_subagent() {
+    let mut log = Log { records: Vec::new(), host_seq: 0 };
+    log.push("mux", "host_started", json!({"incarnation": "inc"}), false);
+    log.turn(1, 1);
+    log.update_of("old-root", json!({"sessionUpdate": "tool_call", "toolCallId": "echo", "status": "in_progress", "_meta": {"codex": {"subagent": {"threadId": "old-root", "activity": "running"}}}}));
+    log.update_of("old-root", json!({"sessionUpdate": "tool_call", "toolCallId": "root-call", "title": "Root", "status": "in_progress"}));
+    let meta = json!({"agentSessionId": "own", "retiredAgentSessionIds": ["old-root"]});
+    let (hub, root) = hub_with_meta(1, &log, meta).await;
+    let session = hub.resolve("chat0").unwrap();
+    let work = hub.open_work(&session, "inc");
+    assert!(work.turn.is_some());
+    assert!(
+        work.doing.open_tools.contains("root-call"),
+        "an earlier root's tool is the turn's: {:?}",
+        work.doing
+    );
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 /// A line a crash cut short (`..."result":{"a":0,"hostSeq":999999}` with the record unclosed)

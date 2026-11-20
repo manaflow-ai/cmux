@@ -34,6 +34,10 @@ public nonisolated struct SidebarNestedFixture: Sendable {
         /// The session tree's needs-you tray (`SidebarNeedsYou`): sessions started by other sessions,
         /// some blocked on you (a question, a permission, a sign-in), one failed, two finished unread.
         case needsYou
+        /// Groups of one workspace named as the group (what `acpmux new --group X` makes), top level and nested,
+        /// beside a group of one differently named member and a group of two (Leo 2026-10-29: "why is there all
+        /// this weird stuff at the bottom of the sidebar").
+        case soleMember
     }
 
     /// The state this fixture captures.
@@ -97,6 +101,8 @@ public nonisolated struct SidebarNestedFixture: Sendable {
             nodes = Self.tallGroup
         case .needsYou:
             nodes = Self.needsYouRows.map(SidebarNode.workspace)
+        case .soleMember:
+            nodes = Self.soleMembers
         }
         sections = [SidebarSection(kind: .machine(machine), nodes: nodes)]
     }
@@ -163,6 +169,15 @@ public nonisolated struct SidebarNestedFixture: Sendable {
         group("nightly", "Nightly & CI", .red, [ws("updates", "Updates keep sessions alive"), ws("ios-testflight", "iOS TestFlight")]),
         .workspace(ws("scratch", "Scratch")),
         .workspace(ws("notes", "Notes")),
+    ]
+
+    private static let soleMembers: [SidebarNode] = [
+        .workspace(ws("readme", "README pass")),
+        group("coord", "release-coord", .purple, [ws("coord", "release-coord", busy: true)]),
+        group("design", "Design review", .blue, [ws("sketches", "Sketches")]),
+        group("visual", "visual-check", .orange, parent: "design", [ws("visual", "visual-check", busy: true)]),
+        group("notes", "Release notes", .green, [ws("changelog", "Changelog draft", unread: .dot)]),
+        group("nightly", "Nightly & CI", .red, [ws("updates", "nightly-ci"), ws("nightly", "Nightly & CI")]),
     ]
 
     private static func sixLevels(folded: Set<String>) -> [SidebarNode] {

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextDesign
 import CmuxNextIcons
 import Foundation
@@ -17,7 +18,7 @@ final class MachineBrowserPageTab: BrowserTab {
     let profileID: BrowserProfileID
     let presentation: BrowserPresentation = .inView
     private(set) var state: BrowserTabState
-    let favicon: NSImage? = NSImage.icon(.browser, size: 16)
+    let favicon: NSImage? = NSImage.icon(.tabBrowser, size: 16)
     let pendingPrompts: [BrowserPrompt] = []
     @ObservationIgnored weak var delegate: (any BrowserTabDelegate)?
     @ObservationIgnored weak var keyRouter: (any BrowserKeyRouting)?
@@ -187,7 +188,7 @@ nonisolated enum MachineBrowserStrings {
     }
     static func tooOld(_ machine: String) -> String {
         String(format: String(localized: "remote.machineBrowser.tooOld",
-                              defaultValue: "cmux-tui on %@ is too old for browser tabs. Update it, then try again.",
+                              defaultValue: "cmux on %@ is too old for browser tabs. Update it, then try again.",
                               table: "Remote", bundle: .module), machine)
     }
     static func starting(_ machine: String) -> String {

@@ -25,6 +25,8 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   failOnFlakyTests: !!process.env.CI,
   use: {
+    // System Google Chrome: Playwright's bundled Chromium lacks recent security fixes (webviews/test/support/systemChrome.ts).
+    channel: "chrome",
     baseURL: externalBaseURL ?? `http://127.0.0.1:${port}`,
   },
   webServer: externalBaseURL ? undefined : {

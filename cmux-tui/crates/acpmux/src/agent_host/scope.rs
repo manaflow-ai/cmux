@@ -135,7 +135,10 @@ mod linux {
 
     const ENV: &str = "ACPMUX_HOST_SCOPES";
     /// How long the `busctl` call, and then the move showing in the host's
-    /// cgroup, may each take.
+    /// cgroup, may each take. Placement is best effort: expiry logs and the
+    /// host spawn continues, so this never turns a live wake into failure.
+    // timeout: a stuck user-manager request must not hold the spawn task while
+    // the placement operation is optional.
     const PLACEMENT_WAIT: Duration = Duration::from_secs(2);
     static FAILED_AT: Mutex<Option<Instant>> = Mutex::new(None);
 

@@ -143,8 +143,13 @@ fn public_item_in(record: &Value, evicted: &HashSet<String>) -> Value {
     let members = record["members"].as_array().cloned().unwrap_or_default();
     let first =
         members.first().map(|member| public_member(member, evicted)).unwrap_or_else(|| json!({}));
-    // A deleted space is named by the space, not its first workspace (cx-ncc.44).
-    let room = &record["room"]["profile"][0]["name"];
+    // A deleted space is named by the space, not its first workspace (cx-ncc.44);
+    // a space its last workspace's close took keeps that workspace's name.
+    let room = if record["room_cascade"] == true {
+        &Value::Null
+    } else {
+        &record["room"]["profile"][0]["name"]
+    };
     let mut item = json!({
         "id": record["id"],
         "kind": record["kind"],
@@ -391,6 +396,43 @@ pub(crate) fn keep_members(
     let evicted =
         crate::workspace_registry::terminal_archive_store::evicted_terminals(transaction)?;
     Ok(public_item_in(&record, &evicted))
+}
+
+/// The newest group whose workspace member recorded closed workspace
+/// `workspace` (a `ws_` id), and that member's index. None when no group
+/// holds it (live, closed before its id was recorded, or deleted from the
+/// history). For `closed.reopen {workspace}` (durable-links-DESIGN.md).
+pub(crate) fn group_member_holding_workspace(
+    connection: &Connection,
+    workspace: &str,
+) -> anyhow::Result<Option<(String, usize)>> {
+    // A `ws_` id is hex after its prefix. Its `_` is a LIKE wildcard, so LIKE only narrows the
+    // candidates; the exact `closed_workspace_id` check below decides.
+    let Some(suffix) = workspace.strip_prefix("ws_") else {
+        return Ok(None);
+    };
+    if !suffix.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Ok(None);
+    }
+    let mut statement = connection.prepare(
+        "SELECT closed_id, record_json FROM closed_groups
+         WHERE record_json LIKE '%' || ?1 || '%' ORDER BY seq DESC",
+    )?;
+    let rows = statement
+        .query_map([workspace], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+    for row in rows {
+        let (closed_id, record) = row?;
+        let record: Value = serde_json::from_str(&record)?;
+        let members = record.get("members").and_then(Value::as_array).cloned().unwrap_or_default();
+        let holds = |member: &Value| {
+            member["kind"] == "workspace"
+                && member["closed_workspace_id"].as_str() == Some(workspace)
+        };
+        if let Some(index) = members.iter().position(holds) {
+            return Ok(Some((closed_id, index)));
+        }
+    }
+    Ok(None)
 }
 
 /// The newest group that holds tab `tab` (a `tab_` id) and the index of its

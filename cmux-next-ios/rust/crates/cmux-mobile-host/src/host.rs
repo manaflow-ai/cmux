@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use cmux_mobile_link::api::{ApiClient, DeviceRegistration, IceCache, IceServer};
 use cmux_mobile_link::dial::{self, SessionEvents};
 use cmux_mobile_link::signaling::{SignalEnvelope, SignalPayload};
-use cmux_mobile_link::{DialOptions, LinkConfig, SignalingClient, Timeline, TransportKind};
+use cmux_mobile_link::{BuildSpace, DialOptions, LinkConfig, SignalingClient, Timeline, TransportKind};
 
 use crate::auth::{Tokens, claims};
 use crate::config::{HostConfig, ServiceConfig};
@@ -27,6 +27,7 @@ pub struct AnswerContext {
     pub exclude_cgnat: bool,
     /// Supervised: sealed replies the backend holds for this Mac (`mailbox.rs`).
     pub mailbox: Option<Arc<crate::mailbox::Mailbox>>,
+    pub session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
 }
 
 #[derive(Clone)]
@@ -38,6 +39,7 @@ pub enum IceSource {
     /// answer never waits on an HTTP round trip.
     Api {
         base_url: String,
+        build_space: Option<BuildSpace>,
         tokens: Arc<Tokens>,
         cache: Arc<IceCache>,
     },
@@ -51,15 +53,15 @@ const QUICK_RECONNECT: Duration = Duration::from_millis(150);
 const ICE_BUDGET: Duration = Duration::from_secs(5);
 
 impl IceSource {
-    pub fn api(base_url: String, tokens: Arc<Tokens>) -> Self {
-        Self::Api { base_url, tokens, cache: Arc::new(IceCache::new()) }
+    pub fn api(base_url: String, build_space: Option<BuildSpace>, tokens: Arc<Tokens>) -> Self {
+        Self::Api { base_url, build_space, tokens, cache: Arc::new(IceCache::new()) }
     }
 
     /// The servers and whether they came from the cache.
     pub(crate) async fn servers(&self) -> (Vec<IceServer>, bool) {
         match self {
             Self::Fixed(servers) => (servers.clone(), true),
-            Self::Api { base_url, tokens, cache } => {
+            Self::Api { base_url, build_space, tokens, cache } => {
                 if let Some(servers) = cache.fresh() {
                     return (servers, true);
                 }
@@ -70,7 +72,8 @@ impl IceSource {
                         return (Vec::new(), false);
                     }
                 };
-                cache.get(&ApiClient::new(base_url, &token), ICE_BUDGET).await
+                let api = ApiClient::new(base_url, &token).with_build_space(build_space.clone());
+                cache.get(&api, ICE_BUDGET).await
             }
         }
     }
@@ -106,12 +109,17 @@ impl IceSource {
 
 /// When a phone first registered (`GET /v1/me/devices` `createdAt`), for the
 /// pairing prompt. Every phone that may dial is the Mac owner's own device.
-fn registration_lookup(base_url: String, tokens: Arc<Tokens>) -> crate::pairing::RegistrationLookup {
+fn registration_lookup(
+    base_url: String,
+    build_space: Option<BuildSpace>,
+    tokens: Arc<Tokens>,
+) -> crate::pairing::RegistrationLookup {
     Arc::new(move |phone: String| {
-        let (base_url, tokens) = (base_url.clone(), Arc::clone(&tokens));
+        let (base_url, build_space, tokens) = (base_url.clone(), build_space.clone(), Arc::clone(&tokens));
         Box::pin(async move {
             let token = tokens.access_token().await.ok()?;
-            let devices = ApiClient::new(&base_url, &token).my_devices().await.ok()?;
+            let devices =
+                ApiClient::new(&base_url, &token).with_build_space(build_space).my_devices().await.ok()?;
             devices
                 .into_iter()
                 .find(|d| d.device_id.eq_ignore_ascii_case(&phone) && d.kind != "mac")
@@ -131,11 +139,15 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
     let tokens = Arc::new(Tokens::new(config.tokens.clone()));
     let mut services = config.services.clone();
     if let Some(pairing) = services.pairing.as_mut() {
-        pairing.registration = Some(registration_lookup(config.base_url.clone(), Arc::clone(&tokens)));
+        pairing.registration = Some(registration_lookup(
+            config.base_url.clone(),
+            config.build_space.clone(),
+            Arc::clone(&tokens),
+        ));
     }
     let services = Arc::new(services);
     // One ICE cache for the life of the process (reconnects keep it).
-    let ice = IceSource::api(config.base_url.clone(), Arc::clone(&tokens));
+    let ice = IceSource::api(config.base_url.clone(), config.build_space.clone(), Arc::clone(&tokens));
     let _notifications = if crate::notify::enabled() {
         // Paired phones that gave a push key get sealed notifications (sealed_notify.rs).
         let sealer = services.pairing.as_ref().map(|pairing| {
@@ -149,16 +161,43 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
         });
         Some(AbortTask(tokio::spawn(crate::notify::run(
             config.base_url.clone(),
+            config.build_space.clone(),
             config.device_id.clone(),
             Arc::clone(&tokens),
             config.services.acpmux.clone(),
             Some(config.services.daemon_socket()),
             sealer,
+            config.session_exposure.clone(),
         ))))
     } else {
         None
     };
-    let mailbox = mailbox_for(&services);
+    let mailbox = mailbox_for(&services, config.session_exposure.clone());
+    // This Mac reaching the person's other machines through the same warm
+    // socket (`link_socket.rs`); only with the app, which holds the identity key.
+    let (signaling_now, signaling_watch) = tokio::sync::watch::channel(None::<SignalingClient>);
+    let _machine_link = services.pairing.as_ref().map(|pairing| {
+        let dialer = Arc::new(crate::link_socket::Dialer {
+            device_id: config.device_id.clone(),
+            device_name: config.device_name.clone(),
+            base_url: config.base_url.clone(),
+            build_space: config.build_space.clone(),
+            tokens: Arc::clone(&tokens),
+            ice: ice.clone(),
+            signaling: signaling_watch.clone(),
+            identity: pairing.identity.clone(),
+            activity: Arc::clone(&pairing.activity),
+            links: Default::default(),
+        });
+        let path = crate::link_socket::socket_path(&services.daemon_socket());
+        AbortTask(tokio::spawn(async move {
+            if let Err(error) = crate::link_socket::serve(path, dialer).await {
+                tracing::warn!("machine link socket stopped: {error:#}");
+            }
+        }))
+    });
+    // Per-service byte rates for `cmux device traffic` (traffic.rs).
+    let _traffic = AbortTask(tokio::spawn(crate::traffic::run_sampler()));
     // Phones keep their WireGuard sessions when the Mac changes networks.
     let _network_watch = AbortTask(tokio::spawn(crate::netwatch::run()));
     // Live tunnels can roam even while signaling is unreachable. Rehome resends
@@ -177,7 +216,7 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
         let attempt = tokio::select! {
             // Process a server removal first if both events are ready.
             biased;
-            result = connect_once(&config, &tokens, &services, &ice, &mailbox) => result,
+            result = connect_once(&config, &tokens, &services, &ice, &mailbox, &signaling_now) => result,
             Ok(()) = changes.changed() => {
                 ice.invalidate();
                 backoff = Duration::from_secs(1);
@@ -228,6 +267,7 @@ async fn connect_once(
     services: &Arc<ServiceConfig>,
     ice: &IceSource,
     mailbox: &Option<Arc<crate::mailbox::Mailbox>>,
+    signaling_now: &tokio::sync::watch::Sender<Option<SignalingClient>>,
 ) -> Result<String> {
     let token = tokens.access_token().await.context("access token")?;
     let owner = config
@@ -235,7 +275,7 @@ async fn connect_once(
         .clone()
         .or_else(|| claims(&token).sub)
         .context("the access token has no sub; set CMUX_MOBILE_OWNER_USER_ID")?;
-    let api = ApiClient::new(&config.base_url, &token);
+    let api = ApiClient::new(&config.base_url, &token).with_build_space(config.build_space.clone());
     let (machine_id, sibling_device_ids) = config.machine(&owner);
     let device = api
         .register_device(&DeviceRegistration {
@@ -250,12 +290,23 @@ async fn connect_once(
         .await
         .context("POST /v1/devices")?;
     tracing::info!(device = %device, "registered");
-    let signaling = SignalingClient::connect(&config.base_url, &token, &config.team_id, &config.device_id)
-        .await
-        .context("signaling connect")?;
+    let signaling = SignalingClient::connect_in(
+        &config.base_url,
+        &token,
+        &config.team_id,
+        &config.device_id,
+        config.build_space.as_ref(),
+    )
+    .await
+    .context("signaling connect")?;
     // Cancellation on wake/network change must close the old socket and stop
     // its auxiliary tasks; dropping a SignalingClient alone does neither.
-    let mut lifetime = ConnectionLifetime { signaling: signaling.clone(), tasks: Vec::new() };
+    signaling_now.send_replace(Some(signaling.clone()));
+    let mut lifetime = ConnectionLifetime {
+        signaling: signaling.clone(),
+        tasks: Vec::new(),
+        published: signaling_now.clone(),
+    };
     tracing::info!(device_id = config.device_id, "signaling connected");
     // Sessions of the previous socket (WireGuard tunnels outlive it) send
     // their `bye` on this one now.
@@ -271,6 +322,7 @@ async fn connect_once(
         include_loopback: config.include_loopback,
         exclude_cgnat: config.exclude_cgnat,
         mailbox: mailbox.clone(),
+        session_exposure: config.session_exposure.clone(),
     };
     let refresher = if std::env::var_os("CMUX_MOBILE_BASELINE").is_some() { None } else { ice.keep_fresh() };
     if let Some(task) = refresher {
@@ -283,10 +335,13 @@ async fn connect_once(
 struct ConnectionLifetime {
     signaling: SignalingClient,
     tasks: Vec<tokio::task::JoinHandle<()>>,
+    /// Where the machine link finds the socket to dial on; emptied with it.
+    published: tokio::sync::watch::Sender<Option<SignalingClient>>,
 }
 
 impl Drop for ConnectionLifetime {
     fn drop(&mut self) {
+        self.published.send_replace(None);
         self.signaling.close();
         for task in &self.tasks {
             task.abort();
@@ -312,18 +367,19 @@ pub fn unauthorized(error: &anyhow::Error) -> bool {
         {
             return *status == 401;
         }
-        if let Some(cmux_mobile_link::signaling::SignalingError::Connect(message)) =
-            cause.downcast_ref::<cmux_mobile_link::signaling::SignalingError>()
-        {
-            return message.contains("401");
-        }
-        false
+        matches!(
+            cause.downcast_ref::<cmux_mobile_link::signaling::SignalingError>(),
+            Some(cmux_mobile_link::signaling::SignalingError::Unauthorized)
+        )
     })
 }
 
 /// The mailbox of a supervised hostd: its pairing's keys and trust, the
 /// services a link reaches, and the replies already spent (on disk).
-fn mailbox_for(services: &ServiceConfig) -> Option<Arc<crate::mailbox::Mailbox>> {
+fn mailbox_for(
+    services: &ServiceConfig,
+    session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+) -> Option<Arc<crate::mailbox::Mailbox>> {
     let pairing = services.pairing.as_ref()?;
     let daemon_socket = services
         .default_socket
@@ -339,6 +395,7 @@ fn mailbox_for(services: &ServiceConfig) -> Option<Arc<crate::mailbox::Mailbox>>
             acpmux: services.acpmux.clone(),
             daemon_socket,
             chief_socket: services.chief_socket.clone(),
+            session_exposure,
         }),
     }))
 }
@@ -497,7 +554,12 @@ async fn answer_session(
     kind: TransportKind,
     context: AnswerContext,
 ) {
-    let mut peer = Peer { device_id: first.from.clone(), session_id: first.session_id.clone(), video: None };
+    let mut peer = Peer {
+        device_id: first.from.clone(),
+        session_id: first.session_id.clone(),
+        video: None,
+        session_exposure: context.session_exposure.clone(),
+    };
     let session_id = first.session_id.clone();
     let timeline = Timeline::new();
     timeline.mark("offer_received");
@@ -634,10 +696,12 @@ mod tests {
             anyhow::Error::new(cmux_mobile_link::api::ApiError::Status { status: 401, body: String::new() })
                 .context("POST /v1/devices");
         assert!(unauthorized(&refused));
+        assert!(unauthorized(&anyhow::Error::new(cmux_mobile_link::signaling::SignalingError::Unauthorized)));
+        // Another failed upgrade (a 502 from the edge) is not a refused token.
         let upgrade = anyhow::Error::new(cmux_mobile_link::signaling::SignalingError::Connect(
-            "HTTP error: 401 Unauthorized".into(),
+            "HTTP error: 502 Bad Gateway".into(),
         ));
-        assert!(unauthorized(&upgrade));
+        assert!(!unauthorized(&upgrade));
         let server =
             anyhow::Error::new(cmux_mobile_link::api::ApiError::Status { status: 502, body: String::new() });
         assert!(!unauthorized(&server));

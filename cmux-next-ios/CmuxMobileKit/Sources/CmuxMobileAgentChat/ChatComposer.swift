@@ -1,13 +1,14 @@
 #if os(iOS)
 import CmuxMobileArtifacts
 import CmuxMobileDesign
+import CmuxMobileRealtime
 import CmuxMobileTransport
 import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
 /// SPEC 4.3 composer for agent chat: glass card with a text row over a
-/// controls row (`+` menu, model pill, mic, send/stop), attachment previews,
+/// controls row (`+` menu, model pill, voice mode, send/stop), attachment previews,
 /// queue rows, slash-command suggestions, and the collapsed capsule (same placeholder as the field).
 struct ChatComposer: View {
     let store: AgentChatStore
@@ -27,9 +28,13 @@ struct ChatComposer: View {
     /// Window y the slash-command list may not rise above (under the chat's header and
     /// what the bottom stack shows over the composer); nil when the host does not say.
     var suggestionsCeiling: CGFloat?
-    /// A Retry uses the same send path, including queue/steer and draft clearing.
-    var retryCount = 0
+    /// The cmux commands this chat offers (`/status`, `/fork`, `/continue`), listed before the
+    /// agent's own, and what runs one when it is sent alone: nil when it ran, else the refusal
+    /// shown over the composer (the draft stays). Empty: none offered.
+    var cmuxCommands: [CmuxSlashCommand] = []
+    var runCmuxCommand: (@MainActor (CmuxSlashCommand, String) async -> String?)?
     @State private var showPhotos = false
+    private let voice = AgentVoiceLauncher.shared
     @State private var showFiles = false
     @State private var showCamera = false
     @State private var photoItems: [PhotosPickerItem] = []
@@ -69,14 +74,16 @@ struct ChatComposer: View {
             }
             card
         }
-        .animation(.cmuxMobileSmooth, value: collapsed)
-        .animation(.cmuxMobileSnappy, value: attachments)
+        .animation(.cmuxMobileSmooth.unlessReduceMotion, value: collapsed)
+        .animation(.cmuxMobileSnappy.unlessReduceMotion, value: attachments)
         .filePreview($preview)
-        .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: 10, matching: .images)
+        // Photos and videos, as the Mac's composer takes both (a video goes with its frames).
+        .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: 10, matching: .any(of: [.images, .videos]))
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             if case .success(let urls) = result {
                 let (files, refused) = Self.readFiles(urls)
                 attachments += files
+                for file in files { readVideo(file) }
                 if let refused { store.clientError = refused }
             }
         }
@@ -93,7 +100,6 @@ struct ChatComposer: View {
             Task { await loadPhotos(items) }
         }
         .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: sendCount)
-        .onChange(of: retryCount) { _, _ in sendFromKeyboard() }
         .onChange(of: focus.wrappedValue) { _, focused in
             if focused { expandRequested = false }
         }
@@ -117,11 +123,13 @@ struct ChatComposer: View {
             if trimmed == draft.text.trimmingCharacters(in: .whitespacesAndNewlines) { text = "" }
             attachments.removeAll { own in draft.attachments.contains { $0.id == own.id } }
         }
-        // A prompt that never reached the agent comes back to the composer.
-        .onChange(of: store.returnedDraft) { _, draft in
+        // A prompt that never reached the agent comes back to the composer, also when it came
+        // back before the chat opened (New Task's task that never left the phone).
+        .onChange(of: store.returnedDraft, initial: true) { _, draft in
             guard let draft else { return }
             store.returnedDraft = nil
-            if trimmed.isEmpty { text = draft.text }
+            // Typed meanwhile: the returned text goes before it, never lost.
+            text = trimmed.isEmpty ? draft.text : draft.text + "\n\n" + text
             attachments = draft.attachments + attachments.filter { own in !draft.attachments.contains { $0.id == own.id } }
         }
         // The flip is placed even when the target stays (focused or drafting as the history
@@ -139,7 +147,7 @@ struct ChatComposer: View {
                 transaction.disablesAnimations = true
                 withTransaction(transaction) { shownCollapsed = target }
             } else {
-                withAnimation(.cmuxMobileSmooth) { shownCollapsed = target }
+                withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { shownCollapsed = target }
             }
         }
     }
@@ -191,7 +199,8 @@ struct ChatComposer: View {
                 refused = "Couldn't read \(url.lastPathComponent)."
                 continue
             }
-            if size > inlineFileBytes {
+            // A video stays by its URL whatever its size: its frames are read from there.
+            if size > inlineFileBytes || AgentVideo.isVideoName(url.lastPathComponent) {
                 files.append(AgentAttachment(kind: .file, name: url.lastPathComponent, fileURL: url, byteCount: size))
                 continue
             }
@@ -232,32 +241,41 @@ struct ChatComposer: View {
                         .accessibilityAddTraits(.isButton)
                         .accessibilityLabel(placeholder)
                 } else {
-                    // The menu is there whenever the agent offers models, even when the
-                    // current one is not among them (a default the account lacks, D4).
-                    if store.currentModelName != nil || !store.models.isEmpty || !store.modes.isEmpty { modelPill }
+                    if store.currentModelID != nil || !store.models.isEmpty || !store.modes.isEmpty
+                        || store.effortOption?.options.isEmpty == false { pickerMenu }
                     Spacer(minLength: 0)
                     if let usage = store.contextUsage { ContextUsageRing(usage: usage) }
                 }
-                // No mic button: iOS has no API to start keyboard dictation, and the
-                // keyboard's own mic dictates into this field (SPEC open decision).
-                primaryButton
+                // Voice mode instead of a dictation mic (the keyboard's own mic still
+                // dictates into the field): with no draft, the send circle is the voice
+                // button (ChatGPT's composer); while the agent runs it sits beside Stop.
+                if primaryState == .empty || primaryState == .stop, voice.isAvailable { voiceButton }
+                if primaryState != .empty || !voice.isAvailable { primaryButton }
             }
             .padding(.horizontal, 8)
-            .padding(.bottom, collapsed ? 6 : 8)
-            .padding(.top, collapsed ? 6 : 0)
+            // CMUX-46: the collapsed "Reply to <agent>" capsule is the 44 pt row plus 2 pt each
+            // side, 48 pt: the card's minimum and a true capsule at its 24 pt radius (6 pt each
+            // side drew it 56 pt tall, rounder at the ends than a capsule and too thick). The row
+            // keeps its 44 pt targets and grows with Dynamic Type.
+            .padding(.bottom, collapsed ? 2 : 8)
+            .padding(.top, collapsed ? 2 : 0)
         }
         .frame(minHeight: collapsed ? 48 : 96, alignment: .bottom)
+        // Its own height whatever it is offered: a min-height frame offered
+        // less takes the offer, and the grown draft ran outside the rounded
+        // card (user report 2026-11-12, the same rule as the terminal composer).
+        .fixedSize(horizontal: false, vertical: true)
         .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
         .padding(.horizontal, collapsed ? 20 : 12)
     }
 
     private var placeholder: String {
-        placeholderOverride ?? (store.turns.isEmpty ? "Ask \(store.summary.agentName)" : "Reply to \(store.summary.agentName)")
+        placeholderOverride ?? (store.isNewChat ? "Ask \(store.summary.agentName)" : "Reply to \(store.summary.agentName)")
     }
 
     /// Expands the capsule, then focuses the field once it exists.
     private func expand() {
-        withAnimation(.cmuxMobileSmooth) { expandRequested = true }
+        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { expandRequested = true }
         Task { @MainActor in
             await Task.yield()
             focus.wrappedValue = true
@@ -306,9 +324,9 @@ struct ChatComposer: View {
                         Label("Permission Mode", systemImage: "lock.shield")
                     }
                 }
-                if !store.availableCommands.isEmpty {
+                if !commands.isEmpty {
                     Menu {
-                        ForEach(store.availableCommands) { command in
+                        ForEach(commands) { command in
                             Button {
                                 text = "/\(command.name) "
                                 focus.wrappedValue = true
@@ -337,42 +355,21 @@ struct ChatComposer: View {
         .accessibilityLabel("Add")
     }
 
-    private var modelPill: some View {
+    /// The one picker button after +: its menu holds three nested submenus, the harness with
+    /// its models ("Claude > Opus 5.5", as the Mac's model menu nests them), Mode and Effort, each
+    /// row naming its current value. The button names the model and, when they fit, the effort.
+    private var pickerMenu: some View {
         Menu {
-            // Checkmark buttons rather than inline pickers: an inline picker
-            // inside a menu section drops the section's header.
-            if !store.models.isEmpty {
-                Section("Model") {
-                    ForEach(store.models) { model in
-                        checkButton(model.name, checked: model.id == store.currentModelID) { store.setModel(model.id) }
-                    }
-                }
-            }
-            // ACP `session/set_mode` over the link. The Mac accepts from the phone only the
-            // modes that still ask before running tools, and the harness's Full access mode
-            // when this phone's Full-access setting covers it (`ACPMode.phoneChoices`); a
-            // refused one comes back as the chat's error line.
-            if !store.modes.isEmpty {
-                Section("Mode") {
-                    ForEach(store.modes) { mode in
-                        checkButton(mode.name, checked: mode.id == store.currentModeID) { store.setMode(mode.id) }
-                    }
-                }
-            }
-            if let effort = store.effortOption {
-                Section(effort.name ?? "Effort") {
-                    ForEach(effort.options, id: \.value) { option in
-                        checkButton(option.name ?? option.value, checked: option.value == effort.currentValue) {
-                            store.setConfig(effort.id, value: option.value)
-                        }
-                    }
-                }
-            }
+            // The model row is there whenever the agent offers models, even when the current one
+            // is not among them (a default the account lacks, D4).
+            if store.currentModelID != nil || !store.models.isEmpty { modelSubmenu }
+            if !store.modes.isEmpty { modeSubmenu }
+            if let effort = store.effortOption, !effort.options.isEmpty { effortSubmenu(effort) }
         } label: {
             // Model and effort when they fit; at large text sizes the model alone.
             ViewThatFits(in: .horizontal) {
-                modelPillLabel(withEffort: true)
-                modelPillLabel(withEffort: false)
+                pickerLabel(withEffort: true)
+                pickerLabel(withEffort: false)
             }
             .font(.subheadline.weight(.medium))
             .foregroundStyle(.primary)
@@ -385,40 +382,115 @@ struct ChatComposer: View {
             .contentShape(.rect)
         }
         .padding(.vertical, -5)
-        // Source order (Model, Mode, Effort; modes in the agent's order), the same as the
-        // title menu, not the reversed order of a menu opened near the bottom of the screen.
+        // Ahead of the Spacer and the context ring: at large text sizes the button keeps its
+        // width (its name truncates) instead of being squeezed to nothing.
+        .layoutPriority(1)
+        // Source order (model, Mode, Effort), not the reversed order of a menu opened near the
+        // bottom of the screen.
         .menuOrder(.fixed)
-        .accessibilityLabel(store.currentModelName == nil ? "Mode" : "Model")
-        .accessibilityValue(Text([store.currentModelName, store.effortOption.flatMap { effort in
-            effort.options.first { $0.value == effort.currentValue }.map { $0.name ?? $0.value }
-        }].compactMap { $0 }.joined(separator: ", ")))
+        .accessibilityLabel(store.currentModelName == nil && store.currentModelID == nil ? "Mode" : "Model")
+        .accessibilityValue(Text([store.currentModelName ?? store.currentModelID, currentModeName, currentEffortName]
+            .compactMap { $0 }.joined(separator: ", ")))
+        .accessibilityIdentifier("agentChat.composer.model")
     }
 
-    private func modelPillLabel(withEffort: Bool) -> some View {
+    private func pickerLabel(withEffort: Bool) -> some View {
         HStack(spacing: 4) {
             Text(store.currentModelName ?? store.currentModelID ?? currentModeName ?? "Model")
-            if withEffort, store.currentModelName != nil, let mode = currentModeName, store.currentModeID != store.modes.first?.id {
+            // A mode other than the agent's first (Plan, Full access) stays in sight, as before.
+            if withEffort, store.currentModelName != nil || store.currentModelID != nil, let mode = currentModeName,
+               store.currentModeID != store.modes.first?.id {
                 Text(mode).foregroundStyle(.secondary)
             }
-            if withEffort, let effort = store.effortOption, let value = effort.options.first(where: { $0.value == effort.currentValue }) {
-                Text(value.name ?? value.value).foregroundStyle(.secondary)
+            if withEffort, store.currentModelName != nil || store.currentModelID != nil, let effort = currentEffortName {
+                Text(effort).foregroundStyle(.secondary)
             }
         }
         .fixedSize(horizontal: withEffort, vertical: false)
+    }
+
+    /// The harness the chat runs ("Claude", "Codex"): the model submenu's title, as on the Mac.
+    private var harnessName: String { store.summary.harnessDisplayName }
+
+    /// The harness as a submenu of its models, with the current model as the row's subtitle.
+    /// With no list (only a current model reported) the submenu would be empty, so the row
+    /// names the model alone.
+    @ViewBuilder private var modelSubmenu: some View {
+        if store.models.isEmpty {
+            Button {} label: {
+                Text(harnessName)
+                if let name = store.currentModelName ?? store.currentModelID { Text(name) }
+            }
+            .disabled(true)
+        } else {
+            Menu {
+                // Checkable toggles (`checkButton`) rather than an inline picker: an inline picker
+                // inside a menu section drops the section's header.
+                ForEach(store.models) { model in
+                    checkButton(model.name, checked: model.id == store.currentModelID) { store.setModel(model.id) }
+                }
+            } label: {
+                // Two texts, no icon: iOS draws the second as the row's subtitle (a Label with
+                // an icon drops it).
+                Text(harnessName)
+                // The model in force, named as the button names it (its id when the list lacks it).
+                if let name = store.currentModelName ?? store.currentModelID { Text(name) }
+            }
+            .menuOrder(.fixed)
+            .accessibilityIdentifier("agentChat.composer.model.harness")
+        }
+    }
+
+    /// ACP `session/set_mode` over the link. The Mac accepts from the phone only the modes that
+    /// still ask before running tools, and the harness's Full access mode when this phone's
+    /// Full-access setting covers it (`ACPMode.phoneChoices`); a refused one comes back as the
+    /// chat's error line.
+    private var modeSubmenu: some View {
+        Menu {
+            ForEach(store.modes) { mode in
+                checkButton(mode.name, checked: mode.id == store.currentModeID) { store.setMode(mode.id) }
+            }
+        } label: {
+            Text("Mode")
+            if let name = currentModeName { Text(name) }
+        }
+        // The agent's order.
+        .menuOrder(.fixed)
+        .accessibilityIdentifier("agentChat.composer.mode")
+    }
+
+    /// The agent's thought-level option, always called Effort (an agent may name it "Reasoning").
+    private func effortSubmenu(_ effort: ACPConfigOption) -> some View {
+        Menu {
+            ForEach(effort.options, id: \.value) { option in
+                checkButton(option.name ?? option.value, checked: option.value == effort.currentValue) {
+                    store.setConfig(effort.id, value: option.value)
+                }
+            }
+        } label: {
+            Text("Effort")
+            if let name = currentEffortName { Text(name) }
+        }
+        .menuOrder(.fixed)
+        .accessibilityIdentifier("agentChat.composer.effort")
+    }
+
+    private var currentEffortName: String? {
+        store.effortOption.flatMap { effort in
+            effort.options.first { $0.value == effort.currentValue }.map { $0.name ?? $0.value }
+        }
     }
 
     private var currentModeName: String? {
         store.modes.first { $0.id == store.currentModeID }?.name
     }
 
+    /// A menu row checked when it is the value in force. A Toggle, not a Button with a checkmark
+    /// image: iOS draws a menu Toggle's own checkmark at every text size, while it drops a row's
+    /// image at accessibility sizes (the Effort submenu then showed no check at all). Choosing
+    /// the checked row again changes nothing.
     private func checkButton(_ title: String, checked: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            if checked {
-                Label(title, systemImage: "checkmark")
-            } else {
-                Text(title)
-            }
-        }
+        Toggle(title, isOn: Binding(get: { checked }, set: { on in if on { action() } }))
     }
 
     private enum PrimaryState { case empty, send, stop, queue }
@@ -428,13 +500,38 @@ struct ChatComposer: View {
         return hasContent ? .send : .empty
     }
 
+    /// Voice mode on this chat: the agent's words read aloud, the user's
+    /// speech sent as prompts. On while it runs here; a tap ends it.
+    private var voiceButton: some View {
+        let source = AgentChatVoiceSource(store: store)
+        let active = voice.isActive(source.voiceSourceID)
+        return Button {
+            voice.toggle(source)
+        } label: {
+            let style = ComposerVoiceStyle(primaryIsVisible: primaryState == .stop, active: active)
+            Image(systemName: "waveform")
+                .font(.system(size: style.isFilled ? 15 : 17, weight: style.isFilled ? .semibold : .regular))
+                .foregroundStyle(active ? Color.cmuxMobileOnAccent : Color.primary)
+                .symbolEffect(.variableColor.iterative, isActive: active)
+                .frame(width: 36, height: 36)
+                .background(style.fillColor, in: .circle)
+                .padding(4)
+                .contentShape(.circle)
+                .padding(-4)
+        }
+        .buttonStyle(.cmuxPressFill)
+        .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
+        .accessibilityIdentifier("agentChat.composer.voice")
+    }
+
     private var primaryButton: some View {
         let state = primaryState
         return Button {
             switch state {
             case .stop: store.cancel()
-            // A follow-up while the agent works queues, or steers it when Settings says so.
-            case .send, .queue: send(steer: state == .queue && CmuxMobilePreferences.steersFollowUps())
+            // A message steers a running turn, as the Mac's Return does. It asks even before the
+            // phone hears the turn start; acpmux steers only into a running turn, else runs it next.
+            case .send, .queue: send(steer: true)
             case .empty: break
             }
         } label: {
@@ -454,12 +551,14 @@ struct ChatComposer: View {
                 .contentShape(.circle)
                 .padding(-4)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .disabled(state == .empty)
-        .animation(.cmuxMobileSnap, value: state)
+        .animation(.cmuxMobileSnap.unlessReduceMotion, value: state)
         .contextMenu {
             if state == .queue {
-                Button("Queue (send after this turn)", systemImage: "text.line.last.and.arrowtriangle.forward") { send(steer: false) }
+                Button("Queue (send after this turn)", systemImage: "text.line.last.and.arrowtriangle.forward") {
+                    send(steer: CmuxMobilePreferences.steersMidTurn(queue: true))
+                }
                 Button("Steer Now (Interrupt)", systemImage: "arrow.uturn.right") { send(steer: true) }
             }
         }
@@ -469,13 +568,26 @@ struct ChatComposer: View {
     /// A hardware Return: what the send button would do with a draft (never Stop).
     private func sendFromKeyboard() {
         switch primaryState {
-        case .send: send(steer: false)
-        case .queue: send(steer: CmuxMobilePreferences.steersFollowUps())
+        case .send, .queue: send(steer: true)
         case .stop, .empty: break
         }
     }
 
     private func send(steer: Bool) {
+        // A cmux command typed alone runs here, as on the Mac; it is never sent to the agent.
+        // A cmux command is cmux's whether the menu offers it here or not (the Mac's
+        // `composerCommand`): one it can't run now is refused, never sent to the agent.
+        if let run = runCmuxCommand, let parsed = CmuxSlashCommand.parse(text) {
+            let typed = text
+            Task { @MainActor in
+                if let refusal = await run(parsed.command, parsed.args) {
+                    store.clientError = refusal
+                } else if text == typed {
+                    text = ""
+                }
+            }
+            return
+        }
         store.send(prompt: text, attachments: attachments, steer: steer, denyingPermission: denyingPermission)
         text = ""
         attachments = []
@@ -503,11 +615,20 @@ struct ChatComposer: View {
         .scrollIndicators(.hidden)
     }
 
+    /// The cmux commands first, then the agent's, an agent command named as a cmux one left
+    /// out (the Mac's `mergedCommands`: cmux's runs).
+    private var commands: [ACPAvailableCommand] {
+        let own = cmuxCommands.map { ACPAvailableCommand(name: $0.name, description: $0.summary, hint: $0.hint) }
+        let names = Set(cmuxCommands.map(\.name))
+        return own + store.availableCommands.filter { !names.contains($0.name.lowercased()) }
+    }
+
     private var slashMatches: [ACPAvailableCommand] {
         guard text.hasPrefix("/"), !text.contains(" ") else { return [] }
         let query = text.dropFirst().lowercased()
-        let prefix = store.availableCommands.filter { $0.name.lowercased().hasPrefix(query) }
-        return prefix.isEmpty ? store.availableCommands.filter { $0.name.lowercased().contains(query) } : prefix
+        let commands = commands
+        let prefix = commands.filter { $0.name.lowercased().hasPrefix(query) }
+        return prefix.isEmpty ? commands.filter { $0.name.lowercased().contains(query) } : prefix
     }
 
     /// Every matching command, in a list as tall as its rows while they fit between the
@@ -530,7 +651,7 @@ struct ChatComposer: View {
                             .frame(minHeight: SlashSuggestionsBound.minRowHeight)
                             .contentShape(.rect)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.cmuxPressFill)
                     }
                 }
             }
@@ -571,7 +692,7 @@ struct ChatComposer: View {
                     .frame(height: 44)
                     .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .accessibilityLabel(Text("Mention \(artifact.reference)"))
             }
         }
@@ -579,8 +700,31 @@ struct ChatComposer: View {
         .padding(.horizontal, 12)
     }
 
+    /// A video file's frames, read off the main thread, put on its chip once read (a send before
+    /// then sends the video as its link alone, as the Mac does after its wait).
+    private func readVideo(_ attachment: AgentAttachment) {
+        guard attachment.kind == .file, attachment.video == nil, AgentVideo.isVideoName(attachment.name),
+              let url = attachment.fileURL else { return }
+        Task { @MainActor in
+            guard let video = await ComposerVideoReader.read(url),
+                  let index = attachments.firstIndex(where: { $0.id == attachment.id }) else { return }
+            attachments[index].video = video
+        }
+    }
+
     private func loadPhotos(_ items: [PhotosPickerItem]) async {
         for item in items {
+            if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
+                guard let movie = try? await item.loadTransferable(type: PickedMovie.self) else {
+                    store.clientError = String(localized: "Couldn't read the video.")
+                    continue
+                }
+                let size = (try? movie.url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+                let attachment = AgentAttachment(kind: .file, name: movie.url.lastPathComponent, fileURL: movie.url, byteCount: size)
+                attachments.append(attachment)
+                readVideo(attachment)
+                continue
+            }
             guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
             var attachment = AgentAttachment(kind: .image, name: "Photo", data: data)
             // HEIC and other formats agents do not accept go over as JPEG.
@@ -608,6 +752,9 @@ struct QueuedPromptsView: View {
 
     var body: some View {
         VStack(spacing: 4) {
+            if store.queuePaused {
+                pausedNote
+            }
             ForEach(Array(store.queue.enumerated()), id: \.element.id) { index, item in
                 row(item)
                     // The agent pane's queue actions (its wording), on a long press.
@@ -662,6 +809,32 @@ struct QueuedPromptsView: View {
         }
     }
 
+    /// The Mac's note over a paused queue (ComposerQueue.tsx): why it waits, and Resume, which
+    /// lets acpmux run the held messages (`_acpmux/queue_edit {op: resume}`).
+    private var pausedNote: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "pause.circle.fill").font(.footnote).foregroundStyle(Color.cmuxMobileWarning)
+            Text(pausedText).font(.footnote.weight(.semibold)).lineLimit(2)
+            Spacer(minLength: 4)
+            Button("Resume", systemImage: "play.fill") { store.resumeQueue() }
+                .font(.footnote.weight(.semibold))
+                .buttonStyle(.cmuxPressFill)
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("chat.queue.resume")
+        }
+        .padding(.horizontal, 14)
+        .frame(minHeight: 40)
+        .glassEffect(.regular, in: .capsule)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var pausedText: String {
+        if store.queuePauseReason == "stop" { return String(localized: "Paused after Stop") }
+        guard let error = store.turns.last(where: { $0.status == .failed })?.errorText?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !error.isEmpty else { return String(localized: "Paused after an error") }
+        return String(localized: "Paused after an error: \(error)")
+    }
+
     private func row(_ item: QueuedPrompt) -> some View {
         Group {
                 HStack(spacing: 8) {
@@ -679,7 +852,7 @@ struct QueuedPromptsView: View {
                             .frame(width: 44, height: 44)
                             .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cmuxPressFill)
                     .padding(.trailing, -10)
                     .accessibilityLabel("Remove queued message")
                 }
@@ -712,7 +885,8 @@ struct AttachmentThumb: View {
                         .frame(width: 56, height: 56)
                 } else {
                     HStack(spacing: 8) {
-                        Image(systemName: "doc.text").font(.title3)
+                        Image(systemName: AgentVideo.isVideoName(attachment.name) ? "film" : attachment.isPDF ? "doc.richtext" : "doc.text")
+                            .font(.title3)
                         Text(attachment.name).font(.footnote).lineLimit(2).frame(maxWidth: 110, alignment: .leading)
                     }
                     .padding(.horizontal, 12)
@@ -740,7 +914,7 @@ struct AttachmentThumb: View {
                         .frame(width: 44, height: 44)
                         .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .offset(x: 17, y: -17)
                 .accessibilityLabel("Remove attachment")
             }
@@ -777,6 +951,15 @@ struct CameraPicker: UIViewControllerRepresentable {
         }
 
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
+    }
+}
+extension ComposerVoiceStyle {
+    var fillColor: Color {
+        switch fill {
+        case .accent: .cmuxMobileAccent
+        case .neutral: .cmuxMobileFill
+        case .plain: .clear
+        }
     }
 }
 #endif

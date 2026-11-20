@@ -62,3 +62,55 @@ failure's origin is unknown or the guard run ended without step results.
 If your push is rejected because the branch moved, run `git pull --no-rebase`
 and push again. Never force-push over a merge-main commit. The local command
 is the only supported branch catch-up path.
+
+## When git is older than 2.46
+
+The resolver needs git 2.46 or newer. It stops with "git 2.46 or newer is
+required for attr.tree". It sets `attr.tree` to the base, so your branch's
+`.gitattributes` cannot choose the merge drivers. The Linux agent VMs have
+git 2.43. If you cannot upgrade git, do a plain merge with these steps:
+
+1. Pick the commit. For feat-cmux-next, use its tip: the script merges the
+   tip there too. For main, run `scripts/merge-main.sh --dry-run`. It works
+   on an old git and prints the last green commit. Merge that commit, not
+   main's tip.
+2. Make sure that this clone has the trusted merge drivers:
+   `git config --get merge.xcstrings-v2.driver` and
+   `git config --get merge.pbxproj-v1.driver` must print a command. If they
+   do not, run `scripts/install-git-hooks.sh` from a trusted checkout at
+   origin/feat-cmux-next. With the drivers, git merges
+   `.xcstrings` key by key and `project.pbxproj` as a union of the added
+   entries, as the resolver does. Never take one side of these files. That
+   loses the other side's strings or project entries.
+3. Merge with a merge commit: `git fetch origin <base branch>`, then
+   `git merge --no-edit <commit>`. With no conflict, git makes the merge
+   commit at once; steps 4 and 6 then add a separate commit. Do not rebase,
+   squash or force-push.
+   Do this only on your own branch, or on a branch whose `.gitattributes`
+   you trust. In a plain merge, your branch's `.gitattributes` chooses the
+   drivers. A path that it maps to `cmux-generated-v1` keeps your side
+   with no conflict.
+4. Repair the generated files. With the drivers installed, git keeps your
+   side of each `merge=cmux-generated-v1` path in `.gitattributes`
+   (settings schema, `docs/mdm/*`, action exports, web bundles, SDK
+   bindings, strings tables, `ci-target-graph.json`) and shows no conflict.
+   Do not edit them by hand. Let the PR autofix regenerate them. The action
+   and settings exports need a Mac `swift test`, so never run their
+   `scripts/cmux-next/regenerate-*.sh` on a person's Mac: run them on the
+   fleet (`cmux-ci run`) if the autofix cannot.
+5. When you merge main into a feat-cmux-next branch, keep main's former web
+   bundles out of the index, as step 3 above says:
+   `git rm -r --cached Resources/markdown-viewer/webviews-app` for the
+   conflicted and added files, or
+   `scripts/cmux-next/regenerate-web-bundles.sh`.
+6. On main, if both sides changed `web/data/cmux.schema.json`, run
+   `scripts/generate-cmux-config-schema.py`. A conflict inside that file
+   needs a person.
+7. Resolve any other conflict. Then run the area's checks
+   (`python3 scripts/cmux-next/prepush-gate.py` for feat-cmux-next) and
+   push.
+8. next-autoland and `risk evidence` read a review receipt at the exact
+   head. next-autoland carries one only across its own update-branch
+   merges (signed `web-flow` commits), not across your merge. Ask for a
+   new receipt at the merge head that confirms the pull request's own
+   files did not change. Then remove `ready-to-land` and add it again.

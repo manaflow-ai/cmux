@@ -24,27 +24,31 @@ public struct PageStatusDebug {
 
     public init(_ chrome: BrowserChromeView, press: String? = nil) {
         let status = chrome.pageStatus
-        let warning = !status.errorView.isHidden && status.errorView.isCertificateInterstitial
-        let gone = !status.goneView.isHidden
-        let goneText = gone ? status.goneView.debugText : ""
-        let unresponsive = !status.unresponsiveView.isHidden
+        // Only the views made so far: a view never shown is hidden (and stays unmade).
+        let error = status.errorViewIfMade.flatMap { $0.isHidden ? nil : $0 }
+        let goneView = status.goneViewIfMade.flatMap { $0.isHidden ? nil : $0 }
+        let card = status.unresponsiveViewIfMade.flatMap { $0.isHidden ? nil : $0 }
+        let warning = error?.isCertificateInterstitial == true
+        let gone = goneView != nil
+        let goneText = goneView?.debugText ?? ""
+        let unresponsive = card != nil
         let pressed: Bool
         switch press {
-        case "proceed" where warning: status.errorView.onProceed?(); pressed = true
-        case "reload" where gone: status.goneView.pressReload(); pressed = true
-        case "wait" where unresponsive: status.unresponsiveView.onWait?(); pressed = true
-        case "exit" where unresponsive: status.unresponsiveView.onExit?(); pressed = true
+        case "proceed" where warning: error?.onProceed?(); pressed = true
+        case "reload" where gone: goneView?.pressReload(); pressed = true
+        case "wait" where unresponsive: card?.onWait?(); pressed = true
+        case "exit" where unresponsive: card?.onExit?(); pressed = true
         default: pressed = false
         }
         fields = [
             "pressed": pressed ? "1" : "0",
             "can_go_back": chrome.tab.state.canGoBack ? "1" : "0",
             "can_go_forward": chrome.tab.state.canGoForward ? "1" : "0",
-            "unresponsive": status.unresponsiveView.isHidden ? "0" : "1",
+            "unresponsive": unresponsive ? "1" : "0",
             "gone_text": goneText,
             "page_pid": (chrome.tab as? WebKitTab).flatMap { Self.webProcess($0.webView) }.map(String.init) ?? "",
-            "error": status.errorView.isHidden ? "" : status.errorView.debugText,
-            "certificate": !status.errorView.isHidden && status.errorView.isCertificateInterstitial ? "1" : "0",
+            "error": error?.debugText ?? "",
+            "certificate": warning ? "1" : "0",
             "gone": gone ? "1" : "0",
             "enginePage": chrome.tab.state.loadError?.engineShowsPage == true ? "1" : "0",
             "title": chrome.tab.state.title ?? "",

@@ -29,7 +29,9 @@ public import CmuxNextDesign
 public final class BrowserPopupWindow: NSWindow {
     /// The toolbar under the title bar: the location bar, with the 1 pt
     /// separator to the page inside it so the page gets the size it asked for.
-    static let toolbarHeight: CGFloat = 34
+    /// 34 pt around the 28 pt Standard omnibar; it grows with the bar's density
+    /// and `browser.omnibar.height` (`OmnibarMetrics`), so the bar never clips.
+    static var toolbarHeight: CGFloat { OmnibarMetrics.current.barHeight + 6 }
     static let separatorHeight: CGFloat = 1
     static let styles: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
 
@@ -55,6 +57,7 @@ public final class BrowserPopupWindow: NSWindow {
     /// Connects the omnibar to the page (URL, security, page info, loads).
     public let omnibar: OmnibarTabBinding
     private var observation: Task<Void, Never>?
+    private var sizeObservation: Task<Void, Never>?
     private let separator = NSBox()
     private var toolbarHeightConstraint: NSLayoutConstraint?
     private var fullscreenObservers: [MainActorObservation] = []
@@ -94,6 +97,19 @@ public final class BrowserPopupWindow: NSWindow {
         title = Self.title(for: page.state)
         observeTitle()
         observeFullscreen()
+        observeOmnibarSize()
+    }
+
+    /// The location row follows the omnibar's height live (density, `browser.omnibar.height`).
+    private func observeOmnibarSize() {
+        // task-owner: this window; the loop ends with it (weak self).
+        sizeObservation = Task { [weak self] in
+            for await _ in ObservationStream({ OmnibarMetrics.current.barHeight }) {
+                guard let self else { return }
+                contentMinSize.height = Self.toolbarHeight + 1
+                if isToolbarShown { toolbarHeightConstraint?.constant = Self.locationRowHeight }
+            }
+        }
     }
 
     /// Page title, live.
@@ -154,9 +170,9 @@ public final class BrowserPopupWindow: NSWindow {
         return root
     }
 
-    /// Space above the omnibar pill inside the 34 pt toolbar: the pill (28 pt,
-    /// the tab omnibar's height) sits centered between the title bar and the
-    /// separator.
+    /// Space above the omnibar pill inside the toolbar: the pill (the tab
+    /// omnibar's height, 28 pt at Standard) sits centered between the title
+    /// bar and the separator.
     static let omnibarTopGap: CGFloat = 3
     /// The omnibar row under `omnibarTopGap`, down to the separator.
     static var locationRowHeight: CGFloat { toolbarHeight - separatorHeight - omnibarTopGap }
@@ -214,6 +230,8 @@ public final class BrowserPopupWindow: NSWindow {
     override public func close() {
         observation?.cancel()
         observation = nil
+        sizeObservation?.cancel()
+        sizeObservation = nil
         fullscreenObservers.removeAll()
         omnibar.stop()
         let closed = onClose

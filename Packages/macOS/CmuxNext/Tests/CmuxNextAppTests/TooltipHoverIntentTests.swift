@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 import CmuxNextWakeupsTestSupport
 
@@ -9,7 +10,7 @@ import CmuxNextWakeupsTestSupport
 /// `NSInitialToolTipDelay`), a neighbor's then shows at once while the group
 /// is warm, and half a second away cools it again. A control whose own label
 /// already names it shows none (#20375's rule).
-@MainActor @Suite(.serialized) struct TooltipHoverIntentTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TooltipHoverIntentTests {
     /// Five icon buttons in a row, like a toolbar, on a presenter that runs on `clock`.
     private static func toolbar(clock: ManualClock) -> (NSWindow, [ChromeIconButton], TooltipPresenter) {
         _ = NSApplication.shared
@@ -45,7 +46,7 @@ import CmuxNextWakeupsTestSupport
         let (window, buttons, presenter) = Self.toolbar(clock: clock)
         defer {
             presenter.dismiss()
-            window.orderOut(nil)
+            window.closeAfterTest()
         }
         // The first tooltip waits the initial delay (450 ms).
         presenter.enter(try Self.tracker(buttons[0]))
@@ -89,7 +90,7 @@ import CmuxNextWakeupsTestSupport
         let (window, buttons, presenter) = Self.toolbar(clock: clock)
         defer {
             presenter.dismiss()
-            window.orderOut(nil)
+            window.closeAfterTest()
         }
         var shown: [String] = []
         // 30 pt per button at 500 pt/s: 60 ms on each.
@@ -115,7 +116,7 @@ import CmuxNextWakeupsTestSupport
         let (window, buttons, presenter) = Self.toolbar(clock: clock)
         defer {
             presenter.dismiss()
-            window.orderOut(nil)
+            window.closeAfterTest()
         }
         let labeled = NSButton(title: "Reload", target: nil, action: nil)
         labeled.frame = NSRect(x: 160, y: 18, width: 80, height: 24)
@@ -143,7 +144,7 @@ import CmuxNextWakeupsTestSupport
         let (window, _, presenter) = Self.toolbar(clock: clock)
         defer {
             presenter.dismiss()
-            window.orderOut(nil)
+            window.closeAfterTest()
         }
         let container = NSView(frame: NSRect(x: 160, y: 10, width: 120, height: 40))
         window.contentView?.addSubview(container)
@@ -174,7 +175,7 @@ import CmuxNextWakeupsTestSupport
         defer {
             presenter.dismiss()
             PointerHover.setDebugPointer(nil, in: window)
-            window.orderOut(nil)
+            window.closeAfterTest()
         }
         let outer = NSView(frame: NSRect(x: 160, y: 0, width: 140, height: 60))
         let inner = NSView(frame: NSRect(x: 10, y: 5, width: 120, height: 50))

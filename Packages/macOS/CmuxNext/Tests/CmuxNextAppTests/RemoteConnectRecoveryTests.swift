@@ -5,18 +5,23 @@ import CmuxNextDaemon
 import CmuxNextRemote
 import CmuxNextWakeups
 import Foundation
+import CmuxNextWindowRules
 import Testing
 
 @Suite struct RemoteConnectRecoveryTests {
+    /// The observation's step after Connect (cmux-window-rules `remote::connect_step`) for a windowless, unloaded machine.
+    private func step(_ status: SSHConnectionMachine.Status, _ failure: SSHMachineSession.DaemonFailure?, attempt: UInt64) -> WindowRules.ConnectStep? {
+        WindowRules().connectStep(.init(loaded: false, hasWindow: false, offline: status == .offline, needsRecovery: status.needsRecovery,
+                                        failureAttempt: failure?.attemptID, currentAttempt: attempt))
+    }
+
     @Test func aConnectingObservationStaysAliveWithoutAnExistingWindow() {
-        #expect(!RemoteHandlers.shouldEndConnectionObservation(status: .connecting))
+        #expect(step(.connecting, nil, attempt: 0)?.end == false)
     }
 
     @Test func aWindowlessNoHostFailureRequestsARecoveryWindow() {
         let failure = SSHMachineSession.DaemonFailure(attemptID: 1, error: "Could not resolve hostname nohost.invalid")
-        #expect(RemoteHandlers.shouldOpenRecoveryWindow(loaded: false, hasWindow: false,
-                                                        status: .connecting, failure: failure,
-                                                        currentAttemptID: 1))
+        #expect(step(.connecting, failure, attempt: 1)?.openWindow == true)
     }
 
     @Test @MainActor func retryFromUnavailableStartsANewAttemptBeforeWakingTheDaemon() throws {
@@ -54,9 +59,7 @@ import Testing
         service.reconnect(session)
         #expect(session.connectionAttemptID == 1)
         #expect(!session.linkStatus.needsRecovery)
-        #expect(!RemoteHandlers.shouldOpenRecoveryWindow(loaded: false, hasWindow: false,
-                                                         status: session.linkStatus, failure: session.daemonFailure,
-                                                         currentAttemptID: session.connectionAttemptID))
+        #expect(step(session.linkStatus, session.daemonFailure, attempt: session.connectionAttemptID)?.openWindow == false)
     }
 
     @Test @MainActor func reconnectOnAHealthyConnectedLinkDoesNotStartARecoveryAttempt() throws {
@@ -74,10 +77,10 @@ import Testing
     }
 
     @Test func reconnectDuringATransientInterruptionKeepsAnEstablishedDaemonsStartup() {
-        #expect(SSHService.reconnectStep(link: .reconnecting, daemon: .connected, daemonFailed: false) == .wake)
-        #expect(SSHService.reconnectStep(link: .reconnecting, daemon: .connecting, daemonFailed: false) == .newAttempt)
-        #expect(SSHService.reconnectStep(link: .connected, daemon: .connected, daemonFailed: false) == .nothing)
-        #expect(SSHService.reconnectStep(link: .offline, daemon: .connected, daemonFailed: false) == .connect)
+        #expect(SSHConnectionMachine.Status.reconnecting.reconnectStep(daemonConnected: true, daemonFailed: false) == .wake)
+        #expect(SSHConnectionMachine.Status.reconnecting.reconnectStep(daemonConnected: false, daemonFailed: false) == .newAttempt)
+        #expect(SSHConnectionMachine.Status.connected.reconnectStep(daemonConnected: true, daemonFailed: false) == .nothing)
+        #expect(SSHConnectionMachine.Status.offline.reconnectStep(daemonConnected: true, daemonFailed: false) == .connect)
     }
 
     @Test func aRetryChangesTheDaemonObservationForAnIdenticalFailure() {
@@ -91,7 +94,7 @@ import Testing
         let first = SSHMachineSession.DaemonFailure(attemptID: 1, error: "same daemon error")
         let retry = SSHMachineSession.DaemonFailure(attemptID: 2, error: "same daemon error")
         #expect(first != retry)
-        #expect(RemoteHandlers.shouldPresentDaemonFailure(retry, currentAttemptID: 2))
+        #expect(step(.connecting, retry, attempt: 2)?.recovery == true)
     }
 
     @Test func remoteGroupMarkingSurvivesRecoverableLinkFailures() {

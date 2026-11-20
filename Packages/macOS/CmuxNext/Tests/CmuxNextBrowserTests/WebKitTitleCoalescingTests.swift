@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextBrowser
 import Testing
+import CmuxNextTestSupport
 
 /// A WebKit page whose title ticks (a timer, "(3) Inbox") reaches the tab's
 /// state at most 4 times a second, as a Chromium page does
 /// (`TitleCoalescer`). WebKit applied every change, and each one re-rendered
 /// the toolbar and rows and wrote a history title (QA spree 2026-10-21).
-@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct WebKitTitleCoalescingTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(1))) struct WebKitTitleCoalescingTests {
     @Test func aTickingTitleIsCoalesced() async throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: false)

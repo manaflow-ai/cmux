@@ -1,20 +1,44 @@
 {
- "date": "2026-10-30",
- "build": "84c705adefd6cdc900e204ca (3ecd8020cb1)",
- "host": "cmux21",
- "harness_runs": "02ebc4c61a0",
- "method": "paired t-interval 95 %, 5 rounds, labels in ABBA order (same build in both arms)",
- "metrics": {},
- "position_effects": {
-  "acpmux RSS growth MB/h": {
-   "position_ci": [
-    -283.4858807895968,
-    -16.50211921040318
+ "scenarios": {
+  "3": {
+   "date": "2026-10-30",
+   "build": "84c705adefd6cdc900e204ca (3ecd8020cb1)",
+   "host": "cmux21",
+   "harness": "02ebc4c61a0 (runs); re-checked on 035db354e6a",
+   "method": "paired t-interval 95 %, 5 rounds, labels in ABBA order (same build in both arms)",
+   "metrics": {},
+   "position_effects": {
+    "acpmux RSS growth MB/h": {
+     "position_ci": [
+      -283.4858807895968,
+      -16.50211921040318
+     ],
+     "note": "the second run of a round grows acpmux RSS less than the first; it cancels only in ABBA order"
+    }
+   },
+   "not_tested": [
+    "app request p99 ms"
+   ]
+  },
+  "0": {
+   "date": "2026-10-30",
+   "build": "84c705adefd6cdc900e204ca (3ecd8020cb1)",
+   "host": "cmux24",
+   "harness": "8d4f9086cd9 (runs); no measuring change through 9cfb9f54116; 59ea3fdb421 adds a little CPU to the sampler during the load (process command shapes from the same ps read, under 1 ms per sample), judged too small to need a new A/A",
+   "method": "paired t-interval 95 %, 5 rounds, ABBA order (same build in both arms)",
+   "metrics": {},
+   "position_effects": {},
+   "not_tested": [
+    "agent CLI p99 ms (no agent CLI calls in this arm)",
+    "app request p99 ms (no probe in this build)"
    ],
-   "note": "the second run of a round grows acpmux RSS less than the first; it cancels only in ABBA order"
+   "notes": [
+    "base round 1: one `ssh cmux24 date -u` by the harness owner at 20:22:09Z, at the start of its load (arm.json notes)"
+   ],
+   "no_verdict_in_ab": [
+    "workspace close p95/p99/not done: tested here (their intervals contain 0), but in an A/B they need a base that fails"
+   ]
   }
  },
- "not_tested": [
-  "app request p99 ms"
- ]
+ "_doc": "A/A self-test record per scenario, keyed by the agent CLI rate (--cli-every): \"0\" the main arm (no agent CLI calls), \"3\" the assumed sensitivity arm. metrics: the metrics that failed; a summary marks them 'invalid (fails A/A)'. A scenario with no entry gets 'not A/A-checked' on every verdict."
 }

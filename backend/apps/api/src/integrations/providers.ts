@@ -19,14 +19,14 @@ export { MAX_LINKED_REPOS, ProviderError, type Approved, type CallResult, type C
 // ---------------------------------------------------------------- GitHub App
 
 const GH_API = "https://api.github.com"
-const ghHeaders = (token: string) => ({
+export const ghHeaders = (token: string) => ({
   authorization: `Bearer ${token}`,
   accept: "application/vnd.github+json",
   "x-github-api-version": "2022-11-28",
   "user-agent": "cmux-cloud"
 })
 
-const appJwt = async (env: Env) => {
+export const appJwt = async (env: Env) => {
   const key = await importPKCS8(env.GITHUB_APP_PRIVATE_KEY!, "RS256")
   const now = Math.floor(Date.now() / 1000)
   return new SignJWT({}).setProtectedHeader({ alg: "RS256" }).setIssuer(env.GITHUB_APP_CLIENT_ID!).setIssuedAt(now - 60).setExpirationTime(now + 540).sign(key)
@@ -43,7 +43,7 @@ export const requestInstallationToken = async (env: Env, http: Http, installatio
 export const mintedToken = async (res: Response) => {
   const body = await json(res)
   const perms = (body.permissions && typeof body.permissions === "object" ? body.permissions : {}) as Record<string, unknown>
-  return { token: String(body.token ?? ""), expires_at: Date.parse(String(body.expires_at ?? "")) || Date.now() + 50 * 60_000, permissions: Object.fromEntries(Object.entries(perms).filter((e): e is [string, string] => typeof e[1] === "string")) }
+  return { token: String(body.token ?? ""), expires_at: Date.parse(String(body.expires_at ?? "")), permissions: Object.fromEntries(Object.entries(perms).filter((e): e is [string, string] => typeof e[1] === "string")) }
 }
 
 /** DELETE /installation/token with the token itself: true when GitHub revoked it or it is already dead. */
@@ -83,8 +83,9 @@ export const forgetInstallationToken = (installation: number, token: string) => 
 
 /** Comment mutations use a separate cache: a repository-list token must never supply a write. */
 const commentTokens = new Map<string, { token: string; expires_at: number }>()
+const commentTokenKey = (installation: number, repo: string) => `${installation}:${repo.toLowerCase()}:issues:write`
 const commentToken = async (env: Env, http: Http, installation: number, repo: string) => {
-  const key = `${installation}:${repo.toLowerCase()}:issues:write`
+  const key = commentTokenKey(installation, repo)
   const cached = commentTokens.get(key)
   if (cached && cached.expires_at - 5 * 60_000 > Date.now()) return cached.token
   const res = await requestInstallationToken(env, http, installation, { repositories: [repo.split("/")[1]!], permissions: { issues: "write" } })
@@ -103,6 +104,11 @@ export const github: ProviderImpl = {
   authorizeUrl: (env, state) => `https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new?state=${encodeURIComponent(state)}`,
   complete: async (env, http, p) => {
     const installation = Number(p.installation_id)
+    // An organization member's install is a request until an owner approves it: GitHub comes back with
+    // `setup_action=request` and no installation yet. Nothing to link; say what happens next.
+    if (p.setup_action === "request" && !Number.isSafeInteger(installation)) {
+      throw new ProviderError("integration.state_invalid", "GitHub sent your request to install the cmux GitHub App to the organization's owners. When an owner approves it, choose Connect GitHub in cmux again")
+    }
     if (!p.code || !Number.isSafeInteger(installation)) {
       throw new ProviderError("integration.state_invalid", "GitHub returned no installation_id or code (enable 'Request user authorization during installation')")
     }
@@ -173,7 +179,14 @@ export const github: ProviderImpl = {
         body: JSON.stringify({ body: params.body })
       })
     )
-    if (!res.ok) throw failed("github", res, "comment", true)
+    if (!res.ok) {
+      const error = failed("github", res, "comment", true)
+      // Reconnect must not reuse a revoked token. A late 401 must not evict a newer token,
+      // and the failed effect is still returned to the ledger, never retried here.
+      const key = commentTokenKey(credential.installation_id, String(params.repo))
+      if (error.code === "needs_reauth" && commentTokens.get(key)?.token === token) commentTokens.delete(key)
+      throw error
+    }
     const b = await json(res)
     const returnedUrl = typeof b.html_url === "string" ? b.html_url.toLowerCase() : ""
     const issueUrl = `https://github.com/${params.repo}/issues/${params.issue}#issuecomment-${b.id}`.toLowerCase()

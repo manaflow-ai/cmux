@@ -112,10 +112,7 @@ export function useAttachedTerminal({ client, surface, focusOnMount = false, onE
       const cursorPatch = colorsToCursorOptionsPatch(colors);
       if (cursorPatch !== null) Object.assign(terminal.options, cursorPatch);
     };
-    const writeReplay = async (
-      data: Uint8Array,
-      colors: DecodedVtStateEvent["colors"] | DecodedResizedEvent["colors"],
-    ) => {
+    const writeReplay = async (data: Uint8Array, colors: DecodedVtStateEvent["colors"]) => {
       const hasSparsePalette = colors?.palette !== undefined;
       // Host defaults must precede replay so DECSCUSR and mode changes in
       // the authoritative replay remain in force.

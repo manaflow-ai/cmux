@@ -15,6 +15,7 @@ import { mergeTurnFiles, toolsOf } from "./tools.ts"
 import { githubLine, githubOf } from "./github.ts"
 import { wakeCall } from "./wake.ts"
 import { autoCall } from "./jobs.ts"
+import { memoryCall } from "./memory-tools.ts"
 import { BOOT_MS, CcError, RUN_MS, createVm, execRoot, mintTailnetKey, removeVm, vmName, vmNetwork } from "./vm.ts"
 
 /**
@@ -54,9 +55,9 @@ You have ${minutes} minutes for this turn; then the machine stops and what you w
 work, start it elsewhere (\`chief-agents spawn\`, or a sandbox with \`chief-vm\`) and answer with what you started
 and how to follow it; check on it in a later turn.
 You run as Claude Code in a fresh Linux machine that is deleted after this turn: nothing you write there
-is kept (keep work in a sandbox VM or push it). The view's zoom and date tools are not available here;
-answer from the view and the new messages. Your last message is posted as your reply, so it must be the
-reply itself. Say in it what you learned that will matter later: the view is your only memory.
+is kept (keep work in a sandbox VM or push it). The view's zoom and date tools are a command here:
+\`chief-memory zoom ID N\` opens line ID+N of the view, \`chief-memory date ID\` gives a message's date.
+Your last message is posted as your reply, so it must be the reply itself. Say in it what you learned that will matter later: the view is your only memory.
 
 Machine: ~/work/cmux (feat-cmux-next) and ~/work/cmuxterm-hq (main) are cached clones; \`git fetch\` first.
 GitHub: gh and git are signed in (check with \`gh auth status\`) with this Chief's own login when it has one
@@ -88,10 +89,13 @@ change it for this machine at once and for your next turns.
 Timers: \`chief-wake SECONDS "note"\` (30 s to 24 h) wakes you later with "[wake] note" as a new turn; \`chief-wake
 list|clear\`. Use it to come back to something (a sign-in code that ends, a deploy) instead of waiting.
 Jobs: when the person asks for something recurring or triggered ("every morning", "each Friday", "when
-GitHub calls this URL"), make it a job: \`chief-auto add [--tz Area/City] NAME WHEN "PROMPT"\` (WHEN is a 5-field cron,
-\`webhook\` or \`manual\`; PROMPT is the whole task, it is all a later run sees). Each run posts "[job ID] PROMPT"
-here as your own note and starts a turn in the cloud while the person's computers sleep: do the job then and post
-the result in this chat. \`chief-auto ls|run ID|rm ID\`. Say in one line what you made and when it next runs.
+GitHub calls this URL", "when CI fails"), make it a job: \`chief-auto add [--tz Area/City] NAME WHEN "PROMPT"\` (WHEN
+is a 5-field cron, \`webhook\`, \`manual\`, or an event of the person's connections such as \`github
+workflow_run.completed workflow_run.conclusion=failure repository.full_name=OWNER/REPO\`; PROMPT is the whole task,
+it is all a later run sees). Never watch or poll GitHub for it: an event job is pushed when it happens. Each run
+posts "[job ID] PROMPT" here as your own note (an event's details follow as its input) and starts a turn in the
+cloud while the person's computers sleep: do the job then and post the result in this chat. \`chief-auto
+ls|run ID|pause ID|resume ID|hook ID|rm ID\`. Say in one line what you made and when it next runs.
 Paid plans: when a step answers \`automation.plan.required\` (or \`cloud.plan.required\`, or credits ran out), send
 the person one line: what the plan adds and its price, with its "checkout" link as a Markdown link; nothing is
 charged until they pay on that page. Never say you bought or upgraded anything, and send it once per ask.
@@ -416,6 +420,8 @@ export async function ccNotes(b: ChiefBrainDO, token: string, body: { run?: unkn
   if (typeof action === "string" && action.startsWith("wake_")) return wakeCall(b, b.turnConversation ?? "", body.vm)
   // The Chief's `chief-auto` (jobs.ts): its scheduled and triggered jobs, each run a turn of this conversation.
   if (typeof action === "string" && action.startsWith("auto_")) return autoCall(b, b.turnConversation ?? "", body.vm)
+  // The Chief's `chief-memory` (memory-tools.ts): zoom and date on this conversation's memory, read only.
+  if (typeof action === "string" && action.startsWith("memory_")) return memoryCall(b.memory, body.vm)
   // The Chief's `chief-github` (github.ts): its own GitHub login, kept per Chief.
   if (typeof action === "string" && action.startsWith("github_")) return githubOf(b.doEnv, b.config().agent!).ccGithub(b.config().agent!, body.vm, true)
   // The Chief's `chief-vm` (chief-turn-runner): its own sandbox VMs (sandbox.ts), kept per Chief in its `<agent>/sandboxes`

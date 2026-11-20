@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextPalette
 @testable import CmuxNextTabs
 import Foundation
 import Testing
@@ -77,6 +78,11 @@ struct TabSelectionActionsTests {
             let refusal = services.registry.capturingRefusal { _ = services.registry.perform("tabGroup.create", invocation: ActionInvocation()) }
             #expect(refusal == nil, "the palette's New Tab Group refused: \(refusal ?? "")")
             try await PinnedPageTests.until({ Self.grouped(ids, in: pane) }, report: { "groups \(ids.map { pane.tab($0)?.tabGroup?.rawValue })" })
+            // A group nobody gave a color has none (#32198): no dot, underline or palette color
+            // nobody picked (Leo, 2026-10-31: "WHY DOES THIS HAVE A LINE AND COLOR").
+            let group = try #require(pane.tab(ids[0])?.tabGroup)
+            let color = pane.pane.tabGroups.first { $0.id == group }?.color
+            #expect(color == "none", "a new tab group took \(color ?? "nil"), not none")
         }
     }
 
@@ -109,6 +115,28 @@ struct TabSelectionActionsTests {
             let runs = Self.rows(menu).compactMap(ActionRegistry.menuRun(of:))
             #expect(!runs.isEmpty)
             #expect(runs.allSatisfy { $0.target == ActionTargetRef(kind: .tab, id: other.rawValue) }, "a row does not act on the right-clicked tab")
+        }
+    }
+
+    /// The real Cmd-Shift-P palette (`RegistryPaletteProvider`), on a terminal tab: Save and Close
+    /// takes browser pages only, so its three tab rows are not listed there (Leo 2026-11-17: "just...
+    /// stop showijg the toggle on gui"), instead of enabled and refused after the click; a CLI run
+    /// still gets the run's reason.
+    @Test func thePaletteLeavesOutSaveAndCloseOnATerminalTab() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            // The workspace opens on its chat; `newTab` adds a terminal tab, which the strip selects with a click.
+            let pane = try await Self.pane(with: 2, services, connection)
+            let id = try #require(pane.stripModel.orderedTabs.map(\.id).first { pane.tab($0)?.kind == .pty }, "no terminal tab")
+            if let next = pane.stripModel.click(id, .plain) { pane.select(next) }
+            try await PinnedPageTests.until({ pane.stripModel.selectedID == id }, report: { "selected \(String(describing: pane.stripModel.selectedID))" })
+            let items = RegistryPaletteProvider(registry: services.registry).makeItems()
+            for action in ["tab.stash", "tab.stashToRight", "tab.stashOthers"] {
+                #expect(!items.contains { $0.id == "action:\(action)" }, "the palette lists \(action) on a terminal tab")
+                let reason = services.registry.withoutRefusals {
+                    ActionTargetReasons.reason(for: ActionID(rawValue: action), invocation: ActionInvocation(), in: services.registry)
+                }
+                #expect(reason == StashHandlerStrings.noPage, "the CLI hears \(reason ?? "nothing") for \(action)")
+            }
         }
     }
 

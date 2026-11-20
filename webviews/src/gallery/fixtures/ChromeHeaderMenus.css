@@ -1,0 +1,61 @@
+/* Gallery fixture only. All sizes derive from the owner’s density/UI scale or inherited type. */
+.chrome-header-menu-fixture {
+  --chrome-action-size: var(--chrome-action-slot, 2em);
+  --chrome-add-size: var(--chrome-add-slot, var(--chrome-action-size));
+  --chrome-menu-glyph: calc(var(--chrome-action-size) * 2 / 3);
+  --chrome-menu-gap: calc(var(--chrome-action-size) / 4);
+  --chrome-menu-radius: calc(var(--chrome-action-size) / 3);
+  --chrome-menu-row: calc(var(--chrome-action-size) * 1.25);
+  --chrome-menu-width: calc(var(--chrome-action-size) * 10);
+  --chrome-menu-padding: calc(var(--chrome-action-size) / 4);
+  --chrome-menu-hover: color-mix(in srgb, currentColor 8%, transparent);
+  --chrome-menu-fill: var(--agent-popup-bg, var(--agent-surface, Canvas));
+  --chrome-menu-ink: var(--agent-text, CanvasText);
+  --chrome-menu-edge: color-mix(in srgb, currentColor 12%, transparent);
+  position: relative;
+  min-width: 0;
+  color: var(--chrome-menu-ink);
+  font: inherit;
+}
+.chrome-header-menu-row { display: flex; align-items: center; gap: var(--chrome-menu-gap); min-height: calc(var(--chrome-action-size) * 1.5); min-width: 0; }
+.chrome-header-menu-titles { display: flex; align-items: center; gap: var(--chrome-menu-gap); min-width: 0; flex: 1; }
+.chrome-header-menu-title { display: flex; align-items: center; gap: var(--chrome-menu-gap); min-width: 0; height: var(--chrome-action-size); }
+.chrome-header-menu-title > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-tab-treatment="strip"] .chrome-header-menu-title { padding-inline: var(--chrome-menu-gap); flex: 1; }
+[data-tab-treatment="strip"] .chrome-header-menu-title[data-selected] { background: var(--chrome-menu-hover); border-radius: var(--chrome-menu-radius); }
+.chrome-header-menu-tools { display: flex; flex: none; align-items: center; }
+.chrome-header-menu-trigger { display: grid; place-items: center; width: var(--chrome-action-size); height: var(--chrome-action-size); flex: none; padding: 0; border: 0; border-radius: var(--chrome-menu-radius); color: inherit; background: transparent; }
+.chrome-header-menu-add { width: var(--chrome-add-size); }
+.chrome-header-menu-title-chevron { opacity: .45; }
+.chrome-header-menu-trigger:is(:hover, :focus-visible, [aria-expanded="true"]),
+.chrome-header-menu-trigger:is(:has([data-popup-open]), :focus-visible, [aria-expanded="true"]) { background: var(--chrome-menu-hover); opacity: 1; }
+.chrome-header-menu-trigger:focus-visible { outline: thin solid currentColor; outline-offset: calc(var(--chrome-menu-gap) / 3); }
+.chrome-header-menu-glyph { display: block; width: var(--chrome-menu-glyph); height: var(--chrome-menu-glyph); flex: none; }
+[data-visibility="zen"] .chrome-header-menu-trigger { opacity: 0; }
+[data-visibility="zen"] :is(.chrome-header-menu-row:hover, .chrome-header-menu-row:focus-within) .chrome-header-menu-trigger,
+[data-visibility="zen"] :is(.chrome-header-menu-row:has([data-popup-open]), .chrome-header-menu-row:focus-within) .chrome-header-menu-trigger,
+[data-visibility="zen"] :is(.chrome-header-browser-toolbar:hover, .chrome-header-browser-toolbar:focus-within) .chrome-header-menu-trigger,
+[data-visibility="zen"] :is(.chrome-header-browser-toolbar:has([data-popup-open]), .chrome-header-browser-toolbar:focus-within) .chrome-header-menu-trigger,
+[data-visibility="zen"][data-revealed] .chrome-header-menu-trigger,
+[data-visibility="zen"][data-menu-open] .chrome-header-menu-trigger { opacity: .65; }
+[data-visibility="zen"] .chrome-header-menu-trigger:is(:hover, :focus-visible, [aria-expanded="true"]),
+[data-visibility="zen"] .chrome-header-menu-trigger:is(:has([data-popup-open]), :focus-visible, [aria-expanded="true"]) { opacity: 1; }
+[data-visibility="always"] .chrome-header-menu-trigger { opacity: .65; }
+[data-visibility="always"] .chrome-header-menu-trigger:is(:hover, :focus-visible, [aria-expanded="true"]),
+[data-visibility="always"] .chrome-header-menu-trigger:is(:has([data-popup-open]), :focus-visible, [aria-expanded="true"]) { opacity: 1; }
+.chrome-header-browser-toolbar { display: flex; align-items: center; gap: var(--chrome-menu-gap); min-height: calc(var(--chrome-action-size) * 1.5); }
+.chrome-header-browser-address { box-sizing: border-box; min-width: 0; flex: 1; height: var(--chrome-action-size); padding: 0 var(--chrome-menu-gap); border: 0; border-radius: var(--chrome-menu-radius); color: inherit; background: var(--chrome-menu-hover); font: inherit; }
+.chrome-header-menu-position { position: absolute; top: 100%; left: 0; z-index: var(--layer-dropdown); padding-top: var(--chrome-menu-gap); }
+.chrome-header-menu-position[data-menu-side="pane"] { left: auto; right: 0; }
+.chrome-header-menu { position: relative; box-sizing: border-box; width: var(--chrome-menu-width); padding: var(--chrome-menu-padding); background: var(--chrome-menu-fill); border: thin solid var(--chrome-menu-edge); border-radius: var(--chrome-menu-radius); color: var(--chrome-menu-ink); box-shadow: 0 var(--chrome-menu-gap) var(--chrome-action-size) color-mix(in srgb, black 18%, transparent); }
+.chrome-header-menu-rows { max-height: calc(100dvh - var(--chrome-action-size) * 3); overflow-y: auto; }
+.chrome-header-menu-item { box-sizing: border-box; display: flex; align-items: center; gap: var(--chrome-menu-gap); width: 100%; min-height: var(--chrome-menu-row); margin: 0; padding: var(--chrome-menu-padding) var(--chrome-menu-gap); border: 0; border-radius: calc(var(--chrome-menu-radius) / 2); background: transparent; color: inherit; text-align: start; white-space: nowrap; font: inherit; }
+.chrome-header-menu-item > span:not(.chrome-header-menu-arrow) { flex: 1; }
+.chrome-header-menu-item:is(:hover, :focus-visible, [aria-expanded="true"]),
+.chrome-header-menu-item:is(:has([data-popup-open]), :focus-visible, [aria-expanded="true"]) { background: var(--chrome-menu-hover); outline: none; }
+.chrome-header-menu-item[data-separator-before] { margin-top: var(--chrome-menu-gap); border-top: thin solid var(--chrome-menu-edge); border-top-left-radius: 0; border-top-right-radius: 0; }
+.chrome-header-menu-item[data-destructive] { color: var(--agent-error, #c84848); }
+.chrome-header-menu-item kbd { margin-inline-start: auto; font: inherit; opacity: .55; }
+.chrome-header-menu-arrow { margin-inline-start: auto; opacity: .55; }
+.chrome-header-menu-submenu { position: absolute; left: 100%; top: var(--chrome-menu-gap); }
+[data-menu-side="pane"] .chrome-header-menu-submenu { left: auto; right: 100%; }

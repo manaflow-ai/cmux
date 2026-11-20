@@ -1,4 +1,5 @@
-//! Every sample app with a `cmux-app.v2.json` (`samples/apps/*`) is a valid
+//! Every sample app and example extension with a `cmux-app.v2.json` (`samples/apps/*`,
+//! `examples/extensions/*`) is a valid
 //! manifest v2 package; a sample with a script also has interface
 //! implementations that name exports its built script defines.
 //! `cmux-app.json` stays manifest v1 for the CmuxNextApps prototype and is
@@ -17,12 +18,17 @@ mod apps {
     const V2: &str = "cmux-app.v2.json";
 
     fn samples() -> Vec<PathBuf> {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../samples/apps");
-        let mut dirs: Vec<PathBuf> = std::fs::read_dir(&root)
-            .unwrap_or_else(|e| panic!("{}: {e}", root.display()))
-            .map(|e| e.expect("entry").path())
-            .filter(|p| p.join(V2).is_file())
-            .collect();
+        let mut dirs = Vec::new();
+        for folder in ["samples/apps", "examples/extensions"] {
+            // affected-reads: samples/apps examples/extensions
+            let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..").join(folder);
+            dirs.extend(
+                std::fs::read_dir(&root)
+                    .unwrap_or_else(|e| panic!("{}: {e}", root.display()))
+                    .map(|e| e.expect("entry").path())
+                    .filter(|p| p.join(V2).is_file()),
+            );
+        }
         dirs.sort();
         dirs
     }
@@ -42,8 +48,15 @@ mod apps {
                 continue;
             };
             let main = std::fs::read_to_string(dir.join(main)).expect("main");
-            let implements = manifest["implements"].as_object().expect("implements");
-            assert!(!implements.is_empty(), "{} implements nothing", dir.display());
+            // A command-only app (the standup example) implements no interface: its catalog ops are
+            // what it offers, so it needs one.
+            let empty = serde_json::Map::new();
+            let implements = manifest["implements"].as_object().unwrap_or(&empty);
+            assert!(
+                !implements.is_empty() || manifest.get("catalog").is_some(),
+                "{} implements nothing and has no catalog",
+                dir.display()
+            );
             for (interface, implementation) in implements {
                 assert!(KNOWN_INTERFACES.contains(&interface.as_str()));
                 let export = implementation["export"]

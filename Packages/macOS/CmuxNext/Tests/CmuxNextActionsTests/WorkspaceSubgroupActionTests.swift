@@ -13,6 +13,16 @@ import Testing
         #expect(action.surfacePlan.cli?.isOffered == true)
     }
 
+    /// `cmux workspace group create --parent GROUP --name N` and MCP name the parent and the new name.
+    @Test func newSubgroupTakesAParentAndANameForTheCLIAndMCP() throws {
+        let action = try #require(ActionCatalog.all.first { $0.id == "workspaceGroup.newSubgroup" })
+        let group = try #require(action.arguments.first { $0.name == "group" })
+        #expect(group.kind == .target(.workspaceGroup))
+        #expect(!group.isRequired)
+        let name = try #require(action.arguments.first { $0.name == "name" })
+        #expect(!name.isRequired)
+    }
+
     /// In the group menu's Options folder: the menu's top level holds 12 rows (ActionSurfaceParityTests).
     @Test func theGroupMenuOffersNewSubgroup() {
         func ids(_ entries: [ContextMenuEntry]) -> [ActionID] {

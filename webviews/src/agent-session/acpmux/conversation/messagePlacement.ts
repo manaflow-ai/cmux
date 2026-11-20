@@ -1,8 +1,9 @@
 import type { AcpmuxRow, ConversationLayout } from "../model";
+import { isVisiblyEmptyText } from "./visibleMessage";
 // Candidate selection never parses a growing reply. Only the mounted renderer can confirm
 // that its displayed prefix actually provides a host (including custom registry renderers).
 function hasMessage(row: AcpmuxRow): boolean {
-  if (row.kind === "turnSummary" || row.kind === "assistant") return (row.text?.length ?? 0) > 0;
+  if (row.kind === "turnSummary" || row.kind === "assistant") return !isVisiblyEmptyText(row.text);
   return row.kind === "user" && row.incoming?.kind === "message" && row.incoming.message.text.length > 0;
 }
 

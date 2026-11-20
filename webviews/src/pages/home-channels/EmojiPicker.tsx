@@ -6,6 +6,8 @@ import { decodeEmojiTable, type EmojiRecord, type EmojiTable, type RawEmojiTable
 import { search } from "../../icon-picker/search";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import { Popover } from "../../ui/Popover";
+import { useScrollEdges } from "../../ui/scrollEdges";
+import "../../ui/popupSurface.css";
 import type { Strings } from "../shared/i18n";
 
 const SHOWN = 120;
@@ -33,6 +35,7 @@ export interface EmojiPickerProps {
 
 export function EmojiPicker({ anchor, emoji, strings, onPick, onClose }: EmojiPickerProps) {
   const [query, setQuery] = useState("");
+  const gridEdges = useScrollEdges();
   const results = useMemo<EmojiRecord[]>(
     () => (emoji ? search(emoji.records, query, undefined, SHOWN) : []),
     [emoji, query],
@@ -68,7 +71,7 @@ export function EmojiPicker({ anchor, emoji, strings, onPick, onClose }: EmojiPi
           onChange={(event) => setQuery(event.target.value)}
         />
       </KeyboardScope>
-      <div className="hc-emoji-grid">
+      <div ref={gridEdges} className="hc-emoji-grid ui-scroll-edge-fade">
         {results.map((record) => (
           <button
             key={record.index}

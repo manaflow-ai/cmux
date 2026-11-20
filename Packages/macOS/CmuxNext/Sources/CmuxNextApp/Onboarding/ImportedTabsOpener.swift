@@ -18,15 +18,11 @@ enum ImportedTabsOpener {
                 return (tab, choice.engine)
             }
             guard !tabs.isEmpty else { continue }
-            WorkspaceHandlers.createAndShow(services: services, name: workspace.name) { connection, terminal in
-                guard let pane = terminal.pane else { return }
-                for (index, (tab, engine)) in tabs.enumerated() {
-                    let created = try await connection.newFrontendBrowserTab(url: tab.url.absoluteString, engine: engine, in: pane, title: tab.title,
-                                                                             profileID: workspace.profileID, activate: index == 0 ? nil : background)
-                    if tab.pinned { _ = try? await connection.setTabPinned(created.surface, true) }
-                }
-                if let surface = terminal.surface { try await connection.closeTab(surface) }
-            }
+            // One create with the first tab, then one request per tab sent to the workspace: no terminal hosts them.
+            let pages = tabs.map { WorkspaceFirstBrowserTab(url: $0.0.url.absoluteString, engine: $0.1, title: $0.0.title, profileID: workspace.profileID) }
+            WorkspaceHandlers.show(.browsers(pages, name: workspace.name, background: background) { connection, index, created in
+                if tabs[index].0.pinned { _ = try? await connection.setTabPinned(created.surface, true) }
+            }, services: services)
         }
     }
 }

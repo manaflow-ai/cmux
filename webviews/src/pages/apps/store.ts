@@ -4,6 +4,7 @@
 // answers, and install, uninstall, update and grant changes go through the host's native
 // confirmation (coordinator Q4), so the page shows the owner's result, never its own guess.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { userMessage } from "../shared/userMessage";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
 import { fromDetail, listCatalog, listInstalled, listUpdates, type WireDetail } from "./wire";
 import {
@@ -309,7 +310,11 @@ export class AppsStore {
         installed: this.snapshot.installed.map((app) => {
           const update = updatesByApp.get(app.id);
           if (!update) return app.update ? { ...app, update: undefined, failure: undefined } : app;
-          return { ...app, update: { version: update.version }, failure: update.failure ?? app.failure };
+          return {
+            ...app,
+            update: { version: update.version },
+            failure: update.failure ?? app.failure,
+          };
         }),
       });
     } catch (error) {
@@ -329,7 +334,10 @@ export class AppsStore {
 
   setTab(tab: StoreTab): void {
     if (tab !== this.snapshot.tab)
-      this.set({ tab, selection: this.snapshot.layout === "split" ? this.snapshot.selection : undefined });
+      this.set({
+        tab,
+        selection: this.snapshot.layout === "split" ? this.snapshot.selection : undefined,
+      });
   }
 
   setQuery(query: string): void {
@@ -341,7 +349,10 @@ export class AppsStore {
 
   setCategory(category: string | undefined): void {
     const next = this.snapshot.category === category ? undefined : category;
-    this.set({ category: next, visible: filterApps(this.snapshot.catalog, this.snapshot.query, next) });
+    this.set({
+      category: next,
+      visible: filterApps(this.snapshot.catalog, this.snapshot.query, next),
+    });
   }
 
   async select(app: string | undefined): Promise<void> {
@@ -412,7 +423,10 @@ export class AppsStore {
   /** Shows or hides an installed app's logs: the owner's last lines, read again on each reload. */
   async toggleLogs(app: string): Promise<void> {
     const shown = this.snapshot.logsShown === app ? undefined : app;
-    this.set({ logsShown: shown, logs: shown ? { ...this.snapshot.logs, [app]: [] } : this.snapshot.logs });
+    this.set({
+      logsShown: shown,
+      logs: shown ? { ...this.snapshot.logs, [app]: [] } : this.snapshot.logs,
+    });
     if (shown) await this.loadLogs(shown);
   }
 
@@ -568,9 +582,8 @@ function newKey(): string {
   return `pg_${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+/** The plain sentence of a failure; the owner's own text stays in the error, for logs. */
+const message = (error: unknown): string => userMessage(error);
 
 function updateFromInstalled(app: InstalledApp): AppUpdate[] {
   return app.update
@@ -587,6 +600,6 @@ function updateFromInstalled(app: InstalledApp): AppUpdate[] {
 }
 
 function failure(error: unknown): Partial<AppsSnapshot> {
-  if (isPageError(error) && error.code === LINK_CLOSED) return { connection: "disconnected", error: error.message };
+  if (isPageError(error) && error.code === LINK_CLOSED) return { connection: "disconnected", error: message(error) };
   return { error: message(error) };
 }

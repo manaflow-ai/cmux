@@ -1,4 +1,5 @@
 public import CmuxNextDesign
+public import CmuxNextIcons
 
 /// One tab as the strip displays it. The App fills these from daemon state.
 public struct TabItem: Identifiable, Hashable, Sendable {
@@ -51,9 +52,14 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// User color of this tab (screens carry one). Tints the icon; a tab
     /// with no icon shows a dot of this color instead.
     public var tint: GroupColor?
+    /// Shared subagent identity tone; a user-selected tint or icon takes precedence.
+    public var agentTone: Int?
     /// The machine the tab's terminal runs on when it is not this Mac: a
     /// very subtle trailing label (plans/cmux-next/data-model.md 1.2b).
     public var machineBadge: String?
+    /// Draws the machine badge as this glyph instead of its text, which then only names it to
+    /// VoiceOver (a Cloud chat: a cloud, never its lease's machine name, #45952).
+    public var machineBadgeIcon: IconName?
     /// Explains the machine badge in the hover card and to VoiceOver (a
     /// remote-localhost browser tab: "localhost is build-box").
     public var machineBadgeHelp: String?

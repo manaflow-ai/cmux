@@ -6,6 +6,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 import Observation
 
@@ -120,58 +121,19 @@ final class TopHomePageView: NSView {
             Task { _ = try? await store.perform(.setReadCursor(conversation: id, seq: row.summary.lastSeq)) }
         }
         list.onMarkUnread = { id in if id != HomeSidebarView.draftRowID { sidebar.setMarkedUnread(true, id) } }
-        // Conversation Info (sharing a Cloud Chief), Usage…, Archive Chief and Delete Chief… on a Chief's row; Hide or Show Alerts on a DM or group's row, and for a group
-        // Group Info, Rename, Add People and Leave (the same actions as the palette and the CLI).
-        let chatMenu: @MainActor (ConversationID) -> [NSMenuItem] = { id in
-            guard let row = home.homeStore.rows.first(where: { $0.id == id }) else { return [] }
-            @MainActor func item(_ action: ActionID, _ title: String? = nil, _ arguments: [String: ActionValue] = [:]) -> [NSMenuItem] {
-                guard let title = title ?? registry.title(for: action) else { return [] }
-                return [HomeSidebarView.menuItem(title) {
-                    _ = registry.perform(action, invocation: ActionInvocation(arguments: arguments, origin: .user))
-                }]
-            }
-            if row.kind == .chief {
-                // Chief Usage (chief.openUsage) reads this Mac's Chiefs: left out in a build without one.
-                let usage = registry.unavailableReason(for: ChiefUsagePageTab.actionID) == nil
-                    ? item(ChiefUsagePageTab.actionID, ChiefUsagePageTab.menuTitle) : []
-                // Delete for any Chief but the default one; Archive for a cloud Chief (this Mac's have no archive).
-                let delete = home.deletableChief(of: row).map { item("home.deleteChief", nil, ["chief": .string($0.id)]) } ?? []
-                // Import Memories… (chief.importMemories): into this Mac's Chief, or into the Cloud Chief the row is.
-                let cloudChief = row.summary.participants.lazy.compactMap({ home.directory.chief(for: $0.id) }).first
-                let bring = item(ChiefMemoryImportHandlers.actionID, nil, cloudChief.map { ["chief": .string($0.id)] } ?? [:])
-                guard let chief = cloudChief else { return usage + bring + delete }
-                // A Cloud Chief's conversation is shared with teammates from its info (Add People…).
-                let info = item("home.conversationInfo", nil, ["conversation": .string(id.rawValue)])
-                return info + usage + bring + item("home.archiveChief", nil, ["chief": .string(chief.id)]) + delete
-            }
-            let conversation: [String: ActionValue] = ["conversation": .string(id.rawValue)]
-            let actions = home.groupActions
-            var items: [NSMenuItem] = []
-            if row.kind == .group {
-                items += item("home.conversationInfo", HomeGroupInfo.groupInfoMenuTitle, conversation)
-            }
-            if actions.info(id)?.canMute == true {
-                let muted = actions.info(id)?.muted == true
-                items += item(muted ? "home.unmuteConversation" : "home.muteConversation", nil, conversation)
-            }
-            if row.kind == .group {
-                // Someone else's Chief conversation shared with me: its owner names it and adds people.
-                if row.summary.declaredKind != .chief {
-                    items += item("home.renameConversation", nil, conversation)
-                    items += item("home.addMembers", nil, conversation)
-                }
-                items += item("home.leaveConversation", nil, conversation)
-            }
-            return items
-        }
-        // Chat Colors… on every chat (Chiefs, DMs and groups): its own bubble and text colours.
+        // The row's catalog items (HomeConversationMenu: a Chief's info, Usage…, Import Memories…, Archive
+        // and Delete; a DM's or group's Group Info, Alerts, Rename, Add People and Leave; Chat Colors…).
         list.menuItems = { id in
-            let items = chatMenu(id)
-            guard home.homeStore.rows.contains(where: { $0.id == id }), let title = registry.title(for: "home.chatColors") else { return items }
-            let colors = HomeSidebarView.menuItem(title) {
-                _ = registry.perform("home.chatColors", invocation: ActionInvocation(arguments: ["conversation": .string(id.rawValue)], origin: .user))
+            guard let row = home.homeStore.rows.first(where: { $0.id == id }) else { return [] }
+            return home.conversationMenu.entries(for: row).map { entry in
+                HomeSidebarView.menuItem(entry.title) { entry.perform(in: registry, window: nil) }
             }
-            return items + [colors]
+        }
+        // Delete Conversation and a row's left swipe: off the list at once, with Undo in its toast
+        // (`home.hideConversation`; a newer message or Show Hidden Conversations lists it again too).
+        list.onDelete = { id in
+            guard id != HomeSidebarView.draftRowID, home.homeStore.rows.contains(where: { $0.id == id }) else { return }
+            _ = registry.perform("home.hideConversation", invocation: ActionInvocation(arguments: ["conversation": .string(id.rawValue)], origin: .user))
         }
         // Search: teammates with no DM yet, under the conversations; choosing one starts the DM.
         list.teammates = { [weak sidebar] query in
@@ -187,6 +149,7 @@ final class TopHomePageView: NSView {
             }
         }
         list.onNewMessage = { [weak self] in self?.presentNewMessage() }
+        list.onCloseDraft = { [weak self] in self?.performCloseNewMessage() }
         list.onOpenRequests = { [weak self] in self?.presentRequests() }
         list.composeMenu = { [weak services] in services.map { HomePageMenus.backgroundMenu(registry: $0.registry) } }
     }
@@ -225,10 +188,12 @@ final class TopHomePageView: NSView {
                     picturedChiefs = chiefs
                     home.refreshChiefAvatars()
                 }
-                rows = Self.visible(all, archivedChiefs: archived, me: store.me?.id)
+                rows = HomeArchivedChiefs(archived, me: store.me?.id).visible(all)
                 // A conversation came or went (a lease arrived, a request was accepted): requests may have changed.
                 if Set(all.map(\.id)) != listed { listed = Set(all.map(\.id)); home.requests.refresh() }
                 list.update(sidebar.model())
+                // Archive Chief on the conversation that shows: the default conversation takes its place.
+                if let shown, Self.isHidden(shown, rows: rows, home: home) { conversationLeft(shown, next: nil) }
                 if shown == nil, !isComposingNewMessage, let first = Self.defaultConversation(rows: rows, home: home) {
                     show(first)
                     // The page opened it, not the person, so a Chief that arrives later replaces it.
@@ -289,16 +254,6 @@ final class TopHomePageView: NSView {
         }
     }
 
-    /// The rows the list shows: an archived Chief's conversation is hidden
-    /// (its history stays with the owner, read-only).
-    static func visible(_ rows: [InboxRow], archivedChiefs: Set<String>, me: ParticipantID?) -> [InboxRow] {
-        guard !archivedChiefs.isEmpty else { return rows }
-        return rows.filter { row in
-            guard row.kind == .chief else { return true }
-            return !row.summary.participants.contains { $0.id != me && archivedChiefs.contains($0.id.rawValue) }
-        }
-    }
-
     /// The Chief's conversation (the chief placed on a server takes over a
     /// local one without history: `HomeChiefSource`), else the first listed conversation that the
     /// Engine row does not exclude (with This Mac chosen, never a cloud Chief's: ``HomeService/excludedChiefConversations``).
@@ -306,6 +261,11 @@ final class TopHomePageView: NSView {
         if let chief = Self.chief(home) { return ConversationID(chief) }
         let excluded = home.excludedChiefConversations
         return rows.homeLines.lazy.compactMap(\.conversation).first { !excluded.contains($0.rawValue) }
+    }
+
+    /// An archived Chief's conversation: listed by the store, left out of `rows` (``HomeArchivedChiefs``).
+    static func isHidden(_ id: ConversationID, rows: [InboxRow], home: HomeService) -> Bool {
+        home.homeStore.rows.contains { $0.id == id } && !rows.contains { $0.id == id }
     }
 
     /// What the Chief observation watches: the preferred Chief and whether this Mac's Chief is the
@@ -369,7 +329,12 @@ final class TopHomePageView: NSView {
         return next
     }
 
-    static func chief(_ home: HomeService) -> String? { home.defaultChiefConversation }
+    /// The preferred Chief's conversation, unless Archive Chief hid it (``HomeArchivedChiefs/openable(_:listed:)``).
+    static func chief(_ home: HomeService) -> String? {
+        HomeArchivedChiefs(home.directory.archivedChiefs, me: home.homeStore.me?.id)
+            .openable(home.defaultChiefConversation, listed: home.homeStore.rows,
+                      participants: { home.participants(of: $0).map(\.id) })
+    }
 
     /// The shown conversation is one the owner's own inbox does not have:
     /// the cache's conversation of a Chief home made again at the same path
@@ -416,7 +381,7 @@ final class TopHomePageView: NSView {
             return
         }
         shown = id
-        host?.removeFromSuperview()
+        host?.removeFromSuperview(); DebugTimings.markLaunch("home.page_host_made")
         let view = HomeHostView(services: services, conversation: id.rawValue)
         view.isHidden = isComposingNewMessage
         view.frame = transcriptColumn.bounds
@@ -424,7 +389,7 @@ final class TopHomePageView: NSView {
         transcriptColumn.addSubview(view)
         host = view
         services.home.homeDidOpen(asked: true)
-        if window?.firstResponder === window || window?.firstResponder == nil { focusPrimaryInput() }
+        if window.map({ ($0.firstResponder === $0 || $0.firstResponder == nil) && !$0.pendingCreationOwnsKeyboard }) ?? true { focusPrimaryInput() } // unasked
     }
 
     /// The person opened `id` (a click on its row or pinned tile, the shown one too; Return in the
@@ -450,13 +415,13 @@ final class TopHomePageView: NSView {
     }
 
     /// A permalink: its conversation, and its message's thread at its branch (any depth).
-    func show(_ link: HomeDockSelection) { show(ConversationID(link.conversation)); if let m = link.message, let host { HomePageTab.transcript(in: host)?.reveal(message: m) } }
+    func show(_ link: HomeDockSelection) { show(ConversationID(link.conversation)); if let m = link.message, let host { HomeNativeTranscriptView.first(in: host)?.reveal(message: m) } }
 
     /// Home's primary input (the message box; To: on the New Message page) takes the keyboard:
     /// the message box at once or, while the shown conversation's first page loads, once it exists.
     func focusPrimaryInput() {
         if isComposingNewMessage {
-            if let target = newMessage?.focusTarget { window?.makeFirstResponder(target) }
+            if let target = newMessage?.focusTarget { FocusRoute(.system, "Home's new message field").moveKeyboard(in: window, to: target) }
             return
         }
         host?.takeKeyboardOnOpen()
@@ -484,7 +449,7 @@ final class TopHomePageView: NSView {
         list.select(HomeSidebarView.draftRowID)
         page.needsLayout = true
         page.layoutSubtreeIfNeeded()
-        window?.makeFirstResponder(page.focusTarget)
+        FocusRoute(.system, "Home's primary input").moveKeyboard(in: window, to: page.focusTarget)
     }
 
     private func makeNewMessage(_ services: AppServices) -> HomeNewMessageView {
@@ -498,13 +463,8 @@ final class TopHomePageView: NSView {
                 openWhenListed(id)
             }
         }
-        // Escape on an empty draft: back to the conversation shown before.
-        page.onEscape = { [weak self] in
-            guard let self else { return }
-            endNewMessage()
-            if let shown { list.select(shown) }
-            focusPrimaryInput()
-        }
+        // Escape in an empty To: field: the same close as the row's x (`home.closeNewMessage`).
+        page.onEscape = { [weak self] in self?.performCloseNewMessage() }
         newMessage = page
         return page
     }
@@ -524,6 +484,19 @@ final class TopHomePageView: NSView {
         }
         return true
     }
+
+    /// `home.closeNewMessage`: the draft, its page and its row go, whatever was typed (Messages' x);
+    /// the conversation shown before comes back, with the keyboard only when the page had it.
+    func closeNewMessage() {
+        guard let page = newMessage else { return }
+        let (wasShowing, hadKeyboard) = (!page.isHidden, page.holdsKeyboard)
+        endNewMessage()
+        if wasShowing, let shown { list.select(shown) }
+        if wasShowing, hadKeyboard { focusPrimaryInput() }
+    }
+
+    /// Runs `home.closeNewMessage` through the registry (one path for every entrypoint).
+    private func performCloseNewMessage() { _ = services?.registry.perform("home.closeNewMessage", invocation: ActionInvocation(origin: .user)) }
 
     /// Drops the New Message draft, its page and its row.
     private func endNewMessage() {
@@ -620,3 +593,5 @@ final class TopHomePageView: NSView {
         HomeSheetPresenter().present(sheet, over: window, themeSource: self)
     }
 }
+
+extension TopHomePageView: HomeListPage {}

@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Builds this checkout's cmux-tui client set on a build host whose tree is not
 # published: cmux-tui and the companions the bundle scripts install beside it
-# (cmux-tui-host, cmux-app-host, cmux-cloud, cmux-browser-host,
+# (cmux-tui-host, cmux-cloud, cmux-holder,
 # cmux-agent-screen-detection).
 # reload.sh uses it for an
-# nx-remote build (NX_JOB_ID) when pin-cmux-tui.sh probe does not report the
+# nx-remote build (NX_JOB_ID) or a cmux-ci fleet step (CMUX_CI_PHASE_FILE: the
+# scripts/measure/ benches) when pin-cmux-tui.sh probe does not report the
 # tree ready, and hands the result to the bundle as CMUX_TUI_CLIENT_LOCAL, so
 # the build neither stops nor waits for a cmux-tui-artifacts run (a newer push
 # to the branch replaces a pending run, so a busy branch's older trees are
@@ -22,7 +23,9 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 pin="$repo_root/scripts/cmux-next/pin-cmux-tui.sh"
 
-build_allowed() { [[ -n "${CI:-}${GITHUB_ACTIONS:-}${CMUX_FLEET_BUILD_TAG:-}${NX_JOB_ID:-}" ]]; }
+# CMUX_CI_PHASE_FILE: a cmux-ci fleet job or step (the worker sets it for both), such as a
+# scripts/measure/ bench that runs reload.sh.
+build_allowed() { [[ -n "${CI:-}${GITHUB_ACTIONS:-}${CMUX_FLEET_BUILD_TAG:-}${NX_JOB_ID:-}${CMUX_CI_PHASE_FILE:-}" ]]; }
 
 print_path=0
 while [[ $# -gt 0 ]]; do
@@ -57,8 +60,13 @@ commit="$(git -C "$repo_root" rev-parse HEAD)"
 vt_source=ghostty
 git -C "$repo_root" rev-parse --verify -q HEAD:ghostty-next >/dev/null && vt_source=ghostty-next
 ghostty_commit="$(git -C "$repo_root/$vt_source" rev-parse HEAD 2>/dev/null || true)"
-target_dir="${CMUX_TUI_CLIENT_TARGET_DIR:-$repo_root/cmux-tui/target/client-app}"
-mkdir -p "$target_dir"
+# A fleet step's checkout is fresh: Cargo's target goes in the host's shared cache, so the
+# next step on this host compiles incrementally.
+default_target="$repo_root/cmux-tui/target/client-app"
+[[ -z "${CI_SHARED_CACHE_DIR:-}" ]] || default_target="$CI_SHARED_CACHE_DIR/cmux-tui-client-target"
+target_dir="${CMUX_TUI_CLIENT_TARGET_DIR:-$default_target}"
+# A fresh checkout (a fleet step) has no cmux-tui/target yet when Cargo builds elsewhere.
+mkdir -p "$target_dir" "$repo_root/cmux-tui/target"
 stage="$(mktemp -d "$repo_root/cmux-tui/target/.client-local.XXXXXX")"
 trap 'rm -rf "$stage"' EXIT
 
@@ -73,7 +81,9 @@ install -m 755 "$target_dir/release/cmux-tui-host" "$stage/cmux-tui-host"
 # scripts name (the fleet recipe decides the same way).
 # The terminal holder builds on its own (std and libc only): with cmux-tui its
 # libc features would unify with the daemon's.
-for name in cmux-app-host cmux-cloud cmux-browser-host cmux-holder cmux-agent-screen-detection; do
+# The app host and the browser host are not built here: cmux-tui runs both by
+# argv[0], and the bundle scripts link them to it (link-folded-hosts.sh).
+for name in cmux-cloud cmux-holder cmux-agent-screen-detection; do
   named=0
   for script in scripts/cmux-next/bundle-cmux-tui.sh scripts/install-cmux-tui-client.sh; do
     if [[ -f "$repo_root/$script" ]] && grep -q -- "$name" "$repo_root/$script"; then named=1; fi

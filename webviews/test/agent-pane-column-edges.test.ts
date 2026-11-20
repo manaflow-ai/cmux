@@ -1,7 +1,7 @@
 // Every block in the agent chat column starts on the column's left edge (Leo 2026-10-14: a
 // recurring left indent on the queue and other blocks inserted over the composer). The column edge
 // is the composer card's left; each block's visible left is its own box when it paints (fill,
-// border or shadow), else where its first text or icon starts. Real gallery frames at a wide and
+// background image, border or shadow), else where its first text or icon starts. Real gallery frames at a wide and
 // a narrow pane; the failure lists every offender with its offset from the edge in px. A user
 // bubble stands at the right, so the transcript reads the other rows.
 //
@@ -40,14 +40,6 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
       },
     },
     {
-      entry: "agent-pane.pr-dock",
-      variant: "inline-pills",
-      edge: ".acpmux-composer-box",
-      blocks: {
-        transcript: ".acpmux-row:not(.acpmux-user)",
-      },
-    },
-    {
       entry: "agent-pane.new-tab",
       variant: "empty",
       edge: ".nt-box",
@@ -69,11 +61,7 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
-    await warmGalleryFrame(
-      vite,
-      ["agent-pane.bottom-stack", "agent-pane.pr-dock", "agent-pane.new-tab", "agent-pane.composer"],
-      { browser },
-    );
+    await warmGalleryFrame(vite, ["agent-pane.bottom-stack", "agent-pane.new-tab", "agent-pane.composer"], { browser });
   });
   afterAll(async () => {
     await browser?.close();
@@ -85,7 +73,11 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
     const painted = (el: Element) => {
       const s = getComputedStyle(el);
       const fill = s.backgroundColor !== "rgba(0, 0, 0, 0)" && s.backgroundColor !== "transparent";
-      return fill || parseFloat(s.borderLeftWidth) > 0 || s.boxShadow !== "none";
+      // A mark drawn only as a gradient paints too: the ringed dot that starts the live line while
+      // the chat waits for the reader (conversation.css `.cv-needs-input-glyph`). Without it the
+      // line's visible left was its pill, 20px in: the dot's 12px and the 8px gap after it.
+      const image = s.backgroundImage !== "none";
+      return fill || image || parseFloat(s.borderLeftWidth) > 0 || s.boxShadow !== "none";
     };
     const shown = (el: Element) => {
       const s = getComputedStyle(el);
@@ -110,11 +102,17 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
     };
     const edgeLeft = document.querySelector(edge)!.getBoundingClientRect().left;
     const found: Record<string, number | null> = {};
+    // Which element each block is, for the failure: its row id, its classes and its first words.
+    const what: Record<string, string> = {};
     for (const [name, selector] of Object.entries(blocks)) {
       const el = [...document.querySelectorAll(selector)].find(shown);
       found[name] = el ? Math.round(visibleLeft(el) - edgeLeft) : null;
+      if (el) {
+        const words = (el.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 40);
+        what[name] = `${el.getAttribute("data-row-id") ?? ""} .${[...el.classList].join(".")} "${words}"`;
+      }
     }
-    return { edgeLeft, found };
+    return { edgeLeft, found, what };
   }
 
   test("every block in the chat column starts on the column's left edge", async () => {
@@ -131,24 +129,21 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
           timeout: 30_000,
         });
-        const { edgeLeft, found } = await page.evaluate(offsets, frame);
-        if (frame.entry === "agent-pane.pr-dock") {
-          const links = page.locator(".acpmux-scroll .acpmux-pr-dock").first();
-          await links.waitFor();
-          expect(await page.locator(".acpmux-dock > .acpmux-pr-dock").count()).toBe(0);
-          expect(await links.evaluate((node) => !!node.closest(".cv-turn-actions"))).toBe(true);
-        }
+        const { edgeLeft, found, what } = await page.evaluate(offsets, frame);
         await page.close();
         const label = `${frame.entry}:${frame.variant} @${width}`;
         edges[label] = Math.round(edgeLeft);
         for (const [name, offset] of Object.entries(found)) {
           if (offset === null) missing.push(`${label} ${name}`);
-          else if (Math.abs(offset) > 1) offenders.push(`${label} ${name} ${offset > 0 ? "+" : ""}${offset}px`);
+          else if (Math.abs(offset) > 1) {
+            offenders.push(`${label} ${name} ${offset > 0 ? "+" : ""}${offset}px`);
+            console.log(`COLUMN_EDGES_OFFENDER ${label} ${name} ${offset}px: ${what[name]}`);
+          }
         }
       }
       // In a narrow pane the New Tab card and the chat's composer card stand at the same page edge.
       if (width > 600) continue;
-      const chat = edges[`agent-pane.pr-dock:inline-pills @${width}`]!;
+      const chat = edges[`agent-pane.bottom-stack:trusted-permission-queue @${width}`]!;
       const newTab = edges[`agent-pane.new-tab:empty @${width}`]!;
       if (Math.abs(newTab - chat) > 1) {
         offenders.push(`agent-pane.new-tab:empty @${width} card ${newTab - chat}px from the chat's`);

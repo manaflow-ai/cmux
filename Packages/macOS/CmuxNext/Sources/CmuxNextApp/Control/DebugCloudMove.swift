@@ -18,7 +18,8 @@ enum DebugCloudMoveMethods {
 ///
 /// - `move_state {}`: the moved chats (``CloudMovedChats``), each chat's Retry after a stopped
 ///   move or Bring Back Local (``CloudMoveRetries``), the folders an agent's move starts in at
-///   once ("Always", ``CloudMoveAsks``: grants of scope `folder`) and the launch offers Dismissed.
+///   once ("Always", ``CloudMoveAlwaysGrants``: grants of scope `account_team_origin_folder`) and the
+///   launch offers Dismissed.
 ///   Ids, kinds, flags and digests only: a folder path, workspace name or move key is never
 ///   sent as text, only inside its record's digest (a change of any field changes it).
 /// - `move_seed {run}`: records a Move to Cloud state of made-up machines named `rj-<run>-*`
@@ -64,7 +65,7 @@ extension DebugCloudMove {
         let chats = cloud.movedChats.all().sorted { ($0.host, $0.session) < ($1.host, $1.session) }
         let moveRetries = retries(cloud.moveRetries)
         let defaults = cloud.move.ledger
-        let folders = (defaults?.stringArray(forKey: CloudMoveAsks.defaultsKey) ?? []).sorted()
+        let grants = defaults.map(CloudMoveAlwaysGrants.stored(in:)) ?? []
         let dismissed = defaults?.dictionary(forKey: CloudMoveAsks.dismissedKey) as? [String: String] ?? [:]
         return .object([
             "moved_chats": .array(chats.map { entry in
@@ -80,7 +81,7 @@ extension DebugCloudMove {
             }),
             "move_retries": .array(moveRetries),
             "bring_back_retries": .array(retries(cloud.bringBackRetries)),
-            "grants": .array(folders.map { .object(["id": .string(digest($0)), "scope": .string("folder"), "kind": .string("always_move")]) }),
+            "grants": .array(grants.map { .object(["id": .string(digest($0)), "scope": .string("account_team_origin_folder"), "kind": .string("always_move")]) }),
             // Whether each dismissed offer still matches its tab's Retry (a new Retry offers again).
             "dismissed": .array(dismissed.keys.sorted().map { tab in
                 .object(["tab": .string(tab),
@@ -126,7 +127,9 @@ extension DebugCloudMove {
             name: "\(id) chat", key: "\(id)-move-key", host: nil, movedSession: nil))
         cloud.moveRetries["\(id)-tab-update"] = .update(machineID: "\(id)-machine-2")
         cloud.bringBackRetries["\(id)-tab-back"] = .askFirst(machineID: machine)
-        defaults.set(((defaults.stringArray(forKey: CloudMoveAsks.defaultsKey) ?? []) + [folder]).sorted(), forKey: CloudMoveAsks.defaultsKey)
+        if let scope = CloudMoveAlwaysGrants.Scope(userID: "\(id)-user", teamID: "\(id)-team", cloudOrigin: "https://\(id).invalid") {
+            CloudMoveAlwaysGrants.store(CloudMoveAlwaysGrants.stored(in: defaults) + [CloudMoveAlwaysGrants.Grant(scope: scope, folder: folder)], in: defaults)
+        }
         var dismissed = defaults.dictionary(forKey: CloudMoveAsks.dismissedKey) as? [String: String] ?? [:]
         dismissed["\(id)-tab-move"] = CloudMoveAsks.fingerprint(.move(machineID: machine))
         defaults.set(dismissed, forKey: CloudMoveAsks.dismissedKey)
@@ -140,8 +143,7 @@ extension DebugCloudMove {
         for store in [cloud.moveRetries, cloud.bringBackRetries] {
             for tab in store.tabs where tab.hasPrefix("rj-") { store[tab] = nil }
         }
-        let folders = defaults.stringArray(forKey: CloudMoveAsks.defaultsKey) ?? []
-        defaults.set(folders.filter { !$0.hasPrefix("/tmp/rj-") }, forKey: CloudMoveAsks.defaultsKey)
+        CloudMoveAlwaysGrants.store(CloudMoveAlwaysGrants.stored(in: defaults).filter { !$0.folder.hasPrefix("/tmp/rj-") }, in: defaults)
         let dismissed = defaults.dictionary(forKey: CloudMoveAsks.dismissedKey) as? [String: String] ?? [:]
         defaults.set(dismissed.filter { !$0.key.hasPrefix("rj-") }, forKey: CloudMoveAsks.dismissedKey)
     }
@@ -158,10 +160,10 @@ extension DebugCloudMove {
             guard let tab = store.tabs.first(where: { $0.hasPrefix("rj-") }) else { return false }
             store[tab] = nil
         case "grant":
-            var folders = (defaults.stringArray(forKey: CloudMoveAsks.defaultsKey) ?? []).sorted()
-            guard let index = folders.firstIndex(where: { $0.hasPrefix("/tmp/rj-") }) else { return false }
-            folders.remove(at: index)
-            defaults.set(folders, forKey: CloudMoveAsks.defaultsKey)
+            var grants = CloudMoveAlwaysGrants.stored(in: defaults)
+            guard let index = grants.firstIndex(where: { $0.folder.hasPrefix("/tmp/rj-") }) else { return false }
+            grants.remove(at: index)
+            CloudMoveAlwaysGrants.store(grants, in: defaults)
         case "dismissed":
             var dismissed = defaults.dictionary(forKey: CloudMoveAsks.dismissedKey) as? [String: String] ?? [:]
             guard let tab = dismissed.keys.sorted().first(where: { $0.hasPrefix("rj-") }) else { return false }

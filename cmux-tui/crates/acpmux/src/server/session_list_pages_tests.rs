@@ -36,7 +36,7 @@ async fn fleet_hub(peers: usize, rows: usize) -> Arc<crate::hub::Hub> {
             })
             .collect();
         let mut settled = peer.settled();
-        for notice in [PeerNotice::Sessions(list), PeerNotice::Connected] {
+        for notice in [PeerNotice::sessions_from_values(list), PeerNotice::Connected] {
             hub.peer_notices.send((name.clone(), peer.generation, notice)).await.unwrap();
         }
         tokio::time::timeout(Duration::from_secs(10), settled.wait_for(|n| *n >= 1))
@@ -120,10 +120,10 @@ fn check(what: &str, rows: &[Value], sizes: &[usize], expected: usize, tools: bo
 
 #[tokio::test]
 async fn a_fleet_sized_session_list_goes_in_pages_under_the_message_limit() {
-    // 25 peers with 210 chats each: 5250 rows, about as many as that daemon listed.
-    let hub = fleet_hub(25, 210).await;
+    // 25 peers with 400 chats each: 10,000 rows, enough to exceed the larger transport limit.
+    let hub = fleet_hub(25, 400).await;
     let mut conn = Conn::open(&hub).await;
-    let all = 25 * 210;
+    let all = 25 * 400;
     let (rows, sizes) = conn.whole_list(method::MUX_SESSIONS, json!({})).await;
     check("sessions", &rows, &sizes, all, false);
     let (rows, sizes) = conn.whole_list(method::MUX_SESSIONS, json!({"withTools": true})).await;

@@ -35,7 +35,7 @@ final class SidebarSectionHeaderView: NSView {
 
     /// A drag from a press (window points): true once the region drags.
     var onDragged: ((NSPoint, NSEvent) -> Bool)?
-    var onDragEnded: (() -> Void)?
+    var onDragEnded: ((NSPoint) -> Void)?
     private var pressLocation: NSPoint?
     private var didDrag = false
 
@@ -64,7 +64,7 @@ final class SidebarSectionHeaderView: NSView {
 
     override func updateLayer() {
         performWithTheme {
-            name.textColor = Palette.textTertiary
+            name.textColor = Palette.textSecondary
             chevron.contentTintColor = Palette.textTertiary
             // A click folds the section: hover shows the row hover fill (cx-qno.17).
             if let layer {
@@ -77,7 +77,8 @@ final class SidebarSectionHeaderView: NSView {
     override func layout() {
         super.layout()
         let b = bounds
-        let inset = SidebarStyle.horizontalInset * 2
+        // The fill's gap, then the rows' content inset: the name starts where workspace titles start.
+        let inset = SidebarStyle.horizontalInset + SidebarStyle.contentInset
         name.font = SidebarStyle.headerFont
         let th = ceil(name.intrinsicContentSize.height)
         let chevronSide = Metrics.smallIconSize
@@ -87,7 +88,7 @@ final class SidebarSectionHeaderView: NSView {
         chevron.frame = SidebarStyle.trailingColumnFrame(rowWidth: rowWidth, centerY: b.midY, side: chevronSide)
         // The label cell draws inside its frame: the text starts at the inset, with workspace titles.
         let nameX = inset - SidebarStyle.labelCellPadding
-        name.frame = NSRect(x: nameX, y: (b.height - th) / 2, width: max(0, chevron.frame.minX - Metrics.space2 - nameX), height: th)
+        name.frame = NSRect(x: nameX, y: SidebarStyle.textY(name, centerY: b.midY), width: max(0, chevron.frame.minX - Metrics.space2 - nameX), height: th)
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -109,7 +110,7 @@ final class SidebarSectionHeaderView: NSView {
     override func mouseUp(with event: NSEvent) {
         defer { pressLocation = nil; didDrag = false }
         guard pressLocation != nil else { return }
-        if didDrag { onDragEnded?() } else { onPress?() }
+        if didDrag { onDragEnded?(event.locationInWindow) } else { onPress?() }
     }
 
     override func rightMouseDown(with event: NSEvent) {
