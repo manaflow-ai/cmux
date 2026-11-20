@@ -101,11 +101,14 @@ jobs:
     # hosted runners left roll 44351236121's plan queued 6 h 51 min. A re-run takes the pools. platform-readiness
     # and promote (the production App key), the bake (Freestyle key) and report (a contents: write token) stay
     # off the shared lane VMs.
+    # Attempt 1 takes the reserved release label cmux-gcp-nightly-x64 (no PR job can name it,
+    # tests/test_release_runner_reserved.py): roll 44466019697's plan queued 2 h behind PR CI on the shared lane, and
+    # its output feeds the bake that deploys the Cloud image. Attempt 2 takes the shared lane, attempt 3 the pools.
     if: >-
       github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' &&
       !(github.event_name == 'push' && (startsWith(github.event.head_commit.message, 'cmux-vm: image roll ') ||
       startsWith(github.event.head_commit.message, 'cmux-vm: image rollback ')))
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-lane-build-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && github.ref == 'refs/heads/feat-cmux-next' && 'cmux-gcp-nightly-x64' || github.run_attempt <= 2 && 'cmux-gcp-lane-build-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     permissions:
       contents: read

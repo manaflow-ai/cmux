@@ -41,7 +41,10 @@ env:
 jobs:
   request:
     if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    # Attempt 1 takes the nightly-only runner (cmux-gcp-nightly-x64), attempt 2 the shared GCP build lane, and only a
+    # later attempt Blacksmith: on 2026-11-19 tick 44460793985 and the 04:34Z one sat queued on blacksmith-2vcpu
+    # while no Blacksmith label started jobs (cmuxterm-hq#13909, tests/test_release_runner_reserved.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'schedule' || github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch') && 'cmux-gcp-nightly-x64' || github.run_attempt == 2 && (github.event_name == 'schedule' || github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch') && 'cmux-gcp-lane-build-x64' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     # 15 minutes of work, plus the hour its gh calls may wait for a rate limit (below).
     timeout-minutes: 75
     # One tick runs and the newest waits: GitHub replaces an older pending tick
@@ -71,6 +74,16 @@ jobs:
           ref: ${{ inputs.sha != '' && inputs.sha || 'refs/heads/feat-cmux-next' }}
           fetch-depth: 150
 
+      # The owned GCP build lanes reuse the workspace: after an earlier job's sparse checkout a full checkout there left tracked files missing (run 44398113924), so write HEAD's files again.
+      - name: Repair a reused self-hosted checkout
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+            git sparse-checkout disable 2>/dev/null || true
+            git reset -q --hard HEAD
+          fi
+
       # This workflow's own copy of the wrapper, not the checked-out branch's.
       - name: Checkout the gh rate-limit wait
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -82,6 +95,15 @@ jobs:
             scripts/ci/gh_budget_wait.sh
             scripts/ci/nightly_next_cancelled_tip.sh
           sparse-checkout-cone-mode: false
+
+      # Sparse on purpose: keep its sparse set, rewrite only the files it holds.
+      - name: Repair a reused self-hosted checkout
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+            git -C .tick-tooling reset -q --hard HEAD
+          fi
 
       # A tick refused "API rate limit exceeded for installation" lost its promotion
       # (2026-10-26, run 40325957281, while /rate_limit showed thousands of calls left).
