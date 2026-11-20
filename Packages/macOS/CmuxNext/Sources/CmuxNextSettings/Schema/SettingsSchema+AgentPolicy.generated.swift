@@ -72,7 +72,7 @@ extension SettingsSchema {
         "appearance.highlightColor",
         "appearance.themeEdits",
         // The theme file whose look applies (looks only)
-        "appearance.themeFile", "appearance.themeFileExceptions",
+        "appearance.themeFile",
         // Starred themes and their rotation (looks only)
         "appearance.favoriteThemes", "appearance.rotateFavoriteThemes",
         // The color of each machine's marks (looks only)
@@ -133,7 +133,7 @@ extension SettingsSchema {
         "notifications.attention.agentChats", "notifications.attention.agentChatBlinkCount",
         "notifications.attention.width", "notifications.attention.blinkCount", "notifications.attention.duration",
         "notifications.attention.persist", "notifications.attention.flash", "notifications.attention.flashOnTyping",
-        "notifications.attention.showOnTab", "notifications.attention.showOnSidebar",
+        "notifications.attention.showOnTab", "notifications.attention.showOnSidebar", "notifications.attention.mark",
         "notifications.attention.moveToTop", "notifications.attention.moveToTopOnAgentFinish",
         // cmux-browser mutes a workspace through settings.set as `script` (cmux-browser #614).
         "notifications.mutedWorkspaces",
