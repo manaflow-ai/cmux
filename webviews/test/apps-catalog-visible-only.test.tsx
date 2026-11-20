@@ -3,7 +3,7 @@
 // reload that changes one listing or a one-row scroll draws again only the cards whose listing
 // changed or that the scroll brought in. Before, every listing was a mounted card, and every reload
 // drew each of them again: the cards were not memoized and each reload made new listing objects.
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, mock, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -79,6 +79,44 @@ afterAll(async () => {
     else scope[name] = value;
   }
 });
+
+// The catalog's virtualizer, as the page sees it. With `hideNotify` set when the catalog mounts, the
+// page gets a virtualizer without TanStack's private `notify` (as after a TanStack upgrade that
+// renamed it), while TanStack's own redraws still go through it; otherwise the real one, unchanged.
+const tanstack = await import("@tanstack/react-virtual");
+const realUseVirtualizer = tanstack.useVirtualizer;
+const notifyHidden = { hideNotify: false, notifyWrites: 0, resizes: 0 };
+const hidden = new WeakMap<object, object>();
+function withoutNotify<T extends object>(virtualizer: T): T {
+  let proxy = hidden.get(virtualizer);
+  if (!proxy) {
+    const bound = new Map<PropertyKey, unknown>();
+    proxy = new Proxy(virtualizer, {
+      get(target, key) {
+        if (key === "notify") return undefined;
+        if (key === "resizeItem") notifyHidden.resizes++;
+        const value = Reflect.get(target, key, target);
+        if (typeof value !== "function") return value;
+        if (!bound.has(key)) bound.set(key, value.bind(target));
+        return bound.get(key);
+      },
+      has: (target, key) => key !== "notify" && Reflect.has(target, key),
+      set(target, key, value) {
+        if (key === "notify") notifyHidden.notifyWrites++;
+        return Reflect.set(target, key, value, target);
+      },
+    });
+    hidden.set(virtualizer, proxy);
+  }
+  return proxy as T;
+}
+await mock.module("@tanstack/react-virtual", () => ({
+  ...tanstack,
+  useVirtualizer: (...args: Parameters<typeof realUseVirtualizer>) => {
+    const virtualizer = realUseVirtualizer(...args);
+    return notifyHidden.hideNotify || hidden.has(virtualizer) ? withoutNotify(virtualizer) : virtualizer;
+  },
+}));
 
 const { createRoot } = await import("react-dom/client");
 const { AppsPage } = await import("../src/pages/apps/AppsPage");
@@ -341,10 +379,16 @@ for (const layout of ["grid", "list"] as const) {
  *  scroll area's content (no banner height in jsdom), and the page's ResizeObservers are kept so
  *  `resize` can tell the listing it resized, as a browser does. */
 async function columnChange(
-  run: (page: { width: () => number; rowHeight: () => number; resize: (to: number) => Promise<void> }) => Promise<void>,
+  run: (page: {
+    width: () => number;
+    rowHeight: () => number;
+    resize: (to: number) => Promise<void>;
+    cardsResized: (height: number) => Promise<void>;
+  }) => Promise<void>,
 ) {
   let width = 800;
-  const rowHeight = () => (width >= 830 ? 120 : GRID_ROW);
+  let grown: number | undefined;
+  const rowHeight = () => grown ?? (width >= 830 ? 120 : GRID_ROW);
   const proto = dom.window.HTMLElement.prototype;
   const offsetWidth = Object.getOwnPropertyDescriptor(proto, "offsetWidth")!;
   const offsetHeight = Object.getOwnPropertyDescriptor(proto, "offsetHeight")!;
@@ -392,8 +436,23 @@ async function columnChange(
           );
     });
   };
+  // Every mounted card is now `height` px tall (its description wrapped again), and the cards'
+  // observer hears it, as a browser's would: one callback for all of them.
+  const cardsResized = async (height: number) => {
+    grown = height;
+    const listing = host.querySelector(".apps-discover-list")!;
+    await act(async () => {
+      for (const { callback, targets } of observers) {
+        const entries = [...targets]
+          .filter((target) => target !== listing)
+          .map((target) => ({ target, contentRect: { height } }) as unknown as ResizeObserverEntry);
+        if (entries.length > 0) callback(entries, {} as ResizeObserver);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  };
   try {
-    await run({ width: () => width, rowHeight, resize });
+    await run({ width: () => width, rowHeight, resize, cardsResized });
   } finally {
     Object.defineProperty(proto, "offsetWidth", offsetWidth);
     Object.defineProperty(proto, "offsetHeight", offsetHeight);
@@ -407,34 +466,35 @@ async function columnChange(
 // follows its cards' width. The first row in view stays where it was, and the rows not mounted are
 // estimated at the new columns' height. Before, the scroll stayed where it was (other listings came
 // into view) and every unmounted row kept the old columns' height.
+/** The grid's layout, as a browser does it: its cards fill rows of as many columns as fit, and a
+ *  spacer takes a row of its own; a gap of 14 px after each row. The listing's top in the view, and
+ *  the grid's height. */
+function gridLayout(scroller: HTMLElement, columns: number, rowHeight: number, index?: number) {
+  const space = host.querySelector<HTMLElement>(".apps-catalog-space")!;
+  let top = 0;
+  let column = 0;
+  for (const child of space.children as Iterable<HTMLElement>) {
+    if (child.classList.contains("apps-catalog-gap")) {
+      if (column > 0) top += rowHeight + 14;
+      column = 0;
+      top += parseFloat(child.style.height) + 14;
+      continue;
+    }
+    if (child.dataset.app === `acme.tool-${index}`) return { top: top - scroller.scrollTop, height: NaN };
+    if (++column === columns) {
+      top += rowHeight + 14;
+      column = 0;
+    }
+  }
+  return { top: undefined, height: (column > 0 ? top + rowHeight + 14 : top) - 14 };
+}
+
 test("grid: a column change keeps the first listing in view where it was, and sizes the rows at the new height", async () => {
   await columnChange(async ({ width, rowHeight, resize }) => {
     const { scroller } = await mount(1_000, "grid");
     // Row 30 (listings 60 and 61) at the top of the view.
     await scrollBy(scroller, 30 * (GRID_ROW + 14));
-    // The grid's layout, as a browser does it: its cards fill rows of as many columns as fit, and
-    // a spacer takes a row of its own; a gap of 14 px after each row. The listing's top in the
-    // view, and the grid's height.
-    const layoutOf = (index?: number) => {
-      const space = host.querySelector<HTMLElement>(".apps-catalog-space")!;
-      const columns = width() >= 830 ? 3 : 2;
-      let top = 0;
-      let column = 0;
-      for (const child of space.children as Iterable<HTMLElement>) {
-        if (child.classList.contains("apps-catalog-gap")) {
-          if (column > 0) top += rowHeight() + 14;
-          column = 0;
-          top += parseFloat(child.style.height) + 14;
-          continue;
-        }
-        if (child.dataset.app === `acme.tool-${index}`) return { top: top - scroller.scrollTop, height: NaN };
-        if (++column === columns) {
-          top += rowHeight() + 14;
-          column = 0;
-        }
-      }
-      return { top: undefined, height: (column > 0 ? top + rowHeight() + 14 : top) - 14 };
-    };
+    const layoutOf = (index?: number) => gridLayout(scroller, width() >= 830 ? 3 : 2, rowHeight(), index);
     const placeOf = (index: number) => layoutOf(index).top;
     expect(placeOf(60)).toBe(0);
     await resize(830);
@@ -443,6 +503,66 @@ test("grid: a column change keeps the first listing in view where it was, and si
     // 334 rows of 120 px and the gaps between them.
     expect(layoutOf().height).toBe(334 * 120 + 333 * 14);
   });
+});
+
+// The catalog holds back TanStack's private `notify` across a batch of row resizes (one draw for
+// them all). A TanStack without it (renamed or dropped by an upgrade) gets the rows resized one at a
+// time, as before the batching: the page neither throws nor writes the field, and a column change
+// followed by the cards' new heights ends as the batched page does, with the listing still in view.
+test("grid: without the virtualizer's private `notify`, a column change and the cards' new heights keep the listing in view", async () => {
+  const outcomes: Record<string, unknown>[] = [];
+  for (const hideNotify of [false, true]) {
+    Object.assign(notifyHidden, { hideNotify, notifyWrites: 0, resizes: 0 });
+    try {
+      await columnChange(async ({ width, rowHeight, resize, cardsResized }) => {
+        const { scroller } = await mount(1_000, "grid");
+        await scrollBy(scroller, 30 * (GRID_ROW + 14));
+        const layoutOf = (index?: number) => gridLayout(scroller, width() >= 830 ? 3 : 2, rowHeight(), index);
+        await resize(830);
+        expect(layoutOf(60).top).toBe(0);
+        // Each mounted card (rows above the view among them) wraps to 130 px.
+        await cardsResized(130);
+        const mounted = [...host.querySelectorAll<HTMLElement>(".apps-catalog-space .apps-card")];
+        const places = mounted.map((card) => Number(card.getAttribute("aria-posinset")));
+        expect(places).toEqual(mounted.map((card) => Number(card.dataset.app!.split("-").pop()) + 1));
+        expect(places).toEqual([...places].sort((a, b) => a - b));
+        expect(mounted.length).toBeLessThan(100);
+        expect(host.querySelector('.apps-catalog-space [data-app="acme.tool-60"] .apps-name')?.textContent).toBe(
+          "Tool 60",
+        );
+        // Every mounted row is at its cards' new height, every other row at least at the estimate.
+        const rows = new Set(mounted.map((card) => Math.floor(Number(card.dataset.app!.split("-").pop()) / 3))).size;
+        expect(layoutOf().height).toBeGreaterThanOrEqual(334 * 120 + 333 * 14 + rows * 10);
+        outcomes.push({
+          top: layoutOf(60).top,
+          scrollTop: scroller.scrollTop,
+          mounted: mounted.map((card) => card.dataset.app),
+          rows,
+          height: layoutOf().height,
+        });
+        act(() => root?.unmount());
+        root = undefined;
+      });
+    } finally {
+      notifyHidden.hideNotify = false;
+    }
+    if (hideNotify) {
+      // The fallback ran: rows were resized, and the page never touched the missing field.
+      expect(notifyHidden.resizes).toBeGreaterThan(0);
+      expect(notifyHidden.notifyWrites).toBe(0);
+    }
+  }
+  const [batched, fallback] = outcomes as [Record<string, unknown>, Record<string, unknown>];
+  // The listing that was at the top of the view is still there (TanStack moved the scroll by what
+  // the rows above it grew), at the same scroll, with the same cards mounted, either way.
+  expect(fallback.top).toBe(0);
+  const { height: fallbackHeight, ...fallbackView } = fallback;
+  const { height: _batchedHeight, ...batchedView } = batched;
+  expect(fallbackView).toEqual(batchedView);
+  // Rows one at a time draw between rows, and a card the scroll took out of the window meanwhile
+  // keeps the estimate (it is measured again when it mounts): every mounted row at 130 px and every
+  // other row at 120. The batched page also keeps the size such a card reported.
+  expect(fallbackHeight).toBe(334 * 120 + 333 * 14 + (fallback.rows as number) * 10);
 });
 
 // A column change moves each listing to another row and column, not to another card: each listing
