@@ -10,6 +10,7 @@
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { agentKey } from "../shared/agentKey";
 import { type HarnessHealth, skipped, type UpdateOffer } from "./harnessHealthNoticeModel";
+import { installName, oneRowPerInstall, sameInstall } from "./harnessInstalls";
 
 /// One agent CLI with an update, as a menu row shows it.
 export type HarnessUpdateRow = {
@@ -37,24 +38,29 @@ export const HarnessUpdatesContext = createContext<HarnessUpdates | undefined>(u
 
 export const useHarnessUpdates = () => useContext(HarnessUpdatesContext);
 
-/// The rows of `_acpmux/harness/health` the list offers: outdated, both versions known, an update
-/// that needs no sudo (that one is Settings > Agents', which shows its command), and a newest
-/// version the person did not skip. `except` is the chat's own agent, offered by its UpdateOffer.
+/// The rows of `_acpmux/harness/health` the list offers, one per installed binary
+/// (harnessInstalls.ts): outdated, both versions known, an update that needs no sudo (that one is
+/// Settings > Agents', which shows its command), and a newest version the person did not skip for
+/// any profile of that binary. `except` is the chat's own agent, offered by its UpdateOffer: no
+/// profile of its binary is listed again. `offered`: whether the menus offer a harness; a binary no
+/// offered harness runs is not listed, and an offered one names a shared binary's row.
 export function outdatedHarnesses(
   rows: readonly unknown[],
   skippedVersions: Record<string, string>,
   except?: string,
+  offered: (id: string) => boolean = () => true,
 ): HarnessHealth[] {
-  const out: HarnessHealth[] = [];
-  for (const row of rows) {
-    const health = row as HarnessHealth | null;
-    if (!health || typeof health.id !== "string" || health.id === except) continue;
-    if (!health.outdated || !health.version || !health.latest) continue;
-    if (!health.update || health.update.elevated) continue;
-    if (skippedVersions[health.id] === health.latest) continue;
-    out.push(health);
-  }
-  return out;
+  const health = rows.filter((row): row is HarnessHealth => !!row && typeof (row as HarnessHealth).id === "string");
+  const own = except === undefined ? undefined : health.find((row) => row.id === except);
+  const due = health.filter(
+    (row) => row.outdated && !!row.version && !!row.latest && !!row.update && !row.update.elevated,
+  );
+  return oneRowPerInstall(due, (row) => offered(row.id)).filter((row) => {
+    const profiles = due.filter((other) => sameInstall(other, row));
+    if (profiles.some((other) => other.id === except || (own && sameInstall(other, own)))) return false;
+    if (profiles.some((other) => skippedVersions[other.id] === other.latest)) return false;
+    return profiles.some((other) => offered(other.id));
+  });
 }
 
 type Progress = Record<string, { latest: string; phase: "updating" | "failed" | "done" }>;
@@ -76,8 +82,9 @@ export function answerFor(batch: Promise<unknown>, id: string): Promise<unknown>
 /// `native` is the host's `harness.update {id}` -> `{ok, version?, error?}` (or `{ids}` ->
 /// `{results}`); `onUpdated` (stable, as `native` is) reads the health rows again once one
 /// finished, so its row leaves for good. `offered` says whether the model menus offer a harness:
-/// one they do not (acpmux's hidden `cmux` router fallback, which runs Claude Code's own `claude`)
-/// is not listed. Two rows of one brand ("opencode", "opencode-v2") never share a name.
+/// a binary only one they do not offer runs is not listed. Two profiles of one binary (acpmux's
+/// hidden `cmux` router fallback runs Claude Code's own `claude`) are one row, named for the binary
+/// (harnessInstalls.ts). Two rows of one brand ("opencode", "opencode-v2") never share a name.
 export function useHarnessUpdateList({
   rows,
   offer,
@@ -118,19 +125,21 @@ export function useHarnessUpdateList({
   );
   const list = useMemo<HarnessUpdateRow[]>(() => {
     const out: HarnessUpdateRow[] = [];
+    const ownRow = offer
+      ? (rows as readonly (HarnessHealth | null)[]).find((row) => row?.id === offer.harness)
+      : undefined;
     if (offer)
       out.push({
         harness: offer.harness,
-        agent: offer.agent,
+        agent: ownRow ? installName(ownRow, () => offer.agent) : offer.agent,
         version: offer.version,
         latest: offer.latest,
         update: offer.update,
         ...(offer.updateWith ? { updateWith: offer.updateWith } : {}),
         skip: offer.skip,
       });
-    for (const health of outdatedHarnesses(rows, skipped(), own ?? offer?.harness)) {
+    for (const health of outdatedHarnesses(rows, skipped(), own ?? offer?.harness, offered)) {
       const id = health.id;
-      if (!offered(id)) continue;
       const latest = health.latest ?? "";
       // A row's progress holds only for the version it was started for.
       const state = progress[id]?.latest === latest ? progress[id] : undefined;
@@ -138,7 +147,7 @@ export function useHarnessUpdateList({
       if (state?.phase === "done") continue;
       out.push({
         harness: id,
-        agent: nameFor(id),
+        agent: installName(health, nameFor),
         version: health.version ?? "",
         latest,
         ...(state ? { phase: state.phase } : {}),

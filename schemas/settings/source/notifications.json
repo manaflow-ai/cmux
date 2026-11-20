@@ -967,6 +967,49 @@
           "keywords": []
         },
         {
+          "key": "notifications.attention.mark",
+          "note": "Leo 2026-11-19: \"needs you\" as motion, a look customization, off by default (the badge stays the default).",
+          "title": {
+            "key": "settings.attention.mark",
+            "text": "Needs You Look"
+          },
+          "help": {
+            "key": "settings.attention.mark.help",
+            "text": "How a tab and a sidebar row that wait for you show it: the badge, or a gentle glow until you look at them."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "badge",
+              "title": {
+                "key": "settings.choice.badge",
+                "text": "Badge"
+              }
+            },
+            {
+              "value": "glow",
+              "title": {
+                "key": "settings.choice.glow",
+                "text": "Glow"
+              }
+            }
+          ],
+          "default": "badge",
+          "keywords": [
+            "needs you",
+            "glow",
+            "badge",
+            "unread",
+            "waiting",
+            "motion"
+          ],
+          "swift_enum": {
+            "name": "AttentionMarkLook",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          }
+        },
+        {
           "key": "notifications.attention.moveToTop",
           "title": {
             "key": "settings.attention.moveToTop",
