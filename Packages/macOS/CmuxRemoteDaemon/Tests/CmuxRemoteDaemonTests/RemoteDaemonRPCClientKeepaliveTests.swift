@@ -6,7 +6,9 @@ import CmuxCore
 
 @Suite("RemoteDaemonRPCClient transport keepalive")
 struct RemoteDaemonRPCClientKeepaliveTests {
-    private func configuration() -> WorkspaceRemoteConfiguration {
+    private func configuration(
+        agentSocketPath: String? = nil
+    ) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "fake-host",
             port: nil,
@@ -18,6 +20,7 @@ struct RemoteDaemonRPCClientKeepaliveTests {
             relayToken: nil,
             localSocketPath: nil,
             terminalStartupCommand: nil,
+            agentSocketPath: agentSocketPath,
             preserveAfterTerminalExit: false,
             persistentDaemonSlot: nil
         )
@@ -59,6 +62,48 @@ struct RemoteDaemonRPCClientKeepaliveTests {
         fi
         \(loopBody)
         """
+    }
+
+    private func environmentCaptureScript(recordPath: String) -> String {
+        """
+        #!/bin/sh
+        printf '%s\\n' "$HOME" "$USER" "$SSH_AUTH_SOCK" > '\(recordPath)'
+        \(helloResponseScript(loopBody: "while IFS= read -r line; do respond \"$line\"; done"))
+        """
+    }
+
+    @Test("stdio PTY transport inherits caller identity and SSH agent environment")
+    func stdioTransportPropagatesCallerEnvironment() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-remote-daemon-env-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let record = directory.appendingPathComponent("environment").path
+        let executable = try makeTransportScript(
+            name: "fake-ssh-environment",
+            body: environmentCaptureScript(recordPath: record)
+        )
+        defer {
+            try? FileManager.default.removeItem(at: URL(fileURLWithPath: executable).deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let client = RemoteDaemonRPCClient(
+            configuration: configuration(agentSocketPath: "/tmp/caller-agent.sock"),
+            remotePath: "/fake/cmuxd-remote",
+            strings: strings(),
+            keepaliveInterval: 60,
+            keepaliveTimeout: 60
+        ) { _ in }
+        defer { client.stop() }
+        client.transportExecutableOverride = executable
+
+        try client.start()
+        let values = try String(contentsOfFile: record, encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+        try #require(values.count == 4)
+        #expect(values[0] == ProcessInfo.processInfo.environment["HOME"])
+        #expect(values[1] == ProcessInfo.processInfo.environment["USER"])
+        #expect(values[2] == "/tmp/caller-agent.sock")
     }
 
     @Test("stdio transport keepalive reports a wedged daemon with live pipes")

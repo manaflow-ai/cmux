@@ -86,3 +86,46 @@ extension CGPoint {
         return CGPoint(x: x, y: viewIsFlipped ? y : viewHeight - y)
     }
 }
+
+/// One `input.mouse` wheel call's deltas as the scroll-wheel event's pixel
+/// counts. Page-space deltas scroll content down and right; wheel counts are
+/// the finger's direction, so they flip sign.
+public struct BrowserReplWheelDelta: Sendable, Equatable {
+    /// The vertical count (`wheel1` of a scroll-wheel CGEvent).
+    public let vertical: Int32
+    /// The horizontal count (`wheel2`).
+    public let horizontal: Int32
+
+    public init(vertical: Int32, horizontal: Int32) {
+        self.vertical = vertical
+        self.horizontal = horizontal
+    }
+
+    /// The counts for page-space deltas `deltaX` and `deltaY`, clamped to
+    /// a wheel count's range (the REPL sends any number). A non-finite
+    /// delta counts as 0.
+    public init(deltaX: Double, deltaY: Double) {
+        vertical = Self.count(-deltaY)
+        horizontal = Self.count(-deltaX)
+    }
+
+    /// The counts for page-space deltas `deltaX` and `deltaY`, or `nil` when
+    /// either is not a finite number.
+    public init?(validatingDeltaX deltaX: Double, deltaY: Double) {
+        guard deltaX.isFinite, deltaY.isFinite else { return nil }
+        self.init(deltaX: deltaX, deltaY: deltaY)
+    }
+
+    /// `value` rounded and clamped in `Double` first: converting a `Double`
+    /// outside `Int`'s range, or a non-finite one, to an integer traps.
+    private static func count(_ value: Double) -> Int32 {
+        guard value.isFinite else { return 0 }
+        return Int32(value.rounded().clamped(to: Double(Int32.min)...Double(Int32.max)))
+    }
+}
+
+private extension Double {
+    func clamped(to range: ClosedRange<Double>) -> Double {
+        Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
+    }
+}

@@ -12,7 +12,15 @@ export const APPLE_MANAGE_SUBSCRIPTIONS_URL = "https://apps.apple.com/account/su
 
 /** The App Store app; App Review purchases arrive from it in the Sandbox. */
 export const APP_STORE_BUNDLE_ID = "com.cmux.app";
-const DEFAULT_BUNDLE_IDS = [APP_STORE_BUNDLE_ID, "dev.cmux.app.beta"] as const;
+/**
+ * The App Store app first (the default for a request without a bundle header),
+ * then the classic TestFlight beta and cmux INTERNAL (`dev.cmux.app.internal`,
+ * App Store Connect 6791408425), the cmux-next TestFlight build. TestFlight
+ * buys only in the Sandbox, which production grants solely for the App Store
+ * bundle, so INTERNAL is answered `purchases_unavailable` there unless
+ * `APPLE_IAP_SANDBOX_ENTITLEMENTS` names it.
+ */
+const DEFAULT_BUNDLE_IDS = [APP_STORE_BUNDLE_ID, "dev.cmux.app.beta", "dev.cmux.app.internal"] as const;
 const DEFAULT_APP_APPLE_ID = 6783338052;
 
 /** Environments whose payloads carry an App Store signature. */
@@ -31,6 +39,31 @@ export const APPLE_USD_LIST_PRICE: Readonly<Record<PersonalPlanId, number>> = {
   pro: 74.99,
   max: 299.99,
 };
+
+/** App Store billing periods, the last segment of a product ID. */
+export const APPLE_BILLING_PERIODS = ["monthly", "yearly"] as const;
+export type AppleBillingPeriod = (typeof APPLE_BILLING_PERIODS)[number];
+
+/**
+ * Periods each plan sells, matching the web prices (plans.ts): Pro and Max
+ * monthly or yearly, Go monthly only.
+ */
+export const APPLE_PLAN_BILLING_PERIODS: Readonly<Record<PersonalPlanId, readonly AppleBillingPeriod[]>> = {
+  go: ["monthly"],
+  pro: ["monthly", "yearly"],
+  max: ["monthly", "yearly"],
+};
+
+/**
+ * USD estimate for one yearly charge when a transaction is in another
+ * currency: the monthly list price with the web's 20% yearly discount
+ * (12 months for the price of 9.6). Replace with the App Store yearly prices
+ * once they are set.
+ */
+export function appleUsdListPrice(planId: PersonalPlanId, period: AppleBillingPeriod): number {
+  const monthly = APPLE_USD_LIST_PRICE[planId];
+  return period === "yearly" ? Math.round(monthly * 9.6 * 100) / 100 : monthly;
+}
 
 export function isSignedAppleEnvironment(value: unknown): value is SignedAppleEnvironment {
   return value === "Production" || value === "Sandbox";
@@ -81,6 +114,40 @@ export type AppleServerApiCredentials = {
   readonly privateKey: string;
 };
 
+const SERVER_API_ENV_NAMES = ["APPLE_IAP_KEY_ID", "APPLE_IAP_ISSUER_ID", "APPLE_IAP_PRIVATE_KEY"] as const;
+
+/** Server API env names this deployment is missing (empty when the key is configured). */
+export function missingAppleServerApiEnv(env: Env = process.env): readonly string[] {
+  return SERVER_API_ENV_NAMES.filter((name) => trimmed(env[name]) === null);
+}
+
+/**
+ * Production must have the App Store Server API key: without it the client's
+ * own transaction is trusted, missed renewals cannot be re-checked, and lost
+ * notifications cannot be backfilled. The cron reports a missing key loudly.
+ */
+export function appleServerApiRequired(env: Env = process.env): boolean {
+  return env.VERCEL_ENV === "production";
+}
+
+export type AppleServerApiStatus = {
+  readonly appleServerApi: "configured" | "missing";
+  /** Whether this deployment must have it (production). */
+  readonly required: boolean;
+  /** Names of the missing env values, never their contents. */
+  readonly missingEnv: readonly string[];
+};
+
+/** The key's presence as server start and the admin analytics endpoint report it. */
+export function appleServerApiStatus(env: Env = process.env): AppleServerApiStatus {
+  const missingEnv = missingAppleServerApiEnv(env);
+  return {
+    appleServerApi: missingEnv.length === 0 ? "configured" : "missing",
+    required: appleServerApiRequired(env),
+    missingEnv,
+  };
+}
+
 /** App Store Server API key, or null when this deployment has none. */
 export function appleServerApiCredentials(env: Env = process.env): AppleServerApiCredentials | null {
   const keyId = trimmed(env.APPLE_IAP_KEY_ID);
@@ -92,15 +159,52 @@ export function appleServerApiCredentials(env: Env = process.env): AppleServerAp
 }
 
 /**
+ * Lowercased cmux account emails whose Sandbox purchases of the App Store
+ * bundle grant a plan in production (`APPLE_IAP_SANDBOX_ACCOUNT_EMAILS`,
+ * comma-separated). App Review's demo account must be listed, or App Review
+ * sees no products.
+ */
+export function appleSandboxAccountEmails(env: Env = process.env): readonly string[] {
+  return (list(env.APPLE_IAP_SANDBOX_ACCOUNT_EMAILS) ?? []).map((email) => email.toLowerCase());
+}
+
+/**
+ * Vercel project of cmux-staging.vercel.app. Staging is its own project deployed
+ * to that project's production environment, so it also runs with
+ * `VERCEL_ENV=production`; keep in step with scripts/cloud-vm/projects.mjs.
+ */
+const STAGING_VERCEL_PROJECT_ID = "prj_804LTAUdOwulMvEfcmfnU8bvGo3T";
+
+/**
+ * Whether this is the production cmux deployment, whose Sandbox grants are
+ * limited. Staging is excluded by its project ID; a production deployment of
+ * an unknown project counts as production, the stricter side.
+ */
+function isProductionSandboxPolicy(env: Env): boolean {
+  return env.VERCEL_ENV === "production" && env.VERCEL_PROJECT_ID !== STAGING_VERCEL_PROJECT_ID;
+}
+
+/**
+ * Whether the Sandbox decision depends on the cmux account's email. True only
+ * in a production deployment without an `APPLE_IAP_SANDBOX_ENTITLEMENTS`
+ * override, so other callers never need to read the email.
+ */
+export function appleSandboxGrantNeedsAccountEmail(env: Env = process.env): boolean {
+  return isProductionSandboxPolicy(env) && trimmed(env.APPLE_IAP_SANDBOX_ENTITLEMENTS) === null;
+}
+
+/**
  * Whether a Sandbox subscription may grant a real plan here. Sandbox
  * purchases are free, so production grants them only for the App Store
- * bundle, which is how App Review exercises purchases. TestFlight builds of
- * the beta bundle stay unentitled in production. Other deployments grant
- * every Sandbox purchase. `APPLE_IAP_SANDBOX_ENTITLEMENTS` overrides with
- * `all`, `none`, or a comma-separated bundle list.
+ * bundle and only to cmux accounts in `APPLE_IAP_SANDBOX_ACCOUNT_EMAILS`
+ * (App Review's demo account and the team's own testers). Any other TestFlight
+ * tester stays unentitled. Other deployments, staging included, grant every
+ * Sandbox purchase.
+ * `APPLE_IAP_SANDBOX_ENTITLEMENTS` overrides both with `all`, `none`, or a
+ * comma-separated bundle list, and then the email list is not consulted.
  */
 export function appleEnvironmentGrantsEntitlement(
-  input: { readonly environment: string; readonly bundleId: string },
+  input: { readonly environment: string; readonly bundleId: string; readonly accountEmail?: string | null },
   env: Env = process.env,
 ): boolean {
   if (input.environment === "Production") return true;
@@ -109,17 +213,72 @@ export function appleEnvironmentGrantsEntitlement(
   if (override === "all") return true;
   if (override === "none") return false;
   if (override) return list(override)?.includes(input.bundleId) ?? false;
-  if (env.VERCEL_ENV === "production") return input.bundleId === APP_STORE_BUNDLE_ID;
-  return true;
+  if (!isProductionSandboxPolicy(env)) return true;
+  if (input.bundleId !== APP_STORE_BUNDLE_ID) return false;
+  const email = input.accountEmail?.trim().toLowerCase();
+  return email ? appleSandboxAccountEmails(env).includes(email) : false;
 }
 
-/** `<bundleId>.<plan>.monthly`, the product ID for one plan in one app. */
-export function appleProductId(bundleId: string, planId: PersonalPlanId): string {
-  return `${bundleId}.${planId}.monthly`;
+/**
+ * Whether any account's Sandbox purchase of `bundleId` can grant a plan in
+ * this deployment (the account allowlist aside): appleEnvironmentGrantsEntitlement
+ * without the email check. The notification backfill reads Sandbox history
+ * only for these bundles.
+ */
+export function appleSandboxMayGrant(bundleId: string, env: Env = process.env): boolean {
+  const override = trimmed(env.APPLE_IAP_SANDBOX_ENTITLEMENTS);
+  if (override === "all") return true;
+  if (override === "none") return false;
+  if (override) return list(override)?.includes(bundleId) ?? false;
+  if (env.VERCEL_ENV !== "production") return true;
+  return bundleId === APP_STORE_BUNDLE_ID;
+}
+
+/** One App Store Server Notifications history to backfill from. */
+export type AppleNotificationHistorySource = {
+  readonly bundleId: string;
+  readonly environment: SignedAppleEnvironment;
+};
+
+/**
+ * Histories this deployment backfills: Production for every accepted bundle,
+ * and Sandbox for the bundles whose Sandbox purchases can grant here (in
+ * production, `com.cmux.app` only: App Review and allowlisted testers).
+ */
+export function appleNotificationHistorySources(env: Env = process.env): readonly AppleNotificationHistorySource[] {
+  const sources: AppleNotificationHistorySource[] = [];
+  for (const bundleId of appleBundleIds(env)) {
+    sources.push({ bundleId, environment: "Production" });
+    if (appleSandboxMayGrant(bundleId, env)) sources.push({ bundleId, environment: "Sandbox" });
+  }
+  return sources;
+}
+
+/** `<bundleId>.<plan>.<monthly|yearly>`, the product ID for one plan and period in one app. */
+export function appleProductId(bundleId: string, planId: PersonalPlanId, period: AppleBillingPeriod = "monthly"): string {
+  return `${bundleId}.${planId}.${period}`;
+}
+
+/** The plan and period an Apple product sells, or null for a product this server does not know. */
+export function appleProductFor(
+  productId: unknown,
+  bundleId: unknown,
+): { readonly planId: PersonalPlanId; readonly billingPeriod: AppleBillingPeriod } | null {
+  if (typeof productId !== "string" || typeof bundleId !== "string") return null;
+  for (const planId of APPLE_PLAN_IDS) {
+    for (const billingPeriod of APPLE_PLAN_BILLING_PERIODS[planId]) {
+      if (appleProductId(bundleId, planId, billingPeriod) === productId) return { planId, billingPeriod };
+    }
+  }
+  return null;
 }
 
 /** The plan an Apple product sells, or null for a product this server does not know. */
 export function planIdForAppleProduct(productId: unknown, bundleId: unknown): PersonalPlanId | null {
-  if (typeof productId !== "string" || typeof bundleId !== "string") return null;
-  return APPLE_PLAN_IDS.find((planId) => appleProductId(bundleId, planId) === productId) ?? null;
+  return appleProductFor(productId, bundleId)?.planId ?? null;
+}
+
+/** The billing period of a known product ID (`monthly` when unknown). */
+export function appleBillingPeriodForProduct(productId: string, bundleId: string): AppleBillingPeriod {
+  return appleProductFor(productId, bundleId)?.billingPeriod ?? "monthly";
 }

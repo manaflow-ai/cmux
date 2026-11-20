@@ -40,8 +40,15 @@ enum RemoteTmuxControlMessage: Sendable, Equatable {
     /// way, because a window is not in the view until cmux links it.
     case unlinkedWindowAdd(windowId: Int)
 
-    /// `%window-close @<id>` / `%unlinked-window-close @<id>` — a window closed.
+    /// `%unlinked-window-close @<id>` — a window left the attached session: it was killed, or
+    /// unlinked from this session.
     case windowClose(windowId: Int)
+
+    /// `%window-close @<id>` — a window lost a link in some session but is still in the
+    /// attached session. tmux checks the client's session after the unlink and sends this form
+    /// only when the window is still there (measured on tmux 3.7b); `move-window` inside a
+    /// session produces it, because it links the window at the new index and unlinks the old one.
+    case windowUnlinkedElsewhere(windowId: Int)
 
     /// `%window-renamed @<id> <name>` — a window was renamed.
     case windowRenamed(windowId: Int, name: String)

@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """
-Keeps skills/cmux-cloud-vm in lockstep with the `cmux vm` CLI.
+Keeps the Cloud skill and the affected CLI references in lockstep with the
+current CLI and guest dispatcher.
 
-Ground truth is the Swift source (no binary needed, so this runs on the Linux
-guard lane):
+Ground truth is the CLI, guest, and plugin source (no binary needed, so this
+runs on the Linux guard lane):
 
   - every `cmux vm <verb>` (and alias) the dispatcher accepts,
   - every `cmux vm workspace|terminal <sub>` and `cmux surface <sub>`,
   - the `cmux vm` usage line and its probe in docs/cli-contract.md,
-  - every `vm.*` / `surface.*` socket method the app advertises.
+  - every `vm.*` / `surface.*` socket method the app advertises,
+  - aliases, guest-only grammar, help options, and socket defaults called out
+    by the CLI documentation.
 
 The check fails when the skill documents a verb that does not exist, when a
 verb exists that the skill does not document, when the "In flight" section
@@ -25,8 +28,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 CLI_MAIN = ROOT / "CLI" / "cmux.swift"
 CLI_TUI = ROOT / "CLI" / "CMUXCLI+VMTui.swift"
+CLI_TASK_HELP = ROOT / "CLI" / "CMUXCLI+TaskHelp.swift"
+CLI_CODEROUTER = ROOT / "CLI" / "CMUXCLI+Coderouter.swift"
+CLI_HIBERNATION = ROOT / "CLI" / "CMUXCLI+AgentHibernation.swift"
+GUEST_CLI = ROOT / "web" / "services" / "vms" / "guestCli.ts"
+OPENCODE_PLUGIN = ROOT / "Resources" / "opencode-plugin.js"
 CAPABILITIES = ROOT / "Sources" / "TerminalController+Capabilities.swift"
 CONTRACT = ROOT / "docs" / "cli-contract.md"
+FEED_DOC = ROOT / "docs" / "feed.md"
+WORKSPACE_SKILL = ROOT / "skills" / "cmux-workspace" / "SKILL.md"
+BROWSER_COMMANDS = ROOT / "skills" / "cmux-browser" / "references" / "commands.md"
 SKILL_DIR = ROOT / "skills" / "cmux-cloud-vm"
 COMMANDS_MD = SKILL_DIR / "references" / "commands.md"
 BUNDLED_SKILL = ROOT / "Resources" / "en.lproj" / "cloud-agent-skill.md"
@@ -112,7 +123,7 @@ def contract_probe_verbs(contract: str) -> list[str]:
     return match.group(1).split("|")
 
 
-CLOUD_SURFACE_METHODS = {"surface.catalog", "surface.project", "surface.new_terminal"}
+CLOUD_SURFACE_METHODS = {"surface.catalog", "surface.project", "surface.new_terminal", "surface.new_display"}
 
 
 def advertised_methods(source: str) -> tuple[set[str], set[str]]:
@@ -138,10 +149,87 @@ def in_flight_section(markdown: str) -> str:
     return match.group(0) if match else ""
 
 
+def cli_docs_drift_failures() -> list[str]:
+    """Check the command details that verb coverage alone cannot validate."""
+    failures: list[str] = []
+    commands = COMMANDS_MD.read_text(encoding="utf-8")
+    contract = CONTRACT.read_text(encoding="utf-8")
+    task_help = CLI_TASK_HELP.read_text(encoding="utf-8")
+    coderouter = CLI_CODEROUTER.read_text(encoding="utf-8")
+    hibernation = CLI_HIBERNATION.read_text(encoding="utf-8")
+    guest_cli = GUEST_CLI.read_text(encoding="utf-8")
+    opencode_plugin = OPENCODE_PLUGIN.read_text(encoding="utf-8")
+    feed = FEED_DOC.read_text(encoding="utf-8")
+    workspace = WORKSPACE_SKILL.read_text(encoding="utf-8")
+    browser_commands = BROWSER_COMMANDS.read_text(encoding="utf-8")
+
+    # These are executable aliases/grammars, not merely prose. Keep the
+    # references tied to the dispatchers that agents will actually run.
+    guest_vm = re.search(r'case "\\\$sub" in\n(?P<body>.*?)\n      connect\)', guest_cli, re.S)
+    if guest_vm is None or not re.search(r"\bls\|list\|peers\|links\b", guest_vm.group("body")):
+        failures.append("guest vm dispatcher no longer exposes ls/list/peers/links")
+    if "`cmux cloud ls` == `cmux vm ls`" not in commands:
+        failures.append("cloud ls reference does not document the vm ls alias")
+    if "guest `cmux vm ls` lists the team's machines" not in commands:
+        failures.append("cloud reference does not use the guest vm ls grammar")
+    if "guest `cmux vm self` lists the team's machines" in commands:
+        failures.append("cloud reference still claims guest vm self lists machines")
+
+    owned = re.search(r"cmuxOwnedCoderouterVerbs: Set<String> = \[(?P<verbs>[^]]+)\]", coderouter)
+    if owned is None or "agent" not in QUOTED_RE.findall(owned.group("verbs")):
+        failures.append("coderouter source no longer declares agent as an owned verb")
+    if "`cmux coderouter <status\\|machines\\|claude\\|agent>`" not in contract:
+        failures.append("cli contract omits the app-owned coderouter agent verb")
+
+    hibernation_has_target_form = "cmux agent-hibernation <hibernate|wake> <surface>" in hibernation
+    if hibernation_has_target_form and "cmux agent-hibernation <hibernate|wake> <surface>" not in contract:
+        failures.append("cli contract omits the agent-hibernation target form")
+    close_help = re.search(r'case "close-window":\n\s+return """\n\s+(Usage: cmux close-window [^\n]+)', CLI_MAIN.read_text(encoding="utf-8"))
+    if close_help is None:
+        failures.append("could not read close-window usage from the CLI")
+    elif f"`cmux close-window --help` -> `{close_help.group(1)}`" not in contract:
+        failures.append("cli contract close-window probe omits the live usage options")
+
+    design_mode = re.search(r"browser design-mode ([a-z|]+) \[--surface", task_help)
+    if design_mode is None:
+        failures.append("could not read browser design-mode verbs from task help")
+    elif f"design-mode {design_mode.group(1)}" not in browser_commands:
+        failures.append("browser skill design-mode verbs differ from task help")
+
+    default_socket = re.search(
+        r"CMUX_SOCKET_PATH\s+Override the Unix socket path\. Without this, the CLI defaults\s+to (~/\.local/state/cmux/cmux\.sock)",
+        task_help,
+    )
+    if default_socket is None:
+        failures.append("could not read the CLI's default socket path")
+    else:
+        path = default_socket.group(1)
+        if path not in feed:
+            failures.append("feed docs use a stale socket path")
+        if ".local/state/cmux/cmux.sock" not in workspace or "/tmp/cmux.sock" in workspace:
+            failures.append("workspace skill uses a stale socket fallback")
+        if "auto-discovers tagged/debug sockets" not in task_help:
+            failures.append("could not read the CLI's tagged/debug socket discovery guidance")
+        elif "auto-discovers tagged/debug sockets" not in feed or "auto-discovers tagged/debug sockets" not in workspace:
+            failures.append("socket docs omit the CLI's tagged/debug socket discovery guidance")
+        plugin_default = re.search(
+            r"const DEFAULT_SOCKET = `\$\{os\.homedir\(\)\}(/\.config/cmux/cmux\.sock)`",
+            opencode_plugin,
+        )
+        if plugin_default is None:
+            failures.append("could not read the OpenCode plugin's default socket path")
+        elif f"~{plugin_default.group(1)}" not in feed:
+            failures.append("feed docs omit the OpenCode plugin's default socket path")
+    return failures
+
+
 def main() -> int:
+    """Run the source-to-reference coverage and documentation drift checks."""
     failures: list[str] = []
     cli_main = CLI_MAIN.read_text(encoding="utf-8")
     cli_tui = CLI_TUI.read_text(encoding="utf-8")
+
+    failures.extend(cli_docs_drift_failures())
 
     groups = case_groups(vm_dispatch_block(cli_main))
     verbs = {verb for group in groups for verb in group}
@@ -262,7 +350,7 @@ def main() -> int:
         failures.append(f"{COMMANDS_MD.relative_to(ROOT)} mentions {method}, which the app does not advertise")
 
     if failures:
-        print("FAIL: cmux-cloud-vm skill drifted from the CLI")
+        print("FAIL: CLI documentation drifted from the source contract")
         for failure in failures:
             print(f"  - {failure}")
         return 1

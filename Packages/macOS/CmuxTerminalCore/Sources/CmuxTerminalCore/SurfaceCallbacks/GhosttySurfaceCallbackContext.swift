@@ -224,6 +224,23 @@ public final class GhosttySurfaceCallbackContext {
         return try body()
     }
 
+    /// Whether the current synchronous callback dispatch carries a native paste
+    /// gesture marker. The marker is set around Cmd+V, Paste, and middle-click
+    /// dispatch and is absent for unsequenced terminal-origin reads such as OSC 52.
+    /// It is dispatch-wide so a Ghostty `all:` paste binding can target several
+    /// surfaces synchronously; remote I/O on other threads cannot see it.
+    public var hasRuntimeClipboardPasteIntent: Bool {
+        pthread_getspecific(Self.runtimeClipboardPasteDispatchKey) != nil
+    }
+
+    /// Whether this runtime may read the Mac clipboard on the current callback.
+    /// Manual mirrors remain write-only trusted transports: only an explicitly
+    /// marked native paste dispatch can read their pasteboard content.
+    public var allowsRuntimeClipboardRead: Bool {
+        guard let surfaceController else { return false }
+        return !surfaceController.requiresClipboardReadGesture || hasRuntimeClipboardPasteIntent
+    }
+
     /// The immutable native surface address bound to this callback context.
     public var runtimeClipboardSurfaceAddress: UInt? {
         runtimeClipboardState.withLock { state in

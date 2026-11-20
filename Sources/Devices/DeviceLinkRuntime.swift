@@ -7,10 +7,11 @@ import CmuxSurfaceCatalogModel
 import Foundation
 
 /// The Mac's `MobileSyncRuntime`: what the shared RPC client needs from the
-/// app to dial another Mac. Tokens come through ``HiveAccountTokenSource``,
-/// bound to the account generation and team scope the directory was built for
-/// (the same identity the host verifies): after a sign-out or account switch
-/// every token call fails instead of carrying the next account's token.
+/// app to dial another Mac. Tokens come through ``HiveAccountTokenSource`` and
+/// are bound to the signed-in account generation. When the account Mac
+/// directory is enabled, a selected-team change is independent of an
+/// account-owned device link; the feature flag's rollback path uses the
+/// selected team as before.
 /// Transports come from the shared Network.framework factory the iOS app uses,
 /// restricted to the route kinds ``DeviceRouteSelector`` admits.
 struct DeviceLinkRuntime: MobileSyncRuntime {

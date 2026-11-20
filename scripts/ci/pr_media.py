@@ -384,6 +384,14 @@ def plan(repository: str) -> int:
         write_outputs({"tours": "[]", "run": "[]"})
         print("Fork pull requests get no media.", flush=True)
         return 0
+    if run_id and pull.get("draft"):
+        # A draft gets no tours from its CI runs: each tour is a macOS run and
+        # spends the GITHUB_TOKEN budget every workflow shares (2026-10-26). A
+        # dispatch (`gh workflow run pr-media.yml -f pr=<n>`) still tours a draft.
+        write_outputs({"tours": "[]", "run": "[]"})
+        print(f"#{pr} is a draft; its next CI run after it is marked ready makes media "
+              f"(or dispatch pr-media.yml with pr={pr}).", flush=True)
+        return 0
     head_sha = pull["head"]["sha"]
     if run_id and head_sha != run["head_sha"]:
         write_outputs({"tours": "[]", "run": "[]"})
@@ -429,7 +437,12 @@ def plan(repository: str) -> int:
     merge_sha = built_merge(run if mains_build else build_run)
     pages = gh_json([f"repos/{repository}/pulls/{pr}/files?per_page=100", "--paginate", "--slurp"]) or []
     changed = [entry["filename"] for page in pages for entry in page if isinstance(entry, dict)]
-    subprocess.run(["git", "fetch", "--no-tags", "--depth=1", "origin", head_sha], cwd=ROOT, check=True)
+    # Depth 1 only in a shallow checkout (CI's): in a full clone --depth writes
+    # .git/shallow and truncates history for every worktree sharing it.
+    shallow = subprocess.run(["git", "rev-parse", "--is-shallow-repository"], cwd=ROOT, check=True,
+                             capture_output=True, text=True).stdout.strip() == "true"
+    depth = ["--depth=1"] if shallow else []
+    subprocess.run(["git", "fetch", "--no-tags", *depth, "origin", head_sha], cwd=ROOT, check=True)
     scenarios = head_scenarios(head_sha)
     # A head that predates a tour's `paths` is still picked by main's globs.
     for name, scenario in scenarios.items():
@@ -766,13 +779,14 @@ def uploader():
 def upload(tool, repository: str, path: str, local: Path, message: str, attempts: int = 4,
            sleep: Callable[[float], None] = time.sleep) -> None:
     """put_file, retried: publish jobs of several PRs and people's uploads move
-    the media branch at once, so a lost race or a 5xx is routine."""
+    the media branch at once, so a lost race or a 5xx is routine. A privacy
+    refusal is not retried: the same file is refused every time."""
     for attempt in range(attempts):
         try:
             tool.put_file(repository, MEDIA_BRANCH, path, local, message)
             return
-        except tool.MediaError:
-            if attempt == attempts - 1:
+        except tool.MediaError as error:
+            if isinstance(error, getattr(tool, "PrivacyError", ())) or attempt == attempts - 1:
                 raise
             sleep(3 + 4 * attempt)
 

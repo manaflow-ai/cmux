@@ -35,8 +35,11 @@ class RolloutRetirementTests(unittest.TestCase):
         badge = source.split("struct ProBadgeView: View {", 1)[1].split("final class ProBadgeDebugWindowController", 1)[0]
         self.assertIn("if !ProBadgeStyleStore.shared.isDismissed", badge)
         self.assertIn("ProBadgeStyleStore.shared.isDismissed = true", badge)
-        self.assertIn("ProUpgradePresenter.present(source: .sidebarBadge)", badge)
+        self.assertIn("actions.upgrade()", badge)
         self.assertNotIn("CmuxFeatureFlags", badge)
+        actions = (ROOT / "Sources/ProBadgeActions.swift").read_text()
+        self.assertIn("static let source = ProUpgradeSource.sidebarBadge", actions)
+        self.assertIn("ProUpgradePresenter.present(source: Self.source", actions)
 
     def test_cloud_entrypoints_use_policy_and_local_activation(self):
         for relative in (

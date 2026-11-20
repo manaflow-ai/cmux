@@ -82,6 +82,7 @@ struct RemoteTmuxMultiplexFuzzTests {
             "onSessionChanged": .ownedElsewhere(
                 "the shared stream's %session-changed describes the hidden view session; per-session "
                     + "rename is driven by the coordinator"),
+            "onPaneAgent": .scopedByPane,
             "onExit": .ownedElsewhere(
                 "%exit is host-stream death; the coordinator tears down every session, and fanning it "
                     + "per channel would double-tear-down"),
@@ -98,6 +99,7 @@ struct RemoteTmuxMultiplexFuzzTests {
             onPaneTitleChanged: nil,
             onActivePaneChanged: nil,
             onSessionChanged: nil,
+            onPaneAgent: nil,
             onTopologyChanged: nil,
             onReconnectReady: nil,
             onExit: nil,
@@ -588,6 +590,7 @@ private final class MultiplexFuzzHarness {
                 onPaneTitleChanged: nil,
                 onActivePaneChanged: nil,
                 onSessionChanged: nil,
+                onPaneAgent: nil,
                 onTopologyChanged: nil,
                 onReconnectReady: { readyPerChannel[id, default: 0] += 1 },
                 onExit: nil,
@@ -635,6 +638,7 @@ private final class MultiplexFuzzHarness {
                 onPaneTitleChanged: nil,
                 onActivePaneChanged: nil,
                 onSessionChanged: nil,
+                onPaneAgent: nil,
                 onTopologyChanged: nil,
                 onReconnectReady: nil,
                 onExit: nil,

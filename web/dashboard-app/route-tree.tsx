@@ -1,6 +1,7 @@
 import { billingRoute, billingRoutes } from "./routes/billing";
 import { coderouterRoutes } from "./routes/coderouter";
 import { homeRoutes } from "./routes/home";
+import { opsRoutes } from "./routes/ops";
 import { redirectRoutes } from "./routes/redirects";
 import { rootRoute, shellRoute } from "./routes/root";
 import { settingsHubRoute, settingsRouteTree } from "./routes/settings";
@@ -16,5 +17,6 @@ export const routeTree = rootRoute.addChildren([
     settingsHubRoute.addChildren([settingsRouteTree, billingRoute, ...hubTeamsRoutes]),
     ...teamsRoutes,
     ...vaultRoutes,
+    ...opsRoutes,
   ]),
 ]);

@@ -41,6 +41,14 @@ struct CmuxConfigSemanticValidatorTests {
         #expect(result.isEmpty)
     }
 
+    @Test("accepts removed settings keys left in existing configs")
+    func acceptsRemovedSettingsKeys() throws {
+        let result = try issues([
+            "terminal": ["showJumpToBottomButton": false],
+        ])
+        #expect(result.isEmpty)
+    }
+
     @Test("accepts canonical classic catalog sections")
     func acceptsCanonicalClassicCatalogSections() throws {
         let result = try issues([

@@ -72,6 +72,14 @@ struct SharedLiveAgentIndexLoader {
             ?? CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let processSnapshot = processSnapshotProvider()
         guard processSnapshot.captureIsAvailable, processSnapshot.enumerationIsComplete, !Task.isCancelled else {
+#if DEBUG
+            cmuxDebugLog(
+                "liveAgentIndex.unavailable capture=\(processSnapshot.captureIsAvailable ? 1 : 0) " +
+                "complete=\(processSnapshot.enumerationIsComplete ? 1 : 0) " +
+                "missing=\(processSnapshot.enumerationMissingProcessCount) " +
+                "processes=\(processSnapshot.processesByPID.count)"
+            )
+#endif
             return (.unavailable, [], [], [])
         }
         let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(

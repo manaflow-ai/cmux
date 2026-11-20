@@ -971,15 +971,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let stopped = try sessionRecord()
         XCTAssertEqual(stopped["agentLifecycle"] as? String, "idle", "Stop must establish idle before testing the reminder")
 
-        for payload in [
-            #"{"session_id":"\#(sessionId)","hook_event_name":"Notification","notification_type":"idle_prompt","message":"Claude is waiting for your input"}"#,
-            #"{"session_id":"\#(sessionId)","hook_event_name":"Notification","message":"Claude is waiting for your input"}"#,
-        ] {
+        let structuredIdlePayload = #"{"session_id":"\#(sessionId)","hook_event_name":"Notification","notification_type":"idle_prompt","message":"Claude is waiting for your input"}"#
+        do {
             let reminderCommandStart = context.state.commands.count
             let reminder = runClaudeHookWithoutServer(
                 context: context,
                 arguments: ["hooks", "claude", "notification"],
-                standardInput: payload,
+                standardInput: structuredIdlePayload,
                 extraEnvironment: launchEnvironment
             )
             XCTAssertFalse(reminder.timedOut, reminder.stderr)
@@ -995,6 +993,24 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertEqual(reminded["hookEventName"] as? String, "Stop")
 
         }
+
+        // A notification without the provider's structured idle marker is a
+        // real prose waiting request and must still surface after completion.
+        let realWaitingCommandStart = context.state.commands.count
+        let realWaiting = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"Notification","message":"Claude is waiting for your input"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(realWaiting.timedOut, realWaiting.stderr)
+        XCTAssertEqual(realWaiting.status, 0, realWaiting.stderr)
+        XCTAssertTrue(context.state.commands.dropFirst(realWaitingCommandStart).contains {
+            $0.hasPrefix("set_status claude_code Needs input ")
+        })
+        let waitingRecord = try sessionRecord()
+        XCTAssertEqual(waitingRecord["agentLifecycle"] as? String, "needsInput")
+        XCTAssertEqual(waitingRecord["hookEventName"] as? String, "Notification")
 
         // A real permission request after completion must still surface.
         let permissionCommandStart = context.state.commands.count

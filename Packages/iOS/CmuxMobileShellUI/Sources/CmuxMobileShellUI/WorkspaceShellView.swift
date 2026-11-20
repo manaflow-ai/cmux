@@ -85,6 +85,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
 
     let openSettings: () -> Void
     let openDevices: () -> Void
+    let openChief: (() -> Void)?
     let title: String
     let isLoading: Bool
     let selection: WorkspaceMacSelection
@@ -160,6 +161,15 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
             .accessibilityLabel(L10n.string("mobile.connections.title", defaultValue: "Computers"))
             .accessibilityIdentifier("MobileWorkspaceDevicesButton")
         }
+        if let openChief {
+            ToolbarItem(id: "workspace-list-chief", placement: .topBarTrailing) {
+                Button(action: openChief) {
+                    Image(systemName: "bubble.left.and.bubble.right.fill")
+                }
+                .accessibilityLabel("Chief")
+                .accessibilityIdentifier("MobileWorkspaceChiefButton")
+            }
+        }
     }
 }
 
@@ -168,6 +178,7 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
 
     let openSettings: () -> Void
     let openDevices: () -> Void
+    let openChief: (() -> Void)?
     let pendingSelection: WorkspaceMacSelection?
     let select: (WorkspaceMacSelection) -> Void
     let showAddDevice: (() -> Void)?
@@ -177,6 +188,7 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
         WorkspaceRootToolbarContent(
             openSettings: openSettings,
             openDevices: openDevices,
+            openChief: openChief,
             title: renderContext.title,
             isLoading: pendingSelection != nil,
             selection: pendingSelection ?? renderContext.visibleSelection,
@@ -371,6 +383,11 @@ struct WorkspaceShellView: View {
                     selectedPrimaryTab = .feed
                 }
             }
+            .onChange(of: store.supportsChief, initial: true) { _, supported in
+                if !supported, selectedPrimaryTab == .home {
+                    selectedPrimaryTab = .workspaces
+                }
+            }
             .onChange(of: selectedPrimaryTab) { oldValue, newValue in
                 store.recordAppEvent(
                     .primaryTabSelected,
@@ -436,6 +453,7 @@ struct WorkspaceShellView: View {
                 )
             },
             showsNotificationsTab: !displaySettings.feedReplacesNotifications,
+            homeContent: store.supportsChief ? AnyView(chiefHomeContent) : nil,
             taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
                 ? nil
                 : taskComposerAction
@@ -511,6 +529,27 @@ struct WorkspaceShellView: View {
             cloudTabContent?.makeView()
         } search: {
             primarySearchTabContent(presentation: presentation)
+        }
+    }
+
+    /// Home is a negotiated destination. Keeping the unavailable state in the
+    /// destination itself means a stale tab selection degrades to a useful
+    /// explanation during reconnect instead of leaving a blank tab.
+    private var chiefHomeContent: some View {
+        Group {
+            if let client = store.makeChiefClient() {
+                ChiefHomeView(client: client)
+                    // Chief RPC clients are bound to the selected Mac. Reset
+                    // the list/transcript state when that connection changes
+                    // so a Home view never shows the previous Mac's rows.
+                    .id("\(store.connectedMacDeviceID ?? "unknown"):\(store.connectedMacInstanceTag ?? "")")
+            } else {
+                ContentUnavailableView(
+                    "Chief unavailable",
+                    systemImage: "bubble.left.and.bubble.right",
+                    description: Text("Connect to a Mac that supports Chief.")
+                )
+            }
         }
     }
 
@@ -1000,6 +1039,8 @@ struct WorkspaceShellView: View {
         let notificationItems = presentation.notificationFeedItems
         return Group {
             switch splitSidebarDestination {
+            case .home:
+                chiefHomeContent
             case .feed:
                 agentFeedStoreView(for: presentation)
             case .notifications:
@@ -1094,6 +1135,9 @@ struct WorkspaceShellView: View {
             WorkspaceSidebarDestinationControl(
                 selection: splitSidebarDestinationSelection,
                 workspacesTitle: L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"),
+                homeTitle: store.supportsChief
+                    ? L10n.string("mobile.tabs.home", defaultValue: "Home")
+                    : nil,
                 feedTitle: L10n.string("mobile.tabs.feed", defaultValue: "Feed"),
                 notificationsTitle: notificationsSegmentTitle(unreadCount: unreadCount),
                 showsNotifications: !displaySettings.feedReplacesNotifications,
@@ -1124,6 +1168,7 @@ struct WorkspaceShellView: View {
     private struct WorkspaceSidebarDestinationControl: View {
         let selection: Binding<MobilePrimaryTab>
         let workspacesTitle: String
+        let homeTitle: String?
         let feedTitle: String
         let notificationsTitle: String
         let showsNotifications: Bool
@@ -1132,6 +1177,13 @@ struct WorkspaceShellView: View {
 
         var body: some View {
             HStack(spacing: 0) {
+                if let homeTitle {
+                    destinationButton(
+                        .home,
+                        title: homeTitle,
+                        accessibilityID: "MobileSplitSidebarHome"
+                    )
+                }
                 destinationButton(
                     .workspaces,
                     title: workspacesTitle,
@@ -1210,10 +1262,17 @@ struct WorkspaceShellView: View {
         Binding(
             get: { splitSidebarDestination },
             set: { newValue in
-                if primarySearchCoordinator.isPresented, let scope = newValue.searchScope {
-                    // Switching destinations mid-search re-scopes the session
-                    // instead of abandoning it under the old scope.
-                    primarySearchCoordinator.beginSearch(for: scope)
+                if primarySearchCoordinator.isPresented {
+                    if let scope = newValue.searchScope {
+                        // Switching destinations mid-search re-scopes the session
+                        // instead of abandoning it under the old scope.
+                        primarySearchCoordinator.beginSearch(for: scope)
+                    } else {
+                        // Home and Cloud have no search scope. Dismiss the
+                        // split search before changing destination so the
+                        // sidebar cannot snap back to the old search scope.
+                        primarySearchCoordinator.cancelPresentedSearch()
+                    }
                 }
                 selectedPrimaryTab = newValue
             }
@@ -1401,6 +1460,11 @@ struct WorkspaceShellView: View {
         WorkspaceRootToolbarLiveContent(
             openSettings: showSettings,
             openDevices: showComputers,
+            // The split sidebar keeps its native search field mounted while
+            // a search is presented. Route toolbar navigation through the
+            // same transition helper as the tab bar so Home cannot be
+            // immediately replaced by the still-present search scope.
+            openChief: store.supportsChief ? { transitionPrimaryTab(to: .home) } : nil,
             pendingSelection: rootToolbarPendingSelection,
             select: handleRootToolbarSelection,
             showAddDevice: showAddDevice,
@@ -1635,6 +1699,8 @@ struct WorkspaceShellView: View {
     private func consumePendingPrimarySearchNavigation(for tab: MobilePrimaryTab) {
         guard !primarySearchCoordinator.isPresented else { return }
         switch tab {
+        case .home:
+            break
         case .workspaces:
             // Compact pushes must wait for the workspaces stack to be in the
             // window (its onAppear re-runs this); the split layout only writes
@@ -1723,6 +1789,7 @@ struct WorkspaceShellView: View {
 
     private func diagnosticPrimaryTab(_ tab: MobilePrimaryTab) -> DiagnosticPrimaryTab {
         switch tab {
+        case .home: .home
         case .workspaces: .workspaces
         case .feed: .feed
         case .notifications: .notifications

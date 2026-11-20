@@ -426,7 +426,7 @@ struct AgentLaunchSanitizerTests {
                 ["agy", "-i", "--prompt", "summarize"],
                 launcher: "antigravity",
                 fallbackKind: "antigravity"
-            ) == nil
+            ) == ["agy"]
         )
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
@@ -435,6 +435,30 @@ struct AgentLaunchSanitizerTests {
                 fallbackKind: "antigravity"
             ) == nil
         )
+    }
+
+    @Test("Drops Antigravity interactive prompt while preserving launch options")
+    func dropsAntigravityInteractivePromptWhilePreservingLaunchOptions() {
+        for promptOption in ["--prompt-interactive", "-i"] {
+            #expect(
+                AgentLaunchSanitizer.sanitizedLaunchArguments(
+                    [
+                        "agy",
+                        promptOption,
+                        "models",
+                        "--sandbox",
+                        "danger-full-access",
+                        "initial prompt should not replay",
+                    ],
+                    launcher: "antigravity",
+                    fallbackKind: "antigravity"
+                ) == [
+                    "agy",
+                    "--sandbox",
+                    "danger-full-access",
+                ]
+            )
+        }
     }
 
     @Test("Drops Grok optional selectors without swallowing later options")

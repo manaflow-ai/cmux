@@ -12,9 +12,32 @@ struct CloudMachineAccessLossTests {
         #expect(CloudMachineAccessLoss(error: VMClientError.httpStatus(409, #"{"error":"vm_owner_mismatch"}"#)) == .ownerMismatch)
     }
 
+    @Test("A revoked Mac sign-in asks for a new sign-in, not a lost machine")
+    func revokedSignIn() throws {
+        let body = #"{"error":"vm_access_revoked","phase":"network","message":"Cloud access for this Mac login was revoked."}"#
+        let loss = try #require(CloudMachineAccessLoss(error: VMClientError.httpStatus(403, body)))
+        #expect(loss == .signInRevoked)
+        #expect(!loss.isMachineScoped)
+        #expect(CloudMachineAccessLoss.forbidden.isMachineScoped)
+        #expect(CloudMachineAccessLoss.notFound.isMachineScoped)
+        #expect(CloudMachineAccessLoss.ownerMismatch.isMachineScoped)
+    }
+
+    @Test("A 403 about a team, a plan or this Mac's network never ends the machine", arguments: [
+        #"{"error":"vm_billing_team_not_found","message":"That team is not available for this account."}"#,
+        #"{"error":"vm_billing_team_required"}"#,
+        #"{"error":"vm_resize_plan_limit","phase":"resize"}"#,
+        #"{"error":"vm_bound_token_required"}"#,
+        #"{"error":"vm_tunnel_some_future_refusal","phase":"network"}"#,
+    ])
+    func nonMachineForbidden(body: String) {
+        #expect(CloudMachineAccessLoss(error: VMClientError.httpStatus(403, body)) == nil)
+    }
+
     @Test("Transient answers keep automatic reconnects", arguments: [
         VMClientError.httpStatus(404, #"{"error":"route_not_found"}"#),
         VMClientError.httpStatus(404, "not json"),
+        VMClientError.httpStatus(409, #"{"error":"vm_access_grant_busy","retryable":true,"retryAfterSeconds":1}"#),
         VMClientError.httpStatus(429, #"{"error":"rate_limited"}"#),
         VMClientError.httpStatus(503, #"{"error":"vm_unavailable"}"#),
         VMClientError.notSignedIn,

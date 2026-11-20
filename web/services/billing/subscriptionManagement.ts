@@ -30,11 +30,18 @@ export async function activeStripeSubscriptionForStackUser(stackUserId: string) 
         eq(stripeSubscriptions.stackUserId, stackUserId),
         eq(stripeSubscriptions.scope, "user"),
         inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
+        // Founder's Edition is a one-time purchase, never the subscription.
         sql`coalesce(${stripeSubscriptions.raw}->'metadata'->>'founders_edition', '') <> 'true'`,
+        sql`${stripeSubscriptions.id} not like 'founders\\_%'`,
         inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
       ),
     )
-    .orderBy(desc(stripeSubscriptions.currentPeriodEnd), desc(stripeSubscriptions.updatedAt))
+    // The same subscription the dashboard shows as current: Max first.
+    .orderBy(
+      desc(sql`${stripeSubscriptions.plan} = 'max'`),
+      desc(stripeSubscriptions.currentPeriodEnd),
+      desc(stripeSubscriptions.updatedAt),
+    )
     .limit(1);
   return rows[0] ?? null;
 }

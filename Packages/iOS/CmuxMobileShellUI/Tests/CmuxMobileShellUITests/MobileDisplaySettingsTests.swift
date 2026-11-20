@@ -115,6 +115,22 @@ import Testing
         #expect(!MobileDisplaySettings(defaults: defaults).useLegacyTerminalSizing)
     }
 
+    @Test func handoffTerminalSizingDefaultsToOffWithoutAWrite() throws {
+        let defaults = try makeDefaults("handoffTerminalSizingDefaults")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        #expect(!settings.handoffTerminalSizingWhenInactive)
+        #expect(defaults.object(forKey: "cmux.mobile.handoffTerminalSizingWhenInactive") == nil)
+    }
+
+    @Test func handoffTerminalSizingPersistsAcrossInstances() throws {
+        let defaults = try makeDefaults("handoffTerminalSizingPersists")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.handoffTerminalSizingWhenInactive = true
+        #expect(MobileDisplaySettings(defaults: defaults).handoffTerminalSizingWhenInactive)
+        settings.handoffTerminalSizingWhenInactive = false
+        #expect(!MobileDisplaySettings(defaults: defaults).handoffTerminalSizingWhenInactive)
+    }
+
     @Test func hapticFeedbackDefaultsToEnabledWithoutAWrite() throws {
         let defaults = try makeDefaults("hapticFeedbackDefaults")
         let settings = MobileDisplaySettings(defaults: defaults)

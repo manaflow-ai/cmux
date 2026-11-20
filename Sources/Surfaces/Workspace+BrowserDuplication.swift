@@ -4,7 +4,11 @@ import Foundation
 /// Browser view duplication retains resource provenance before navigation.
 extension Workspace {
     @discardableResult
-    func duplicateBrowserToRight(panelId: UUID, focus: Bool = true) -> BrowserPanel? {
+    func duplicateBrowserToRight(
+        panelId: UUID,
+        focus: Bool = true,
+        creationPolicy: BrowserPanelCreationPolicy = .userInitiated
+    ) -> BrowserPanel? {
         guard let anchorTabId = surfaceIdFromPanelId(panelId),
               let paneId = paneId(forPanelId: panelId),
               let browser = browserPanel(for: panelId) else { return nil }
@@ -22,6 +26,7 @@ extension Workspace {
             url: isCloud ? nil : browser.currentURLForTabDuplication,
             focus: focus,
             preferredProfileID: browser.profileID,
+            creationPolicy: creationPolicy,
             chromeVisibility: browser.chromeVisibility,
             bypassRemoteProxy: browser.bypassesRemoteWorkspaceProxyForTabDuplication,
             websiteDataStore: browser.explicitEphemeralWebsiteDataStoreForSibling

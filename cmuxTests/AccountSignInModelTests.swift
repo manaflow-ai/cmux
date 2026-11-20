@@ -220,6 +220,7 @@ private final class FakeAccountSignInFlow: AccountSignInFlow {
     var isCompletingSignIn = false
     var signInIsSlow = false
     var lastSignInFailure: AccountSignInModel.Failure?
+    var lastSignInFailureDetail: String?
     var isSwitchingAccount = false
     let issuedURL = URL(string: "https://example.com/sign-in?state=fixture")!
     private(set) var startCount = 0
@@ -256,5 +257,9 @@ private final class FakeAccountSignInFlow: AccountSignInFlow {
     func copySignInURL(_ url: URL) -> Bool {
         copiedURL = url
         return copySucceeds
+    }
+
+    func copyFailureDetail(_ detail: String) -> Bool {
+        copySucceeds
     }
 }

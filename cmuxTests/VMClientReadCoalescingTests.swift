@@ -233,8 +233,14 @@ struct VMClientReadCoalescingTests {
         let fixture = try await CloudRefreshFixture.make(isDisabledByManagedPolicy: { true }, isCloudEnabled: { false })
         defer { fixture.session.invalidateAndCancel() }
         await CloudRefreshURLProtocol.reset()
-        try await fixture.client.revokeCloudAccess(deviceID: "fixture-device")
-        #expect(await CloudRefreshURLProtocol.requestCounts() == ["/api/vm/tunnel": 1])
+        // Both of this build's roles are sent: one DELETE per tunnel, never one for the whole Mac.
+        let revoked = try await fixture.client.revokeTunnelRoles([
+            CloudTunnelRole(deviceFingerprint: "fixture-terminal", purpose: .terminal),
+            CloudTunnelRole(deviceFingerprint: "fixture-browser", purpose: .browser),
+        ])
+        #expect(revoked)
+        #expect(await CloudRefreshURLProtocol.requestCounts() == ["/api/vm/tunnel": 2])
+        #expect(try await fixture.client.revokeTunnelRoles([]) == false)
     }
 
     @Test("A list delayed beyond a polling interval stays owned and stops when hidden")

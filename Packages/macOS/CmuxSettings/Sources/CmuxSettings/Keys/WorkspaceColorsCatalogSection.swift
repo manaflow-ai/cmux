@@ -30,6 +30,15 @@ public struct WorkspaceColorsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "workspaceColorsBrightenInDarkMode"
     )
 
+    /// Opacity of a workspace color filling a row that is not selected, with
+    /// the Solid Fill indicator. Multi-selected rows use half of it
+    /// (manaflow-ai/cmux#21232).
+    public let unselectedFillOpacity = DefaultsKey<Double>(
+        id: "workspaceColors.unselectedFillOpacity",
+        defaultValue: 0.7,
+        userDefaultsKey: "workspaceColorsUnselectedFillOpacity"
+    )
+
     public let notificationBadgeColorHex = DefaultsKey<String>(
         id: "workspaceColors.notificationBadgeColor",
         defaultValue: "",

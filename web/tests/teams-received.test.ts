@@ -51,6 +51,29 @@ describe("received invitations", () => {
     expect(await listReceivedInvitations(ADMIN_ID, { ...deps, stack: other.app() })).toEqual([]);
   });
 
+  test("listing makes one contact-channel read and one read per team, never a by-id user read", async () => {
+    const stack = standardTeam();
+    stack.setVerifiedEmails(OUTSIDER_ID, ["outsider@example.com", "second@example.com"]);
+    const store = new MemoryInviteStore();
+    const mailer = new MemoryInviteMailer();
+    const access = await requireTeamAccess({ id: ADMIN_ID }, TEAM_ID, { stack: stack.app() });
+    if (!access.ok) throw new Error("access refused");
+    await inviteTeamMembers(access.access, {
+      emails: ["outsider@example.com", "second@example.com"],
+      role: "member",
+      acceptUrl,
+    }, { store, mailer });
+    stack.calls.length = 0;
+    const received = await listReceivedInvitations(OUTSIDER_ID, { store, stack: stack.app() });
+    expect(received.map((invitation) => invitation.email).sort()).toEqual(["outsider@example.com", "second@example.com"]);
+    expect(received.every((invitation) => invitation.invitedBy === "Name aaaa")).toBe(true);
+    expect(stack.calls).toEqual([
+      `listUserContactChannels:${OUTSIDER_ID}`,
+      `getTeam:${TEAM_ID}`,
+      `listUsers:${TEAM_ID}`,
+    ]);
+  });
+
   test("accepting by id joins the team, applies the role, marks the row and selects the team", async () => {
     const { stack, store, seats, deps, invitation } = await invited("outsider@example.com", "admin");
     const result = await acceptReceivedInvitation(OUTSIDER_ID, invitation.id, deps);

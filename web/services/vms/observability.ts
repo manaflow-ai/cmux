@@ -36,6 +36,15 @@ const OPERATOR_FAULT_VM_ERROR_CODES: ReadonlySet<string> = new Set([
  */
 const EXPECTED_5XX_VM_ERROR_CODES: ReadonlySet<string> = new Set([
   "vm_operation_unsupported",
+  // A provider read that missed its route budget (routeDeadline.ts). One slow
+  // read is not an incident; alert on its rate from the error-code attribute.
+  "vm_provider_timeout",
+  // A mutation still running at the provider when its route answered
+  // (routeDeadline.ts): it continues in the background. Alert on its rate.
+  "vm_operation_in_progress",
+  // The provider had no room for a machine (409 capacity refusal). One
+  // refusal is not an incident; alert on its rate.
+  "vm_provider_capacity",
 ]);
 
 /**
@@ -189,13 +198,24 @@ export function isPolledVmOperation(operation: string): boolean {
 
 /**
  * Identity and billing scope shared by every PostHog row a VM request emits:
- * the machine addressed, the plan and billing team, and the `stack_team`
- * group so account-level dashboards join billing and usage. `$groups` is a
- * nested object, hence the wider value type.
+ * the machine addressed, the plan and billing team, the `stack_team` group so
+ * account-level dashboards join billing and usage, and `is_synthetic` for
+ * probe accounts. `$groups` is a nested object, hence the wider value type.
  */
 function requestScopeProperties(context: VmRequestContext): Record<string, string | number | boolean | Record<string, string>> {
   const properties: Record<string, string | number | boolean | Record<string, string>> = {};
-  if (context.vmId) properties.vm_id = context.vmId;
+  // `vm_id` is the provider id from the URL. A collection route (create, base
+  // open) has none; the ledger id it wrote names the machine instead, the
+  // internal UUID `cloud_vm_created.vm_id` carries. `vm_id_kind` says which.
+  if (context.vmId) {
+    properties.vm_id = context.vmId;
+    properties.vm_id_kind = "provider";
+  } else if (context.ledgerVmId) {
+    properties.vm_id = context.ledgerVmId;
+    properties.vm_id_kind = "ledger";
+  }
+  // Probe accounts (the Cloud VM canary): kept, but excludable.
+  if (context.synthetic) properties.is_synthetic = true;
   if (context.planId) properties.plan_id = context.planId;
   if (context.billingCustomerType) properties.billing_customer_type = context.billingCustomerType;
   if (context.billingTeamId) {
@@ -211,8 +231,10 @@ export const VM_REQUEST_POSTHOG_EVENT = "cloud_vm_request";
  * Schema 2 (2026-09): adds `vm_id`, `plan_id`, `billing_customer_type`,
  * `billing_team_id` and the `stack_team` group; moves
  * `approve_cmux_remote_enrollment` successes out of the event.
+ * Schema 3 (2026-10): `vm_id` falls back to the ledger id on collection
+ * routes (create, base open); adds `is_synthetic` for probe accounts.
  */
-export const VM_REQUEST_POSTHOG_SCHEMA_VERSION = 2;
+export const VM_REQUEST_POSTHOG_SCHEMA_VERSION = 3;
 
 type PostHogExceptionEntry = {
   readonly type: string;
@@ -615,8 +637,9 @@ export function captureVmProvisionOutcome(
     // A missing code on a 5xx (a response that bypassed vmErrorResponse) is
     // still an operator fault; isOperatorFaultVmError treats every 5xx as one.
     operator_fault: isOperatorFaultVmError({ error: code ?? "", status }),
-    // Schema 3: plan, billing team and the stack_team group.
-    schema_version: 3,
+    // Schema 3: plan, billing team and the stack_team group. Schema 4: the
+    // ledger vm_id on collection routes and `is_synthetic`.
+    schema_version: 4,
     $insert_id: randomUUID(),
     $geoip_disable: true,
   };

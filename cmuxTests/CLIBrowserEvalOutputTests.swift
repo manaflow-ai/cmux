@@ -36,7 +36,7 @@ final class CLIBrowserEvalOutputTests {
     @Test("browser cookies set forwards the HttpOnly flag")
     func browserCookiesSetForwardsHTTPOnly() throws {
         let socketPath = "/tmp/cmux-cookies-\(UUID().uuidString.prefix(8)).sock"
-        let response = #"{"id":null,"ok":true,"result":{"set":1}}"#
+        let response = #"{"ok":true,"result":{"set":1}}"#
         let responder = try UnixSocketResponder(path: socketPath, response: response)
         defer { responder.stop() }
 
@@ -87,7 +87,7 @@ final class CLIBrowserEvalOutputTests {
 
     private func assertBrowserEvalOutput(_ testCase: Case) throws {
         let socketPath = "/tmp/cmux-eval-\(UUID().uuidString.prefix(8)).sock"
-        let response = #"{"id":null,"ok":true,"result":{"value":\#(testCase.wireValue)}}"#
+        let response = #"{"ok":true,"result":{"value":\#(testCase.wireValue)}}"#
         let responder = try UnixSocketResponder(path: socketPath, response: response)
         defer { responder.stop() }
 

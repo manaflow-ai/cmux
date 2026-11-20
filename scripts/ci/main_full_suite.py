@@ -241,6 +241,16 @@ def concrete_failures(repo: str, jobs: list[Mapping[str, object]]) -> list[dict]
     return classify_failures.dedupe(found)
 
 
+def failed_command_message(error: subprocess.CalledProcessError) -> str:
+    """The command and what it printed on stderr: for gh, GitHub's own reason ("API rate limit exceeded
+    for installation", a missing permission), which capture_output otherwise hides (run 44010289849
+    showed only "returned non-zero exit status 1")."""
+    command = error.cmd if isinstance(error.cmd, str) else " ".join(str(part) for part in error.cmd)
+    stderr = error.stderr.decode("utf-8", "replace") if isinstance(error.stderr, bytes) else (error.stderr or "")
+    detail = " ".join(stderr.split())[-600:] or "(no stderr)"
+    return f"{command[:300]} failed with exit status {error.returncode}: {detail}"
+
+
 def gh_json_lines(args: list[str]) -> list[dict]:
     output = subprocess.run(["gh", "api", *args], check=True, capture_output=True, text=True).stdout
     return [json.loads(line) for line in output.splitlines() if line.strip()]
@@ -415,7 +425,11 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     if not args.repo:
         parser.error("--repo or GITHUB_REPOSITORY is required")
-    return args.handler(args)
+    try:
+        return args.handler(args)
+    except subprocess.CalledProcessError as error:
+        print(f"::error::{failed_command_message(error)}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

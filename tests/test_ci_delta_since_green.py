@@ -481,7 +481,7 @@ def evaluate_condition(expression: str, context: dict[str, str]) -> bool:
             python.append("and")
         elif token == "||":
             python.append("or")
-        elif re.fullmatch(r"(github|vars)\.[A-Za-z0-9_.-]+", token):
+        elif re.fullmatch(r"(github|vars|needs)\.[A-Za-z0-9_.-]+", token):
             python.append(repr(context.get(token, "")))
         else:
             raise AssertionError(f"unsupported token {token!r} in {expression!r}")
@@ -534,6 +534,43 @@ class WorkflowTests(unittest.TestCase):
         override = run.index('BASE_SHA="$DELTA_BASE_SHA"')
         self.assertLess(run.index('BASE_SHA="$(git rev-parse "$MERGE_SHA^1")"'), override)
         self.assertLess(override, run.index("> /tmp/cmux-ci-changed-files.txt"))
+
+    def test_dev_build_label_builds_a_head_that_only_merged_main(self) -> None:
+        # The delta routes a merge-only head from its last green head, so the
+        # macOS area reads false; the label still asks for this exact head.
+        jobs = yaml.safe_load(CI_WORKFLOW.read_text())["jobs"]
+        self.assertEqual(self.job["outputs"]["delta_base_sha"], "${{ steps.delta.outputs.base_sha }}")
+        label = "contains(github.event.pull_request.labels.*.name, 'dev-build')"
+        condition = jobs["dogfood-build"]["if"]
+        self.assertIn(label, condition)
+        condition = condition.replace(label, "github.has_dev_build == 'true'")
+        trusted = {
+            "github.event_name": "pull_request",
+            "github.event.pull_request.base.ref": "main",
+            "github.event.action": "synchronize",
+            "github.repository_owner": "manaflow-ai",
+            "github.repository": "manaflow-ai/cmux",
+            "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
+            "github.event.pull_request.author_association": "MEMBER",
+            "needs.changes.result": "success",
+            "needs.static-preflight.result": "success",
+        }
+        cases = [
+            # label, macOS area, delta base, builds
+            (True, "true", "", True),
+            (True, "false", "a" * 40, True),
+            (True, "false", "", False),
+            (False, "false", "a" * 40, False),
+            (False, "true", "", False),
+        ]
+        for has_label, macos, delta_base, expected in cases:
+            context = dict(trusted, **{
+                "github.has_dev_build": "true" if has_label else "false",
+                "needs.changes.outputs.macos": macos,
+                "needs.changes.outputs.delta_base_sha": delta_base,
+            })
+            with self.subTest(label=has_label, macos=macos, delta_base=delta_base):
+                self.assertIs(evaluate_condition(condition, context), expected)
 
 
 if __name__ == "__main__":

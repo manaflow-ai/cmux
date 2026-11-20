@@ -95,8 +95,61 @@ struct CloudTreeDisclosureIntentTests {
         #expect(fixture.defaults.object(forKey: "cloudTree.collapsedMachineIDs") == nil)
     }
 
+    @Test func rapidMultiClickRowActivationStillTogglesDisclosureRows() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let tree = try tree(fixture)
+        let row = tree.outline.row(forItem: tree.section)
+        tree.outline.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        #expect(tree.outline.isItemExpanded(tree.section))
+
+        // A fast pointer sequence can deliver the outline action while the
+        // current event already carries the combined click count. Disclosure
+        // rows must still honor that activation.
+        try sendPointerAction(tree.outline.action, from: tree.outline, clickCount: 2)
+        #expect(!tree.outline.isItemExpanded(tree.section))
+        try sendPointerAction(tree.outline.action, from: tree.outline, clickCount: 3)
+        #expect(tree.outline.isItemExpanded(tree.section))
+    }
+
+    @Test func fastDoubleClickActivationStillTogglesDisclosureRows() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let tree = try tree(fixture)
+        let row = tree.outline.row(forItem: tree.section)
+        tree.outline.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        #expect(tree.outline.isItemExpanded(tree.section))
+
+        // NSOutlineView routes the second click of a double-click through
+        // doubleAction. Disclosure rows must honor that activation too.
+        try sendPointerAction(tree.outline.doubleAction, from: tree.outline, clickCount: 2)
+        #expect(!tree.outline.isItemExpanded(tree.section))
+    }
+
     private func descendants(of view: NSView) -> [NSView] {
         view.subviews.flatMap { [$0] + descendants(of: $0) }
+    }
+
+    private func sendPointerAction(_ action: Selector?, from outline: NSOutlineView, clickCount: Int) throws {
+        let action = try #require(action)
+        let event = try #require(NSEvent.mouseEvent(
+            with: .leftMouseUp,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: clickCount,
+            pressure: 0
+        ))
+        NSApp.postEvent(event, atStart: true)
+        let dequeued = try #require(NSApp.nextEvent(
+            matching: .leftMouseUp, until: .distantPast, inMode: .default, dequeue: true
+        ))
+        try #require(dequeued.clickCount == clickCount)
+        try #require(NSApp.currentEvent === dequeued)
+        #expect(NSApp.sendAction(action, to: outline.target, from: outline))
     }
 
     @Test func nestedBatchesAndNetNoOpsDoNotWrite() throws {

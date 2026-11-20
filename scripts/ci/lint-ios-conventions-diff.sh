@@ -50,7 +50,11 @@ trap cleanup EXIT
 fingerprints > "$head_list"
 
 if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
-  git fetch --no-tags --depth=1 origin "$BASE_SHA" >/dev/null 2>&1 || true
+  # Depth 1 only in a shallow checkout (CI's): in a full clone --depth writes
+  # .git/shallow and truncates history for every worktree sharing it.
+  depth=()
+  [ "$(git rev-parse --is-shallow-repository)" = true ] && depth=(--depth=1)
+  git fetch --no-tags ${depth[@]+"${depth[@]}"} origin "$BASE_SHA" >/dev/null 2>&1 || true
 fi
 if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
   # Without a base to compare against, judging "new" is not possible. Report

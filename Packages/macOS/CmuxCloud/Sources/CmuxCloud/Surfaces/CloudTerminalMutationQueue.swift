@@ -62,4 +62,43 @@ public final class CloudTerminalMutationQueue {
             task.cancel()
         }
     }
+
+    /// Runs a mutation whose receipt has already committed remotely before the
+    /// local lifecycle can be replaced. The operation must adopt or compensate
+    /// for that receipt itself; cancelling the queue turn only cancels the
+    /// caller's wait and does not discard the committed value.
+    public func runCommitted<Value: Sendable>(
+        _ operation: @escaping @MainActor @Sendable () async throws -> Value
+    ) async throws -> Value {
+        try Task.checkCancellation()
+        let task = enqueueCommitted(operation)
+        return try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    private func enqueueCommitted<Value: Sendable>(
+        _ operation: @escaping @MainActor @Sendable () async throws -> Value
+    ) -> Task<Value, Error> {
+        let previous = tail
+        let id = UUID()
+        let task = Task { @MainActor in
+            if let previous { await previous.value }
+            try Task.checkCancellation()
+            return try await operation()
+        }
+        cancellations[id] = { task.cancel() }
+        tailID = id
+        tail = Task { @MainActor [weak self] in
+            _ = try? await task.value
+            self?.cancellations[id] = nil
+            if self?.tailID == id {
+                self?.tail = nil
+                self?.tailID = nil
+            }
+        }
+        return task
+    }
 }

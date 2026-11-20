@@ -10,6 +10,8 @@ cmux_pi_wrapper_root="${CMUX_PI_WRAPPER_SHIM_ROOT:-}"
 self_path="$0"
 
 resolve_pi() {
+    # PATH entries are literal directories, even when they contain glob characters.
+    set -f
     local entry candidate
     local old_ifs="$IFS"
     IFS=:
@@ -43,14 +45,25 @@ if [ "${CMUX_PI_HOOKS_DISABLED:-0}" = "1" ]; then
     exec "$cmux_pi" "$@"
 fi
 
-# Pi dispatches these commands before parsing options. These one-shot flags do
-# not need extension loading either. Keep the command list in sync with Pi's
-# dispatcher when new subcommands are added.
+# Pi dispatches these commands before parsing options. These commands must
+# receive the original argv: prepending `-e` makes the command name look like a
+# prompt and can send it to the model instead. Keep this list in sync with
+# Pi's dispatcher when new subcommands are added.
 case "${1:-}" in
     install|remove|uninstall|update|list|config|auth|mcp|--help|-h|--version|-v)
         exec "$cmux_pi" "$@"
         ;;
 esac
+
+# `--no-extensions` is an explicit request to run without extensions. It can
+# appear anywhere in Pi's option list, so honor it before creating a managed
+# extension rather than defeating the user's opt-out with an explicit `-e`.
+for cmux_pi_arg in "$@"; do
+    [ "$cmux_pi_arg" = "--" ] && break
+    if [ "$cmux_pi_arg" = "--no-extensions" ]; then
+        exec "$cmux_pi" "$@"
+    fi
+done
 
 cmux_pi_managed_extension() {
     local candidate="$1"

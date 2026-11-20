@@ -200,17 +200,15 @@ struct GitStatusProvider: Sendable {
     ) -> String? {
         let process = Process()
         process.executableURL = sshExecutableURL
-        // The positional command conflicts with a host-configured
-        // RemoteCommand unless overridden (issue #7246).
-        var args: [String] = SSHHostConfiguredRemoteCommand().overrideArguments
-        if let port { args += ["-p", String(port)] }
-        if let identityFile { args += ["-i", identityFile] }
-        for option in sshOptions { args += ["-o", option] }
-        args += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"]
-        // Forwarding stays as configured: without `ControlMaster=no` this run
-        // can become the shared master that interactive sessions reuse.
-        args += ["--", destination, command]
-        process.arguments = args
+        process.arguments = ProcessSSHFileExplorerTransport.sshArguments(
+            connection: SSHFileExplorerConnection(
+                destination: destination,
+                port: port,
+                identityFile: identityFile,
+                sshOptions: sshOptions
+            ),
+            command: command
+        )
         process.environment = environment
         let pipe = Pipe()
         process.standardOutput = pipe

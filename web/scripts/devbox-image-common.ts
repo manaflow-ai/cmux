@@ -42,6 +42,9 @@ export const CMUX_TUI_STATE_MAX_BYTES = 8 * 1024 * 1024 * 1024;
 export const DEVBOX_TEMPLATE_FILES = [
   "Dockerfile",
   "agent-config.sh",
+  "agent-auth.sh",
+  "cmux-claude",
+  "cmux-codex",
   "cmux-opencode",
   "chrome-managed-policy.json",
   "cmux-bashrc",
@@ -287,6 +290,67 @@ export function devboxGhosttyDebSha256(dockerfile = readDevboxDockerfile()): str
   const sha = /^ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256=([0-9a-f]{64})$/m.exec(dockerfile)?.[1];
   if (!sha) throw new Error("devbox Dockerfile is missing a 64-hex ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256");
   return sha;
+}
+
+/** Muse needs a newer bubblewrap than Ubuntu 24.04's 0.9.0. */
+export function devboxBubblewrapUrl(dockerfile = readDevboxDockerfile()): string {
+  const url = /^ARG CMUX_IMAGE_BUBBLEWRAP_URL=(\S+)$/m.exec(dockerfile)?.[1];
+  if (!url) throw new Error("devbox Dockerfile is missing ARG CMUX_IMAGE_BUBBLEWRAP_URL");
+  return url;
+}
+
+/** Verify the upstream archive before extracting or compiling its contents. */
+export function devboxBubblewrapSha256(dockerfile = readDevboxDockerfile()): string {
+  const sha = /^ARG CMUX_IMAGE_BUBBLEWRAP_SHA256=([0-9a-f]{64})$/m.exec(dockerfile)?.[1];
+  if (!sha) throw new Error("devbox Dockerfile is missing a 64-hex ARG CMUX_IMAGE_BUBBLEWRAP_SHA256");
+  return sha;
+}
+
+/** The pinned release, from the tarball name: what `bwrap --version` must print. */
+export function devboxBubblewrapVersion(dockerfile = readDevboxDockerfile()): string {
+  const version = /\/bubblewrap-(\d+\.\d+\.\d+)\.tar\.xz$/.exec(devboxBubblewrapUrl(dockerfile))?.[1];
+  if (!version) throw new Error("devbox Dockerfile's CMUX_IMAGE_BUBBLEWRAP_URL carries no bubblewrap-<x.y.z>.tar.xz");
+  return version;
+}
+
+/**
+ * The one bubblewrap install both recipes run: the Dockerfile's RUN is this
+ * with the ARG references, the Freestyle bake this with the pinned values
+ * (a test keeps them identical). The tarball is verified before anything is
+ * built from it; the build tools are removed again. `/usr/bin/bwrap` is
+ * diverted first, so the distro package (already on a base, or pulled in
+ * later by apt) installs as `/usr/bin/bwrap.distrib` and never replaces the
+ * pinned binary. `/usr/bin` keeps Ubuntu's AppArmor `bwrap` userns profile,
+ * which is attached by that path, applying to it.
+ */
+export function devboxBubblewrapInstallCommand(url: string, sha256: string, version: string): string {
+  return [
+    "apt-get update",
+    "apt-get install -y --no-install-recommends meson ninja-build libcap-dev",
+    `curl -fsSL -o /tmp/bubblewrap.tar.xz ${url}`,
+    `echo "${sha256}  /tmp/bubblewrap.tar.xz" | sha256sum -c -`,
+    "rm -rf /tmp/bubblewrap",
+    "mkdir /tmp/bubblewrap",
+    "tar -xJf /tmp/bubblewrap.tar.xz -C /tmp/bubblewrap --strip-components=1",
+    "meson setup /tmp/bubblewrap/build /tmp/bubblewrap --prefix=/usr --buildtype=release -Dtests=false -Dman=disabled -Dselinux=disabled -Dbash_completion=disabled -Dzsh_completion=disabled",
+    "meson compile -C /tmp/bubblewrap/build",
+    "dpkg-divert --local --rename --divert /usr/bin/bwrap.distrib --add /usr/bin/bwrap",
+    "meson install -C /tmp/bubblewrap/build --no-rebuild",
+    "apt-get purge -y meson ninja-build libcap-dev",
+    "rm -rf /var/lib/apt/lists/* /tmp/bubblewrap /tmp/bubblewrap.tar.xz",
+    `test "$(/usr/bin/bwrap --version)" = "bubblewrap ${version}"`,
+    `test "$(command -v bwrap)" = /usr/bin/bwrap`,
+  ].join(" && ");
+}
+
+/** Reject an old or shadowed binary and exercise the work user's sandbox. */
+export function devboxBubblewrapCheckCommand(dockerfile = readDevboxDockerfile()): string {
+  return [
+    'test "$(command -v bwrap)" = /usr/bin/bwrap',
+    `test "$(bwrap --version)" = "bubblewrap ${devboxBubblewrapVersion(dockerfile)}"`,
+    `sudo -n -u ${DEVBOX_WORK_USER} bwrap --ro-bind / / --unshare-user --unshare-pid --proc /proc --dev /dev -- /bin/true`,
+    "echo bubblewrap-ok",
+  ].join(" && ");
 }
 
 export const AGENT_PIN_ARGS: readonly { arg: string; pkg: string; binary: string }[] = [
@@ -888,7 +952,7 @@ export function devboxParkDaemonCommand(): string {
     "! pgrep -f 'cmux-tui server [s]tart' >/dev/null",
     "systemctl is-active cmux-tui-daemon >/dev/null",
     devboxWipeDaemonStateKeepingTemplateCommand('"$CMUX_TUI_HOME/.local/state/cmux-tui"'),
-    'rm -rf "$CMUX_TUI_HOME/.local/state/cmux/remote" /etc/cmux/daemon-instance-id /etc/cmux/first-terminal.json',
+    'rm -rf "$CMUX_TUI_HOME/.local/state/cmux/remote" /etc/cmux/daemon-instance-id /etc/cmux/daemon-boot-id /etc/cmux/first-terminal.json',
     `rm -f ${TEMPLATE_RUN_DIR}/bound ${TEMPLATE_RUN_DIR}/clone-started ${TEMPLATE_RUN_DIR}/first-prompt-named`,
     `test "$(ls "$cmux_keep" | grep -c '\\.json$')" = 1`,
     "pgrep -f '[_]_terminal-host' >/dev/null",
@@ -958,6 +1022,8 @@ export type DevboxManifestEntry = {
   defaultForLocalDev?: boolean;
   kind?: DevboxImageKind;
   defaultForKind?: boolean;
+  /** A test image (services/vms/images/resolver.ts): never a default, requestable only by allowlisted users. */
+  restricted?: boolean;
   /** The shape this snapshot boots at (Freestyle ladder). Size-less entries are pre-ladder bakes. */
   size?: DevboxImageSize;
   cmuxdRemoteCommit: string;
@@ -1266,7 +1332,15 @@ export function promoteImageManifestEntry(
 export function imageManifestProblems(manifest: DevboxImageManifest): string[] {
   const problems: string[] = [];
   const defaults = new Map<string, DevboxManifestEntry[]>();
+  const restrictedById = new Map<string, boolean>();
   for (const entry of manifest.images) {
+    if (entry.restricted === true && entry.defaultForKind) problems.push(`${entry.version}: a restricted test image cannot be a default`);
+    const twinKey = `${entry.provider}/${entry.imageId}`;
+    const restricted = entry.restricted === true;
+    if (restrictedById.has(twinKey) && restrictedById.get(twinKey) !== restricted) {
+      problems.push(`${entry.imageId}: every entry for one image must agree on restricted`);
+    }
+    restrictedById.set(twinKey, restricted);
     for (const field of ["provider", "version", "imageId", "envVar", "builtAt", "validationStatus"] as const) {
       if (!entry[field]) problems.push(`${entry.version ?? entry.imageId ?? "?"}: missing ${field}`);
     }

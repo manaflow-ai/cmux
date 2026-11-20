@@ -6,6 +6,17 @@ extension SurfaceCatalog {
     /// and coordinates can change a guest opener's routing/subscription scope.
     func noteProjectionChanges(from previous: Set<SurfaceProjection>) {
         let changed = projections.symmetricDifference(previous)
+        if !cloudBrowserDocuments.isEmpty {
+            let inserted = Dictionary(grouping: changed.filter { projections.contains($0) }, by: \.resource)
+                .mapValues { Set($0.map(\.panelID)) }
+            for removed in changed where !projections.contains(removed)
+                && inserted[removed.resource]?.contains(removed.panelID) != true {
+                cloudBrowserDocuments[removed.resource]?[removed.panelID] = nil
+                if cloudBrowserDocuments[removed.resource]?.isEmpty == true {
+                    cloudBrowserDocuments[removed.resource] = nil
+                }
+            }
+        }
         for workspaceID in Set(changed.map(\.workspaceID)) {
             updateCloudDirectoryMetadata(localWorkspaceID: workspaceID)
             let machines = Set(projections.filter { $0.workspaceID == workspaceID }.map { $0.resource.machine })

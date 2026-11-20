@@ -24,9 +24,9 @@ export const MAX_PLAN_RESOURCE_POOL: VmComputeResources = { vcpus: 80, memoryMb:
 
 /**
  * Everything the repository needs to enforce a billing scope's pool inside
- * its create/resume/resize transaction. `legacyReservation` is the size used
- * for a live row without a valid reservation marker: the plan's default
- * machine, never the historical 5 vCPU / 20 GB marker default.
+ * its create/resume/resize transaction. `legacyReservation` is the
+ * conservative provider maximum used for a live row without a valid
+ * reservation marker until reconciliation records the actual dimensions.
  */
 export type VmResourcePoolPolicy = {
   readonly capacity: VmComputeResources;
@@ -53,7 +53,7 @@ export function firstExceededPoolResource(input: {
 
 /** New machines start with this disk. Freestyle resizes disks grow-only. */
 export const VM_DISK_MB_DEFAULT = 32768;
-/** Freestyle Pro's documented per-VM disk ceiling. */
+/** Freestyle's global grow-only disk ceiling; each plan may cap below it. */
 export const VM_DISK_MB_MAX = 262144;
 /** User-facing disk sizes are aligned to whole GiB steps. */
 export const VM_DISK_MB_STEP = 4096;
@@ -98,8 +98,8 @@ export type VmImageResourceShape = {
 
 /**
  * Historical default shape for recovery paths that predate reservation
- * markers. Never use it for the resource pool: a legacy live row draws from
- * the pool at its plan's default machine size (VmResourcePoolPolicy).
+ * markers. Never use it for the resource pool: a legacy live row reserves the
+ * provider maximum until reconciliation measures it (VmResourcePoolPolicy).
  */
 export const DEFAULT_VM_RESOURCE_RESERVATION: VmResourceReservation = {
   vcpus: 5,

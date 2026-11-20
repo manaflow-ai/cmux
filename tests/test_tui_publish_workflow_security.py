@@ -719,7 +719,9 @@ def test_release_app_token_is_scoped_to_the_atomic_push() -> None:
 
     assert "SDK_RELEASE_APP_PRIVATE_KEY" not in revalidate_tags
     assert "actions/create-github-app-token@" not in revalidate_tags
-    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in cut_tags
+    # It holds the release App key: LINUX_RUNNER moves it only among the Blacksmith Linux sizes
+    # the expression names (test_ci_fork_runner_routing.py).
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\",\"blacksmith-32vcpu-ubuntu-2404\"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in cut_tags
     assert "actions/checkout@" not in cut_tags
     assert "actions/download-artifact@" not in cut_tags
     assert "actions/setup-node@" not in cut_tags
@@ -1576,9 +1578,12 @@ def test_stable_release_builds_and_tests_once_before_dispatching_publishers() ->
     assert 'if [[ "${GITHUB_REF_TYPE:-}" != "tag" ]]' in release
     assert "Stable artifacts require a cmux-tui-vX.Y.Z tag ref." in release
     assert "needs: build-package" in release
-    assert 'gh workflow run tui-publish-npm.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"' in release
-    assert 'gh workflow run tui-publish-pypi.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"' in release
-    assert '-f artifact_run_id="$ARTIFACT_RUN_ID"' in release
+    assert 'repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/dispatches' in release
+    assert '-f ref="$TAG"' in release
+    assert 'dispatch_publisher tui-publish-npm.yml "npm"' in release
+    assert 'dispatch_publisher tui-publish-pypi.yml "PyPI"' in release
+    assert release.count('-f "inputs[artifact_run_id]=$ARTIFACT_RUN_ID"') == 2
+    assert '-f "inputs[confirm_tui_cmux]=true"' in release
 
     for name in ("tui-publish-npm.yml", "tui-publish-pypi.yml"):
         assert "workflow_call:" not in workflow(name)

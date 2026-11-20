@@ -30,7 +30,7 @@ export async function GET(
         teamIds: user.teamIds,
         providerVmId: id,
         modelPlane: vmModelPlaneRevoker(),
-      }), { request });
+      }), { request, readDeadline: { operation: "stats" } });
       if (!run.ok) return run.response;
       return jsonResponse(run.value);
     },

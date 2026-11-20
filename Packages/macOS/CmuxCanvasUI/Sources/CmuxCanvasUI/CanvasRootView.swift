@@ -52,6 +52,7 @@ public final class CanvasRootView: NSView {
     var overviewRestore: (magnification: CGFloat, origin: CGPoint)?
     private var clipBoundsObserver: (any NSObjectProtocol)?
     private var scrollSettleObservers: [any NSObjectProtocol] = []
+    private var themeChangeObservers: [(center: NotificationCenter, token: any NSObjectProtocol)] = []
     var commandScrollMonitor: Any?
     /// Debounced settle after option+scroll zoom (which, unlike a trackpad
     /// pinch, never fires `didEndLiveMagnify`), so portals re-anchor once the
@@ -98,7 +99,9 @@ public final class CanvasRootView: NSView {
         minimapAccessibilityLabel: String,
         minimapAccessibilityHelp: String,
         callbacks: CanvasHostCallbacks,
-        themeProvider: @escaping () -> CanvasTheme, minimapClock: C
+        themeProvider: @escaping () -> CanvasTheme,
+        themeChangeSignals: [CanvasThemeChangeSignal] = [],
+        minimapClock: C
     ) where C.Duration == Duration {
         self.model = model
         self.callbacks = callbacks
@@ -148,6 +151,25 @@ public final class CanvasRootView: NSView {
                 }
             }
         }
+        // The host's theme can change with no descriptor sync, as when a
+        // Ghostty config reload changes background-opacity.
+        themeChangeObservers = themeChangeSignals.map { signal in
+            let token = signal.center.addObserver(
+                forName: signal.name,
+                object: nil,
+                queue: nil
+            ) { [weak self] _ in
+                guard Thread.isMainThread else {
+                    let target = self
+                    Task { @MainActor in target?.applyTheme() }
+                    return
+                }
+                MainActor.assumeIsolated {
+                    self?.applyTheme()
+                }
+            }
+            return (signal.center, token)
+        }
         model.viewport = self
     }
 
@@ -167,9 +189,12 @@ public final class CanvasRootView: NSView {
     private func applyTheme() {
         let theme = themeProvider()
         scrollView.backgroundColor = theme.canvasBackground
+        scrollView.drawsBackground = !theme.showsWindowBackdrop
         documentView.canvasBackground = theme.canvasBackground
+        documentView.drawsBackground = !theme.showsWindowBackdrop
         for paneView in paneViews.values {
             paneView.paneBackground = theme.paneBackground
+            paneView.drawsBackground = !theme.showsWindowBackdrop
         }
     }
 
@@ -219,6 +244,8 @@ public final class CanvasRootView: NSView {
         clipBoundsObserver = nil
         scrollSettleObservers.forEach { NotificationCenter.default.removeObserver($0) }
         scrollSettleObservers = []
+        themeChangeObservers.forEach { $0.center.removeObserver($0.token) }
+        themeChangeObservers = []
         cancelDiscreteZoomAnimation()
         commandScrollHintTask?.cancel()
         commandScrollHintTask = nil
@@ -322,7 +349,9 @@ public final class CanvasRootView: NSView {
             } else {
                 paneView = CanvasPaneView(paneID: pane.id)
                 paneView.delegate = self
-                paneView.paneBackground = themeProvider().paneBackground
+                let theme = themeProvider()
+                paneView.paneBackground = theme.paneBackground
+                paneView.drawsBackground = !theme.showsWindowBackdrop
                 paneView.accentColor = accentColor
                 documentView.addSubview(paneView)
                 paneViews[pane.id] = paneView

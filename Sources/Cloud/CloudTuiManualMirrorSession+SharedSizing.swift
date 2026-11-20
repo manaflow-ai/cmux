@@ -39,6 +39,11 @@ extension CloudTuiManualMirrorSession: CloudSizingPhoneRelaying, TerminalSharing
     /// This Mac's identity as a host participant (no viewport; the attach
     /// lease reports it).
     func sharingSelfIdentity() -> TerminalSizingParticipant {
+        Self.localSharingIdentity()
+    }
+
+    /// This Mac's sizing identity, shared by every attach registration.
+    static func localSharingIdentity() -> TerminalSizingParticipant {
         TerminalController.shared.localSizingIdentity().participant(id: "", deviceKind: .mac)
     }
 

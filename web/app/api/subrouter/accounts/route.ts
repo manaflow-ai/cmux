@@ -7,6 +7,7 @@ import {
 } from "../../../../services/subrouter/routeHelpers";
 import { resolveSubrouterRequestContext } from "../../../../services/subrouter/requestContext";
 import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
+import { isCoderouterViewOpenRequest } from "../../../../services/coderouter/viewAnalytics";
 
 
 export async function GET(request: Request): Promise<Response> {
@@ -17,15 +18,18 @@ export async function GET(request: Request): Promise<Response> {
   try {
     const tenant = await context.client.exchangeTeam(context.accessToken, context.team);
     const accounts = await context.client.listAccounts(tenant.tenantKey);
-    captureCoderouterEvent({
-      event: "coderouter_account_status_viewed",
-      teamId: context.team.teamId,
-      properties: {
-        source: "legacy_dashboard",
-        account_count: accounts.length,
-        account_error_count: 0,
-      },
-    });
+    // The macOS accounts client polls this route; only an opened view counts.
+    if (isCoderouterViewOpenRequest(request)) {
+      captureCoderouterEvent({
+        event: "coderouter_account_status_viewed",
+        teamId: context.team.teamId,
+        properties: {
+          source: "legacy_dashboard",
+          account_count: accounts.length,
+          account_error_count: 0,
+        },
+      });
+    }
     return jsonResponse({ teamId: context.team.teamId, accounts });
   } catch (err) {
     return subrouterErrorResponse(err);

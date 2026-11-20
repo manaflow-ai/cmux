@@ -77,3 +77,17 @@ test.each([202, 409, 503])("HTTP %s is unavailable without background polling or
   expect(await reader.read("vm-paused-race")).toBeNull();
   expect(calls).toEqual(["https://api.freestyle.sh/v5/vms/vm-paused-race/exec-await"]);
 });
+
+// https://github.com/manaflow-ai/cmux/issues/21820: the not-found error retires
+// the machine's row, so only Freestyle's explicit contract may raise it.
+test("an explicit NOT_FOUND answer reports the machine missing", async () => {
+  const client = new Freestyle({ apiKey: "test-only", fetch: (async () =>
+    Response.json({ code: "NOT_FOUND", message: "VM not found" }, { status: 404 })) as typeof fetch });
+  await expect(new FreestyleResourceStatsReader(() => client).read("vm-gone")).rejects.toMatchObject({ status: 404, code: "NOT_FOUND" });
+});
+
+test("a bare 404 from a gateway is an unavailable sample", async () => {
+  const client = new Freestyle({ apiKey: "test-only", fetch: (async () =>
+    new Response("<html>404 Not Found</html>", { status: 404 })) as typeof fetch });
+  expect(await new FreestyleResourceStatsReader(() => client).read("vm-gateway-404")).toBeNull();
+});

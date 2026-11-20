@@ -65,12 +65,10 @@ export function teardownVmPublicationsForVmDeletion(
       });
     }
     // The freeze already moved every row to `disabling`; one provider listing
-    // sweeps all of their hostnames before any row is marked `disabled`.
+    // removes the rules they own before any row is marked `disabled`.
     const providerRules = freeze.publications.length === 0
       ? 0
-      : yield* provider.deleteTlsRulesForHostnames(
-        freeze.publications.map((publication) => publication.hostname),
-      );
+      : yield* provider.deletePublicationTlsRules(freeze.publications);
     for (const publication of freeze.publications) {
       yield* repository.finishDisablePublication({
         id: publication.publicationId,

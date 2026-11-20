@@ -43,6 +43,28 @@ struct CloudTerminalMutationLifecycleTests {
         #expect(!cancelledTurnRan)
     }
 
+    @Test("A committed turn returns its receipt after queue cancellation")
+    func committedTurnSurvivesCancellation() async throws {
+        let queue = CloudTerminalMutationQueue()
+        let started = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<String>()
+        let task = Task {
+            try await queue.runCommitted {
+                started.resolve(true)
+                // Model the transport waiter: it remains alive after the queue
+                // turn is cancelled so a committed daemon response can still
+                // be adopted or compensated by the caller.
+                let response = Task.detached { await release.result ?? "missing" }
+                return await response.value
+            }
+        }
+        try #require(await started.result == true)
+        queue.cancelAll()
+        release.resolve("committed")
+        #expect(try await task.value == "committed")
+        await queue.waitForIdle()
+    }
+
     @Test("Provider retirement rejects late command results and subsequent mutations",
           arguments: ["suspend", "replace", "unregister"], ["session.snapshot", "workspace.run", "session.creation.resolve"])
     func commandAwaitIsFenced(change: String, operation: String) async throws {

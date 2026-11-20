@@ -12,6 +12,8 @@ public actor AgentHookSpoolWatcher {
     private let directory: URL
     private var directorySource: DispatchSourceFileSystemObject?
     private var processSource: DispatchSourceProcess?
+    private var retrySource: DispatchSourceTimer?
+    private var continuation: AsyncStream<Void>.Continuation?
 
     /// Binds the watcher to one spool directory.
     ///
@@ -37,12 +39,15 @@ public actor AgentHookSpoolWatcher {
         let files = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd, eventMask: [.write, .delete, .rename], queue: nil
         )
-        files.setEventHandler { continuation.yield(()) }
+        files.setEventHandler { [weak self] in
+            Task { [weak self] in await self?.directoryChanged() }
+        }
         files.setCancelHandler { Darwin.close(fd) }
         let process = DispatchSource.makeProcessSource(identifier: parentPID, eventMask: .exit, queue: nil)
         process.setEventHandler { continuation.finish() }
         directorySource = files
         processSource = process
+        self.continuation = continuation
         continuation.onTermination = { [weak self] _ in
             Task { await self?.stopWatching() }
         }
@@ -58,10 +63,37 @@ public actor AgentHookSpoolWatcher {
         return stream
     }
 
+    /// Schedules one recovery drain. File changes coalesce while it is pending;
+    /// no timer runs after a successful drain or after the parent exits.
+    public func retry(after delay: TimeInterval) {
+        guard continuation != nil, retrySource == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: nil)
+        timer.schedule(deadline: .now() + delay)
+        timer.setEventHandler { [weak self] in
+            Task { [weak self] in await self?.retryReady() }
+        }
+        retrySource = timer
+        timer.resume()
+    }
+
+    private func directoryChanged() {
+        guard retrySource == nil else { return }
+        continuation?.yield(())
+    }
+
+    private func retryReady() {
+        retrySource?.cancel()
+        retrySource = nil
+        continuation?.yield(())
+    }
+
     private func stopWatching() {
         directorySource?.cancel()
         processSource?.cancel()
+        retrySource?.cancel()
         directorySource = nil
         processSource = nil
+        retrySource = nil
+        continuation = nil
     }
 }

@@ -1,0 +1,72 @@
+name: fleet compile-check
+# The guard reads this title: it binds the run to the one sha it compiled.
+run-name: fleet compile-check ${{ inputs.sha }}
+
+# Compile-check the app at one exact commit on the build fleet and post the
+# verdict as the commit status fleet/compile-check on that commit.
+# scripts/ci/merge_compile_guard.py accepts a success here in place of a
+# queued "cmux-next Release compile (Xcode 26)" (#22845 sat queued over an
+# hour after its fleet pass, with 60 minis offline). It trusts the status only
+# when it links a finished, green run of this file dispatched from
+# feat-cmux-next (its commit on that branch) and titled with the full sha; a
+# status a token posts itself, or a run of a copy of this file on another
+# branch or a tag, does not count. It never overrides a red Release compile.
+#
+#   gh workflow run fleet-compile-check.yml --ref feat-cmux-next -f sha=<full head sha>
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Full 40-character commit sha to compile-check (a pull request's head)
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: fleet-compile-check-${{ inputs.sha }}
+  cancel-in-progress: false
+
+jobs:
+  compile-check:
+    name: fleet compile-check
+    if: ${{ github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/feat-cmux-next' && vars.CI_COMPILE_CHECK_GATEWAY != '' }}
+    # The literal fallbacks never schedule: the job's if: skips outside manaflow-ai and when the variable is unset.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_COMPILE_CHECK_GATEWAY || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      statuses: write
+    timeout-minutes: 35  # the client waits up to 600 + 1200 s plus its own slack
+    steps:
+      # The gateway checks nothing out: the fleet fetches the commit itself.
+      # Exit 0 is a pass, 1 a compile failure, anything else no verdict; only
+      # a pass posts success, and the run fails whenever it is not a pass.
+      - name: Compile-check the app on the build fleet and post fleet/compile-check
+        env:
+          SHA: ${{ inputs.sha }}
+          CONTEXT: fleet/compile-check
+          GH_TOKEN: ${{ github.token }}
+          API: ${{ github.api_url }}/repos/${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          if ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error title=fleet compile-check::sha must be a full 40-character lowercase commit sha, got '$SHA'"
+            exit 1
+          fi
+          # Every value is fixed text, the checked sha or GitHub's run URL: none needs JSON escaping.
+          post() {
+            curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "$API/statuses/$SHA" >/dev/null \
+              -d "$(printf '{"state":"%s","description":"%s","target_url":"%s","context":"%s"}' \
+                "$1" "$2" "$RUN_URL" "$CONTEXT")"
+          }
+          post pending "Compiling the app on the build fleet" || exit 1
+          status=0
+          "${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}" compile-check --ref "$SHA" --app \
+            --timeout 1200 --queue-timeout 600 || status=$?
+          case "$status" in
+            0) post success "cmux-ci compile-check --app passed on this commit" || exit 1 ;;
+            1) post failure "The app did not compile on the build fleet"; exit 1 ;;
+            *) post error "No build-fleet verdict (exit $status)"; exit "$status" ;;
+          esac

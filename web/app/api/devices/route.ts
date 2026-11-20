@@ -516,9 +516,12 @@ export async function PATCH(request: Request): Promise<Response> {
     teamId: team.teamId,
     userId: user.id,
   }).pipe(Effect.match({
-    onSuccess: (result) => result.kind === "not_owned"
-      ? jsonResponse({ error: "device_not_owned" }, 403)
-      : jsonResponse({ ok: true, withdrawn: result.kind === "withdrawn" }),
+    // Withdrawal is idempotent. A caller with no such device in this team has
+    // nothing published there, which is the state it asked for. Every build
+    // on a Mac shares one device id, so a second account on that Mac reaches
+    // this case; shipped clients repeat a non-2xx withdrawal on every status
+    // tick, and the old 403 cost one Stack verification per tick forever.
+    onSuccess: (result) => jsonResponse({ ok: true, withdrawn: result.kind === "withdrawn" }),
     onFailure: (error) => error instanceof AccountDeletionMutationBlockedError
       ? jsonResponse({ error: "account_deletion_in_progress" }, 409)
       : jsonResponse({ error: "internal_error" }, 500),

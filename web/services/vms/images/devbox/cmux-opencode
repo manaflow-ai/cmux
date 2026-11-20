@@ -1,10 +1,25 @@
 #!/bin/bash
-# Every entrypoint, including exec and direct process spawn, prepares the same
-# authenticated provider configuration before starting the pinned executable.
-set -e
+# OpenCode launcher (/usr/local/bin/opencode). Every entrypoint, including
+# exec and direct process spawn, resolves this machine's sign-in mode
+# (/etc/cmux/agent-auth.sh) before starting the pinned executable: team mode
+# layers the CodeRouter providers on the user's configuration for this launch
+# (OPENCODE_CONFIG), own mode adds none and drops the model-plane env, so
+# `opencode auth login` credentials are used and never sent to CodeRouter.
+# `cr use own|team` switches it; a switch applies to the next launch. No
+# errexit: a HOME the config generators cannot write must still start opencode.
 if [ "$#" -eq 1 ]; then
   case "$1" in --version|-v|--help|-h) exec /usr/local/libexec/cmux-opencode-real "$@" ;; esac
 fi
 . /etc/cmux/agent-config.sh
-cmux_ensure_opencode_config
+. /etc/cmux/agent-auth.sh
+cmux_opencode_apply_auth_mode
+if [ "$cmux_agent_auth_mode" = team ]; then
+  cmux_ensure_opencode_config || exit $?
+  # A configuration the caller pointed OPENCODE_CONFIG at wins.
+  if [ -z "${OPENCODE_CONFIG-}" ] && [ -f "$HOME/.config/cmux/opencode-team.json" ]; then
+    OPENCODE_CONFIG="$HOME/.config/cmux/opencode-team.json"
+    export OPENCODE_CONFIG
+  fi
+fi
+cmux_write_cua_mcp_config allow-missing
 exec /usr/local/libexec/cmux-opencode-real "$@"

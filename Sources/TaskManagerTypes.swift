@@ -596,6 +596,10 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable, Sendable {
     private static func appendBasename(_ value: String, to values: inout Set<String>) {
         guard let normalized = normalized((value as NSString).lastPathComponent) else { return }
         values.insert(normalized)
+        // Muse Code's launcher execs a versioned `muse-bin-<version>` binary.
+        if normalized.hasPrefix("muse-bin-") {
+            values.insert("muse")
+        }
     }
 
     private static func isVersionedExecutableBasename(_ value: String) -> Bool {

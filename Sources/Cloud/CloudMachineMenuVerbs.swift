@@ -36,12 +36,15 @@ struct CloudMachineMenuVerbs {
         return entries
     }
 
-    /// Rename, Copy IP Address, Status, and the provider-honored Checkpoint/Fork.
+    /// Rename, recovery, Copy IP Address, Status, and the provider-honored Checkpoint/Fork.
     func manageEntries(_ machine: MachineSnapshot) -> [CloudMenuEntry] {
         let id = machine.id
         var entries = [
             action("rename", id, String(localized: "machines.menu.rename", defaultValue: "Rename…")) { promptRename(machine) },
         ]
+        if machine.freeAccess != .expired, machine.capabilities.restart {
+            entries.append(action("restart", id, String(localized: "machines.menu.restart", defaultValue: "Restart Machine")) { runCommand(id, ["vm", "restart"]) })
+        }
         if let address = machine.privateAddress {
             entries.append(action("copyIP", id, String(localized: "machines.menu.copyIPAddress", defaultValue: "Copy IP Address")) { copyToPasteboard(address) })
         }

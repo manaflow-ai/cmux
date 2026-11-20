@@ -4,6 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createSitesEnv } from "./harness.mjs";
+import { zip } from "./mock-editors.mjs";
 
 const env = await createSitesEnv();
 test.after(() => env.close());
@@ -38,22 +39,70 @@ test("googleSheets.write to a shared sheet is a draft; the confirmed draft paste
 test("googleSheets.write types the cells when the editor drops the paste", async () => {
   const f = await s.value('sites.googleDrive.create("spreadsheets", "cmux REPL paste fallback")');
   files.get(f.id).ignorePaste = true;
-  assert.deepEqual(await s.value(`sites.googleSheets.write(${JSON.stringify(f.url)}, "A1", [["a", "b"]])`), { status: "written", range: "A1:B1", verified: true });
+  assert.deepEqual(await s.confirmed(`sites.googleSheets.write(${JSON.stringify(f.url)}, "A1", [["a", "b"]])`), { status: "written", range: "A1:B1", verified: true });
   assert.deepEqual(files.get(f.id).edits, ["typed", "typed"]);
-  await s.value(`sites.googleDrive.trash(${JSON.stringify(f.url)})`);
+  await s.confirmed(`sites.googleDrive.trash(${JSON.stringify(f.url)})`);
 });
 
-test("googleSheets.append, write and clear on a private sheet run at once and verify", async () => {
+// Sheets' paste parser ends a row at CR as at LF: a value with a CR would
+// write rows below the confirmed range. Such a value is refused before
+// any draft, as a tab or LF is.
+test("googleSheets.write and append refuse a value with a carriage return; nothing outside the confirmed range changes", async () => {
+  const f = await s.value('sites.googleDrive.create("spreadsheets", "cmux REPL CR")');
+  try {
+    for (const v of ["a\rb", "a\r\nb", "a\r"]) {
+      assert.match(await s.error(`sites.googleSheets.write(${JSON.stringify(f.url)}, "A1", [[${JSON.stringify(v)}]])`), /invalid|line break/, `${JSON.stringify(v)} was drafted`);
+      assert.match(await s.error(`sites.googleSheets.append(${JSON.stringify(f.url)}, [[${JSON.stringify(v)}]])`), /invalid|line break/, `${JSON.stringify(v)} was drafted for append`);
+    }
+    assert.deepEqual([...files.get(f.id).sheets[0].cells.keys()], [], "a cell changed");
+  } finally {
+    await s.confirmed(`sites.googleDrive.trash(${JSON.stringify(f.url)})`);
+  }
+});
+
+// r23 sites#2: U+2028, U+2029 and U+0085 are line terminators too (a
+// paste or typed text may end a row or a line at them): refused before
+// any draft, as CR, LF and TAB are.
+test("googleSheets.write and append refuse a value with U+2028, U+2029 or U+0085", async () => {
+  const f = await s.value('sites.googleDrive.create("spreadsheets", "cmux REPL unicode breaks")');
+  try {
+    for (const v of ["a\u2028b", "a\u2029b", "a\u0085b"]) {
+      assert.match(String(await s.error(`sites.googleSheets.write(${JSON.stringify(f.url)}, "A1", [[${JSON.stringify(v)}]])`)), /line break/, `${JSON.stringify(v)} was drafted`);
+      assert.match(String(await s.error(`sites.googleSheets.append(${JSON.stringify(f.url)}, [[${JSON.stringify(v)}]])`)), /line break/, `${JSON.stringify(v)} was drafted for append`);
+    }
+    assert.deepEqual([...files.get(f.id).sheets[0].cells.keys()], [], "a cell changed");
+  } finally {
+    await s.confirmed(`sites.googleDrive.trash(${JSON.stringify(f.url)})`);
+  }
+});
+
+// After the write, the confirmed range and one row and one column beyond
+// it are read back: a paste that changed a cell outside the range fails
+// the confirmation instead of reporting a verified write (and does not
+// type the cells again on top of it).
+test("googleSheets.write: a paste that changes a cell next to the confirmed range fails the confirmation", async () => {
+  const f = await s.value('sites.googleDrive.create("spreadsheets", "cmux REPL spill")');
+  try {
+    files.get(f.id).pasteSpill = "spilled";
+    const err = await s.error(`(async () => { const d = await sites.googleSheets.write(${JSON.stringify(f.url)}, "A1", [["a", "b"]]); return sites.googleSheets.write(d.id, { confirm: true }); })()`);
+    assert.match(err, /outside the confirmed range|A2/);
+    assert.deepEqual(files.get(f.id).edits, ["paste"], "the cells were typed again after the spill");
+  } finally {
+    await s.confirmed(`sites.googleDrive.trash(${JSON.stringify(f.url)})`);
+  }
+});
+
+test("googleSheets.append, write and clear on a private sheet are drafts too; confirmed, they write and verify", async () => {
   const f = await s.value('sites.googleDrive.create("spreadsheets", "cmux REPL test")');
   assert.match(f.url, /^https:\/\/docs\.google\.com\/spreadsheets\/d\/[\w-]+\/edit$/);
   assert.equal(f.title, "cmux REPL test");
   assert.equal(files.get(f.id).title, "cmux REPL test", "the rename reached the file");
-  assert.deepEqual(await s.value(`sites.googleSheets.write(${JSON.stringify(f.url)}, "A1", [["a", "b"], ["1", "=SUM(A2:A2)"]])`), { status: "written", range: "A1:B2", verified: true });
-  assert.deepEqual(await s.value(`sites.googleSheets.append(${JSON.stringify(f.url)}, [["2", "x"]])`), { status: "written", range: "A3:B3", verified: true });
+  assert.deepEqual(await s.confirmed(`sites.googleSheets.write(${JSON.stringify(f.url)}, "A1", [["a", "b"], ["1", "=SUM(A2:A2)"]])`), { status: "written", range: "A1:B2", verified: true });
+  assert.deepEqual(await s.confirmed(`sites.googleSheets.append(${JSON.stringify(f.url)}, [["2", "x"]])`), { status: "written", range: "A3:B3", verified: true });
   assert.deepEqual((await s.value(`sites.googleSheets.read(${JSON.stringify(f.url)})`)).rows, [["a", "b"], ["1", "1"], ["2", "x"]]);
-  assert.deepEqual(await s.value(`sites.googleSheets.clear(${JSON.stringify(f.url)}, "A3:B3")`), { status: "cleared", range: "A3:B3", verified: true });
+  assert.deepEqual(await s.confirmed(`sites.googleSheets.clear(${JSON.stringify(f.url)}, "A3:B3")`), { status: "cleared", range: "A3:B3", verified: true });
   assert.equal((await s.value(`sites.googleSheets.read(${JSON.stringify(f.url)})`)).rows.length, 2);
-  assert.deepEqual(await s.value(`sites.googleDrive.trash(${JSON.stringify(f.url)})`), { status: "trashed", verified: true });
+  assert.deepEqual(await s.confirmed(`sites.googleDrive.trash(${JSON.stringify(f.url)})`), { status: "trashed", verified: true });
   assert.equal(files.get(f.id).trashed, true);
 });
 
@@ -71,32 +120,32 @@ test("googleDocs.structure returns headings, paragraphs, lists and tables in ord
   });
 });
 
-test("googleDocs.replace, insertAfter and append edit a private doc through Find and replace and verify", async () => {
-  assert.deepEqual(await s.value(`sites.googleDocs.replace(${JSON.stringify(DOC)}, "Intro", "Opening")`), { status: "replaced", count: 1, verified: true });
-  assert.deepEqual(await s.value(`sites.googleDocs.insertAfter(${JSON.stringify(DOC)}, "Closing line.", " Thanks.")`), { status: "inserted", verified: true });
+test("googleDocs.replace, insertAfter and append edit a private doc through Find and replace and verify once confirmed", async () => {
+  assert.deepEqual(await s.confirmed(`sites.googleDocs.replace(${JSON.stringify(DOC)}, "Intro", "Opening")`), { status: "replaced", count: 1, verified: true });
+  assert.deepEqual(await s.confirmed(`sites.googleDocs.insertAfter(${JSON.stringify(DOC)}, "Closing line.", " Thanks.")`), { status: "inserted", verified: true });
   assert.match(await s.error(`sites.googleDocs.insertAfter(${JSON.stringify(DOC)}, "it", "!")`), /anchor "it" occurs 2 times/);
   const blocks = files.get("1docPRIVATE000000000000000000000x").blocks;
   assert.equal(blocks[1].text, "Opening paragraph.");
   assert.equal(blocks[5].text, "Closing line. Thanks.");
-  assert.deepEqual(await s.value(`sites.googleDocs.append(${JSON.stringify(DOC)}, "Last words.")`), { status: "appended", verified: true });
+  assert.deepEqual(await s.confirmed(`sites.googleDocs.append(${JSON.stringify(DOC)}, "Last words.")`), { status: "appended", verified: true });
   assert.deepEqual(blocks.at(-1), { type: "paragraph", text: "Last words." });
 });
 
-test("googleSlides.slides lists each slide's title, text and speaker notes; replace edits a private deck", async () => {
+test("googleSlides.slides lists each slide's title, text and speaker notes; a confirmed replace edits a private deck", async () => {
   assert.deepEqual(await s.value(`sites.googleSlides.slides(${JSON.stringify(DECK)})`), [
     { index: 1, title: "Roadmap", text: ["Roadmap", "Q1: ship", "Q2: grow"], notes: "Say hello" },
     { index: 2, title: "Risks", text: ["Risks", "Time"], notes: "Keep short" },
   ]);
-  assert.deepEqual(await s.value(`sites.googleSlides.replace(${JSON.stringify(DECK)}, "Q2: grow", "Q2: scale")`), { status: "replaced", count: 1, verified: true });
+  assert.deepEqual(await s.confirmed(`sites.googleSlides.replace(${JSON.stringify(DECK)}, "Q2: grow", "Q2: scale")`), { status: "replaced", count: 1, verified: true });
   assert.equal(files.get("1deckPRIVATE00000000000000000000x").slides[0].body[1], "Q2: scale");
 });
 
-test("googleSlides.setNotes replaces one slide's speaker notes on a private deck and verifies", async () => {
-  assert.deepEqual(await s.value(`sites.googleSlides.setNotes(${JSON.stringify(DECK)}, 2, "First line\\nSecond line")`), { status: "notes set", slide: 2, verified: true });
+test("googleSlides.setNotes replaces one slide's speaker notes on a private deck and verifies once confirmed", async () => {
+  assert.deepEqual(await s.confirmed(`sites.googleSlides.setNotes(${JSON.stringify(DECK)}, 2, "First line\\nSecond line")`), { status: "notes set", slide: 2, verified: true });
   const slides = files.get("1deckPRIVATE00000000000000000000x").slides;
   assert.equal(slides[1].notes, "First line\nSecond line");
   assert.equal(slides[0].notes, "Say hello");
-  assert.deepEqual(await s.value(`sites.googleSlides.setNotes(${JSON.stringify(DECK)}, 2, "Replaced")`), { status: "notes set", slide: 2, verified: true });
+  assert.deepEqual(await s.confirmed(`sites.googleSlides.setNotes(${JSON.stringify(DECK)}, 2, "Replaced")`), { status: "notes set", slide: 2, verified: true });
   assert.equal(slides[1].notes, "Replaced");
   assert.match(await s.error(`sites.googleSlides.setNotes(${JSON.stringify(DECK)}, 9, "x")`), /slide 9 does not exist; the deck has 2 slides/);
 });
@@ -106,9 +155,144 @@ test("editing a shared doc or deck is a draft until confirmed", async () => {
   try {
     const d = await s.value(`sites.googleDocs.replace(${JSON.stringify(DOC)}, "Plan", "Plan B")`);
     assert.equal(d.status, "draft");
-    assert.deepEqual(d.preview, { file: DOC, title: "Plan", find: "Plan", replace: "Plan B", sharing: "Share. Anyone with the link can view." });
+    const { textHash, ...shown } = d.preview;
+    assert.deepEqual(shown, { account: "ada@example.com", accountId: "1001", fileId: "1docPRIVATE000000000000000000000x", title: "Plan", sharing: "Share. Anyone with the link can view.", find: "Plan", replace: "Plan B", matches: 1, at: [0] });
+    assert.match(textHash, /^[0-9a-f]{16}$/);
     assert.equal(files.get("1docPRIVATE000000000000000000000x").blocks[0].text, "Plan");
   } finally {
     env.state.editors.files.get("1docPRIVATE000000000000000000000x").shared = false;
+  }
+});
+
+// The sharing label a draft shows is read only from the editor's own Share
+// button in its title bar: a label that says private elsewhere in the
+// page, or a second, disagreeing label inside the button, is never shown.
+test("a decoy Share label never shows a shared file as private", async () => {
+  const doc = env.state.editors.files.get("1docPRIVATE000000000000000000000x");
+  const before = JSON.stringify(doc.blocks);
+  doc.shared = true;
+  try {
+    for (const where of ["inside", "page"]) {
+      doc.decoyShare = where;
+      // Two disagreeing labels in the button make the sharing unknown,
+      // which drafts nothing; a label elsewhere is ignored.
+      const r = await s.run(`var decoyD = await sites.googleDocs.replace(${JSON.stringify(DOC)}, "Plan", "Plan B")`);
+      if (r.error) assert.match(r.error, /could not read the file's sharing/, `decoy ${where}`);
+      else {
+        const d = await s.value("decoyD");
+        assert.equal(d.status, "draft", `decoy ${where}: ${JSON.stringify(d)}`);
+        assert.equal(d.preview.sharing, "Share. Anyone with the link can view.", `decoy ${where}`);
+      }
+      assert.equal(JSON.stringify(doc.blocks), before, `decoy ${where}: the file changed`);
+    }
+  } finally {
+    doc.shared = false;
+    doc.decoyShare = null;
+  }
+});
+
+// Crafted exports (a shared file's owner controls what Google exports):
+// the xlsx/pptx reader bounds the ZIP it unzips (site-tools.md, "Editing
+// Google files"): 10,000 entries, 64 MiB per entry and in all, and
+// an entry never decompresses past its declared size.
+const MiB = 1024 * 1024;
+const WORKBOOK = [
+  ["xl/workbook.xml", '<workbook xmlns:r="r"><sheets><sheet name="A" sheetId="1" r:id="rId1"/></sheets></workbook>'],
+  ["xl/_rels/workbook.xml.rels", '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'],
+];
+async function cellsFailure(exportBody) {
+  const id = env.state.editors.add({ kind: "spreadsheets", title: "crafted", shared: true, sheets: [{ name: "A", gid: "0", cells: new Map() }], exportBody });
+  const url = `https://docs.google.com/spreadsheets/d/${id}/edit`;
+  return s.value(`sites.googleSheets.cells(${JSON.stringify(url)}).then((r) => ({ ok: r }), (e) => ({ code: e.code, message: e.message }))`);
+}
+
+test("googleSheets.cells refuses an entry that inflates past 64 MiB (a high-ratio export)", async () => {
+  const r = await cellsFailure(zip([...WORKBOOK, ["xl/worksheets/sheet1.xml", Buffer.alloc(70 * MiB, 0x20)]]));
+  assert.equal(r.code, "limit", JSON.stringify(r).slice(0, 300));
+  assert.match(r.message, /xl\/worksheets\/sheet1\.xml declares \d+ bytes.*67108864 bytes per entry/);
+});
+
+test("googleSheets.cells reads one entry of 40 MiB (under the per-entry cap)", async () => {
+  const big = '<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>big</t></is></c></row></sheetData></worksheet>' + " ".repeat(40 * MiB);
+  const r = await cellsFailure(zip([...WORKBOOK, ["xl/worksheets/sheet1.xml", big]]));
+  assert.deepEqual(r.ok && r.ok.cells, [{ cell: "A1", value: "big" }], JSON.stringify(r).slice(0, 300));
+});
+
+test("googleSlides.slides stops a pptx entry at its declared size (the same bounded reader)", async () => {
+  const slide = "<p:sld><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>x</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>" + " ".repeat(20 * MiB);
+  const id = env.state.editors.add({ kind: "presentation", title: "crafted deck", shared: true, slides: [{ id: "g0", title: "", body: [], notes: "" }], exportBody: zip([["ppt/slides/slide1.xml", slide, { size: 100 }]]) });
+  const url = `https://docs.google.com/presentation/d/${id}/edit`;
+  const r = await s.value(`sites.googleSlides.slides(${JSON.stringify(url)}).then((r) => ({ ok: r }), (e) => ({ code: e.code, message: e.message }))`);
+  assert.equal(r.code, "limit", JSON.stringify(r).slice(0, 300));
+  assert.match(r.message, /^googleSlides\.slides: ppt\/slides\/slide1\.xml decompresses past its declared size of 100 bytes/);
+});
+
+test("googleSheets.cells stops an entry at its declared size (a lying header)", async () => {
+  const r = await cellsFailure(zip([...WORKBOOK, ["xl/worksheets/sheet1.xml", Buffer.alloc(20 * MiB, 0x20), { size: 100 }]]));
+  assert.equal(r.code, "limit", JSON.stringify(r).slice(0, 300));
+  assert.match(r.message, /past its declared size of 100 bytes/);
+});
+
+test("googleSheets.cells refuses an entry shorter than its declared size", async () => {
+  const r = await cellsFailure(zip([...WORKBOOK, ["xl/worksheets/sheet1.xml", "<worksheet/>", { size: 5000 }]]));
+  assert.equal(r.code, "unexpected", JSON.stringify(r).slice(0, 300));
+  assert.match(r.message, /declares 5000 bytes but holds 12/);
+});
+
+test("googleSheets.cells stops when the entries together inflate past 64 MiB", async () => {
+  const sheets = [1, 2, 3].map((n) => [`xl/worksheets/sheet${n}.xml`, Buffer.alloc(30 * MiB, 0x20)]);
+  const r = await cellsFailure(zip([...WORKBOOK, ...sheets]));
+  assert.equal(r.code, "limit", JSON.stringify(r).slice(0, 300));
+  assert.match(r.message, /67108864 bytes/);
+});
+
+test("googleSheets.cells refuses an export of more than 10,000 entries", async () => {
+  const many = Array.from({ length: 10001 }, (_, n) => [`x/${n}`, ""]);
+  const r = await cellsFailure(zip([...WORKBOOK, ...many]));
+  assert.equal(r.code, "limit", JSON.stringify(r).slice(0, 300));
+  assert.match(r.message, /10003 entries.*10000/);
+});
+
+test("googleSheets.cells refuses offsets outside the archive", async () => {
+  const bytes = zip([...WORKBOOK, ["xl/worksheets/sheet1.xml", "<worksheet/>"]]);
+  // The last central record's local header offset, pointed past the end.
+  const cd = bytes.readUInt32LE(bytes.length - 22 + 16);
+  let p = cd;
+  for (let n = 0; n < 2; n++) p += 46 + bytes.readUInt16LE(p + 28) + bytes.readUInt16LE(p + 30) + bytes.readUInt16LE(p + 32);
+  bytes.writeUInt32LE(bytes.length + 1000, p + 42);
+  const r = await cellsFailure(bytes);
+  assert.equal(r.code, "unexpected", JSON.stringify(r).slice(0, 300));
+  assert.match(r.message, /not a valid zip file/);
+});
+
+// r42: a confirmed write rechecks the account before each input batch;
+// the editor's selection is read back right before the paste or typed
+// keys too, so an editor (or another session) that moved it sends nothing
+// to a cell or slide the draft did not show.
+test("googleSheets.write: a selection the editor moved elsewhere before the paste writes nothing (target_mismatch)", async () => {
+  const f = await s.value('sites.googleDrive.create("spreadsheets", "cmux REPL moved selection")');
+  const file = files.get(f.id);
+  file.redirectSelection = "Z9";
+  const d = await s.value(`sites.googleSheets.write(${JSON.stringify(f.url)}, "A1", [["a", "b"]])`);
+  assert.equal(d.status, "draft");
+  assert.match(await s.error(`sites.googleSheets.write(${JSON.stringify(d.id)}, { confirm: true })`), /target_mismatch|not the confirmed/);
+  await Promise.all([...(file.pending || [])]);
+  assert.deepEqual(file.edits || [], [], "nothing was pasted or typed");
+  assert.equal(file.sheets[0].cells.size, 0);
+  delete file.redirectSelection;
+  await s.confirmed(`sites.googleDrive.trash(${JSON.stringify(f.url)})`);
+});
+
+test("googleSlides.setNotes: a slide the editor switched to before the notes are typed is not written (target_mismatch)", async () => {
+  const deck = files.get("1deckPRIVATE00000000000000000000x");
+  const before = deck.slides.map((x) => x.notes);
+  deck.redirectSlide = 0;
+  try {
+    const d = await s.value(`sites.googleSlides.setNotes(${JSON.stringify(DECK)}, 2, "Moved notes")`);
+    assert.equal(d.status, "draft");
+    assert.match(await s.error(`sites.googleSlides.setNotes(${JSON.stringify(d.id)}, { confirm: true })`), /target_mismatch|not the confirmed/);
+    assert.deepEqual(deck.slides.map((x) => x.notes), before);
+  } finally {
+    delete deck.redirectSlide;
   }
 });

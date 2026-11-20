@@ -7,7 +7,7 @@
 // gross price in USD. Every metric is a question about which intervals cover
 // a moment in time.
 
-import { APPLE_USD_LIST_PRICE } from "../apple/config";
+import { APPLE_USD_LIST_PRICE, appleUsdListPrice } from "../apple/config";
 import { GO_PRICING_USD, MAX_PRICING_USD, PRO_PRICING_USD, TEAM_PRICING_USD } from "../plans";
 import { toUsd } from "./fx";
 
@@ -123,8 +123,12 @@ export function applePriceUsd(
   planId: string,
   priceMilliunits: number | null,
   currency: string | null,
+  /** Months the charge covers; 11 or more is a yearly product's list price. */
+  intervalMonths = 1,
 ): ApplePrice {
-  const listPrice = (APPLE_USD_LIST_PRICE as Readonly<Record<string, number>>)[planId] ?? 0;
+  const listPrice = planId in APPLE_USD_LIST_PRICE
+    ? appleUsdListPrice(planId as keyof typeof APPLE_USD_LIST_PRICE, intervalMonths >= 11 ? "yearly" : "monthly")
+    : 0;
   if (priceMilliunits === null) return { usd: listPrice, fallback: true, paid: true };
   if (priceMilliunits <= 0) return { usd: 0, fallback: false, paid: false };
   const converted = toUsd(priceMilliunits / 1000, currency);
@@ -141,8 +145,8 @@ function appleTransactionInterval(
   const end = tx.revokedAt && tx.revokedAt < tx.expiresAt ? tx.revokedAt : tx.expiresAt;
   if (end <= tx.purchaseDate) return null;
   const planId = tx.planId ?? fallbackPlan;
-  const price = applePriceUsd(planId, tx.priceMilliunits, tx.currency);
   const months = periodMonths(tx.purchaseDate, tx.expiresAt);
+  const price = applePriceUsd(planId, tx.priceMilliunits, tx.currency, months);
   return {
     interval: {
       start: tx.purchaseDate,
@@ -246,7 +250,8 @@ export function appleRefundEvents(
   for (const tx of transactions) {
     if (!tx.revokedAt || (tx.revocationReason !== 0 && tx.revocationReason !== 1)) continue;
     const planId = tx.planId ?? row.planId;
-    const price = applePriceUsd(planId, tx.priceMilliunits, tx.currency);
+    const months = tx.purchaseDate ? periodMonths(tx.purchaseDate, tx.expiresAt) : 1;
+    const price = applePriceUsd(planId, tx.priceMilliunits, tx.currency, months);
     refunds.push({
       source: "apple",
       id: tx.transactionId,

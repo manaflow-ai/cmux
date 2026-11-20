@@ -115,6 +115,9 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
     public static let authSignedIn = CommandPaletteContextKeys(rawValue: "auth.signedIn")
     /// Whether an auth operation is in flight.
     public static let authWorking = CommandPaletteContextKeys(rawValue: "auth.working")
+    /// The plan tier the upgrade command offers (`pro` or `max`), absent
+    /// when the account is on the top tier or its plan is not yet known.
+    public static let accountUpgradeOffer = CommandPaletteContextKeys(rawValue: "account.upgradeOffer")
     /// Whether the Computer Use UX and its onboarding actions are available.
     public static let computerUseUXEnabled = CommandPaletteContextKeys(rawValue: "computerUse.uxEnabled")
 

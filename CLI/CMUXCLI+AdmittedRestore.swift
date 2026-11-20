@@ -37,7 +37,9 @@ extension CMUXCLI {
         processEnvironment: [String: String],
         workingDirectory: String?
     ) throws -> RestoreExecution {
-        if let command = record.legacyCommand {
+        if AgentRestorePlanner.allowsLegacyFallback(
+            kind: record.kind, mode: AgentRestoreRequestMode(rawValue: record.mode)
+        ), let command = record.legacyCommand {
             if record.kind != "codex" {
                 return .legacy(command: command, environment: processEnvironment.merging(record.environment) { _, saved in saved })
             }

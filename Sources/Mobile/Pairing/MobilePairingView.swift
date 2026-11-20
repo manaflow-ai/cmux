@@ -31,8 +31,8 @@ struct MobilePairingView: View {
     private let accountFlow: HostAccountFlow? = AppDelegate.shared?.auth?.accountFlow
 
     private static let tailscaleDownloadURL = URL(string: "https://tailscale.com/download")!
-    /// Where a Mac user goes to get cmux for iPhone while the beta is invite-only.
-    static let iphoneAppURL = URL(string: "https://github.com/manaflow-ai/cmux#founders-edition")!
+    /// Where a Mac user goes to get cmux for iPhone: the beta ships with cmux Pro.
+    static let iphoneAppURL = URL(string: "https://cmux.com/api/billing/checkout?plan=pro&cmux_source=mac_mobile_pairing&cmux_client=mac")!
 
     init(onContentHeightChange: @escaping (CGFloat) -> Void = { _ in }) {
         self.onContentHeightChange = onContentHeightChange

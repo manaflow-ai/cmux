@@ -240,8 +240,39 @@ final class LocalSurfaceProvider: SurfaceProvider {
 
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
         let all = workspaces()
-        guard let workspace = all.first(where: { $0.owningTabManager?.selectedTabId == $0.id }) ?? all.first else {
-            throw SurfaceCatalogError.destinationNotFound("a workspace")
+        let preferredManager = AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: nil)
+        let candidates = preferredManager?.tabs ?? all
+        // A local terminal must never be staged inside a Cloud or remote
+        // workspace. This matters when the destination setup workspace lives
+        // in another window: selecting it does not deselect the Cloud tab in
+        // the initiating window, and the old first-selected lookup could pick
+        // that remote workspace before projection moved the pane.
+        let workspace: Workspace
+        if let existing = candidates.first(where: {
+            $0.owningTabManager?.selectedTabId == $0.id && Self.canHostLocalTerminal($0)
+        }) ?? candidates.first(where: { Self.canHostLocalTerminal($0) }) {
+            workspace = existing
+        } else {
+            // A remote-only window is a supported state: the user can close
+            // the starter local workspace after opening a Cloud or SSH
+            // workspace. Preserve the old destination-nil behavior by making
+            // a local workspace before staging the requested terminal there.
+            let created = preferredManager?.addWorkspaceIfActive(
+                inheritWorkingDirectory: false,
+                select: false,
+                autoWelcomeIfNeeded: false,
+                autoRefreshMetadata: false
+            ) ?? AppDelegate.shared?.addWorkspaceInPreferredMainWindow(
+                titleSource: .auto,
+                inheritWorkingDirectory: false,
+                select: false,
+                shouldBringToFront: false,
+                debugSource: "surface.localTerminalFallback"
+            )
+            guard let created, Self.canHostLocalTerminal(created) else {
+                throw SurfaceCatalogError.destinationNotFound("a local workspace")
+            }
+            workspace = created
         }
         let initialCommand = command.map { $0.map(Self.shellQuote).joined(separator: " ") }
         let made = try SurfacePaneFactory.makeTerminalPane(
@@ -261,6 +292,10 @@ final class LocalSurfaceProvider: SurfaceProvider {
         catalog.upsert(resource)
         catalog.record(SurfaceProjection(resource: id, workspaceID: made.workspaceID, panelID: made.panelID))
         return resource
+    }
+
+    private static func canHostLocalTerminal(_ workspace: Workspace) -> Bool {
+        workspace.canHostLocalTerminal
     }
 
     static func shellQuote(_ value: String) -> String {

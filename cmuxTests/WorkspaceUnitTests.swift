@@ -176,6 +176,44 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         }
     }
 
+    func testSolidFillUnselectedRowUsesConfiguredFillOpacity() {
+        XCTAssertEqual(SettingCatalog().workspaceColors.unselectedFillOpacity.defaultValue, 0.7, accuracy: 0.001)
+        func style(isActive: Bool = false, isMultiSelected: Bool = false, opacity: Double? = nil) -> SidebarWorkspaceRowBackgroundStyle {
+            if let opacity {
+                return sidebarWorkspaceRowBackgroundStyle(
+                    activeTabIndicatorStyle: .solidFill,
+                    isActive: isActive,
+                    isMultiSelected: isMultiSelected,
+                    customColorHex: "#87FF00",
+                    colorScheme: .dark,
+                    sidebarSelectionColorHex: nil,
+                    unselectedFillOpacity: opacity
+                )
+            }
+            return sidebarWorkspaceRowBackgroundStyle(
+                activeTabIndicatorStyle: .solidFill,
+                isActive: isActive,
+                isMultiSelected: isMultiSelected,
+                customColorHex: "#87FF00",
+                colorScheme: .dark,
+                sidebarSelectionColorHex: nil
+            )
+        }
+
+        // The default keeps the existing 70% fill and half of it for multi-selection.
+        XCTAssertEqual(style().opacity, 0.7, accuracy: 0.001)
+        XCTAssertEqual(style(isMultiSelected: true).opacity, 0.35, accuracy: 0.001)
+
+        XCTAssertEqual(style(opacity: 1).opacity, 1, accuracy: 0.001)
+        XCTAssertEqual(style(isMultiSelected: true, opacity: 1).opacity, 0.5, accuracy: 0.001)
+        XCTAssertEqual(style(opacity: 0.4).opacity, 0.4, accuracy: 0.001)
+
+        // Out-of-range values are clamped, and the selected row stays opaque.
+        XCTAssertEqual(style(opacity: 3).opacity, 1, accuracy: 0.001)
+        XCTAssertEqual(style(opacity: -1).opacity, 0, accuracy: 0.001)
+        XCTAssertEqual(style(isActive: true, opacity: 0.2).opacity, 1, accuracy: 0.001)
+    }
+
     func testSolidFillDarkModeRowUsesChosenColorWhenBrighteningDisabled() {
         let customHex = "#0E151B"
         let brightened = sidebarWorkspaceRowBackgroundStyle(
@@ -2522,6 +2560,58 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertTrue(SidebarTabItemSettingsSnapshot(defaults: defaults).brightenInDarkMode)
     }
 
+    func testSettingsFileStoreResolvesWorkspaceColorsUnselectedFillOpacity() throws {
+        let defaults = UserDefaults.standard
+        let key = SettingCatalog().workspaceColors.unselectedFillOpacity
+        let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
+        let isolatedKeys = [key.userDefaultsKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]
+        let previousValues = isolatedKeys.reduce(into: [String: Any]()) { values, key in
+            values[key] = defaults.object(forKey: key)
+        }
+        defer {
+            for key in isolatedKeys {
+                if let value = previousValues[key] {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+
+        isolatedKeys.forEach { defaults.removeObject(forKey: $0) }
+        XCTAssertEqual(SidebarTabItemSettingsSnapshot(defaults: defaults).unselectedFillOpacity, key.defaultValue, accuracy: 0.001)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        func load(_ value: String, named name: String) throws -> Double {
+            let url = directoryURL.appendingPathComponent(name, isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "workspaceColors": {
+                    "unselectedFillOpacity": \(value)
+                  }
+                }
+                """,
+                to: url
+            )
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: url.path,
+                fallbackPath: nil,
+                startWatching: false
+            )
+            return SidebarTabItemSettingsSnapshot(defaults: defaults).unselectedFillOpacity
+        }
+
+        XCTAssertEqual(try load("1", named: "full.json"), 1, accuracy: 0.001)
+        XCTAssertEqual(try load("0.45", named: "partial.json"), 0.45, accuracy: 0.001)
+        // Out-of-range numbers are clamped to 0...1.
+        XCTAssertEqual(try load("2.5", named: "high.json"), 1, accuracy: 0.001)
+        // A non-number is rejected, so the setting reverts to its default.
+        XCTAssertEqual(try load("\"full\"", named: "invalid.json"), key.defaultValue, accuracy: 0.001)
+    }
+
     func testManagedWorkspaceColorsRestoreLegacyPaletteWhenFileSettingIsRemoved() throws {
         let defaults = UserDefaults.standard
         let previousPalette = defaults.dictionary(forKey: WorkspaceTabColorSettings.paletteKey) as? [String: String]
@@ -2765,6 +2855,77 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().workspaceGroups.newWorkspacePlacement), .end)
+    }
+
+    func testSettingsFileStoreParsesGoToWorkspaceOrder() throws {
+        let defaults = UserDefaults.standard
+        let orderKey = SettingCatalog().app.goToWorkspaceOrder.userDefaultsKey
+        let tabBarVisibilityKey = AppCatalogSection().tabBarVisibility.userDefaultsKey
+        let previousOrder = defaults.object(forKey: orderKey)
+        let previousTabBarVisibility = defaults.object(forKey: tabBarVisibilityKey)
+        defer {
+            if let previousOrder {
+                defaults.set(previousOrder, forKey: orderKey)
+            } else {
+                defaults.removeObject(forKey: orderKey)
+            }
+
+            if let previousTabBarVisibility {
+                defaults.set(previousTabBarVisibility, forKey: tabBarVisibilityKey)
+            } else {
+                defaults.removeObject(forKey: tabBarVisibilityKey)
+            }
+        }
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "goToWorkspaceOrder": "recent"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        XCTAssertEqual(
+            UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.goToWorkspaceOrder),
+            .recent
+        )
+
+        let invalidSettingsURL = directoryURL.appendingPathComponent("invalid.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "goToWorkspaceOrder": "nope",
+                "tabBarVisibility": "multiple-tabs"
+              }
+            }
+            """,
+            to: invalidSettingsURL
+        )
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: invalidSettingsURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        XCTAssertEqual(
+            UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.goToWorkspaceOrder),
+            .sidebar
+        )
+        XCTAssertEqual(
+            UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.tabBarVisibility),
+            .multipleTabs
+        )
     }
 
     private func makeTemporaryDirectory() throws -> URL {
@@ -3362,6 +3523,44 @@ final class WorkspacePlacementSettingsTests: XCTestCase {
             totalCount: 5
         )
         XCTAssertEqual(noSelectionIndex, 5)
+    }
+}
+
+final class WorkspaceSwitcherOrderSettingsTests: XCTestCase {
+    func testCurrentOrderDefaultsToSidebarWhenUnset() {
+        let suiteName = "WorkspaceSwitcherOrderSettingsTests.Default.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(
+            UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.goToWorkspaceOrder),
+            .sidebar
+        )
+    }
+
+    func testCurrentOrderReadsRecentAndFallsBackForInvalidValues() {
+        let suiteName = "WorkspaceSwitcherOrderSettingsTests.Stored.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let key = SettingCatalog().app.goToWorkspaceOrder.userDefaultsKey
+        defaults.set(WorkspaceSwitcherOrder.recent.rawValue, forKey: key)
+        XCTAssertEqual(
+            UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.goToWorkspaceOrder),
+            .recent
+        )
+
+        defaults.set("nope", forKey: key)
+        XCTAssertEqual(
+            UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.goToWorkspaceOrder),
+            .sidebar
+        )
     }
 }
 

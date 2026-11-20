@@ -196,6 +196,7 @@ extension AgentHibernationController {
             let didRecover = await Self.waitForCommittedTerminationRecovery(
                 terminations: terminations,
                 processScopeKey: processScopeKey,
+                processExitCompletion: processExitCompletion,
                 waitForRecoveryExit: waitForRecoveryExit,
                 waitForRecoveryReadiness: waitForRecoveryReadiness,
                 recoveryDeadline: recoveryDeadline,
@@ -335,6 +336,7 @@ extension AgentHibernationController {
             let didRecover = await Self.waitForCommittedTerminationRecovery(
                 terminations: didExit ? [] : terminations,
                 processScopeKey: processScopeKey,
+                processExitCompletion: processExitCompletion,
                 waitForRecoveryExit: didExit
                     ? Self.completedRecoveryExitWait
                     : waitForRecoveryExit,
@@ -398,6 +400,7 @@ extension AgentHibernationController {
     private nonisolated static func waitForCommittedTerminationRecovery(
         terminations: [ScopedProcessTermination],
         processScopeKey: AgentHibernationPanelKey?,
+        processExitCompletion: AgentHibernationProcessExitCompletion,
         waitForRecoveryExit: (@Sendable ([ScopedProcessTermination]) async -> Bool)?,
         waitForRecoveryReadiness: @escaping @MainActor @Sendable () async -> Bool,
         recoveryDeadline: Duration,
@@ -406,15 +409,22 @@ extension AgentHibernationController {
     ) async -> Bool {
         await withTaskGroup(of: Bool.self) { group in
             group.addTask(priority: .utility) {
-                guard await waitForRecoveryReadiness() else { return false }
+                let didExit: Bool
                 if let waitForRecoveryExit {
-                    return await waitForRecoveryExit(terminations)
+                    didExit = await waitForRecoveryExit(terminations)
+                } else {
+                    didExit = await waitForScopedProcessGenerationsToExitWithoutTimeout(
+                        terminations,
+                        processScopeKey: processScopeKey,
+                        nextEpochProvider: nextEpochProvider
+                    )
                 }
-                return await waitForScopedProcessGenerationsToExitWithoutTimeout(
-                    terminations,
-                    processScopeKey: processScopeKey,
-                    nextEpochProvider: nextEpochProvider
-                )
+                guard didExit else { return false }
+                // Native teardown is fenced on this result. Resolve it as soon
+                // as the exact process generation exits so readiness can wait
+                // for the resulting native-free ticket without a cycle.
+                await processExitCompletion.finish(true)
+                return await waitForRecoveryReadiness()
             }
             group.addTask(priority: .utility) {
                 guard await sleepUntilRecoveryDeadline(recoveryDeadline) else {

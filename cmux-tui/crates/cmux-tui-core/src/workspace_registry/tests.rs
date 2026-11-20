@@ -13,6 +13,14 @@ fn temp_root(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!("cmux-registry-{label}-{}", new_uuid_v4()))
 }
 
+struct TempRoot(PathBuf);
+
+impl Drop for TempRoot {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
 fn workspace(id: u64, key: &str, name: &str) -> RegistryWorkspace {
     RegistryWorkspace {
         id,
@@ -92,6 +100,44 @@ fn journal_lists_are_bounded_by_the_resource_catalog() {
     let segments = registry.journal_segments().unwrap();
     assert_eq!(segments.len(), JOURNAL_LIST_MAX_ITEMS);
     assert_eq!(segments[0].start_sequence, 1);
+}
+
+#[test]
+fn existing_registry_migrates_to_incremental_journal_vacuum_once() {
+    let root = temp_root("journal-auto-vacuum-migration");
+    let database = {
+        let registry = WorkspaceRegistry::open(&root, "journal-auto-vacuum").unwrap();
+        let database = registry.session_journal_database_path().unwrap();
+        registry
+            .connection
+            .execute("DELETE FROM meta WHERE key = ?1", [JOURNAL_AUTO_VACUUM_META_KEY])
+            .unwrap();
+        database
+    };
+
+    // Model a registry written before journal maintenance opted into
+    // incremental auto-vacuum.
+    let legacy = Connection::open(&database).unwrap();
+    legacy.execute_batch("PRAGMA auto_vacuum=NONE; VACUUM;").unwrap();
+    drop(legacy);
+
+    let reopened = WorkspaceRegistry::open(&root, "journal-auto-vacuum").unwrap();
+    let mode = reopened
+        .connection
+        .query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))
+        .unwrap();
+    assert_eq!(mode, 0, "legacy migration must not rewrite the registry during open");
+    assert!(meta_value(&reopened.connection, JOURNAL_AUTO_VACUUM_META_KEY).unwrap().is_none());
+    assert!(reopened.migrate_journal_auto_vacuum().unwrap());
+    let mode = reopened
+        .connection
+        .query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))
+        .unwrap();
+    assert_eq!(mode, 2);
+    assert_eq!(required_meta(&reopened.connection, JOURNAL_AUTO_VACUUM_META_KEY).unwrap(), "1");
+    assert!(!reopened.migrate_journal_auto_vacuum().unwrap());
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[cfg(windows)]
@@ -4026,11 +4072,31 @@ fn startup_repairs_legacy_terminal_close_dangling_resource_rows() {
 
     let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
     let topology = reopened.resource_topology_snapshot().unwrap();
+    // One atomic repair batch: the deletes and the restated screen.
     assert_eq!(topology.revision, 2);
     let events = reopened.resource_events_after(1).unwrap();
     assert_eq!(events.batches.len(), 1);
     assert_eq!(events.batches[0].revision, 2);
     assert_eq!(events.batches[0].changes[0]["resource"], "terminal");
+    // The tab that still showed the closed terminal is retired with it, so the
+    // registry satisfies the live-content invariant and opens.
+    assert_eq!(events.batches[0].changes[1]["kind"], "delete");
+    assert_eq!(events.batches[0].changes[1]["resource"], "tab");
+    assert_eq!(events.batches[0].changes[1]["id"], tab_id(1).as_str());
+    assert!(topology.tabs.is_empty(), "tab of the closed terminal remained live: {topology:?}");
+    assert!(topology.panes.iter().all(|pane| pane.active_tab.is_none()));
+    // The pane lost its only tab, so the same batch restates its screen with
+    // an empty leaf.
+    let changes = events.batches[0].changes.as_array().unwrap();
+    assert_eq!(changes.len(), 3, "{changes:?}");
+    assert_eq!(changes[2]["kind"], "upsert");
+    assert_eq!(changes[2]["resource"], "screen");
+    assert_eq!(changes[2]["id"], topology.panes[0].screen_id.as_str());
+    assert_eq!(changes[2]["sequence"], 2);
+    let leaf = &changes[2]["value"]["layout"]["root"];
+    assert_eq!(leaf["kind"], "leaf");
+    assert_eq!(leaf["tab_ids"], json!([]));
+    assert!(leaf.get("active_tab_id").is_none(), "{leaf}");
     let live_terminals: i64 = reopened
         .connection
         .query_row(
@@ -4055,6 +4121,176 @@ fn startup_repairs_legacy_terminal_close_dangling_resource_rows() {
     assert!(resource_deleted.is_some());
     assert_eq!(identity_deleted, resource_deleted);
     drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn startup_repair_retires_a_dangling_terminal_tab_and_selects_its_sibling() {
+    let root = temp_root("terminal-close-dangling-sibling");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        let pane = pane_id(1);
+        let second_terminal = terminal_resource(TERMINAL_TWO);
+        let mut patch = terminal_topology_patch();
+        patch.changes.retain(|change| !matches!(change, ResourceChange::SetTabOrder { .. }));
+        patch.changes.push(ResourceChange::UpsertTerminal {
+            public_id: second_terminal.clone(),
+            terminal: terminal(TERMINAL_TWO, "one"),
+        });
+        patch.changes.push(ResourceChange::UpsertTab(RegistryTab {
+            name_source: Default::default(),
+            name_revision: 0,
+            public_id: tab_id(2),
+            pane_id: pane.clone(),
+            position: 1,
+            content_id: ContentPublicId::Terminal(second_terminal),
+            name: Some("zsh".into()),
+            browser_url: None,
+            terminal_id: Some(TERMINAL_TWO.into()),
+        }));
+        patch.changes.push(ResourceChange::SetTabOrder {
+            pane_id: pane,
+            tab_ids: vec![tab_id(1), tab_id(2)],
+        });
+        registry
+            .commit_resource_patch(
+                &WorkspaceMutation::new("seed-two-tabs", "test").unwrap(),
+                "workspace.create",
+                &json!({"operation":"workspace.create","name":"One"}),
+                None,
+                Some(0),
+                &patch,
+                &json!({"workspace_id":workspace(1, "one", "One").public_id}),
+                &json!([{"kind":"workspace.created"}]),
+            )
+            .unwrap();
+        let mutation = WorkspaceMutation::new("legacy-host-only-close", "legacy-client").unwrap();
+        registry.close_terminal(&mutation, None, Some(0), TERMINAL_ONE, None).unwrap();
+    }
+
+    // The retired tab's sibling moves to its place and becomes the active tab.
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    let topology = reopened.resource_topology_snapshot().unwrap();
+    assert_eq!(topology.tabs.len(), 1, "{topology:?}");
+    assert_eq!(topology.tabs[0].public_id, tab_id(2));
+    assert_eq!(topology.tabs[0].position, 0);
+    assert_eq!(topology.panes[0].active_tab, Some(tab_id(2)));
+    let changes = &reopened.resource_events_after(1).unwrap().batches[0].changes;
+    assert_eq!(changes[0]["resource"], "terminal");
+    assert_eq!(changes[0]["id"], terminal_resource(TERMINAL_ONE).as_str());
+    assert_eq!(changes[1]["resource"], "tab");
+    assert_eq!(changes[1]["id"], tab_id(1).as_str());
+
+    // An attached event-feed client holds the pre-restart graph. The repair
+    // batch itself restates the surviving sibling (its index and focus moved)
+    // and the screen whose layout lists the pane's tabs, so the client shows
+    // the repaired layout without waiting for another update, and no state
+    // between the deletes and the restatement is ever published.
+    let page = reopened.resource_events_after(1).unwrap();
+    assert_eq!(page.batches.len(), 1, "{:?}", page.batches);
+    let restated = page.batches[0].changes.as_array().unwrap().iter().collect::<Vec<_>>();
+    let upsert = |resource: &str, id: &str| {
+        restated
+            .iter()
+            .find(|change| {
+                change["kind"] == "upsert" && change["resource"] == resource && change["id"] == id
+            })
+            .unwrap_or_else(|| panic!("no restatement of {resource} {id}: {:?}", page.batches))
+    };
+    let sibling = upsert("tab", tab_id(2).as_str());
+    assert_eq!(sibling["value"]["index"], 0);
+    assert_eq!(sibling["value"]["focused"], true);
+    assert_eq!(sibling["value"]["pane_id"], pane_id(1).as_str());
+    let screen_id = topology.panes[0].screen_id.as_str();
+    let screen = upsert("screen", screen_id);
+    let leaf = &screen["value"]["layout"]["root"];
+    assert_eq!(leaf["kind"], "leaf");
+    assert_eq!(leaf["tab_ids"], json!([tab_id(2).as_str()]));
+    assert_eq!(leaf["active_tab_id"], tab_id(2).as_str());
+    assert_eq!(page.head_revision, page.batches.last().unwrap().revision);
+    for pair in page.batches.windows(2) {
+        assert_eq!(pair[1].previous_revision, pair[0].revision);
+    }
+    for batch in &page.batches {
+        for (sequence, change) in batch.changes.as_array().unwrap().iter().enumerate() {
+            assert_eq!(change["sequence"], sequence);
+        }
+    }
+    drop(reopened);
+
+    // The restatement is published once: a later open adds no batch.
+    let again = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(again.resource_events_after(1).unwrap().batches.len(), page.batches.len());
+    drop(again);
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A build with #38839 published a startup repair's deletes in one commit
+/// and the restatement of the repaired panes in a second one, and kept the
+/// pending panes in meta key `startup_repair_restate_panes` between the
+/// two. A database that crashed between those commits still has the key.
+/// The next open publishes the restatement and removes the key.
+#[test]
+fn an_open_restates_the_panes_a_crashed_two_commit_repair_left_pending() {
+    let root = temp_root("legacy-pending-restatement");
+    let before = {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        registry
+            .commit_resource_patch(
+                &WorkspaceMutation::new("seed-one-tab", "test").unwrap(),
+                "workspace.create",
+                &json!({"operation":"workspace.create","name":"One"}),
+                None,
+                Some(0),
+                &terminal_topology_patch(),
+                &json!({"workspace_id":workspace(1, "one", "One").public_id}),
+                &json!([{"kind":"workspace.created"}]),
+            )
+            .unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO meta(key, value) VALUES('startup_repair_restate_panes', ?1)",
+                [json!([pane_id(1).as_str()]).to_string()],
+            )
+            .unwrap();
+        registry.resource_topology_snapshot().unwrap().revision
+    };
+
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    let pending: Option<String> = reopened
+        .connection
+        .query_row("SELECT value FROM meta WHERE key = 'startup_repair_restate_panes'", [], |row| {
+            row.get(0)
+        })
+        .optional()
+        .unwrap();
+    assert_eq!(pending, None, "the open left the legacy restatement key behind");
+    let page = reopened.resource_events_after(before).unwrap();
+    assert_eq!(page.batches.len(), 1, "{:?}", page.batches);
+    let changes = page.batches[0].changes.as_array().unwrap();
+    let topology = reopened.resource_topology_snapshot().unwrap();
+    assert!(
+        changes.iter().any(|change| change["kind"] == "upsert"
+            && change["resource"] == "tab"
+            && change["id"] == tab_id(1).as_str()),
+        "{changes:?}"
+    );
+    assert!(
+        changes.iter().any(|change| change["kind"] == "upsert"
+            && change["resource"] == "screen"
+            && change["id"] == topology.panes[0].screen_id.as_str()),
+        "{changes:?}"
+    );
+    for (sequence, change) in changes.iter().enumerate() {
+        assert_eq!(change["sequence"], sequence);
+    }
+    drop(reopened);
+
+    // Published once: the next open adds no batch.
+    let again = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(again.resource_events_after(before).unwrap().batches.len(), 1);
+    drop(again);
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -5307,6 +5543,70 @@ fn terminal_journal_persists_exact_output_and_geometry_in_order() {
     }
 }
 
+/// Pages the fresh connection had to read from disk (or the WAL) while the
+/// registry opened: a size-independent measure of how much startup touched.
+fn registry_open_cache_misses(registry: &WorkspaceRegistry) -> i32 {
+    let (mut current, mut highwater) = (0, 0);
+    // SAFETY: the handle is the live connection owned by `registry`, and
+    // sqlite3_db_status only reads counters into the two locals.
+    let status = unsafe {
+        rusqlite::ffi::sqlite3_db_status(
+            registry.connection.handle(),
+            rusqlite::ffi::SQLITE_DBSTATUS_CACHE_MISS,
+            &mut current,
+            &mut highwater,
+            0,
+        )
+    };
+    assert_eq!(status, rusqlite::ffi::SQLITE_OK);
+    current
+}
+
+fn reopen_cost_after_terminal_output(label: &str, records: usize) -> i32 {
+    const BATCH_SIZE: usize = 1_024;
+    let root = TempRoot(temp_root(label));
+    {
+        let mut registry = WorkspaceRegistry::open(&root.0, label).unwrap();
+        commit_terminal_topology(&mut registry, &format!("{label}-seed"));
+        let terminal_id = Arc::new(terminal_resource(TERMINAL_ONE));
+        let chunk = vec![b'x'; 256];
+        let mut written = 0;
+        while written < records {
+            let events = (written..records.min(written + BATCH_SIZE))
+                .map(|index| crate::journal_ingress::JournalIngressEvent::TerminalOutput {
+                    terminal_id: terminal_id.clone(),
+                    generation: "startup-scale".into(),
+                    occurred_at_ms: u64::try_from(index).unwrap(),
+                    bytes: chunk.clone(),
+                })
+                .collect::<Vec<_>>();
+            let references = events.iter().collect::<Vec<_>>();
+            written += registry.append_journal_ingress_events(&references).unwrap().len();
+        }
+    }
+    let registry = WorkspaceRegistry::open(&root.0, label).unwrap();
+    let misses = registry_open_cache_misses(&registry);
+    drop(registry);
+    misses
+}
+
+#[test]
+fn registry_reopen_cost_does_not_scale_with_terminal_output_history() {
+    // Terminal output is most of every long-lived journal (3.6M of 3.6M
+    // records on one production machine). Reopening must read the registry
+    // and the journal's recent edge, never the whole output history.
+    let small = reopen_cost_after_terminal_output("startup-scale-small", 16);
+    let large = reopen_cost_after_terminal_output("startup-scale-large", 16 * 1_024);
+    // The two cases use separate databases, so the small run is the control
+    // for SQLite/schema startup variation. A history-sized increase indicates
+    // that open touched the output archive rather than only the bounded state
+    // tables. Keep this margin below one 4 KiB SQLite page per 16 records.
+    assert!(
+        large <= small + 16,
+        "reopen read {large} pages after 16Ki output records but {small} after 16"
+    );
+}
+
 #[test]
 #[ignore = "manual release-mode journal writer throughput probe"]
 fn terminal_journal_writer_throughput_probe() {
@@ -5582,12 +5882,27 @@ fn terminal_exit_snapshot_round_trips_and_records_journal_coverage() {
     let replay: &[u8] = b"snapshot \x1b[32mready\x1b[0m\r\n";
     let blob = vt_replay_blob_for_test(&terminal_id, 100, 30, replay);
 
+    let covered_through = u64::try_from(output.len()).unwrap();
     assert!(
-        registry.put_terminal_exit_snapshot(terminal_id.as_str(), INCARNATION_ONE, &blob).unwrap()
+        registry
+            .put_terminal_exit_snapshot(
+                terminal_id.as_str(),
+                INCARNATION_ONE,
+                covered_through,
+                &blob
+            )
+            .unwrap()
     );
     // The exit latch is first-writer-wins; a replayed store is a no-op.
     assert!(
-        !registry.put_terminal_exit_snapshot(terminal_id.as_str(), INCARNATION_ONE, &blob).unwrap()
+        !registry
+            .put_terminal_exit_snapshot(
+                terminal_id.as_str(),
+                INCARNATION_ONE,
+                covered_through,
+                &blob
+            )
+            .unwrap()
     );
 
     let snapshot = registry
@@ -5599,7 +5914,7 @@ fn terminal_exit_snapshot_round_trips_and_records_journal_coverage() {
     assert_eq!((snapshot.cols, snapshot.rows), (100, 30));
     assert_eq!(snapshot.replay_bytes.as_slice(), replay);
 
-    // A generation that journaled nothing has nothing to cover: no row.
+    // A generation that printed nothing has nothing to cover: no row.
     let other = terminal_resource(TERMINAL_TWO);
     let other_blob = vt_replay_blob_for_test(&other, 80, 24, b"idle");
     assert!(
@@ -5607,6 +5922,7 @@ fn terminal_exit_snapshot_round_trips_and_records_journal_coverage() {
             .put_terminal_exit_snapshot(
                 other.as_str(),
                 "30000000000040008000000000000002",
+                0,
                 &other_blob
             )
             .unwrap()
@@ -6127,4 +6443,61 @@ fn long_database_descendant_is_normalized_even_when_root_is_short() {
     ] {
         assert!(path.to_string_lossy().starts_with(r"\\?\C:\"), "{}", path.display());
     }
+}
+
+fn unplaced_ids(list: &[&str]) -> HashSet<String> {
+    list.iter().map(|id| (*id).to_string()).collect()
+}
+
+/// The time a terminal was first seen unplaced survives a reopen (an owner
+/// restart), a placed terminal loses it, and one the restarted owner has
+/// not adopted yet (in neither set) keeps it (feat #29476).
+#[test]
+fn terminal_reap_unplaced_since_survives_a_reopen_and_clears_when_placed() {
+    let root = temp_root("terminal-unplaced");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "terminal-unplaced").unwrap();
+        seed_workspace(&mut registry, "one");
+        reserve_terminal(&mut registry, TERMINAL_ONE, 0);
+        let since = registry
+            .sync_terminal_unplaced(&unplaced_ids(&[TERMINAL_ONE]), &unplaced_ids(&[]), 1_000)
+            .unwrap()
+            .since_ms;
+        assert_eq!(since[TERMINAL_ONE], 1_000);
+        // A later pass keeps the first time.
+        let since = registry
+            .sync_terminal_unplaced(&unplaced_ids(&[TERMINAL_ONE]), &unplaced_ids(&[]), 5_000)
+            .unwrap()
+            .since_ms;
+        assert_eq!(since[TERMINAL_ONE], 1_000, "a later pass moved the first unplaced time");
+    }
+    let mut registry = WorkspaceRegistry::open(&root, "terminal-unplaced").unwrap();
+    // Not adopted yet: in neither set, the row stays.
+    let adopting =
+        registry.sync_terminal_unplaced(&unplaced_ids(&[]), &unplaced_ids(&[]), 9_000).unwrap();
+    assert!(adopting.since_ms.is_empty());
+    assert!(adopting.rows_left, "the row of a terminal not seen yet stays");
+    let since = registry
+        .sync_terminal_unplaced(&unplaced_ids(&[TERMINAL_ONE]), &unplaced_ids(&[]), 9_000)
+        .unwrap()
+        .since_ms;
+    assert_eq!(since[TERMINAL_ONE], 1_000, "the grace goes on across the reopen");
+    // Placed again: the row goes, and the next unplace starts a new time.
+    registry
+        .sync_terminal_unplaced(&unplaced_ids(&[]), &unplaced_ids(&[TERMINAL_ONE]), 10_000)
+        .unwrap();
+    let since = registry
+        .sync_terminal_unplaced(&unplaced_ids(&[TERMINAL_ONE]), &unplaced_ids(&[]), 12_000)
+        .unwrap()
+        .since_ms;
+    assert_eq!(since[TERMINAL_ONE], 12_000);
+    // Closed (tombstoned): its row is pruned, and no row is left.
+    let close = WorkspaceMutation::new("close-unplaced", "test").unwrap();
+    let revision = registry.terminal_snapshot().unwrap().revision;
+    registry.close_terminal(&close, None, Some(revision), TERMINAL_ONE, None).unwrap();
+    let after =
+        registry.sync_terminal_unplaced(&unplaced_ids(&[]), &unplaced_ids(&[]), 13_000).unwrap();
+    assert!(!after.rows_left, "a closed terminal's row is pruned");
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
 }

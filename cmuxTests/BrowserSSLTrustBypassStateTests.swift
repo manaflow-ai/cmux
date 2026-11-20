@@ -1,5 +1,6 @@
 import CmuxBrowser
 import Foundation
+import Security
 import Testing
 
 #if canImport(cmux_DEV)
@@ -335,5 +336,47 @@ struct BrowserSSLTrustBypassStateTests {
 
         #expect(!state.isBypassed(scope: scope, fingerprint: fingerprint))
         #expect(state.createPendingBypassAction(for: URLRequest(url: url)) == nil)
+    }
+
+    /// Self-signed P-256 certificate for CN=cmux-trust-fingerprint.test.
+    private static let selfSignedLeafDER = Data(base64Encoded: "MIIBozCCAUmgAwIBAgIUERrra7u7YJ5+iX0Y1UWEmPButLswCgYIKoZIzj0EAwIwJjEkMCIGA1UEAwwbY211eC10cnVzdC1maW5nZXJwcmludC50ZXN0MCAXDTI2MTAxMjA1NDQxMloYDzIxMjYwOTE4MDU0NDEyWjAmMSQwIgYDVQQDDBtjbXV4LXRydXN0LWZpbmdlcnByaW50LnRlc3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAATTVi7oNmfJkC85uk4DJ7sbSRIctQszUX6rBhEGguT1apZ2N3km5lEczGGzPSv7Jfddf9Ip8zJcq+Iwiffssk8yo1MwUTAdBgNVHQ4EFgQUlEb/V7A6Z9L+pRFIe6Db1s4W/0YwHwYDVR0jBBgwFoAUlEb/V7A6Z9L+pRFIe6Db1s4W/0YwDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNIADBFAiEAtha1kN/dbGo81KOQsoSE431MYuLZ5uvUpN+ufq7XkJcCIETBcHrAyirWEqSfzE3YBzpwetZXUMEyVYg30uxplotC")!
+
+    /// #19726: WebKit delivers every server-trust challenge on the main
+    /// thread, and fingerprinting a trust evaluates it with a synchronous
+    /// trustd round trip that stalled the main thread for seconds. A challenge
+    /// with no bypass must not fingerprint; the error page's bypass offer does.
+    @Test
+    func serverTrustChallengeWithoutBypassDefersFingerprintingToTheErrorPage() throws {
+        let url = try #require(URL(string: "https://cmux-trust-fingerprint.test/page"))
+        let certificate = try #require(SecCertificateCreateWithData(nil, Self.selfSignedLeafDER as CFData))
+        var createdTrust: SecTrust?
+        #expect(SecTrustCreateWithCertificates(
+            certificate,
+            SecPolicyCreateSSL(true, "cmux-trust-fingerprint.test" as CFString),
+            &createdTrust
+        ) == errSecSuccess)
+        let trust = try #require(createdTrust)
+        let protectionSpace = URLProtectionSpace(
+            host: "cmux-trust-fingerprint.test",
+            port: 443,
+            protocol: NSURLProtectionSpaceHTTPS,
+            realm: nil,
+            authenticationMethod: NSURLAuthenticationMethodServerTrust
+        )
+        var fingerprintCount = 0
+        let state = BrowserSSLTrustBypassState(fingerprintServerTrust: { serverTrust in
+            fingerprintCount += 1
+            return BrowserServerTrustFingerprint(serverTrust: serverTrust)
+        })
+
+        // What BrowserNavigationDelegate does for each server-trust challenge.
+        #expect(!state.isBypassed(protectionSpace: protectionSpace, serverTrust: trust))
+        state.recordObservedServerTrust(trust, for: protectionSpace)
+        #expect(fingerprintCount == 0)
+
+        let actionURL = try #require(state.createPendingBypassAction(for: URLRequest(url: url)))
+        #expect(fingerprintCount == 1)
+        _ = try #require(state.consumePendingBypassAction(actionURL))
+        #expect(state.isBypassed(protectionSpace: protectionSpace, serverTrust: trust))
     }
 }

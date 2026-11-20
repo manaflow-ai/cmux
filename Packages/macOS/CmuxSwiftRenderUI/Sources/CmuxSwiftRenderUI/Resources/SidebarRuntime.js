@@ -11,6 +11,8 @@
 //   __host_applyOps(jsonString)  - apply a batch of scene ops
 //   __host_action(jsonString)    - run captured commands (cmux/openURL/log)
 //   __host_log(string)           - debug logging
+//   __host_clipboardWrite(string) -> bool - write-only clipboard, honored
+//                                  only during a click/menu-action dispatch
 // Host entry points (defined here, called by Swift):
 //   __setData(key, jsonString)   - update one data key
 //   __dispatch(nodeId, event, jsonString) - deliver a UI event
@@ -335,8 +337,12 @@
   // Editable one-line text field. `value` is the initial text (string or
   // binding); opts: placeholder, onSubmit(text), onCancel(), onEdit(text)
   // (fires per keystroke - live search), autofocus (default true; pass
-  // false for persistent fields so mounting never steals focus). The host
-  // focuses autofocus fields on appear; Return submits, Escape cancels.
+  // false for persistent fields that should wait for a click). The host
+  // focuses an autofocus field on appear only when the user gave the sidebar
+  // focus: its click handler just created it and focus hasn't moved since
+  // (rename editors), or focus is already in one of its fields. A field mounted any other way, such as by a data update while
+  // the user types in a terminal, stays unfocused. Return submits, Escape
+  // cancels.
   g.TextField = (value, opts) => {
     const node = makeNode("textfield", {});
     setProp(node.__nodeId, "text", value);
@@ -475,6 +481,13 @@
   };
   g.openURL = (url) => __host_action(JSON.stringify({ kind: "openURL", url: String(url) }));
   g.log = (message) => __host_action(JSON.stringify({ kind: "log", message: String(message) }));
+  // Write-only clipboard. The host writes only while it is dispatching a
+  // click, double-click or menu item to this sidebar; anywhere else (load,
+  // data effects, text-field submits, deferred callbacks) the call returns
+  // false and logs why. There is no read.
+  g.clipboard = Object.freeze({
+    write: (text) => __host_clipboardWrite(text === undefined || text === null ? "" : String(text)) === true,
+  });
 
   // ---------------------------------------------------------------------
   // Host entry points

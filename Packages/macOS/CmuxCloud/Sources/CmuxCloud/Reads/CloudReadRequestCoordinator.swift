@@ -34,6 +34,13 @@ public actor CloudReadRequestCoordinator {
         clock.now() + min(budget, limit ?? budget) - elapsed
     }
 
+    /// The shared transport's lifetime cap in seconds, which a coordinated
+    /// read states as its budget (``CloudRequestBudget``).
+    public nonisolated var transportBudgetSeconds: TimeInterval {
+        let parts = budget.components
+        return TimeInterval(parts.seconds) + TimeInterval(parts.attoseconds) / 1e18
+    }
+
     public func read(_ key: Key, deadline: Duration? = nil, operation: @escaping @Sendable () async throws -> Response) async throws -> Response {
         let waiter = UUID()
         let response = try await withTaskCancellationHandler {

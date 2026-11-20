@@ -94,6 +94,9 @@ public struct CustomSidebarDataContextBuilder {
             "tabs": .array(workspace.surfaces.map(surfaceValue(_:))),
             "tabCount": .int(workspace.surfaceCount),
         ]
+        if let emoji = workspace.emoji, !emoji.isEmpty {
+            fields["emoji"] = .string(emoji)
+        }
         if let groupId = workspace.groupId {
             fields["group"] = .string(groupId.uuidString)
         }

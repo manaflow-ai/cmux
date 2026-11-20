@@ -7,13 +7,22 @@ import Foundation
 
 /// Captures the initiating window before creation suspends; completion never reselects it.
 @MainActor
-struct CloudWorkspaceCreationHost {
-    weak var manager: TabManager?
+final class CloudWorkspaceCreationHost {
+    private(set) weak var manager: TabManager?
     let selectedWorkspaceID: UUID?
+    let reservedWorkspaceID: UUID?
 
-    init(manager: TabManager) {
+    init(manager: TabManager, reservedWorkspaceID: UUID? = nil) {
         self.manager = manager
         selectedWorkspaceID = manager.selectedTabId
+        self.reservedWorkspaceID = reservedWorkspaceID
+    }
+
+    /// Rebinds this host only after an explicit retry has proven the same pane
+    /// is still live. Validation closures share this host, so a retry can
+    /// validate the current owner without retaining the closed window.
+    func rebind(manager: TabManager) {
+        self.manager = manager
     }
 
     var isAvailable: Bool { manager?.isFinalizedForWindowClose == false }
@@ -27,12 +36,31 @@ struct CloudWorkspaceCreationHost {
         startInput: Bool? = nil,
         remoteView: SurfaceRemoteView? = nil
     ) throws -> CloudTerminalPaneReservation {
-        guard let manager,
-              let workspace = manager.addWorkspaceIfActive(
+        guard let manager else { throw CancellationError() }
+        let workspace: Workspace
+        let createdWorkspace: Bool
+        if let reservedWorkspaceID {
+            guard let existing = Workspace.liveWorkspace(id: reservedWorkspaceID),
+                  existing.owningTabManager === manager,
+                  existing.panels.values.contains(where: { $0.panelType == .cloudVMLoading }) else {
+                throw CancellationError()
+            }
+            workspace = existing
+            createdWorkspace = false
+        } else {
+            guard let created = manager.addWorkspaceIfActive(
                 title: title, titleSource: .auto, initialSurface: .cloudVMLoading,
                 inheritWorkingDirectory: false, select: false, autoWelcomeIfNeeded: false
-              ) else { throw CancellationError() }
-        guard let starter = workspace.focusedPanelId,
+            ) else { throw CancellationError() }
+            workspace = created
+            createdWorkspace = true
+        }
+        // A reserved workspace can receive user content while creation waits.
+        // Adopt the unique loading card by identity instead of trusting the
+        // workspace's current focus, which may now be the user's terminal.
+        let loadingPanels = workspace.panels.filter { $0.value is CloudVMLoadingPanel }
+        guard loadingPanels.count == 1,
+              let starter = loadingPanels.first?.key,
               let pane = workspace.paneId(forPanelId: starter),
               let reservation = workspace.reserveCloudTerminalPane(
                 machine: machine, at: .tab(workspaceID: workspace.id, paneID: pane.id.uuidString, index: nil),
@@ -47,7 +75,7 @@ struct CloudWorkspaceCreationHost {
                     )
                 }
               ) else {
-            manager.closeWorkspace(workspace, recordHistory: false)
+            if createdWorkspace { manager.closeWorkspace(workspace, recordHistory: false) }
             throw CancellationError()
         }
         // The loading scaffold never runs a local shell. Replace it in this same

@@ -48,6 +48,7 @@ struct MachinesFreeAccessBanner: View {
         .background(Color(nsColor: backgroundColor))
         .help(helpText)
         .accessibilityIdentifier("CloudMachinesFreeAccessBanner")
+        .upgradePromptImpression(.machinesPanelTrialBanner)
     }
 
     private var helpText: String {

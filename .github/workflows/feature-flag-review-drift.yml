@@ -65,8 +65,14 @@ jobs:
               }
               return;
             }
-            const rows = report.map(flag => `| \`${flag.key}\` | \`${flag.source}\` | ${flag.reviewBy} | ${flag.daysRemaining} | ${flag.daysRemaining < 0 ? 'Already expired' : 'Approaching'} |`).join('\n');
-            const body = `Feature flag review dates are approaching or already expired as of ${process.env.HEAD_SHA} (${runUrl}).\n\n| Key | Source file | reviewBy | Days remaining | Status |\n| --- | --- | --- | ---: | --- |\n${rows}\n\nExpired dates already fail the feature flag linter. Review, remove, or consciously extend these flags. This issue is updated daily by the scheduled report.`;
+            const mention = flag => flag.owner ? `@${flag.owner}` : 'no owner';
+            const rows = report.map(flag => `| \`${flag.key}\` | \`${flag.source}\` | ${mention(flag)} | ${flag.reviewBy} | ${flag.daysRemaining} | ${flag.daysRemaining < 0 ? 'Already expired' : 'Approaching'} |`).join('\n');
+            const body = `Feature flag review dates are approaching or already expired as of ${process.env.HEAD_SHA} (${runUrl}).\n\n| Key | Source file | Owner | reviewBy | Days remaining | Status |\n| --- | --- | --- | --- | ---: | --- |\n${rows}\n\nAn expired date is a warning in CI everywhere, and fails the feature flag linter only on a change that edits that flag's declaration. Review, remove, or consciously extend these flags. This issue is updated daily by the scheduled report.`;
+            // Editing an issue body does not notify new mentions, so ping each
+            // owner in a comment the first day their flag shows as expired.
+            const previous = open.data.length > 0 ? (open.data[0].body || '') : null;
+            const wasExpired = key => (previous || '').split('\n').some(line => line.startsWith(`| \`${key}\` |`) && line.includes('Already expired'));
+            const newlyExpired = previous === null ? [] : report.filter(flag => flag.daysRemaining < 0 && !wasExpired(flag.key));
             try {
               await github.rest.issues.getLabel({ owner, repo, name: label });
             } catch (error) {
@@ -75,6 +81,10 @@ jobs:
             }
             if (open.data.length > 0) {
               await github.rest.issues.update({ owner, repo, issue_number: open.data[0].number, body });
+              if (newlyExpired.length > 0) {
+                const lines = newlyExpired.map(flag => `- \`${flag.key}\` (reviewBy ${flag.reviewBy}): ${mention(flag)}`).join('\n');
+                await github.rest.issues.createComment({ owner, repo, issue_number: open.data[0].number, body: `These feature flags passed their review date:\n\n${lines}\n\nRemove each flag or consciously extend its reviewBy date.` });
+              }
             } else {
               await github.rest.issues.create({ owner, repo, title: 'Feature flag review dates are approaching', labels: [label], body });
             }

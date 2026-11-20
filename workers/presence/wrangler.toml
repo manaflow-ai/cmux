@@ -17,6 +17,8 @@
 # Worker secrets (see README.md) and survive deploys:
 #   wrangler secret put STACK_PROJECT_ID
 #   wrangler secret put STACK_PUBLISHABLE_CLIENT_KEY
+#   wrangler secret put CONNECTIVITY_INVALIDATION_SECRET
+#   wrangler secret put VMS_PUBLISHER_SECRET   # = web CMUX_PRESENCE_VMS_PUBLISHER_SECRET
 # Optional plain var STACK_API_URL defaults to https://api.stack-auth.com.
 
 name = "cmux-presence"
@@ -61,3 +63,17 @@ class_name = "WorkspacePresence"
 [[migrations]]
 tag = "v3"
 new_sqlite_classes = ["WorkspacePresence"]
+
+# Release push: one ReleaseFeed DO per allowlisted update feed id, serving the
+# public /releases/v1 routes (src/releaseFeedRoute.ts). The minute cron pokes
+# every feed, so a publisher poke that never arrived heals within a minute.
+[[durable_objects.bindings]]
+name = "RELEASE_FEED"
+class_name = "ReleaseFeed"
+
+[[migrations]]
+tag = "v4"
+new_sqlite_classes = ["ReleaseFeed"]
+
+[triggers]
+crons = ["* * * * *"]

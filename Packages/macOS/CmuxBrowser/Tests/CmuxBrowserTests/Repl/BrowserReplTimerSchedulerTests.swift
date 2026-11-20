@@ -89,6 +89,32 @@ final class FiredTimers: @unchecked Sendable {
     }
 }
 
+/// A clock whose instants count how often they are compared, so a test can
+/// measure the scheduler's work in comparisons instead of wall time. Its
+/// time never moves; a sleep lasts until it is cancelled.
+struct BrowserReplComparisonCountingClock: Clock {
+    struct Instant: InstantProtocol {
+        var offset: Duration
+
+        func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
+        func duration(to other: Instant) -> Duration { other.offset - offset }
+        static func < (lhs: Instant, rhs: Instant) -> Bool {
+            BrowserReplComparisonCountingClock.comparisons.increment()
+            return lhs.offset < rhs.offset
+        }
+    }
+
+    /// Comparisons of this clock's instants; only one test uses the clock.
+    static let comparisons = BrowserReplResponseCounter()
+
+    var now: Instant { Instant(offset: .zero) }
+    var minimumResolution: Duration { .zero }
+
+    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
+        try await Task.sleep(for: .seconds(86_400))
+    }
+}
+
 @Suite("Browser REPL timer scheduler")
 struct BrowserReplTimerSchedulerTests {
     @Test("Timers fire in deadline order, ties in scheduling order")

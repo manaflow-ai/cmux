@@ -86,6 +86,21 @@ mock.module("../services/observability/cloudTelemetryDelivery", () => ({
   maintainCloudDiagnostics: async () => diagnosticsOutcome(),
 }));
 
+const hexclaveRuntimeModule = await import("../services/auth/hexclave/runtime");
+type InboxDrain = Awaited<ReturnType<typeof hexclaveRuntimeModule.maintainHexclaveInbox>>;
+const idleInboxDrain: InboxDrain = {
+  drain: { skipped: false, entities: 0, events: 0, deferredEvents: 0, throttled: false },
+  stuck: 0,
+  deadLettered: 0,
+  alert: false,
+  purged: { deadLettered: 0, processedEvents: 0 },
+};
+let inboxDrainOutcome: () => Promise<InboxDrain> = async () => idleInboxDrain;
+mock.module("../services/auth/hexclave/runtime", () => ({
+  ...hexclaveRuntimeModule,
+  maintainHexclaveInbox: async () => inboxDrainOutcome(),
+}));
+
 const { shouldSendSentryEvent } = await import("../services/sentry");
 const { captureAscError } = await import("../services/errors");
 const { reportError } = await import("../services/observability/report");
@@ -93,6 +108,7 @@ const { resetCronFailureReportsForTesting } = await import("../services/observab
 const { withApiRouteSpan } = await import("../services/telemetry");
 const vmReaper = await import("../app/api/cron/vm-reaper/route");
 const vmRuntimeLimits = await import("../app/api/cron/vm-runtime-limits/route");
+const hexclaveInbox = await import("../app/api/cron/hexclave-inbox/route");
 const pushTokenRevocations = await import("../app/api/cron/push-token-revocations/route");
 const cloudDiagnostics = await import("../app/api/cron/cloud-diagnostics/route");
 
@@ -244,6 +260,46 @@ describe("cron routes report failures and check in", () => {
     expect(checkIns[0]!.config?.failureIssueThreshold).toBe(3);
     await eventsSettled(1);
     expect(events[0]!.tags["cron.stage"]).toBe("partial");
+  });
+
+  test("the Hexclave inbox drain checks in on its own every-minute monitor", async () => {
+    inboxDrainOutcome = async () => ({ ...idleInboxDrain, drain: { ...idleInboxDrain.drain, events: 7, throttled: true } });
+    const response = await hexclaveInbox.GET(cronRequest("hexclave-inbox"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, drain: { events: 7, throttled: true } });
+    expect(checkIns.map((entry) => entry.checkIn.status)).toEqual(["in_progress", "ok"]);
+    expect(checkIns[0]!.config?.schedule.value).toBe(scheduleFor("hexclave-inbox")!);
+    expect(scheduleFor("hexclave-inbox")).toBe("* * * * *");
+    expect(events).toEqual([]);
+  });
+
+  test("a changed stuck or dead-letter count is reported; a failed drain answers 503 and fails the check-in", async () => {
+    // Unchanged counts do not alert.
+    inboxDrainOutcome = async () => ({ ...idleInboxDrain, stuck: 4, alert: false });
+    expect((await hexclaveInbox.GET(cronRequest("hexclave-inbox"))).status).toBe(200);
+    expect(events).toEqual([]);
+    inboxDrainOutcome = async () => ({ ...idleInboxDrain, stuck: 4, deadLettered: 1, alert: true });
+    expect((await hexclaveInbox.GET(cronRequest("hexclave-inbox"))).status).toBe(200);
+    await eventsSettled(1);
+    expect(events[0]!.tags).toMatchObject({ cron: "hexclave-inbox", "cron.stage": "stuck" });
+
+    events.length = 0;
+    checkIns.length = 0;
+    resetCronFailureReportsForTesting();
+    inboxDrainOutcome = async () => { throw new Error("inbox table unavailable"); };
+    try {
+      expect((await hexclaveInbox.GET(cronRequest("hexclave-inbox"))).status).toBe(503);
+    } finally {
+      inboxDrainOutcome = async () => idleInboxDrain;
+    }
+    expect(checkIns.map((entry) => entry.checkIn.status)).toEqual(["in_progress", "error"]);
+    await eventsSettled(1);
+    expect(events[0]!.tags).toMatchObject({ cron: "hexclave-inbox", "cron.stage": "run" });
+  });
+
+  test("the Hexclave inbox drain refuses a request without the cron secret", async () => {
+    const response = await hexclaveInbox.GET(new Request("https://cmux.test/api/cron/hexclave-inbox"));
+    expect(response.status).toBe(401);
   });
 
   test("a successful run checks in ok without an event", async () => {

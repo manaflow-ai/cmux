@@ -68,7 +68,7 @@ extension TabManager {
               let stored = workspaceCustomizationStore.customization(for: stableId) else {
             return
         }
-        applyWorkspaceCustomization(stored, to: workspace)
+        applyWorkspaceCustomization(stored, afterRestoring: snapshot, to: workspace)
     }
 
     /// Applies one cached stable-ID recovery record.
@@ -82,18 +82,24 @@ extension TabManager {
               let stored = cachedCustomizations[stableId] else {
             return
         }
-        applyWorkspaceCustomization(stored, to: workspace)
+        applyWorkspaceCustomization(stored, afterRestoring: snapshot, to: workspace)
     }
 
     func recordWorkspaceCustomTitle(
         _ workspace: Workspace,
         source: Workspace.CustomTitleSource
     ) {
-        guard source == .user else { return }
+        guard let storedSource = WorkspaceCustomization.TitleSource(rawValue: source.rawValue) else { return }
         workspaceCustomizationStore.setCustomTitle(
             workspace.customTitle,
+            source: storedSource,
             for: workspace.stableId
         )
+    }
+
+    func setTabColor(tabId: UUID, color: String?) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        applyWorkspaceColor(color, to: [tab])
     }
 
     func applyWorkspaceColor(_ color: String?, to workspaces: [Workspace]) {
@@ -109,15 +115,31 @@ extension TabManager {
 
     private func applyWorkspaceCustomization(
         _ customization: WorkspaceCustomization,
+        afterRestoring snapshot: SessionWorkspaceSnapshot,
         to workspace: Workspace
     ) {
-        switch customization.customTitle {
-        case .absent:
-            break
-        case let .value(title):
-            workspace.setCustomTitle(title)
-        case .cleared:
-            workspace.setCustomTitle(nil)
+        // Old journals never observed automatic or remote writes. Prefer the
+        // snapshot for those titles; source-aware records track every landed
+        // write and can recover even a rename newer than the snapshot.
+        if customization.customTitleSource != nil ||
+            snapshot.effectiveCustomTitleSource == nil ||
+            snapshot.effectiveCustomTitleSource == .user {
+            let source = customization.customTitleSource.flatMap {
+                Workspace.CustomTitleSource(rawValue: $0.rawValue)
+            } ?? .user
+            switch customization.customTitle {
+            case .absent:
+                break
+            case let .value(title):
+                // The journal may contain an auto title after a user clear
+                // that the older snapshot has not observed yet.
+                if source == .auto {
+                    workspace.setCustomTitle(nil)
+                }
+                workspace.setCustomTitle(title, source: source)
+            case .cleared:
+                workspace.setCustomTitle(nil, source: source)
+            }
         }
 
         switch customization.customColor {

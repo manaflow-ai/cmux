@@ -76,6 +76,10 @@ public protocol ControlSurfaceContext: AnyObject {
         surfaceID: UUID
     ) -> ControlSurfaceFocusResolution
 
+    /// Focuses the surface where the user last submitted an agent prompt
+    /// (`surface.jump_to_last_prompt`). Nil when no live surface has one.
+    func controlSurfaceJumpToLastPrompt() -> ControlSurfaceFocusResolution?
+
     /// Creates a split surface for `surface.split`.
     ///
     /// - Parameters:

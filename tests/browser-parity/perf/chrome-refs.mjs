@@ -1,10 +1,11 @@
 // The Chrome reference for bench.mjs, timed in this process on headless
 // Google Chrome with a throwaway profile:
-//   pw-ai  Playwright's `_snapshotForAI()`, its AI snapshot (full, then
-//          incremental after the change).
+//   pw-ai  Playwright's AI snapshot (lib/dev-driver.mjs aiSnapshot): full,
+//          then incremental after the change where the Playwright version
+//          has one (not 1.62.1, which the gate pins: diffChars is then 0).
 // Recorded reference B AX columns in perf/results came from an offline renderer
 // that is no longer in this repository; report.mjs shows them when present.
-import { loadPlaywright } from "../lib/dev-driver.mjs";
+import { loadPlaywright, aiSnapshot } from "../lib/dev-driver.mjs";
 
 const DESKTOP_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 const VIEWPORT = { width: 1280, height: 800 };
@@ -29,13 +30,13 @@ export async function createChromeReferences({ runs, mutate }) {
         });
         await page.waitForTimeout(p.settle);
         for (let i = 0; i < runs; i++) {
-          const [snap, ms] = await timed(() => page._snapshotForAI({ track: "perf" }));
+          const [snap, ms] = await timed(() => aiSnapshot(page, "perf"));
           pw.runs.push({ snapMs: ms, treeChars: snap.full.length });
           if (i === 0) pw.tree = snap.full;
         }
         await page.evaluate(mutate);
         {
-          const [snap, ms] = await timed(() => page._snapshotForAI({ track: "perf" }));
+          const [snap, ms] = await timed(() => aiSnapshot(page, "perf"));
           pw.diff = { snapMs: ms, diffChars: (snap.incremental || "").length, printed: String(snap.incremental || "").slice(0, 4000) };
         }
         const refs = [...pw.tree.matchAll(/\[ref=(\w+)\]/g)].map((m) => m[1]).filter((r) => !r.startsWith("f"));

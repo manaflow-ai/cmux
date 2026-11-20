@@ -174,18 +174,18 @@ no Node, Sky, or legacy bridge is involved.
 
 Set `CMUX_COMPUTER_USE_MCP_DISABLED=1` before launching an agent to disable
 automatic computer-use MCP injection. There is no ambient executable override:
-both wrappers fail closed unless the app-bundled `cmux-cua` client and the
-tag-scoped cmux helper are present.
+both wrappers fail closed unless cmux has installed its tag-scoped helper.
+That installed helper's `cmux-cua` executable is the MCP client for both
+Claude Code and Codex.
 
 ## Building the bundled cmux-cua engine
 
 Every cmux app build runs `scripts/build-cmux-cua.sh`, which compiles the
-pinned `manaflow-ai/cmux-cua` commit with Cargo and bundles the resulting
-MCP proxy as `Contents/Resources/bin/cmux-cua`. The same
-engine is packaged as the `cmux Computer Use.app` executable (`cmux-cua`) so Activity
-Monitor and permission UI show the product name instead of an implementation
-name. cmux installs that helper into its tag-scoped directory only when the
-helper is Developer ID signed (`com.cmuxterm.cua`, team `7WLXT3NR37`). A
+pinned `manaflow-ai/cmux-cua` commit with Cargo and packages the result as
+the `cmux Computer Use.app` executable (`cmux-cua`), so Activity Monitor and
+permission UI show the product name instead of an implementation name. It is
+the only copy of the engine in the app. cmux installs that helper into its
+tag-scoped directory only when the helper is Developer ID signed (`com.cmuxterm.cua`, team `7WLXT3NR37`). A
 tagged dev build bundles an ad-hoc helper, which can never satisfy the
 Accessibility and Screen Recording rows, and a grant to it replaces the
 release helper's row. A dev build therefore copies the helper of an installed

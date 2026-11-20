@@ -33,36 +33,38 @@ struct CloudTeamPickerRow: View {
         String(localized: "settings.account.activeTeam", defaultValue: "Active Team")
     }
 
-    @State private var isHovered = false
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.layoutDirection) private var layoutDirection
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontMagnification
 
     var body: some View {
         Button {
             presentation.isPresented = true
         } label: {
-            HStack(spacing: 5) {
-                Image(systemName: "person.2")
-                    .font(.system(size: 10, weight: .semibold))
-                Text(currentTeamName)
-                    .cmuxFont(size: 11, weight: .medium)
-                    .lineLimit(1)
-                    .layoutPriority(1)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-            }
-            // Same grey and hover rule as the tab bar's mode labels above.
-            .foregroundColor(RightSidebarChromeControlStyle.pillForegroundColor(isSelected: false, isHovered: isHovered))
-            // Flush with the tree's section chevrons below.
-            .padding(.leading, 1)
-            .padding(.trailing, 7)
-            .frame(height: 22)
-            .contentShape(RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous))
+            // The AppKit anchor hosts the visible copy because it owns pointer
+            // and window lifecycle. This transparent copy keeps the button's
+            // intrinsic size, keyboard action, and accessibility element.
+            chipLabel(isHighlighted: false)
+                .opacity(0)
         }
         .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
         .overlay {
             CloudTeamPickerMenuAnchor(
                 isPresented: $presentation.isPresented,
                 helpText: helpText,
+                makeChip: { [currentTeamName, isEnabled, layoutDirection, colorScheme, globalFontMagnification] isHighlighted in
+                    AnyView(
+                        chipLabel(
+                            teamName: currentTeamName,
+                            isEnabled: isEnabled,
+                            isHighlighted: isHighlighted
+                        )
+                        .environment(\.layoutDirection, layoutDirection)
+                        .environment(\.colorScheme, colorScheme)
+                        .environment(\.cmuxGlobalFontMagnificationPercent, globalFontMagnification)
+                    )
+                },
                 makeMenu: makeMenu,
                 onWillPresent: {
                     presentation.teamChangeError = nil
@@ -124,6 +126,43 @@ struct CloudTeamPickerRow: View {
                 if let anchor { anchor.afterDismiss(signOut) } else { signOut() }
             }
         )
+    }
+
+    private func chipLabel(isHighlighted: Bool) -> some View {
+        chipLabel(teamName: currentTeamName, isEnabled: isEnabled, isHighlighted: isHighlighted)
+    }
+
+    private func chipLabel(teamName: String, isEnabled: Bool, isHighlighted: Bool) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: "person.2")
+                .font(.system(size: 10, weight: .semibold))
+            Text(teamName)
+                .cmuxFont(size: 11, weight: .medium)
+                .lineLimit(1)
+                .layoutPriority(1)
+            Image(systemName: "chevron.down")
+                .font(.system(size: 9, weight: .semibold))
+        }
+        // Same grey and hover rule as the tab bar's mode labels above.
+        .foregroundColor(
+            RightSidebarChromeControlStyle.pillForegroundColor(
+                isSelected: false,
+                isHovered: isEnabled && isHighlighted
+            )
+        )
+        // Flush with the tree's section chevrons below.
+        .padding(.leading, 1)
+        .padding(.trailing, 7)
+        .frame(height: 22)
+        // The Invite button's fill, starting where the tree's row
+        // highlights start so the chip keeps its alignment with the tree.
+        .background(
+            RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
+                .fill(Color.primary.opacity(isEnabled && isHighlighted ? 0.08 : 0))
+                .frame(height: 20)
+                .padding(.leading, -CloudTreeHoverStyle.leadingOutset)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous))
     }
 
     private var teamPickerAccessibilityLabel: String {

@@ -209,6 +209,7 @@ struct CloudDesktopAccessTests {
         #expect(!state.showsFailureAlert)
         try #require(await wait(timeout: 10) { navigations.count == 2 })
         #expect(navigations[1] == url, "The retry reloads the same display")
+        #expect(state.isRetiredListener(url), "A forward restart must retain the old listener identity")
         state.didCommit(url: url)
         state.desktopConnectionDidChange(url: url, isConnected: true)
         #expect(state.desktopConnected && !state.showsFailureAlert)
@@ -296,6 +297,25 @@ struct CloudDesktopAccessTests {
         )
         browser.cloudAccess.configure(model: model, url: remote)
         #expect(browser.preferredURLStringForSessionSnapshot() == remote.absoluteString)
+    }
+
+    @Test("A forwarded SSH document keeps the logical localhost service URL")
+    func forwardedDocumentDisplaysServiceURL() async throws {
+        let model = CloudPortAccessModel(
+            target: .init(host: "127.0.0.1", port: 4000), coordinator: nil,
+            wake: {}, startForward: { _ in 51_636 }, stopForward: {}, route: .loopback
+        )
+        let state = CloudBrowserAccessState()
+        let service = try #require(URL(string: "http://localhost:4000/projects/123?tab=logs#tail"))
+        state.configure(model: model, url: service)
+        model.connect()
+        #expect(await wait { model.isReady })
+        let listener = try #require(state.nextURL())
+        #expect(listener.absoluteString == "http://127.0.0.1:51636/projects/123?tab=logs#tail")
+        state.didCommit(url: listener)
+        state.didFinish(url: listener)
+        #expect(state.displayURL(listener) == service)
+        await model.retire()
     }
 
     @Test("Leaving a Cloud page clears its resource provenance")
@@ -422,6 +442,22 @@ struct CloudDesktopAccessTests {
                         resourceID: SurfaceResourceID(machine: .cloud("a"), kind: .browser, key: "port:3000"))
         #expect(state.owns(try #require(URL(string: "http://10.0.0.7:3000/"))))
         #expect(!state.owns(try #require(URL(string: "http://10.0.0.7:8000/"))))
+    }
+
+    @Test("A daemon browser keeps its machine ownership across document navigation")
+    func daemonBrowserRetainsOwnershipAcrossHostsAndAboutBlank() throws {
+        let model = CloudPortAccessModel(
+            target: .init(host: "10.0.0.7", port: 3000), coordinator: nil,
+            wake: {}, startForward: { _ in 47000 }, stopForward: {}, route: .remoteBrowser
+        )
+        let state = CloudBrowserAccessState()
+        state.configure(
+            model: model,
+            url: URL(string: "https://public.example.test/start")!,
+            resourceID: SurfaceResourceID(machine: .cloud("a"), kind: .browser, key: "browser_daemon")
+        )
+        #expect(state.owns(try #require(URL(string: "https://redirect.example.test/next"))))
+        #expect(state.owns(try #require(URL(string: "about:blank"))))
     }
 
     @Test("A forwarded /vnc.html URL is not a display when its resource is a browser")

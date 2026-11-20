@@ -30,6 +30,58 @@ struct AgentLaunchEnvironmentPolicyTests {
         )
     }
 
+    @Test("Removes an inherited stale TMPDIR restore preload from a process environment")
+    func removesInheritedStaleTemporaryRestorePreload() {
+        let repair = AgentLaunchEnvironmentPolicy().inheritedNodeOptionsRepair(from: [
+            "NODE_OPTIONS": "--require=/var/folders/xy/T/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096",
+            "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": "0",
+            "PATH": "/usr/bin",
+        ])
+
+        #expect(repair == [
+            "NODE_OPTIONS": nil,
+            "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": nil,
+        ])
+    }
+
+    @Test("Restores the user's original NODE_OPTIONS behind an inherited restore preload")
+    func restoresOriginalNodeOptionsBehindInheritedRestorePreload() {
+        let repair = AgentLaunchEnvironmentPolicy().inheritedNodeOptionsRepair(from: [
+            "NODE_OPTIONS": "--require=/tmp/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings",
+            "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": "1",
+            "CMUX_ORIGINAL_NODE_OPTIONS": "--trace-warnings --max-old-space-size=8192",
+        ])
+
+        #expect(repair == [
+            "NODE_OPTIONS": .some("--trace-warnings --max-old-space-size=8192"),
+            "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": nil,
+            "CMUX_ORIGINAL_NODE_OPTIONS": nil,
+        ])
+    }
+
+    @Test("Keeps the remaining options when no original NODE_OPTIONS was recorded")
+    func keepsRemainingOptionsWithoutRecordedOriginal() {
+        let repair = AgentLaunchEnvironmentPolicy().inheritedNodeOptionsRepair(from: [
+            "NODE_OPTIONS": #"--require="/Users/a b/.cmuxterm/cmux-claude-node-options/restore-node-options.cjs" --max-old-space-size=4096 --inspect"#,
+        ])
+
+        #expect(repair == ["NODE_OPTIONS": .some("--inspect")])
+    }
+
+    @Test("Leaves a process environment without a cmux restore preload unchanged")
+    func leavesUnrelatedNodeOptionsUnchanged() {
+        let policy = AgentLaunchEnvironmentPolicy()
+
+        #expect(policy.inheritedNodeOptionsRepair(from: [:]).isEmpty)
+        #expect(policy.inheritedNodeOptionsRepair(from: [
+            "NODE_OPTIONS": "--require=/Users/me/lib/restore-node-options.cjs --max-old-space-size=4096",
+        ]).isEmpty)
+        #expect(policy.inheritedNodeOptionsRepair(from: [
+            "NODE_OPTIONS": "--trace-warnings",
+            "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": "0",
+        ]) == ["CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": nil])
+    }
+
     @Test("Custom Codex executable remains scoped to Codex restores")
     func customCodexExecutableRemainsScopedToCodexRestores() {
         let policy = AgentLaunchEnvironmentPolicy()
@@ -39,6 +91,56 @@ struct AgentLaunchEnvironmentPolicyTests {
         #expect(policy.selectedEnvironment(from: environment, kind: "claude").isEmpty)
         #expect(policy.selectedEnvironment(from: environment, kind: "pi").isEmpty)
         #expect(policy.selectedEnvironment(from: environment, kind: nil).isEmpty)
+    }
+
+    @Test("Preserves an explicit Cursor config root for restores")
+    func preservesExplicitCursorConfigRootForRestores() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedRestoreEnvironment(
+            from: [
+                "CURSOR_CONFIG_DIR": "/tmp/cursor-account",
+                "XDG_CONFIG_HOME": "/tmp/other-config",
+            ],
+            kind: "cursor"
+        )
+
+        #expect(selected == ["CURSOR_CONFIG_DIR": "/tmp/cursor-account"])
+    }
+
+    @Test("Does not derive a Cursor config root from XDG_CONFIG_HOME")
+    func doesNotDeriveCursorConfigRootFromXDG() {
+        // cursor-agent reads XDG_CONFIG_HOME only on Linux/BSD; on macOS it uses ~/.cursor,
+        // so only an explicit CURSOR_CONFIG_DIR is replayed. The key is still captured,
+        // because OpenCode restores need it, so the check is on what a Cursor launch keeps.
+        let policy = AgentLaunchEnvironmentPolicy()
+        let environment = ["XDG_CONFIG_HOME": "/tmp/custom-config"]
+
+        #expect(policy.selectedRestoreEnvironment(from: environment, kind: "cursor").isEmpty)
+        #expect(policy.selectedEnvironment(from: environment, kind: "cursor").isEmpty)
+    }
+
+    @Test("Cursor config override stays scoped to Cursor restores")
+    func cursorConfigOverrideStaysScopedToCursorRestores() {
+        let policy = AgentLaunchEnvironmentPolicy()
+        let environment = [
+            "CURSOR_CONFIG_DIR": "/tmp/cursor-account",
+            "XDG_CONFIG_HOME": "/tmp/custom-config",
+        ]
+
+        #expect(policy.selectedEnvironment(from: environment, kind: "cursor") == [
+            "CURSOR_CONFIG_DIR": "/tmp/cursor-account",
+        ])
+        #expect(policy.selectedEnvironment(from: environment, kind: "codex").isEmpty)
+        #expect(policy.selectedEnvironment(from: environment, kind: "claude").isEmpty)
+    }
+
+    @Test("Custom Antigravity executable remains scoped to Antigravity restores")
+    func customAntigravityExecutableRemainsScopedToAntigravityRestores() {
+        let policy = AgentLaunchEnvironmentPolicy()
+        let environment = ["CMUX_CUSTOM_ANTIGRAVITY_PATH": "/opt/antigravity/bin/agy"]
+
+        #expect(policy.selectedEnvironment(from: environment, kind: "antigravity") == environment)
+        #expect(policy.selectedEnvironment(from: environment, kind: "claude").isEmpty)
+        #expect(policy.selectedEnvironment(from: environment, kind: "codex").isEmpty)
     }
 
     @Test("Preserves OMP config roots without persisting secrets")
@@ -284,5 +386,49 @@ struct AgentLaunchEnvironmentPolicyTests {
             kind: "omp"
         )
         #expect(selectedOmp["PI_PACKAGE_DIR"] == "/nix/store/pi-package")
+    }
+
+    private static let openCodeRoots = [
+        "OPENCODE_CONFIG": "/Users/me/dotfiles/opencode/extra.jsonc",
+        "OPENCODE_CONFIG_DIR": "/Users/me/dotfiles/opencode",
+        "OPENCODE_DB": "/Volumes/work/opencode.db",
+        "XDG_CONFIG_HOME": "/Users/me/dotfiles/config",
+        "XDG_DATA_HOME": "/Volumes/work/share",
+        "XDG_STATE_HOME": "/Volumes/work/state",
+    ]
+
+    @Test("OpenCode resumes keep their config, data and state roots", arguments: ["opencode", "omo", "OpenCode"])
+    func openCodeResumesKeepTheirRoots(kind: String) {
+        let selected = AgentLaunchEnvironmentPolicy().selectedRestoreEnvironment(
+            from: Self.openCodeRoots.merging(["OPENAI_API_KEY": "secret"]) { current, _ in current },
+            kind: kind
+        )
+        #expect(selected == Self.openCodeRoots)
+    }
+
+    @Test("XDG roots and OpenCode paths stay out of other agents' resumes", arguments: ["claude", "codex", "muse", "pi", ""])
+    func otherAgentsDoNotReplayOpenCodeRoots(kind: String) {
+        let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: Self.openCodeRoots, kind: kind)
+        #expect(selected == ["OPENCODE_CONFIG_DIR": "/Users/me/dotfiles/opencode"])
+        #expect(AgentLaunchEnvironmentPolicy().selectedEnvironment(from: Self.openCodeRoots, kind: nil)
+            == ["OPENCODE_CONFIG_DIR": "/Users/me/dotfiles/opencode"])
+    }
+
+    @Test("A relative OpenCode root is not replayed", arguments: ["config", "./share", "~/state", "opencode.db", ""])
+    func relativeOpenCodeRootIsNotReplayed(value: String) {
+        let relative = [
+            "OPENCODE_CONFIG": value,
+            "OPENCODE_DB": value,
+            "XDG_CONFIG_HOME": value,
+            "XDG_DATA_HOME": value,
+            "XDG_STATE_HOME": value,
+        ]
+        #expect(AgentLaunchEnvironmentPolicy().selectedEnvironment(from: relative, kind: "opencode").isEmpty)
+    }
+
+    @Test("Hook producers capture the OpenCode roots")
+    func hookProducersCaptureTheOpenCodeRoots() {
+        let keys = Set(AgentLaunchEnvironmentPolicy().inputEnvironmentKeys)
+        #expect(keys.isSuperset(of: Self.openCodeRoots.keys))
     }
 }

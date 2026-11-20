@@ -10,11 +10,12 @@ public struct WorktreeSeedRepository: Sendable {
     /// The repository root, as given.
     public let root: URL
     private let resolvedRootPath: String
+    private static let maximumSymlinkResolutions = 64
 
     /// Creates a reader for a repository root.
     public init(root: URL) {
         self.root = root
-        resolvedRootPath = root.resolvingSymlinksInPath().standardizedFileURL.path
+        resolvedRootPath = Self.resolvedPath(root) ?? root.standardizedFileURL.path
     }
 
     /// The `.worktreeinclude` at the root, or `nil` when the repository has none.
@@ -77,28 +78,68 @@ public struct WorktreeSeedRepository: Sendable {
     /// Whether the symlink at `url` points to somewhere under the resolved
     /// repository root.
     ///
-    /// The target is read and resolved by hand rather than by resolving the link
-    /// itself. `resolvingSymlinksInPath()` leaves a link whose target does not
-    /// exist looking like the link's own path, so a dangling
-    /// `gone -> /elsewhere/secret` read as inside the repository and was
-    /// reproduced in the new worktree, where it becomes a live link out of the
-    /// tree the moment the target appears.
+    /// The target is resolved by hand rather than with `resolvingSymlinksInPath()`,
+    /// which leaves a link whose target does not exist looking like the link's
+    /// own path, so a dangling `gone -> /elsewhere/secret` read as inside the
+    /// repository and was reproduced in the new worktree, where it becomes a live
+    /// link out of the tree the moment the target appears.
     ///
     /// The comparison adds the separator so `/repo-backup` does not read as being
     /// inside `/repo`.
     private static func isInside(_ url: URL, resolvedRootPath: String) -> Bool {
-        let target: URL
-        if let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: url.path) {
-            target = URL(fileURLWithPath: destination, relativeTo: url.deletingLastPathComponent())
-                .standardizedFileURL
-        } else {
-            target = url
-        }
-        // The parent is resolved, not the target: the target may not exist, and
-        // every real component above it does.
-        let parent = target.deletingLastPathComponent().resolvingSymlinksInPath().standardizedFileURL
-        let resolved = parent.appendingPathComponent(target.lastPathComponent).standardizedFileURL.path
+        guard let resolved = resolvedPath(url) else { return false }
         if resolved == resolvedRootPath { return true }
         return resolved.hasPrefix(resolvedRootPath.hasSuffix("/") ? resolvedRootPath : resolvedRootPath + "/")
+    }
+
+    /// The physical path of `url`, following every symlink along it, including
+    /// a chain of links and links in the target's parents. Lookups stop at the
+    /// first component that does not exist, and the rest is kept as written,
+    /// so a dangling link still resolves to where it points.
+    ///
+    /// A `..` after a missing component returns `nil`. What it climbs out of
+    /// is not known until that component exists: created later as a symlink,
+    /// `future/../x` would leave the tree, so it cannot be judged inside now.
+    ///
+    /// The path is kept as components and normalized lexically. Foundation's
+    /// path standardization is not purely lexical: it drops a leading `/private`
+    /// on Darwin, which would turn `/private/var/...` back into the `/var/...`
+    /// it was just resolved from. Also returns `nil` when a chain of links does
+    /// not end within `maximumSymlinkResolutions`, which covers cycles and links
+    /// that expand into themselves.
+    private static func resolvedPath(_ url: URL) -> String? {
+        var pending = url.path.split(separator: "/").map(String.init)
+        var resolved: [String] = []
+        var resolutions = 0
+        var reachedMissingComponent = false
+        while !pending.isEmpty {
+            let component = pending.removeFirst()
+            switch component {
+            case "", ".":
+                continue
+            case "..":
+                guard !reachedMissingComponent else { return nil }
+                if !resolved.isEmpty { resolved.removeLast() }
+                continue
+            default:
+                break
+            }
+            let candidate = "/" + (resolved + [component]).joined(separator: "/")
+            guard !reachedMissingComponent,
+                  let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: candidate) else {
+                // Not a link here, so `fileExists` (which follows links) only
+                // asks whether this component is present.
+                if !reachedMissingComponent, !FileManager.default.fileExists(atPath: candidate) {
+                    reachedMissingComponent = true
+                }
+                resolved.append(component)
+                continue
+            }
+            resolutions += 1
+            guard resolutions <= maximumSymlinkResolutions else { return nil }
+            if destination.hasPrefix("/") { resolved.removeAll() }
+            pending = destination.split(separator: "/").map(String.init) + pending
+        }
+        return "/" + resolved.joined(separator: "/")
     }
 }

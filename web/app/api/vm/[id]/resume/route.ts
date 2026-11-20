@@ -36,9 +36,10 @@ export async function POST(
         teamIds: user.teamIds,
         providerVmId: id,
         maxActiveVms: account.entitlements.maxActiveVms,
+        entitlementOverride: account.entitlements.entitlementOverride,
         callerPlanId: account.entitlements.planId,
         modelPlane: vmModelPlaneRevoker(),
-      }), { request });
+      }), { request, deadline: { operation: "resume" } });
       if (!run.ok) return run.response;
       return jsonResponse({ id: run.value.id, status: run.value.status });
     },

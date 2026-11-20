@@ -57,7 +57,7 @@ final class FeedWaiterRegistry: Sendable {
             guard var group = groups[registration.requestID], group.id == registration.groupID else { return }
             group.event = event
             group.itemID = item.id
-            if group.decision == nil {
+            if group.decision == nil, group.terminalResult == nil {
                 switch item.status {
                 case .resolved:
                     // A handled retry is a no-op; never grant permission again from history.
@@ -76,12 +76,12 @@ final class FeedWaiterRegistry: Sendable {
         }
     }
 
-    /// Records a delivery failure unless the user already decided: a decision made
-    /// in the store-commit gap outranks any later failure.
+    /// Records the first terminal delivery outcome. A user decision or an earlier
+    /// terminal result, including session invalidation, outranks any later failure.
     func fail(_ registration: Registration, result: FeedCoordinator.IngestBlockingResult) {
         groups.withLock { groups in
             guard var group = groups[registration.requestID], group.id == registration.groupID else { return }
-            guard group.decision == nil else { return }
+            guard group.decision == nil, group.terminalResult == nil else { return }
             group.terminalResult = result
             group.replyStored = true
             groups[registration.requestID] = group
@@ -170,6 +170,34 @@ final class FeedWaiterRegistry: Sendable {
             groups[requestID] = group
             for semaphore in group.subscribers.values { semaphore.signal() }
             return (reply, group.itemID)
+        }
+    }
+
+    /// Invalidates every undecided request belonging to one agent session.
+    /// Surface teardown can be the only terminal signal when the agent died
+    /// before its SessionEnd hook ran, so cleanup cannot depend on knowing the
+    /// individual request ids that were pending on that session.
+    func invalidate(source: String, sessionID: String) -> [(Reply, UUID?)] {
+        groups.withLock { groups in
+            var invalidated: [(Reply, UUID?)] = []
+            for (requestID, var group) in groups {
+                guard group.decision == nil, group.terminalResult == nil,
+                      !group.cleanupClaimed,
+                      group.event.source == source else { continue }
+                let canonical = FeedWorkstreamIdentifier.canonicalizedRawValue(
+                    agentID: source, rawValue: group.event.sessionId
+                )
+                guard (FeedWorkstreamIdentifier(rawValue: canonical)?.sessionID
+                    ?? group.event.sessionId) == sessionID else { continue }
+                invalidated.append((Reply(requestID: requestID, groupID: group.id,
+                    event: group.event, target: group.target), group.itemID))
+                group.target = nil
+                group.cleanupClaimed = true
+                group.terminalResult = .unavailable
+                groups[requestID] = group
+                for semaphore in group.subscribers.values { semaphore.signal() }
+            }
+            return invalidated
         }
     }
 

@@ -255,6 +255,13 @@ final class TerminalNotificationStore: ObservableObject {
         case settingsTest = "settings_test"
     }
 
+    /// Correlation keys of agent notifications this store actually recorded,
+    /// newest last. An idle reminder repeats its turn's completion only while
+    /// that completion is unread; once recorded and then read or dismissed, the
+    /// turn is acknowledged. Bounded: a reminder follows its completion by ~60 s.
+    private var recordedAgentCorrelationKeys: [String] = []
+    private static let recordedAgentCorrelationKeyLimit = 512
+
     @Published private(set) var notifications: [TerminalNotification] = [] {
         didSet {
             indexes = Self.buildIndexes(for: notifications)
@@ -1063,6 +1070,23 @@ final class TerminalNotificationStore: ObservableObject {
         indexes.unreadByTabSurface.contains(TabSurfaceKey(tabId: tabId, surfaceId: surfaceId))
     }
 
+    /// Whether this store recorded the agent notification correlated with
+    /// `correlationKey`, and whether it is still stored and unread wherever its
+    /// pane lives now. A completion muted or dropped before recording reports
+    /// `recorded == false`, so its idle reminder stays eligible.
+    func agentNotificationState(correlationKey: String) -> (recorded: Bool, unread: Bool) {
+        (recordedAgentCorrelationKeys.contains(correlationKey),
+         notifications.contains { $0.correlationKey == correlationKey && !$0.isRead })
+    }
+
+    private func noteRecordedAgentCorrelationKey(_ notification: TerminalNotification) {
+        guard notification.isAgentEvent, let key = notification.correlationKey else { return }
+        recordedAgentCorrelationKeys.removeAll { $0 == key }
+        recordedAgentCorrelationKeys.append(key)
+        let overflow = recordedAgentCorrelationKeys.count - Self.recordedAgentCorrelationKeyLimit
+        if overflow > 0 { recordedAgentCorrelationKeys.removeFirst(overflow) }
+    }
+
     func hasUnreadNotificationRequiringPaneFlash(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
         notifications.contains { notification in
             notification.matches(tabId: tabId, surfaceId: surfaceId) &&
@@ -1643,6 +1667,7 @@ final class TerminalNotificationStore: ObservableObject {
         applySidebarOrdering(for: notification, effects: effects)
 
         updated.insert(notification, at: 0)
+        noteRecordedAgentCorrelationKey(notification)
         if notification.agentCategory == AgentNotifyCategory.needsPermission.rawValue,
            let surfaceId = notification.surfaceId {
             agentAttentionSupersessionSuppressed.remove(
@@ -3041,6 +3066,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     func replaceNotificationsForTesting(_ notifications: [TerminalNotification]) {
         TerminalMutationBus.shared.discardPendingNotifications()
+        recordedAgentCorrelationKeys.removeAll()
         self.notifications = notifications
         notificationFeedHistory = NotificationFeedHistoryStore(fileURL: nil) { revision in
             MobileHostService.emitEvent(

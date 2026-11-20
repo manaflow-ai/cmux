@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { AuthedUser } from "../services/vms/auth";
 
-// POST /api/vm/[id]/pause and /resume: the route's contract around the
+// POST /api/vm/[id]/pause, /resume, and /restart: the route's contract around the
 // workflows (auth gate, the program's inputs, the 200 body, and error
 // pass-through). The workflows themselves are covered by
 // vm-pause-resume-workflow.test.ts. bun's mock.module is process-global, so
@@ -10,7 +10,7 @@ import type { AuthedUser } from "../services/vms/auth";
 
 let active = false;
 let authedUser: AuthedUser | null = null;
-const programs: Array<{ kind: "pause" | "resume"; input: Record<string, unknown> }> = [];
+const programs: Array<{ kind: "pause" | "resume" | "restart"; input: Record<string, unknown> }> = [];
 let routeResult:
   | { ok: true; value: { id: string; status: "paused" | "running" } }
   | { ok: false; response: Response } = { ok: true, value: { id: "fs-1", status: "paused" } };
@@ -20,6 +20,7 @@ const realVerifyRequest = realAuth.verifyRequest;
 const realWorkflows = await import("../services/vms/workflows");
 const realPauseVm = realWorkflows.pauseVm;
 const realResumeVm = realWorkflows.resumeVm;
+const realRestartVm = realWorkflows.restartVm;
 const realRouteWorkflow = await import("../services/vms/routeWorkflow");
 const realRunVmRoute = realRouteWorkflow.runVmRoute;
 
@@ -41,19 +42,25 @@ mock.module("../services/vms/workflows", () => ({
     programs.push({ kind: "resume", input: input as Record<string, unknown> });
     return { sentinel: "resume" } as unknown as ReturnType<typeof realResumeVm>;
   }) as typeof realResumeVm,
+  restartVm: ((input: Parameters<typeof realRestartVm>[0]) => {
+    if (!active) return realRestartVm(input);
+    programs.push({ kind: "restart", input: input as Record<string, unknown> });
+    return { sentinel: "restart" } as unknown as ReturnType<typeof realRestartVm>;
+  }) as typeof realRestartVm,
 }));
 
 mock.module("../services/vms/routeWorkflow", () => ({
   ...realRouteWorkflow,
   runVmRoute: (async (program: unknown, options?: unknown) => {
     if (!active) return realRunVmRoute(program as never, options as never);
-    expect((program as { sentinel?: string }).sentinel).toMatch(/^(pause|resume)$/);
+    expect((program as { sentinel?: string }).sentinel).toMatch(/^(pause|resume|restart)$/);
     return routeResult;
   }) as typeof realRunVmRoute,
 }));
 
 const pauseRoute = await import("../app/api/vm/[id]/pause/route");
 const resumeRoute = await import("../app/api/vm/[id]/resume/route");
+const restartRoute = await import("../app/api/vm/[id]/restart/route");
 
 const user: AuthedUser = {
   id: "user-1",
@@ -79,7 +86,7 @@ function post(path: string): Request {
 
 const params = { params: Promise.resolve({ id: "fs-1" }) };
 
-describe("POST /api/vm/[id]/pause and /resume", () => {
+describe("POST /api/vm/[id]/pause, /resume, and /restart", () => {
   beforeAll(() => {
     active = true;
   });
@@ -118,6 +125,16 @@ describe("POST /api/vm/[id]/pause and /resume", () => {
     const input = programs[0]?.input ?? {};
     expect(input).toMatchObject({ userId: "user-1", providerVmId: "fs-1", callerPlanId: "pro" });
     expect("maxActiveVms" in input).toBe(true);
+  });
+
+  test("restart passes the owner's scope without a status or guest preflight", async () => {
+    routeResult = { ok: true, value: { id: "fs-1", status: "running" } };
+    const response = await restartRoute.POST(post("/api/vm/fs-1/restart"), params);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ id: "fs-1", status: "running" });
+    expect(programs).toHaveLength(1);
+    expect(programs[0]?.kind).toBe("restart");
+    expect(programs[0]?.input).toMatchObject({ userId: "user-1", billingTeamId: "team-1", teamIds: ["team-1"], providerVmId: "fs-1" });
   });
 
   test("a workflow refusal is returned as the workflow's own response (501 for a provider without pause)", async () => {

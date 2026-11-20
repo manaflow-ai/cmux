@@ -14,16 +14,16 @@ and any member without a same or better case.
 
 - Reference A: 1.26.916.1741, recorded 2026-09-30T14:00:25.952Z.
 - Reference B: the installed app's reference runtime, AX and legacy modes, recorded 2026-09-30T14:01:09.330Z.
-- cmux app: tagged build `brepl-in2` at 0a2c79e2ce, recorded 2026-10-02T03:52:27.727Z; 159 of 159 verdicts use the app's result.
+- cmux app: tagged build `brepl-in2` at 0a2c79e2ce, recorded 2026-10-02T03:52:27.727Z; 158 of 160 verdicts use the app's result, the rest the dev driver's (Playwright WebKit, the same runtime).
 
 ## Totals
 
-159 cases. cmux misses its own expectation in 1.
+160 cases. cmux misses its own expectation in 1.
 
 | Reference | same | cmux-better | cmux-worse | not-applicable | out-of-scope | not-run |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Reference A | 73 | 52 | 0 | 26 | 8 | 0 |
-| Reference B | 84 | 49 | 0 | 16 | 10 | 0 |
+| Reference A | 73 | 52 | 0 | 26 | 9 | 0 |
+| Reference B | 83 | 50 | 0 | 16 | 11 | 0 |
 
 Verdicts: **same** (normalized outcomes equal), **better** (they differ and the
 case's stated reason holds on the recorded outcomes), **WORSE** (a gap),
@@ -165,9 +165,9 @@ non-loopback host for reference A, a process kill or a person's click).
 | `Browser.documentation` | session.guide() | `session.name-docs` same |
 | `Browser.history` | tabs.history({ query, from, to, limit }): cmux browser history, most recent first, as { url, title, dateVisited } | `browser.history` same |
 | `Browser.nameSession` | session.name(label) | `session.name-docs` same |
-| `BrowserUser.claimTab` | tabs.list({ all: true }) lists tabs in every workspace and window; tabs.use(id) attaches one | `tabs.attach` same, `tabs.claim-other-workspace` same |
+| `BrowserUser.claimTab` | tabs.use(id) attaches a user's tab of the session's own workspace; a user's tab of another workspace needs a person's grant, which cmux does not offer yet, so it is refused | `tabs.attach` same, `tabs.claim-other-workspace` better |
 | `BrowserUser.getTabContext` | snapshot(await tabs.get(id)) reads a tab without switching to it | `tabs.attach` same |
-| `BrowserUser.openTabs` | tabs.list() | `tabs.list-get` same, `tabs.claim-other-workspace` same |
+| `BrowserUser.openTabs` | tabs.list() | `tabs.list-get` same, `tabs.claim-other-workspace` better |
 | `Tabs.content` | tabs.content({ urls, format: text\|markdown\|html\|snapshot }) loads each URL in a background tab, extracts it and closes the tab | `tabs.content` better |
 | `Tabs.get` | tabs.get(id) | `tabs.list-get` same |
 | `Tabs.list` | tabs.list() | `tabs.list-get` same |
@@ -461,10 +461,11 @@ non-loopback host for reference A, a process kill or a person's click).
 | `edge.zoom-scale` | edge:zoomed-page, edge:device-scale | cmux | same | same |
 | `edge.large-page` | edge:large-page | cmux | same | better |
 | `edge.ime-only-editor` | edge:ime-only-editor | cmux | scope | scope |
-| `edge.trusted-paste` | edge:trusted-paste | cmux | scope | scope |
-| `tabs.claim-other-workspace` | BrowserUser.claimTab, BrowserUser.openTabs | cmux | n/a | same |
+| `edge.trusted-paste` | edge:trusted-paste | cmux-dev | scope | scope |
+| `tabs.claim-other-workspace` | BrowserUser.claimTab, BrowserUser.openTabs | cmux | n/a | better |
+| `tabs.legacy-socket-refused` | edge:legacy-socket-refused | cmux | scope | scope |
 | `edge.sessions-two-tabs` | edge:sessions-two-tabs | cmux | same | scope |
-| `edge.sessions-same-tab` | edge:sessions-same-tab | cmux | n/a | n/a |
+| `edge.sessions-same-tab` | edge:sessions-same-tab | cmux-dev | n/a | n/a |
 | `edge.web-process-crash` | edge:web-process-crash | cmux | scope | scope |
 | `edge.user-click-while-driving` | edge:user-click-while-driving | cmux FAILS | scope | scope |
 | `edge.context-options` | edge:context-options | cmux | scope | scope |
@@ -526,7 +527,7 @@ non-loopback host for reference A, a process kill or a person's click).
 - `edge.detached-mid-click`: a click on an element the page keeps re-rendering lands on the element now under the pointer; reference A fails it as detached.
 - `edge.overlay-intercepts`: the click fails and names the element that would receive it, and nothing is clicked by mistake.
 
-### Against Reference B (49)
+### Against Reference B (50)
 
 - `snapshot.ax-errors`: an unknown ref fails immediately with `ref e99999 does not exist`.
 - `screenshot.annotated`: screenshot({ annotate: true }) labels every ref's box; reference B's Chrome backend does not support elementScreenshot.
@@ -577,6 +578,7 @@ non-loopback host for reference A, a process kill or a person's click).
 - `edge.stale-ref`: a ref from before a navigation fails at once as stale instead of acting on whatever now has that index.
 - `edge.overlay-intercepts`: the click fails and names the element that would receive it, and nothing is clicked by mistake.
 - `edge.large-page`: the snapshot value holds the whole page (printing is budgeted); reference B's state stops before the end of a large page.
+- `tabs.claim-other-workspace`: a session stays inside its workspace: a user's tab of another workspace is neither listed nor attachable without a person's grant, where reference B lets an agent claim any user tab.
 
 ## Not applicable and out of scope
 
@@ -612,6 +614,7 @@ non-loopback host for reference A, a process kill or a person's click).
 - `edge.ime-only-editor` (scope): reproduces WebKit's editing path; Chrome's editor accepts an IME commit without a composition.
 - `edge.trusted-paste` (scope): Reference A's paste reads the system clipboard, which these tests do not touch.
 - `tabs.claim-other-workspace` (n/a): Reference A has no user-tab claim; attachBrowserTab is covered by tabs.attach.
+- `tabs.legacy-socket-refused` (scope): Reference A has no second client protocol beside its REPL.
 - `edge.sessions-same-tab` (n/a): Reference A has no named sessions; a one-shot run cannot share a tab with another session.
 - `edge.web-process-crash` (scope): killing a browser renderer process is outside the approved reference A scope.
 - `edge.user-click-while-driving` (scope): a person acting in the user's own reference A or Chrome window is outside the approved scope.
@@ -640,6 +643,7 @@ non-loopback host for reference A, a process kill or a person's click).
 - `edge.cookies-subdomain` (scope): a different origin than the one approved for reference B (approval would be denied, so the task cannot run in scope).
 - `edge.ime-only-editor` (scope): reproduces WebKit's editing path; Chrome's editor accepts an IME commit without a composition.
 - `edge.trusted-paste` (scope): Reference B's real paste reads the system clipboard, which these tests do not touch.
+- `tabs.legacy-socket-refused` (scope): Reference B has no second client protocol beside its REPL.
 - `edge.sessions-two-tabs` (scope): the reference client drives one REPL session; a second concurrent session is outside the approved harness.
 - `edge.sessions-same-tab` (n/a): Reference B's REPL is one session per conversation.
 - `edge.web-process-crash` (scope): killing a Chrome renderer process is outside the approved reference B scope.

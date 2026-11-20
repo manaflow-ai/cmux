@@ -54,6 +54,17 @@ pub struct SshBootstrapConfig {
     /// Exact local executable used to bootstrap unpublished same-platform
     /// builds. Published distributions continue to install through npm.
     pub local_binary: Option<PathBuf>,
+    /// Where the immutable per-commit cmux-tui builds are published. A native
+    /// client that ships a remote platform's checksum but not its executable
+    /// downloads `<base>/<commit>/cmux-tui-<target>` from here.
+    pub payload_base_url: String,
+    /// Local cache for those downloads, keyed by checksum, so every host of a
+    /// platform reuses one download. `None` when no cache directory is known.
+    pub payload_cache: Option<PathBuf>,
+    /// Tests only: a PAC script evaluated instead of the system proxy settings.
+    /// `None` uses the macOS system proxy and PAC configuration, like URLSession.
+    #[doc(hidden)]
+    pub payload_proxy_pac: Option<String>,
     pub auto_install: bool,
     pub timeout: Duration,
 }
@@ -71,6 +82,9 @@ impl SshBootstrapConfig {
             package_installable: NPM_BOOTSTRAP_VERSION.is_some(),
             build_identity: BUILD_IDENTITY.into(),
             local_binary: std::env::current_exe().ok(),
+            payload_base_url: "https://files.cmux.com/cmux-tui".into(),
+            payload_cache: crate::ssh_artifacts::default_payload_cache(),
+            payload_proxy_pac: None,
             auto_install: true,
             timeout: Duration::from_secs(60),
         }
@@ -325,12 +339,29 @@ impl SshBootstrapper {
         })?;
         let remote = self.remote_platform().await?;
         let local = Platform::local();
-        let artifact = crate::ssh_artifacts::payload(
+        let artifact = match crate::ssh_artifacts::payload(
             source,
             &self.config.build_identity,
             &remote.os,
             &remote.arch,
-        )?;
+            &crate::ssh_artifacts::PayloadSource {
+                base_url: &self.config.payload_base_url,
+                cache: self.config.payload_cache.as_deref(),
+                proxy_pac: self.config.payload_proxy_pac.as_deref(),
+            },
+        )? {
+            Some(
+                crate::ssh_artifacts::Payload::Bundled(path)
+                | crate::ssh_artifacts::Payload::Client(path),
+            ) => Some(path),
+            Some(crate::ssh_artifacts::Payload::ClientSlice(slice)) => {
+                Some(crate::ssh_artifacts::extract_client_slice(&slice).await?)
+            }
+            Some(crate::ssh_artifacts::Payload::Published(published)) => {
+                Some(crate::ssh_artifacts::fetch_published(&published).await?)
+            }
+            None => None,
+        };
         if artifact.is_none() && !local.compatible_with(&remote) {
             return Err(BootstrapError::LocalBinaryIncompatible {
                 local: local.display(),
@@ -981,6 +1012,7 @@ pub enum BootstrapError {
     WindowsRequiresWsl,
     Incompatible { version: String, protocol: u8 },
     ChecksumMismatch { package: String },
+    PayloadDownload(String),
 }
 
 impl fmt::Display for BootstrapError {
@@ -1019,6 +1051,10 @@ impl fmt::Display for BootstrapError {
             Self::Incompatible { version, protocol } => write!(
                 formatter,
                 "remote cmux-tui {version} uses remote protocol {protocol}, expected {REMOTE_PROTOCOL_VERSION}"
+            ),
+            Self::PayloadDownload(message) => write!(
+                formatter,
+                "could not download the cmux-tui build for the remote platform: {message}"
             ),
         }
     }
@@ -1095,15 +1131,14 @@ mod tests {
         fs::set_permissions(source.join("package/bin/cmux-tui"), fs::Permissions::from_mode(0o755))
             .unwrap();
         fs::write(source.join("package/package.json"), b"{}").unwrap();
-        fs::write(
-            bin.join("npm"),
+        cmux_test_exec::write_executable(
+            &bin.join("npm"),
             format!(
                 "#!/bin/sh\n[ \"$1 $2 $3 $4\" = 'pack --ignore-scripts --silent cmux-tui-linux-arm64@9.9.9' ] || exit 9\ntar -czf cmux-tui-linux-arm64-9.9.9.tgz -C '{}' package\n",
                 source.display()
             ),
         )
         .unwrap();
-        fs::set_permissions(bin.join("npm"), fs::Permissions::from_mode(0o755)).unwrap();
 
         let command =
             pinned_package_command(&staging.to_string_lossy(), "cmux-tui-linux-arm64@9.9.9");
@@ -1279,17 +1314,14 @@ mod tests {
     #[tokio::test]
     async fn bootstrap_uses_hardened_ssh_argv() {
         use std::fs;
-        use std::os::unix::fs::PermissionsExt;
-
         let directory = tempfile::tempdir().unwrap();
         let log = directory.path().join("argv");
         let script = directory.path().join("ssh");
-        fs::write(
+        cmux_test_exec::write_executable(
             &script,
             format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\nexit 127\n", log.display()),
         )
         .unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
         let mut config = SshBootstrapConfig::defaults("alice@example.com");
         config.ssh_binary = script.to_string_lossy().into_owned();
         config.port = Some(2222);
@@ -1403,8 +1435,6 @@ mod tests {
     #[tokio::test]
     async fn raw_build_uploads_the_exact_binary_to_a_matching_platform() {
         use std::fs;
-        use std::os::unix::fs::PermissionsExt;
-
         let directory = tempfile::tempdir().unwrap();
         let script = directory.path().join("ssh");
         let installed = directory.path().join("installed");
@@ -1423,7 +1453,7 @@ mod tests {
             "os": std::env::consts::OS,
             "arch": std::env::consts::ARCH,
         });
-        fs::write(
+        cmux_test_exec::write_executable(
             &script,
             format!(
                 "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\"mkdir -p \"*|*\"mkdir -m 700 \"*) exit 0 ;;\n  *\".cmux-upload-\"*\" remote-probe --json\"*)\n    [ -f '{staged}' ] || exit 127\n    printf '%s' '{probe}'\n    ;;\n  *\"remote-probe --json\"*)\n    [ -f '{installed}' ] || exit 127\n    printf '%s' '{probe}'\n    ;;\n  *\"exec 3> \"*\".cmux-upload-\"*) cat >'{staged}' ;;\n  *\"mv -f \"*\".cmux-upload-\"*) mv '{staged}' '{installed}' ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
@@ -1432,7 +1462,6 @@ mod tests {
             ),
         )
         .unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
 
         let mut config = SshBootstrapConfig::defaults("host");
         config.ssh_binary = script.to_string_lossy().into_owned();
@@ -1454,8 +1483,6 @@ mod tests {
     #[tokio::test]
     async fn raw_build_streams_a_compressed_upload_in_few_round_trips() {
         use std::fs;
-        use std::os::unix::fs::PermissionsExt;
-
         let directory = tempfile::tempdir().unwrap();
         let script = directory.path().join("ssh");
         let installed = directory.path().join("installed");
@@ -1477,7 +1504,7 @@ mod tests {
             "os": std::env::consts::OS,
             "arch": std::env::consts::ARCH,
         });
-        fs::write(
+        cmux_test_exec::write_executable(
             &script,
             format!(
                 "#!/bin/sh\nprintf '%s\\n' \"$*\" >>'{commands}'\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\"mkdir -p \"*|*\"mkdir -m 700 \"*) command -v gzip >/dev/null 2>&1 && printf '%s\\n' 'cmux-upload:gzip' ;;\n  *\".cmux-upload-\"*\" remote-probe --json\"*)\n    [ -f '{staged}' ] || exit 127\n    printf '%s' '{probe}'\n    ;;\n  *\"remote-probe --json\"*)\n    [ -f '{installed}' ] || exit 127\n    printf '%s' '{probe}'\n    ;;\n  *\"exec 3> \"*\".cmux-upload-\"*\"gzip -dc\"*) tee '{wire}' | gzip -dc >'{staged}' ;;\n  *\"exec 3> \"*\".cmux-upload-\"*) tee '{wire}' >'{staged}' ;;\n  *\"mv -f \"*\".cmux-upload-\"*) mv '{staged}' '{installed}' ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *\"rmdir \"*\".cmux-upload-\"*) exit 0 ;;\n  *) exit 2 ;;\nesac\n",
@@ -1488,7 +1515,6 @@ mod tests {
             ),
         )
         .unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
 
         let mut config = SshBootstrapConfig::defaults("host");
         config.ssh_binary = script.to_string_lossy().into_owned();
@@ -1513,8 +1539,6 @@ mod tests {
     #[tokio::test]
     async fn raw_build_keeps_existing_remote_binary_when_staged_probe_is_incompatible() {
         use std::fs;
-        use std::os::unix::fs::PermissionsExt;
-
         let directory = tempfile::tempdir().unwrap();
         let script = directory.path().join("ssh");
         let installed = directory.path().join("installed");
@@ -1544,7 +1568,7 @@ mod tests {
             "os": std::env::consts::OS,
             "arch": std::env::consts::ARCH,
         });
-        fs::write(
+        cmux_test_exec::write_executable(
             &script,
             format!(
                 "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\"mkdir -p \"*|*\"mkdir -m 700 \"*) exit 0 ;;\n  *\".cmux-upload-\"*\" remote-probe --json\"*)\n    [ -f '{staged}' ] || exit 127\n    printf '%s' '{staged_probe}'\n    ;;\n  *\"remote-probe --json\"*)\n    [ -f '{installed}' ] || exit 127\n    printf '%s' '{installed_probe}'\n    ;;\n  *\"exec 3> \"*\".cmux-upload-\"*) cat >'{staged}' ;;\n  *\"mv -f \"*\".cmux-upload-\"*) touch '{moved}'; mv '{staged}' '{installed}' ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
@@ -1554,7 +1578,6 @@ mod tests {
             ),
         )
         .unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
 
         let mut config = SshBootstrapConfig::defaults("host");
         config.ssh_binary = script.to_string_lossy().into_owned();
@@ -1573,8 +1596,6 @@ mod tests {
     #[tokio::test]
     async fn raw_build_removes_staged_upload_after_upload_stream_failure() {
         use std::fs;
-        use std::os::unix::fs::PermissionsExt;
-
         let directory = tempfile::tempdir().unwrap();
         let script = directory.path().join("ssh");
         let staged = directory.path().join("staged");
@@ -1583,7 +1604,7 @@ mod tests {
         let uname_os = if std::env::consts::OS == "macos" { "Darwin" } else { "Linux" };
         let uname_arch =
             if std::env::consts::ARCH == "aarch64" { "arm64" } else { std::env::consts::ARCH };
-        fs::write(
+        cmux_test_exec::write_executable(
             &script,
             format!(
                 "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\"mkdir -p \"*|*\"mkdir -m 700 \"*) exit 0 ;;\n  *\"exec 3> \"*\".cmux-upload-\"*) cat >'{staged}'; head -c 5000 /dev/zero ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
@@ -1591,7 +1612,6 @@ mod tests {
             ),
         )
         .unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
 
         let mut config = SshBootstrapConfig::defaults("host");
         config.ssh_binary = script.to_string_lossy().into_owned();
@@ -1609,8 +1629,6 @@ mod tests {
     #[tokio::test]
     async fn raw_build_removes_staged_upload_after_move_transport_failure() {
         use std::fs;
-        use std::os::unix::fs::PermissionsExt;
-
         let directory = tempfile::tempdir().unwrap();
         let script = directory.path().join("ssh");
         let staged = directory.path().join("staged");
@@ -1628,7 +1646,7 @@ mod tests {
             "os": std::env::consts::OS,
             "arch": std::env::consts::ARCH,
         });
-        fs::write(
+        cmux_test_exec::write_executable(
             &script,
             format!(
                 "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\"mkdir -p \"*|*\"mkdir -m 700 \"*) exit 0 ;;\n  *\".cmux-upload-\"*\" remote-probe --json\"*) printf '%s' '{probe}' ;;\n  *\"exec 3> \"*\".cmux-upload-\"*) cat >'{staged}' ;;\n  *\"mv -f \"*\".cmux-upload-\"*) head -c 5000 /dev/zero ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
@@ -1636,7 +1654,6 @@ mod tests {
             ),
         )
         .unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
 
         let mut config = SshBootstrapConfig::defaults("host");
         config.ssh_binary = script.to_string_lossy().into_owned();
@@ -1653,20 +1670,16 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn no_install_distinguishes_an_incompatible_binary_from_a_missing_one() {
-        use std::fs;
-        use std::os::unix::fs::PermissionsExt;
-
         let directory = tempfile::tempdir().unwrap();
         let script = directory.path().join("ssh");
         let remote_protocol_version = REMOTE_PROTOCOL_VERSION;
-        fs::write(
+        cmux_test_exec::write_executable(
             &script,
             format!(
                 "#!/bin/sh\nprintf '%s' '{{\"app\":\"cmux-tui\",\"version\":\"0.0.1\",\"distribution_version\":\"0.0.1\",\"remote_protocol\":{remote_protocol_version},\"os\":\"linux\",\"arch\":\"x86_64\"}}'\n"
             ),
         )
         .unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
 
         let mut config = SshBootstrapConfig::defaults("host");
         config.ssh_binary = script.to_string_lossy().into_owned();
@@ -1681,22 +1694,18 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn explicit_install_recovers_when_a_legacy_probe_is_unrecognized() {
-        use std::fs;
-        use std::os::unix::fs::PermissionsExt;
-
         let directory = tempfile::tempdir().unwrap();
         let script = directory.path().join("ssh");
         let installed = directory.path().join("installed");
         let installed_path = installed.display();
         let remote_protocol_version = REMOTE_PROTOCOL_VERSION;
-        fs::write(
+        cmux_test_exec::write_executable(
             &script,
             format!(
                 "#!/bin/sh\ncase \"$*\" in\n  *\"npx --yes\"*) touch '{installed_path}'; exit 0 ;;\n  *\"remote-probe --json\"*)\n    if [ -f '{installed_path}' ]; then\n      printf '%s' '{{\"app\":\"cmux-tui\",\"version\":\"0.1.0\",\"distribution_version\":\"9.9.9\",\"npm_bootstrap_version\":\"9.9.9\",\"remote_protocol\":{remote_protocol_version},\"os\":\"linux\",\"arch\":\"x86_64\"}}'\n      exit 0\n    fi\n    printf legacy >&2; exit 2 ;;\nesac\nexit 2\n"
             ),
         )
         .unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
 
         let mut config = SshBootstrapConfig::defaults("host");
         config.ssh_binary = script.to_string_lossy().into_owned();
@@ -1711,19 +1720,16 @@ mod tests {
     #[tokio::test]
     async fn timeout_kills_and_reaps_the_ssh_process() {
         use std::fs;
-        use std::os::unix::fs::PermissionsExt;
-
         let directory = tempfile::tempdir().unwrap();
         let script = directory.path().join("ssh");
         let pid_file = directory.path().join("pid");
         let pid_file_path = pid_file.display();
         let fifo_path = make_blocking_fifo(directory.path());
-        fs::write(
+        cmux_test_exec::write_executable(
             &script,
             format!("#!/bin/sh\nprintf '%s' \"$$\" > '{pid_file_path}'\nexec < '{fifo_path}'\n"),
         )
         .unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
 
         let mut config = SshBootstrapConfig::defaults("host");
         config.ssh_binary = script.to_string_lossy().into_owned();
@@ -1742,8 +1748,6 @@ mod tests {
     #[cfg(unix)]
     async fn assert_oversized_output_is_bounded(stream: &str) {
         use std::fs;
-        use std::os::unix::fs::PermissionsExt;
-
         let directory = tempfile::tempdir().unwrap();
         let script = directory.path().join("ssh");
         let pid_file = directory.path().join("pid");
@@ -1754,14 +1758,13 @@ mod tests {
             _ => panic!("unsupported test stream {stream}"),
         };
         let fifo_path = make_blocking_fifo(directory.path());
-        fs::write(
+        cmux_test_exec::write_executable(
             &script,
             format!(
                 "#!/bin/sh\nprintf '%s' \"$$\" > '{pid_file_path}'\ni=0\nwhile [ \"$i\" -lt 4097 ]; do\n  printf x{redirect}\n  i=$((i + 1))\ndone\nexec < '{fifo_path}'\n"
             ),
         )
         .unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
 
         let mut config = SshBootstrapConfig::defaults("host");
         config.ssh_binary = script.to_string_lossy().into_owned();

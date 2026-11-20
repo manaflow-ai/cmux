@@ -91,6 +91,7 @@ final class RemoteTmuxControlConnection {
     private(set) var connectionState: ConnectionState = .connecting {
         didSet {
             guard oldValue != connectionState else { return }
+            if connectionState != .connected { paneAgentStatuses.removeAll() }
             observers.notifyStateChanged(connectionState)
             switch connectionState {
             case .connected:
@@ -167,6 +168,8 @@ final class RemoteTmuxControlConnection {
     /// killing a mirrored pane/window needs a confirmation dialog — a mirror
     /// surface has no local child process for ghostty's needs-confirm check.
     var paneForegroundStates: [Int: PaneForegroundState] = [:]
+    /// Latest hook values, retained for mirrors created after subscription delivery.
+    var paneAgentStatuses: [Int: RemoteTmuxAgentStatus] = [:]
     /// In-flight close-time activity queries by token (see
     /// ``queryWindowActivity(windowId:completion:)``). Failed with `nil` when the
     /// control stream becomes unusable, so a pending close decision falls back to
@@ -183,7 +186,7 @@ final class RemoteTmuxControlConnection {
     /// than a dedicated per-session connection. Enables the host-wide session-digest
     /// subscription and the extra topology notifications a shared stream needs.
     var isSharedViewStream = false
-    /// Whether the ``sessionDigestSubscriptionName`` `refresh-client -B` is active.
+    /// Whether the stream's order digest (see ``subscribeSessionDigest()``) is subscribed.
     var sessionDigestSubscribed = false
     var newWindowCompletions: [UUID: (Int?) -> Void] = [:]
     var newPaneCompletions: [UUID: (Int?) -> Void] = [:]
@@ -549,6 +552,10 @@ final class RemoteTmuxControlConnection {
     /// starts) re-classifies the pane live. The tmux pane id is appended for
     /// routing, mirroring ``cwdSubscriptionPrefix``.
     static let reflowSubscriptionPrefix = "cmux_reflow_"
+    /// Per-pane user-option subscription carrying lifecycle status from a remote
+    /// Claude or Codex hook. The pane id is part of the subscription name so the
+    /// control stream can route the value back to the owning mirror.
+    static let agentSubscriptionPrefix = "cmux_agent_"
     /// Per-pane subscription that keeps header labels LIVE, mirroring
     /// ``cwdSubscriptionPrefix``: tmux pushes the newly-expanded
     /// `pane-border-format` whenever its value changes (a program retitling
@@ -1463,7 +1470,7 @@ final class RemoteTmuxControlConnection {
         // A `refresh-client -B` subscription belongs to the client too, so the
         // session digest dies with it. The reconnect's attach drain calls
         // `subscribeSessionDigest()` again, and it returns early unless this flag is
-        // cleared here — leaving the shared view blind to session create/kill/rename.
+        // cleared here — leaving the stream blind to session changes and window reorders.
         sessionDigestSubscribed = false
         pendingPostAttachAction = nil
         teardownProcessHandles()
@@ -1708,6 +1715,7 @@ final class RemoteTmuxControlConnection {
             // ledger above keeps any moved pane's control identity alive until
             // the authoritative window snapshot publishes its destination.
             observers.notifyTopologyChanged()
+        case let .windowUnlinkedElsewhere(id): handleWindowUnlinkedElsewhere(windowId: id)
         case let .windowRenamed(id, name):
             record("window-renamed @\(id)")
             // Update published AND quarantined topology. A rename racing a
@@ -1754,6 +1762,10 @@ final class RemoteTmuxControlConnection {
                 if updatePaneTitleMetadata(paneId: paneId, wireValue: value) {
                     observers.emitPaneTitleChanged(paneId)
                 }
+            } else if name.hasPrefix(Self.agentSubscriptionPrefix),
+                      let paneId = Int(name.dropFirst(Self.agentSubscriptionPrefix.count)) {
+                paneAgentStatuses[paneId] = RemoteTmuxAgentStatus.parse(value)
+                observers.emitPaneAgent(paneId, value)
             } else if name.hasPrefix(Self.borderStatusSubscriptionPrefix),
                       let windowId = Int(name.dropFirst(Self.borderStatusSubscriptionPrefix.count)) {
                 // `pane-border-status` changed: every pane touching the configured
@@ -1793,15 +1805,14 @@ final class RemoteTmuxControlConnection {
                 // to re-list and rebuild multiplexed mirrors (coalesced by the view
                 // coordinator's in-flight reconcile guard).
                 observers.notifyTopologyChanged()
-            }
+            } else if name == Self.windowOrderSubscriptionName { handleWindowOrderDigest(value) }
         case let .commandResult(_, lines, isError):
             // The first block on each control stream is the attach command's own —
             // consume it explicitly so it can never pop a queued command's slot off
             // the positional FIFO (see ``attachBlockDrained``).
             if !attachBlockDrained {
                 attachBlockDrained = true
-                if isSharedViewStream { subscribeSessionDigest() }
-                requestWindows()
+                requestWindowsAndSubscribeAfterAttach()
             } else {
                 handleCommandResult(lines: lines, isError: isError)
             }

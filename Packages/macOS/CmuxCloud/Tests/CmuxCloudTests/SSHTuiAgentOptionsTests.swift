@@ -21,6 +21,27 @@ struct SSHTuiAgentOptionsTests {
         #expect(Set(paths).count == 1)
     }
 
+    /// File drops, the Files explorer and file preview run batch-mode `ssh`/`scp`
+    /// beside the carrier. On a password-only host they can only log in through
+    /// the carrier's authenticated master, so they need its exact ControlPath,
+    /// and they must never become a master or carry cmux's route marker.
+    @Test("One-off file operations reuse the carrier's master and never become one")
+    func fileOperationsReuseTheCarrierMaster() throws {
+        let routeIdentifier = String(repeating: "d", count: 64)
+        let connection = connection(
+            agent: "/tmp/cmux-route-agent.sock",
+            options: ["ProxyCommand=/bin/sh -c true", "__cmux_route_sensitive=\(routeIdentifier)"],
+            environment: ["PATH": "/usr/bin", "SSH_AUTH_SOCK": "/tmp/cmux-route-agent.sock"]
+        )
+        let carrierPath = try #require(connection.preflightArguments.first { $0.hasPrefix("ControlPath=") })
+
+        let options = connection.fileOperationSSHOptions
+        #expect(options.filter { $0.hasPrefix("ControlPath=") } == [carrierPath])
+        #expect(!options.contains { $0.hasPrefix("ControlMaster=") || $0.hasPrefix("ControlPersist=") })
+        #expect(!options.contains { $0.contains("__cmux_route_sensitive") })
+        #expect(options.contains("ProxyCommand=/bin/sh -c true"))
+    }
+
     @Test("A restored cmux carrier keeps its saved route socket with an agent")
     func restoredCmuxCarrierKeepsSavedControlPath() throws {
         let socketDirectory = try #require(SSHConnectionSharingOptions().controlSocketDirectoryPath)

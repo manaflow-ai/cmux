@@ -12,8 +12,8 @@ enum ReverseRelayControlMasterStartOutcome: Sendable {
 extension RemoteSessionCoordinator {
     /// Matches the connection-sharing defaults used by foreground authentication.
     var reverseRelayControlMasterSSHOptions: [String] {
-        connectionBroker.sharingOptions.mergingDefaults(
-            into: configuration.sshOptions,
+        configuration.mergingConnectionSharingDefaults(
+            connectionBroker.sharingOptions,
             routeSensitiveOptions: configuration.identityFile.map { ["IdentityFile=\($0)"] } ?? []
         )
     }

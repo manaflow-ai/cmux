@@ -12,20 +12,23 @@ struct CloudTreeDevicesEmptyView: View {
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
     @State private var hoveredAction: String?
 
-    /// One row height per inline row, plus the 2 pt inset above and below.
+    /// The actual status and action heights, plus the 2 pt inset above and below.
     static func rowHeight(for section: CloudTreeDevicesSection, style: CloudTreeStyle) -> CGFloat {
-        CGFloat(section.inlineRowCount) * style.rowHeight + 4
+        let emptyRowCount = section.count == 0 ? 1 : 0
+        let actionRowCount = section.inlineRowCount - emptyRowCount
+        return CGFloat(actionRowCount) * style.rowHeight
+            + CGFloat(emptyRowCount) * style.emptyStateRowHeight + 4
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if section.count == 0 {
-                Text(String(localized: "devices.empty.title", defaultValue: "No devices yet"))
+                Text(String(localized: "cloudTree.devices.empty", defaultValue: "No devices yet"))
                     .cmuxFont(size: style.detailSize, design: style.fontDesign)
                     .foregroundStyle(.secondary)
                     .padding(.leading, scaled(textInset))
                     .padding(.trailing, scaled(style.rowGrid.trailingPadding))
-                    .frame(height: scaled(style.rowHeight))
+                    .frame(height: scaled(style.emptyStateRowHeight))
             }
             actionRow(
                 section.discoveryControl,
@@ -60,8 +63,11 @@ struct CloudTreeDevicesEmptyView: View {
                 title: control.title, titleDimmed: !hovered
             ) {
                 if control.isOn {
-                    Image(systemName: "checkmark")
-                        .cmuxFont(size: style.detailSize, design: style.fontDesign)
+                    CmuxSystemSymbolImage(
+                        magnified: "checkmark",
+                        pointSize: style.detailSize,
+                        tint: Color(nsColor: .labelColor)
+                    )
                         .accessibilityHidden(true)
                 }
             }

@@ -1,5 +1,6 @@
 import CmuxCloud
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -12,12 +13,13 @@ import Testing
 @testable import cmux
 #endif
 
-/// The Cloud tab's section headers carry hover-only trailing actions: My
-/// Devices' ⋯ options menu and Cloud Machines' New Machine "+". The action
-/// host is always laid out and stays in the hit-test and accessibility trees;
-/// only its alpha follows hover, so the header title and count never shift.
+/// The Cloud tab's section headers carry trailing actions: My Devices' ⋯
+/// options menu and Cloud Machines' New Machine "+" appear on hover, while
+/// CodeRouter's guide is visible at rest. The action host is always laid out
+/// and stays in the hit-test and accessibility trees; only its alpha follows
+/// hover, so the header title and count never shift.
 @MainActor
-@Suite("Cloud sidebar: hover-only section header actions")
+@Suite("Cloud sidebar: section header actions")
 struct CloudTreeHeaderActionsTests {
     @Test("My Devices' ⋯ appears only while its header is hovered and stays clickable at rest", arguments: [220.0, 380.0])
     func devicesOptionsMenuIsHoverOnly(width: Double) throws {
@@ -115,6 +117,53 @@ struct CloudTreeHeaderActionsTests {
         #expect(CloudTreeRowContentView.sectionRefresh(for: .devicesSection(CloudTreeDevicesSection()))?.isRefreshing == false)
     }
 
+    @Test("CodeRouter guide is discoverable before setup")
+    func coderouterGuideShowsAtRest() {
+        let coderouter = CloudTreeNode.Kind.coderouterSection(count: 0, refresh: CloudTreeSectionRefresh())
+        #expect(CloudTreeRowHoverButtons.showsAtRest(for: coderouter))
+    }
+
+    @Test("Cloud sidebar accessory symbols use the resolved AppKit renderer")
+    func accessoryIconsUseResolvedRenderer() throws {
+        let (refreshWindow, refreshHost) = try Self.refreshHeaderHost()
+        defer { refreshWindow.contentView = nil }
+        #expect(!Self.resolvedIconViews(in: refreshHost).isEmpty,
+                "The section refresh glyph must use the resolved AppKit renderer")
+
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let tree = try Tree(fixture: fixture, width: 380)
+        let devicesHeader = try tree.cell(for: tree.devicesSection)
+        devicesHeader.setHovered(true)
+        let menuHost = try Self.controls(in: devicesHeader)
+        menuHost.layoutSubtreeIfNeeded()
+        #expect(!Self.resolvedIconViews(in: menuHost).isEmpty,
+                "The My Devices menu glyph must use the resolved AppKit renderer")
+
+        let emptyFixture = CloudSidebarOrderingFixture()
+        defer { emptyFixture.close() }
+        let emptyHost = NSHostingView(
+            rootView: CloudTreeDevicesEmptyView(
+                section: CloudTreeDevicesSection(count: 0, discoveryEnabled: true),
+                actions: emptyFixture.coordinator.nodeActions,
+                style: .compact
+            )
+        )
+        let emptyWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 380, height: 120),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        emptyWindow.contentView = emptyHost
+        defer { emptyWindow.contentView = nil }
+        emptyHost.needsLayout = true
+        emptyHost.layoutSubtreeIfNeeded()
+        emptyWindow.displayIfNeeded()
+        #expect(Self.resolvedIconViews(in: emptyHost).count >= 3,
+                "The enabled device preference's checkmark must use the resolved AppKit renderer")
+    }
+
     /// The header renders while Cloud Machines is off too; there it has nothing
     /// to create, so it carries no "+".
     @Test("Cloud Machines' + is present only when a machine can be created")
@@ -128,6 +177,108 @@ struct CloudTreeHeaderActionsTests {
         let header = try tree.cell(for: tree.cloudSection)
         let controls = header.subviews.first { $0 is CloudTreeRowControlsHostingView }
         #expect(controls?.isHidden ?? true)
+    }
+
+    /// Hover follows the actual target through both AppKit and flipped SwiftUI hosts.
+    @Test("A sibling hit target cannot retain a Cloud tree row's hover", arguments: [false, true])
+    func hoverClearsWhenPointerIsOwnedBySibling(flippedHost: Bool) throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let tree = try Tree(fixture: fixture, width: 380, canCreateCloudMachine: true)
+
+        // The app's content view is a flipped SwiftUI host; the original
+        // fixture was an unflipped view at the window origin. Keep the tree
+        // off-center so a vertically mirrored hit cannot land in it by chance.
+        let host: NSView = flippedHost ? NSHostingView(rootView: Color.clear) : NSView()
+        fixture.window.contentView = host
+        #expect(host.isFlipped == flippedHost)
+        fixture.container.autoresizingMask = []
+        fixture.container.frame = NSRect(x: 19, y: 37, width: 340, height: 220)
+        host.addSubview(fixture.container)
+        host.layoutSubtreeIfNeeded()
+        fixture.container.layoutSubtreeIfNeeded()
+
+        let row = tree.devicesSection
+        let rowIndex = tree.outline.row(forItem: row)
+        let menu = try Self.controls(in: tree.cell(for: row))
+        tree.outline.selectRowIndexes(IndexSet(integer: rowIndex), byExtendingSelection: false)
+
+        tree.move(to: row)
+        #expect(menu.alphaValue == 1)
+
+        // CloudNewMachineButton is a SwiftUI sibling above the outline. Model
+        // its AppKit hit target over the row to ensure the outline does not
+        // keep the last tree row hovered when another view owns the pointer.
+        let sibling = NSView(frame: tree.outline.convert(
+            tree.outline.rect(ofRow: rowIndex),
+            to: host
+        ))
+        host.addSubview(sibling, positioned: .above, relativeTo: nil)
+        defer { sibling.removeFromSuperview() }
+
+        tree.move(toWindowPoint: sibling.convert(
+            NSPoint(x: sibling.bounds.midX, y: sibling.bounds.midY), to: nil
+        ))
+        #expect(menu.alphaValue == 0)
+        #expect(tree.outline.selectedRow == rowIndex)
+
+        sibling.removeFromSuperview()
+        tree.move(to: row)
+        #expect(menu.alphaValue == 1)
+        #expect(tree.outline.selectedRow == rowIndex)
+    }
+
+    /// Refreshing hover must preserve the window-space pointer when the window is moved.
+    @Test("Hover refresh uses window coordinates when leaving for the create control")
+    func hoverRefreshDoesNotOffsetPointerByWindowOrigin() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let tree = try Tree(fixture: fixture, width: 380, canCreateCloudMachine: true)
+        let window = HoverLocationWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 380, height: 620),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        defer { window.contentView = nil }
+        let host = NSHostingView(rootView: Color.clear)
+        window.contentView = host
+        fixture.container.autoresizingMask = []
+        fixture.container.frame = NSRect(x: 19, y: 120, width: 340, height: 220)
+        host.addSubview(fixture.container)
+        let createControl = NSView(frame: NSRect(x: 19, y: 80, width: 340, height: 26))
+        host.addSubview(createControl)
+        host.layoutSubtreeIfNeeded()
+        fixture.container.layoutSubtreeIfNeeded()
+
+        let row = tree.devicesSection
+        let rowRect = tree.outline.rect(ofRow: tree.outline.row(forItem: row))
+        let rowPoint = tree.outline.convert(NSPoint(x: rowRect.midX, y: rowRect.midY), to: nil)
+        let createPoint = createControl.convert(
+            NSPoint(x: createControl.bounds.midX, y: createControl.bounds.midY), to: nil
+        )
+        // Position the window so a second screen-to-window conversion would
+        // incorrectly map the sibling control onto this row.
+        window.setFrameOrigin(NSPoint(x: createPoint.x - rowPoint.x, y: createPoint.y - rowPoint.y))
+        let menu = try Self.controls(in: tree.cell(for: row))
+
+        tree.move(to: row)
+        #expect(menu.alphaValue == 1)
+        window.pointerInWindow = createPoint
+        tree.exit()
+        #expect(menu.alphaValue == 0)
+
+        window.pointerInWindow = rowPoint
+        tree.outline.updateTrackingAreas()
+        #expect(menu.alphaValue == 1)
+        window.pointerInWindow = createPoint
+        tree.outline.layout()
+        #expect(menu.alphaValue == 0)
+    }
+
+    /// A window-space pointer without moving the machine's real cursor or focus.
+    private final class HoverLocationWindow: NSWindow {
+        var pointerInWindow = NSPoint(x: -1, y: -1)
+        override var mouseLocationOutsideOfEventStream: NSPoint { pointerInWindow }
+        override var isKeyWindow: Bool { true }
     }
 
     /// Hovered header actions stay in the accessibility tree with their roles.
@@ -212,11 +363,15 @@ struct CloudTreeHeaderActionsTests {
         let controls = try #require(tree.devicesSection.children.first {
             if case .devicesEmpty = $0.kind { true } else { false }
         })
-        // "No other devices yet", then both independent actions in every state.
-        let inlineRows = (listedMacs == 0 ? 1 : 0) + 2
+        // The empty-state label uses its compact row height; the two
+        // independent actions retain the normal row height.
+        let emptyRowCount = listedMacs == 0 ? 1 : 0
+        let actionRowCount = 2
         let style = tree.outline.treeStyle
-        // Each inline row plus the 2 pt top and bottom inset, nothing more.
-        let expected = GlobalFontMagnification.scaledSize(CGFloat(inlineRows) * style.rowHeight + 4)
+        let expected = GlobalFontMagnification.scaledSize(
+            CGFloat(emptyRowCount) * style.emptyStateRowHeight
+                + CGFloat(actionRowCount) * style.rowHeight + 4
+        )
         #expect(fixture.coordinator.outlineView(tree.outline, heightOfRowByItem: controls) == expected)
         let bundle = Bundle(for: CloudTreeCellView.self)
         #expect(bundle.localizedString(forKey: "devices.options.hint", value: "∅", table: "Localizable") == "∅")
@@ -255,6 +410,37 @@ struct CloudTreeHeaderActionsTests {
 
     static func controls(in cell: CloudTreeCellView) throws -> NSView {
         try #require(cell.subviews.first { $0 is CloudTreeRowControlsHostingView })
+    }
+
+    static func refreshHeaderHost() throws -> (NSWindow, NSHostingView<CloudTreeSectionRefreshHeader>) {
+        let host = NSHostingView(
+            rootView: CloudTreeSectionRefreshHeader(
+                title: "Cloud Machines",
+                count: CloudTreeGroupCount(1),
+                style: .compact,
+                refresh: CloudTreeSectionRefresh(),
+                label: "Refresh",
+                action: {},
+                onInteractiveFrame: { _ in }
+            )
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 220, height: 28),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = host
+        host.needsLayout = true
+        host.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        return (window, host)
+    }
+
+    static func resolvedIconViews(in root: NSView) -> [CmuxResolvedIconImageView] {
+        root.subviews.flatMap { view in
+            [view as? CmuxResolvedIconImageView].compactMap { $0 } + resolvedIconViews(in: view)
+        }
     }
 
     static func display(in cell: CloudTreeCellView) throws -> NSView {
@@ -367,7 +553,11 @@ struct CloudTreeHeaderActionsTests {
         /// Delivers the tracking-area move the pointer produces over `node`'s row.
         func move(to node: CloudTreeNode) {
             let rect = outline.rect(ofRow: outline.row(forItem: node))
-            let location = outline.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil)
+            move(toWindowPoint: outline.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil))
+        }
+
+        /// Delivers a tracking-area move at a point in the window's coordinate space.
+        func move(toWindowPoint location: NSPoint) {
             let event = NSEvent.mouseEvent(
                 with: .mouseMoved, location: location, modifierFlags: [], timestamp: 0,
                 windowNumber: fixture.window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0

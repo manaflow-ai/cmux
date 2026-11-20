@@ -558,7 +558,7 @@ struct DetectedSSHSession: Equatable, Sendable {
 
 enum TerminalSSHSessionDetector {
     private static let noArgumentFlags = Set("46AaCfGgKkMNnqsTtVvXxYy")
-    private static let nonInteractiveFlags = Set("nTGV")
+    private static let nonInteractiveFlags = Set("nNGV")
     private static let valueArgumentFlags = Set("BbcDEeFIiJLlmOopQRSWw")
 
     struct ProcessSnapshot: Equatable {
@@ -609,7 +609,8 @@ enum TerminalSSHSessionDetector {
                   let arguments = argumentsByPID[candidate.pid] else {
                 continue
             }
-            if case .ssh = transport, !isInteractiveSSHArguments(arguments) {
+            if case .ssh = transport,
+               !isInteractiveSSHArguments(arguments, allowsForcedTTYRemoteCommand: true) {
                 continue
             }
             guard let session = parseCommandLine(arguments, for: transport) else {
@@ -708,16 +709,52 @@ enum TerminalSSHSessionDetector {
         }
     }
 
-    private static func isInteractiveSSHArguments(_ arguments: [String]) -> Bool {
+    private static func isInteractiveSSHArguments(
+        _ arguments: [String],
+        allowsForcedTTYRemoteCommand: Bool = false
+    ) -> Bool {
         guard !arguments.isEmpty else { return false }
         var index = RemoteShellSessionParsing.normalizedExecutableName(arguments[0]) == "ssh" ? 1 : 0
+        var directTTY: Bool?
+        var requestTTYSeen = false
+        var requestTTYForced = false
+        var requestTTYDisabled = false
+
+        func processSSHOption(_ rawOption: String) -> Bool {
+            if let option = Self.parsedSSHOption(rawOption), option.key == "requesttty" {
+                // OpenSSH takes the first RequestTTY value from the command
+                // line. Direct -t/-T flags are resolved separately below and
+                // override this setting regardless of their argv position.
+                guard !requestTTYSeen else { return true }
+                requestTTYSeen = true
+                requestTTYForced = option.value == "yes" || option.value == "force"
+                requestTTYDisabled = option.value == "no" || option.value == "false"
+                return true
+            }
+            return !Self.isNonInteractiveSSHOption(rawOption)
+        }
+
+        func allowsSession(destinationIndex: Int) -> Bool {
+            if directTTY == false || (directTTY == nil && requestTTYDisabled) {
+                return false
+            }
+            let forcedTTY = directTTY == true || (directTTY == nil && requestTTYForced)
+            return (allowsForcedTTYRemoteCommand && forcedTTY) ||
+                destinationIndex == arguments.count - 1
+        }
+
         while index < arguments.count {
             let argument = arguments[index]
             if argument == "--" {
-                return index + 2 >= arguments.count
+                guard index + 1 < arguments.count else { return false }
+                return allowsSession(destinationIndex: index + 1)
             }
             if !argument.hasPrefix("-") || argument == "-" {
-                return index == arguments.count - 1
+                // OpenSSH normally runs a remote command without a terminal,
+                // but `ssh -tt host command` is still an interactive PTY
+                // session. This is how local panes commonly enter tmux over
+                // SSH, so keep the forced-PTY lane eligible for paste upload.
+                return allowsSession(destinationIndex: index)
             }
 
             if argument.count > 2,
@@ -726,7 +763,7 @@ enum TerminalSSHSessionDetector {
                 // -W host:port is a stream forward, not an interactive shell.
                 if option == "W" { return false }
                 if option == "o",
-                   isNonInteractiveSSHOption(String(argument.dropFirst(2))) {
+                   !processSSHOption(String(argument.dropFirst(2))) {
                     return false
                 }
                 index += 1
@@ -738,7 +775,7 @@ enum TerminalSSHSessionDetector {
                 if option == "W" { return false }
                 if option == "o",
                    index + 1 < arguments.count,
-                   isNonInteractiveSSHOption(arguments[index + 1]) {
+                   !processSSHOption(arguments[index + 1]) {
                     return false
                 }
                 index += 2
@@ -752,32 +789,57 @@ enum TerminalSSHSessionDetector {
             if flags.contains(where: { nonInteractiveFlags.contains($0) }) {
                 return false
             }
+            for flag in flags {
+                switch flag {
+                case "t":
+                    directTTY = true
+                case "T":
+                    directTTY = false
+                default:
+                    break
+                }
+            }
             index += 1
         }
         return false
     }
 
-    private static func isNonInteractiveSSHOption(_ rawOption: String) -> Bool {
-        let parts = rawOption
-            .split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
-        let key = parts.first?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
+    private static func parsedSSHOption(_ rawOption: String) -> (key: String, value: String?)? {
+        let trimmedOption = rawOption.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedOption.isEmpty else { return nil }
+        let parts: [Substring]
+        if trimmedOption.contains("=") {
+            parts = trimmedOption.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+        } else {
+            parts = trimmedOption.split(
+                maxSplits: 1,
+                omittingEmptySubsequences: true,
+                whereSeparator: { $0.isWhitespace }
+            )
+        }
+        guard let keyPart = parts.first else { return nil }
+        let key = keyPart.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !key.isEmpty else { return nil }
         let value = parts.count == 2
             ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             : nil
-        if key == "remotecommand" {
+        return (key: key, value: value)
+    }
+
+    private static func isNonInteractiveSSHOption(_ rawOption: String) -> Bool {
+        guard let option = parsedSSHOption(rawOption) else { return false }
+        if option.key == "remotecommand" {
             // `RemoteCommand=none` is OpenSSH's explicit request for the
             // normal interactive shell and is safe to resume.
-            return value != "none"
+            return option.value != "none"
         }
-        if key == "requesttty" {
-            return value == "no" || value == "false"
+        if option.key == "requesttty" {
+            return option.value == "no" || option.value == "false"
         }
-        if key == "stdinnull" {
-            return value == "yes" || value == "true"
+        if option.key == "stdinnull" {
+            return option.value == "yes" || option.value == "true"
         }
-        return key == "sessiontype" && value == "none"
+        return option.key == "sessiontype" && option.value == "none"
     }
 
     static func commandLineArguments(forPID pid: Int32) -> [String]? {

@@ -493,8 +493,12 @@ async fn bind_endpoint(config: &IrohProviderConfig) -> Result<Endpoint, Provider
     } else {
         Endpoint::builder(presets::Minimal)
     };
-    let mut builder =
-        builder.alpns(vec![config.alpn.clone()]).relay_mode(config.relay_mode.clone());
+    // Relay TLS uses the OS trust store. iroh's default is a compiled-in root
+    // list that still trusts the leaked emSign (eMudhra) roots (#25452).
+    let mut builder = builder
+        .alpns(vec![config.alpn.clone()])
+        .relay_mode(config.relay_mode.clone())
+        .ca_tls_config(::iroh::tls::CaTlsConfig::system());
     if config.path_mode == IrohPathMode::RelayOnly {
         builder = builder.clear_ip_transports();
     }

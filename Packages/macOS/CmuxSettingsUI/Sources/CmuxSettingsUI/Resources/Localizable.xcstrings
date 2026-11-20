@@ -13457,124 +13457,6 @@
         }
       }
     },
-    "settings.terminal.showJumpToBottomButton": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Jump to Bottom Button"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "زر الانتقال إلى الأسفل"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Schaltfläche „Zum Ende springen“"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Botón Ir al final"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bouton Aller en bas"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「一番下へ移動」ボタン"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "맨 아래로 이동 버튼"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“跳到底部”按钮"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「跳至底部」按鈕"
-          }
-        }
-      }
-    },
-    "settings.terminal.showJumpToBottomButton.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shows a Jump to Bottom button while you scroll a terminal up into its scrollback. Full-screen programs such as vim, less, or an agent's fullscreen mode handle their own scrolling and never show it."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يعرض زر الانتقال إلى الأسفل أثناء التمرير لأعلى في سجل الطرفية. البرامج بملء الشاشة مثل vim وless أو وضع ملء الشاشة للوكيل تتولى التمرير بنفسها ولا تعرضه أبدًا."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zeigt die Schaltfläche „Zum Ende springen“, während du in einem Terminal im Verlauf nach oben scrollst. Vollbildprogramme wie vim, less oder der Vollbildmodus eines Agenten scrollen selbst und zeigen sie nie."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Muestra un botón Ir al final mientras te desplazas hacia arriba en el historial de una terminal. Los programas a pantalla completa como vim, less o el modo de pantalla completa de un agente gestionan su propio desplazamiento y nunca lo muestran."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Affiche un bouton Aller en bas lorsque vous remontez dans l'historique d'un terminal. Les programmes plein écran comme vim, less ou le mode plein écran d'un agent gèrent leur propre défilement et ne l'affichent jamais."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルのスクロールバックを上にスクロールしている間、「一番下へ移動」ボタンを表示します。vim、less、エージェントのフルスクリーンモードなどのフルスクリーンプログラムは独自にスクロールを扱うため、表示されません。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "터미널의 스크롤백을 위로 스크롤하는 동안 맨 아래로 이동 버튼을 표시합니다. vim, less 또는 에이전트의 전체 화면 모드 같은 전체 화면 프로그램은 스크롤을 직접 처리하므로 표시되지 않습니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在终端中向上滚动回滚内容时显示“跳到底部”按钮。vim、less 或代理的全屏模式等全屏程序会自行处理滚动，永远不会显示此按钮。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在終端機中向上捲動回溯內容時顯示「跳至底部」按鈕。vim、less 或代理的全螢幕模式等全螢幕程式會自行處理捲動，永遠不會顯示此按鈕。"
-          }
-        }
-      }
-    },
     "settings.automation.agentMessages": {
       "extractionState": "manual",
       "localizations": {
@@ -14338,6 +14220,2585 @@
           "stringUnit": {
             "state": "translated",
             "value": "工作區描述使用的文字顏色。預設跟隨目前主題。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.betaFeatures.remote-tmux-origin-colors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote host colors remote host colors origin color tint per-host server workspace sidebar row tab beta unstable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートホストの色 接続元 カラー 色合い ホストごと サーバー ワークスペース サイドバー 行 タブ ベータ 不安定"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Host-Farben Herkunft Farbe Tönung pro Host Server Arbeitsbereich Seitenleiste Zeile Tab Beta instabil"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleurs des hôtes distants origine couleur teinte par hôte serveur espace de travail barre latérale ligne onglet bêta instable"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ألوان المضيف البعيد الأصل لون تلوين لكل مضيف خادم مساحة عمل شريط جانبي صف علامة تبويب تجريبي غير مستقر"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colores de hosts remotos origen color tinte por host servidor espacio de trabajo barra lateral fila pestaña beta inestable"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端主機顏色 來源 色彩 著色 每台主機 伺服器 工作區 側邊欄 列 分頁 測試版 不穩定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程主机颜色 来源 色彩 着色 每台主机 服务器 工作区 侧边栏 行 标签页 测试版 不稳定"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 호스트 색상 출처 색 색조 호스트별 서버 작업 공간 사이드바 행 탭 베타 불안정"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.betaFeatures.remote-tmux-origin-host-titles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote host names on duplicate titles hostname server duplicate same title collision workspace sidebar row beta unstable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重複タイトルにリモートホスト名を表示 ホスト名 サーバー 重複 同じタイトル 衝突 ワークスペース サイドバー 行 ベータ 不安定"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Host-Namen bei gleichen Titeln Hostname Server doppelt gleicher Titel Kollision Arbeitsbereich Seitenleiste Zeile Beta instabil"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noms des hôtes distants pour les titres identiques nom hôte serveur doublon même titre conflit espace de travail barre latérale ligne bêta instable"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أسماء المضيف البعيد للعناوين المكررة اسم المضيف خادم مكرر نفس العنوان تعارض مساحة عمل شريط جانبي صف تجريبي غير مستقر"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombres de hosts remotos en títulos duplicados nombre host servidor duplicado mismo título colisión espacio de trabajo barra lateral fila beta inestable"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重複標題顯示遠端主機名稱 主機名稱 伺服器 重複 相同標題 衝突 工作區 側邊欄 列 測試版 不穩定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重复标题显示远程主机名称 主机名 服务器 重复 相同标题 冲突 工作区 侧边栏 行 测试版 不稳定"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중복 제목의 원격 호스트 이름 호스트명 서버 중복 같은 제목 충돌 작업 공간 사이드바 행 베타 불안정"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxOriginColors": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ألوان المضيفين البعيدين"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farben für Remote-Hosts"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote host colors"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colores de hosts remotos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleurs des hôtes distants"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートホストの色"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 호스트 색상"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程主机颜色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端主機顏色"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxOriginColors.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبقى مساحات العمل البعيدة بلا لون للمصدر حتى تفعّل هذا الخيار هنا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Arbeitsbereiche erhalten keine Herkunftsfarbe, bis du diese Option hier aktivierst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leaves remote workspaces without an origin color until you enable it here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los espacios de trabajo remotos no tienen color de origen hasta que lo actives aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les espaces de travail distants restent sans couleur d’origine tant que vous ne l’activez pas ici."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここで有効にするまで、リモートワークスペースにオリジンカラーを表示しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기에서 활성화하기 전까지 원격 작업 공간에는 출처 색상이 표시되지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此处启用之前，远程工作区不会显示来源颜色。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此處啟用之前，遠端工作區不會顯示來源顏色。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxOriginColors.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُلوّن صف كل مساحة عمل بعيدة في الشريط الجانبي بلون ثابت خاص بكل مضيف لتسهيل التمييز بين الخوادم. يبقى اللون الذي تختاره يدويًا لمساحة العمل هو المُعتمد دائمًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Färbt die Seitenleistenzeile jedes Remote-Arbeitsbereichs mit einer festen Farbe pro Host, damit sich Server leicht unterscheiden lassen. Eine manuell gewählte Arbeitsbereichsfarbe hat immer Vorrang."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tints each remote workspace's sidebar row with a stable per-host color so servers are easy to tell apart. Your manual workspace color always wins."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiñe la fila de la barra lateral de cada espacio de trabajo remoto con un color estable por host para distinguir fácilmente los servidores. El color que asignes manualmente al espacio de trabajo siempre tiene prioridad."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teinte la ligne de la barre latérale de chaque espace de travail distant avec une couleur stable par hôte, pour distinguer facilement les serveurs. La couleur choisie manuellement pour un espace de travail l’emporte toujours."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各リモートワークスペースのサイドバー行を、ホストごとに固定された色で色付けし、サーバーを見分けやすくします。手動で設定したワークスペースの色が常に優先されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 원격 작업 공간의 사이드바 행에 호스트별 고정 색상을 입혀 서버를 쉽게 구분할 수 있습니다. 직접 지정한 작업 공간 색상이 항상 우선합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为每个远程工作区的侧边栏行添加按主机固定的颜色，便于区分服务器。你手动设置的工作区颜色始终优先。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "為每個遠端工作區的側邊欄列加上依主機固定的顏色，方便區分伺服器。你手動設定的工作區顏色一律優先。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxOriginHostTitles": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أسماء المضيفين البعيدين في العناوين المكررة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Hostnamen bei doppelten Titeln"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote host names on duplicate titles"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombres de hosts remotos en títulos duplicados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noms des hôtes distants dans les titres en double"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重複したタイトルにリモートホスト名を表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중복된 제목에 원격 호스트 이름 표시"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在重复标题中显示远程主机名"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在重複標題中顯示遠端主機名稱"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxOriginHostTitles.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبقى عناوين مساحات العمل المكررة كما هي حتى تفعّل هذا الخيار هنا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Doppelte Arbeitsbereichstitel bleiben unverändert, bis du diese Option hier aktivierst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leaves duplicate workspace titles as they are until you enable it here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los títulos duplicados de los espacios de trabajo se mantienen igual hasta que lo actives aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les titres d’espaces de travail en double restent tels quels tant que vous ne l’activez pas ici."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここで有効にするまで、重複したワークスペースのタイトルはそのまま表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기에서 활성화하기 전까지 중복된 작업 공간 제목은 그대로 표시됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此处启用之前，重复的工作区标题保持不变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此處啟用之前，重複的工作區標題維持不變。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxOriginHostTitles.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عندما تتشارك مساحات العمل عنوانًا واحدًا، يُعرض اسم مضيف كل مساحة بعيدة بعد العنوان دون النطاق المشترك بين المضيفين."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn Arbeitsbereiche denselben Titel haben, wird bei jedem Remote-Arbeitsbereich der Host nach dem Titel angezeigt, ohne die gemeinsame Domain der Hosts."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When workspaces share a title, shows each remote one's host after the title, leaving off the domain the hosts share."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando varios espacios de trabajo comparten título, muestra el host de cada espacio remoto después del título, sin el dominio que comparten los hosts."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lorsque des espaces de travail portent le même titre, affiche l’hôte de chaque espace distant après le titre, sans le domaine que les hôtes partagent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのタイトルが重複している場合、各リモートワークスペースのタイトルの後にホスト名を表示します。ホストに共通するドメインは省略します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간의 제목이 같으면 각 원격 작업 공간의 제목 뒤에 호스트 이름을 표시하며, 호스트에 공통된 도메인은 생략합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当多个工作区标题相同时，在每个远程工作区的标题后显示主机名，并省略这些主机共有的域名。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當多個工作區標題相同時，在每個遠端工作區的標題後顯示主機名稱，並省略這些主機共用的網域。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.clickByHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click by Hint"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النقر عبر التلميح"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per Hinweis klicken"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clic por indicación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cliquer par repère"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヒントでクリック"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "힌트로 클릭"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按提示点击"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依提示點按"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.clickByHint.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview: Cmd-J labels every clickable control in the window, and typing a label clicks it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معاينة: يضع Cmd-J تسمية على كل عنصر تحكم قابل للنقر في النافذة، وكتابة التسمية تنقر عليه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorschau: Cmd-J beschriftet jedes anklickbare Steuerelement im Fenster, und die Eingabe einer Beschriftung klickt es an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vista previa: Cmd-J etiqueta cada control en el que se puede hacer clic en la ventana, y escribir una etiqueta hace clic en él."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aperçu : Cmd-J étiquette chaque contrôle cliquable de la fenêtre, et saisir une étiquette clique dessus."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビュー：Cmd-J でウインドウ内のクリック可能なすべてのコントロールにラベルを表示し、ラベルを入力するとクリックします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미리 보기: Cmd-J를 누르면 창의 클릭 가능한 모든 컨트롤에 레이블이 표시되고, 레이블을 입력하면 해당 컨트롤이 클릭됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预览：Cmd-J 会为窗口中每个可点击的控件添加标签，输入标签即可点击。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預覽：Cmd-J 會為視窗中每個可點按的控制項加上標籤，輸入標籤即可點按。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxNewWorkspaceOnHost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحة عمل جديدة على المضيف البعيد"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuer Arbeitsbereich auf dem entfernten Host"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuevo espacio de trabajo en el host remoto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvel espace de travail sur l’hôte distant"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートホストで新規ワークスペース"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 호스트에 새 작업 공간"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在远程主机上新建工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在遠端主機上新增工作區"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novi radni prostor na udaljenom hostu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nyt arbejdsområde på den eksterne vært"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuovo spazio di lavoro sull’host remoto"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការថ្មីលើម៉ាស៊ីនមេពីចម្ងាយ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nytt arbeidsområde på den eksterne verten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowy obszar roboczy na zdalnym hoście"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novo espaço de trabalho no host remoto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новое рабочее пространство на удалённом хосте"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เวิร์กสเปซใหม่บนโฮสต์ระยะไกล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uzak ana bilgisayarda yeni çalışma alanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новий робочий простір на віддаленому хості"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.betaFeatures.remote-tmux-new-workspace-on-host": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable مساحة عمل جديدة المضيف البعيد جلسة محلية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable Neuer Arbeitsbereich entfernter Host Sitzung lokal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable Nuevo espacio de trabajo host remoto sesión local"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable Nouvel espace de travail hôte distant session local"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable 新規ワークスペース リモートホスト セッション ローカル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable 새 작업 공간 원격 호스트 세션 로컬"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable 新建工作区 远程主机 会话 本地"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable 新增工作區 遠端主機 工作階段 本機"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novi radni prostor udaljeni host nova sesija tmux lokalni radni prostor mirror beta nestabilno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nyt arbejdsområde ekstern vært nyt arbejdsområde fjern tmux-session lokal arbejdsområde spejl beta ustabil"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuovo spazio di lavoro host remoto nuova sessione tmux spazio di lavoro locale mirror beta instabile"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការថ្មី ម៉ាស៊ីនមេពីចម្ងាយ សម័យ tmux កន្លែងធ្វើការមូលដ្ឋាន កញ្ចក់ បេតា មិនស្ថិរភាព"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nytt arbeidsområde ekstern vert ny tmux-økt lokalt arbeidsområde speil beta ustabil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowy obszar roboczy zdalny host nowa sesja tmux lokalny obszar roboczy mirror beta niestabilne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novo espaço de trabalho host remoto nova sessão tmux espaço de trabalho local espelho beta instável"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новое рабочее пространство удалённый хост новая сессия tmux локальное рабочее пространство зеркало бета нестабильно"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เวิร์กสเปซใหม่ โฮสต์ระยะไกล เซสชัน tmux เวิร์กสเปซภายในเครื่อง มิเรอร์ เบตา ไม่เสถียร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni çalışma alanı uzak ana bilgisayar yeni tmux oturumu yerel çalışma alanı yansıma beta kararsız"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новий робочий простір віддалений хост новий сеанс tmux локальний робочий простір дзеркало бета нестабільно"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxNewWorkspaceOnHost.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace always opens a local workspace, even with a remote tmux workspace selected."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يفتح «مساحة عمل جديدة» مساحة عمل محلية دائمًا، حتى عند تحديد مساحة عمل tmux بعيدة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Neuer Arbeitsbereich“ öffnet immer einen lokalen Arbeitsbereich, auch wenn ein Remote-tmux-Arbeitsbereich ausgewählt ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuevo espacio de trabajo siempre abre un espacio de trabajo local, incluso con un espacio de trabajo de tmux remoto seleccionado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvel espace de travail ouvre toujours un espace de travail local, même lorsqu’un espace de travail tmux distant est sélectionné."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート tmux ワークスペースを選択していても、「新規ワークスペース」は常にローカルのワークスペースを開きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 tmux 작업 공간이 선택되어 있어도 새 작업 공간은 항상 로컬 작업 공간을 엽니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即使选中了远程 tmux 工作区，“新建工作区”也始终打开本地工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即使選取了遠端 tmux 工作區，「新增工作區」也一律開啟本機工作區。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novi radni prostor uvijek otvara lokalni radni prostor, čak i kada je odabran udaljeni tmux radni prostor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nyt arbejdsområde åbner altid et lokalt arbejdsområde, selv når et eksternt tmux-arbejdsområde er valgt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuovo spazio di lavoro apre sempre uno spazio di lavoro locale, anche quando è selezionato uno spazio di lavoro tmux remoto."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការថ្មី តែងតែបើកកន្លែងធ្វើការមូលដ្ឋាន ទោះបីបានជ្រើសកន្លែងធ្វើការ tmux ពីចម្ងាយក៏ដោយ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nytt arbeidsområde åpner alltid et lokalt arbeidsområde, selv når et eksternt tmux-arbeidsområde er valgt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowy obszar roboczy zawsze otwiera lokalny obszar roboczy, nawet gdy wybrano zdalny obszar tmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novo espaço de trabalho sempre abre um espaço de trabalho local, mesmo quando um espaço de trabalho tmux remoto está selecionado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новое рабочее пространство всегда открывает локальное рабочее пространство, даже если выбрано удалённое рабочее пространство tmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เวิร์กสเปซใหม่จะเปิดเวิร์กสเปซภายในเครื่องเสมอ แม้เลือกเวิร์กสเปซ tmux ระยะไกลไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni çalışma alanı, uzak bir tmux çalışma alanı seçili olsa bile her zaman yerel bir çalışma alanı açar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новий робочий простір завжди відкриває локальний робочий простір, навіть коли вибрано віддалений простір tmux."
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxNewWorkspaceOnHost.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "With a remote tmux workspace selected, New Workspace starts a tmux session on that workspace's host. New Local Workspace opens a local one."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند تحديد مساحة عمل tmux بعيدة، يبدأ «مساحة عمل جديدة» جلسة tmux على مضيف تلك المساحة. ويفتح «مساحة عمل محلية جديدة» مساحة محلية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn ein Remote-tmux-Arbeitsbereich ausgewählt ist, startet „Neuer Arbeitsbereich“ eine tmux-Sitzung auf dessen Host. „Neuer lokaler Arbeitsbereich“ öffnet einen lokalen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con un espacio de trabajo de tmux remoto seleccionado, Nuevo espacio de trabajo inicia una sesión de tmux en el host de ese espacio. Nuevo espacio de trabajo local abre uno local."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lorsqu’un espace de travail tmux distant est sélectionné, Nouvel espace de travail démarre une session tmux sur l’hôte de cet espace. Nouvel espace de travail local en ouvre un local."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート tmux ワークスペースを選択しているとき、「新規ワークスペース」はそのワークスペースのホストで tmux セッションを開始します。「新規ローカルワークスペース」はローカルのワークスペースを開きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 tmux 작업 공간이 선택되어 있으면 새 작업 공간이 해당 작업 공간의 호스트에서 tmux 세션을 시작합니다. 새 로컬 작업 공간은 로컬 작업 공간을 엽니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选中远程 tmux 工作区时，“新建工作区”会在该工作区的主机上启动 tmux 会话。“新建本地工作区”则打开本地工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選取遠端 tmux 工作區時，「新增工作區」會在該工作區的主機上啟動 tmux 工作階段。「新增本機工作區」則開啟本機工作區。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada je odabran udaljeni tmux radni prostor, Novi radni prostor pokreće tmux sesiju na hostu tog prostora. Novi lokalni radni prostor otvara lokalni."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når et eksternt tmux-arbejdsområde er valgt, starter Nyt arbejdsområde en tmux-session på arbejdsområdets vært. Nyt lokalt arbejdsområde åbner et lokalt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con uno spazio di lavoro tmux remoto selezionato, Nuovo spazio di lavoro avvia una sessione tmux sull’host di quello spazio. Nuovo spazio di lavoro locale ne apre uno locale."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេលបានជ្រើសកន្លែងធ្វើការ tmux ពីចម្ងាយ កន្លែងធ្វើការថ្មីនឹងចាប់ផ្ដើមសម័យ tmux លើម៉ាស៊ីនមេរបស់កន្លែងធ្វើការនោះ។ កន្លែងធ្វើការមូលដ្ឋានថ្មីនឹងបើកកន្លែងធ្វើការមូលដ្ឋាន។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når et eksternt tmux-arbeidsområde er valgt, starter Nytt arbeidsområde en tmux-økt på arbeidsområdets vert. Nytt lokalt arbeidsområde åpner et lokalt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po wybraniu zdalnego obszaru tmux Nowy obszar roboczy uruchamia sesję tmux na hoście tego obszaru. Nowy lokalny obszar roboczy otwiera lokalny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Com um espaço de trabalho tmux remoto selecionado, Novo espaço de trabalho inicia uma sessão tmux no host desse espaço. Novo espaço de trabalho local abre um local."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если выбрано удалённое рабочее пространство tmux, новое рабочее пространство запускает сессию tmux на его хосте. Новое локальное рабочее пространство открывает локальное."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเลือกเวิร์กสเปซ tmux ระยะไกล เวิร์กสเปซใหม่จะเริ่มเซสชัน tmux บนโฮสต์ของเวิร์กสเปซนั้น เวิร์กสเปซภายในเครื่องใหม่จะเปิดเวิร์กสเปซภายในเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uzak bir tmux çalışma alanı seçiliyken Yeni çalışma alanı, o çalışma alanının ana bilgisayarında bir tmux oturumu başlatır. Yeni yerel çalışma alanı yerel bir tane açar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли вибрано віддалений простір tmux, новий робочий простір запускає сеанс tmux на його хості. Новий локальний робочий простір відкриває локальний."
+          }
+        }
+      }
+    },
+    "settings.account.max.activeSubtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Max subscription is active. It includes everything in Pro."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اشتراكك في Max نشط. يتضمن كل ما في Pro."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Max-Abonnement ist aktiv. Es enthält alles aus Pro."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu suscripción Max está activa. Incluye todo lo de Pro."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre abonnement Max est actif. Il inclut tout ce que contient Pro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maxサブスクリプションは有効です。Proのすべての機能が含まれます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max 구독이 활성화되어 있습니다. Pro의 모든 기능이 포함됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Max 订阅已生效，包含 Pro 的全部功能。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Max 訂閱已啟用，包含 Pro 的所有功能。"
+          }
+        }
+      }
+    },
+    "settings.account.max.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        }
+      }
+    },
+    "settings.account.max.upgrade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Max…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الترقية إلى Max…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf Max upgraden…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizar a Max…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passer à Max…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maxにアップグレード…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max로 업그레이드…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升级到 Max…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升級至 Max…"
+          }
+        }
+      }
+    },
+    "settings.automation.chief": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief"
+          }
+        }
+      }
+    },
+    "settings.automation.chief.effort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief Effort"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief-Aufwand"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effort de Chief"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جهد Chief"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esfuerzo de Chief"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 推理強度"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 推理强度"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 추론 강도"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiefのエフォート"
+          }
+        }
+      }
+    },
+    "settings.automation.chief.harness": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief Harness"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief-Harness"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Environnement de Chief"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بيئة تشغيل Chief"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entorno de Chief"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 執行框架"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 运行框架"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 하네스"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiefのハーネス"
+          }
+        }
+      }
+    },
+    "settings.automation.chief.model": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief Model"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief-Modell"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modèle de Chief"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نموذج Chief"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelo de Chief"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 模型"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 模型"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 모델"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiefのモデル"
+          }
+        }
+      }
+    },
+    "settings.automation.chief.default.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harness default"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harness-Standard"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valeur par défaut"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الافتراضي لبيئة التشغيل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predeterminado del entorno"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行框架預設值"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运行框架默认值"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하네스 기본값"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ハーネスの既定値"
+          }
+        }
+      }
+    },
+    "settings.automation.chief.effort.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reasoning effort, such as low, medium, or high. Leave empty to use the harness default."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denkaufwand, z. B. low, medium oder high. Leer lassen, um den Standard des Harness zu verwenden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effort de raisonnement, par exemple low, medium ou high. Laissez vide pour utiliser la valeur par défaut de l’environnement."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جهد الاستدلال، مثل low أو medium أو high. اتركه فارغًا لاستخدام الإعداد الافتراضي لبيئة التشغيل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esfuerzo de razonamiento, como low, medium o high. Déjalo vacío para usar el valor predeterminado del entorno."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推理強度，例如 low、medium 或 high。留空即使用執行框架的預設值。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推理强度，例如 low、medium 或 high。留空即使用运行框架的默认值。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "low, medium, high 같은 추론 강도입니다. 비워 두면 하네스 기본값을 사용합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推論エフォート（low、medium、highなど）。空欄にするとハーネスの既定値を使用します。"
+          }
+        }
+      }
+    },
+    "settings.automation.chief.harness.claude": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        }
+      }
+    },
+    "settings.automation.chief.harness.codex": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        }
+      }
+    },
+    "settings.automation.chief.harness.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent Chief runs on."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Agent, auf dem Chief läuft."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’agent sur lequel Chief s’exécute."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوكيل الذي يعمل عليه Chief."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El agente en el que se ejecuta Chief."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 執行時使用的代理。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 运行时使用的代理。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief가 실행되는 에이전트입니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiefが動作するエージェント。"
+          }
+        }
+      }
+    },
+    "settings.automation.chief.model.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leave empty to use the harness default."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leer lassen, um den Standard des Harness zu verwenden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laissez vide pour utiliser la valeur par défaut de l’environnement."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اتركه فارغًا لاستخدام الإعداد الافتراضي لبيئة التشغيل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déjalo vacío para usar el valor predeterminado del entorno."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "留空即使用執行框架的預設值。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "留空即使用运行框架的默认值。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비워 두면 하네스 기본값을 사용합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空欄にするとハーネスの既定値を使用します。"
+          }
+        }
+      }
+    },
+    "settings.automation.chief.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home and Chief entry points are hidden."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home und die Chief-Einstiegspunkte sind ausgeblendet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accueil et les points d’entrée de Chief sont masqués."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصفحة الرئيسية ونقاط الدخول إلى Chief مخفية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicio y los accesos a Chief están ocultos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首頁和 Chief 入口已隱藏。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主页和 Chief 入口已隐藏。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈과 Chief 진입점이 숨겨집니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームとChiefの入口は非表示です。"
+          }
+        }
+      }
+    },
+    "settings.automation.chief.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home and Open Chief are shown."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home und „Chief öffnen“ werden angezeigt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accueil et Ouvrir Chief sont affichés."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتم عرض الصفحة الرئيسية وفتح Chief."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se muestran Inicio y Abrir Chief."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "會顯示首頁和「打開 Chief」。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会显示主页和“打开 Chief”。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈과 Chief 열기가 표시됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームと「Chiefを開く」が表示されます。"
+          }
+        }
+      }
+    },
+    "settings.automation.chief.dangerousPermissions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip permission prompts"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Berechtigungsabfragen überspringen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ignorer les demandes d’autorisation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تخطّي طلبات الأذونات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omitir solicitudes de permiso"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "略過權限提示"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳过权限提示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "권한 요청 건너뛰기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "権限プロンプトをスキップ"
+          }
+        }
+      }
+    },
+    "settings.automation.chief.dangerousPermissions.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Let Chief's agent run commands without approval cards. Off by default."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiefs Agent darf Befehle ohne Genehmigungskarten ausführen. Standardmäßig deaktiviert."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’agent de Chief peut exécuter des commandes sans cartes d’approbation. Désactivé par défaut."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح لوكيل Chief بتشغيل الأوامر دون بطاقات موافقة. معطّل افتراضيًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite al agente de Chief ejecutar comandos sin tarjetas de aprobación. Desactivado de forma predeterminada."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許 Chief 的代理程式在沒有核准卡的情況下執行指令。預設關閉。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许 Chief 的代理在没有批准卡的情况下运行命令。默认关闭。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 에이전트가 승인 카드 없이 명령을 실행하도록 합니다. 기본적으로 꺼져 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief のエージェントが承認カードなしでコマンドを実行できるようにします。デフォルトはオフです。"
+          }
+        }
+      }
+    },
+    "settings.automation.chief.dangerousPermissions.confirm.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abbrechen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annuler"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إلغاء"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "취소"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        }
+      }
+    },
+    "settings.automation.chief.dangerousPermissions.confirm.enable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn On"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einschalten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تشغيل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンにする"
+          }
+        }
+      }
+    },
+    "settings.automation.chief.dangerousPermissions.confirm.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selected agent can run commands and make changes without approval cards. This is a dangerous setting."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der ausgewählte Agent kann Befehle ausführen und Änderungen vornehmen, ohne Genehmigungskarten. Dies ist eine gefährliche Einstellung."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’agent sélectionné peut exécuter des commandes et modifier des fichiers sans cartes d’approbation. Ce réglage est dangereux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن للوكيل المحدد تشغيل الأوامر وإجراء التغييرات دون بطاقات موافقة. هذا إعداد خطير."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El agente seleccionado puede ejecutar comandos y hacer cambios sin tarjetas de aprobación. Este ajuste es peligroso."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選取的代理程式可在沒有核准卡的情況下執行指令並進行變更。這是危險設定。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所选代理可以在没有批准卡的情况下运行命令并进行更改。这是一项危险设置。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 에이전트가 승인 카드 없이 명령을 실행하고 변경할 수 있습니다. 위험한 설정입니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したエージェントは承認カードなしでコマンドを実行し変更できます。危険な設定です。"
+          }
+        }
+      }
+    },
+    "settings.automation.chief.dangerousPermissions.confirm.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip permission prompts?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Berechtigungsabfragen überspringen?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ignorer les demandes d’autorisation ?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تخطّي طلبات الأذونات؟"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Omitir las solicitudes de permiso?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要略過權限提示嗎？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要跳过权限提示吗？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "권한 요청을 건너뛸까요?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "権限プロンプトをスキップしますか？"
+          }
+        }
+      }
+    },
+    "settings.account.pro.appStoreSubtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Pro subscription is active. Manage it through your subscription provider."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اشتراك Pro الخاص بك نشط. أدِره من خلال مزود الاشتراك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaša Pro pretplata je aktivna. Upravljajte njome preko svog pružatelja pretplate."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dit Pro-abonnement er aktivt. Administrer det via din abonnementsudbyder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Pro-Abonnement ist aktiv. Verwalte es über deinen Abonnementanbieter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu suscripción Pro está activa. Adminístrala a través de tu proveedor de suscripciones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre abonnement Pro est actif. Gérez-le auprès de votre fournisseur d’abonnement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tuo abbonamento Pro è attivo. Gestiscilo tramite il tuo provider di abbonamento."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro サブスクリプションは有効です。サブスクリプションプロバイダーを通じて管理してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជាវ Pro របស់អ្នកសកម្ម។ គ្រប់គ្រងវាតាមរយៈអ្នកផ្តល់សេវាការជាវរបស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro 구독이 활성 상태입니다. 구독 제공업체를 통해 관리하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro-abonnementet ditt er aktivt. Administrer det via abonnementsleverandøren din."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twoja subskrypcja Pro jest aktywna. Zarządzaj nią za pośrednictwem dostawcy subskrypcji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua assinatura Pro está ativa. Gerencie-a pelo seu provedor de assinaturas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваша подписка Pro активна. Управляйте ею через поставщика подписки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การสมัคร Pro ของคุณใช้งานอยู่ จัดการผ่านผู้ให้บริการการสมัครสมาชิกของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro aboneliğiniz etkin. Aboneliğinizi sağlayıcınız üzerinden yönetin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваша підписка Pro активна. Керуйте нею через свого постачальника підписок."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Pro 订阅已激活。请通过订阅提供商管理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Pro 訂閱已啟用。請透過訂閱服務供應商管理。"
+          }
+        }
+      }
+    },
+    "settings.account.pro.grantedSubtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Pro plan is active."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خطة Pro الخاصة بك نشطة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaš Pro plan je aktivan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din Pro-plan er aktiv."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Pro-Plan ist aktiv."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu plan Pro está activo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre forfait Pro est actif."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tuo piano Pro è attivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro プランは有効です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គម្រោង Pro របស់អ្នកសកម្ម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro 플랜이 활성 상태입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro-planen din er aktiv."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twój plan Pro jest aktywny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seu plano Pro está ativo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш план Pro активен."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แพ็กเกจ Pro ของคุณใช้งานอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro planınız etkin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш план Pro активний."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Pro 方案已激活。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Pro 方案已啟用。"
           }
         }
       }

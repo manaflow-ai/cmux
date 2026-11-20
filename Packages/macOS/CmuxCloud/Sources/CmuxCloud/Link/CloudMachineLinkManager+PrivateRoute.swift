@@ -2,6 +2,9 @@ import Foundation
 import Network
 
 extension CloudMachineLinkManager {
+    /// The probe budget after a dead tunnel was re-enrolled and its hub restarted.
+    static let unansweredRouteRetryBudget: Duration = .seconds(10)
+
     /// Selects a working family using the same SOCKS connector as port forwards.
     /// The probe sends no daemon request and closes its stream before the real
     /// encrypted link starts. Failed probes propagate to the caller's retry policy,
@@ -64,11 +67,27 @@ extension CloudMachineLinkManager {
         }
         var connector = privateRouteConnector
         if let deadline { connector.timeout = Self.remaining(until: deadline) }
-        let connected = try await connector.connect(
-            endpoint: .unix(path: hub.socketPath),
-            target: CloudPortForwardTarget(host: primary, port: 1337, fallbackHosts: Array(addresses.dropFirst())),
-            queue: DispatchQueue.global(qos: .userInitiated)
-        )
+        let connected: CloudHubConnection
+        do {
+            connected = try await connector.connect(
+                endpoint: .unix(path: hub.socketPath),
+                target: CloudPortForwardTarget(host: primary, port: 1337, fallbackHosts: Array(addresses.dropFirst())),
+                queue: DispatchQueue.global(qos: .userInitiated)
+            )
+        } catch let error as CloudPortForwardRelay.RelayError where refreshIfNeeded {
+            // No routed address answered at all: the hub refuses or resets a
+            // host it cannot reach, so a silent hub means its tunnel's peer is
+            // gone. Re-enroll once; a new config restarts the hub and the probe
+            // runs again, and a revoked sign-in surfaces as that answer.
+            guard case .handshakeTimedOut = error,
+                  let refreshed = try await self.hub?.refreshAfterUnansweredRoute() else { throw error }
+            // The silent probe ran out the caller's budget, so the retry on the
+            // new peer gets its own short one; a live hub answers in milliseconds.
+            return try await resolvedPrivateRoute(
+                machineID: machineID, through: refreshed, fallbackRoute: fallbackRoute, addresses: freshAddresses,
+                refreshIfNeeded: false, timeout: Self.unansweredRouteRetryBudget
+            )
+        }
         connected.connection.cancel()
         let host = connected.host.contains(":") ? "[\(connected.host)]" : connected.host
         return "ws://\(host):1337/v1/link"

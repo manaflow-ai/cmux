@@ -399,6 +399,35 @@ struct CloudWorkspaceLiveProjectionTests {
         #expect(catalog.projectionVersions[machine] == version)
     }
 
+    /// CMUXTERM-MACOS-41NZ: a pane whose coordinates lag the graph is both obsolete
+    /// (old coordinates) and the pane `project` reuses for the missing placement.
+    /// Closing it after the reuse destroyed the pane the pass had just corrected, so
+    /// the next pass created it again: a terminal that flickers in and out.
+    @Test("Reconcile keeps the pane it reused for a missing placement")
+    func reusedObsoletePaneIsNotClosed() async throws {
+        var closed: [SurfaceProjection] = []
+        let fixture = boundWorkspaceFixture(closed: { closed.append($0) })
+        defer { fixture.workspace.teardownAllPanels() }
+        let catalog = fixture.catalog
+        let provider = CloudPlacementTestProvider(machine: machine)
+        catalog.register(provider)
+        install(try graph(["first": "a"], revision: 1), catalog: catalog)
+        await fixture.coordinator.waitForIdle()
+        let shown = try #require(catalog.projections.first { $0.workspaceID == fixture.workspace.id })
+        #expect(shown.remoteWorkspaceID == "a" && shown.remoteTabID == "first")
+        let materializations = provider.adoptions.count
+
+        // The same daemon tab, recorded against a stale remote workspace.
+        catalog.setRemotePlacement(for: shown, workspaceID: "b", tabID: "first")
+        fixture.coordinator.request(machine: machine, catalog: catalog)
+        await fixture.coordinator.waitForIdle()
+
+        #expect(closed.isEmpty)
+        #expect(provider.adoptions.count == materializations, "The reused pane must not be rebuilt")
+        let current = try #require(catalog.projection(forPanel: shown.panelID))
+        #expect(current.remoteWorkspaceID == "a" && current.remoteTabID == "first")
+    }
+
     /// Any consumer that requests another pass without changing the graph (the
     /// nightly b36a9b3 livelock) must end in a bounded number of passes.
     @Test("Reconciling one graph stops when every pass requests another")
@@ -629,6 +658,64 @@ struct CloudWorkspaceLiveProjectionTests {
         #expect(current.remoteWorkspaceID == "a")
         #expect(current.remoteTabID == nil)
         #expect(closed.isEmpty && fixture.coordinator.failures.isEmpty)
+    }
+
+    @Test("A Cloud browser drop preserves its source and exact destination tab when the pane registers early")
+    func browserDropKeepsSourceAndRemotePlacement() async throws {
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let sourceWorkspace = live.add()
+        let destinationWorkspace = live.add()
+        let catalog = SurfaceCatalog(live: live)
+        let provider = CloudPlacementTestProvider(machine: machine)
+        catalog.register(provider)
+
+        let remoteWorkspace = SurfaceRemoteWorkspace(id: "remote", name: "Cloud", index: 0, focused: true)
+        let remoteView = SurfaceRemoteView(
+            tabID: "tab-browser", workspace: remoteWorkspace, screenID: "screen", paneID: "pane",
+            index: 0, focused: true
+        )
+        let browser = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .browser, key: "browser-shared"),
+            title: "Docs", detail: "https://example.com/docs", lifecycle: .running, agent: nil,
+            remoteWorkspace: remoteWorkspace, remoteViews: [remoteView], port: nil,
+            url: "https://example.com/docs"
+        )
+        catalog.replaceResources([browser], on: machine, info: provider.info, from: provider)
+        let source = SurfaceProjection(
+            resource: browser.id, workspaceID: sourceWorkspace.id, panelID: UUID(),
+            remoteWorkspaceID: remoteWorkspace.id, remoteTabID: remoteView.tabID
+        )
+        catalog.record(source)
+
+        // `configureBrowser` records the remote resource before the provider returns its
+        // selected view. The catalog must merge that early record with the provider result.
+        let document = SurfaceCatalog.CloudBrowserDocument(
+            url: URL(string: "https://example.com/navigated")!, title: "Navigated",
+            remoteTabID: remoteView.tabID, revision: 1
+        )
+        provider.registerDuringMaterialization = { projection in
+            catalog.record(SurfaceProjection(
+                resource: browser.id, workspaceID: destinationWorkspace.id, panelID: projection.panelID
+            ))
+            catalog.cloudBrowserDocuments[browser.id, default: [:]][projection.panelID] = document
+        }
+        let opened = try await catalog.project(
+            browser.id,
+            into: .workspace(id: destinationWorkspace.id, placement: .split),
+            focus: false,
+            reuseExisting: false,
+            remoteView: remoteView
+        )
+
+        #expect(!opened.reused)
+        #expect(catalog.projection(forPanel: source.panelID) == source)
+        let destination = try #require(catalog.projection(forPanel: opened.projection.panelID))
+        #expect(destination.workspaceID == destinationWorkspace.id)
+        #expect(destination.remoteWorkspaceID == remoteWorkspace.id)
+        #expect(destination.remoteTabID == remoteView.tabID)
+        #expect(catalog.projections(of: browser.id).count == 2)
+        #expect(catalog.cloudBrowserDocuments[browser.id]?[destination.panelID]?.url == document.url)
     }
 
     @Test("A restored Desktop or port record without provenance joins its bound workspace", arguments: [false, true])

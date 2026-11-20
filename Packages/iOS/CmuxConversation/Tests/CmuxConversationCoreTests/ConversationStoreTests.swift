@@ -1,0 +1,923 @@
+import Foundation
+import Testing
+@testable import CmuxConversationCore
+
+@MainActor
+@Suite struct ConversationStoreTests {
+    @Test func newestPageThenOlderPagePrependsContiguousHistory() async throws {
+        let backend = ScriptedBackend(total: 100)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        var changes: [ConversationStoreChange] = []
+        store.onChange = { changes.append($0) }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        #expect(store.messages.compactMap(\.seq) == Array(71...100))
+        #expect(store.older == .idle)
+
+        store.loadOlder()
+        #expect(store.older == .loading)
+        try await waitUntil { store.messages.count == 60 }
+        #expect(store.messages.compactMap(\.seq) == Array(41...100))
+        #expect(changes.contains(.prepended))
+    }
+
+    @Test func defaultPagesMatchMessagesLoadMoreCount() async throws {
+        // Messages loads history 50 messages at a time on iPhone.
+        let backend = ScriptedBackend(total: 200)
+        let store = ConversationStore(backend: backend)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        #expect(store.messages.compactMap(\.seq) == Array(151...200))
+        store.loadOlder()
+        try await waitUntil { store.messages.count == 100 }
+        #expect(store.messages.first?.seq == 101)
+    }
+
+    @Test func olderFetchFailureRetriesThenSucceeds() async throws {
+        let backend = ScriptedBackend(total: 100)
+        backend.failNextHistory = 2
+        let store = ConversationStore(backend: backend, pageSize: 30, clock: ImmediateClock())
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        backend.failNextHistory = 2
+        store.loadOlder()
+        try await waitUntil { store.messages.count == 60 }
+        #expect(store.older == .idle)
+    }
+
+    @Test func historyExhaustsAtTheFirstMessage() async throws {
+        let backend = ScriptedBackend(total: 45)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        store.loadOlder()
+        try await waitUntil { store.older == .exhausted }
+        #expect(store.messages.compactMap(\.seq) == Array(1...45))
+    }
+
+    @Test func duplicateAndStaleEventsAreIgnored() async throws {
+        let backend = ScriptedBackend(total: 10)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        let live = backend.makeMessage(seq: 11, sender: "lc")
+        store.apply(.message(live, eventSeq: 500))
+        store.apply(.message(live, eventSeq: 500))
+        var stale = live
+        stale.text = "stale"
+        store.apply(.message(stale, eventSeq: 499))
+        #expect(store.messages.count == 11)
+        #expect(store.messages.last?.text == live.text)
+    }
+
+    @Test func optimisticSendKeepsRowIdentityThroughAckAndDeliveryNeverRegresses() async throws {
+        let backend = ScriptedBackend(total: 5)
+        let store = ConversationStore(backend: backend, pageSize: 30, makeClientMessageID: { "client-1" })
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+
+        backend.holdSend = true
+        let rowID = try #require(store.send(text: "hello"))
+        #expect(store.messages.last?.rowID == rowID)
+        #expect(store.messages.last?.delivery == .sending)
+
+        // The live echo (delivered) races ahead of the ack (sent).
+        var echo = backend.makeMessage(seq: 6, sender: "me")
+        echo.clientMessageID = "client-1"
+        echo.text = "hello"
+        echo.delivery = .delivered
+        store.apply(.message(echo, eventSeq: 900))
+        backend.releaseSend()
+        try await waitUntil { store.message(rowID: rowID)?.delivery == .delivered && backend.sendCount == 1 }
+        #expect(store.messages.filter { $0.rowID == rowID }.count == 1)
+        #expect(store.messages.count == 6)
+        #expect(store.messages.last?.delivery == .delivered)
+    }
+
+    @Test func sendWithEffectCarriesTheEffectOnTheRowAndTheDraft() async throws {
+        let backend = ScriptedBackend(total: 5)
+        let store = ConversationStore(backend: backend, pageSize: 30, makeClientMessageID: { "fx-1" })
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        let rowID = try #require(store.send(text: "boom", effect: .slam))
+        #expect(store.message(rowID: rowID)?.effect == .slam)
+        try await waitUntil { store.message(rowID: rowID)?.seq != nil }
+        #expect(backend.sentEffects == [.slam])
+        #expect(store.message(rowID: rowID)?.effect == .slam)
+        store.send(text: "plain")
+        try await waitUntil { backend.sendCount == 2 }
+        #expect(backend.sentEffects == [.slam, nil])
+    }
+
+    @Test func effectKindsSplitBubbleAndScreen() {
+        #expect(ConversationMessageEffect.bubbleEffects.allSatisfy { $0.kind == .bubble })
+        #expect(ConversationMessageEffect.screenEffects.allSatisfy { $0.kind == .screen })
+        #expect(Set(ConversationMessageEffect.bubbleEffects + ConversationMessageEffect.screenEffects) == Set(ConversationMessageEffect.allCases))
+    }
+
+    @Test func wireDecodingReadsEffectAndIgnoresUnknownOnes() throws {
+        let base = try #require(URL(string: "http://127.0.0.1:1"))
+        let known = WireDecoding.message(["id": "m1", "senderId": "lc", "text": "hi", "effect": "invisibleInk"], base: base)
+        #expect(known?.effect == .invisibleInk)
+        let unknown = WireDecoding.message(["id": "m2", "senderId": "lc", "text": "hi", "effect": "sparkle"], base: base)
+        #expect(unknown != nil && unknown?.effect == nil)
+    }
+
+    @Test func rapidSendsReachTheBackendOneAtATimeInSendOrder() async throws {
+        let backend = ScriptedBackend(total: 5)
+        let ids = ClientIDSequence(prefix: "rapid")
+        let store = ConversationStore(backend: backend, pageSize: 30, makeClientMessageID: { ids.next() })
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+
+        backend.holdSend = true
+        store.send(text: "one")
+        store.send(text: "two")
+        store.send(text: "three")
+        try await waitUntil { backend.sentClientIDs == ["rapid-1"] }
+        // The server numbers messages in arrival order, so a later send must not
+        // be dispatched while an earlier one is still in flight.
+        #expect(backend.sentClientIDs == ["rapid-1"])
+        backend.releaseSend()
+        try await waitUntil { backend.sendCount == 3 }
+        #expect(backend.sentClientIDs == ["rapid-1", "rapid-2", "rapid-3"])
+    }
+
+    @Test func aFailedSendStaysBelowMyEarlierSendsAckedLater() async throws {
+        let backend = ScriptedBackend(total: 5)
+        backend.stampAcksWithServerNow = true
+        let ids = ClientIDSequence(prefix: "order")
+        let store = ConversationStore(backend: backend, pageSize: 30, makeClientMessageID: { ids.next() })
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+
+        backend.holdSend = true
+        store.send(text: "first")
+        let secondRow = try #require(store.send(text: "second"))
+        try await waitUntil { backend.sentClientIDs == ["order-1"] }
+        backend.failNextSend = true
+        backend.releaseSend()
+        try await waitUntil { store.message(rowID: secondRow)?.delivery?.isFailed == true }
+        // A later arrival re-sorts the transcript. The server stamped "first"
+        // after "second" was composed locally; the failed send must still read
+        // after it, in the order they were sent, with the arrival below both.
+        var arrival = backend.makeMessage(seq: 7, sender: "lc")
+        arrival.sentAt = Date().addingTimeInterval(10)
+        store.apply(.message(arrival, eventSeq: 901))
+        let texts = store.messages.suffix(3).map(\.text)
+        #expect(texts == ["first", "second", "message 7"])
+    }
+
+    @Test func failedSendStaysVisibleAndRetryReusesClientID() async throws {
+        let backend = ScriptedBackend(total: 5)
+        let store = ConversationStore(backend: backend, pageSize: 30, makeClientMessageID: { "client-2" })
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        backend.failNextSend = true
+        let rowID = try #require(store.send(text: "will fail"))
+        try await waitUntil { store.message(rowID: rowID)?.delivery?.isFailed == true }
+        store.retry(rowID: rowID)
+        try await waitUntil { store.message(rowID: rowID)?.seq != nil }
+        #expect(backend.sentClientIDs == ["client-2", "client-2"])
+    }
+
+    @Test func laggedReconnectRebasesOnNewestAndKeepsPendingSends() async throws {
+        let backend = ScriptedBackend(total: 50)
+        let store = ConversationStore(backend: backend, pageSize: 20, makeClientMessageID: { "client-3" })
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        backend.holdSend = true
+        store.send(text: "in flight")
+        backend.total = 80
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { store.messages.first?.seq == 61 }
+        #expect(store.messages.compactMap(\.seq) == Array(61...80))
+        #expect(store.messages.last?.clientMessageID == "client-3")
+        backend.releaseSend()
+    }
+
+    @Test func typingClearsWhenThatParticipantsMessageArrives() async throws {
+        let backend = ScriptedBackend(total: 5)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        store.apply(.typing(participantID: "lc", isTyping: true))
+        store.apply(.typing(participantID: "aw", isTyping: true))
+        #expect(store.typingParticipantIDs == ["lc", "aw"])
+        store.apply(.message(backend.makeMessage(seq: 6, sender: "lc"), eventSeq: 10))
+        #expect(store.typingParticipantIDs == ["aw"])
+    }
+
+    @Test func typingStopFollowedByTheMessageReplacesTheIndicatorInOneChange() async throws {
+        let backend = ScriptedBackend(total: 5)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        store.apply(.typing(participantID: "lc", isTyping: true))
+        var changes: [ConversationStoreChange] = []
+        store.addObserver { changes.append($0) }
+        // Services clear typing just before the message itself is delivered.
+        store.apply(.typing(participantID: "lc", isTyping: false))
+        store.apply(.message(backend.makeMessage(seq: 6, sender: "lc"), eventSeq: 10))
+        #expect(store.typingParticipantIDs.isEmpty)
+        #expect(changes.contains(.typing) == false)
+        #expect(changes.count == 1)
+    }
+
+    /// A live message applies only once the work its observer readied for
+    /// it finished, one message at a time, in arrival order.
+    @Test func liveMessagesApplyAfterTheirPreparationInOrder() async throws {
+        let backend = ScriptedBackend(total: 5)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        let finished = PreparedIDs()
+        var asked: [String] = []
+        var appliedEarly: [String] = []
+        store.prepareLiveMessage = { message in
+            asked.append(message.id)
+            return {
+                await Task.yield()
+                finished.insert(message.id)
+            }
+        }
+        store.addObserver { _ in
+            for message in store.messages where asked.contains(message.id) && !finished.contains(message.id) {
+                appliedEarly.append(message.id)
+            }
+        }
+        store.start()
+        backend.emit(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        backend.emit(.message(backend.makeMessage(seq: 6, sender: "lc"), eventSeq: 10))
+        backend.emit(.message(backend.makeMessage(seq: 7, sender: "aw"), eventSeq: 11))
+        try await waitUntil { store.messages.count == 7 }
+        #expect(asked == ["m6", "m7"])
+        #expect(finished.ids == ["m6", "m7"])
+        #expect(appliedEarly.isEmpty)
+        #expect(store.messages.suffix(2).map(\.id) == ["m6", "m7"])
+    }
+
+    /// A message still being readied when the store stops never applies.
+    @Test func aMessageReadiedAfterStopIsDropped() async throws {
+        let backend = ScriptedBackend(total: 5)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        let gate = PreparationGate()
+        var asked = false
+        store.prepareLiveMessage = { _ in
+            asked = true
+            return { await gate.wait() }
+        }
+        store.start()
+        backend.emit(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        backend.emit(.message(backend.makeMessage(seq: 6, sender: "lc"), eventSeq: 10))
+        try await waitUntil { asked }
+        store.stop()
+        gate.open()
+        await Task.yield()
+        #expect(store.message(id: "m6") == nil)
+    }
+
+    @Test func typingStopWithoutAMessageStillClears() async throws {
+        let backend = ScriptedBackend(total: 5)
+        let store = ConversationStore(backend: backend, pageSize: 30, clock: ImmediateClock())
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        store.apply(.typing(participantID: "lc", isTyping: true))
+        store.apply(.typing(participantID: "lc", isTyping: false))
+        try await waitUntil { store.typingParticipantIDs.isEmpty }
+    }
+}
+
+// MARK: - Test doubles
+
+@MainActor
+func waitUntil(timeout: Duration = .seconds(3), _ condition: () -> Bool) async throws {
+    let deadline = ContinuousClock.now + timeout
+    while !condition() {
+        if ContinuousClock.now > deadline {
+            Issue.record("condition not met before timeout")
+            return
+        }
+        try await Task.sleep(for: .milliseconds(5))
+    }
+}
+
+struct ImmediateClock: Clock {
+    typealias Duration = Swift.Duration
+    typealias Instant = ContinuousClock.Instant
+    var now: Instant { ContinuousClock.now }
+    var minimumResolution: Duration { .zero }
+    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
+        await Task.yield()
+    }
+}
+
+/// Holds whoever waits until opened.
+final class PreparationGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            let resume = lock.withLock { () -> Bool in
+                if isOpen { return true }
+                waiters.append(continuation)
+                return false
+            }
+            if resume { continuation.resume() }
+        }
+    }
+    func open() {
+        let waiting = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            isOpen = true
+            defer { waiters = [] }
+            return waiters
+        }
+        waiting.forEach { $0.resume() }
+    }
+}
+
+/// Message ids, recorded from any thread in order.
+final class PreparedIDs: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _ids: [String] = []
+    var ids: [String] { lock.withLock { _ids } }
+    func insert(_ id: String) { lock.withLock { _ids.append(id) } }
+    func contains(_ id: String) -> Bool { lock.withLock { _ids.contains(id) } }
+}
+
+final class ClientIDSequence: @unchecked Sendable {
+    private let lock = NSLock()
+    private let prefix: String
+    private var count = 0
+    init(prefix: String) { self.prefix = prefix }
+    func next() -> String { lock.withLock { count += 1; return "\(prefix)-\(count)" } }
+}
+
+final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
+    let info = ConversationInfo(id: "g", title: "cmux", kind: .group, participants: [
+        ConversationParticipant(id: "me", name: "Me", initials: "ME", colorHex: "#0A84FF", isMe: true),
+        ConversationParticipant(id: "lc", name: "Lawrence Chen", initials: "LC", colorHex: "#30B0C7", isMe: false),
+        ConversationParticipant(id: "aw", name: "Austin Wang", initials: "AW", colorHex: "#8E8E93", isMe: false),
+    ])
+    private let lock = NSLock()
+    private var _total: Int
+    private var _failNextHistory = 0
+    private var _failNextSend = false
+    private var _holdSend = false
+    private var _sendWaiters: [CheckedContinuation<Void, Never>] = []
+    private var _sentClientIDs: [String] = []
+    private var _sentDrafts: [ConversationOutgoingDraft] = []
+    private var _sentEffects: [ConversationMessageEffect?] = []
+    private var _sendCount = 0
+    private var _stampAcksWithServerNow = false
+
+    init(total: Int) { _total = total }
+
+    var total: Int { get { lock.withLock { _total } } set { lock.withLock { _total = newValue } } }
+    var failNextHistory: Int { get { lock.withLock { _failNextHistory } } set { lock.withLock { _failNextHistory = newValue } } }
+    var failNextSend: Bool { get { lock.withLock { _failNextSend } } set { lock.withLock { _failNextSend = newValue } } }
+    var holdSend: Bool { get { lock.withLock { _holdSend } } set { lock.withLock { _holdSend = newValue } } }
+    var sentClientIDs: [String] { lock.withLock { _sentClientIDs } }
+    var sentDrafts: [ConversationOutgoingDraft] { lock.withLock { _sentDrafts } }
+    var sentEffects: [ConversationMessageEffect?] { lock.withLock { _sentEffects } }
+    var sendCount: Int { lock.withLock { _sendCount } }
+    /// Acks carry a server time later than any local send time, as a real server's do.
+    var stampAcksWithServerNow: Bool { get { lock.withLock { _stampAcksWithServerNow } } set { lock.withLock { _stampAcksWithServerNow = newValue } } }
+
+    func releaseSend() {
+        let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            _holdSend = false
+            defer { _sendWaiters = [] }
+            return _sendWaiters
+        }
+        waiters.forEach { $0.resume() }
+    }
+
+    func makeMessage(seq: Int, sender: String) -> ConversationMessage {
+        ConversationMessage(
+            id: "m\(seq)", seq: seq, clientMessageID: nil, senderID: sender,
+            sentAt: Date(timeIntervalSince1970: TimeInterval(seq * 60)), text: "message \(seq)"
+        )
+    }
+
+    private var _continuation: AsyncStream<ConversationBackendEvent>.Continuation?
+    func events() -> AsyncStream<ConversationBackendEvent> {
+        AsyncStream { continuation in lock.withLock { _continuation = continuation } }
+    }
+    /// Delivers `event` through the stream `events()` returned.
+    func emit(_ event: ConversationBackendEvent) {
+        _ = lock.withLock { _continuation }?.yield(event)
+    }
+
+    func history(beforeSeq: Int?, limit: Int) async throws -> ConversationHistoryPage {
+        let shouldFail = lock.withLock { () -> Bool in
+            guard _failNextHistory > 0 else { return false }
+            _failNextHistory -= 1
+            return true
+        }
+        if shouldFail { throw ConversationBackendError(code: -32001, message: "upstream timeout") }
+        let upper = (beforeSeq ?? (total + 1)) - 1
+        let lower = max(1, upper - limit + 1)
+        guard upper >= 1 else { return ConversationHistoryPage(messages: [], hasMore: false) }
+        return ConversationHistoryPage(
+            messages: (lower...upper).map { makeMessage(seq: $0, sender: $0 % 3 == 0 ? "me" : "lc") },
+            hasMore: lower > 1
+        )
+    }
+
+    func send(_ draft: ConversationOutgoingDraft) async throws -> ConversationMessage {
+        let (hold, fail) = lock.withLock { () -> (Bool, Bool) in
+            _sentClientIDs.append(draft.clientMessageID)
+            _sentDrafts.append(draft)
+            _sentEffects.append(draft.effect)
+            let fail = _failNextSend
+            _failNextSend = false
+            return (_holdSend, fail)
+        }
+        if hold {
+            await withCheckedContinuation { waiter in
+                let resumeNow = lock.withLock { () -> Bool in
+                    guard _holdSend else { return true }
+                    _sendWaiters.append(waiter)
+                    return false
+                }
+                if resumeNow { waiter.resume() }
+            }
+        }
+        defer { lock.withLock { _sendCount += 1 } }
+        if fail { throw ConversationBackendError(code: -32002, message: "not delivered") }
+        var message = makeMessage(seq: total + 1, sender: "me")
+        message.clientMessageID = draft.clientMessageID
+        message.text = draft.text
+        message.mentions = draft.mentions
+        message.textRuns = draft.textRuns
+        message.effect = draft.effect
+        message.delivery = .sent
+        if stampAcksWithServerNow { message.sentAt = Date().addingTimeInterval(5) }
+        return message
+    }
+
+    func react(messageID: String, reaction: ConversationReaction?) async throws -> ConversationMessage {
+        throw ConversationBackendError(code: -1, message: "unsupported")
+    }
+
+    func edit(messageID: String, text: String) async throws -> ConversationMessage {
+        var message = makeMessage(seq: Int(messageID.dropFirst()) ?? 0, sender: "me")
+        message.text = text
+        message.editedAt = Date()
+        message.editCount = lock.withLock { _editCounts[messageID, default: 0] += 1; return _editCounts[messageID]! }
+        return message
+    }
+
+    private var _editCounts: [String: Int] = [:]
+    private var _failNextUnsend = false
+    var failNextUnsend: Bool { get { lock.withLock { _failNextUnsend } } set { lock.withLock { _failNextUnsend = newValue } } }
+
+    func unsend(messageID: String) async throws -> ConversationMessage {
+        let fail = lock.withLock { () -> Bool in
+            defer { _failNextUnsend = false }
+            return _failNextUnsend
+        }
+        if fail { throw ConversationBackendError(code: -32003, message: "too late") }
+        var message = makeMessage(seq: Int(messageID.dropFirst()) ?? 0, sender: "me")
+        message.text = ""
+        message.unsentAt = Date()
+        return message
+    }
+
+    func setTyping(_ isTyping: Bool) async {}
+    private var _markedRead: [Int] = []
+    var markedRead: [Int] { lock.withLock { _markedRead } }
+    func markRead(upToSeq: Int) async { lock.withLock { _markedRead.append(upToSeq) } }
+    func uploadImage(_ data: Data, mimeType: String) async throws -> ConversationAttachment {
+        ConversationAttachment(id: "up", kind: .image, width: 10, height: 10, url: nil)
+    }
+    func close() {}
+    private var _linkPreviews: [URL: ConversationLinkPreview] = [:]
+    var linkPreviews: [URL: ConversationLinkPreview] { get { lock.withLock { _linkPreviews } } set { lock.withLock { _linkPreviews = newValue } } }
+    func linkPreview(for url: URL) async throws -> ConversationLinkPreview? { linkPreviews[url] }
+}
+
+@MainActor
+@Suite struct ConversationStoreUpdateTests {
+    @Test func editsAndTapbacksReplaceTheMessageInPlace() async throws {
+        let backend = ScriptedBackend(total: 5)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        var edited = backend.makeMessage(seq: 5, sender: "lc")
+        edited.text = "edited"
+        edited.editedAt = Date()
+        edited.reactions = [ConversationReactionMark(participantID: "aw", reaction: .haha)]
+        store.apply(.message(edited, eventSeq: 1))
+        #expect(store.messages.count == 5)
+        #expect(store.messages.last?.text == "edited")
+        #expect(store.messages.last?.reactions.first?.reaction == .haha)
+        var removed = edited
+        removed.reactions = []
+        store.apply(.message(removed, eventSeq: 2))
+        #expect(store.messages.last?.reactions.isEmpty == true)
+    }
+
+    @Test func receiptsNeverRegress() {
+        #expect(ConversationStore.maxDelivery(.read(nil), .delivered) == .read(nil))
+        #expect(ConversationStore.maxDelivery(.delivered, .sent) == .delivered)
+        #expect(ConversationStore.maxDelivery(.sending, .delivered) == .delivered)
+        #expect(ConversationStore.maxDelivery(.failed("x"), .sent) == .sent)
+    }
+
+    @Test func olderPagesDoNotOverwriteNewerLiveState() async throws {
+        let backend = ScriptedBackend(total: 60)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        var live = backend.makeMessage(seq: 31, sender: "lc")
+        live.text = "edited live"
+        store.apply(.message(live, eventSeq: 1))
+        store.loadOlder()
+        try await waitUntil { store.messages.count == 60 }
+        #expect(store.message(id: "m31")?.text == "edited live")
+        #expect(store.messages.compactMap(\.seq) == Array(1...60))
+    }
+
+    @Test func singleOlderRequestInFlight() async throws {
+        let backend = ScriptedBackend(total: 200)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        store.loadOlder()
+        store.loadOlder()
+        store.loadOlder()
+        try await waitUntil { store.older == .idle }
+        #expect(store.messages.count == 60)
+    }
+}
+
+@MainActor
+@Suite struct ConversationStoreWindowTests {
+    @Test func updatesAboveTheLoadedWindowAreNotInserted() async throws {
+        let backend = ScriptedBackend(total: 100)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        var old = backend.makeMessage(seq: 12, sender: "lc")
+        old.reactions = [ConversationReactionMark(participantID: "aw", reaction: .question)]
+        store.apply(.message(old, eventSeq: 1))
+        #expect(store.message(id: "m12") == nil)
+        #expect(store.messages.compactMap(\.seq) == Array(71...100))
+        store.loadOlder()
+        try await waitUntil { store.messages.count == 60 }
+        #expect(store.messages.compactMap(\.seq) == Array(41...100))
+    }
+}
+
+@MainActor
+@Suite struct ConversationStoreEditTests {
+    @Test func editingMyRecentMessageAppliesAtOnceAndMarksEdited() async throws {
+        let backend = ScriptedBackend(total: 6)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        var mine = backend.makeMessage(seq: 7, sender: "me")
+        mine.sentAt = Date()
+        store.apply(.message(mine, eventSeq: 1))
+        #expect(store.canEdit(mine))
+        store.edit(messageID: "m7", text: "fixed typo")
+        #expect(store.message(id: "m7")?.text == "fixed typo")
+        #expect(store.message(id: "m7")?.editedAt != nil)
+        let old = backend.makeMessage(seq: 3, sender: "me")
+        #expect(!store.canEdit(old))
+    }
+
+    @Test func aMessageCanBeEditedFiveTimes() async throws {
+        let backend = ScriptedBackend(total: 6)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        var mine = backend.makeMessage(seq: 7, sender: "me")
+        mine.sentAt = Date()
+        store.apply(.message(mine, eventSeq: 1))
+        for round in 1...5 {
+            let current = try #require(store.message(id: "m7"))
+            #expect(store.canEdit(current))
+            store.edit(messageID: "m7", text: "version \(round)")
+            try await waitUntil { store.message(id: "m7")?.editCount == round }
+        }
+        let done = try #require(store.message(id: "m7"))
+        #expect(!store.canEdit(done))
+        store.edit(messageID: "m7", text: "version 6")
+        #expect(store.message(id: "m7")?.text == "version 5")
+    }
+}
+
+extension ConversationStoreWindowTests {
+    @Test func updatesDuringTheInitialLoadDoNotOpenAGap() async throws {
+        let backend = ScriptedBackend(total: 100)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        // An old message's tapback and a brand-new message race the first page.
+        var old = backend.makeMessage(seq: 12, sender: "lc")
+        old.reactions = [ConversationReactionMark(participantID: "aw", reaction: .haha)]
+        store.apply(.message(old, eventSeq: 1))
+        store.apply(.message(backend.makeMessage(seq: 101, sender: "aw"), eventSeq: 2))
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        #expect(store.messages.compactMap(\.seq) == Array(71...101))
+    }
+}
+
+extension ConversationStoreWindowTests {
+    @Test func aFailedSendKeepsItsPlaceWhenLaterMessagesArrive() async throws {
+        let backend = ScriptedBackend(total: 3)
+        let store = ConversationStore(backend: backend, pageSize: 30, makeClientMessageID: { "client-f" })
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        backend.failNextSend = true
+        let rowID = try #require(store.send(text: "nope"))
+        try await waitUntil { store.message(rowID: rowID)?.delivery?.isFailed == true }
+        var later = backend.makeMessage(seq: 4, sender: "lc")
+        later.sentAt = Date().addingTimeInterval(5)
+        store.apply(.message(later, eventSeq: 1))
+        #expect(store.messages.last?.id == "m4")
+        #expect(store.messages[store.messages.count - 2].rowID == rowID)
+    }
+
+    @Test func tryAgainMovesTheSendToTheBottomAtOnce() async throws {
+        let backend = ScriptedBackend(total: 3)
+        let store = ConversationStore(backend: backend, pageSize: 30, makeClientMessageID: { "client-r" })
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        backend.failNextSend = true
+        let rowID = try #require(store.send(text: "again"))
+        try await waitUntil { store.message(rowID: rowID)?.delivery?.isFailed == true }
+        var later = backend.makeMessage(seq: 4, sender: "lc")
+        later.sentAt = Date().addingTimeInterval(5)
+        store.apply(.message(later, eventSeq: 1))
+        #expect(store.messages.last?.id == "m4")
+        // Try Again sends it now: it leaves its failed place for the bottom
+        // while it is in flight, not only when the server acknowledges it.
+        backend.holdSend = true
+        store.retry(rowID: rowID)
+        #expect(store.messages.last?.rowID == rowID)
+        #expect(store.messages.last?.delivery == .sending)
+        backend.releaseSend()
+    }
+}
+
+@MainActor
+@Suite struct ConversationStoreUnsendDeleteTests {
+    private func loadedStore(_ backend: ScriptedBackend) async throws -> ConversationStore {
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        return store
+    }
+
+    @Test func undoSendTakesBackMyMessageAtOnceWithinTwoMinutes() async throws {
+        let backend = ScriptedBackend(total: 6)
+        let store = try await loadedStore(backend)
+        var mine = backend.makeMessage(seq: 7, sender: "me")
+        mine.sentAt = Date().addingTimeInterval(-30)
+        store.apply(.message(mine, eventSeq: 1))
+        #expect(store.canUnsend(mine))
+        #expect(!store.canUnsend(mine, now: mine.sentAt.addingTimeInterval(ConversationStore.undoSendWindow + 1)))
+        #expect(!store.canUnsend(backend.makeMessage(seq: 5, sender: "lc")))
+
+        store.unsend(messageID: "m7")
+        let unsent = try #require(store.message(id: "m7"))
+        #expect(unsent.isUnsent)
+        #expect(unsent.text.isEmpty)
+        // The row stays (as a notice) and can't be edited or unsent again.
+        #expect(store.messages.count == 7)
+        #expect(!store.canEdit(unsent))
+        #expect(!store.canUnsend(unsent))
+        // A late echo of the original text must not resurrect it.
+        var echo = mine
+        echo.reactions = [ConversationReactionMark(participantID: "lc", reaction: .heart)]
+        store.apply(.message(echo, eventSeq: 2))
+        #expect(store.message(id: "m7")?.isUnsent == true)
+        #expect(store.message(id: "m7")?.text.isEmpty == true)
+    }
+
+    @Test func refusedUndoSendKeepsTheNoticeMarkedNotUnsentAndCanBeRetried() async throws {
+        let backend = ScriptedBackend(total: 6)
+        let store = try await loadedStore(backend)
+        var mine = backend.makeMessage(seq: 7, sender: "me")
+        mine.sentAt = Date()
+        store.apply(.message(mine, eventSeq: 1))
+        #expect(store.lastSentByMe?.id == "m7")
+        backend.failNextUnsend = true
+        store.unsend(messageID: "m7")
+        #expect(store.message(id: "m7")?.isUnsent == true)
+        #expect(store.lastSentByMe?.id != "m7")
+        // Messages keeps "You unsent a message" and appends "(!) Not Unsent".
+        try await waitUntil { store.message(id: "m7")?.unsendFailed == true }
+        let failed = try #require(store.message(id: "m7"))
+        #expect(failed.isUnsent && failed.text.isEmpty)
+        // The server's copy (still the original) must not bring the text back.
+        store.apply(.message(mine, eventSeq: 2))
+        #expect(store.message(id: "m7")?.unsendFailed == true)
+        #expect(store.message(id: "m7")?.text.isEmpty == true)
+        #expect(store.canRetryUnsend(failed))
+        #expect(!store.canRetryUnsend(failed, now: mine.sentAt.addingTimeInterval(ConversationStore.undoSendWindow + 1)))
+
+        store.retryUnsend(messageID: "m7")
+        #expect(store.message(id: "m7")?.unsendFailed == false)
+        await Task.yield()
+        #expect(store.message(id: "m7")?.unsendFailed == false)
+        #expect(store.message(id: "m7")?.isUnsent == true)
+        #expect(!store.canRetryUnsend(try #require(store.message(id: "m7"))))
+    }
+
+    @Test func deletingSelectedMessagesRemovesThemForGood() async throws {
+        let backend = ScriptedBackend(total: 10)
+        let store = try await loadedStore(backend)
+        let doomed = ["m4", "m5"].compactMap { store.message(id: $0)?.rowID }
+        #expect(doomed.count == 2)
+        store.deleteLocally(rowIDs: Set(doomed))
+        #expect(store.messages.compactMap(\.seq) == [1, 2, 3, 6, 7, 8, 9, 10])
+        // A later update (tapback) or a refetch must not bring it back.
+        var update = backend.makeMessage(seq: 5, sender: "lc")
+        update.reactions = [ConversationReactionMark(participantID: "aw", reaction: .haha)]
+        store.apply(.message(update, eventSeq: 1))
+        #expect(store.message(id: "m5") == nil)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { store.messages.count == 8 }
+        #expect(store.message(id: "m4") == nil && store.message(id: "m5") == nil)
+    }
+
+    @Test func deletingAFailedSendDropsItAndItsRetryState() async throws {
+        let backend = ScriptedBackend(total: 3)
+        let store = ConversationStore(backend: backend, pageSize: 30, makeClientMessageID: { "client-d" })
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        backend.failNextSend = true
+        let rowID = try #require(store.send(text: "nope"))
+        try await waitUntil { store.message(rowID: rowID)?.delivery?.isFailed == true }
+        store.deleteLocally(rowIDs: [rowID])
+        #expect(store.message(rowID: rowID) == nil)
+        #expect(store.messages.count == 3)
+    }
+
+    @Test func anUnsentMessageBreaksRunsAndCarriesNoStatus() {
+        func message(_ seq: Int, unsent: Bool = false, delivery: ConversationDelivery? = .delivered) -> ConversationMessage {
+            ConversationMessage(
+                id: "m\(seq)", seq: seq, clientMessageID: nil, senderID: "me",
+                sentAt: Date(timeIntervalSince1970: TimeInterval(seq)), text: unsent ? "" : "t",
+                unsentAt: unsent ? Date() : nil, delivery: delivery
+            )
+        }
+        let plan = ConversationRunPlan(messages: [message(1), message(2, unsent: true), message(3)], meID: "me")
+        // The bubble above the notice closes its run (tail); the one below starts a new run.
+        #expect(plan.entries[0].isLastInRun)
+        #expect(plan.entries[2].isFirstInRun)
+        #expect(plan.entries[1].status == .none)
+        let lastUnsent = ConversationRunPlan(messages: [message(1), message(2, unsent: true)], meID: "me")
+        #expect(lastUnsent.entries[0].status == .delivered)
+        #expect(lastUnsent.entries[1].status == .none)
+    }
+}
+
+@Suite struct ConversationNoticeTests {
+    @Test func messagesStatusTemplatesSplitAroundTheEmphasizedRun() {
+        let mine = ConversationNotice(id: "n", messageID: "m", template: "#You# unsent a message")
+        #expect(mine.leading.isEmpty && mine.emphasis == "You" && mine.trailing == " unsent a message")
+        #expect(mine.text == "You unsent a message")
+
+        let ja = ConversationNotice(id: "n", messageID: "m", template: "#%@#さんはメッセージの送信を取り消しました", argument: "Lawrence")
+        #expect(ja.emphasis == "Lawrence" && ja.trailing == "さんはメッセージの送信を取り消しました")
+
+        let failed = ConversationNotice(id: "n", messageID: "m", template: "#You# unsent a message. %@", failure: "(!) Not Unsent")
+        #expect(failed.text == "You unsent a message. (!) Not Unsent")
+        #expect(failed.trailingParts.before == " unsent a message. " && failed.trailingParts.after.isEmpty)
+
+        let plain = ConversationNotice(id: "n", messageID: "m", template: "%@ unsent a message", argument: "Aziz")
+        #expect(plain.emphasis.isEmpty && plain.text == "Aziz unsent a message")
+    }
+}
+
+@MainActor
+@Suite struct ConversationStoreTrimTests {
+    private func loadedStore(total: Int, pages: Int) async throws -> (ScriptedBackend, ConversationStore) {
+        let backend = ScriptedBackend(total: total)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        for page in 1..<pages {
+            store.loadOlder()
+            try await waitUntil { store.messages.count == 30 * (page + 1) }
+        }
+        return (backend, store)
+    }
+
+    @Test func trimKeepsTheNewestMessagesAndPagesBackIn() async throws {
+        let (_, store) = try await loadedStore(total: 200, pages: 4)
+        var changes: [ConversationStoreChange] = []
+        store.onChange = { changes.append($0) }
+        #expect(store.messages.compactMap(\.seq) == Array(81...200))
+        #expect(store.trimOlder(keepingNewest: 50))
+        #expect(store.messages.compactMap(\.seq) == Array(151...200))
+        #expect(store.message(id: "m100") == nil)
+        #expect(store.message(id: "m151")?.seq == 151)
+        #expect(store.older == .idle)
+        #expect(changes == [.reset])
+        store.loadOlder()
+        try await waitUntil { store.messages.count == 80 }
+        #expect(store.messages.compactMap(\.seq) == Array(121...200))
+    }
+
+    @Test func trimKeepsMessagesThatKeptRepliesQuote() async throws {
+        let (backend, store) = try await loadedStore(total: 120, pages: 4)
+        var reply = backend.makeMessage(seq: 121, sender: "lc")
+        reply.replyToID = "m20"
+        store.apply(.message(reply, eventSeq: 1))
+        #expect(store.trimOlder(keepingNewest: 10))
+        #expect(store.messages.first?.seq == 20)
+        #expect(store.message(id: "m20") != nil)
+    }
+
+    @Test func trimNeverDropsAFailedSendOrRunsWhilePaging() async throws {
+        let (backend, store) = try await loadedStore(total: 100, pages: 2)
+        backend.failNextSend = true
+        store.send(text: "unsent")
+        try await waitUntil { store.messages.contains { $0.delivery?.isFailed == true } }
+        for seq in 101...140 { store.apply(.message(backend.makeMessage(seq: seq, sender: "lc"), eventSeq: seq)) }
+        #expect(store.trimOlder(keepingNewest: 10))
+        #expect(store.messages.contains { $0.text == "unsent" })
+        store.loadOlder()
+        #expect(store.older == .loading)
+        #expect(!store.trimOlder(keepingNewest: 5))
+    }
+
+    @Test func trimKeepsRowsTheInterfaceHoldsOpen() async throws {
+        let (_, store) = try await loadedStore(total: 120, pages: 4)
+        #expect(store.trimOlder(keepingNewest: 10, preserving: ["s:m40"]))
+        #expect(store.messages.first?.seq == 40)
+        #expect(store.trimOlder(keepingNewest: 10, preserving: ["m90"]))
+        #expect(store.messages.first?.seq == 90)
+    }
+
+    @Test func trimKeepsThePendingCatchUpTargetAndExactUnreadCount() async throws {
+        let (backend, store) = try await loadedStore(total: 120, pages: 4)
+        store.apply(.readState(ConversationReadState(lastReadSeq: 50, unreadCount: 46, headSeq: 120)))
+        store.setViewing(true)
+        #expect(store.catchUpTarget?.seq == 52)
+        #expect(store.trimOlder(keepingNewest: 10))
+        // The marker message stays so the target is still known to be first.
+        #expect(store.messages.first?.seq == 50)
+        #expect(store.catchUpTarget?.seq == 52)
+        store.dismissCatchUp()
+        #expect(store.trimOlder(keepingNewest: 10))
+        #expect(store.messages.first?.seq == 111)
+        #expect(store.unreadCount == 0)
+        store.setViewing(false)
+        store.apply(.message(backend.makeMessage(seq: 121, sender: "lc"), eventSeq: 1))
+        #expect(store.unreadCount == 1)
+    }
+
+    @Test func trimIfLargeOnlyAboveThreshold() async throws {
+        let (_, store) = try await loadedStore(total: 100, pages: 2)
+        #expect(!store.trimOlderIfLarge())
+        #expect(store.messages.count == 60)
+    }
+}
+
+@MainActor
+@Suite struct ConversationStoreOrderTests {
+    /// Acknowledged messages ascend by seq; sends in flight follow, oldest first.
+    private func expectOrdered(_ store: ConversationStore, sourceLocation: SourceLocation = #_sourceLocation) {
+        let acked = store.messages.prefix { $0.seq != nil }
+        #expect(acked.compactMap(\.seq) == acked.compactMap(\.seq).sorted(), sourceLocation: sourceLocation)
+        let pending = store.messages.dropFirst(acked.count)
+        #expect(pending.allSatisfy { $0.seq == nil }, sourceLocation: sourceLocation)
+        #expect(pending.map(\.sentAt) == pending.map(\.sentAt).sorted(), sourceLocation: sourceLocation)
+        for (index, message) in store.messages.enumerated() {
+            #expect(store.message(id: message.id) == message, sourceLocation: sourceLocation)
+            _ = index
+        }
+    }
+
+    @Test func sendsAcksAndArrivalsStayOrderedAndIndexed() async throws {
+        let backend = ScriptedBackend(total: 50)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        var eventSeq = 0
+        for round in 0..<4 {
+            backend.holdSend = true
+            store.send(text: "send \(round)")
+            expectOrdered(store)
+            // Someone else's message lands while mine is in flight: it sorts above it.
+            eventSeq += 1
+            backend.total += 1
+            store.apply(.message(backend.makeMessage(seq: backend.total, sender: "lc"), eventSeq: eventSeq))
+            expectOrdered(store)
+            #expect(store.messages.last?.text == "send \(round)")
+            backend.releaseSend()
+            try await waitUntil { store.messages.allSatisfy { $0.seq != nil } }
+            backend.total += 1
+            expectOrdered(store)
+        }
+        #expect(store.messages.filter { $0.text.hasPrefix("send") }.count == 4)
+    }
+}

@@ -307,9 +307,9 @@ class LanSourceClassTests(unittest.TestCase):
         finalize = ("CMUX_NODE_PRODUCT_SOURCE_CLASS: ${{ steps.peer-products.outputs.hit == 'true' && "
                     "(steps.peer-products.outputs.source == 'lan' && 'lan' || 'peer') || "
                     "(steps.r2-products.outputs.hit == 'true' && 'r2' || 'github') }}")
-        self.assertEqual(workflow.count(finalize), 3)
-        self.assertEqual(workflow.count("CMUX_PEER_PRODUCT_SOURCE: ${{ steps.peer-products.outputs.source }}"), 3)
-        self.assertEqual(workflow.count("scripts/ci/peer_product_source.py fetch"), 3)
+        self.assertEqual(workflow.count(finalize), 4)
+        self.assertEqual(workflow.count("CMUX_PEER_PRODUCT_SOURCE: ${{ steps.peer-products.outputs.source }}"), 4)
+        self.assertEqual(workflow.count("scripts/ci/peer_product_source.py fetch"), 4)
 
 
 if __name__ == "__main__":

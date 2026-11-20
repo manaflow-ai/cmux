@@ -28,6 +28,9 @@ final class SurfaceCatalog {
     static let didChangeNotification = Notification.Name("cmux.surfaces.didChange")
     private(set) var machines: [SurfaceMachineID: SurfaceMachineInfo] = [:]
     private(set) var resources: [SurfaceResourceID: SurfaceResource] = [:]
+    /// Native documents are presentation state, separate from the daemon's browser snapshot.
+    var cloudBrowserDocuments: [SurfaceResourceID: [UUID: CloudBrowserDocument]] = [:]
+    var cloudBrowserDocumentRevision: UInt64 = 0
     private struct CloudProjectionKey: Hashable { let panelID: UUID; let workspaceID: UUID }
     /// Derived storage must not publish when a SwiftUI read rebuilds it.
     @ObservationIgnored private var cloudProjectionIndex: Set<CloudProjectionKey>?
@@ -152,6 +155,7 @@ final class SurfaceCatalog {
     // MARK: Providers
     func register(_ provider: any SurfaceProvider) {
         if let previous = providers[provider.machine], previous !== provider {
+            cloudBrowserDocuments = cloudBrowserDocuments.filter { $0.key.machine != provider.machine }
             cloudWorkspaceCreationCoordinator.cancel(machine: provider.machine)
             cloudWorkspaceProjectionCoordinator.cancel(machine: provider.machine)
             let inFlightKeys = inFlightProjects.keys.filter { $0.machine == provider.machine }
@@ -176,6 +180,7 @@ final class SurfaceCatalog {
         closeURLBackedPanes(on: machine)
         cloudWorkspaceDeletionLedger.remove(machine: machine)
         providers[machine] = nil
+        cloudBrowserDocuments = cloudBrowserDocuments.filter { $0.key.machine != machine }
         machines[machine] = nil
         for id in resourceIDsByMachine[machine] ?? [] { resources[id] = nil }
         resourceIDsByMachine[machine] = nil
@@ -626,7 +631,8 @@ final class SurfaceCatalog {
         try validateOwnership(of: [id], at: destination)
         let scope = beginProjectionMutation(for: [id])
         defer { endProjectionMutation(scope) }
-        guard let resource = resources[id] else { throw SurfaceCatalogError.unknownResource(id) }
+        guard let knownResource = resources[id] else { throw SurfaceCatalogError.unknownResource(id) }
+        let resource = resourceForPresentation(knownResource)
         // Resolve the opaque tab id against the current graph before any async
         // provider work. A stale view must fail, never silently attach to a
         // different placement after a concurrent daemon update.
@@ -733,8 +739,27 @@ final class SurfaceCatalog {
             provider.discardMaterialization(projection)
             throw CancellationError()
         }
+        if let adopted = adoptEarlyRegistration(of: projection) { return (adopted, false) }
         recordMaterializedProjection(projection)
         return (projection, false)
+    }
+
+    /// The pane bound its resource while the provider configured it. That early
+    /// registration can only carry the resource and local pane identity; a Cloud
+    /// browser's selected remote tab arrives in the provider result. Merge the
+    /// provider's placement into the registered projection before reconciliation,
+    /// otherwise the bound-workspace pass sees an unplaced browser and retires it,
+    /// and recording the result as well would leave two projections for one pane.
+    private func adoptEarlyRegistration(of projection: SurfaceProjection) -> SurfaceProjection? {
+        guard let registered = projections.first(where: {
+            $0.panelID == projection.panelID && $0.resource == projection.resource
+        }) else { return nil }
+        var adopted = registered
+        adopted.remoteWorkspaceID = projection.remoteWorkspaceID ?? registered.remoteWorkspaceID
+        adopted.remoteTabID = projection.remoteTabID ?? registered.remoteTabID
+        if adopted != registered { reconcileRemotePlacements([registered: adopted]) }
+        replayMaterializedCloudPlacement(adopted)
+        return adopted
     }
 
     private func awaitMaterialization(
@@ -846,11 +871,8 @@ final class SurfaceCatalog {
             }
             let returnedProjection: SurfaceProjection
             let ownsProjection: Bool
-            if let registered = projections.first(where: { $0.panelID == projection.panelID && $0.resource == id }) {
-                // The pane bound its resource while the provider configured it. It is still this
-                // operation's pane: finish placement exactly like a fresh materialization.
-                replayMaterializedCloudPlacement(registered)
-                returnedProjection = registered
+            if let adopted = adoptEarlyRegistration(of: projection) {
+                returnedProjection = adopted
                 ownsProjection = true
             } else if let existing = projections.first(where: {
                 $0.resource == id
@@ -1209,7 +1231,15 @@ final class SurfaceCatalog {
     /// mirrored workspace also closes its machine tab (`CloudPlacementCoordinator`).
     func endProjections(panelID: UUID, reason: SurfaceProjectionEndReason = .paneClosed) {
         cloudWorkspaceCreationCoordinator.projectionDidEnd(panelID: panelID)
-        let pendingMachine = pendingRestoredProjections.machineOwningPanel(panelID); let removedPending = pendingRestoredProjections.remove(panelID: panelID)
+        let pending = pendingRestoredProjections.projection(forPanel: panelID)
+        let pendingMachine = pending?.resource.machine
+        let removedPending = pendingRestoredProjections.remove(panelID: panelID)
+        if let pending {
+            cloudBrowserDocuments[pending.resource]?[panelID] = nil
+            if cloudBrowserDocuments[pending.resource]?.isEmpty == true {
+                cloudBrowserDocuments[pending.resource] = nil
+            }
+        }
         let ended = projections.filter { $0.panelID == panelID }
         guard !ended.isEmpty || removedPending else { return }
         projections.subtract(ended)
@@ -1242,10 +1272,14 @@ final class SurfaceCatalog {
     /// Applies one accepted graph's coordinate changes in O(changed projections).
     func reconcileRemotePlacements(_ replacements: [SurfaceProjection: SurfaceProjection]) {
         guard !replacements.isEmpty else { return }
-        for (previous, updated) in replacements where projections.contains(previous) {
-            projections.remove(previous)
-            projections.insert(updated)
+        // One assignment, so `noteProjectionChanges` sees a replacement rather than
+        // a closed pane and keeps that pane's native browser document.
+        var next = projections
+        for (previous, updated) in replacements where next.contains(previous) {
+            next.remove(previous)
+            next.insert(updated)
         }
+        projections = next
         for replacement in replacements.values {
             notifyChange(for: replacement.resource.machine)
         }

@@ -109,23 +109,54 @@ struct CloudTreeResourceNameTests {
         #expect(try #require(unnamed.dragGroup).title == "Desktop")
     }
 
-    /// A browser row has no projection capability, so nothing ever reads its
-    /// drag group. This pins the reason `dragGroup` carries no browser branch:
-    /// `CloudTreeDragRegistration` is its only leaf-row reader and it requires
-    /// `isDragSource` first. Granting browsers the capability is a design change
-    /// and would come with its own behavioral test.
-    @Test("a browser row does not export a pane projection")
-    func browserRowIsNotADragSource() {
+    /// Local browser sessions are private to this Mac and must never become
+    /// Cloud sidebar projection drags. Cloud browser rows with a remote view
+    /// are covered by the Cloud tree drag regression.
+    @Test("a local browser row does not export a Cloud projection")
+    func localBrowserRowIsNotADragSource() {
+        let local = SurfaceResource(
+            id: SurfaceResourceID(machine: .local, kind: .browser, key: "browser-1"),
+            title: "Example Domain",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: nil,
+            remoteViews: [],
+            port: nil,
+            url: "https://example.com"
+        )
         let node = CloudTreeNode(
             id: "browser-1",
             kind: .browser(CloudTreeBrowserRow(
-                resource: resource(kind: .browser, key: "browser-1", title: "Example Domain"),
+                resource: local,
                 isOpen: false,
                 workspaceTitle: nil,
-                remoteView: view(name: "Docs")
+                remoteView: nil
             ))
         )
         #expect(!node.isDragSource)
+
+        let cloudWithoutTab = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .browser, key: "cloud-browser"),
+            title: "Cloud browser",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: workspace,
+            remoteViews: [],
+            port: nil,
+            url: "https://example.com"
+        )
+        let cloudNode = CloudTreeNode(
+            id: "cloud-browser",
+            kind: .browser(CloudTreeBrowserRow(
+                resource: cloudWithoutTab,
+                isOpen: false,
+                workspaceTitle: workspace.name,
+                remoteView: nil
+            ))
+        )
+        #expect(!cloudNode.isDragSource, "a Cloud row without an exact remote tab is not draggable")
     }
 
     /// A rename writes to a daemon tab, so a row with no tab has nothing to

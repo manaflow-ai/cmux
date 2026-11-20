@@ -147,6 +147,7 @@ import Testing
         // Session scope is the point of the fix: `-g` values are invisible to
         // the session-scoped `show-environment` the shell integration runs.
         #expect(pushes.allSatisfy { !$0.contains(" -g ") })
+        #expect(commands.contains { $0.contains("--install") && $0.contains("'work'") })
         // No relay exists on the ssh-tmux transport, so a local socket path
         // must never be published to the remote.
         #expect(commands.allSatisfy { !$0.contains("CMUX_SOCKET_PATH") })

@@ -23,6 +23,7 @@ export PATH="${PATH:+${PATH}:}${CARGO_HOME:-${HOME}/.cargo}/bin:/opt/homebrew/bi
 export CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP="${CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP:-none}"
 
 OUTPUT=""
+HELPER_APP_OPTION=""
 ARCHS_RAW=""
 PRINT_HELPER_ID=""
 CACHE_DIR="${CMUX_CUA_CACHE_DIR:-${HOME:-/tmp}/Library/Caches/cmux/cmux-cua}"
@@ -84,6 +85,9 @@ usage: scripts/build-cmux-cua.sh --output <path> [options]
 
 Options:
   --archs "<archs>"     architectures to build (default: "arm64 x86_64")
+  --helper-app <path>   package the engine as this cmux Computer Use.app
+                         (default: Contents/Library/cmux Computer Use.app when
+                         --output is <app>/Contents/Resources/bin/cmux-cua)
   --cache-dir <path>    clone/build cache dir (default: ~/Library/Caches/cmux/cmux-cua)
   --print-helper-id <host-bundle-id>
                          Print the TCC-facing helper identity and exit
@@ -106,6 +110,11 @@ while (($#)); do
     --archs)
       [[ $# -ge 2 ]] || { usage; exit 2; }
       ARCHS_RAW="$2"
+      shift 2
+      ;;
+    --helper-app)
+      [[ $# -ge 2 ]] || { usage; exit 2; }
+      HELPER_APP_OPTION="$2"
       shift 2
       ;;
     --cache-dir)
@@ -492,10 +501,20 @@ cp "$CUA_LICENSE_SRC" "$(dirname "$OUTPUT")/cmux-cua-LICENSE.md"
 # Package the cmux-cua engine into a branded helper with its own bundle identifier and
 # TCC identity. The helper is copied out of the host bundle before launch; that
 # top-level copy is what macOS shows in Accessibility and Screen Recording.
-_cua_bin_dir="$(cd "$(dirname "$OUTPUT")" && pwd -P)"
-_cua_contents="$(cd "$_cua_bin_dir/../.." 2>/dev/null && pwd -P || true)"
-if [ -n "${_cua_contents:-}" ] && [ "$(basename "$_cua_contents")" = "Contents" ]; then
-  HELPER_APP="$_cua_contents/Library/cmux Computer Use.app"
+HELPER_APP=""
+if [[ -n "$HELPER_APP_OPTION" ]]; then
+  mkdir -p "$(dirname "$HELPER_APP_OPTION")"
+  HELPER_APP="$(cd "$(dirname "$HELPER_APP_OPTION")" && pwd -P)/$(basename "$HELPER_APP_OPTION")"
+  # <app>/Contents/Library/<helper>.app: the host's Contents directory.
+  _cua_contents="$(cd "$(dirname "$HELPER_APP")/.." && pwd -P)"
+else
+  _cua_bin_dir="$(cd "$(dirname "$OUTPUT")" && pwd -P)"
+  _cua_contents="$(cd "$_cua_bin_dir/../.." 2>/dev/null && pwd -P || true)"
+  if [ -n "${_cua_contents:-}" ] && [ "$(basename "$_cua_contents")" = "Contents" ]; then
+    HELPER_APP="$_cua_contents/Library/cmux Computer Use.app"
+  fi
+fi
+if [ -n "$HELPER_APP" ]; then
   HELPER_EXECUTABLE="cmux-cua"
   # This build phase runs before Xcode writes the processed host Info.plist.
   # Prefer exported build settings; reading a missing plist makes PlistBuddy

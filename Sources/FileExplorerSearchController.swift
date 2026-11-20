@@ -526,14 +526,19 @@ final class FileSearchController: FileSearchControlling {
             "--max-columns-preview",
             "--color", "never",
             "--hidden",
+            // Process converts arguments to decomposed Unicode, which would turn a Hangul
+            // or accented query into a pattern that never matches precomposed file text.
+            // Passing the pattern on stdin keeps the query's exact UTF-8 bytes.
+            "--file", "-",
         ] + excludedSearchGlobs.flatMap { ["--glob", $0] } + [
             "--",
-            query,
             rootPath,
         ]
 
+        let stdin = Pipe()
         let stdout = Pipe()
         let stderr = Pipe()
+        process.standardInput = stdin
         process.standardOutput = stdout
         process.standardError = stderr
         let pipeline = FileSearchOutputPipeline(
@@ -554,6 +559,10 @@ final class FileSearchController: FileSearchControlling {
         do {
             try process.run()
             self.process = process
+            let patternHandle = stdin.fileHandleForWriting
+            _ = fcntl(patternHandle.fileDescriptor, F_SETNOSIGPIPE, 1)
+            try? patternHandle.write(contentsOf: Data((query + "\n").utf8))
+            try? patternHandle.close()
             let stdoutReadHandle = FileSearchReadHandle(stdout.fileHandleForReading)
             let stderrReadHandle = FileSearchReadHandle(stderr.fileHandleForReading)
             searchTask = Task.detached(priority: .userInitiated) { [weak self, pipeline, terminationSignal, stdoutReadHandle, stderrReadHandle] in
@@ -587,6 +596,7 @@ final class FileSearchController: FileSearchControlling {
                 await self?.finish(generation: searchGeneration, update: update)
             }
         } catch {
+            process.standardInput = nil
             process.standardOutput = nil
             process.standardError = nil
             self.pipeline = nil

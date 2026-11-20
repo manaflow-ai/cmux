@@ -30,6 +30,13 @@ struct SidebarWorkspaceRowColorMenu {
                 brightenInDarkMode: brightenInDarkMode
             ) ?? NSColor(hex: entry.hex) ?? .gray
             colorItem.image = SidebarWorkspaceRowMenuBuilder.coloredCircleImage(color: swatch)
+            // macOS 27 hides menu item images unless the item opts in.
+            // Guarded for CI toolchains that predate the macOS 27 SDK.
+            #if compiler(>=6.4)
+            if #available(macOS 27.0, *) {
+                colorItem.preferredImageVisibility = .visible
+            }
+            #endif
             menu.addItem(colorItem)
         }
     }

@@ -20,6 +20,8 @@ final class AgentSessionRunningSession {
     var openCodeEventTask: Task<Void, Never>?
     var terminationEscalationTimer: DispatchSourceTimer?
     var pendingExitStatus: Int32?
+    /// The person stopped the agent or closed its panel: its exit is no failure.
+    var stopRequested = false
     var drainedStreams: Set<String> = []
     private var stdoutBuffer = AgentSessionOutputLineBuffer()
     private var stderrBuffer = AgentSessionOutputLineBuffer()

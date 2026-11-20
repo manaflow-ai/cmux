@@ -63,6 +63,28 @@ public enum CloudTuiRequests {
         if let correlationKey { fields["correlation_key"] = correlationKey }
         return CloudTuiRequest("workspace.run", fields, mutation: true, key: idempotencyKey)
     }
+    public static func createBrowserArguments(
+        socketPath: String,
+        workspaceID: String?,
+        screenID: String? = nil,
+        paneID: String? = nil,
+        url: String,
+        name: String? = nil,
+        widthPx: Int? = nil,
+        heightPx: Int? = nil,
+        idempotencyKey: String? = nil,
+        correlationKey: String? = nil
+    ) -> CloudTuiRequest {
+        var fields: [String: Any] = ["url": url]
+        if let workspaceID, !workspaceID.isEmpty { fields["workspace"] = workspaceID }
+        if let screenID, !screenID.isEmpty { fields["screen"] = screenID }
+        if let paneID, !paneID.isEmpty { fields["pane"] = paneID }
+        if let name { fields["name"] = name }
+        if let widthPx { fields["width_px"] = widthPx }
+        if let heightPx { fields["height_px"] = heightPx }
+        if let correlationKey { fields["correlation_key"] = correlationKey }
+        return CloudTuiRequest("tab.create_browser", fields, mutation: true, key: idempotencyKey)
+    }
     public static func paneCreate(paneID: String, direction: String?, command: [String], revision: UInt64?, key: String, correlationKey: String?) -> CloudTuiRequest {
         var fields: [String: Any] = ["pane": paneID]
         if let direction { fields["direction"] = direction } else { fields["argv"] = command }

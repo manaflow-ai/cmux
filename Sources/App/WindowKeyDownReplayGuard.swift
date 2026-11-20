@@ -4,12 +4,29 @@ import CmuxTerminal
 
 extension NSEvent {
     var cmuxIsUndoRedoCommandEquivalent: Bool {
+        cmuxIsUndoRedoCommandEquivalent(
+            layoutCharacterProvider: KeyboardLayout.character(forKeyCode:modifierFlags:)
+        )
+    }
+
+    /// Matches the Undo menu equivalent using the active keyboard layout.
+    func cmuxIsUndoRedoCommandEquivalent(
+        layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String?
+    ) -> Bool {
         let normalizedFlags = modifierFlags
             .intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
-        return type == .keyDown
-            && (normalizedFlags == [.command] || normalizedFlags == [.command, .shift])
-            && KeyboardLayout.normalizedCharacters(for: self) == "z"
+        guard type == .keyDown,
+              normalizedFlags == [.command] || normalizedFlags == [.command, .shift] else {
+            return false
+        }
+        // Match AppKit's Command table, including Dvorak - QWERTY Command.
+        // charactersIgnoringModifiers describes the unmodified layout instead.
+        if let character = layoutCharacterProvider(keyCode, normalizedFlags),
+           !character.isEmpty, character.allSatisfy(\.isASCII) {
+            return character.lowercased() == "z"
+        }
+        return KeyboardLayout.normalizedCharacters(for: self) == "z"
     }
 }
 
@@ -35,6 +52,14 @@ private struct CmuxForceDispatchedKeyEventIdentity: Hashable {
     let keyCode: UInt16
     let modifierFlags: UInt
     let timestamp: TimeInterval
+
+    init(_ event: NSEvent, windowNumber: Int) {
+        self.windowNumber = windowNumber
+        eventType = event.type.rawValue
+        keyCode = event.keyCode
+        modifierFlags = event.modifierFlags.rawValue
+        timestamp = event.timestamp
+    }
 }
 
 /// Events whose force-dispatch is currently on the main-thread stack.
@@ -57,6 +82,13 @@ extension NSApplication {
 }
 
 extension NSWindow {
+    /// Identifies synchronous replay of the exact key this window is forwarding.
+    func cmuxIsForceDispatchingKeyDown(_ event: NSEvent) -> Bool {
+        cmuxInFlightForceDispatchedKeyEventIdentities.contains(
+            CmuxForceDispatchedKeyEventIdentity(event, windowNumber: windowNumber)
+        )
+    }
+
     /// Routes an application undo or redo command through the focused cmux
     /// surface, keeping AppKit's shared window undo stack out of the path.
     func cmuxRouteApplicationUndoRedoCommandEquivalent(_ event: NSEvent) -> Bool {
@@ -156,13 +188,7 @@ extension NSWindow {
         to target: NSResponder,
         reason: @autoclosure () -> String
     ) -> Bool {
-        let identity = CmuxForceDispatchedKeyEventIdentity(
-            windowNumber: self.windowNumber,
-            eventType: event.type.rawValue,
-            keyCode: event.keyCode,
-            modifierFlags: event.modifierFlags.rawValue,
-            timestamp: event.timestamp
-        )
+        let identity = CmuxForceDispatchedKeyEventIdentity(event, windowNumber: windowNumber)
         guard !cmuxInFlightForceDispatchedKeyEventIdentities.contains(identity) else {
 #if DEBUG
             cmuxDebugLog("  → \(reason()) reentry; declining force-dispatch of in-flight key event")

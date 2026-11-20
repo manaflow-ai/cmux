@@ -207,7 +207,8 @@ def capabilities_response_handler(conn: socket.socket, stop_event: threading.Eve
     if not isinstance(request, dict) or request.get("method") != "system.capabilities":
         return
     conn.sendall(
-        b'{"ok":true,"result":{"socket_path":"/tmp/cmux.sock","protocol":"cmux-socket",'
+        b'{"id":' + json.dumps(request.get("id")).encode() + b','
+        b'"ok":true,"result":{"socket_path":"/tmp/cmux.sock","protocol":"cmux-socket",'
         b'"access_mode":"cmuxOnly","version":"test","methods":["zeta","alpha"]}}\n'
     )
 

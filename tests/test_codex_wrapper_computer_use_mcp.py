@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-codex-wrapper"
 SOURCE_CLAUDE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
 SOURCE_LINK_POLICY = ROOT / "skills" / "cmux-cua" / "link-policy.sh"
+SOURCE_CLIENT_POLICY = ROOT / "skills" / "cmux-cua" / "client-policy.sh"
 
 # This is the public Codex compatibility roster. Keep the contract here in
 # the same order as Resources/cmux-cua/SKILL.md: a fresh Codex process must
@@ -565,6 +566,7 @@ def run_wrapper(
         bundled_skill = wrapper_dir.parent / "cmux-cua"
         bundled_skill.mkdir()
         shutil.copy2(SOURCE_LINK_POLICY, bundled_skill / "link-policy.sh")
+        shutil.copy2(SOURCE_CLIENT_POLICY, bundled_skill / "client-policy.sh")
         (bundled_skill / "SKILL.md").write_text(
             "---\n"
             "name: cmux-cua\n"

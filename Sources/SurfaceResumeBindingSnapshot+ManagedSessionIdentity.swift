@@ -85,28 +85,51 @@ extension SurfaceResumeBindingSnapshot {
             && isSameManagedSession(as: incoming)
     }
 
-    /// Whether storing this agent-hook write would demote an already-trusted
-    /// binding for the same managed session to manual approval.
+    /// Whether storing this agent-hook write would weaken an already-trusted
+    /// binding for the same managed session.
     ///
     /// Hook publishers always carry `auto_resume`. A same-session `agent-hook`
     /// write without it comes from the public `surface resume set` CLI (the Pi
     /// extension shipped before #12084 re-published its binding that way, and
     /// a Pi process that already loaded that extension keeps doing so after
     /// cmux updates). Accepting it silently turns the pane manual, and the
-    /// next relaunch restores a bare shell instead of the agent. Callers run
-    /// this inside the store mutation so no get/set interleaving can
-    /// observe-then-downgrade the trusted binding.
+    /// next relaunch restores a bare shell instead of the agent. The same
+    /// session refresh must also retain a captured absolute executable: a
+    /// PATH-dependent launcher can re-publish a bare name after restore when
+    /// its runtime process argv no longer exposes the original wrapper path.
+    /// Callers run this inside the store mutation so no get/set interleaving
+    /// can observe-then-downgrade the trusted binding.
     func downgradesTrustedAgentHookBinding(
         _ existing: SurfaceResumeBindingSnapshot?
     ) -> Bool {
         guard let existing,
               isAgentHookBinding,
-              autoResume != true,
               existing.isAgentHookBinding,
-              existing.autoResume == true else {
+              existing.autoResume == true,
+              existing.isSameManagedSession(as: self) else {
             return false
         }
-        return existing.isSameManagedSession(as: self)
+        if autoResume != true {
+            return true
+        }
+        return launchCommandDowngradesTrustedBinding(existing)
+    }
+
+    private func launchCommandDowngradesTrustedBinding(
+        _ existing: SurfaceResumeBindingSnapshot
+    ) -> Bool {
+        guard let existingLaunch = existing.launchCommand,
+              let existingExecutable = existingLaunch.executablePath
+                ?? existingLaunch.arguments.first,
+              existingExecutable.hasPrefix("/") else {
+            return false
+        }
+        guard let incomingLaunch = launchCommand else {
+            return true
+        }
+        let incomingExecutable = incomingLaunch.executablePath
+            ?? incomingLaunch.arguments.first
+        return incomingExecutable?.hasPrefix("/") != true
     }
 
     /// Projects an authoritative agent-hook binding into the structured

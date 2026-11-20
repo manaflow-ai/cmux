@@ -28,17 +28,19 @@ final class DeviceSurfaceProviderRegistry {
     private(set) var directory: DeviceDirectory?
     private var runtime: DeviceLinkRuntime?
     private var authorization: (any DeviceLinkAuthorizationSource)?
-    /// The account generation and team scope the running directory was built
-    /// for. An account change tears everything down; a team change alone swaps
-    /// the team-scoped pieces in place (see ``swapTeam(to:)``).
+    /// The account generation the running directory was built for. Device
+    /// membership is account-owned, so the selected team is not a lifecycle
+    /// key for this registry.
     private var identity: AuthenticatedSessionIdentity?
     private var teamID: String?
     private var providers: [SurfaceDeviceInstanceID: DeviceSurfaceProvider] = [:]
-    /// The last directory stamp forwarded to links; an advance retries host refusals once.
+    /// The last directory stamp forwarded to links; an advance retries host
+    /// refusals once, including changes in the account directory revision.
     private var lastDirectoryStamp: DeviceDirectoryStamp?
     private var directoryObserver: NSObjectProtocol?
     private var authorizationObserver: NSObjectProtocol?
     private var defaultsObserver: NSObjectProtocol?
+    private var featureFlagsObserver: NSObjectProtocol?
     private var availabilityObserver: CloudFeatureAvailabilityObserver?
     private var accessObserver: NSObjectProtocol?
     private var policyObserver: NSObjectProtocol?
@@ -52,11 +54,9 @@ final class DeviceSurfaceProviderRegistry {
     private let isFeatureEnabled: @MainActor () -> Bool
     private let makeAutomaticClient: @MainActor (AuthenticatedSessionIdentity, String?) -> DeviceIrxClient?
     private let allowsAutomaticConnections: @MainActor () -> Bool
-    /// Whether a team switch keeps My Devices in place: only while the
-    /// per-user account directory owns membership. Off (its flag), a team
-    /// switch rebuilds exactly as before.
-    private let swapsTeamInPlace: @MainActor () -> Bool
+    private let retainsAcrossTeamChanges: @MainActor () -> Bool
     private var activeAutomaticConnections = false
+    private var activeAccountDirectory = false
 
     init(
         preferences: DevicesPreferencesModel? = nil,
@@ -67,7 +67,7 @@ final class DeviceSurfaceProviderRegistry {
         },
         makeAutomaticClient: @escaping @MainActor (AuthenticatedSessionIdentity, String?) -> DeviceIrxClient? = { _, _ in nil },
         allowsAutomaticConnections: @escaping @MainActor () -> Bool = { false },
-        swapsTeamInPlace: @escaping @MainActor () -> Bool = { AccountMacDirectoryFeature.isEnabled() },
+        retainsAcrossTeamChanges: @escaping @MainActor () -> Bool = { AccountMacDirectoryFeature.isEnabled() },
         makeDirectory: @escaping DirectoryFactory = { auth, identity, teamID, pairing, automaticClient in
             DeviceDirectory(auth: auth, identity: identity, teamID: teamID, pairing: pairing, automaticClient: automaticClient)
         },
@@ -79,13 +79,13 @@ final class DeviceSurfaceProviderRegistry {
         self.diagnostics = diagnostics
         self.makeAutomaticClient = makeAutomaticClient
         self.allowsAutomaticConnections = allowsAutomaticConnections
-        self.swapsTeamInPlace = swapsTeamInPlace
+        self.retainsAcrossTeamChanges = retainsAcrossTeamChanges
         self.makeDirectory = makeDirectory
         self.isFeatureEnabled = isFeatureEnabled
     }
 
     deinit {
-        for observer in [directoryObserver, authorizationObserver, defaultsObserver, accessObserver, policyObserver] {
+        for observer in [directoryObserver, authorizationObserver, defaultsObserver, featureFlagsObserver, accessObserver, policyObserver] {
             if let observer { notificationCenter.removeObserver(observer) }
         }
     }
@@ -113,6 +113,11 @@ final class DeviceSurfaceProviderRegistry {
         defaultsObserver = center.addUserDefaultsObserver(object: UserDefaults.standard) { [weak self] in
             self?.evaluate()
         }
+        if let featureFlagsObserver { center.removeObserver(featureFlagsObserver) }
+        featureFlagsObserver = center.addObserver(forName: .cmuxFeatureFlagsDidChange, object: nil, queue: .main) {
+            [weak self] _ in
+            Task { @MainActor [weak self] in self?.evaluate() }
+        }
         availabilityObserver = CloudFeatureAvailabilityObserver(notificationCenter: notificationCenter, isEnabled: isFeatureEnabled) { [weak self] _ in
             self?.evaluate()
         }
@@ -128,10 +133,10 @@ final class DeviceSurfaceProviderRegistry {
         evaluate()
     }
 
-    /// Tracks the authenticated session identity and team scope, so sign-in
-    /// starts the directory without a panel having to be open, sign-out stops
-    /// it, an account switch rebuilds it, and a team switch swaps its
-    /// team-scoped pieces in place.
+    /// Tracks the authenticated session identity and selected team so sign-in
+    /// starts the directory without a panel having to be open and sign-out or
+    /// an account switch stops it. A selected-team change leaves the
+    /// account-owned directory and its providers in place.
     private func observeAuth() {
         guard let auth else { return }
         withObservationTracking {
@@ -145,23 +150,18 @@ final class DeviceSurfaceProviderRegistry {
         }
     }
 
-    /// Start, stop, or rebuild to match the gate: feature on and signed in,
-    /// under the current account generation and team scope.
+    /// Start, stop, or rebuild to match the gate: feature on and signed in.
+    /// The selected team participates only while the account directory is
+    /// disabled; account-owned discovery retains the running scope across it.
     func evaluate() {
         guard let auth, let catalog, let authorization else { return }
         let (identity, teamID) = sessionScope(auth)
         let shouldRun = isFeatureEnabled() && identity != nil
         let automatic = allowsAutomaticConnections()
-        // With the per-user directory, My Devices membership is the account's,
-        // so only the account, the gate, or automatic connections rebuild it;
-        // a team change swaps the team-scoped pieces in place.
-        let inPlace = swapsTeamInPlace()
+        let accountDirectoryEnabled = AccountMacDirectoryFeature.isEnabled()
         let scopeChanged = identity != self.identity || automatic != activeAutomaticConnections
-            || (!inPlace && teamID != self.teamID)
-        if directory != nil, shouldRun, !scopeChanged, teamID != self.teamID, let identity {
-            swapTeam(to: teamID, auth: auth, identity: identity, authorization: authorization)
-            return
-        }
+            || accountDirectoryEnabled != activeAccountDirectory
+            || (!retainsAcrossTeamChanges() && teamID != self.teamID)
         if directory != nil, !shouldRun || scopeChanged {
             if let directoryObserver { notificationCenter.removeObserver(directoryObserver) }
             directoryObserver = nil
@@ -180,14 +180,18 @@ final class DeviceSurfaceProviderRegistry {
             if !shouldRun {
                 self.identity = nil
                 self.teamID = nil
+                self.activeAccountDirectory = false
             }
             return
         }
         self.identity = identity
         self.teamID = teamID
         activeAutomaticConnections = automatic
+        activeAccountDirectory = accountDirectoryEnabled
         runtime = DeviceLinkRuntime(
-            tokens: HiveAccountTokenSource(auth: auth, identity: identity, teamID: teamID),
+            tokens: accountDirectoryEnabled
+                ? HiveAccountTokenSource(accountScopedAuth: auth, identity: identity)
+                : HiveAccountTokenSource(auth: auth, identity: identity, teamID: teamID),
             automaticClient: automatic ? makeAutomaticClient(identity, teamID) : nil
         )
         let directory = makeDirectory(auth, identity, teamID, authorization, runtime?.automaticClient)
@@ -200,47 +204,6 @@ final class DeviceSurfaceProviderRegistry {
             Task { @MainActor [weak self] in self?.reconcile() }
         }
         directory.start()
-        reconcile()
-    }
-
-    /// A team switch for the same account: replace the team-scoped directory
-    /// sources, tokens and automatic client, carry the rows over, and point
-    /// every existing link at the new runtime. No provider is unregistered,
-    /// so the rows stay visible while links redial under the new team.
-    private func swapTeam(
-        to teamID: String?,
-        auth: AuthCoordinator,
-        identity: AuthenticatedSessionIdentity,
-        authorization: any DeviceLinkAuthorizationSource
-    ) {
-        guard let previous = directory else { return }
-        let carried = previous.carriedState()
-        let oldClient = runtime?.automaticClient
-        if let directoryObserver { notificationCenter.removeObserver(directoryObserver) }
-        directoryObserver = nil
-        self.teamID = teamID
-        let runtime = DeviceLinkRuntime(
-            tokens: HiveAccountTokenSource(auth: auth, identity: identity, teamID: teamID),
-            automaticClient: activeAutomaticConnections ? makeAutomaticClient(identity, teamID) : nil
-        )
-        self.runtime = runtime
-        let next = makeDirectory(auth, identity, teamID, authorization, runtime.automaticClient)
-        next.adopt(carried)
-        directory = next
-        lastDirectoryStamp = nil
-        // Links move to the new runtime before the old client stops, so a
-        // session ending under the old team is already a stale generation.
-        for provider in providers.values { provider.link.replaceRuntime(runtime) }
-        previous.stop()
-        if let oldClient { Task { await oldClient.stop() } }
-        directoryObserver = notificationCenter.addObserver(
-            forName: DeviceDirectory.didChangeNotification,
-            object: next,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.reconcile() }
-        }
-        next.start()
         reconcile()
     }
 

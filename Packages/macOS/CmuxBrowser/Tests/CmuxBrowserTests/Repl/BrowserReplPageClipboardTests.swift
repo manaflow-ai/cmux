@@ -5,7 +5,7 @@ import Testing
 
 @testable import CmuxBrowser
 
-extension BrowserReplPasteboardRedirectTests {
+extension BrowserReplPasteboardTests {
     /// Page scripts in a tab a REPL session created (the Clipboard API, a
     /// `ClipboardItem` whose data arrives later, `execCommand("copy")`) must
     /// never write the system clipboard, at any time: an agent's click gives
@@ -20,8 +20,8 @@ extension BrowserReplPasteboardRedirectTests {
     /// stand-in and the person's clipboard stays untouched. The real one is
     /// only read (its change count).
     ///
-    /// Nested in the redirect suite: the stand-in replaces process-wide
-    /// lookups, so these tests must not run alongside the redirect's.
+    /// Nested in the pasteboard suite: the stand-in replaces process-wide
+    /// lookups, so these tests must not run alongside the drag hook tests.
     @MainActor
     @Suite("Page scripts", .serialized)
     struct PageScripts {
@@ -34,6 +34,7 @@ extension BrowserReplPasteboardRedirectTests {
             <button id=write-item>write a late item</button>
             <button id=exec-copy>execCommand copy</button>
             <button id=exec-copy-handler>execCommand copy with a handler</button>
+            <button id=write-held>write an item whose data the page releases later</button>
             <script>
             const done = (value) => { window.__done = value; };
             const failed = (e) => done('rejected ' + (e && e.name));
@@ -43,6 +44,12 @@ extension BrowserReplPasteboardRedirectTests {
             document.getElementById('write-item').onclick = () => {
               const late = new Promise((resolve) => setTimeout(() => resolve(new Blob(['planted by a late item'], { type: 'text/plain' })), 300));
               navigator.clipboard.write([new ClipboardItem({ 'text/plain': late })]).then(() => done('ok'), failed);
+            };
+            document.getElementById('write-held').onclick = () => {
+              const held = new Promise((resolve) => {
+                window.__release = () => resolve(new Blob(['planted by a held item'], { type: 'text/plain' }));
+              });
+              navigator.clipboard.write([new ClipboardItem({ 'text/plain': held })]).then(() => done('ok'), failed);
             };
             document.getElementById('exec-copy').onclick = () => {
               const field = document.getElementById('field');
@@ -322,4 +329,11 @@ extension BrowserReplPasteboardRedirectTests {
             let standIn: NSPasteboard
         }
     }
+}
+
+/// A page-clipboard message's items are judged by their length before
+/// their Base64 is decoded: the page chose the text (r24 tabs clipboard).
+@MainActor
+@Suite("Browser REPL page clipboard message limits")
+struct BrowserReplPageClipboardMessageLimitTests {
 }

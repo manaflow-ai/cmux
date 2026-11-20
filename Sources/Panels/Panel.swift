@@ -16,11 +16,13 @@ public enum PanelType: String, Codable, CaseIterable, Sendable {
     case project
     case extensionBrowser
     case workspaceTodo
+    case coderouterGuide
     case notifications
     case cloudVMLoading
     case mobilePairing
     case accountSignIn
     case cloudVPNSetup
+    case chief
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -49,6 +51,10 @@ public enum PanelType: String, Codable, CaseIterable, Sendable {
             self = .workspaceTodo
             return
         }
+        if rawValue.lowercased() == Self.coderouterGuide.rawValue.lowercased() {
+            self = .coderouterGuide
+            return
+        }
         if rawValue.lowercased() == Self.notifications.rawValue.lowercased() {
             self = .notifications
             return
@@ -67,6 +73,10 @@ public enum PanelType: String, Codable, CaseIterable, Sendable {
         }
         if rawValue.lowercased() == Self.cloudVPNSetup.rawValue.lowercased() {
             self = .cloudVPNSetup
+            return
+        }
+        if rawValue.lowercased() == Self.chief.rawValue.lowercased() {
+            self = .chief
             return
         }
         throw DecodingError.dataCorruptedError(

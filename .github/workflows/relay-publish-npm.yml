@@ -86,6 +86,7 @@ jobs:
     uses: ./.github/workflows/cmux-tui-build-package.yml
     with:
       version: ${{ needs.version.outputs.version }}
+      retention_days: 30
       package_npm: true
       package_pypi: false
       # The Rust machine relay is Unix-only until a tested Windows PTY backend

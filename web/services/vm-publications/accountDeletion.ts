@@ -56,12 +56,15 @@ export type VmPublicationAccountDeletionOptions = {
 /**
  * Fail-closed external cleanup for account deletion.
  *
- * Every publication is disabled before any provider I/O, then all of their
- * exact-hostname rules are deleted with one provider listing. Sweeping by
- * hostname removes both the persisted rule and a duplicate left if a process
- * died between provider creation and DB commit. Rows are only marked
- * `disabled` after the sweep succeeds, so a provider failure keeps every
- * hostname on the next attempt's list.
+ * Every publication is disabled before any provider I/O, then the rules they
+ * own are deleted with one provider listing. Ownership is read from the row
+ * `beginDisablePublication` returns, after the state change: a provision that
+ * recorded its rule or claim after the first listing is still covered, and
+ * none can record one later because recording requires a provisioning row.
+ * A publication owns its stored rule and, when it holds the hostname claim,
+ * duplicates on its own VM left if a process died between provider creation
+ * and DB commit. Rows are only marked `disabled` after the delete succeeds,
+ * so a provider failure keeps every row on the next attempt's list.
  */
 export function teardownVmPublicationsForAccountDeletion(
   input: VmPublicationAccountDeletionOptions,
@@ -92,13 +95,18 @@ export function teardownVmPublicationsForAccountDeletion(
         ownerUserId: input.ownerUserId,
         now: input.now?.() ?? new Date(),
       });
-      disabled.push({ target, alreadyDisabled: publication.state === "disabled" });
+      disabled.push({
+        target: {
+          ...target,
+          providerTlsRuleId: publication.providerTlsRuleId,
+          hostnameClaimed: publication.hostnameClaimedAt !== null,
+        },
+        alreadyDisabled: publication.state === "disabled",
+      });
     }
     const providerRules = targets.length === 0
       ? 0
-      : yield* provider.deleteTlsRulesForHostnames(
-        targets.map((target) => target.hostname),
-      );
+      : yield* provider.deletePublicationTlsRules(disabled.map(({ target }) => target));
     for (const { target, alreadyDisabled } of disabled) {
       if (!alreadyDisabled) {
         yield* repository.finishDisablePublication({

@@ -24,10 +24,19 @@ final class SidebarRowSnapshotCache {
         presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey,
         snapshot: (UUID) -> SidebarWorkspaceSnapshotBuilder.Snapshot?
     ) {
+        reconcile(workspaceIds: workspaceIds, presentationKey: { _ in presentationKey }, snapshot: snapshot)
+    }
+
+    /// Same, for a key that differs per row (a row's color is part of its key).
+    func reconcile(
+        workspaceIds: Set<UUID>,
+        presentationKey: (UUID) -> SidebarWorkspaceSnapshotBuilder.PresentationKey,
+        snapshot: (UUID) -> SidebarWorkspaceSnapshotBuilder.Snapshot?
+    ) {
         var next: [UUID: SidebarWorkspaceSnapshotBuilder.Snapshot] = [:]
         next.reserveCapacity(workspaceIds.count)
         for id in workspaceIds {
-            if let cached = snapshotsById[id], cached.presentationKey == presentationKey {
+            if let cached = snapshotsById[id], cached.presentationKey == presentationKey(id) {
                 next[id] = cached
             } else {
                 next[id] = snapshot(id)

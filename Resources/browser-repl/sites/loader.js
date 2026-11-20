@@ -8,16 +8,33 @@
 //   the call runs in the page's own world, same-origin. A token a site keeps
 //   in the page stays in the page; no tool returns a credential.
 // - Reads run directly. A write that reaches other people returns a draft;
-//   only `tool.method(draftId, { confirm: true })` performs it.
+//   only `tool.method(draftId, { confirm: true })` performs it, through the
+//   commit protocol (createDrafts): the draft's typed intent is read back
+//   from the site right before the write, which runs only when it matches.
 (function (root) {
   "use strict";
   const ns = (root.CmuxBrowserRepl = root.CmuxBrowserRepl || {});
+  // Built-ins the commit checks use, captured when the loader runs: code
+  // that changes these globals later (agent code shares this realm) does
+  // not change how a read-back is copied or compared.
+  const stringify = JSON.stringify;
+  const objectKeys = Object.keys;
+  const getPrototypeOf = Object.getPrototypeOf;
+  const ownNames = Object.getOwnPropertyNames;
+  const ownDescriptor = Object.getOwnPropertyDescriptor;
+  const isArray = Array.isArray;
+  const defineProperty = Object.defineProperty;
+  const objectTag = Function.prototype.call.bind(Object.prototype.toString);
+  const numberIsFinite = Number.isFinite;
   const registry = [];
   const shared = {};
 
+  // meta: { summary, writes: [method names] }. A tool's writes are the
+  // methods that change what other people see; each returns a draft and
+  // performs it through the commit protocol (see createDrafts).
   function register(name, factory, meta = {}) {
     const at = registry.findIndex((r) => r.name === name);
-    const entry = { name, factory, summary: meta.summary || "" };
+    const entry = { name, factory, summary: meta.summary || "", writes: Object.freeze([...(meta.writes || [])]) };
     if (at >= 0) registry[at] = entry;
     else registry.push(entry);
   }
@@ -199,6 +216,9 @@
   }
 
   const DRAFT_TTL_MS = 30 * 60 * 1000;
+  // Text compared as a person reads it: whitespace runs are one space,
+  // zero-width characters dropped, ends trimmed.
+  const normText = (v) => String(v === undefined || v === null ? "" : v).replace(/[\u200b-\u200d\u2060\ufeff]/g, "").replace(/\s+/g, " ").trim();
 
   // A private deep copy of plain data, so a write keeps no object its caller
   // can still change. Each own enumerable property is read once (a getter or
@@ -240,13 +260,233 @@
     return value;
   }
 
+  // JSON with object keys sorted, so two values compare by content.
+  function canonicalJSON(value) {
+    if (isArray(value)) {
+      let out = "[";
+      for (let i = 0; i < value.length; i++) out += (i ? "," : "") + canonicalJSON(value[i]);
+      return out + "]";
+    }
+    if (value && typeof value === "object") {
+      const keys = objectKeys(value).sort();
+      let out = "{";
+      for (let i = 0; i < keys.length; i++) out += (i ? "," : "") + stringify(keys[i]) + ":" + canonicalJSON(value[keys[i]]);
+      return out + "}";
+    }
+    return stringify(value === undefined ? null : value);
+  }
+
+  // A read-back value as plain data, copied: strings, booleans, finite
+  // numbers and null, in arrays and plain objects (of any realm: an
+  // Object.prototype or no prototype) whose own properties are all
+  // enumerable data properties. Each is read once through its descriptor,
+  // so no getter, toJSON or toString runs and nothing answers differently
+  // later; the copy has only those own values (nothing it inherits).
+  // Anything else (a function, a symbol, a Date or other object, an
+  // accessor, past 32 levels, so also a cycle) is not a reading: NOT_PLAIN.
+  const NOT_PLAIN = Symbol("not plain data");
+  const isPlainObject = (value) => {
+    if (objectTag(value) !== "[object Object]") return false;
+    const proto = getPrototypeOf(value);
+    return proto === null || getPrototypeOf(proto) === null;
+  };
+  function plainReading(value, depth = 0) {
+    if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+    if (typeof value === "number") return numberIsFinite(value) ? value : NOT_PLAIN;
+    if (typeof value !== "object" || depth > 32) return NOT_PLAIN;
+    const array = isArray(value);
+    if (!array && !isPlainObject(value)) return NOT_PLAIN;
+    const out = array ? [] : {};
+    for (const key of ownNames(value)) {
+      if (array && key === "length") continue;
+      const d = ownDescriptor(value, key);
+      if (!d || !("value" in d) || !d.enumerable) return NOT_PLAIN;
+      const v = plainReading(d.value, depth + 1);
+      if (v === NOT_PLAIN) return NOT_PLAIN;
+      defineProperty(out, key, { value: v, enumerable: true, writable: true, configurable: true });
+    }
+    return out;
+  }
+  const shown = (v) => {
+    const text = typeof v === "string" ? JSON.stringify(v) : canonicalJSON(v);
+    return text.length > 160 ? text.slice(0, 159) + "…" : text;
+  };
+  // 64-bit FNV-1a of a string as 16 hex digits: a draft shows it for
+  // content too long to show (a document's text), and its commit compares
+  // the hash of what the site holds then.
+  function hash(text) {
+    let h = 0xcbf29ce484222325n;
+    const s = String(text);
+    for (let i = 0; i < s.length; i++) h = ((h ^ BigInt(s.charCodeAt(i))) * 0x100000001b3n) & 0xffffffffffffffffn;
+    return h.toString(16).padStart(16, "0");
+  }
+  const INTENT_GROUPS = ["account", "target", "content"];
+  const GROUP_WORDS = { account: "account it acts as", target: "object it acts on", content: "content it sends" };
+
+  // The typed intent of a write: `account` (the principal that acts, by
+  // stable ids), `target` (the object it acts on or the people it
+  // reaches, by stable ids) and `content` (every other field). The
+  // preview is the three groups merged, so the draft shows every bound
+  // field and nothing else. `sent` names content fields the write sends
+  // from the frozen intent itself (a post's text in an API body), which no
+  // page holds to read back; account and target fields are always read
+  // back. `canon` maps a field to the form both sides are compared in.
+  function intentOf(site, action, spec) {
+    const where = `sites.${site}.${action}`;
+    const groupOf = {};
+    const preview = {};
+    for (const g of INTENT_GROUPS) {
+      const fields = spec[g] === undefined && g !== "account" ? {} : spec[g];
+      if (!fields || typeof fields !== "object" || Array.isArray(fields)) throw new SiteError("invalid", `${where}: the draft's ${g} is not an object (a site tool bug)`);
+      for (const k of Object.keys(fields)) {
+        if (k in groupOf) throw new SiteError("invalid", `${where}: the draft names ${k} twice (a site tool bug)`);
+        groupOf[k] = g;
+        preview[k] = fields[k];
+      }
+    }
+    if (!Object.keys(spec.account).length) throw new SiteError("invalid", `${where}: the draft names no account (a site tool bug)`);
+    const sent = new Set(spec.sent || []);
+    for (const k of sent) if (groupOf[k] !== "content") throw new SiteError("invalid", `${where}: ${k} is not a content field; only content may be sent from the draft without reading it back (a site tool bug)`);
+    if (typeof spec.commit !== "function") throw new SiteError("invalid", `${where}: the draft has no commit (a site tool bug)`);
+    return { preview, groupOf, sent, canon: spec.canon || {} };
+  }
+
+  // Compares what the page holds right before the write with the draft:
+  // every field not `sent` must be read back and equal. A difference fails
+  // as <group>_mismatch, a field the page did not give as
+  // <group>_unverified; account first, then target, then content.
+  //
+  // `observed` is read once, as plain data (plainReading): a bound field
+  // whose value is not plain data (it would serialize or convert itself:
+  // toJSON, toString, a getter) is unread, so <group>_unverified.
+  // `groups` limits the check to some groups (the account alone, read
+  // again as the last step before a click); `keys` limits it to those
+  // drafted fields (a target read again before an input batch).
+  function checkIntent(where, entry, read, groups = INTENT_GROUPS, keys = null) {
+    const { preview, groupOf, sent, canon } = entry.intent;
+    const problems = { account: [], target: [], content: [] };
+    const unknown = { account: [], target: [], content: [] };
+    const observed = {};
+    const unreadable = new Set();
+    if (read && typeof read === "object" && isPlainObject(read)) {
+      for (const k of ownNames(read)) {
+        const d = ownDescriptor(read, k);
+        const v = d && "value" in d && d.enumerable ? (d.value === undefined ? undefined : plainReading(d.value)) : NOT_PLAIN;
+        if (v === NOT_PLAIN) unreadable.add(k);
+        else if (v !== undefined) defineProperty(observed, k, { value: v, enumerable: true, writable: true, configurable: true });
+      }
+    }
+    const has = (k) => ownDescriptor(observed, k) !== undefined;
+    for (const k of objectKeys(preview)) {
+      if (sent.has(k)) continue;
+      if (keys && !keys.includes(k)) continue;
+      const g = groupOf[k];
+      if (!groups.includes(g)) continue;
+      if (!has(k)) {
+        unknown[g].push(k);
+        continue;
+      }
+      let a;
+      let b;
+      try {
+        const c = canon[k] || ((x) => x);
+        a = canonicalJSON(c(observed[k]));
+        b = canonicalJSON(c(preview[k]));
+      } catch (e) {
+        unknown[g].push(k);
+        continue;
+      }
+      if (a !== b) problems[g].push(`${k} is ${shown(observed[k])}, not ${shown(preview[k])}`);
+    }
+    const drafted = (k) => ownDescriptor(preview, k) !== undefined;
+    for (const k of unreadable) if (!drafted(k)) unknown.content.push(k);
+    for (const k of objectKeys(observed)) if (!drafted(k)) problems.content.push(`it also holds ${k} ${shown(observed[k])}, which the draft does not show`);
+    for (const g of INTENT_GROUPS) if (problems[g].length) throw new SiteError(`${g}_mismatch`, `${where}: the ${GROUP_WORDS[g]} differs from the draft (${problems[g].join("; ")}); nothing was sent. Make a new draft and show it to the user again`);
+    for (const g of INTENT_GROUPS) if (unknown[g].length) throw new SiteError(`${g}_unverified`, `${where}: could not read ${unknown[g].join(", ")} back from the site right before the write, so the ${GROUP_WORDS[g]} is not verified; nothing was sent`);
+    return objectKeys(preview).filter((k) => !sent.has(k));
+  }
+
   // Drafts live in the REPL session that made them, so a draft can be
   // confirmed only by the session the user saw it in (use --session NAME).
-  // A draft's record (status, expiry, preview) stays here; the agent gets
-  // frozen views of it. The preview is a frozen JSON copy whose canonical
-  // text is kept: confirming runs the draft with that same preview, after
-  // checking the text still matches, so the action is the one shown.
-  function createDrafts(host) {
+  // A draft's record (status, expiry, intent) stays here; the agent gets
+  // frozen views of it. The preview is a frozen JSON copy of the intent
+  // whose canonical text is kept: confirming runs the draft's commit with
+  // that same intent, after checking the text still matches.
+  //
+  // The commit protocol: commit(c) prepares the write (opens the page)
+  // and then calls c.write(observe, act, options) once; drafted content
+  // goes into the site through { fill } (run after the account is read
+  // again, before the first read-back and before { submit } is pinned). observe() reads every bound field back from the site; the loader
+  // compares it with the intent (checkIntent) and calls act(press), the
+  // write itself, only when all of it matches. A commit that returns
+  // without calling c.write fails (commit_unverified).
+  //
+  // A write that is a click (Send, Post, Save, Replace all) presses
+  // through press(), so the click lands on what the read-back verified:
+  // { submit: locator } pins that element before observe(), and
+  // press() presses exactly it (press(locator) pins one then, for a
+  // control the act opens). press() waits until the element can take the
+  // click and the pointer is on it, runs observe() and checkIntent again,
+  // and sends the press bound to that element (the driver's press check):
+  // a pinned element that left the document fails target_mismatch, a
+  // change found by the second read-back fails as the first would, a tab
+  // that left its site's origin fails target_mismatch (see withTab), and
+  // either way nothing is pressed. A commit with { submit } whose act
+  // returns without press() fails (commit_unverified).
+  //
+  // press.next(locator) presses a second control the first press opened
+  // (Calendar's invitation dialog Send after Save): the locator must match
+  // exactly one element, which is pinned and pressed the same way, with
+  // the same read-backs right before its click.
+  //
+  // { account: read } reads the account fields alone; every commit gives
+  // it (a commit without it fails before its act, invalid). press() runs
+  // it as the last step before the click, after the second read-back, so
+  // another session that switches the shared profile's account while the
+  // rest is read back sends nothing (account_mismatch). What remains is
+  // the switch between that read and the click reaching the page.
+  //
+  // A write that is not a click (typed keys or a paste in the Google
+  // editors, a site request such as Slack's chat.postMessage or Notion's
+  // saveTransactions, a WebMCP tool call) has no control to pin:
+  // press.input(fn) reads the account again and runs fn, one batch of
+  // input or one request, only when it is still the drafted one and every
+  // site tab is still on its site's origin, so
+  // another session that switches the shared profile's account after the
+  // read-back changes nothing (account_mismatch, or account_unverified when
+  // it cannot be read). Each batch that changes the site goes through it,
+  // and an act that returns having used neither press() nor press.input()
+  // fails (commit_unverified): the account check before the write lives
+  // here, in the commit path, for every site write.
+  const PRESS_TIMEOUT_MS = 15000;
+  async function pinElement(where, locator) {
+    if (!locator || typeof locator.elementHandle !== "function") throw new SiteError("invalid", `${where}: the control to press is not a locator (a site tool bug)`);
+    return locator.elementHandle({ timeout: PRESS_TIMEOUT_MS });
+  }
+  async function pressPinned(where, el, recheck) {
+    const frame = el._pinnedFrame;
+    const handle = el._handle;
+    const changed = () => new SiteError("target_mismatch", `${where}: the control the read-back verified was replaced or removed before the click; nothing was sent. Make a new draft and show it to the user again`);
+    // The pinned element only: no lookup finds another element in its place.
+    const bound = Object.create(el);
+    bound._resolveOne = async () => {
+      if (!(await frame._agent("rect", handle).catch(() => null))) throw changed();
+      return { frame, handle };
+    };
+    bound._resolveAll = async () => {
+      const r = await bound._resolveOne();
+      return { frame: r.frame, handles: [r.handle] };
+    };
+    await bound._pointer({ timeout: PRESS_TIMEOUT_MS }, `${where} (press)`, ["visible", "enabled", "stable"], async (target) => {
+      if (target.frame !== frame || target.handle !== handle) throw changed();
+      await recheck(el._page);
+      await el._page._clickAt(target, {}, `${where} (press)`);
+    });
+  }
+
+  // checkTabs(where, page): fails target_mismatch when a site tab (page,
+  // and every tab withTab holds) left its site's origin.
+  function createDrafts(host, writesOf, checkTabs) {
     const drafts = new Map();
     let n = 0;
     const now = () => (host.now ? host.now() : Date.now());
@@ -260,38 +500,127 @@
         summary: e.summary,
         category: e.category,
         preview: e.preview,
+        checked: Object.freeze([...(e.checked || [])]),
         expiresAt: new Date(e.expiresAt).toISOString(),
         confirm: `await sites.${e.site}.${e.action}(${JSON.stringify(e.id)}, { confirm: true })`,
       });
     return {
-      create({ site, action, category, summary, preview, run }) {
+      create(site, action, spec) {
+        const where = `sites.${site}.${action}`;
+        if (!writesOf(site).includes(action)) throw new SiteError("invalid", `${where} is not a declared write of sites.${site} (a site tool bug)`);
+        const intent = intentOf(site, action, spec);
         let canonical;
         try {
-          canonical = JSON.stringify(preview === undefined ? null : preview);
+          canonical = JSON.stringify(intent.preview);
         } catch (e) {
-          throw new SiteError("invalid", `sites.${site}.${action}: the draft preview is not JSON data (${(e && e.message) || e})`);
+          throw new SiteError("invalid", `${where}: the draft preview is not JSON data (${(e && e.message) || e})`);
         }
+        const preview = deepFreeze(JSON.parse(canonical));
+        // Compare with the JSON form the user sees (a Date as its string).
+        intent.preview = preview;
         const id = `draft-${++n}-${rand()}`;
-        const entry = { id, site, action, status: "draft", summary: String(summary), category: String(category), preview: deepFreeze(JSON.parse(canonical)), canonical, expiresAt: now() + DRAFT_TTL_MS, run };
+        const entry = { id, site, action, status: "draft", summary: String(spec.summary), category: String(spec.category), preview, canonical, intent, expiresAt: now() + DRAFT_TTL_MS, commit: spec.commit, checked: null };
         drafts.set(id, entry);
         return view(entry);
       },
       async run(id, site, action) {
+        const where = `sites.${site}.${action}`;
         const entry = drafts.get(id);
-        if (!entry) throw new SiteError("draft_not_found", `sites.${site}.${action}: no draft ${JSON.stringify(id)} in this REPL session. Drafts live in the session that made them; run both calls in one named session (cmux browser repl --session NAME).`);
-        if (entry.site !== site || entry.action !== action) throw new SiteError("draft_mismatch", `sites.${site}.${action}: draft ${id} is a sites.${entry.site}.${entry.action} draft`);
-        if (entry.status !== "draft") throw new SiteError("draft_used", `sites.${site}.${action}: draft ${id} is ${entry.status}; make a new draft`);
+        if (!entry) throw new SiteError("draft_not_found", `${where}: no draft ${JSON.stringify(id)} in this REPL session. Drafts live in the session that made them; run both calls in one named session (cmux browser repl --session NAME).`);
+        if (entry.site !== site || entry.action !== action) throw new SiteError("draft_mismatch", `${where}: draft ${id} is a sites.${entry.site}.${entry.action} draft`);
+        if (entry.status !== "draft") throw new SiteError("draft_used", `${where}: draft ${id} is ${entry.status}; make a new draft`);
         if (now() > entry.expiresAt) {
           entry.status = "expired";
-          throw new SiteError("draft_expired", `sites.${site}.${action}: draft ${id} expired; make a new draft and show it to the user again`);
+          throw new SiteError("draft_expired", `${where}: draft ${id} expired; make a new draft and show it to the user again`);
         }
         if (JSON.stringify(entry.preview) !== entry.canonical) {
           entry.status = "failed";
-          throw new SiteError("draft_changed", `sites.${site}.${action}: draft ${id} no longer matches its preview; nothing was sent. Make a new draft and show it to the user again`);
+          throw new SiteError("draft_changed", `${where}: draft ${id} no longer matches its preview; nothing was sent. Make a new draft and show it to the user again`);
         }
         entry.status = "sending";
+        let wrote = false;
+        const c = Object.freeze({
+          intent: entry.preview,
+          async write(observe, act, options = {}) {
+            if (wrote) throw new SiteError("commit_reused", `${where}: a draft writes once (a site tool bug)`);
+            wrote = true;
+            const readAccount = options && typeof options.account === "function" ? options.account : null;
+            if (!readAccount) throw new SiteError("invalid", `${where}: every write needs the commit's { account } reader, read again right before the click or input (a site tool bug); nothing was sent`);
+            // { fill }: puts the drafted content into the site (a composer's
+            // text, a compose window opened with its fields) after the
+            // account is read again and every site tab is still on its
+            // site's origin, so content never reaches an account another
+            // session switched to while the page loaded (the site keeps it
+            // as that account's draft). The read-back below then checks it.
+            if (options.fill !== undefined) {
+              if (typeof options.fill !== "function") throw new SiteError("invalid", `${where}: { fill } must be a function (a site tool bug); nothing was sent`);
+              checkIntent(where, entry, await readAccount(), ["account"]);
+              await checkTabs(where);
+              await options.fill();
+            }
+            const submit = options.submit ? await pinElement(where, options.submit) : null;
+            const check = async () => checkIntent(where, entry, await observe());
+            const recheck = async (page) => {
+              await checkTabs(where, page);
+              await check();
+              if (readAccount) checkIntent(where, entry, await readAccount(), ["account"]);
+              await checkTabs(where, page);
+            };
+            // A site reader that turns a failed read into "unknown" would
+            // report a tab that left its origin as an unverified field.
+            await checkTabs(where);
+            entry.checked = await check();
+            let pressed = false;
+            const press = async (locator) => {
+              if (pressed) throw new SiteError("commit_reused", `${where}: a write presses once (a site tool bug)`);
+              pressed = true;
+              const el = locator ? await pinElement(where, locator) : submit;
+              if (!el) throw new SiteError("invalid", `${where}: press() needs the control to press (a site tool bug)`);
+              await pressPinned(where, el, recheck);
+            };
+            let pressedNext = false;
+            press.next = async (locator) => {
+              if (!pressed) throw new SiteError("invalid", `${where}: press.next() presses a control the write's press() opened; call press() first (a site tool bug)`);
+              if (pressedNext) throw new SiteError("commit_reused", `${where}: a write presses one follow-up control (a site tool bug)`);
+              pressedNext = true;
+              if (!locator || typeof locator.count !== "function") throw new SiteError("invalid", `${where}: press.next() needs the control to press (a site tool bug)`);
+              const n = await locator.count();
+              if (n !== 1) throw new SiteError("target_unverified", `${where}: expected one control to press after the first, found ${n}; nothing more was pressed`);
+              await pressPinned(where, await pinElement(where, locator), recheck);
+            };
+            let inputs = 0;
+            // press.input(fn, reread): reread() (optional) reads drafted
+            // fields that can move under the write (a Sheets append's
+            // position) again right before this batch; then the account,
+            // last. A batch after an earlier one says what may have landed.
+            press.input = async (fn, reread) => {
+              if (typeof fn !== "function") throw new SiteError("invalid", `${where}: press.input() needs the input to run (a site tool bug)`);
+              if (reread !== undefined && typeof reread !== "function") throw new SiteError("invalid", `${where}: press.input()'s reread must be a function (a site tool bug)`);
+              try {
+                if (reread) {
+                  const now = await reread();
+                  const keys = now && typeof now === "object" && isPlainObject(now) ? ownNames(now) : [];
+                  if (!keys.length) throw new SiteError("invalid", `${where}: press.input()'s reread read no field (a site tool bug); nothing more was sent`);
+                  checkIntent(where, entry, now, INTENT_GROUPS, keys);
+                }
+                checkIntent(where, entry, await readAccount(), ["account"]);
+                await checkTabs(where);
+              } catch (e) {
+                if ((inputs || pressed) && e instanceof SiteError) throw new SiteError(e.code, String(e.message).replace("nothing was sent", "earlier input of this write may have reached the site; nothing more was sent"));
+                throw e;
+              }
+              inputs++;
+              return fn();
+            };
+            const result = await act(press);
+            if (!pressed && !inputs) throw new SiteError("commit_unverified", `${where}: the tool wrote without press() or press.input(), so the account was not read again before its input (a site tool bug); treat the result as unverified`);
+            if (submit && !pressed) throw new SiteError("commit_unverified", `${where}: the tool wrote without pressing the control its read-back verified (a site tool bug); treat the result as unverified`);
+            return result;
+          },
+        });
         try {
-          const result = await entry.run(entry.preview);
+          const result = await entry.commit(c);
+          if (!wrote) throw new SiteError("commit_unverified", `${where}: the tool returned without reading the draft back before its write (a site tool bug); treat the result as unverified`);
           entry.status = "sent";
           return result;
         } catch (e) {
@@ -312,7 +641,53 @@
 
   function createSites(ctx) {
     const { session, host, fs, path } = ctx;
-    const drafts = createDrafts(host);
+    // Each tab withTab holds, bound to the origin of the URL it opened:
+    // the site whose signed-in session and DOM its tool may use. A redirect
+    // or a later navigation can take the tab to another origin, whose page
+    // would answer the tool's read-backs and relative requests and take its
+    // input and clicks. The read helpers (readBack, waitIn, composerText)
+    // and the commit path (press, press.next, press.input) check the tab
+    // before each evaluation, input and click, and fail target_mismatch.
+    const boundTabs = new Map();
+    const httpOrigin = (url) => {
+      try {
+        const o = new ctx.URL(String(url)).origin;
+        return /^https?:\/\//.test(o) ? o : null;
+      } catch (e) {
+        return null;
+      }
+    };
+    const tabLeft = (where, want, at) => new SiteError("target_mismatch", `${where}: the site's tab left ${want} for ${at} (a redirect or navigation); nothing was sent there`);
+    // fn wrapped to run only in a document whose own location.origin is
+    // __cmux.origin, checked in the script turn that calls it (location is
+    // unforgeable, so page script cannot answer for it); else it returns
+    // { __cmuxWrongOrigin }.
+    const originGuarded = (fn) =>
+      // eslint-disable-next-line no-new-func
+      new Function("__cmux", `if (location.origin !== __cmux.origin) return { __cmuxWrongOrigin: String(location.origin) };\nreturn (${ns.core.functionSource(fn)})(__cmux.arg);`);
+    const wrongOrigin = (r) => (r && typeof r === "object" && typeof r.__cmuxWrongOrigin === "string" && Object.keys(r).length === 1 ? r.__cmuxWrongOrigin : null);
+    const agentCall = (page, fn, arg, what) => page._mainFrame._call("agent", ns.core.functionSource(fn), [arg], undefined, what);
+    // The tab's URL and its main document must both be on its origin.
+    async function checkTab(where, page) {
+      const want = boundTabs.get(page);
+      if (!want) return;
+      const at = httpOrigin(page.url());
+      if (at !== want) throw tabLeft(where, want, at || "another page");
+      const wrong = wrongOrigin(await agentCall(page, originGuarded(() => true), { origin: want }, "the tab's origin"));
+      if (wrong !== null) throw tabLeft(where, want, wrong);
+    }
+    async function checkTabs(where, page) {
+      if (page) await checkTab(where, page);
+      for (const p of [...boundTabs.keys()]) if (p !== page) await checkTab(where, p);
+    }
+    const drafts = createDrafts(
+      host,
+      (site) => {
+        const r = registry.find((x) => x.name === site);
+        return r ? r.writes : [];
+      },
+      checkTabs,
+    );
     let files = 0;
 
     const tool = {
@@ -324,6 +699,7 @@
       decodeEntities,
       parseCSV,
       parseA1Range,
+      hash,
       URL: ctx.URL,
       Buffer: ctx.Buffer,
       fs,
@@ -331,6 +707,9 @@
       host,
       session,
       fetch: ctx.fetch,
+      // fetchFrom(page, origin) is a fetch with that tab's cookies and that
+      // origin's same-origin rule, whichever tab is current.
+      fetchFrom: ctx.fetchFrom,
       currentPage: ctx.currentPage,
       snapshot: ctx.snapshot,
       sleep: (ms) => session.sleep(ms),
@@ -359,13 +738,17 @@
         return r;
       },
       // Runs fn(page) in a background tab loaded at url, then closes the tab.
-      // The current tab does not change.
+      // The current tab does not change. An http(s) tab is bound to url's
+      // origin while fn runs (boundTabs).
       async withTab(url, fn, options = {}) {
         const page = await session.newPage(undefined, { background: true });
+        const origin = httpOrigin(url);
+        if (origin) boundTabs.set(page, origin);
         try {
           await page.goto(url, { waitUntil: options.waitUntil || "load", timeout: options.timeout || 45000 });
           return await fn(page);
         } finally {
+          boundTabs.delete(page);
           await page.close().catch(() => {});
         }
       },
@@ -377,21 +760,81 @@
       async inOrigin(origin, fn, arg, options = {}) {
         return tool.withOrigin(origin, (run) => run(fn, arg), options);
       },
+      // Runs page function fn(arg) in the agent's isolated world of
+      // `page`'s main frame (the world locators read in) and returns its
+      // result. A commit's observe() reads the site with this, never with
+      // page.evaluate: a page-world result is whatever the page makes of it
+      // (its own JSON.stringify, toJSON, getters, patched built-ins), while
+      // the agent's world has its own built-ins and the result crosses as
+      // that world's JSON. The function sees the document and its cookies
+      // (same origin), not the page's script globals.
+      // In a withTab tab, fn runs only in a document on the tab's origin.
+      async readBack(page, fn, arg) {
+        const want = boundTabs.get(page);
+        if (!want) return agentCall(page, fn, arg, "the read-back");
+        const at = httpOrigin(page.url());
+        if (at !== want) throw tabLeft("sites", want, at || "another page");
+        const r = await agentCall(page, originGuarded(fn), { origin: want, arg }, "the read-back");
+        const wrong = wrongOrigin(r);
+        if (wrong !== null) throw tabLeft("sites", want, wrong);
+        return r;
+      },
       // Like inOrigin for several calls on one tab: body(run) where
-      // run(fn, arg) evaluates in the page.
+      // run(fn, arg) evaluates in the page. A redirect can leave the tab on
+      // another origin, whose page would then receive the call with the
+      // profile's cookies: run() fails (origin_changed) unless the tab's
+      // URL is on `origin`, and the evaluation itself first checks the
+      // document's own location.origin, so no call runs in a document of
+      // another origin, also one that replaced the page after the check.
+      // { world: "agent" } runs the calls in the agent's isolated world
+      // (readBack): a commit's observe() reads through that, since a
+      // site's service worker can serve the path a page with scripts.
       async withOrigin(origin, body, options = {}) {
-        return tool.withTab(origin.replace(/\/$/, "") + (options.path || "/robots.txt"), (page) => body((fn, arg) => page.evaluate(fn, arg)), options);
+        const base = String(origin).replace(/\/$/, "");
+        let want;
+        try {
+          want = new ctx.URL(base).origin;
+        } catch (e) {
+          want = null;
+        }
+        if (!want || !/^https?:\/\//.test(want)) throw new SiteError("invalid", `sites: expected an http(s) origin, got ${JSON.stringify(origin)}`);
+        const changed = (where) => new SiteError("origin_changed", `sites: ${base}${options.path || "/robots.txt"} led to ${where}, not a page on ${want} (a redirect); nothing ran there`);
+        return tool.withTab(base + (options.path || "/robots.txt"), (page) =>
+          body(async (fn, arg) => {
+            let at = null;
+            try {
+              at = new ctx.URL(page.url()).origin;
+            } catch (e) {}
+            if (at !== want) throw changed(page.url());
+            const guarded = originGuarded(fn);
+            const r = options.world === "agent" ? await agentCall(page, guarded, { origin: want, arg }, "the read-back") : await page.evaluate(guarded, { origin: want, arg });
+            const wrong = wrongOrigin(r);
+            if (wrong !== null) throw changed(wrong);
+            return r;
+          }),
+        options);
       },
       // Waits in `page` until fn(arg) returns a truthy value; returns it.
       // With { signIn: [patterns], name }, a tab that reaches a sign-in page
       // at any point (sites also redirect from script) fails as not_signed_in.
-      async waitIn(page, fn, arg, { timeout = 20000, what = "the page", signIn, name = "sites" } = {}) {
+      // { world: "agent" } evaluates in the agent's world (readBack), as a
+      // commit's observe() must. In a withTab tab, a URL off the tab's
+      // origin fails target_mismatch, and fn runs only in a document on it.
+      async waitIn(page, fn, arg, { timeout = 20000, what = "the page", signIn, name = "sites", world = "page" } = {}) {
         const deadline = session.now() + timeout;
+        const want = boundTabs.get(page);
         for (;;) {
           if (signIn) tool.assertSignedIn(name, page, signIn);
+          if (want && httpOrigin(page.url()) !== want) throw tabLeft(name, want, httpOrigin(page.url()) || "another page");
           let v = null;
           try {
-            v = await page.evaluate(fn, arg);
+            if (!want) v = world === "agent" ? await agentCall(page, fn, arg, "the read-back") : await page.evaluate(fn, arg);
+            else {
+              const guarded = originGuarded(fn);
+              v = world === "agent" ? await agentCall(page, guarded, { origin: want, arg }, "the read-back") : await page.evaluate(guarded, { origin: want, arg });
+              // A document the tab's URL has not caught up with: not ready.
+              if (wrongOrigin(v) !== null) v = null;
+            }
           } catch (e) {
             // A navigation replaced the document; try again on the new one.
             if (!/stale|navigat|context|detached|destroyed/i.test(String(e && e.message))) throw e;
@@ -413,9 +856,13 @@
       copyInput,
       // A write that reaches other people: the first call returns a draft; a
       // second call with the draft id and { confirm: true } performs it.
-      // make() receives a private copy of input, so what it captures for
-      // run() cannot be changed by the caller afterwards; run() receives the
-      // frozen preview.
+      // make() receives a private copy of input, so what it captures cannot
+      // be changed by the caller afterwards. make() (may be async) resolves
+      // the concrete account and target (ids, emails) and returns { category,
+      // summary, account, target, content, sent?, canon?, commit(c) }: the
+      // typed intent the draft shows, and the commit that reads it back
+      // right before the write (createDrafts). State another session
+      // changes between the preview and the confirmation fails the write.
       write(site, action, input, options, make) {
         const isDraftId = typeof input === "string" && /^draft-\d+-[0-9a-f]+$/.test(input);
         if (isDraftId) {
@@ -424,8 +871,21 @@
         }
         if (options && options.confirm) throw new SiteError("draft_required", `sites.${site}.${action}: { confirm: true } takes a draft id. Call sites.${site}.${action}(input) first, show the returned draft to the user, then confirm it.`);
         const spec = make(copyInput(input, `sites.${site}.${action}`));
-        return drafts.create({ site, action, category: spec.category, summary: spec.summary, preview: spec.preview, run: spec.run });
+        const create = (s) => drafts.create(site, action, s);
+        return spec && typeof spec.then === "function" ? spec.then(create) : create(spec);
       },
+      // The whole text the composer at `locator` holds, for a commit's
+      // observe(): read in the agent's isolated world, hidden text
+      // included, whitespace collapsed and zero-width characters dropped
+      // (normText), so a composer that keeps the draft's start and holds
+      // more differs. `exclude`: a selector for the site's own additions
+      // that are not the draft (Gmail's signature and quoted text).
+      async composerText(locator, { exclude } = {}) {
+        await checkTab("sites", locator._page);
+        const text = await locator._read("composerText", exclude || null, {}, "composer text");
+        return typeof text === "string" ? normText(text) : undefined;
+      },
+      normText,
     };
 
     const sites = {};
@@ -444,7 +904,7 @@
       },
       // One line per tool; sites.help(name) for its methods.
       list: {
-        value: () => registry.map((r) => ({ name: r.name, summary: r.summary, ...(failed[r.name] ? { error: failed[r.name] } : {}) })),
+        value: () => registry.map((r) => ({ name: r.name, summary: r.summary, writes: [...r.writes], ...(failed[r.name] ? { error: failed[r.name] } : {}) })),
         enumerable: false,
       },
       help: {
@@ -460,5 +920,5 @@
     return sites;
   }
 
-  ns.sites = { register, createSites, shared, SiteError, copyInput, embeddedJSON, decodeEntities, parseCSV, parseA1Range, pageFunction, ELEMENT_MARKDOWN };
+  ns.sites = { register, createSites, shared, SiteError, copyInput, hash, embeddedJSON, decodeEntities, parseCSV, parseA1Range, pageFunction, ELEMENT_MARKDOWN };
 })(typeof globalThis !== "undefined" ? globalThis : this);

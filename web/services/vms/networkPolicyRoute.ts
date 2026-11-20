@@ -9,6 +9,8 @@ import {
 import { GUEST_AGENT_UPDATE_DOMAINS } from "./images/agents";
 import { jsonResponse } from "./routeHelpers";
 import type { VmNetworkPolicyView } from "./workflows";
+import { vmNetworkPolicyStatusMessage } from "./vmErrorMessages";
+import type { Locale } from "../../i18n/routing";
 
 /** The preset catalog every client renders; served so a preset change needs no client update. */
 export function networkPolicyCatalog() {
@@ -21,11 +23,19 @@ export function networkPolicyCatalog() {
   };
 }
 
-export function networkPolicyResponseBody(view: VmNetworkPolicyView) {
+/**
+ * The policy, the catalog, and the apply status. A failed status carries its
+ * stable `errorCode` and, under `error`, localized copy for that code.
+ */
+export async function networkPolicyResponseBody(view: VmNetworkPolicyView, locale: Locale) {
+  const { errorCode } = view.status;
   return {
     ...networkPolicyCatalog(),
     policy: view.policy,
-    applied: view.status,
+    applied: {
+      ...view.status,
+      ...(errorCode ? { error: await vmNetworkPolicyStatusMessage(errorCode, locale) } : {}),
+    },
   };
 }
 

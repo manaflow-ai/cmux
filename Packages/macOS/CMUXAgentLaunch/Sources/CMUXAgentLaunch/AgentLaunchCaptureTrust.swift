@@ -32,6 +32,7 @@ public enum AgentLaunchCaptureTrust {
         "grok": ["grok", "grok-macos-aarch64", "grok-macos-aarch"],
         "kiro": ["kiro", "kiro-cli"],
         "kimi": ["kimi", "kimi-cli", "kimi-code"],
+        "muse": ["muse"],
         "omp": ["omp"],
         "opencode": ["opencode", "omo", "omx", "omc"],
         "pi": ["pi", "omp"],
@@ -52,6 +53,19 @@ public enum AgentLaunchCaptureTrust {
             return true
         }
         return wrapperLaunchersByKind[normalizedKind]?.contains(normalizedLauncher) == true
+    }
+
+    /// Whether an OMP capture pins its executable independently of the restore PATH.
+    ///
+    /// - Parameter launch: The current or previously persisted launch capture.
+    /// - Returns: `true` for a non-rejected capture with an absolute executable,
+    ///   including an executable-only record whose argv is empty.
+    public static func ompLaunchHasDurableResumeEvidence(_ launch: AgentLaunchCommand?) -> Bool {
+        guard let launch, !launch.isRejectedCapture else { return false }
+        let executable = [launch.executablePath, launch.arguments.first]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        return executable?.hasPrefix("/") == true
     }
 
     /// True when a captured argv describes a shell dispatcher (`sh -c …`,
@@ -152,6 +166,11 @@ public enum AgentLaunchCaptureTrust {
         }
         if nameBase == "claude" || executableBase == "claude" || executable.contains("/claude/versions/") {
             descriptors.insert("claude")
+        }
+        // The `muse` launcher execs a versioned sibling (`muse-bin-1.4.6-R6000.1`),
+        // which macOS may truncate in the process name.
+        if [nameBase, executableBase].contains(where: { $0.map { MuseExecutableName($0).isVersionedBinary } == true }) {
+            descriptors.insert("muse")
         }
         return descriptors
     }

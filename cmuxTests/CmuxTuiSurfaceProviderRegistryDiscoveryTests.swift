@@ -65,11 +65,23 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
             listPage: { lists += 1; return VMListPage(vms: [], limits: nil) }
         )
         registry.start(catalog: catalog)
-        await registry.recordCreatedMachine(created, scope: registry.creationScope)
+        let endpoint = VMCmuxRemoteEndpoint(
+            route: "ws://10.16.0.9:1337/v1/link",
+            token: "receipt-token",
+            expiresAtUnix: 1_800_000_000,
+            session: "cloud",
+            trustedCarrier: true,
+            networkAddresses: .init(ipv4: "10.16.0.9", ipv6: nil)
+        )
+        await registry.recordCreatedMachine(created, attach: endpoint, scope: registry.creationScope)
 
         #expect(registry.provider(machineID: created.id) != nil)
-        #expect(await registry.takeCreatedTrustedCarrierRoute(machineID: created.id) == "ws://10.16.0.9:1337/v1/link")
-        #expect(await registry.takeCreatedTrustedCarrierRoute(machineID: created.id) == nil,
+        let consumed = await registry.takeCreatedTrustedCarrierEndpoint(machineID: created.id)
+        #expect(consumed?.route == endpoint.route)
+        #expect(consumed?.token == endpoint.token)
+        #expect(consumed?.expiresAtUnix == endpoint.expiresAtUnix)
+        #expect(consumed?.session == endpoint.session)
+        #expect(await registry.takeCreatedTrustedCarrierEndpoint(machineID: created.id) == nil,
                 "The receipt answers one attach; later opens use the saved device path")
         #expect(lists == 0, "Neither registration nor the attach answer re-read the fleet")
         #expect(paths.deviceFingerprint(for: created.id) == CloudTuiClientPaths.carrierDeviceMarker,

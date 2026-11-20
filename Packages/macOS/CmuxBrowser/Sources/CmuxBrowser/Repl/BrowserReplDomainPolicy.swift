@@ -3,12 +3,34 @@ public import Foundation
 
 /// Host names as the domain policy and secret scopes compare them: lower
 /// case, without a trailing dot, internationalized labels in their ASCII
-/// (Punycode) form, IPv6 in brackets.
+/// (Punycode) form, IPv6 in brackets, and an IP address in its canonical
+/// spelling (`2130706433`, `0x7f.1` and `127.1` are `127.0.0.1`; `[0:0::1]`
+/// is `[::1]`), as a URL parser reads it, so addresses compare as
+/// addresses.
+///
+/// A host longer than ``maximumBytes`` is no host name (one is at most 253
+/// bytes in ASCII); it is compared as given in lower case, never encoded or
+/// parsed as an address, so agent code cannot make the session's thread
+/// run Punycode (quadratic in a label's length) or a site walk (quadratic
+/// in the label count) on an unbounded string.
 enum BrowserReplHostName {
+    /// The longest host normalized, in UTF-8 bytes: the 253 ASCII bytes of
+    /// the longest DNS name, in a Unicode spelling of up to four bytes a
+    /// character.
+    static let maximumBytes = 1024
+
+    static func isOverlong(_ host: String) -> Bool {
+        host.utf8.count > maximumBytes
+    }
+
     static func normalize(_ raw: String) -> String {
+        if isOverlong(raw) { return raw.lowercased() }
         var host = raw.trimmingCharacters(in: .whitespaces)
         if host.contains(":"), !host.hasPrefix("[") { host = "[\(host)]" }
-        if host.hasPrefix("[") { return host.lowercased() }
+        if host.hasPrefix("[") {
+            let lowered = host.lowercased()
+            return ipv6Address(lowered).map { "[\(ipv6Text($0))]" } ?? lowered
+        }
         while host.hasSuffix(".") { host.removeLast() }
         let labels = host.split(separator: ".", omittingEmptySubsequences: false).map { label -> String in
             let lowered = String(label).precomposedStringWithCanonicalMapping.lowercased()
@@ -16,7 +38,96 @@ enum BrowserReplHostName {
             guard let encoded = Punycode.encode(lowered) else { return lowered }
             return "xn--" + encoded
         }
-        return labels.joined(separator: ".")
+        let name = labels.joined(separator: ".")
+        if isIPAddress(name), let address = ipv4Address(name) { return ipv4Text(address) }
+        return name
+    }
+
+    /// The IPv4 address `host` names as a URL parser (WHATWG) reads it:
+    /// one to four dot-separated parts, each decimal, `0x` hex or octal
+    /// with a leading zero, the last filling the bytes the others leave.
+    /// `nil` when it is not one.
+    static func ipv4Address(_ host: String) -> UInt32? {
+        var parts = host.split(separator: ".", omittingEmptySubsequences: false)
+        if parts.count > 1, parts.last?.isEmpty == true { parts.removeLast() }
+        guard (1...4).contains(parts.count) else { return nil }
+        var numbers: [UInt64] = []
+        for part in parts {
+            var digits = Substring(part.lowercased())
+            var radix: UInt64 = 10
+            if digits.hasPrefix("0x") {
+                radix = 16
+                digits = digits.dropFirst(2)
+            } else if digits.count > 1, digits.hasPrefix("0") {
+                radix = 8
+                digits = digits.dropFirst()
+            }
+            guard !digits.isEmpty || radix == 16, !part.isEmpty else { return nil }
+            var value: UInt64 = 0
+            for character in digits {
+                guard let digit = character.hexDigitValue, character.isASCII, UInt64(digit) < radix else { return nil }
+                value = value * radix + UInt64(digit)
+                guard value <= UInt64(UInt32.max) else { return nil }
+            }
+            numbers.append(value)
+        }
+        guard numbers.dropLast().allSatisfy({ $0 <= 255 }) else { return nil }
+        let last = numbers[numbers.count - 1]
+        guard last < (UInt64(1) << (8 * UInt64(5 - numbers.count))) else { return nil }
+        var address = last
+        for (index, number) in numbers.dropLast().enumerated() {
+            address += number << (8 * UInt64(3 - index))
+        }
+        return UInt32(address)
+    }
+
+    static func ipv4Text(_ address: UInt32) -> String {
+        (0..<4).map { String((address >> (8 * (3 - UInt32($0)))) & 0xff) }.joined(separator: ".")
+    }
+
+    /// The 16 bytes of the IPv6 address `host` (bracketed or not) names, or nil.
+    static func ipv6Address(_ host: String) -> [UInt8]? {
+        var text = host
+        if text.hasPrefix("["), text.hasSuffix("]") { text = String(text.dropFirst().dropLast()) }
+        guard text.contains(":") else { return nil }
+        var address = in6_addr()
+        guard inet_pton(AF_INET6, text, &address) == 1 else { return nil }
+        return withUnsafeBytes(of: &address) { Array($0) }
+    }
+
+    static func ipv6Text(_ bytes: [UInt8]) -> String {
+        var address = in6_addr()
+        withUnsafeMutableBytes(of: &address) { $0.copyBytes(from: bytes) }
+        var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+        guard inet_ntop(AF_INET6, &address, &buffer, socklen_t(buffer.count)) != nil else { return "" }
+        let text = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+        return String(decoding: text, as: UTF8.self)
+    }
+
+    /// Why a URL whose host is written `raw` cannot be judged by its
+    /// address, or nil. Foundation keeps the spelling a URL was given and
+    /// the system resolver reads some spellings differently from a URL
+    /// parser (`0177.0.0.1` is 127.0.0.1 to WebKit and 177.0.0.1 to
+    /// `getaddrinfo`), so while a policy is set an IPv4 address must be
+    /// written as four decimal parts, and one written as IPv6
+    /// (`[::ffff:127.0.0.1]`) is refused.
+    static func addressSpellingRefusal(_ raw: String) -> String? {
+        let host = raw.lowercased()
+        if host.contains(":") {
+            guard let bytes = ipv6Address(host) else { return nil }
+            if bytes[0..<10].allSatisfy({ $0 == 0 }), bytes[10] == 0xff, bytes[11] == 0xff {
+                let mapped = UInt32(bytes[12]) << 24 | UInt32(bytes[13]) << 16 | UInt32(bytes[14]) << 8 | UInt32(bytes[15])
+                return "an IPv4 address written as IPv6 is refused while a domain policy is set; write it as \(ipv4Text(mapped))"
+            }
+            return nil
+        }
+        guard isIPAddress(host) else { return nil }
+        guard let address = ipv4Address(host) else { return "\(raw) is not a valid IP address" }
+        let canonical = ipv4Text(address)
+        guard host == canonical else {
+            return "the address \(raw) is refused while a domain policy is set; write it as \(canonical)"
+        }
+        return nil
     }
 
     /// The normalized host of `url`, or nil when it has none.
@@ -37,10 +148,34 @@ enum BrowserReplHostName {
         return false
     }
 
+    /// Whether `host` (normalized) is a loopback host: `localhost`, `[::1]`,
+    /// or an IPv4 address in 127.0.0.0/8 written as four decimal parts
+    /// (`127.0.0.1`). A name that only starts with `127.` is any host its
+    /// domain's owner points it at, and another spelling of an address
+    /// (`0177.0.0.1`) is read differently by the system resolver.
+    /// Whether a connection to `host` (normalized) reaches this machine's
+    /// loopback listeners, however it is spelled: `localhost` and any
+    /// `.localhost` name, any 127/8 or the unspecified IPv4 address (which
+    /// connects to this machine), `[::1]`, `[::]` and IPv4 of those written
+    /// as IPv6. Wider than ``isLoopback(_:)``, which names the spellings a
+    /// policy may grant; this one decides what to refuse.
+    static func reachesLoopback(_ host: String) -> Bool {
+        let name = host.hasSuffix(".") ? String(host.dropLast()) : host
+        if name == "localhost" || name.hasSuffix(".localhost") { return true }
+        if name.hasPrefix("[") || name.contains(":") {
+            guard let bytes = ipv6Address(name) else { return false }
+            if bytes[0..<15].allSatisfy({ $0 == 0 }), bytes[15] <= 1 { return true }
+            guard bytes[0..<10].allSatisfy({ $0 == 0 }), bytes[10] == 0xff, bytes[11] == 0xff else { return false }
+            return bytes[12] == 127 || bytes[12...15].allSatisfy { $0 == 0 }
+        }
+        guard isIPAddress(name), let address = ipv4Address(name) else { return false }
+        return address >> 24 == 127 || address == 0
+    }
+
     static func isLoopback(_ host: String) -> Bool {
         if host == "localhost" || host == "[::1]" { return true }
-        let parts = host.split(separator: ".")
-        return parts.count == 4 && parts.first == "127" && parts.allSatisfy { $0.allSatisfy(\.isNumber) }
+        guard let address = ipv4Address(host), ipv4Text(address) == host else { return false }
+        return address >> 24 == 127
     }
 }
 
@@ -103,18 +238,58 @@ enum Punycode {
 
 /// A domain pattern in reference C's syntax: `example.com` (and
 /// `www.example.com`), `*.example.com` (subdomains and the bare domain),
-/// `http*://example.com`, `https://example.com:8443`, `*`.
+/// `http*://example.com`, `https://example.com:8443`, `*`. A leading `=`
+/// names the exact host only (`=https://example.com`, never its www host):
+/// the form the sign-in sheet's credentials take (``exactHost``).
 public struct BrowserReplDomainPattern: Sendable, Equatable {
     public let raw: String
     public let scheme: String?
     public let host: String
     public let port: String?
+    /// Whether the pattern names its host alone: a two-label host does not
+    /// cover its www host too (`=example.com`).
+    public let exactHost: Bool
 
-    /// Parses `raw`; unsafe patterns (several wildcards, a wildcard TLD or an
+    /// The most UTF-8 bytes a pattern may have.
+    public static let maximumBytes = 1_024
+    /// The most bytes a pattern's host may have in its ASCII form, a DNS
+    /// name's limit.
+    public static let maximumHostBytes = 253
+    /// The most characters one label of a pattern's host may have, a DNS
+    /// label's limit (a longer internationalized label encodes longer still).
+    public static let maximumLabelCharacters = 63
+    /// The most characters a pattern's scheme may have.
+    public static let maximumSchemeCharacters = 32
+
+    /// Parses `raw`; unsafe patterns (several wildcards, a wildcard TLD, a
+    /// wildcard over a public suffix such as `*.com` or `*.co.uk`, or an
     /// embedded wildcard) are refused. `title` prefixes the error.
-    public static func parse(_ raw: String, title: String) throws -> BrowserReplDomainPattern {
-        let quoted = JSONSerialization.browserReplString(raw) ?? raw
+    ///
+    /// Agent code chooses patterns, and each one costs every navigation
+    /// check and the content rules WebKit compiles, so a pattern past
+    /// ``maximumBytes``, a host past ``maximumHostBytes`` or with a label
+    /// past ``maximumLabelCharacters``, and a scheme past
+    /// ``maximumSchemeCharacters`` or with more than one wildcard are
+    /// refused too; each is checked before the work it bounds, so parsing
+    /// takes time linear in the pattern.
+    /// - Parameter publicSuffixes: The list that decides whether a
+    ///   wildcard's base is a public suffix.
+    public static func parse(
+        _ raw: String,
+        title: String,
+        publicSuffixes: BrowserReplPublicSuffixList = .system
+    ) throws -> BrowserReplDomainPattern {
+        let tooLong = raw.utf8.count > maximumBytes
+        let quoted = JSONSerialization.browserReplString(tooLong ? String(raw.prefix(64)) + "..." : raw) ?? "?"
+        guard !tooLong else {
+            throw BrowserReplDriverError(
+                code: "invalid",
+                message: "\(title): \(quoted): a domain pattern is at most \(maximumBytes) bytes; this one is \(raw.utf8.count)"
+            )
+        }
         var text = raw.trimmingCharacters(in: .whitespaces).lowercased()
+        let exactHost = text.hasPrefix("=")
+        if exactHost { text.removeFirst() }
         guard !text.isEmpty else {
             throw BrowserReplDriverError(code: "invalid", message: "\(title): expected domain patterns as non-empty strings, got \(quoted)")
         }
@@ -124,13 +299,23 @@ public struct BrowserReplDomainPattern: Sendable, Equatable {
             if let first = candidate.unicodeScalars.first,
                CharacterSet.lowercaseLetters.contains(first) || first == "*",
                candidate.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) || "+.*-".unicodeScalars.contains($0) }) {
+                if candidate.count > maximumSchemeCharacters {
+                    throw BrowserReplDriverError(code: "invalid", message: "\(title): \(quoted): a scheme is at most \(maximumSchemeCharacters) characters")
+                }
+                if candidate.filter({ $0 == "*" }).count > 1 {
+                    throw BrowserReplDriverError(code: "invalid", message: "\(title): \(quoted): only one wildcard is allowed in the scheme")
+                }
                 scheme = candidate
                 text = String(text[range.upperBound...])
             }
         }
         if let slash = text.firstIndex(of: "/") { text = String(text[..<slash]) }
         var port: String?
-        if !text.hasPrefix("["), let colon = text.lastIndex(of: ":") {
+        // An IPv6 host is in brackets, with its port after them (`[::1]:3000`).
+        let portColon = text.hasPrefix("[")
+            ? text.lastIndex(of: "]").flatMap { close in text.index(after: close) < text.endIndex && text[text.index(after: close)] == ":" ? text.index(after: close) : nil }
+            : text.lastIndex(of: ":")
+        if let colon = portColon {
             let tail = String(text[text.index(after: colon)...])
             if tail == "*" || (!tail.isEmpty && tail.allSatisfy(\.isNumber)) {
                 port = tail == "*" ? nil : tail
@@ -138,6 +323,9 @@ public struct BrowserReplDomainPattern: Sendable, Equatable {
             }
         }
         var host = text
+        if exactHost, host.contains("*") {
+            throw BrowserReplDriverError(code: "invalid", message: "\(title): \(quoted): = names one exact host; it takes no wildcard")
+        }
         if host != "*" {
             if host.filter({ $0 == "*" }).count > 1 {
                 throw BrowserReplDriverError(code: "invalid", message: "\(title): \(quoted): only one wildcard is allowed")
@@ -151,12 +339,40 @@ public struct BrowserReplDomainPattern: Sendable, Equatable {
             if host.isEmpty || host.contains(where: { $0.isWhitespace || $0 == "/" }) {
                 throw BrowserReplDriverError(code: "invalid", message: "\(title): \(quoted): expected a domain")
             }
+            // Before the labels are encoded, which takes time quadratic in a
+            // label's length.
+            if host.split(separator: ".").contains(where: { $0.unicodeScalars.count > maximumLabelCharacters }) {
+                throw BrowserReplDriverError(
+                    code: "invalid",
+                    message: "\(title): \(quoted): a label of a domain is at most \(maximumLabelCharacters) characters"
+                )
+            }
             host = host.hasPrefix("*.") ? "*." + BrowserReplHostName.normalize(String(host.dropFirst(2))) : BrowserReplHostName.normalize(host)
             if host.isEmpty || host == "*." {
                 throw BrowserReplDriverError(code: "invalid", message: "\(title): \(quoted): expected a domain")
             }
+            let named = host.hasPrefix("*.") ? host.dropFirst(2) : Substring(host)
+            if named.utf8.count > maximumHostBytes {
+                throw BrowserReplDriverError(
+                    code: "invalid",
+                    message: "\(title): \(quoted): a domain is at most \(maximumHostBytes) characters (\(named.utf8.count) as written for DNS)"
+                )
+            }
+            if host.hasPrefix("*."), !publicSuffixes.isAvailable {
+                throw BrowserReplDriverError(
+                    code: "invalid",
+                    message: "\(title): \(quoted): the system's Public Suffix List could not be read, so a wildcard cannot be told from one over a public suffix such as *.com; name each host instead"
+                )
+            }
+            if host.hasPrefix("*."), publicSuffixes.isPublicSuffix(String(host.dropFirst(2))) {
+                let base = String(host.dropFirst(2))
+                throw BrowserReplDriverError(
+                    code: "invalid",
+                    message: "\(title): \(quoted): \(base) is a public suffix, so *.\(base) would cover every site under it; name a site, such as *.example.\(base)"
+                )
+            }
         }
-        return BrowserReplDomainPattern(raw: raw, scheme: scheme, host: host, port: port)
+        return BrowserReplDomainPattern(raw: raw, scheme: scheme, host: host, port: port, exactHost: exactHost)
     }
 
     /// Whether `url` matches. `secure`: a pattern without a scheme matches
@@ -192,8 +408,44 @@ public struct BrowserReplDomainPattern: Sendable, Equatable {
             return host == base || host.hasSuffix("." + base)
         }
         if host == self.host { return true }
-        // A root domain also covers www.
-        return self.host.split(separator: ".").count == 2 && host == "www." + self.host
+        // A root domain also covers www, unless the pattern names its exact host.
+        return coversWWW && host == "www." + self.host
+    }
+
+    /// Whether the pattern's host is a root domain that also covers its www
+    /// host: two labels, and not written as an exact host.
+    var coversWWW: Bool {
+        !exactHost && !host.hasPrefix("*") && host.split(separator: ".").count == 2
+    }
+
+    /// Whether every URL `other` lets load is on this pattern's hosts (and
+    /// its scheme and port, when it names them): a domain policy whose
+    /// allowed patterns this covers keeps pages on them. `secure`: this
+    /// pattern is a secret scope, which without a scheme matches https only
+    /// (http only on a loopback host; ``matches(_:secure:)``), so it covers
+    /// only patterns that load nothing else; otherwise a pattern without a
+    /// scheme covers either.
+    func covers(_ other: BrowserReplDomainPattern, secure: Bool = false) -> Bool {
+        if let port, other.port != port { return false }
+        if let scheme {
+            guard let theirs = other.scheme, Self.glob(scheme, matches: theirs) else { return false }
+        } else if secure, !other.loadsOnlySecurely {
+            return false
+        }
+        if host == "*" { return true }
+        if other.host == "*" { return false }
+        if other.host.hasPrefix("*.") { return coversSubdomains(of: String(other.host.dropFirst(2))) }
+        guard hostMatches(other.host) else { return false }
+        // A root domain also lets its www host load.
+        return !other.coversWWW || hostMatches("www." + other.host)
+    }
+
+    /// Whether every URL this pattern lets load is one a secret scope
+    /// without a scheme matches: it names https (or wss), or only a
+    /// loopback host.
+    var loadsOnlySecurely: Bool {
+        if host != "*", !host.hasPrefix("*."), BrowserReplHostName.isLoopback(host) { return true }
+        return scheme == "https" || scheme == "wss"
     }
 
     /// Whether a host this pattern names receives cookies set on `domain`
@@ -220,7 +472,7 @@ public struct BrowserReplDomainPattern: Sendable, Equatable {
         return named == domain || named.hasSuffix("." + domain) || domain.hasSuffix("." + named)
     }
 
-    private static func glob(_ pattern: String, matches text: String) -> Bool {
+    static func glob(_ pattern: String, matches text: String) -> Bool {
         let escaped = NSRegularExpression.escapedPattern(for: pattern).replacingOccurrences(of: "\\*", with: ".*")
         return text.range(of: "^" + escaped + "$", options: .regularExpression) != nil
     }
@@ -255,11 +507,44 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
 
     public var isActive: Bool { allowed != nil || !prohibited.isEmpty || blockIPAddresses }
 
+    /// Whether this policy may block a URL `previous` allowed: it blocks IP
+    /// addresses where `previous` did not, prohibits a pattern `previous`
+    /// did not, or allows a list that lacks a pattern `previous` allowed
+    /// (or `previous` allowed every host). Patterns are compared as
+    /// written, so a change that cannot be shown to only widen counts as
+    /// narrowing. Locking narrows nothing.
+    public func narrows(_ previous: BrowserReplDomainPolicy) -> Bool {
+        if blockIPAddresses, !previous.blockIPAddresses { return true }
+        let earlierProhibited = Set(previous.prohibited.map(\.raw))
+        if prohibited.contains(where: { !earlierProhibited.contains($0.raw) }) { return true }
+        guard let allowed else { return false }
+        guard let earlierAllowed = previous.allowed else { return true }
+        let now = Set(allowed.map(\.raw))
+        return earlierAllowed.contains { !now.contains($0.raw) }
+    }
+
+    /// The most patterns `allowed` or `prohibited` may hold: each pattern is
+    /// checked on every navigation and becomes up to eight content rules.
+    public static let maximumPatternsPerList = 1_024
+
     /// Why `urlString` is blocked, or nil when it may load.
+    ///
+    /// A `blob:` URL is judged by the origin embedded in it (the page that
+    /// made it); one of an opaque origin (`blob:null/...`) is blocked, since
+    /// the URL alone cannot say whose it is. `about:` and `data:` URLs pass:
+    /// their document takes or is written by the document that opens it,
+    /// which ``navigationBlockReason(_:initiator:)`` and the popup and frame
+    /// checks judge instead.
     public func blockReason(_ urlString: String) -> String? {
         guard isActive else { return nil }
         let lower = urlString.lowercased()
-        if lower.hasPrefix("about:") || lower.hasPrefix("data:") || lower.hasPrefix("blob:") { return nil }
+        if lower.hasPrefix("blob:") {
+            guard let inner = Self.blobOrigin(urlString) else {
+                return "\(urlString.redactingBrowserReplURLCredentials()) belongs to an opaque origin, which the domain policy cannot judge"
+            }
+            return blockReason(inner)
+        }
+        if lower.hasPrefix("about:") || lower.hasPrefix("data:") { return nil }
         var target = urlString
         if target.range(of: "^[a-zA-Z][a-zA-Z0-9+.-]*:", options: .regularExpression) == nil { target = "https://" + target }
         guard let url = URL(string: target) else { return "not a valid URL" }
@@ -268,6 +553,9 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
         }
         if blockIPAddresses, BrowserReplHostName.isIPAddress(host) {
             return "IP addresses are blocked (session.blockIPAddresses)"
+        }
+        if let raw = url.host(percentEncoded: false), let refusal = BrowserReplHostName.addressSpellingRefusal(raw) {
+            return refusal
         }
         if let allowed, !allowed.contains(where: { $0.matches(url, secure: false) }) {
             return "not in session.allowedDomains (\(allowed.map(\.raw).joined(separator: ", ")))"
@@ -278,23 +566,69 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
         return nil
     }
 
+    /// The URL embedded in `blob:<origin>/<id>` when its origin is a web
+    /// origin with a host, or nil (an opaque origin, `blob:null/...`).
+    static func blobOrigin(_ urlString: String) -> String? {
+        let inner = String(urlString.dropFirst("blob:".count))
+        guard let url = URL(string: inner), url.scheme != nil, BrowserReplHostName.host(of: url) != nil else { return nil }
+        return inner
+    }
+
+    /// Why a main-frame navigation to `url` may not load, or nil.
+    ///
+    /// `initiator` is the document that started the navigation (WebKit's
+    /// record of the source frame), nil when no page did (the agent's or the
+    /// person's own load). An `about:` document (`about:blank`) takes the
+    /// initiator's origin, a `data:` document is the initiator's own writing,
+    /// and a `blob:` of an opaque origin was made by it: those are judged by
+    /// the initiator, so a frame the policy blocks cannot move a tab to a
+    /// document of its own origin. Other URLs, `blob:` URLs of a web origin
+    /// included, are judged by ``blockReason(_:)`` and, when a page started
+    /// the navigation, by the initiator too: a frame the policy blocks chose
+    /// the URL (and can carry its page's data in it), so it cannot move the
+    /// tab even to an allowed page.
+    public func navigationBlockReason(_ url: URL, initiator: BrowserReplFrameDocument?) -> String? {
+        guard isActive else { return nil }
+        let raw = url.absoluteString
+        switch url.scheme?.lowercased() {
+        case "about", "data":
+            return initiator.flatMap { blockReason(document: $0) }
+        case "blob" where Self.blobOrigin(raw) == nil:
+            guard let initiator else { return blockReason(raw) }
+            return blockReason(document: initiator)
+        default:
+            if let reason = blockReason(raw) { return reason }
+            return initiator.flatMap(initiatorBlockReason)
+        }
+    }
+
+    /// Why a navigation or window the page `initiator` started may not go
+    /// anywhere, or nil: the policy blocks that document.
+    private func initiatorBlockReason(_ initiator: BrowserReplFrameDocument) -> String? {
+        guard let reason = blockReason(document: initiator) else { return nil }
+        return "it was started by \(initiator.origin.flatMap { $0 == "null" ? nil : $0 } ?? initiator.place), which the domain policy blocks: \(reason)"
+    }
+
     /// Why the session may not read, set or clear a cookie on `domain`, or
     /// nil. A cookie belongs to a host, not an origin, so a pattern's scheme
-    /// and port do not narrow it. A cookie is in reach when a host an allowed
-    /// pattern names receives it (its domain, or a parent domain of it, as
-    /// `example.com` for `www.example.com`), and out of reach when its domain
-    /// is one a prohibited pattern names or an IP address under
-    /// `blockIPAddresses`.
+    /// and port do not narrow it. A cookie with a Domain attribute (leading
+    /// dot, `.example.com`) is in reach when a host an allowed pattern names
+    /// receives it (its domain, or a parent domain of it, as `example.com`
+    /// for `www.example.com`); a host-only cookie (no leading dot) goes to
+    /// its own host alone, so it is in reach only when an allowed pattern
+    /// names that host. Either is out of reach when its domain is one a
+    /// prohibited pattern names or an IP address under `blockIPAddresses`.
     public func cookieBlockReason(domain: String) -> String? {
         guard isActive else { return nil }
         var raw = domain.trimmingCharacters(in: .whitespaces)
+        let hostOnly = !raw.hasPrefix(".")
         while raw.hasPrefix(".") { raw.removeFirst() }
         let host = BrowserReplHostName.normalize(raw)
         guard !host.isEmpty else { return "the cookie names no domain" }
         if blockIPAddresses, BrowserReplHostName.isIPAddress(host) {
             return "IP addresses are blocked (session.blockIPAddresses)"
         }
-        if let allowed, !allowed.contains(where: { $0.receivesCookies(on: host) }) {
+        if let allowed, !allowed.contains(where: { hostOnly ? $0.hostMatches(host) : $0.receivesCookies(on: host) }) {
             return "not in session.allowedDomains (\(allowed.map(\.raw).joined(separator: ", ")))"
         }
         if let hit = prohibited.first(where: { $0.hostMatches(host) }) {
@@ -313,13 +647,8 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
         if let reason = cookieBlockReason(domain: domain) { return reason }
         guard isActive else { return nil }
         let trimmed = domain.trimmingCharacters(in: .whitespaces)
-        guard trimmed.hasPrefix(".") else {
-            let host = BrowserReplHostName.normalize(trimmed)
-            if let allowed, !allowed.contains(where: { $0.hostMatches(host) }) {
-                return "not in session.allowedDomains (\(allowed.map(\.raw).joined(separator: ", ")))"
-            }
-            return nil
-        }
+        // A host-only cookie's reach is its host, which cookieBlockReason checked.
+        guard trimmed.hasPrefix(".") else { return nil }
         let host = BrowserReplHostName.normalize(String(trimmed.drop(while: { $0 == "." })))
         if let allowed, !allowed.contains(where: { $0.coversSubdomains(of: host) }) {
             return "a cookie on \(host) reaches its other subdomains, which session.allowedDomains (\(allowed.map(\.raw).joined(separator: ", "))) does not all allow; set it on the allowed host itself"
@@ -359,18 +688,42 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
         if let allowed {
             add(".*", "block")
             for pattern in allowed {
-                for filter in Self.filters(pattern) { add(filter, "ignore-previous-rules") }
+                for filter in Self.filters(pattern, allowing: true) { add(filter, "ignore-previous-rules") }
             }
-            for scheme in ["data", "blob", "about"] { add("^\(scheme):", "ignore-previous-rules") }
+            // A document of these takes or is written by the document that
+            // loads it, which loaded under these rules; a blob of a web
+            // origin is judged by that origin (the filters' `(blob:)?`).
+            for scheme in ["data", "about"] { add("^\(scheme):", "ignore-previous-rules") }
+            add("^blob:null/", "ignore-previous-rules")
         }
+        // An IPv4 address written as IPv6 (`[::ffff:c000:201]`) is refused
+        // natively while a policy is set (`addressSpellingRefusal`), so no
+        // allow filter (a universal host's IPv6 form) lets one load and no
+        // IPv4 pattern is passed by it. This also refuses the rare address
+        // whose fifth group is `ffff` after four zero groups.
+        add("^(blob:)?[a-z][a-z0-9+.-]*://([^/@]*@)?\\[[0:]*:ffff:[0-9a-f.:]*\\]", "block")
         for pattern in prohibited {
-            for filter in Self.filters(pattern) { add(filter, "block") }
+            for filter in Self.filters(pattern, allowing: false) { add(filter, "block") }
         }
         if blockIPAddresses {
-            add("^[a-z][a-z0-9+.-]*://([^/@]*@)?[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+\\.?[:/]", "block")
-            add("^[a-z][a-z0-9+.-]*://([^/@]*@)?\\[", "block")
+            add("^(blob:)?[a-z][a-z0-9+.-]*://([^/@]*@)?[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+\\.?[:/]", "block")
+            add("^(blob:)?[a-z][a-z0-9+.-]*://([^/@]*@)?\\[", "block")
         }
         return rules
+    }
+
+    /// The content rules a session's tabs carry: this policy's, then the
+    /// local-file rules of the session's directories `roots`
+    /// (``BrowserReplFileSandbox/contentRules(roots:subresourcesInsideRoots:)``)
+    /// last, so no rule of the policy can undo their block of `file:` loads
+    /// outside the directories, or of every `file:` subresource while a
+    /// protected file may lie inside them. The policy's allow filters
+    /// match web URLs only (``filters(_:allowing:)``). An allow list blocks every load it does
+    /// not name, files inside the directories included, so under one the
+    /// directories get no exception.
+    public func contentRules(fileRoots roots: [String], subresourcesInsideRoots: Bool) -> [[String: Any]] {
+        let exceptions = allowed == nil ? roots : []
+        return contentRules + BrowserReplFileSandbox.contentRules(roots: exceptions, subresourcesInsideRoots: subresourcesInsideRoots)
     }
 
     private static func escape(_ text: String) -> String {
@@ -382,29 +735,55 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
         return out
     }
 
-    static func filters(_ pattern: BrowserReplDomainPattern) -> [String] {
-        let schemes = pattern.scheme.map { scheme in
-            [scheme.map { $0 == "*" ? "[a-z0-9+.-]*" : escape(String($0)) }.joined()]
-        } ?? ["https?", "wss?"]
-        return schemes.flatMap { scheme -> [String] in
-            let host: String
-            if pattern.host == "*" {
-                host = "[^/@:]+"
-            } else if pattern.host.hasPrefix("*.") {
-                host = "([^/@:]*\\.)?" + escape(String(pattern.host.dropFirst(2))) + "\\.?"
-            } else {
-                host = escape(pattern.host) + "\\.?"
-            }
-            let head = "^" + scheme + "://([^/@]*@)?" + host
-            guard let port = pattern.port else { return [head + "(:[0-9]+)?/"] }
-            var out = [head + ":" + port + "/"]
-            let schemeText = pattern.scheme
-            if (port == "443" && (schemeText == nil || schemeText!.hasPrefix("https") || schemeText == "*"))
-                || (port == "80" && (schemeText == nil || schemeText!.hasPrefix("http") || schemeText == "*")) {
-                out.append(head + "/")
-            }
-            return out
+    /// The schemes a policy's content-rule filters may match.
+    private static let webSchemes = ["http", "https", "ws", "wss"]
+
+    /// The content-rule URL filters of `pattern`. An allow filter
+    /// (`allowing`) matches web URLs only: a wildcard scheme (`*://host`)
+    /// names ``webSchemes``, never `file:` (WebKit loads `file://host/p` as
+    /// the local file `/p`) or another scheme, and a pattern that names
+    /// none of them allows nothing. A block filter matches every scheme
+    /// the pattern names, which only refuses more.
+    static func filters(_ pattern: BrowserReplDomainPattern, allowing: Bool) -> [String] {
+        let hosts: [String]
+        if pattern.host == "*" {
+            // Every host: a name or IPv4 address, and a bracketed IPv6
+            // address, whose colons the first excludes. Content-rule
+            // expressions have no alternation, so each is its own filter.
+            hosts = ["[^/@:]+", "\\[[^/@]+\\]"]
+        } else if pattern.host.hasPrefix("*.") {
+            hosts = ["([^/@:]*\\.)?" + escape(String(pattern.host.dropFirst(2))) + "\\.?"]
+        } else if pattern.coversWWW {
+            // A root domain also covers www (`hostMatches`).
+            hosts = ["(www\\.)?" + escape(pattern.host) + "\\.?"]
+        } else {
+            hosts = [escape(pattern.host) + "\\.?"]
         }
+        return hosts.flatMap { filters(pattern, host: $0, allowing: allowing) }
+    }
+
+    /// ``filters(_:allowing:)`` for one host expression `host`.
+    private static func filters(_ pattern: BrowserReplDomainPattern, host: String, allowing: Bool) -> [String] {
+        // `blob:` URLs carry their origin: `blob:https://host/<id>`.
+        func head(_ scheme: String) -> String { "^(blob:)?" + scheme + "://([^/@]*@)?" + host }
+        let schemes: [String]
+        if let scheme = pattern.scheme, allowing {
+            schemes = webSchemes.filter { BrowserReplDomainPattern.glob(scheme, matches: $0) }
+        } else if let scheme = pattern.scheme {
+            schemes = [scheme.map { $0 == "*" ? "[a-z0-9+.-]*" : escape(String($0)) }.joined()]
+        } else {
+            schemes = webSchemes
+        }
+        guard !schemes.isEmpty else { return [] }
+        guard let port = pattern.port else { return schemes.map { head($0) + "(:[0-9]+)?/" } }
+        // A URL without a port has its scheme's default one (`matches`), so
+        // the portless form is admitted only under the schemes whose default
+        // is this port and that the pattern's scheme names.
+        let defaultSchemes = ["443": ["https", "wss"], "80": ["http", "ws"]][port] ?? []
+        let portless = defaultSchemes.filter { scheme in
+            pattern.scheme.map { BrowserReplDomainPattern.glob($0, matches: scheme) } ?? true
+        }
+        return schemes.map { head($0) + ":" + port + "/" } + portless.map { head($0) + "/" }
     }
 }
 
@@ -419,28 +798,42 @@ extension BrowserReplDomainPolicy {
     /// which trusts local files and cmux's internal schemes, but the page
     /// controls the URL. So only web pages open: http and https URLs the
     /// browser's URL allowlist and this policy allow, `about:blank` (also a
-    /// window with no URL), and `blob:` URLs whose origin is such a page.
-    public func popupBlockReason(_ url: URL?, allowlist: BrowserURLAllowlistPolicy) -> String? {
-        guard let url else { return nil }
+    /// window with no URL) when the policy allows `opener`, the document of
+    /// the frame that opened it, whose origin it takes, and `blob:` URLs
+    /// whose origin is such a page. Whatever the URL, a window opens only
+    /// when the policy allows `opener`: a blocked frame chose the URL and
+    /// can carry its page's data in it.
+    public func popupBlockReason(_ url: URL?, allowlist: BrowserURLAllowlistPolicy, opener: BrowserReplFrameDocument? = nil) -> String? {
+        guard let url else { return openerBlockReason(opener) }
         let raw = url.absoluteString
         switch url.scheme?.lowercased() {
         case "http", "https":
             guard allowlist.allows(url) else { return "the browser's URL allowlist does not allow \(raw)" }
-            return blockReason(raw)
+            if let reason = blockReason(raw) { return reason }
+            return opener.flatMap(initiatorBlockReason)
         case "about":
             let rest = raw.dropFirst("about:".count).lowercased()
-            return rest == "blank" || rest.hasPrefix("blank#") || rest.hasPrefix("blank?")
-                ? nil
-                : "a page may open about:blank, not \(raw)"
+            guard rest == "blank" || rest.hasPrefix("blank#") || rest.hasPrefix("blank?") else {
+                return "a page may open about:blank, not \(raw)"
+            }
+            return openerBlockReason(opener)
         case "blob":
             guard let origin = URL(string: String(raw.dropFirst("blob:".count))),
                   ["http", "https"].contains(origin.scheme?.lowercased() ?? "") else {
                 return "\(raw) does not belong to a web page"
             }
-            return popupBlockReason(origin, allowlist: allowlist)
+            return popupBlockReason(origin, allowlist: allowlist, opener: opener)
         case let scheme:
             return "a page may open only http, https, about:blank and blob: windows from a tab a REPL session drives, not \(scheme.map { $0 + ":" } ?? raw)"
         }
+    }
+
+    /// An `about:blank` window (or one with no URL) takes its opener's
+    /// origin, and the opener can write into it: it opens only when the
+    /// policy allows the opener's document.
+    private func openerBlockReason(_ opener: BrowserReplFrameDocument?) -> String? {
+        guard let opener, let reason = blockReason(document: opener) else { return nil }
+        return "an about:blank window takes the origin of the frame that opened it, \(opener.origin.flatMap { $0 == "null" ? nil : $0 } ?? opener.place), which the domain policy blocks: \(reason)"
     }
 }
 
@@ -478,17 +871,21 @@ public enum BrowserReplPopupRoute: Equatable, Sendable {
     ///   - creatorPolicy: That session's domain policy.
     ///   - inputSession: The session whose input the opener tab is handling,
     ///     with its domain policy, if any.
+    ///   - opener: The document of the frame that opened the window (WebKit's
+    ///     record of the navigation's source frame); an `about:blank` window
+    ///     takes its origin.
     public init(
         url: URL?,
         openerCreatedBySession: Bool,
         creatorPolicy: BrowserReplDomainPolicy,
         inputSession: (id: String, policy: BrowserReplDomainPolicy)? = nil,
-        allowlist: BrowserURLAllowlistPolicy
+        allowlist: BrowserURLAllowlistPolicy,
+        opener: BrowserReplFrameDocument? = nil
     ) {
         if openerCreatedBySession {
-            self = creatorPolicy.popupBlockReason(url, allowlist: allowlist).map(Self.refused) ?? .session
+            self = creatorPolicy.popupBlockReason(url, allowlist: allowlist, opener: opener).map(Self.refused) ?? .session
         } else if let inputSession {
-            self = inputSession.policy.popupBlockReason(url, allowlist: allowlist).map(Self.refused)
+            self = inputSession.policy.popupBlockReason(url, allowlist: allowlist, opener: opener).map(Self.refused)
                 ?? .inputSession(inputSession.id)
         } else {
             self = .browser

@@ -51,7 +51,7 @@ struct MobileHostV2Configuration: Sendable {
         guard let url = URL(string: override("CMUX_IROH_V2_BASE_URL") ?? origin),
               url.scheme == "https", url.host != nil, url.user == nil, url.password == nil,
               url.query == nil, url.fragment == nil else { throw V2ControlFailure.scopeMismatch }
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
         return Self(baseURL: url, environment: environment, projectID: AuthEnvironment.stackProjectID,
                     namespace: namespace, tag: MobileHostIdentity.instanceTag(),
                     stateDirectory: support.appendingPathComponent(namespace, isDirectory: true))

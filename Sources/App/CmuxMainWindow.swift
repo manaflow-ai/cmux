@@ -65,6 +65,25 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
         super.setFrameSize(size)
     }
 
+    /// See ``MainWindowHitTestMutationMonitor`` (CMUXTERM-MACOS-41RH). Tests
+    /// replace it to observe reports without Sentry.
+    var hitTestMutationMonitor = MainWindowHitTestMutationMonitor()
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        hitTestMutationMonitor.walk { super.hitTest(point) }
+    }
+
+    override func willRemoveSubview(_ subview: NSView) {
+        if hitTestMutationMonitor.isWalking {
+            hitTestMutationMonitor.subviewWillBeRemoved(
+                subview,
+                subviewCount: subviews.count,
+                eventType: NSApp?.currentEvent?.type
+            )
+        }
+        super.willRemoveSubview(subview)
+    }
+
     required init(rootView: Content) {
         super.init(rootView: rootView)
         // Belt with the suspenders above: keep the hosting view from creating

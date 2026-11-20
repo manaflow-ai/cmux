@@ -144,9 +144,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let sessionId = "claude-config-lookup-session"
-        let projectDirName = repoDir.path
-            .replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ".", with: "-")
+        let projectDirName = expectedClaudeProjectSlug(repoDir.path)
         let projectDir = claudeConfigDir
             .appendingPathComponent("projects", isDirectory: true)
             .appendingPathComponent(projectDirName, isDirectory: true)
@@ -227,9 +225,7 @@ extension CMUXCLIErrorOutputRegressionTests {
 
         let containerSessionId = "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa"
         let siblingSessionIds = ["bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb", "cccccccc-3333-3333-3333-cccccccccccc"]
-        let projectDirName = repoDir.path
-            .replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ".", with: "-")
+        let projectDirName = expectedClaudeProjectSlug(repoDir.path)
         let projectDir = claudeConfigDir
             .appendingPathComponent("projects", isDirectory: true)
             .appendingPathComponent(projectDirName, isDirectory: true)

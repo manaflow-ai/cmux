@@ -13,14 +13,15 @@ public import WebKit
 extension CmuxWebView {
     /// Delivers one synthesized mouse or scroll event to WebKit.
     public func deliverAutomationMouseEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown {
+            automationContextMenuSuppression.noteAutomatedMouseDown(event)
+        }
         browserNativeInputDeliveryOwner.withDispatch {
             switch event.type {
             case .leftMouseDown: super.mouseDown(with: event)
             case .leftMouseUp: super.mouseUp(with: event)
             case .leftMouseDragged: super.mouseDragged(with: event)
-            case .rightMouseDown:
-                automationContextMenuSuppressionCount += 1
-                super.rightMouseDown(with: event)
+            case .rightMouseDown: super.rightMouseDown(with: event)
             case .rightMouseUp: super.rightMouseUp(with: event)
             case .rightMouseDragged: super.rightMouseDragged(with: event)
             case .otherMouseDown: super.otherMouseDown(with: event)
@@ -44,35 +45,35 @@ extension CmuxWebView {
         }
     }
 
-    /// Automated right clicks whose native context menu is still expected.
-    var automationContextMenuSuppressionCount: Int {
+    /// Automated clicks whose native context menu is still expected
+    /// (``BrowserAutomationContextMenuSuppression``).
+    var automationContextMenuSuppression: BrowserAutomationContextMenuSuppression {
         get {
-            (objc_getAssociatedObject(self, Self.contextMenuSuppressionKey) as? NSNumber)?.intValue ?? 0
+            BrowserAutomationContextMenuSuppression(
+                pending: (objc_getAssociatedObject(self, Self.contextMenuSuppressionKey) as? NSNumber)?.intValue ?? 0
+            )
         }
         set {
             objc_setAssociatedObject(
                 self,
                 Self.contextMenuSuppressionKey,
-                NSNumber(value: max(0, newValue)),
+                NSNumber(value: newValue.pending),
                 .OBJC_ASSOCIATION_RETAIN_NONATOMIC
             )
         }
     }
 
     /// Consumes one pending suppression. `willOpenMenu` calls this so the menu
-    /// WebKit builds for an automated right click never appears.
+    /// WebKit builds for an automated click never appears.
     func consumeAutomationContextMenuSuppression() -> Bool {
-        let pending = automationContextMenuSuppressionCount
-        guard pending > 0 else { return false }
-        automationContextMenuSuppressionCount = pending - 1
-        return true
+        automationContextMenuSuppression.consume()
     }
 
-    /// Forgets automated right clicks whose context menu never opened (the
-    /// page prevented it), so the user's next menu is not swallowed after
-    /// the automation leaves the tab.
+    /// Forgets automated clicks whose context menu never opened (the page
+    /// prevented it), so the user's next menu is not swallowed after the
+    /// automation leaves the tab.
     public func cancelPendingAutomationContextMenus() {
-        automationContextMenuSuppressionCount = 0
+        automationContextMenuSuppression.cancelAll()
     }
 
     private static let contextMenuSuppressionKey: UnsafeRawPointer = {
@@ -126,10 +127,12 @@ private final class DragCaptureKey: NSObject, @unchecked Sendable {
 /// for WebKit: each capture has its own uniquely named pasteboard, and while
 /// its window is open (``openPasteboardWindow()``, around the automated
 /// `mouseDragged` events that may start the drag) WebKit's lookups of the
-/// drag pasteboard get it (``BrowserReplPasteboardRedirect``). The window
+/// drag pasteboard get it (``BrowserReplDragPasteboardRedirect``). The window
 /// closes when WebKit starts the drag, which it does after writing the
-/// data, or at ``closePasteboardWindow()``. A drag WebKit starts after its
-/// window closed carries no data to the drop.
+/// data, or at ``closePasteboardWindow()``. Past the window's 5 s bound, or
+/// once the capture ended (``finish()``), WebKit's lookups get a private
+/// discard until the driver closes the window, and a drag WebKit starts
+/// then carries no data (``lostDragData``): the driver ends it.
 @MainActor
 public final class BrowserAutomationDragCapture: NSObject {
     /// Called once WebKit asks AppKit to begin the drag session.
@@ -142,6 +145,10 @@ public final class BrowserAutomationDragCapture: NSObject {
     private var finished = false
     /// Whether the capture ended (``finish()``); its window no longer opens.
     public var isFinished: Bool { finished }
+    /// Whether WebKit started the drag after its window was diverted (past
+    /// its bound, or the capture ended): its data went to a discard, so the
+    /// drag carries nothing and must end without a drop.
+    public private(set) var lostDragData = false
 
     public override init() {
         super.init()
@@ -154,9 +161,9 @@ public final class BrowserAutomationDragCapture: NSObject {
     /// or WebKit could write this drag's data to the other one's pasteboard.
     public func openPasteboardWindow() async -> Bool {
         guard !finished else { return false }
-        let opened = await BrowserReplPasteboardRedirect.shared.openDragWindow(pasteboard)
+        let opened = await BrowserReplDragPasteboardRedirect.shared.openDragWindow(pasteboard)
         if opened, finished {
-            BrowserReplPasteboardRedirect.shared.closeDragWindow(pasteboard)
+            BrowserReplDragPasteboardRedirect.shared.closeDragWindow(pasteboard)
             return false
         }
         return opened
@@ -164,23 +171,26 @@ public final class BrowserAutomationDragCapture: NSObject {
 
     /// Closes this drag's pasteboard window, if it is open.
     public func closePasteboardWindow() {
-        BrowserReplPasteboardRedirect.shared.closeDragWindow(pasteboard)
+        BrowserReplDragPasteboardRedirect.shared.closeDragWindow(pasteboard)
     }
 
-    /// Ends the capture: closes its window and empties and releases its
-    /// pasteboard. Called when the web view's capture is replaced or cleared.
+    /// Ends the capture: diverts its window (WebKit may still be handling
+    /// the event that opened it; the driver closes it once WebKit did) and
+    /// empties and releases its pasteboard. Called when the web view's
+    /// capture is replaced or cleared.
     public func finish() {
         guard !finished else { return }
         finished = true
-        closePasteboardWindow()
+        BrowserReplDragPasteboardRedirect.shared.expireDragWindow(pasteboard)
         pasteboard.clearContents()
         pasteboard.releaseGlobally()
     }
 
     func begin() {
         didBegin = true
-        // WebKit wrote the drag data before asking AppKit for the session.
-        closePasteboardWindow()
+        // WebKit wrote the drag data before asking AppKit for the session;
+        // into the discard when the window was diverted.
+        if !BrowserReplDragPasteboardRedirect.shared.closeDragWindow(pasteboard) { lostDragData = true }
         let callback = onBegin
         onBegin = nil
         callback?()
@@ -254,13 +264,16 @@ extension CmuxWebView {
 extension WKWebView {
     /// Delivers one REPL key event through WebKit's native keyboard path.
     ///
-    /// Modifier keys update the held-modifier state (and emit `flagsChanged`);
-    /// other keys carry the held modifiers plus their own. `editingCommand`
-    /// is not run here; the driver runs it after key-down.
+    /// Modifier keys update the held-modifier state of `holder` (the REPL
+    /// session that sends the key) and emit `flagsChanged`; other keys carry
+    /// the modifiers `holder` holds plus their own. Another session's held
+    /// modifiers never reach these events. `editingCommand` is not run here;
+    /// the driver runs it after key-down.
     @discardableResult
     public func replayBrowserReplKeyStroke(
         _ stroke: BrowserReplKeyStroke,
-        keyDown: Bool
+        keyDown: Bool,
+        heldBy holder: String = ""
     ) -> BrowserKeyboardReplayResult {
         if let modifierKey = stroke.modifierKey {
             let native = BrowserKeyboardNativeKey(
@@ -269,9 +282,9 @@ extension WKWebView {
                 modifiers: modifierKey,
                 modifierKey: modifierKey
             )
-            return replayBrowserNativeModifier(native, keyDown: keyDown)
+            return replayBrowserNativeModifier(native, keyDown: keyDown, heldBy: holder)
         }
-        let flags = stroke.modifierFlags.union(browserNativeInputDeliveryOwner.activeModifierFlags)
+        let flags = stroke.modifierFlags.union(browserNativeInputDeliveryOwner.activeModifierFlags(heldBy: holder))
         let specification = SyntheticKeySpecification(
             storedKey: stroke.charactersIgnoringModifiers,
             keyCode: stroke.keyCode,
@@ -287,10 +300,15 @@ extension WKWebView {
         )
     }
 
-    /// Releases every modifier the automation left held.
+    /// Forgets that `holder` holds `stroke`'s modifier, without sending
+    /// the page an event; its later automated keys no longer carry it.
+    public func forgetBrowserReplModifier(_ stroke: BrowserReplKeyStroke, heldBy holder: String = "") {
+        guard stroke.modifierKey != nil else { return }
+        browserNativeInputDeliveryOwner.removeModifier(for: stroke.keyCode, heldBy: holder)
+    }
+
+    /// Releases every modifier the automation left held, for every holder.
     public func releaseBrowserReplModifiers() {
-        for keyCode in browserNativeInputDeliveryOwner.heldModifierKeyCodes {
-            browserNativeInputDeliveryOwner.removeModifier(for: keyCode)
-        }
+        browserNativeInputDeliveryOwner.removeAllModifiers()
     }
 }

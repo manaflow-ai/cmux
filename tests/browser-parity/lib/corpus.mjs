@@ -20,7 +20,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadPlaywright } from "./dev-driver.mjs";
+import { loadPlaywright, aiSnapshot } from "./dev-driver.mjs";
 import { startFixtureServers } from "./fixture-server.mjs";
 
 const corpusDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "corpus");
@@ -260,9 +260,8 @@ async function oracle(only) {
       const page = await context.newPage();
       await page.goto(`${servers.origins.primary}/corpus/${entry.name}.html`, { waitUntil: "load" });
       await page.waitForTimeout(300);
-      const ai = await page._snapshotForAI();
-      const aiText = typeof ai === "string" ? ai : ai.full;
-      // _snapshotForAI inlines frames; parse the whole text once. Each entry
+      const aiText = (await aiSnapshot(page)).full;
+      // The AI snapshot inlines frames; parse the whole text once. Each entry
       // carries its element's path, so a check can judge visibility in the
       // engine that renders cmux (scenario 27); Chrome's own judgement is
       // only counted here.

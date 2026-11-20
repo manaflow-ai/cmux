@@ -239,6 +239,8 @@ struct BrowserReplFrameGateTests {
         #expect(await Self.error { try await gate.checkPointer(at: [CGPoint(x: 250, y: 50)], in: page.webView, frames: page.frames) } == nil)
     }
 
+    // MARK: Incomplete frame trees
+
     // MARK: Probes that never answer
 
     /// The gate's own probes (the focus probe, the frame boxes, a frame's
@@ -332,10 +334,11 @@ struct FramePage {
         url: String = "cmux-test://allowed.test/",
         html: String = mainPage,
         loaded: (([BrowserReplFrame]) -> Bool)? = nil,
+        childPage: String? = nil,
         configure: (WKWebViewConfiguration) async throws -> Void = { _ in }
     ) async throws -> FramePage {
         let configuration = WKWebViewConfiguration()
-        configuration.setURLSchemeHandler(FramePageSchemeHandler(mainPage: html), forURLScheme: "cmux-test")
+        configuration.setURLSchemeHandler(FramePageSchemeHandler(mainPage: html, childPage: childPage), forURLScheme: "cmux-test")
         try await configure(configuration)
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), configuration: configuration)
         let expected = html == mainPage && url == "cmux-test://allowed.test/" ? 3 : 1
@@ -390,9 +393,12 @@ struct FramePage {
 
 final class FramePageSchemeHandler: NSObject, WKURLSchemeHandler {
     let mainPage: String
+    /// A child page's own HTML after its `<p>host/path</p>`, if set.
+    let childPage: String?
 
-    init(mainPage: String) {
+    init(mainPage: String, childPage: String? = nil) {
         self.mainPage = mainPage
+        self.childPage = childPage
     }
 
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
@@ -400,7 +406,7 @@ final class FramePageSchemeHandler: NSObject, WKURLSchemeHandler {
         let host = url.host ?? ""
         let html = url.path == "/" || url.path.isEmpty
             ? mainPage
-            : "<p>\(host)\(url.path)</p><input id=f>"
+            : "<p>\(host)\(url.path)</p>" + (childPage ?? "<input id=f>")
         task.didReceive(URLResponse(url: url, mimeType: "text/html", expectedContentLength: -1, textEncodingName: "utf-8"))
         task.didReceive(Data(html.utf8))
         task.didFinish()
@@ -414,4 +420,60 @@ final class FramePageSchemeHandler: NSObject, WKURLSchemeHandler {
 struct SendableBox<T>: @unchecked Sendable {
     let value: T
     init(_ value: T) { self.value = value }
+}
+
+/// A call that started on a tab of the session's workspace can be
+/// suspended in WebKit when the user moves the tab to another workspace.
+/// The gate asks the tab capability again with the tab's workspace as it
+/// is at each script and input step, so a moved tab is neither read nor
+/// sent input.
+@MainActor
+@Suite("Frame gate: a tab moved to another workspace", .serialized)
+struct BrowserReplFrameGateWorkspaceTests {
+}
+
+extension BrowserReplFrameGateWorkspaceTests {
+}
+
+/// A call whose cell timed out or whose session was reset is cancelled
+/// while it may still wait in WebKit between native steps. Every native
+/// input step asks the gate's tab check first, so a cancelled call sends
+/// nothing more: the check refuses it, and so does the input guard.
+@MainActor
+@Suite("Frame gate: a cancelled call", .serialized)
+struct BrowserReplFrameGateCancellationTests {
+}
+
+/// A multi-event input (`input.drag`) sends its press, moves and release
+/// as separate native events, and each asks the gate's tab check first.
+/// The page can navigate its main frame between two of them (the child
+/// frame hold does not cover the main frame), so while guarded input is in
+/// flight that check also judges the main frame's live page: a blocked
+/// page, or a document of another origin than the one the input's checks
+/// and guards judged, gets no further event.
+@MainActor
+@Suite("Frame gate: a main frame that navigates during input", .serialized)
+struct BrowserReplFrameGateMainFrameNavigationTests {
+    /// The tab check of the next native step after the main frame left for
+    /// `destination`, inside guarded input.
+    private func stepAfterMainFrameNavigates(to destination: String) async throws -> BrowserReplDriverError? {
+        let page = try await FramePage.load()
+        let gate = BrowserReplFrameGateTests.gate()
+        let host = try #require(URL(string: destination)?.host)
+        var before: BrowserReplDriverError?
+        var after: BrowserReplDriverError?
+        _ = await BrowserReplFrameGateTests.error {
+            try await gate.guardingInput(in: page.webView, frames: { page.frames }, checkFocusAfter: false) {
+                before = await BrowserReplFrameGateTests.error { try gate.checkTab(in: page.webView) }
+                _ = try await page.webView.evaluateJavaScript("location.href = \"\(destination)\"; true")
+                // WebKit names the new page from the navigation's start, before it commits.
+                _ = try await FramePage.settle(page.webView) { _ in page.webView.url?.host == host }
+                after = await BrowserReplFrameGateTests.error { try gate.checkTab(in: page.webView) }
+                return nil
+            }
+        }
+        #expect(before == nil, "the step before the navigation was refused: \(String(describing: before))")
+        return after
+    }
+
 }

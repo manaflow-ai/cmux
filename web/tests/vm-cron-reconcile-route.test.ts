@@ -16,6 +16,7 @@ const reconcileResult = {
   updated: 1,
   destroyed: 0,
   skipped: 1,
+  repaused: 0,
   skippedNoGetStatus: false,
 };
 const reconcileVmProviderStatuses = mock(() => ({ workflow: "vm-reconcile" }));
@@ -40,6 +41,17 @@ mock.module("../services/vms/workflows", () => ({
     useWorkflowStubs
       ? callMock(runVmWorkflow, args)
       : realRunVmWorkflow(...args)) as typeof realRunVmWorkflow,
+}));
+
+// No pending Stack session revocations in these cases.
+mock.module("../services/vms/stackSessionRevocationStore", () => ({
+  deleteStackSessionRevocationsForUser: async () => {},
+  databaseStackSessionRevocationStore: () => ({
+    claimDue: async () => [],
+    listOpen: async () => [],
+    markRevoked: async () => {},
+    recordFailure: async () => null,
+  }),
 }));
 
 const { GET } = await import("../app/api/cron/vm-reconcile/route");
@@ -107,8 +119,10 @@ describe("VM reconcile cron route", () => {
       updated: 1,
       destroyed: 0,
       skipped: 1,
+      repaused: 0,
       skippedNoGetStatus: false,
       staleTunnels: tunnelReap,
+      stackSessionRevocations: { attempted: 0, revoked: 0, pending: 0 },
     });
     expect(reapStaleVmTunnels).toHaveBeenCalledTimes(1);
     // Machines the provider reports gone get their coderouter tokens revoked,

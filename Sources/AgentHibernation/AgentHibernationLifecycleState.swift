@@ -127,6 +127,7 @@ enum AgentHibernationLifecycleStatusKeys {
         "hermes-agent",
         "kiro",
         "kimi",
+        "muse",
         "omp",
         "opencode",
         "pi",

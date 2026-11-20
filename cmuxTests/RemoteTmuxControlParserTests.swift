@@ -531,13 +531,20 @@ import Testing
         )
     }
 
+    @Test @MainActor func agentSubscribeCommandKeepsFormatQuoted() {
+        #expect(
+            RemoteTmuxControlConnection.paneAgentSubscriptionCommand(paneId: 12)
+                == "refresh-client -B \"cmux_agent_12:%12:#{@cmux_agent}\""
+        )
+    }
+
     /// The host-wide session digest names no pane. A pane target reports only while that pane
     /// exists, and on a server that has been up for a while pane 0 is long gone: measured on
     /// tmux 3.7b, a `%0` subscription there stays silent when a session is created or renamed.
     @Test @MainActor func sessionDigestSubscribesOnTheAttachedSessionNotAPane() {
         #expect(
             RemoteTmuxControlConnection.sessionDigestSubscriptionCommand
-                == "refresh-client -B 'cmux_sessions::#{S:#{session_id}=#{session_name},}'"
+                == "refresh-client -B 'cmux_sessions::#{S:#{session_id}=#{session_name}:#{W:#{window_id}.}|,}'"
         )
     }
 }
@@ -593,5 +600,4 @@ import Testing
         #expect(RemoteTmuxControlConnection.parseActivityQueryLine("garbage") == nil)
         #expect(RemoteTmuxControlConnection.parseActivityQueryLine("") == nil)
     }
-
 }

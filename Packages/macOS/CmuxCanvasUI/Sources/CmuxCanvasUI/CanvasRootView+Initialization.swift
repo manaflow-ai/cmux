@@ -8,7 +8,8 @@ extension CanvasRootView {
         minimapAccessibilityLabel: String = "",
         minimapAccessibilityHelp: String = "",
         callbacks: CanvasHostCallbacks,
-        themeProvider: @escaping () -> CanvasTheme
+        themeProvider: @escaping () -> CanvasTheme,
+        themeChangeSignals: [CanvasThemeChangeSignal] = []
     ) {
         self.init(
             model: model,
@@ -17,6 +18,7 @@ extension CanvasRootView {
             minimapAccessibilityHelp: minimapAccessibilityHelp,
             callbacks: callbacks,
             themeProvider: themeProvider,
+            themeChangeSignals: themeChangeSignals,
             minimapClock: ContinuousClock()
         )
     }

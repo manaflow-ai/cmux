@@ -52,6 +52,7 @@ class CloudTaskLocalLifecycleTests(unittest.TestCase):
             "Operations/CloudOperationKind.swift", "Operations/CloudOperationPhase.swift",
             "Operations/CloudOperationSnapshot.swift", "Operations/CloudRemoteOperationStep.swift",
             "Telemetry/CloudTelemetrySpan.swift", "Telemetry/CloudTelemetrySending.swift",
+            "Telemetry/CloudTelemetryAuthAttributes.swift",
         ]
         # The package's public API names the stubbed collaborators, which are
         # internal here; one module needs no access modifiers.

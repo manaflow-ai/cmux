@@ -159,6 +159,19 @@ def decode_swift_escapes(value: str) -> str:
             index += 1
             continue
         index += 1
+        if index < len(value) and value[index] == "u" and index + 1 < len(value) and value[index + 1] == "{":
+            end = value.find("}", index + 2)
+            if end < 0:
+                raise ValueError("unsupported Swift Unicode escape in defaultValue")
+            digits = value[index + 2:end]
+            if not re.fullmatch(r"[0-9A-Fa-f]{1,8}", digits):
+                raise ValueError("unsupported Swift Unicode escape in defaultValue")
+            scalar = int(digits, 16)
+            if scalar > 0x10FFFF or 0xD800 <= scalar <= 0xDFFF:
+                raise ValueError("invalid Swift Unicode scalar in defaultValue")
+            result.append(chr(scalar))
+            index = end + 1
+            continue
         if index >= len(value) or value[index] not in escapes:
             raise ValueError("unsupported Swift escape in defaultValue")
         result.append(escapes[value[index]])

@@ -11,15 +11,29 @@ enum CloudWelcomeNextStep: Equatable {
     /// whose own gate decides between Upgrade and Enable.
     case openCloud
 
-    static func resolve(isAuthenticated: Bool, isPlanKnown: Bool, isPro: Bool) -> CloudWelcomeNextStep {
-        guard isAuthenticated else { return .signIn }
+    /// Stack Auth creates one personal team for a normal account. A free
+    /// account gets shared-team access only when its accepted list contains an
+    /// additional team.
+    static func hasSharedTeamAccess(availableTeamCount: Int) -> Bool {
+        availableTeamCount > 1
+    }
+
+    static func resolve(
+        isAuthenticated: Bool,
+        isPlanKnown: Bool,
+        isPro: Bool,
+        hasCloudTeamAccess: Bool = false
+    ) -> CloudWelcomeNextStep {
+        // Signed out reads like Free: Upgrade to Pro, which signs the app in
+        // before pricing opens (CloudWelcomeWindowController.upgrade).
+        guard isAuthenticated else { return .upgrade }
         guard isPlanKnown else { return .openCloud }
-        return isPro ? .enable : .upgrade
+        return isPro || hasCloudTeamAccess ? .enable : .upgrade
     }
 }
 
-/// "Your work, wherever you go": shown once on the 0.65.1 launch for users who
-/// can use Cloud. A compact introduction above feature clips and the next step.
+/// "Cloud machines for your agents": shown once, on the first launch of a
+/// release in the welcome campaign, for users who can use Cloud. A compact introduction above feature clips and the next step.
 ///
 /// Takes plain values (no app objects) so the same view renders in the app and
 /// in a standalone lab; ``CloudWelcomeWindowController`` feeds it the account.
@@ -27,6 +41,8 @@ struct CloudWelcomeView: View {
     let nextStep: CloudWelcomeNextStep
     let onNotNow: () -> Void
     let onNext: (CloudWelcomeNextStep) -> Void
+    /// Whether the account has an accepted team in addition to its personal scope.
+    var hasCloudTeamAccess = false
     /// Where each slide's clip lives (the lab points this at a folder).
     var mediaURL: (CloudWelcomeSlide) -> URL? = CloudWelcomeMediaCarousel.bundledMediaURL
     // Lab toggles while the slider is designed.
@@ -35,14 +51,31 @@ struct CloudWelcomeView: View {
     var sliderAutoplays = true
     var sliderShowsFeatureList = true
     var sliderListUsesDots = false
+    /// Launch card: the selected Headline preview ships by default.
+    var posterHeadline: String? = CloudWelcomeView.headline
+    /// Launch card: the user's New Cloud Machine shortcut for the Create row.
+    var newMachineShortcut: String? = "⇧⌘Y"
+    /// Launch card variations (debug comparisons): title in the poster band or
+    /// under the clip, the icon in the band, a New badge, and a footer with
+    /// Not Now beside the action.
+    var posterShowsTitle = true
+    var posterShowsIcon = true
+    var showsNewBadge = false
+    var footerHasNotNow = false
+    @State private var isHoveringPrimary = false
+    @State private var isHoveringNotNow = false
 
     static let windowWidth: CGFloat = 580
-    /// The list layouts put the features beside the clip, so they need more room.
-    static let listWindowWidth: CGFloat = 680
+    nonisolated static let headline = String(localized: "cloud.welcome.headline", defaultValue: "Cloud machines for your agents")
+    /// The launch layout: the clip poster on top, the features under it.
+    static let listWindowWidth: CGFloat = CloudWelcomeMediaCarousel.posterWidth
 
     var body: some View {
         let hasMedia = showsMedia && CloudWelcomeSlide.all.contains { mediaURL($0) != nil }
-        return VStack(spacing: 0) {
+        if hasMedia && sliderShowsFeatureList {
+            return AnyView(launchBody)
+        }
+        return AnyView(VStack(spacing: 0) {
             CloudWelcomeHeader()
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.horizontal, 24)
@@ -58,9 +91,157 @@ struct CloudWelcomeView: View {
                 .padding(.horizontal, 28)
                 .padding(.bottom, 22)
         }
-        .frame(width: sliderShowsFeatureList && hasMedia ? Self.listWindowWidth : Self.windowWidth)
+        .frame(width: Self.windowWidth)
         .background(windowBackground)
+        .accessibilityIdentifier("CloudWelcomeWindow"))
+    }
+
+    /// The campaign launch card: the clip poster (with the title in its band),
+    /// the five features, then one full-width action with the plan line under
+    /// it. The × in the corner (and Escape) is Not Now.
+    private var launchBody: some View {
+        VStack(spacing: 0) {
+            CloudWelcomeMediaCarousel(
+                slides: CloudWelcomeSlide.all,
+                mediaURL: mediaURL,
+                autoplays: sliderAutoplays,
+                showsFeatureList: true,
+                listUsesDots: false,
+                posterHeadline: posterHeadline,
+                newMachineShortcut: newMachineShortcut,
+                posterShowsTitle: posterShowsTitle,
+                posterShowsIcon: posterShowsIcon,
+                showsNewBadge: showsNewBadge,
+                cardWidth: launchCardWidth
+            )
+            if footerHasNotNow {
+                launchFooterWithNotNow
+            } else {
+            VStack(spacing: 9) {
+                Button {
+                    onNext(nextStep)
+                } label: {
+                    Text(primaryLabel)
+                        .cmuxFont(size: 13, weight: .semibold)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 36)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(Color.accentColor)
+                                // Darkens a step under the pointer, like a native button.
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .fill(Color.black.opacity(isHoveringPrimary ? 0.14 : 0))
+                                )
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    withAnimation(.easeOut(duration: 0.12)) { isHoveringPrimary = hovering }
+                }
+                // No Return shortcut: the window appears on its own at launch, and a
+                // Return meant for the terminal must not enable Cloud or open pricing.
+                .accessibilityIdentifier("CloudWelcomePrimaryButton")
+                Text(noteLines.joined(separator: " "))
+                    .cmuxFont(size: 11)
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 20)
+            .padding(.bottom, 20)
+            }
+        }
+        .frame(width: launchCardWidth)
+        .overlay(alignment: .topTrailing) {
+            Button(action: onNotNow) {
+                Image(systemName: "xmark")
+                    .cmuxFont(size: 9, weight: .bold)
+                    .foregroundStyle(.white.opacity(0.8))
+                    .frame(width: 24, height: 24)
+                    .background(.ultraThinMaterial, in: Circle())
+                    .environment(\.colorScheme, .dark)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.cancelAction)
+            .help(String(localized: "common.notNow", defaultValue: "Not Now"))
+            .accessibilityLabel(String(localized: "common.notNow", defaultValue: "Not Now"))
+            .accessibilityIdentifier("CloudWelcomeNotNowButton")
+            .padding(12)
+        }
+        // An opaque card (no glass): the same colour as the window behind it.
+        .background(Color(nsColor: Self.launchCardColor))
         .accessibilityIdentifier("CloudWelcomeWindow")
+    }
+
+    /// The Not Now footer needs room for the plan line and two buttons on one row.
+    private var launchCardWidth: CGFloat {
+        footerHasNotNow ? 480 : Self.listWindowWidth
+    }
+
+    /// The plan line on the left, Not Now and the action on the right, under a hairline.
+    private var launchFooterWithNotNow: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: 6) {
+                Text(noteLines.joined(separator: " "))
+                    .cmuxFont(size: 11)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 6)
+                Button(action: onNotNow) {
+                    Text(String(localized: "common.notNow", defaultValue: "Not Now"))
+                        .cmuxFont(size: 13, weight: .medium)
+                        .padding(.horizontal, 12)
+                        .frame(height: 30)
+                        .background(Capsule(style: .continuous).fill(Color.primary.opacity(isHoveringNotNow ? 0.16 : 0.1)))
+                        .contentShape(Capsule(style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .fixedSize()
+                .onHover { hovering in
+                    withAnimation(.easeOut(duration: 0.12)) { isHoveringNotNow = hovering }
+                }
+                Button {
+                    onNext(nextStep)
+                } label: {
+                    Text(primaryLabel)
+                        .cmuxFont(size: 13, weight: .semibold)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 13)
+                        .frame(height: 30)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(Color.accentColor)
+                                .overlay(Capsule(style: .continuous).fill(Color.black.opacity(isHoveringPrimary ? 0.14 : 0)))
+                        )
+                        .contentShape(Capsule(style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .fixedSize()
+                .onHover { hovering in
+                    withAnimation(.easeOut(duration: 0.12)) { isHoveringPrimary = hovering }
+                }
+                .accessibilityIdentifier("CloudWelcomePrimaryButton")
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
+        }
+        .padding(.top, 14)
+    }
+
+    /// The launch card: a lifted near-black on dark, near-white on light.
+    static var launchCardColor: NSColor {
+        NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? NSColor(white: 0.11, alpha: 1)
+                : NSColor(white: 0.98, alpha: 1)
+        }
     }
 
     /// On macOS 26 the window hosts this view inside an NSGlassEffectView (the
@@ -174,7 +355,13 @@ struct CloudWelcomeView: View {
         )
         switch nextStep {
         case .enable:
-            return [String(localized: "cloud.welcome.note.included", defaultValue: "Included in your plan.")]
+            if hasCloudTeamAccess {
+                return [String(
+                    localized: "cloud.welcome.note.teamIncluded",
+                    defaultValue: "Included through your team’s plan."
+                )]
+            }
+            return [String(localized: "cloud.welcome.note.alreadyIncluded", defaultValue: "Already included in your plan.")]
         case .signIn, .upgrade, .openCloud:
             return [available]
         }

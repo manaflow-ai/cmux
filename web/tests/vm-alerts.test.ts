@@ -140,6 +140,8 @@ describe("VM alert checks", () => {
       createFailures: { triggered: true, count: 3 },
       stuckProvisioning: { triggered: true, count: 1 },
       expiredUnrevokedLeases: { triggered: true, count: 51 },
+      health: { triggered: false, count: 0 },
+      tlsRuleCapacity: null,
       alertSink: { configured: false, droppedAlerts: 0 },
     });
     expect(alerts.map((alert) => alert.key)).toEqual([
@@ -196,6 +198,51 @@ describe("VM alert checks", () => {
     await run(now);
     await run(new Date(now.getTime() + 5 * 60 * 1000 + 1));
     expect(attempts).toBe(2);
+  });
+
+  dbTest("alerts when a running VM's guest health heartbeat is stale", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_alert_states, cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    const now = new Date("2026-07-04T12:00:00.000Z");
+    await sql`
+      insert into cloud_vms (
+        user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status, provider_metadata, updated_at
+      )
+      values (
+        'user-health', 'team-health', 'free', 'freestyle', 'provider-health', 'snapshot-health', 'running',
+        jsonb_build_object('cmuxResourceUsage', jsonb_build_object(
+          'providerVmId', 'provider-health', 'receivedAt', ${now.getTime() - 6 * 60 * 1000}::bigint
+        )), ${new Date(now.getTime() - 6 * 60 * 1000)}
+      )
+    `;
+    // A stopped allocation, missing heartbeat, foreign sample, malformed
+    // timestamp, and current heartbeat do not establish a frozen running guest.
+    for (const [suffix, status, sample] of [
+      ["paused", "paused", { providerVmId: "excluded-paused", receivedAt: 1 }],
+      ["missing", "running", {}],
+      ["foreign", "running", { providerVmId: "another-vm", receivedAt: 1 }],
+      ["invalid", "running", { providerVmId: "excluded-invalid", receivedAt: "unknown" }],
+      ["fresh", "running", { providerVmId: "excluded-fresh", receivedAt: now.getTime() }],
+    ] as const) {
+      await sql`
+        insert into cloud_vms (user_id, provider, provider_vm_id, image_id, status, provider_metadata)
+        values ('user-health', 'freestyle', ${`excluded-${suffix}`}, 'snapshot-health',
+          ${status}, ${sql.json({ cmuxResourceUsage: sample })})
+      `;
+    }
+    const alerts: AlertInput[] = [];
+    const summary = await runVmAlertChecks({
+      db: cloudDb(),
+      now,
+      env: { CMUX_VM_ALERT_HEALTH_STALE_MS: String(5 * 60 * 1000) },
+      sendAlert: async (input): Promise<AlertResult> => {
+        alerts.push(input);
+        return { sent: true, configured: true, status: 200 };
+      },
+    });
+    expect(summary.health).toEqual({ triggered: true, count: 1 });
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({ key: "vm-health-stale", severity: "critical" });
   });
 
   dbTest("does not page the create-failure spike for reconciliation housekeeping", async () => {

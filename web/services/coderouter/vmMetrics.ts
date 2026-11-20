@@ -200,13 +200,19 @@ export async function loadCoderouterVmMetrics(
 export async function loadCoderouterTeamMachineMetrics(
   authorizedTeamId: string,
   surface: CoderouterVmUsageSurface = "team_machines_api",
+  options: {
+    /** False for a polled refresh: only an opened view emits `coderouter_vm_usage_viewed`. */
+    readonly captureView?: boolean;
+  } = {},
 ): Promise<CoderouterTeamMachineMetrics> {
   const metrics = await cachedTeamMachineMetrics(authorizedTeamId);
-  captureCoderouterEvent({
-    event: "coderouter_vm_usage_viewed",
-    teamId: authorizedTeamId,
-    properties: { surface, outcome: metrics.kind },
-  });
+  if (options.captureView !== false) {
+    captureCoderouterEvent({
+      event: "coderouter_vm_usage_viewed",
+      teamId: authorizedTeamId,
+      properties: { surface, outcome: metrics.kind },
+    });
+  }
   return metrics;
 }
 

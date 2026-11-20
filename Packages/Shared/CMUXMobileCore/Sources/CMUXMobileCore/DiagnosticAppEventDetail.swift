@@ -65,6 +65,7 @@ public enum DiagnosticPrimaryTab: Int, Sendable, Codable, CaseIterable {
     case search = 3
     case feed = 4
     case cloud = 5
+    case home = 6
 }
 
 /// Fixed search owner stored in the value payload of search lifecycle events.

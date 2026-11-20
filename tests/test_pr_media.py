@@ -21,6 +21,11 @@ assert SPEC.loader is not None
 sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
 
+# The real privacy check reads this machine's names and may compile the OCR
+# tool; tests that do not exercise it get a no-op, and PrivacyTests a stubbed one.
+REAL_CHECK_PRIVACY = MODULE.check_privacy
+MODULE.check_privacy = lambda items, repo, **options: None
+
 PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 32
 MP4 = b"\x00\x00\x00\x18ftypisom" + b"0" * 32
 GIF = b"GIF89a" + b"0" * 32
@@ -610,6 +615,154 @@ class MainTests(unittest.TestCase):
                 self.assertEqual(len(gh.comments), expected, argv)
                 if expected:
                     self.assertIn("![shot](", gh.comments[0])
+
+
+class PrivacyTests(unittest.TestCase):
+    """pr-media.py runs the shared check (scripts/ci/pr_media_privacy.py) with a
+    fake OCR (a file holding LEAK reads as a fleet prompt) and a fake author lookup."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="pr-media-privacy-test-")
+        self.addCleanup(temporary.cleanup)
+        self.scratch = temporary.name
+        # A CI step inside .github/actions/pr-media-publish (PR_MEDIA_PUBLISH_GATE).
+        self.env = {"HOME": self.scratch, "GITHUB_ACTIONS": "true", "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]',
+                    "PR_MEDIA_AGENT_AUTHORS": "bot-a", "PR_MEDIA_PUBLISH_GATE": "1"}
+        self.authors = {7: "bot-a", 8: "teammate"}
+        self.ocr_calls = []
+        self.lookups = []
+
+        def ocr(local):
+            self.ocr_calls.append(local.name)
+            data = local.read_bytes()
+            # TERM: a frame showing the private-terms list's "glow-box".
+            return ["cmux@cmux7s-Mac-mini ~ %"] if b"LEAK" in data else ["ssh glow-box"] if b"TERM" in data else ["ok"]
+
+        def lookup(numbers):
+            self.lookups.append(numbers)
+            if self.authors is None:
+                raise RuntimeError("GraphQL unavailable")
+            return self.authors
+
+        def check(items, repo, **options):
+            REAL_CHECK_PRIVACY(items, repo, **{"env": self.env, "ocr": ocr, "lookup": lookup, **options})
+
+        original = MODULE.check_privacy
+        MODULE.check_privacy = check
+        self.addCleanup(setattr, MODULE, "check_privacy", original)
+
+    def run_main(self, argv, runner=None):
+        with contextlib.redirect_stdout(io.StringIO()) as out, \
+             contextlib.redirect_stderr(io.StringIO()) as err:
+            code = MODULE.main(argv, runner=runner)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_an_agents_capture_with_a_private_name_is_refused_before_any_upload(self):
+        clean = written(self.scratch, "01-clean.png", PNG)
+        leak = written(self.scratch, "02-leak.png", PNG + b"LEAK")
+        gh = FakeGh()
+        code, out, err = self.run_main(["--pr", "7", str(clean), str(leak)], runner=gh)
+        self.assertEqual(code, 1)
+        self.assertFalse(gh.puts)
+        self.assertIn("7/02-leak.png", err)
+        self.assertIn("refused", err)
+        self.assertNotIn("cmux7s", out + err)
+
+    def test_a_clean_capture_is_uploaded_and_checked_once(self):
+        clean = written(self.scratch, "shot.png", PNG)
+        gh = FakeGh()
+        code, _, _ = self.run_main(["--pr", "7", str(clean)], runner=gh)
+        self.assertEqual(code, 0)
+        self.assertEqual(sorted(gh.puts), ["7/shot.png"])
+        self.assertEqual(self.ocr_calls, ["shot.png"])
+
+    def test_a_teammates_capture_with_a_private_name_is_refused_and_names_only_its_category(self):
+        # Leo, 2026-10-22: "1 ok": a teammate's PR is refused like an agent's, and nothing is uploaded.
+        clean = written(self.scratch, "01-clean.png", PNG)
+        frame = written(self.scratch, "02-frame.png", PNG + b"TERM")
+        gh = FakeGh()
+        code, out, err = self.run_main(["--pr", "8", str(clean), str(frame)], runner=gh)
+        self.assertEqual(code, 1)
+        self.assertFalse(gh.puts)
+        self.assertIn("8/02-frame.png shows a personal machine or account name; refused", err)
+        self.assertIn("then recapture", err)
+        self.assertNotIn("glow", (out + err).replace(self.scratch, ""))
+        self.assertEqual(self.lookups, [])  # whoever's PR it is, no author decides
+
+    def test_a_refusal_names_each_category_never_the_text(self):
+        leak = written(self.scratch, "shot.png", PNG + b"LEAK")
+        gh = FakeGh()
+        code, out, err = self.run_main(["--pr", "8", str(leak)], runner=gh)
+        self.assertEqual(code, 1)
+        self.assertFalse(gh.puts)
+        self.assertIn("fleet Mac mini name", err)
+        self.assertIn("fleet shell prompt", err)
+        self.assertNotIn("cmux7s", out + err)
+
+    def test_the_gif_made_from_an_mp4_is_what_gets_checked(self):
+        clip = written(self.scratch, "drag.mp4", MP4)
+        gh = FakeGh()
+
+        def runner(argv, **kwargs):
+            if argv[0] == "ffmpeg":
+                Path(argv[-1]).write_bytes(GIF + b"LEAK")
+                return gh.reply(0, "")
+            return gh(argv, **kwargs)
+
+        with mock.patch.object(MODULE.shutil, "which", return_value="/usr/bin/ffmpeg"):
+            code, _, err = self.run_main(["--pr", "7", str(clip)], runner=runner)
+        self.assertEqual(code, 1)
+        self.assertIn("7/drag.gif", err)
+        self.assertFalse(gh.puts)
+
+    def test_a_dry_run_checks_the_files_it_was_given(self):
+        leak = written(self.scratch, "shot.png", PNG + b"LEAK")
+
+        def forbidden(argv, **kwargs):
+            raise AssertionError(f"a dry run must not run anything, ran {argv}")
+
+        code, out, err = self.run_main(["--pr", "7", "--dry-run", str(leak)], runner=forbidden)
+        self.assertEqual(code, 1)
+        self.assertIn("privacy check", out)
+        self.assertIn("7/shot.png", err)
+
+    def test_a_dry_run_looks_no_pull_request_author_up(self):
+        leak = written(self.scratch, "shot.png", PNG + b"LEAK")
+        code, out, err = self.run_main(["--pr", "8", "--dry-run", str(leak)])
+        self.assertEqual(self.lookups, [])
+        self.assertEqual(code, 1)
+        self.assertIn("8/shot.png", err)
+
+    def test_off_ci_a_hit_is_refused_too(self):
+        self.env = {"HOME": self.scratch, "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]'}
+        frame = written(self.scratch, "shot.png", PNG + b"TERM")
+        gh = FakeGh()
+        code, _, err = self.run_main(["--pr", "8", str(frame)], runner=gh)
+        self.assertEqual(code, 1)
+        self.assertFalse(gh.puts)
+        self.assertIn("personal machine or account name", err)
+
+    def test_a_refusal_is_a_privacy_error_so_callers_never_retry_it(self):
+        leak = written(self.scratch, "shot.png", PNG + b"LEAK")
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(MODULE.PrivacyError):
+            MODULE.check_privacy([("7/shot.png", leak)], "o/r")
+        self.assertTrue(issubclass(MODULE.PrivacyError, MODULE.MediaError))
+
+    def test_put_file_checks_for_library_callers_unless_already_checked(self):
+        leak = written(self.scratch, "shot.png", PNG + b"LEAK")
+        gh = FakeGh()
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(MODULE.MediaError):
+            MODULE.put_file("o/r", "pr-media", "nightly-next/reel/shot.png", leak, "msg", runner=gh)
+        self.assertFalse(gh.puts)
+        MODULE.put_file("o/r", "pr-media", "nightly-next/reel/shot.png", leak, "msg", runner=gh, checked=True)
+        self.assertEqual(list(gh.puts), ["nightly-next/reel/shot.png"])
+
+    def test_a_checkout_without_the_privacy_check_refuses_to_upload(self):
+        shot = written(self.scratch, "shot.png", PNG)
+        with mock.patch.object(MODULE, "PRIVACY_MODULE", Path(self.scratch) / "absent.py"), \
+                mock.patch.object(MODULE, "_privacy", None), self.assertRaises(MODULE.MediaError) as raised:
+            REAL_CHECK_PRIVACY([("7/shot.png", shot)], "o/r")
+        self.assertIn("absent.py", str(raised.exception))
 
 
 class HelpTests(unittest.TestCase):

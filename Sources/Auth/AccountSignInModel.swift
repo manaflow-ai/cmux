@@ -18,6 +18,9 @@ final class AccountSignInModel {
         case waiting
         case waitingSlow
         case finishing
+        /// The sign-in service refused with too many requests; cmux
+        /// retries the completion on its own.
+        case rateLimited
     }
 
     enum Failure: Equatable {
@@ -30,6 +33,7 @@ final class AccountSignInModel {
         case browserUnavailable
         case unauthorized
         case rejected
+        case rateLimited
         case unknown
     }
 
@@ -48,6 +52,8 @@ final class AccountSignInModel {
     private(set) var hasRequestedSignIn = false
     private(set) var signInURL: URL?
     private(set) var linkCopyState: LinkCopyState = .idle
+    private var copiedFailureDetail: String?
+    private var failureDetailCopyFailure: LinkCopyState = .idle
     private(set) var browserOpenState: BrowserOpenState = .idle
     private(set) var isStartingSignIn = false
 
@@ -69,6 +75,7 @@ final class AccountSignInModel {
         // signed out, and an idle Sign In there would start a second attempt
         // that skips the account chooser.
         if flow?.isSwitchingAccount == true {
+            if flow?.isRetryingAfterRateLimit == true { return .loading(.rateLimited) }
             if flow?.isCompletingSignIn == true { return .loading(.finishing) }
             if flow?.isPresentingSignIn == true {
                 return .loading(flow?.signInIsSlow == true ? .waitingSlow : .waiting)
@@ -80,6 +87,9 @@ final class AccountSignInModel {
         // surface runs the shared attempt.
         guard hasRequestedSignIn else {
             return .idle
+        }
+        if flow?.isRetryingAfterRateLimit == true {
+            return .loading(.rateLimited)
         }
         if flow?.isCompletingSignIn == true {
             return .loading(.finishing)
@@ -100,6 +110,18 @@ final class AccountSignInModel {
         signInURL != nil
     }
 
+    /// Detail line shown under a failure so the user can report what failed.
+    var failureDetail: String? {
+        guard case .failed = phase else { return nil }
+        return flow?.lastSignInFailureDetail
+    }
+
+    /// Copy state for the detail on screen. A different detail (a later
+    /// failure) shows the copy button again instead of a stale "Copied".
+    var failureDetailCopyState: LinkCopyState {
+        copiedFailureDetail != nil && copiedFailureDetail == failureDetail ? .copied : failureDetailCopyFailure
+    }
+
     /// Starts the initial attempt once when an automatically presented pane appears.
     func startSignInIfNeeded() {
         guard !hasRequestedSignIn else { return }
@@ -111,6 +133,8 @@ final class AccountSignInModel {
         guard let flow, flow.currentIdentity == nil else { return }
         hasRequestedSignIn = true
         linkCopyState = .idle
+        copiedFailureDetail = nil
+        failureDetailCopyFailure = .idle
         browserOpenState = .idle
         if flow.isPresentingSignIn || flow.isSwitchingAccount {
             // Another surface already has the shared attempt up. Adopt it —
@@ -146,5 +170,15 @@ final class AccountSignInModel {
             return
         }
         linkCopyState = flow?.copySignInURL(signInURL) == true ? .copied : .failed
+    }
+
+    func copyFailureDetail() {
+        guard let failureDetail, flow?.copyFailureDetail(failureDetail) == true else {
+            copiedFailureDetail = nil
+            failureDetailCopyFailure = .failed
+            return
+        }
+        copiedFailureDetail = failureDetail
+        failureDetailCopyFailure = .idle
     }
 }

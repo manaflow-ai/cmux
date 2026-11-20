@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxSurfaceCatalogModel
 import AppKit
 
 extension CloudTreeOutlineView.Coordinator {
@@ -79,6 +80,17 @@ extension CloudTreeOutlineView.Coordinator {
         }
         guard let drop = organizationDrop(outlineView, info: info, item: item, index: index) else { return false }
         switch drop.operation {
+        case .browser(let resourceRawValue, let tabID, let remoteWorkspaceID):
+            guard let resource = SurfaceResourceID(rawValue: resourceRawValue),
+                  let source = CloudTreeNodeBuilder.flattened(nodes).first(where: { $0.id == drop.sourceID }),
+                  case .browser(let row) = source.kind,
+                  row.remoteView?.tabID == tabID,
+                  let view = row.remoteView else { return false }
+            let move = { [weak self] in
+                self?.nodeActions.moveCloudBrowser(resource, view, remoteWorkspaceID)
+                return true
+            }
+            return isMachineLiftActive(outlineView, info: info) ? finishMachineLift(commit: move) : move()
         case .organization(let action):
             guard isMachineLiftActive(outlineView, info: info) else {
                 return organize(action, nodeID: drop.sourceID)
@@ -113,15 +125,13 @@ extension CloudTreeOutlineView.Coordinator {
         case .surface:
             guard let app = AppDelegate.shared else { return policy.rejection(for: nil) }
             return app.ownershipRejection(forBonsplitTab: transfer.tabId, policy: policy)
-        case .vaultSession, .filePreview, .rightSidebarTool:
+        case .vaultSession, .filePreview, .rightSidebarTool, .workspaceMerge, .chiefConversation:
             return policy.rejection(for: .local)
         }
     }
 
-    /// Internal moves never cross a parent or pin partition. In particular, a
-    /// folder drag must not become a remote tab.move and detach a running pane.
-    /// Projection-capable leaves also reorder here; their export capability is
-    /// consumed only by pane destinations, never by this organization action.
+    /// Folder organization stays within its parent and pin partition. An exact
+    /// Cloud browser tab may also move to a sibling workspace on the same machine.
     private func organizationDrop(_ outlineView: NSOutlineView, info: any NSDraggingInfo,
                                   item: Any?, index: Int) -> CloudSidebarOrganizationDrop? {
         guard let source = info.draggingSource as? NSOutlineView, source === outlineView,

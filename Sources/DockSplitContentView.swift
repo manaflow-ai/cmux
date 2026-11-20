@@ -68,6 +68,13 @@ struct DockSplitContentView: View {
                     inPane: paneId,
                     window: NSApp.keyWindow ?? NSApp.mainWindow
                 )
+            },
+            onNewChief: {
+                _ = store.newSurfaceFromDockAffordance(
+                    kind: .chief,
+                    inPane: paneId,
+                    window: NSApp.keyWindow ?? NSApp.mainWindow
+                )
             }
         )
         .onTapGesture {

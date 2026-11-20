@@ -4,7 +4,10 @@ import Foundation
 /// Preserves accepted paste commands in a bounded FIFO outside the main actor.
 /// Full preparation commands have one deadline, including time spent waiting
 /// behind the active worker. Text-only commands may use the resident helper
-/// concurrently, so they do not wait behind image/file work. Expiry cancels
+/// concurrently, so they do not wait behind image/file work. Launching the
+/// isolated full worker is not preparation: while that process starts, the
+/// job is bounded by ``defaultWorkerStartupAllowance`` instead, and the full
+/// deadline restarts once the worker reports it is running. Expiry cancels
 /// active work; completion awaits its teardown. A cancelled operation is
 /// reaped before returning so its caller retains any clipboard-read lease until
 /// that operation can no longer access pboard.
@@ -29,9 +32,15 @@ actor TerminalImageTransferPreparationService {
     ) -> Void
 
     static let defaultDeadline: Duration = .seconds(5)
+    /// Re-executing the app binary can take several seconds on a loaded
+    /// machine or under an exec-scanning security agent (#18819).
+    /// While a start hangs, the clipboard-read lease blocks other clipboard
+    /// work, so this stays short; it still covers the 5-6 s starts reported.
+    static let defaultWorkerStartupAllowance: Duration = .seconds(15)
     static let defaultMaximumQueuedJobs = 32
 
     private let deadline: Duration
+    private let workerStartupAllowance: Duration
     private let maximumQueuedJobs: Int
     private let deadlineSleep: DeadlineSleep
     private let admissionSignal: AdmissionSignal
@@ -45,6 +54,8 @@ actor TerminalImageTransferPreparationService {
     init(
         deadline: Duration = TerminalImageTransferPreparationService
             .defaultDeadline,
+        workerStartupAllowance: Duration = TerminalImageTransferPreparationService
+            .defaultWorkerStartupAllowance,
         maximumQueuedJobs: Int = TerminalImageTransferPreparationService
             .defaultMaximumQueuedJobs,
         deadlineSleep: @escaping DeadlineSleep = { duration in
@@ -58,6 +69,7 @@ actor TerminalImageTransferPreparationService {
         failureSignal: @escaping FailureSignal = { _ in NSSound.beep() }
     ) {
         self.deadline = deadline
+        self.workerStartupAllowance = workerStartupAllowance
         self.maximumQueuedJobs = max(0, maximumQueuedJobs)
         self.deadlineSleep = deadlineSleep
         self.admissionSignal = admissionSignal
@@ -218,11 +230,17 @@ actor TerminalImageTransferPreparationService {
                     return
                 }
 
+                let deadlineGeneration = UUID()
                 let job = TerminalPastePreparationJob(
                     id: id,
                     request: request,
                     continuation: continuation,
-                    deadlineTask: makeDeadlineTask(for: id),
+                    deadlineTask: makeDeadlineTask(
+                        for: id,
+                        generation: deadlineGeneration,
+                        after: deadline
+                    ),
+                    deadlineGeneration: deadlineGeneration,
                     operationTask: nil
                 )
                 if activeJob == nil {
@@ -239,17 +257,20 @@ actor TerminalImageTransferPreparationService {
         }
     }
 
-    private func makeDeadlineTask(for jobID: UUID) -> Task<Void, Never> {
-        let deadline = self.deadline
+    private func makeDeadlineTask(
+        for jobID: UUID,
+        generation: UUID,
+        after duration: Duration
+    ) -> Task<Void, Never> {
         let deadlineSleep = self.deadlineSleep
         return Task { [weak self] in
             do {
-                try await deadlineSleep(deadline)
+                try await deadlineSleep(duration)
             } catch {
                 return
             }
             guard !Task.isCancelled else { return }
-            await self?.expire(jobID: jobID)
+            await self?.expire(jobID: jobID, generation: generation)
         }
     }
 
@@ -260,9 +281,21 @@ actor TerminalImageTransferPreparationService {
         let request = job.request
         let operation = self.operation
         let cleanup = self.cleanup
+        let workerStartup = WorkerStartup(
+            launching: { [weak self] in
+                await self?.workerLaunching(jobID: id)
+            },
+            ready: { [weak self] in
+                Task { await self?.workerReady(jobID: id) }
+            }
+        )
         runningJob.operationTask = Task { [weak self] in
             do {
-                let result = try await operation(request)
+                let result = try await WorkerStartup.$current.withValue(
+                    workerStartup
+                ) {
+                    try await operation(request)
+                }
                 guard let self else {
                     cleanup(result)
                     return
@@ -317,11 +350,46 @@ actor TerminalImageTransferPreparationService {
         startNextJobIfPossible()
     }
 
+    /// Process startup is bounded by its own allowance, not the deadline.
+    private func workerLaunching(jobID: UUID) {
+        replaceDeadline(ofActiveJob: jobID, after: workerStartupAllowance)
+    }
+
+    /// The running worker gets the full preparation deadline.
+    private func workerReady(jobID: UUID) {
+        replaceDeadline(ofActiveJob: jobID, after: deadline)
+    }
+
+    private func replaceDeadline(
+        ofActiveJob jobID: UUID,
+        after duration: Duration
+    ) {
+        guard var job = activeJob,
+              job.id == jobID,
+              case .preparing = job.phase else {
+            return
+        }
+        job.deadlineTask?.cancel()
+        // A replaced task may already be waiting to expire this job; the new
+        // generation makes that expiry a no-op.
+        job.deadlineGeneration = UUID()
+        job.deadlineTask = makeDeadlineTask(
+            for: jobID,
+            generation: job.deadlineGeneration,
+            after: duration
+        )
+        activeJob = job
+    }
+
     private func cancel(jobID: UUID) {
         fail(jobID: jobID, with: .cancelled)
     }
 
-    private func expire(jobID: UUID) {
+    private func expire(jobID: UUID, generation: UUID) {
+        let job = activeJob?.id == jobID
+            ? activeJob
+            : queuedJobs.first { $0.id == jobID }
+        guard job?.deadlineGeneration == generation else { return }
         fail(jobID: jobID, with: .deadlineExceeded)
     }
 
@@ -376,5 +444,20 @@ actor TerminalImageTransferPreparationService {
     ) async {
         guard failure != .cancelled else { return }
         await failureSignal(failure)
+    }
+}
+
+extension TerminalImageTransferPreparationService {
+    /// Lets an operation tell the service when it launches an isolated worker
+    /// process and when that process is running, so the preparation deadline
+    /// measures preparation rather than exec and app-image load. Bound only
+    /// while the service runs a full-lane operation.
+    struct WorkerStartup: Sendable {
+        @TaskLocal static var current: WorkerStartup?
+
+        /// Awaited before the process launches, so `ready` cannot overtake it.
+        let launching: @Sendable () async -> Void
+        /// Called once, from any thread, when the worker reports it is running.
+        let ready: @Sendable () -> Void
     }
 }

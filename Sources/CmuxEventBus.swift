@@ -9,6 +9,12 @@ struct CmuxEventSubscriptionSnapshot {
 
 // Sendable safety: every mutable field is protected by `lock`; `semaphore` only wakes `next(timeout:)`.
 final class CmuxEventSubscription: @unchecked Sendable {
+    private struct AsyncWaiter {
+        let id: UInt64
+        let continuation: CheckedContinuation<[String: Any]?, Never>
+        let timeout: DispatchWorkItem?
+    }
+
     let id: UUID
     let names: Set<String>
     let categories: Set<String>
@@ -17,7 +23,8 @@ final class CmuxEventSubscription: @unchecked Sendable {
     private let lock = NSLock()
     private let semaphore = DispatchSemaphore(value: 0)
     private var queue: [[String: Any]] = []
-    private var asyncWaiters: [CheckedContinuation<[String: Any]?, Never>] = []
+    private var asyncWaiters: [AsyncWaiter] = []
+    private var nextAsyncWaiterID: UInt64 = 0
     private var closed = false
     private var closedReason: String?
     private var replayQueueCount = 0
@@ -55,7 +62,7 @@ final class CmuxEventSubscription: @unchecked Sendable {
         lock.lock()
         let shouldSignal: Bool
         let accepted: Bool
-        let waiter: CheckedContinuation<[String: Any]?, Never>?
+        let waiter: AsyncWaiter?
         if closed {
             shouldSignal = false
             accepted = false
@@ -81,7 +88,8 @@ final class CmuxEventSubscription: @unchecked Sendable {
         }
         lock.unlock()
         if let waiter {
-            waiter.resume(returning: event)
+            waiter.timeout?.cancel()
+            waiter.continuation.resume(returning: event)
         } else if shouldSignal {
             semaphore.signal()
         }
@@ -100,7 +108,8 @@ final class CmuxEventSubscription: @unchecked Sendable {
         if let waiter = asyncWaiters.first {
             asyncWaiters.removeFirst()
             lock.unlock()
-            waiter.resume(returning: event)
+            waiter.timeout?.cancel()
+            waiter.continuation.resume(returning: event)
             return true
         }
         queue.append(event)
@@ -113,6 +122,13 @@ final class CmuxEventSubscription: @unchecked Sendable {
     /// Awaits the next event without tying up a thread in a semaphore wait.
     /// Cancellation closes the subscription so the waiter is always resumed.
     func nextAsync() async -> [String: Any]? {
+        await nextAsync(timeout: nil)
+    }
+
+    /// Awaits the next event, or returns nil once `timeout` elapses, without
+    /// parking a cooperative thread. Use this from async contexts instead of
+    /// `next(timeout:)`, whose semaphore wait would hold a pool thread.
+    func nextAsync(timeout: TimeInterval?) async -> [String: Any]? {
         await withTaskCancellationHandler(operation: {
             await withCheckedContinuation { continuation in
                 lock.lock()
@@ -125,13 +141,35 @@ final class CmuxEventSubscription: @unchecked Sendable {
                     lock.unlock()
                     continuation.resume(returning: nil)
                 } else {
-                    asyncWaiters.append(continuation)
+                    nextAsyncWaiterID &+= 1
+                    let id = nextAsyncWaiterID
+                    let timeoutItem = timeout.map { _ in
+                        DispatchWorkItem { [weak self] in self?.expireAsyncWaiter(id) }
+                    }
+                    asyncWaiters.append(AsyncWaiter(id: id, continuation: continuation, timeout: timeoutItem))
                     lock.unlock()
+                    if let timeout, let timeoutItem {
+                        DispatchQueue.global(qos: .utility).asyncAfter(
+                            deadline: .now() + max(0, timeout),
+                            execute: timeoutItem
+                        )
+                    }
                 }
             }
         }, onCancel: {
             close(reason: "consumer cancelled")
         })
+    }
+
+    private func expireAsyncWaiter(_ id: UInt64) {
+        lock.lock()
+        guard let index = asyncWaiters.firstIndex(where: { $0.id == id }) else {
+            lock.unlock()
+            return
+        }
+        let waiter = asyncWaiters.remove(at: index)
+        lock.unlock()
+        waiter.continuation.resume(returning: nil)
     }
 
     func next(timeout: TimeInterval) -> [String: Any]? {
@@ -171,7 +209,10 @@ final class CmuxEventSubscription: @unchecked Sendable {
         asyncWaiters.removeAll(keepingCapacity: true)
         lock.unlock()
         semaphore.signal()
-        waiters.forEach { $0.resume(returning: nil) }
+        for waiter in waiters {
+            waiter.timeout?.cancel()
+            waiter.continuation.resume(returning: nil)
+        }
     }
 }
 

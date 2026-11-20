@@ -8,6 +8,7 @@ private final class FakeSurfaceController: TerminalSurfaceControlling {
     let surfaceId: UUID
     let owningTabId: UUID
     var runtimeSurfacePointer: ghostty_surface_t?
+    var requiresClipboardReadGesture = false
 
     init(
         surfaceId: UUID = UUID(),

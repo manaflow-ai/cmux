@@ -48,6 +48,21 @@ import Testing
         #expect(!CloudMachineLifecycle.unknown.canDelete)
     }
 
+    @Test func restartRequiresRunningAndExplicitServerCapability() throws {
+        let decoder = CloudAPIResponseDecoding()
+        for raw in ["true", "false", "null", "1", "\"true\""] {
+            let data = Data("{\"vms\":[{\"id\":\"vm-1\",\"provider\":\"freestyle\",\"status\":\"running\",\"capabilities\":{\"restart\":\(raw)}}]}".utf8)
+            let machine = try #require(decoder.catalog(from: data).machines.first)
+            #expect(machine.canRestart == (raw == "true"))
+            var paused = machine
+            paused.status = "paused"
+            #expect(!paused.canRestart)
+        }
+        #expect(!Self.running.canRestart)
+        let created = try decoder.createdMachine(from: Data(#"{"id":"vm-1","provider":"freestyle","status":"running","capabilities":{"restart":true}}"#.utf8))
+        #expect(created.canRestart)
+    }
+
     @Test func requestsReachTheServersLifecycleRoutes() throws {
         let builder = CloudAPIRequestBuilder(baseURL: "https://cmux.com/")
         let pause = try builder.pauseMachine(id: "vm-1", accessToken: "a", refreshToken: "r")
@@ -58,6 +73,11 @@ import Testing
         #expect(resume.httpMethod == "POST")
         #expect(resume.url?.absoluteString == "https://cmux.com/api/vm/vm-1/resume")
         #expect(resume.timeoutInterval == CloudAPIRequestBuilder.resumeTimeout)
+
+        let restart = try builder.restartMachine(id: "vm-1", accessToken: "a", refreshToken: "r")
+        #expect(restart.httpMethod == "POST")
+        #expect(restart.url?.absoluteString == "https://cmux.com/api/vm/vm-1/restart")
+        #expect(restart.timeoutInterval == CloudAPIRequestBuilder.restartTimeout)
 
         let delete = try builder.deleteMachine(id: "vm-1", accessToken: "a", refreshToken: "r")
         #expect(delete.httpMethod == "DELETE")
@@ -72,6 +92,42 @@ import Testing
                 try builder.deleteMachine(id: invalidID, accessToken: "a", refreshToken: "r")
             }
         }
+    }
+
+    @Test func restartCallsTheControlPlaneAndReconcilesFromTheList() async {
+        let service = FakeCloudVMService()
+        service.machines = .success([Self.running])
+        let controller = makeController(service: service)
+
+        let ok = await controller.restartMachine(Self.running)
+
+        #expect(ok)
+        #expect(service.calls.restart == ["vm-1"])
+        #expect(controller.machineActionsInFlight.isEmpty)
+    }
+
+    @Test func restartClosesTheCachedConnectionEvenWhenLifecycleStaysRunning() async throws {
+        let service = FakeCloudVMService()
+        service.machines = .success([Self.running])
+        let connector = FakeConnector()
+        let controller = makeController(service: service, connector: connector)
+        controller.sectionDidAppear()
+        await settle {
+            controller.machines.elements == [Self.running]
+                && controller.tunnel == .ready(fingerprint: "ios-abc")
+        }
+        let oldConnection = try #require(controller.connection(for: Self.running))
+        _ = try await oldConnection.loadCatalog()
+        let generation = controller.connectionRetryGeneration
+
+        #expect(await controller.restartMachine(Self.running))
+        #expect(connector.session.state.disconnected == 1)
+        #expect(controller.connectionRetryGeneration == generation + 1)
+        let replacement = try #require(controller.connection(for: Self.running))
+        #expect(replacement !== oldConnection)
+        _ = try await replacement.loadCatalog()
+        #expect(connector.connects.count == 2)
+        controller.sectionDidDisappear()
     }
 
     @Test func pauseCallsTheControlPlaneAndReconcilesFromTheList() async {

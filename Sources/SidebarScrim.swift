@@ -3,11 +3,17 @@ import SwiftUI
 struct SidebarWorkspaceScrollEdgeFadeMask: View {
     let topHeight: CGFloat
     let bottomHeight: CGFloat
+    /// Leading part of `topHeight` that is fully clear (titlebar and the
+    /// pinned Home row); the fade covers the rest.
+    var topClearHeight: CGFloat = SidebarWorkspaceListMetrics.topScrimClearHeight
 
     var body: some View {
+        let clearHeight = min(topClearHeight, topHeight)
         VStack(spacing: 0) {
+            Color.clear
+                .frame(height: clearHeight)
             SidebarEdgeFadeGradient(edge: .top)
-                .frame(height: topHeight)
+                .frame(height: topHeight - clearHeight)
             Rectangle()
                 .fill(Color.black)
             SidebarEdgeFadeGradient(edge: .bottom)

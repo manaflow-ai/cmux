@@ -1,16 +1,20 @@
 // sites.browserAuth: a secure sign-in handoff (reference B's
 // browserAuth). The agent names the visible credential fields; cmux shows
 // its own sheet on the browser window, naming the origin of the frame that
-// holds them, the user types there, and the app fills the fields in the page
-// (sites/auth-fill.js). Only password, username and one-time-code fields are
-// filled, checked here and again by the app. No value passes through the
-// REPL and the result never contains one; the page itself, and code the
-// agent runs in the page, can read a filled field like any other.
+// holds them and labeling each field by its kind, the user types there, and
+// the app fills the fields in the page (sites/auth-fill.js). Only password,
+// username and one-time-code fields are filled, checked here and again by
+// the app, and only in a tab this session opened under a domain policy
+// that names the page's exact host (session.allowedDomains). No value passes through
+// the REPL and the result never contains one; the app records each value
+// as the tab's typed secret, so whatever the agent reads back from the page
+// (values, results, captures) shows it masked. The page itself can read a
+// filled field like any other.
 (function (root) {
   "use strict";
   const S = root.CmuxBrowserRepl && root.CmuxBrowserRepl.sites;
   if (!S) return;
-  const { URL } = root.CmuxBrowserRepl.core;
+  const { URL, functionSource } = root.CmuxBrowserRepl.core;
   const TYPES = ["text", "email", "password", "tel", "number", "url"];
   // The credential kind of a field, or null. The app runs the same rule
   // (sites/auth-fill.js) before it fills anything.
@@ -28,12 +32,101 @@
     return null;
   };
 
+  // Whether `el` submits the form that holds the marked fields: a submit
+  // button or input of that form, or, for Enter, one of the marked fields.
+  // On the first check (before the sheet) the form is the first field's
+  // and gets `formMarker`; on the second (right before the press, after the
+  // fill removed the field markers) it must still be the form so marked.
+  const SUBMITS_FORM = (el, a) => {
+    const isSubmit = (x) => (x instanceof HTMLButtonElement && x.type === "submit") || (x instanceof HTMLInputElement && (x.type === "submit" || x.type === "image"));
+    const form = el && el.form;
+    if (!form) return false;
+    if (a.markers) {
+      const fields = a.markers.map((m) => document.querySelector('[data-cmux-auth="' + String(m).replace(/["\\]/g, "") + '"]'));
+      if (!fields.every((f) => f && f.form === form)) return false;
+      if (a.action === "press_enter" ? !fields.includes(el) : !isSubmit(el)) return false;
+      if (form.hasAttribute("data-cmux-auth-form")) return false;
+      form.setAttribute("data-cmux-auth-form", a.formMarker);
+      return true;
+    }
+    if (form.getAttribute("data-cmux-auth-form") !== a.formMarker) return false;
+    return a.action === "press_enter" ? el instanceof HTMLInputElement : isSubmit(el);
+  };
+
+  // What the submit control would submit, read in the agent's world (page
+  // script cannot answer for it): whether it is in the document, its form,
+  // its own submission attributes and its form's. The control pressed after
+  // the sheet is the element checked before it, with all of these unchanged.
+  const SUBMIT_IDENTITY = (el) => {
+    const form = el.form;
+    const attrs = (x, names) => names.map((n) => x.getAttribute(n));
+    return JSON.stringify([
+      el.isConnected,
+      el.localName,
+      attrs(el, ["type", "form", "formaction", "formmethod", "formenctype", "formtarget", "formnovalidate", "name", "value", "disabled"]),
+      form ? [form.isConnected, attrs(form, ["action", "method", "enctype", "target", "novalidate", "data-cmux-auth-form"])] : null,
+    ]);
+  };
+
+  // Where pressing `el` sends the form's fields, read in the agent's world
+  // through the DOM's own getters (a form's named controls shadow its
+  // properties, `<input name="action">`): "ok" only when every submission
+  // the press can start goes to `a.origin` in the same browsing context.
+  // A click submits with `el` as the submitter (its formaction, formtarget
+  // and formmethod over the form's); Enter in a field submits with the
+  // form's default button, so the form itself and each of its submit
+  // controls must qualify. A dialog-method submission sends nothing.
+  // Otherwise the reason, and nothing is filled or pressed.
+  const SUBMIT_DESTINATION = (el, a) => {
+    const get = (proto, name, x) => Object.getOwnPropertyDescriptor(proto, name).get.call(x);
+    const attr = (x, name) => Element.prototype.getAttribute.call(x, name);
+    const has = (x, name) => Element.prototype.hasAttribute.call(x, name);
+    const protoOf = (x) => (x instanceof HTMLButtonElement ? HTMLButtonElement.prototype : x instanceof HTMLInputElement ? HTMLInputElement.prototype : null);
+    const isSubmit = (x) => (x instanceof HTMLButtonElement && get(HTMLButtonElement.prototype, "type", x) === "submit") || (x instanceof HTMLInputElement && ["submit", "image"].includes(get(HTMLInputElement.prototype, "type", x)));
+    const ownProto = protoOf(el);
+    const form = ownProto && get(ownProto, "form", el);
+    if (!form) return "no_form";
+    const F = HTMLFormElement.prototype;
+    const base = Array.prototype.find.call(Document.prototype.querySelectorAll.call(document, "base"), (b) => has(b, "target"));
+    const baseTarget = base ? attr(base, "target") : "";
+    const judge = (submitter) => {
+      const proto = submitter && protoOf(submitter);
+      const method = proto && has(submitter, "formmethod") ? get(proto, "formMethod", submitter) : get(F, "method", form);
+      if (String(method).toLowerCase() === "dialog") return null;
+      const action = proto && has(submitter, "formaction") ? get(proto, "formAction", submitter) : get(F, "action", form);
+      let origin;
+      try {
+        origin = new URL(action).origin;
+      } catch {
+        return "destination";
+      }
+      if (origin !== a.origin || !/^https?:$/.test(new URL(action).protocol)) return "destination";
+      const target = (proto && has(submitter, "formtarget") ? attr(submitter, "formtarget") : has(form, "target") ? attr(form, "target") : baseTarget) || "";
+      if (target.trim() && target.trim().toLowerCase() !== "_self") return "target";
+      return null;
+    };
+    if (a.action !== "press_enter") return judge(el) || "ok";
+    const controls = Array.prototype.filter.call(get(F, "elements", form), isSubmit);
+    for (const c of [null, ...controls]) {
+      const reason = judge(c);
+      if (reason) return reason;
+    }
+    return "ok";
+  };
+
   S.register(
     "browserAuth",
     (t) => ({
       // request(page?, { origin, fields: [{ id, label, type, autocomplete, required, selector }], submit: { selector, action: "click" | "press_enter" }, timeout })
       // -> { status: "submitted" | "cancelled" | "unavailable" | "expired" | "origin_changed" | "page_changed" | "locator_invalid" | "submission_failed", locator_error? }.
       // "submitted" means the fields were filled and any submit ran, not that sign-in succeeded.
+      // submit must be a submit button or input of the form that holds the
+      // fields ("click"), or one of the fields ("press_enter"); anything
+      // else is locator_invalid with field_id "submit", before the sheet.
+      // The form must submit to the page's own origin in the same tab
+      // (action, formaction, target, formtarget, <base target>); otherwise
+      // locator_invalid with reason "unsafe_destination", before the sheet,
+      // or "submission_failed" when it changed while the sheet was up.
       async request(page, options) {
         if (!page || typeof page.url !== "function") {
           options = page;
@@ -53,7 +146,13 @@
         const current = new URL(page.url()).origin;
         if (!o.origin || o.origin !== current) return { status: "origin_changed" };
         const locate = (sel) => (typeof sel === "string" ? page.locator(sel) : sel);
+        const readSubmitIdentity = (el) => el._pinnedFrame._call("agent", functionSource(SUBMIT_IDENTITY), [], [el._handle], "browserAuth submit");
+        // The submission stays on the origin the sheet is asked for (the
+        // policy keeps the session's tabs on exactly its host, as for a
+        // typed secret), in the same tab.
+        const readSubmitDestination = (el, action) => el._pinnedFrame._call("agent", functionSource(SUBMIT_DESTINATION), [{ origin: current, action }], [el._handle], "browserAuth submit").catch(() => "unreadable");
         const marked = [];
+        const formMarker = `form-${Math.floor(Math.random() * 1e12).toString(36)}`;
         let frameId;
         try {
           for (const f of fields) {
@@ -78,6 +177,28 @@
             await loc.evaluate((el, m) => el.setAttribute("data-cmux-auth", m), marker);
             marked.push({ loc, field: f, marker });
           }
+          // The control that submits, checked before the sheet opens: only
+          // the submit control of the fields' own form, never another
+          // control the user did not agree to press by filling the sheet.
+          let submitLoc = null;
+          let submitIdentity = null;
+          const action = o.submit ? o.submit.action || "click" : null;
+          if (o.submit) {
+            if (action !== "click" && action !== "press_enter") throw new S.SiteError("invalid", `browserAuth.request: submit.action: expected "click" or "press_enter", got ${JSON.stringify(action)}`);
+            submitLoc = locate(o.submit.selector);
+            if (!submitLoc || typeof submitLoc.count !== "function") throw new S.SiteError("invalid", "browserAuth.request: submit.selector: expected a selector string or a locator");
+            if ((await submitLoc.count()) !== 1) return { status: "locator_invalid", locator_error: { field_id: "submit", reason: "not_unique" } };
+            // The element itself is pinned: after the sheet no lookup finds
+            // another element in its place.
+            const pinned = await submitLoc.elementHandle({ timeout: 5000 }).catch(() => null);
+            if (!pinned) return { status: "locator_invalid", locator_error: { field_id: "submit", reason: "not_unique" } };
+            submitLoc = pinned;
+            const ok = await submitLoc.evaluate(SUBMITS_FORM, { markers: marked.map((m) => m.marker), action, formMarker }).catch(() => false);
+            if (!ok) return { status: "locator_invalid", locator_error: { field_id: "submit", reason: "not_form_submit" } };
+            submitIdentity = await readSubmitIdentity(submitLoc).catch(() => null);
+            if (!submitIdentity) return { status: "locator_invalid", locator_error: { field_id: "submit", reason: "not_form_submit" } };
+            if ((await readSubmitDestination(submitLoc, action)) !== "ok") return { status: "locator_invalid", locator_error: { field_id: "submit", reason: "unsafe_destination" } };
+          }
           // The user should see the page they are signing in to under the sheet.
           await page.bringToFront().catch(() => {});
           let r;
@@ -95,11 +216,18 @@
             throw e;
           }
           if (!r || r.status !== "filled") return { status: (r && r.status) || "unavailable" };
-          if (o.submit) {
+          if (submitLoc) {
             try {
-              const s = locate(o.submit.selector);
-              if ((o.submit.action || "click") === "press_enter") await s.press("Enter");
-              else await s.click();
+              // Checked again right before the press: the same element,
+              // still submitting the form marked before the sheet, to the
+              // same place.
+              if ((await readSubmitIdentity(submitLoc)) !== submitIdentity || !(await submitLoc.evaluate(SUBMITS_FORM, { action, formMarker }))) return { status: "submission_failed" };
+              // And still to the page's own origin, in the same tab, read
+              // last before the press (a new <base target> is not in the
+              // identity).
+              if ((await readSubmitDestination(submitLoc, action)) !== "ok") return { status: "submission_failed" };
+              if (action === "press_enter") await submitLoc.press("Enter");
+              else await submitLoc.click();
             } catch (e) {
               return { status: "submission_failed" };
             }
@@ -107,9 +235,10 @@
           return { status: "submitted" };
         } finally {
           for (const { loc } of marked) await loc.evaluate((el) => el.removeAttribute("data-cmux-auth")).catch(() => {});
+          if (marked.length) await marked[0].loc.evaluate((el, m) => { for (const f of document.querySelectorAll("[data-cmux-auth-form]")) if (f.getAttribute("data-cmux-auth-form") === m) f.removeAttribute("data-cmux-auth-form"); }, formMarker).catch(() => {});
         }
       },
     }),
-    { summary: "Secure sign-in: a cmux sheet collects credentials and fills the page; values never reach the agent" },
+    { summary: "Secure sign-in: a cmux sheet collects credentials and fills the page; values reach the agent only masked" },
   );
 })(typeof globalThis !== "undefined" ? globalThis : this);

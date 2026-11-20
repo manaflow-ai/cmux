@@ -11,6 +11,7 @@ import {
 } from "../coderouter/repository";
 import { applySubscriptionUpdate } from "./purchase";
 import { stripe } from "./stripe";
+import { planItem } from "./subscriptionItems";
 
 const DEFAULT_LIMIT = 1_000;
 const DEFAULT_CONCURRENCY = 8;
@@ -130,7 +131,7 @@ async function applySubscriptionUpdateAndRevokeRoutes(
   subscription: Stripe.Subscription,
 ) {
   const result = await applySubscriptionUpdate(subscription);
-  if (!("skipped" in result) && !result.isActive) {
+  if (!("skipped" in result) && !result.isActive && !("retainsAccess" in result && result.retainsAccess)) {
     if (result.scope === "user") {
       await revokeRouteTokensForUser(result.stackUserId);
     } else {
@@ -184,7 +185,7 @@ function hasDrift(
   return local.status !== remote.status ||
     local.cancelAtPeriodEnd !== remote.cancel_at_period_end ||
     epochSeconds(local.currentPeriodEnd) !==
-      (remote.items.data[0]?.current_period_end ?? null);
+      (planItem(remote)?.current_period_end ?? null);
 }
 
 function epochSeconds(value: Date | null): number | null {

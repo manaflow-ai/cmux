@@ -100,8 +100,8 @@ archs=""
 for arg in "$@"; do case "$arg" in ARCHS=*) archs="${arg#ARCHS=}" ;; esac; done
 [[ -n "$archs" ]] || exit 1
 app=build-universal/Build/Products/Release/cmux.app
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/bin"
-for file in Contents/MacOS/cmux Contents/Resources/bin/cmux Contents/Resources/bin/cmux-cua Contents/Resources/bin/cmux-diff-sidecar; do
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/bin" "$app/Contents/Library/cmux Computer Use.app/Contents/MacOS"
+for file in Contents/MacOS/cmux Contents/Resources/bin/cmux "Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua" Contents/Resources/bin/cmux-diff-sidecar; do
   printf '%s\\n' "$archs" > "$app/$file"; chmod +x "$app/$file"
 done
 ''')

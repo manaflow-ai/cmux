@@ -11,6 +11,14 @@ import Testing
 @MainActor
 @Suite("Cloud team picker menu")
 struct CloudTeamPickerMenuTests {
+    private final class HoverWindow: NSWindow {
+        var pointerInWindow = NSPoint(x: -1000, y: -1000)
+
+        override var mouseLocationOutsideOfEventStream: NSPoint {
+            pointerInWindow
+        }
+    }
+
     private let teams = [
         AccountTeamSummary(id: "team-long", displayName: "Benjamin Swerdlow's Team With A Long Name"),
         AccountTeamSummary(id: "team-alpha", displayName: "Alpha Squad"),
@@ -186,6 +194,176 @@ struct CloudTeamPickerMenuTests {
         anchor.afterDismiss { events.append("closed menu") }
 
         #expect(events == ["tracking ended", "dismissed", "follow-up", "closed menu"])
+    }
+
+    /// The anchor overlay takes the pointer from the trigger button beneath
+    /// it, so the button's own hover never fired. The anchor reports it.
+    @Test func anchorReportsThePointerEnteringAndLeaving() throws {
+        let anchor = CloudTeamPickerMenuAnchorView(
+            frame: NSRect(x: 0, y: 0, width: 120, height: 22)
+        )
+
+        anchor.mouseEntered(with: try pointerEvent(.mouseEntered))
+        #expect(anchor.isPointerInside)
+        anchor.mouseEntered(with: try pointerEvent(.mouseEntered))
+        #expect(anchor.isPointerInside)
+        anchor.mouseExited(with: try pointerEvent(.mouseExited))
+
+        #expect(!anchor.isPointerInside)
+    }
+
+    /// Replacing the tracking area while the pointer is stationary keeps the
+    /// hover owned by the replacement area, including after a resize.
+    @Test func trackingAreaRebuildKeepsStationaryPointerHover() throws {
+        let window = HoverWindow(
+            contentRect: NSRect(x: 100, y: 100, width: 200, height: 60),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: true
+        )
+        window.isReleasedWhenClosed = false
+        let anchor = CloudTeamPickerMenuAnchorView(
+            frame: NSRect(x: 0, y: 0, width: 120, height: 22)
+        )
+        window.contentView?.addSubview(anchor)
+        window.pointerInWindow = NSPoint(x: 40, y: 10)
+
+        anchor.updateTrackingAreas()
+        anchor.handleMouseEntered(from: nil)
+        #expect(anchor.isPointerInside)
+        let oldTrackingArea = try #require(anchor.trackingAreas.first)
+
+        anchor.setFrameSize(NSSize(width: 160, height: 22))
+        anchor.updateTrackingAreas()
+        anchor.handleMouseExited(from: oldTrackingArea)
+
+        #expect(anchor.isPointerInside)
+    }
+
+    /// A tracking-area event from the previous window attachment cannot clear
+    /// the replacement area's stationary-pointer hover.
+    @Test func staleTrackingEventsAcrossWindowReattachmentAreIgnored() throws {
+        let window = HoverWindow(
+            contentRect: NSRect(x: 100, y: 100, width: 200, height: 60),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: true
+        )
+        window.isReleasedWhenClosed = false
+        let anchor = CloudTeamPickerMenuAnchorView(
+            frame: NSRect(x: 0, y: 0, width: 120, height: 22)
+        )
+        window.contentView?.addSubview(anchor)
+        window.pointerInWindow = NSPoint(x: 40, y: 10)
+        anchor.updateTrackingAreas()
+        anchor.handleMouseEntered(from: nil)
+        let oldTrackingArea = try #require(anchor.trackingAreas.first)
+        #expect(anchor.isPointerInside)
+
+        anchor.removeFromSuperview()
+        #expect(!anchor.isPointerInside)
+        anchor.handleMouseEntered(from: oldTrackingArea)
+        #expect(!anchor.isPointerInside)
+
+        window.contentView?.addSubview(anchor)
+        #expect(anchor.isPointerInside)
+        anchor.handleMouseExited(from: oldTrackingArea)
+        #expect(anchor.isPointerInside)
+
+        let currentTrackingArea = try #require(anchor.trackingAreas.first)
+        #expect(currentTrackingArea !== oldTrackingArea)
+        anchor.handleMouseExited(from: currentTrackingArea)
+        #expect(!anchor.isPointerInside)
+    }
+
+    /// Detaching clears hover before the view can be reattached, rather than
+    /// waiting for a later lifecycle callback.
+    @Test func windowDetachClearsHoverImmediately() throws {
+        let window = HoverWindow(
+            contentRect: NSRect(x: 100, y: 100, width: 200, height: 60),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: true
+        )
+        window.isReleasedWhenClosed = false
+        let anchor = CloudTeamPickerMenuAnchorView(
+            frame: NSRect(x: 0, y: 0, width: 120, height: 22)
+        )
+        window.contentView?.addSubview(anchor)
+
+        anchor.mouseEntered(with: try pointerEvent(.mouseEntered))
+        #expect(anchor.isPointerInside)
+        anchor.removeFromSuperview()
+
+        #expect(!anchor.isPointerInside)
+    }
+
+    /// Detaching clears hover immediately, and reattachment reads the pointer
+    /// synchronously without a later lifecycle repair changing the result.
+    @Test func windowDetachAndReattachReconcilesHoverWithoutDeferredRepair() async throws {
+        let window = HoverWindow(
+            contentRect: NSRect(x: 100, y: 100, width: 200, height: 60),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: true
+        )
+        window.isReleasedWhenClosed = false
+        let anchor = CloudTeamPickerMenuAnchorView(
+            frame: NSRect(x: 0, y: 0, width: 120, height: 22)
+        )
+        window.contentView?.addSubview(anchor)
+        window.pointerInWindow = NSPoint(x: 40, y: 10)
+
+        anchor.updateTrackingAreas()
+        anchor.handleMouseEntered(from: nil)
+        anchor.removeFromSuperview()
+        #expect(!anchor.isPointerInside)
+
+        window.contentView?.addSubview(anchor)
+        #expect(anchor.isPointerInside)
+
+        await nextRunLoopTurn()
+        #expect(anchor.isPointerInside)
+    }
+
+    /// A menu's tracking loop swallows the exit, so closing the menu settles
+    /// hover from where the pointer is now.
+    @Test func closingTheMenuClearsHoverWhenThePointerLeft() throws {
+        let anchor = CloudTeamPickerMenuAnchorView(
+            frame: NSRect(x: 0, y: 0, width: 120, height: 22)
+        )
+        anchor.makeMenu = { _ in CloudTeamPickerTestMenu { _ in } }
+        anchor.mouseEntered(with: try pointerEvent(.mouseEntered))
+        #expect(anchor.isPointerInside)
+
+        anchor.mouseDown(with: try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        )))
+
+        // Windowless, so the pointer is nowhere over the trigger.
+        #expect(!anchor.isPointerInside)
+    }
+
+    private func pointerEvent(_ type: NSEvent.EventType) throws -> NSEvent {
+        try #require(NSEvent.enterExitEvent(
+            with: type,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            trackingNumber: 0,
+            userData: nil
+        ))
     }
 
     /// Run-loop blocks run in FIFO order, so a scheduled open has run by the

@@ -41,6 +41,8 @@ extension RemoteTmuxControlConnection {
     /// Host-wide session digest subscription used only by the shared view stream.
     /// The value changes on create/kill/rename even when no window event fires,
     /// giving the multiplexer an event-driven reconcile source instead of polling.
+    /// Each session's window ids are in it too, in index order: `swap-window` sends
+    /// no notification at all, and this value changing is the only report of it.
     static let sessionDigestSubscriptionName = "cmux_sessions"
 
     ///
@@ -48,20 +50,67 @@ extension RemoteTmuxControlConnection {
     /// while that pane exists, and pane ids are never reused: measured on tmux 3.7b, a `%0`
     /// subscription on a server whose first pane is gone reports nothing for a session created
     /// or renamed, while the empty target reports both.
+    ///
+    /// The comma in the session loop gives the attached session (the view itself) an empty
+    /// entry. The window loop has no comma, so it lists every window, the current one included.
     static var sessionDigestSubscriptionCommand: String {
-        "refresh-client -B '\(sessionDigestSubscriptionName)::#{S:#{session_id}=#{session_name},}'"
+        "refresh-client -B '\(sessionDigestSubscriptionName)::"
+            + "#{S:#{session_id}=#{session_name}:#{W:#{window_id}.}|,}'"
     }
 
+    /// The attached session's window ids in index order, used by a stream attached to one
+    /// session. tmux reports `swap-window` to no client, so without this a swap made on the
+    /// host never reached the tabs.
+    static let windowOrderSubscriptionName = "cmux_order"
+
+    static var windowOrderSubscriptionCommand: String {
+        "refresh-client -B '\(windowOrderSubscriptionName)::#{W:#{window_id}.}'"
+    }
+
+    /// The window ids in a ``windowOrderSubscriptionName`` value (`@3.@1.@2.`), in order.
+    nonisolated static func windowIds(inOrderDigest value: String) -> [Int] {
+        value.split(separator: ".").compactMap { RemoteTmuxControlStreamParser.id($0, sigil: "@") }
+    }
+
+    /// Subscribes to the stream's order digest: the host-wide session digest on the shared
+    /// view stream, the attached session's window order on any other.
     func subscribeSessionDigest() {
-        guard isSharedViewStream, !sessionDigestSubscribed else { return }
+        guard !sessionDigestSubscribed else { return }
         sessionDigestSubscribed = true
-        send(Self.sessionDigestSubscriptionCommand)
+        send(isSharedViewStream ? Self.sessionDigestSubscriptionCommand : Self.windowOrderSubscriptionCommand)
+    }
+
+    /// The attach block drained: read the window list and subscribe to the order digest. The
+    /// shared view stream subscribes first; a per-session stream subscribes
+    /// after its window list, so the list stays the first reply that stream waits for.
+    func requestWindowsAndSubscribeAfterAttach() {
+        if isSharedViewStream { subscribeSessionDigest() }
+        requestWindows()
+        if !isSharedViewStream { subscribeSessionDigest() }
+    }
+
+    /// A ``windowOrderSubscriptionName`` push. The session's windows changed order with no
+    /// window notification (a `swap-window`), or tmux is reporting the first value. Only an
+    /// order that differs from the published one needs the window list read again.
+    func handleWindowOrderDigest(_ value: String) {
+        guard !isSharedViewStream, Self.windowIds(inOrderDigest: value) != windowOrder else { return }
+        record("window-order-changed")
+        requestWindows()
+    }
+
+    /// `%window-close`: the window is still in this client's session, so its tab stays. The
+    /// unlink may have moved it (a `move-window` links it at a new index first), and the
+    /// window list is what says where it is now.
+    func handleWindowUnlinkedElsewhere(windowId: Int) {
+        record("window-unlinked-elsewhere @\(windowId)")
+        requestWindows()
     }
 
     func unsubscribeSessionDigest() {
         guard sessionDigestSubscribed else { return }
         sessionDigestSubscribed = false
-        send("refresh-client -B \(Self.sessionDigestSubscriptionName)")
+        let name = isSharedViewStream ? Self.sessionDigestSubscriptionName : Self.windowOrderSubscriptionName
+        send("refresh-client -B \(name)")
     }
 
     /// Subscribes to live changes of `paneId`'s expanded `pane-border-format`
@@ -77,6 +126,21 @@ extension RemoteTmuxControlConnection {
             "refresh-client -B \(Self.headerSubscriptionPrefix)\(paneId)"
                 + " -B \(Self.paneTitleSubscriptionPrefix)\(paneId)"
         )
+    }
+
+    /// The exact `refresh-client -B` line for a pane's hook-published agent status.
+    static func paneAgentSubscriptionCommand(paneId: Int) -> String {
+        "refresh-client -B \"\(agentSubscriptionPrefix)\(paneId):%\(paneId):#{@cmux_agent}\""
+    }
+
+    /// Subscribes to the pane user option written by remote Claude/Codex hooks.
+    func subscribePaneAgent(paneId: Int) {
+        send(Self.paneAgentSubscriptionCommand(paneId: paneId))
+    }
+
+    /// Removes a pane's agent-status subscription after the pane leaves the mirror.
+    func unsubscribePaneAgent(paneId: Int) {
+        send("refresh-client -B \(Self.agentSubscriptionPrefix)\(paneId)")
     }
 
     /// Format for close-time activity queries: the pane id (for cache refresh and
@@ -191,7 +255,7 @@ extension RemoteTmuxControlConnection {
         send(Self.paneReflowSubscriptionCommand(paneId: paneId))
     }
 
-    /// All four live subscriptions (reflow, cwd, header, title) for a pane in ONE
+    /// All five live subscriptions (reflow, cwd, header, title, agent) for a pane in ONE
     /// `refresh-client`. tmux accepts multiple `-B` directives per command,
     /// so this is exactly equivalent to four separate sends but costs
     /// one FIFO slot instead of four. Under rapid pane churn the per-pane
@@ -205,6 +269,7 @@ extension RemoteTmuxControlConnection {
                 + " -B \"\(Self.cwdSubscriptionPrefix)\(paneId):%\(paneId):#{pane_current_path}\""
                 + " -B \"\(Self.headerSubscriptionPrefix)\(paneId):%\(paneId):#{T:pane-border-format}\""
                 + " -B \"\(Self.paneTitleSubscriptionPrefix)\(paneId):%\(paneId):\(Self.paneTitleMetadataFormat)\""
+                + " -B \"\(Self.agentSubscriptionPrefix)\(paneId):%\(paneId):#{@cmux_agent}\""
         )
     }
 

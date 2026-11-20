@@ -22,6 +22,7 @@ extension WorkspaceRemoteConfiguration {
             port: port,
             identityFile: identityFile,
             sshOptions: resolvedOptions,
+            routeSensitivity: routeSensitivity,
             localProxyPort: localProxyPort,
             relayPort: relayPort,
             relayID: relayID,

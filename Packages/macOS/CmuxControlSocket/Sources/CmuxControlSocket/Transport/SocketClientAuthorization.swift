@@ -1,4 +1,5 @@
 public import Darwin
+public import Foundation
 public import CmuxSettings
 
 /// Authorizes peer processes for control socket requests.
@@ -48,7 +49,8 @@ public struct SocketClientAuthorization {
         peerProcessID: pid_t?,
         peerHasSameUID: Bool,
         capabilityAuthority: SocketClientCapabilityAuthority,
-        isDescendant: (pid_t) -> Bool
+        isDescendant: (pid_t) -> Bool,
+        now: Date = Date()
     ) -> String? {
         let envelope = SocketClientCapabilityCommand(command)
         if let peerProcessID, isDescendant(peerProcessID) {
@@ -56,7 +58,7 @@ public struct SocketClientAuthorization {
         }
         guard peerHasSameUID,
               let envelope,
-              capabilityAuthority.verifies(envelope.capability) else {
+              capabilityAuthority.verifies(envelope.capability, now: now) else {
             return nil
         }
         return envelope.command
@@ -74,7 +76,8 @@ public struct SocketClientAuthorization {
         peerProcessID: pid_t?,
         peerHasSameUID: Bool,
         capabilityAuthority: SocketClientCapabilityAuthority,
-        isDescendant: (pid_t) -> Bool
+        isDescendant: (pid_t) -> Bool,
+        now: Date = Date()
     ) -> String? {
         switch accessMode {
         case .off:
@@ -85,7 +88,8 @@ public struct SocketClientAuthorization {
                 peerProcessID: peerProcessID,
                 peerHasSameUID: peerHasSameUID,
                 capabilityAuthority: capabilityAuthority,
-                isDescendant: isDescendant
+                isDescendant: isDescendant,
+                now: now
             )
         case .automation, .password:
             guard peerHasSameUID else { return nil }
@@ -94,4 +98,28 @@ public struct SocketClientAuthorization {
             return SocketClientCapabilityCommand(command)?.command ?? command
         }
     }
+
+    /// Whether a peer the socket access mode admitted may call `method`.
+    ///
+    /// The access mode decides who may connect; it does not widen what a
+    /// caller reaches. The browser REPL methods (``sameUserOnlyMethods``)
+    /// drive the user's browser profile and files, so a peer of another
+    /// user is refused in every mode, also `allowAll`, which admits other
+    /// local users to the socket.
+    ///
+    /// - Parameters:
+    ///   - method: The v2 method the request names.
+    ///   - peerHasSameUID: Whether the peer runs as the same user as cmux,
+    ///     or nil for an in-process call that has no socket peer.
+    public func admitsMethod(_ method: String, peerHasSameUID: Bool?) -> Bool {
+        peerHasSameUID != false || !Self.sameUserOnlyMethods.contains(method)
+    }
+
+    /// Methods only a peer of the same user may call, in every access mode.
+    public static let sameUserOnlyMethods: Set<String> = [
+        "browser.repl.eval",
+        "browser.repl.reset",
+        "browser.repl.list",
+    ]
 }
+

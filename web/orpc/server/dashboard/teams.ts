@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { GET as teamCatalogRoute, PATCH as selectTeamRoute } from "@/app/api/subrouter/teams/route";
 import { acceptTeamInvitationCode } from "@/services/teams/accept";
+import { CODEROUTER_VIEW_OPEN_HEADER } from "@/services/coderouter/viewAnalytics";
 import { createTeamForUser, deleteTeam, updateTeam } from "@/services/teams/admin";
 import { loadTeamDetail } from "@/services/teams/detail";
 import { inviteTeamMembers, resendTeamInvitation, revokeTeamInvitation } from "@/services/teams/invitations";
@@ -37,7 +38,12 @@ const OK = { ok: true } as const;
 const catalog = authed
   .output(teamCatalogSchema)
   .handler(async ({ context }) =>
-    teamCatalogSchema.parse(await callRoute(context, teamCatalogRoute, { method: "GET", path: "/api/subrouter/teams" }))
+    teamCatalogSchema.parse(await callRoute(context, teamCatalogRoute, {
+      method: "GET",
+      path: "/api/subrouter/teams",
+      // A dashboard page loading its team picker is a real view.
+      headers: { [CODEROUTER_VIEW_OPEN_HEADER]: "1" },
+    }))
   );
 
 /** Persist the selected team in Stack Auth. */

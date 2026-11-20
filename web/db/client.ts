@@ -8,6 +8,7 @@ import postgres, { type Sql } from "postgres";
 import { cloudDbConfig, cloudDbConfigKey, type CloudDbAwsRdsIamConfig } from "./config";
 import { currentCloudDbQuerySignal } from "./queryScope";
 import { tagCloudDbQuery } from "./queryTags";
+import { observePostgresJsQueryTiming, onPostgresJsQuerySent } from "./queryTiming";
 import * as schema from "./schema";
 
 function createPostgresJsDb(sql: Sql) {
@@ -54,6 +55,7 @@ function installPostgresJsQueryCancellation(sql: Sql): void {
     const [statement, ...rest] = args;
     const tagged = [tagCloudDbQuery(statement), ...rest] as Parameters<typeof originalUnsafe>;
     const query = currentUnsafe(...tagged) as unknown as CancellablePostgresQuery;
+    observePostgresJsQueryTiming(query);
     const signal = currentCloudDbQuerySignal();
     if (signal) watchPostgresJsQuery(query, signal);
     return query;
@@ -70,17 +72,25 @@ function installPostgresJsQueryCancellation(sql: Sql): void {
   });
 }
 
+/**
+ * Cancels a query when its signal aborts. postgres.js wedges the pooled
+ * connection when a query is cancelled before it is sent (every later query
+ * on that connection hangs), so an abort that arrives first is held until
+ * postgres.js sends the query, and only then cancels it.
+ */
 function watchPostgresJsQuery(
   query: CancellablePostgresQuery,
   signal: AbortSignal,
 ): void {
   let settled = false;
+  let sent = false;
+  let abortPending = false;
   const cleanup = () => {
     if (settled) return;
     settled = true;
     signal.removeEventListener("abort", abort);
   };
-  const abort = () => {
+  const cancel = () => {
     if (settled) return;
     try {
       void Promise.resolve(query.cancel()).catch(() => undefined);
@@ -88,9 +98,26 @@ function watchPostgresJsQuery(
       // The query may settle between the abort and cancellation call.
     }
   };
+  const abort = () => {
+    if (settled) return;
+    if (!sent) {
+      abortPending = true;
+      return;
+    }
+    cancel();
+  };
+  const observable = onPostgresJsQuerySent(query, () => {
+    sent = true;
+    // Cancelled from inside the send it would still be unsent: cancel on
+    // the next turn, once postgres.js has written it.
+    if (abortPending) setImmediate(cancel);
+  });
+  // Without a send signal there is no safe moment to cancel: the query runs.
+  if (!observable) return;
   signal.addEventListener("abort", abort, { once: true });
-  if (signal.aborted) abort();
+  // `then` hands the query to postgres.js, which sends it.
   void query.then(cleanup, cleanup);
+  if (signal.aborted) abort();
 }
 
 class CancellableRdsClient extends Client {}

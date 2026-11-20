@@ -145,7 +145,12 @@ final class BrowserDesignModeComposerHostingView: NSHostingView<BrowserDesignMod
         // clear hooks here (tracking-area mouseMoved alone proved unreliable
         // over the embedded text view).
         onPointerInsideCard?()
-        return super.hitTest(point)
+        // Before macOS 27, NSHostingView claimed every point in its bounds.
+        // On macOS 27 it returns nil where SwiftUI has no hit-testable content
+        // (the card's rounded corners, or before the card first renders), which
+        // would hand clicks inside the card to the page below. The card frame
+        // owns its events on every OS.
+        return super.hitTest(point) ?? self
     }
 
     override func resetCursorRects() {

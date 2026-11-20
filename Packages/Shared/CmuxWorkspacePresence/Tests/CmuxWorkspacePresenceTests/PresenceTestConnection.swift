@@ -4,13 +4,16 @@ import Foundation
 
 actor PresenceTestConnection: WorkspacePresenceConnection {
     nonisolated let views: AsyncStream<Bool>
+    nonisolated let endEvents: AsyncStream<Void>
     private let viewContinuation: AsyncStream<Bool>.Continuation
+    private let endContinuation: AsyncStream<Void>.Continuation
     private var frames: [WorkspacePresenceSnapshot] = []
     private var receiver: CheckedContinuation<WorkspacePresenceSnapshot, any Error>?
     private var ended = false
 
     init() {
         (views, viewContinuation) = AsyncStream.makeStream()
+        (endEvents, endContinuation) = AsyncStream.makeStream()
     }
 
     func receive() async throws -> WorkspacePresenceSnapshot {
@@ -39,10 +42,20 @@ actor PresenceTestConnection: WorkspacePresenceConnection {
     }
 
     func disconnect() {
+        guard !ended else { return }
         ended = true
         receiver?.resume(throwing: URLError(.networkConnectionLost))
         receiver = nil
         viewContinuation.finish()
+        endContinuation.yield(())
+        endContinuation.finish()
+    }
+
+    var isEnded: Bool { ended }
+
+    func waitUntilEnded() async {
+        guard !ended else { return }
+        for await _ in endEvents { return }
     }
 
     nonisolated func close() {

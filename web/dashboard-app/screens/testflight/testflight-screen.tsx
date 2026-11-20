@@ -20,6 +20,7 @@ const TESTFLIGHT_BANNERS = [
   "ineligible",
   "needs_email",
   "unavailable",
+  "busy",
 ] as const;
 
 /**

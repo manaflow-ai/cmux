@@ -18,7 +18,8 @@ extension GhosttySurfaceScrollView {
         // Copy-on-select is the only write made inside a pointer dispatch,
         // and AppKit delivers pointer events on the main thread.
         guard location == GHOSTTY_CLIPBOARD_STANDARD,
-              !representations.isEmpty,
+              // An all-empty write is dropped, so nothing was copied.
+              representations.contains(where: { !$0.string.isEmpty }),
               callbackContext.hasPointerSelectionCopyIntent else { return }
         MainActor.assumeIsolated {
             (callbackContext.terminalSurface?.paneHost as? GhosttySurfaceScrollView)?
@@ -31,13 +32,13 @@ extension GhosttySurfaceScrollView {
         let confirmationView = subviews.lazy
             .compactMap { $0 as? TerminalCopyConfirmationView }
             .first ?? installCopyConfirmationView()
-        confirmationView.frame = jumpToBottomIndicatorView.frame
-        confirmationView.show(abovePill: jumpToBottomIndicatorView.affordance.isVisible)
+        confirmationView.frame = sessionContentFrame
+        confirmationView.show()
     }
 
     // Created on first use, so panes that never copy on select pay nothing.
     private func installCopyConfirmationView() -> TerminalCopyConfirmationView {
-        let confirmationView = TerminalCopyConfirmationView(frame: jumpToBottomIndicatorView.frame)
+        let confirmationView = TerminalCopyConfirmationView(frame: sessionContentFrame)
         confirmationView.autoresizingMask = [.width, .height]
         addSubview(confirmationView)
         return confirmationView
@@ -48,14 +49,11 @@ extension GhosttySurfaceScrollView {
 @MainActor
 final class TerminalCopyConfirmationView: NSView {
     private static let bottomInset: CGFloat = 12
-    // Clears the Jump to Bottom pill, which uses the same bottom inset.
-    private static let abovePillBottomInset: CGFloat = 46
     private static let visibleDuration: Duration = .milliseconds(1200)
     private static let fadeInDuration: TimeInterval = 0.12
     private static let fadeOutDuration: TimeInterval = 0.3
 
     private let hostingView = NSHostingView(rootView: CopyConfirmationCapsule(accent: .accentColor))
-    private var bottomConstraint: NSLayoutConstraint?
     private var hideTask: Task<Void, Never>?
 
     override var acceptsFirstResponder: Bool { false }
@@ -70,18 +68,13 @@ final class TerminalCopyConfirmationView: NSView {
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         hostingView.alphaValue = 0
         addSubview(hostingView)
-        let bottomConstraint = hostingView.bottomAnchor.constraint(
-            equalTo: bottomAnchor,
-            constant: -Self.bottomInset
-        )
         NSLayoutConstraint.activate([
             hostingView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            bottomConstraint,
+            hostingView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Self.bottomInset),
             hostingView.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 8),
             hostingView.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8),
         ])
         hostingView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        self.bottomConstraint = bottomConstraint
     }
 
     required init?(coder: NSCoder) {
@@ -93,8 +86,7 @@ final class TerminalCopyConfirmationView: NSView {
     }
 
     /// Shows the capsule, restarting its timer if it is already visible.
-    func show(abovePill: Bool) {
-        bottomConstraint?.constant = -(abovePill ? Self.abovePillBottomInset : Self.bottomInset)
+    func show() {
         let isDark = SidebarAppearanceColorResolver().currentColorScheme() == .dark
         hostingView.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
         hostingView.rootView = CopyConfirmationCapsule(accent: Self.accent())
@@ -138,7 +130,6 @@ final class TerminalCopyConfirmationView: NSView {
     }
 }
 
-/// Styled like the Jump to Bottom pill.
 private struct CopyConfirmationCapsule: View {
     static var title: String {
         String(

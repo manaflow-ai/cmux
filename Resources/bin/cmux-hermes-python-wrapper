@@ -17,40 +17,83 @@ cmux_hermes_accept_python() {
     CMUX_HERMES_REAL_PYTHON_RESULT="$candidate"
 }
 
+# Print an interpreter's major.minor version, or nothing when unknown.
+cmux_hermes_launcher_python_version() {
+    local candidate="$1"
+    case "${candidate##*/}" in
+        python*|Python) ;;
+        *) return 0 ;;
+    esac
+    "$candidate" -I -S -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null
+}
+
+# Print a venv's major.minor version from pyvenv.cfg without running it.
+cmux_hermes_venv_python_version() {
+    local key value
+    [[ -f "$1/pyvenv.cfg" ]] || return 0
+    while IFS='=' read -r key value; do
+        key="${key//[[:space:]]/}"
+        value="${value//[[:space:]]/}"
+        case "$key" in
+            version|version_info)
+                if [[ "$value" =~ ^([0-9]+\.[0-9]+) ]]; then
+                    printf '%s\n' "${BASH_REMATCH[1]}"
+                    return 0
+                fi
+                ;;
+        esac
+    done < "$1/pyvenv.cfg"
+}
+
 cmux_hermes_resolve_real_python() {
-    local candidate launcher_pid
+    local candidate launcher_pid launcher_python="" launcher_version="" venv venv_version
 
     if cmux_hermes_accept_python "${CMUX_HERMES_TUI_REAL_PYTHON:-}"; then
         return 0
     fi
 
-    # Prefer Hermes's environment-local interpreter. On macOS, `ps comm`
-    # resolves symlinked venv Python launchers to the base interpreter, which
-    # does not include Hermes's site-packages.
-    if [[ -n "${HERMES_PYTHON_SRC_ROOT:-}" ]]; then
-        for candidate in \
-            "$HERMES_PYTHON_SRC_ROOT/venv/bin/python" \
-            "$HERMES_PYTHON_SRC_ROOT/venv/bin/python3" \
-            "$HERMES_PYTHON_SRC_ROOT/.venv/bin/python" \
-            "$HERMES_PYTHON_SRC_ROOT/.venv/bin/python3"; do
-            if cmux_hermes_accept_python "$candidate"; then
-                return 0
-            fi
-        done
-    fi
-
     # The Node TUI is a direct child of Hermes's Python launcher. `comm` gives
     # the launcher's exact interpreter without parsing a command line or
-    # assuming a particular Hermes installation layout. Keep this as a
-    # fallback for installations without a discoverable source root.
+    # assuming a particular Hermes installation layout.
     launcher_pid="$(/bin/ps -p "$PPID" -o ppid= 2>/dev/null | /usr/bin/tr -d '[:space:]')"
     if [[ "$launcher_pid" =~ ^[1-9][0-9]*$ ]]; then
         candidate="$(/bin/ps -ww -p "$launcher_pid" -o comm= 2>/dev/null || true)"
         candidate="${candidate#"${candidate%%[![:space:]]*}"}"
         candidate="${candidate%"${candidate##*[![:space:]]}"}"
         if cmux_hermes_accept_python "$candidate"; then
-            return 0
+            launcher_python="$CMUX_HERMES_REAL_PYTHON_RESULT"
         fi
+    fi
+
+    # Prefer Hermes's environment-local interpreter. On macOS, `ps comm`
+    # resolves symlinked venv Python launchers to the base interpreter, which
+    # does not include Hermes's site-packages. A source checkout can also hold
+    # an unrelated test venv, so skip one whose Python version differs from
+    # the launcher's: Hermes's bootstrap adds site-packages built for the
+    # launcher's version.
+    if [[ -n "${HERMES_PYTHON_SRC_ROOT:-}" ]]; then
+        for venv in "$HERMES_PYTHON_SRC_ROOT/venv" "$HERMES_PYTHON_SRC_ROOT/.venv"; do
+            [[ -d "$venv" ]] || continue
+            venv_version="$(cmux_hermes_venv_python_version "$venv")"
+            if [[ -n "$venv_version" && -n "$launcher_python" ]]; then
+                if [[ -z "$launcher_version" ]]; then
+                    launcher_version="$(cmux_hermes_launcher_python_version "$launcher_python")"
+                fi
+                if [[ -n "$launcher_version" && "$venv_version" != "$launcher_version" ]]; then
+                    continue
+                fi
+            fi
+            for candidate in "$venv/bin/python" "$venv/bin/python3"; do
+                if cmux_hermes_accept_python "$candidate"; then
+                    return 0
+                fi
+            done
+        done
+    fi
+
+    if [[ -n "$launcher_python" ]]; then
+        CMUX_HERMES_REAL_PYTHON_RESULT="$launcher_python"
+        return 0
     fi
 
     cmux_hermes_accept_python "python3"

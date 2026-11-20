@@ -9,7 +9,7 @@ extension Workspace {
     /// Called from every Bonsplit layout callback. Changes this workspace makes while
     /// applying the machine's own layout are programmatic and are not echoed back.
     func cloudLayoutDidChange() {
-        guard !isProgrammaticSplit, !isRemoteTmuxMirror,
+        guard !isProgrammaticSplit, !isRemoteTmuxMirror, pendingCloudBrowserPanelIDs.isEmpty,
               let binding = cloudVMBinding, let remoteWorkspaceID = binding.remoteWorkspaceID else { return }
         let machine = SurfaceMachineID(rawValue: binding.vmID)
         let catalog = SurfaceCatalog.shared
@@ -26,7 +26,11 @@ extension Workspace {
     /// Desktop, a port preview, a pane still being created) are not the machine's to
     /// arrange, so they are left out and a pane holding only them collapses.
     func cloudLayoutSyncTree(machine: SurfaceMachineID, catalog: SurfaceCatalog) -> CloudLayoutSyncTree? {
-        cloudLayoutSyncTree(projections: panels.keys.compactMap { catalog.projection(forPanel: $0) }, machine: machine)
+        // Layout callbacks run repeatedly during a drag. Select this workspace's
+        // projections once instead of scanning the catalog once for every panel.
+        cloudLayoutSyncTree(projections: catalog.projections.filter {
+            $0.workspaceID == id && $0.resource.machine == machine
+        }, machine: machine)
     }
 
     /// The same tree from explicit projections, for callers that already hold them.

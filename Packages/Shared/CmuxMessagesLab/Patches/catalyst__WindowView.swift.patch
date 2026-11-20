@@ -1,0 +1,123 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/WindowView.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/WindowView.swift
+@@ -85,6 +85,15 @@
+     /// Ask for `settle(at:)` at an engine time (event-driven cleanup).
+     var requestWake: (Double) -> Void = { _ in }
+     var onScrollPosition: () -> Void = {}
++    /// cmux-classic: a typing indicator that goes away leaves at once, with no fade (the Chief's turn ended,
++    /// failed or waits on an approval card: the faded ghost lingered under the card and the last bubble).
++    var cmuxTypingOffAtOnce = false
++    /// cmux-classic: the host's status line (ask 9's `.notice` row) leaves at once when it goes away: no fade and no
++    /// ghost row (Home's "Waiting for you" after an approval is decided stayed drawn faintly under the next rows).
++    var cmuxNoticeOffAtOnce = false
++    /// cmux-classic: room under the newest row for a line the host draws over the transcript's bottom (Chief's
++    /// "Working · Ns"), added to the bottom pad; 0: none. A change keeps the bottom pinned, or the first visible row in place.
++    var cmuxBottomInset: CGFloat = 0 { didSet { if cmuxBottomInset != oldValue { cmuxApplyBottomInset() } } }
+     /// The host's hooks (HostHooks.swift); all off by default. A new hook set reports changes from the selection now.
+     var hostHooks = HostHooks() { didSet { hostSelectionReported = hostSelection } }
+     /// HostHooks.swift: the focused message (ask 10) and the selection last reported to the host.
+@@ -182,7 +191,7 @@
+         compose.layer.sublayers?.forEach { $0.removeAllAnimations() }
+         compose.textView.layer.removeAllAnimations()
+         layoutFrames()
+-        layout.bottomPad = bounds.height - anchorY
++        layout.bottomPad = bounds.height - anchorY + cmuxBottomInset  // cmux-classic
+         initialRows()
+     }
+     required init?(coder: NSCoder) { fatalError() }
+@@ -551,7 +560,7 @@
+                 }
+             }
+         }
+-        layout.bottomPad = bounds.height - anchorY
++        layout.bottomPad = bounds.height - anchorY + cmuxBottomInset  // cmux-classic
+         _ = layout.rebaseIfNeeded(force: true)
+         layout.invalidateLayout()
+         restore(anchor, widthPass: ranWidthPass)
+@@ -581,6 +590,23 @@
+         CATransaction.commit()
+     }
+ 
++    /// cmux-classic: `cmuxBottomInset` changed: the bottom pad follows at once. Pinned, the newest row moves up (or
++    /// down) with the pad, and a sent bubble still flying moves with the rows; scrolled up, the first visible row stays.
++    private func cmuxApplyBottomInset() {
++        guard laidOutSize != .zero else { return }
++        let anchor = visibleAnchor()
++        let oldOffset = collection.contentOffset.y
++        CATransaction.begin(); CATransaction.setDisableActions(true)
++        layout.bottomPad = bounds.height - anchorY + cmuxBottomInset
++        _ = layout.rebaseIfNeeded(force: true)
++        layout.invalidateLayout()
++        restore(anchor)
++        let d = collection.contentOffset.y - oldOffset
++        if abs(d) > 0.001 { for mb in morphs.values { mb.scroll(by: d) } }
++        CATransaction.commit()
++        onWidthPass()
++    }
++
+     /// the width this view's rows were derived for.
+     private var rowsWidth: CGFloat = 0
+     /// The display frame after a width pass: a width change that waited runs its pass now, at
+@@ -596,7 +622,7 @@
+         widthPass(changed: true)
+         widthPassInFrame = true
+         schedule { [weak self] in self?.widthTick() }
+-        layout.bottomPad = bounds.height - anchorY
++        layout.bottomPad = bounds.height - anchorY + cmuxBottomInset  // cmux-classic
+         _ = layout.rebaseIfNeeded(force: true)
+         layout.invalidateLayout()
+         restore(anchor, widthPass: true)
+@@ -860,6 +886,18 @@
+         if case let .status(id, st) = action, st != .sending, st != .sent, crispSends.values.contains(id) {
+             releaseCrisp { $0 == id }
+         }
++        // cmux: also every crisp send whose message is past sent in the new state (delivered, read or failed), whatever
++        // the action: Home sends one status per update (HomeDiff.keepNewestStatus: two sends delivered together give
++        // only the newer one a status) and a rebuild's replaceWindow carries statuses with no status action. Sends are
++        // recent: only the newest 256 messages are read.
++        if !crispSends.isEmpty {
++            let ids = Set(crispSends.values)
++            var past = Set<ID>()
++            for m in state.conversation.messages.suffix(256) where ids.contains(m.id) {
++                switch m.status { case .delivered?, .read?, .failed?: past.insert(m.id); default: break }
++            }
++            if !past.isEmpty { releaseCrisp { past.contains($0) } }
++        }
+         // this view's width (several Home tabs), not the process-wide `Metrics.current`.
+         if case let .setDraft(text) = action { MorphBubble.prepare(draft: text, width: bounds.width, scale: renderScale) }
+         // Rows configured in this transaction draw now (RowCell.transitionDepth).
+@@ -951,6 +989,8 @@
+                     if d.cut > 0 { rows = model.rows.lazy.filter { !$0.ghost }.prefix(d.cut).map(\.spec) + d.tail }
+                     model.set(rows, at: t, ghosts: animate)
+                 }
++                // cmux-classic: the host's status line leaves with no ghost (cmuxNoticeOffAtOnce).
++                if cmuxNoticeOffAtOnce { model.cmuxDropGhosts { if case .notice = $0.kind { return true }; return false } }
+                 phase("modelSet")
+             }
+         }
+@@ -970,7 +1010,7 @@
+             phase("caCommit")
+             return
+         }
+-        layout.bottomPad = bounds.height - anchorY
++        layout.bottomPad = bounds.height - anchorY + cmuxBottomInset  // cmux-classic
+         let rebase = layout.rebaseIfNeeded()
+ 
+         // Offset: pinned stays pinned; otherwise the first visible row keeps
+@@ -1113,6 +1153,7 @@
+             if let m = msgs.last, let r = m.replyTo, let i = index(r.messageId) { idx.append(i); idx.append(max(0, i - 1)) }
+         case .typing, .setNotice: idx.append(max(0, msgs.count - 1))
+         case let .status(id, _): if let i = index(id) { idx.append(i) }
++        case let .cmuxSetAttachment(id, _): if let i = index(id) { idx.append(i) }  // cmux
+         case let .react(ref, _, _):
+             guard let i = index(ref.messageId) else { return nil }
+             idx.append(i)
+@@ -1337,6 +1378,8 @@
+             if r.ghost, r.removedAt == t {
+                 // A received message replaces the typing bubble: Messages fades it out with the same
+                 // curve as a received text's fade-in (ANIMATIONS.md section 3).
++                // cmux-classic: the host's typing indicator leaves at once (no ghost shows).
++                if key == "typing", cmuxTypingOffAtOnce { continue }
+                 let out: SpringElement
+                 if key != "typing" { out = Springs.ghostOut }
+                 else if case .receive = action { out = Springs.typingOutOnReceive }

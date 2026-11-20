@@ -38,8 +38,9 @@ public protocol SessionSnapshotStoring<SnapshotValue>: Sendable {
     /// recovery path.
     func syncManualRestoreSnapshotCache()
 
-    /// Loads the startup snapshot: the primary when usable, otherwise the
-    /// manual-restore backup when the primary exists but cannot be restored.
+    /// Loads the startup snapshot: the primary when usable, otherwise, when
+    /// the primary exists but cannot be restored, the manual-restore backup
+    /// or the newest restorable history snapshot.
     func loadStartupSnapshot() -> SnapshotValue?
 
     /// Location of the primary snapshot file, or nil when Application
@@ -93,6 +94,14 @@ public protocol SessionSnapshotStoring<SnapshotValue>: Sendable {
     ///   when a newer-schema snapshot could not be copied aside.
     func preserveNewerSchemaSnapshotBeforeReplacing(fileURL: URL) -> Bool
 
+    /// When the file at `fileURL` exists but cannot be restored (and was not
+    /// written by a newer schema), copies it to an `.unusable.json` side file
+    /// so a later save does not destroy it.
+    ///
+    /// - Returns: The side file, or nil when nothing needed preserving.
+    @discardableResult
+    func preserveUnusableSnapshot(fileURL: URL) -> URL?
+
     /// Copies the snapshot file at `fileURL` into the rotated history
     /// directory, then prunes history to its retention limit. Skips the copy
     /// when the newest history entry holds identical bytes. Returns the new
@@ -106,4 +115,28 @@ public protocol SessionSnapshotStoring<SnapshotValue>: Sendable {
 
     /// Archived snapshots, newest first.
     func historyEntries() -> [SessionSnapshotHistoryEntry]
+}
+
+extension SessionSnapshotStoring {
+    /// The newest archived snapshot this build can restore, skipping archives
+    /// it cannot read. Startup falls back on it when the primary exists but
+    /// neither it nor the backup can be restored.
+    public func newestRestorableHistorySnapshot() -> SnapshotValue? {
+        newestRestorableHistorySnapshot { $0 }
+    }
+
+    /// Like ``newestRestorableHistorySnapshot()``, but `restorable` may
+    /// reject or reshape each decoded archive (the app prunes crash-diagnostic
+    /// windows); a rejected archive moves the search to the next older one.
+    public func newestRestorableHistorySnapshot<Restored>(
+        _ restorable: (SnapshotValue) -> Restored?
+    ) -> Restored? {
+        for entry in historyEntries() {
+            if case .loaded(let snapshot) = loadOutcome(fileURL: entry.fileURL),
+               let restored = restorable(snapshot) {
+                return restored
+            }
+        }
+        return nil
+    }
 }

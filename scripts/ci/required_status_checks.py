@@ -65,7 +65,7 @@ REQUIRED_CHECKS = (
 )
 
 # How many recently merged pull request heads to ask about production. Each
-# costs two requests. A required check reported on every one of these heads
+# reads both paginated check endpoints. A required check reported on every one of these heads
 # before its pull request could merge, so a context absent from all of them is
 # strong evidence that nothing produces it -- while a single absence is not,
 # since a path-filtered check legitimately skips most merges.
@@ -219,58 +219,96 @@ def _excerpt(payload: Any) -> str:
 
 
 class GitHub:
-    """Fetch only. A failed request raises rather than returning a default."""
+    """Fetch only. A failed request raises rather than returning a default.
 
-    def __init__(self, repo: str, token: str | None) -> None:
+    `token` is the cmux-bot App's, with its own budget; a refused read (401, 403, 429) is asked once
+    more as `fallback_token` (github.token), so the repository's shared GITHUB_TOKEN pool is only the
+    fallback (run 43989794349 failed on "API rate limit exceeded for installation")."""
+
+    REFUSED = (401, 403, 429)
+
+    def __init__(self, repo: str, token: str | None, fallback_token: str | None = None) -> None:
         self.repo = repo
         self.token = token
+        self.fallback_token = fallback_token if fallback_token and fallback_token != token else None
 
     def get(self, path: str) -> Any:
-        headers = {
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "cmux-required-checks-drift",
-        }
-        if self.token:
-            headers["Authorization"] = f"Bearer {self.token}"
-        request = urllib.request.Request(API + path, headers=headers, method="GET")
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                return json.loads(response.read().decode("utf-8"))
+            return self._get(path, self.token)
+        except urllib.error.HTTPError as error:
+            body = error.read().decode("utf-8", "replace")[:300]
+            if error.code not in self.REFUSED or not self.fallback_token:
+                raise DriftCheckError(f"GET {path} failed with HTTP {error.code}: {body}") from error
+            print(f"GET {path} refused on the read token (HTTP {error.code}); asking again with the workflow token: {body}")
+            if error.code == 401:
+                self.token, self.fallback_token = self.fallback_token, None
+        except (urllib.error.URLError, json.JSONDecodeError, TimeoutError) as error:
+            raise DriftCheckError(f"GET {path} failed: {error}") from error
+        try:
+            return self._get(path, self.fallback_token or self.token)
         except urllib.error.HTTPError as error:
             body = error.read().decode("utf-8", "replace")[:300]
             raise DriftCheckError(f"GET {path} failed with HTTP {error.code}: {body}") from error
         except (urllib.error.URLError, json.JSONDecodeError, TimeoutError) as error:
             raise DriftCheckError(f"GET {path} failed: {error}") from error
 
+    def _get(self, path: str, token: str | None) -> Any:
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "cmux-required-checks-drift",
+        }
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        request = urllib.request.Request(API + path, headers=headers, method="GET")
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.loads(response.read().decode("utf-8"))
+
     def branch_rules(self, branch: str) -> Any:
         return self.get(f"/repos/{self.repo}/rules/branches/{urllib.parse.quote(branch)}")
+
+    def _pages(self, path: str, key: str | None = None) -> Iterable[list[Any]]:
+        # Bound the scheduled probe to 1,000 entries per endpoint. Raise rather
+        # than silently truncate; increase the ceiling if production reaches it.
+        for page in range(1, 11):
+            payload = self.get(path if page == 1 else f"{path}&page={page}")
+            items = payload if key is None else (
+                payload.get(key) if isinstance(payload, Mapping) else None
+            )
+            if not isinstance(items, list):
+                raise DriftCheckError(f"GET {path} answered with no list: {_excerpt(payload)}")
+            yield items
+            if len(items) < 100:
+                return
+        raise DriftCheckError(f"GET {path} exceeded the 10-page sample limit")
 
     def merged_heads(self, branch: str, limit: int) -> list[str]:
         query = urllib.parse.urlencode(
             {"state": "closed", "base": branch, "sort": "updated", "direction": "desc", "per_page": 100}
         )
-        payload = self.get(f"/repos/{self.repo}/pulls?{query}")
-        if not isinstance(payload, list):
-            raise DriftCheckError(f"the pulls endpoint answered with no list: {_excerpt(payload)}")
         heads: list[str] = []
-        for pull in payload:
-            if not isinstance(pull, Mapping) or not pull.get("merged_at"):
-                continue
-            head = pull.get("head")
-            sha = head.get("sha") if isinstance(head, Mapping) else None
-            if isinstance(sha, str) and sha not in heads:
-                heads.append(sha)
-            if len(heads) >= limit:
-                break
+        for pulls in self._pages(f"/repos/{self.repo}/pulls?{query}"):
+            for pull in pulls:
+                if not isinstance(pull, Mapping) or not pull.get("merged_at"):
+                    continue
+                head = pull.get("head")
+                sha = head.get("sha") if isinstance(head, Mapping) else None
+                if isinstance(sha, str) and sha not in heads:
+                    heads.append(sha)
+                if len(heads) >= limit:
+                    return heads
         if not heads:
             raise DriftCheckError(f"no merged pull requests into {branch} were found to sample")
         return heads
 
     def reported_on(self, sha: str) -> frozenset[str]:
-        runs = self.get(f"/repos/{self.repo}/commits/{sha}/check-runs?per_page=100")
-        statuses = self.get(f"/repos/{self.repo}/commits/{sha}/status?per_page=100")
-        return reported_contexts(runs, statuses)
+        runs = [run for page in self._pages(
+            f"/repos/{self.repo}/commits/{sha}/check-runs?per_page=100", "check_runs"
+        ) for run in page]
+        statuses = [status for page in self._pages(
+            f"/repos/{self.repo}/commits/{sha}/status?per_page=100", "statuses"
+        ) for status in page]
+        return reported_contexts({"check_runs": runs}, {"statuses": statuses})
 
 
 def _summarise(report: str) -> None:
@@ -286,7 +324,9 @@ def main() -> int:
     if not repo:
         print("FAIL: set GH_REPO (or GITHUB_REPOSITORY) to the owner/name to reconcile")
         return 1
-    github = GitHub(repo, os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"))
+    github = GitHub(
+        repo, os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"), os.environ.get("GH_FALLBACK_TOKEN")
+    )
     try:
         live = contexts_from_rules(github.branch_rules(BRANCH))
         reported = {sha: github.reported_on(sha) for sha in github.merged_heads(BRANCH, MERGED_PULL_SAMPLE)}

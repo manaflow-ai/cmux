@@ -28,8 +28,10 @@
 	<string>$(CMUX_IROH_V2_FORCE_RELAY)</string>
 	<key>CMUXDevTag</key>
 	<string>$(CMUX_DEV_TAG)</string>
+	<key>CMUXAppStoreBuild</key>
+	<string>$(CMUX_APPSTORE_BUILD)</string>
 	<key>CMUXCloudVPNProviderBundleIdentifier</key>
-	<string>$(CMUX_CLOUD_VPN_BUNDLE_IDENTIFIER)</string>
+	<string>$(CMUX_CLOUD_VPN_PROVIDER_BUNDLE_IDENTIFIER)</string>
 	<key>CMUXKeychainAccessGroup</key>
 	<string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CMUXGitSHA</key>

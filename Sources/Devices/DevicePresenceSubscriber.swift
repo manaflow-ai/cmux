@@ -1,18 +1,19 @@
 import Foundation
 
-/// Subscribes this Mac to the signed-in user's live device presence
-/// (`GET /v1/presence/subscribe?scope=account` on `workers/presence`,
-/// WebSocket). The account scope lists only this user's devices, whatever
-/// team each one has selected; a worker without it serves the team stream. Every subscribe delivers a
+/// Subscribes this Mac to live presence (`GET /v1/presence/subscribe` on
+/// `workers/presence`, WebSocket). The `account` stream (`?scope=account`)
+/// lists only this user's devices, whatever team each one has selected; the
+/// `team` stream is the selected team's object. Every subscribe delivers a
 /// snapshot first, then online/offline/seen/routes transitions; the same socket
-/// also serves the `devices` sync collection after a `sync.hello`, which is
-/// where device owners come from.
+/// also serves sync collections after a `sync.hello`: `devices` (where device
+/// owners come from) for ``DeviceDirectory`` on the account stream, `vms` (the
+/// team's Cloud machine list) for ``CloudVMSyncSubscriber`` on the team stream.
 ///
 /// One instance is one session: `subscribe()` opens the socket and yields
 /// parsed frames until the server closes it (streams are deadline-bounded by
 /// the token, 15 minutes at most) or the transport fails. Reconnect and
-/// backoff belong to the owner (``DeviceDirectory``), which also decides when a
-/// session should exist at all.
+/// backoff belong to the owner, which also decides when a session should
+/// exist at all.
 actor DevicePresenceSubscriber {
     enum SubscribeError: Error, Equatable {
         case invalidServiceURL
@@ -23,31 +24,47 @@ actor DevicePresenceSubscriber {
         case keepaliveTimedOut
     }
 
+    /// Which stream the worker serves: `account` is the signed-in user's own
+    /// devices (My Devices, any team); `team` is the selected team's object,
+    /// where team collections such as `vms` live.
+    enum Stream: Equatable, Sendable {
+        case account
+        case team
+    }
+
     struct Credentials: Sendable {
         let accessToken: String
         let teamID: String?
     }
 
     private let serviceBaseURL: URL
+    nonisolated let stream: Stream
     private let credentials: @Sendable () async throws -> Credentials?
     private let session: URLSession
     private let clock: any Clock<Duration>
+    /// The sync collections the hello asks for; `[.devices]` for the device
+    /// directory, `vms` with a cursor for the Cloud machines list.
+    private let collections: [DevicePresenceFrame.SyncCollection]
 
     init(
         serviceBaseURL: URL,
+        stream: Stream = .account,
         session: URLSession = .shared,
         clock: any Clock<Duration> = ContinuousClock(),
+        collections: [DevicePresenceFrame.SyncCollection] = [.devices],
         credentials: @escaping @Sendable () async throws -> Credentials?
     ) {
         self.serviceBaseURL = serviceBaseURL
+        self.stream = stream
         self.session = session
         self.clock = clock
+        self.collections = collections
         self.credentials = credentials
     }
 
     /// The WebSocket subscribe URL for a service base URL; nil when the base is
     /// not http(s)/ws(s). Pure for tests.
-    static func subscribeURL(serviceBaseURL: URL) -> URL? {
+    static func subscribeURL(serviceBaseURL: URL, stream: Stream = .account) -> URL? {
         guard var comps = URLComponents(url: serviceBaseURL, resolvingAgainstBaseURL: false) else { return nil }
         switch comps.scheme?.lowercased() {
         case "https": comps.scheme = "wss"
@@ -63,13 +80,16 @@ actor DevicePresenceSubscriber {
         }
         let basePath = comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path
         comps.path = basePath + "/v1/presence/subscribe"
-        comps.queryItems = [URLQueryItem(name: "scope", value: "account")]
+        switch stream {
+        case .account: comps.queryItems = [URLQueryItem(name: "scope", value: "account")]
+        case .team: comps.queryItems = nil
+        }
         return comps.url
     }
 
-    /// Opens one subscribe session and sends the `devices` sync hello.
+    /// Opens one subscribe session and sends the sync hello for `collections`.
     func subscribe() async throws -> AsyncThrowingStream<DevicePresenceFrame, any Error> {
-        guard let url = Self.subscribeURL(serviceBaseURL: serviceBaseURL) else {
+        guard let url = Self.subscribeURL(serviceBaseURL: serviceBaseURL, stream: stream) else {
             throw SubscribeError.invalidServiceURL
         }
         guard let credentials = try await credentials() else {
@@ -82,9 +102,9 @@ actor DevicePresenceSubscriber {
         }
         let task = session.webSocketTask(with: request)
         task.resume()
-        // Sent before the first receive so the owner-carrying `devices`
-        // snapshot arrives beside the presence snapshot instead of trailing it.
-        let hello = String(decoding: DevicePresenceFrame.syncHello(), as: UTF8.self)
+        // Sent before the first receive so the collection snapshot arrives
+        // beside the presence snapshot instead of trailing it.
+        let hello = String(decoding: DevicePresenceFrame.syncHello(collections: collections), as: UTF8.self)
         try await task.send(.string(hello))
 
         let clock = clock

@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { VmBillingGateway, noOpVmBillingGateway } from "../services/vms/billingGateway";
 import { VmProviderOperationError } from "../services/vms/errors";
+import { guestVmKindCommand } from "../services/vms/guestVmKind";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { VmRepository, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
 import { createVm } from "../services/vms/workflows";
@@ -63,6 +64,8 @@ function fakeRepo(input: {
     markCreateRunning: (update: { providerVmId: string; image: string }) =>
       Effect.succeed({ ...vm, status: "running", providerVmId: update.providerVmId, imageId: update.image }),
     activeLimitCandidates: () => Effect.succeed([]),
+    // The guest vm-kind write reads the machine's row again before its exec.
+    findUserVm: () => Effect.succeed({ ...vm, status: "running", providerVmId: "provider-vm-fast" }),
     findNetwork: () => Effect.succeed({
       id: "00000000-0000-4000-8000-00000000c10d",
       userId: vm.userId,
@@ -82,10 +85,12 @@ function fakeProviders(input: {
   readonly onCreate?: () => Effect.Effect<void>;
   readonly fail?: boolean;
   readonly execs?: string[];
+  readonly execOptions?: Array<{ readonly asRoot?: boolean } | undefined>;
 }): VmProviderGatewayShape {
   return {
-    exec: (_provider: string, _vmId: string, command: string) => Effect.sync(() => {
+    exec: (_provider: string, _vmId: string, command: string, options?: { readonly asRoot?: boolean }) => Effect.sync(() => {
       input.execs?.push(command);
+      input.execOptions?.push(options);
       return { exitCode: 0, stdout: "", stderr: "" };
     }),
     create: () =>
@@ -159,25 +164,29 @@ describe("createVm critical path", () => {
     );
     expect(created.providerVmId).toBe("provider-vm-fast");
     expect(types(events)).toEqual(["vm.create.requested"]);
-    // vm.created and the prompt name push both run after the response.
-    expect(deferred).toHaveLength(2);
+    // vm.created, the prompt name push and the vm-kind marker all run after the response.
+    expect(deferred).toHaveLength(3);
     for (const work of deferred) await Effect.runPromise(work);
     expect(types(events)).toEqual(["vm.create.requested", "vm.created"]);
   });
 
   test("the prompt name is pushed into the guest only after the response", async () => {
     const execs: string[] = [];
+    const execOptions: Array<{ readonly asRoot?: boolean } | undefined> = [];
     const deferred: Effect.Effect<void>[] = [];
     await Effect.runPromise(
       createVm({ ...createInput, deferAfterResponse: (work) => deferred.push(work) }).pipe(
-        Effect.provide(layer(fakeRepo({ events: [] }), fakeProviders({ execs }))),
+        Effect.provide(layer(fakeRepo({ events: [] }), fakeProviders({ execs, execOptions }))),
       ),
     );
     // Nothing runs in the guest before create returns.
     expect(execs).toEqual([]);
     for (const work of deferred) await Effect.runPromise(work);
-    expect(execs).toHaveLength(1);
-    expect(execs[0]).toContain("vm-name");
+    // The prompt push, then the team machine's vm-kind marker (guestVmKind.ts).
+    expect(execs).toEqual([expect.stringContaining("vm-name"), guestVmKindCommand("team")]);
+    // /etc/cmux is root-owned; the push ran as root until public exec moved
+    // to the work user (#16769), and must keep doing so.
+    expect(execOptions.map((options) => options?.asRoot)).toEqual([true, true]);
   });
 
   test("a provider failure records its failure row after the requested row", async () => {

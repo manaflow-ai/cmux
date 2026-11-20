@@ -27,6 +27,10 @@ import {
   CMUX_TUI_STATE_MAX_BYTES,
   agentPinDrift,
   devboxAgentPins,
+  devboxBubblewrapInstallCommand,
+  devboxBubblewrapSha256,
+  devboxBubblewrapUrl,
+  devboxBubblewrapVersion,
   devboxCuaDriverVersion,
   devboxGhosttyVersion,
   devboxWaitForDaemonCommand,
@@ -114,9 +118,12 @@ describe("devbox image template", () => {
     expect(readdirSync(templateDir).sort()).toEqual([
       "Dockerfile",
       "README.md",
+      "agent-auth.sh",
       "agent-config.sh",
       "chrome-managed-policy.json",
       "cmux-bashrc",
+      "cmux-claude",
+      "cmux-codex",
       "cmux-devbox-boot",
       "cmux-motd",
       "cmux-opencode",
@@ -134,9 +141,12 @@ describe("devbox image template", () => {
     // The bake scripts' preflight covers the same set (minus the README).
     expect([...DEVBOX_TEMPLATE_FILES].sort()).toEqual([
       "Dockerfile",
+      "agent-auth.sh",
       "agent-config.sh",
       "chrome-managed-policy.json",
       "cmux-bashrc",
+      "cmux-claude",
+      "cmux-codex",
       "cmux-devbox-boot",
       "cmux-motd",
       "cmux-opencode",
@@ -631,6 +641,51 @@ describe("devbox image template", () => {
     }
   });
 
+  test("the daemon supervisor replaces a live but unresponsive cmux-tui", () => {
+    // Process liveness alone misses the incident this image is meant to
+    // recover from: cmux-tui can consume a vCPU while never answering its
+    // local lifecycle socket. Keep this contract close to the image source so
+    // a future supervisor edit cannot silently remove the recovery fence.
+    expect(devboxBoot).toContain("server status --session cloud");
+    expect(devboxBoot).toContain('timeout --signal=TERM --kill-after=1s');
+    expect(devboxBoot).toContain("DAEMON_HEALTH_FAILURE_LIMIT=3");
+    expect(devboxBoot).toContain("DAEMON_HEALTH_STARTUP_GRACE=48");
+    // Recovery uses the existing lifecycle functions, which do not delete the
+    // daemon's state directory or its remote terminal hosts.
+    expect(devboxBoot).toContain('REMOTE_STATE_DIR="$CMUX_TUI_HOME/.local/state/cmux/remote"');
+  });
+
+  test("the health fence waits through startup and then restarts after consecutive failures", async () => {
+    // Exercise the actual POSIX functions from the image in isolation. The
+    // fixture replaces only process start/stop and the probe, so this proves
+    // the startup grace and consecutive-failure state machine without booting
+    // a VM or touching the host daemon.
+    const announceMarker = devboxBoot.indexOf("\nannounce_loop &");
+    expect(announceMarker).toBeGreaterThanOrEqual(0);
+    const prefix = devboxBoot.slice(0, announceMarker);
+    const fixture = `${prefix}
+set -e
+DAEMON_HEALTH_STARTUP_GRACE=6
+daemon_health_grace=6
+daemon_pid=fixture
+restart_count=0
+daemon_health_probe() { return 1; }
+stop_daemon() { daemon_pid=""; }
+start_daemon() { restart_count=$((restart_count + 1)); daemon_pid=fixture; daemon_health_ticks=0; daemon_health_failures=0; daemon_health_grace=$DAEMON_HEALTH_STARTUP_GRACE; }
+    for i in $(seq 1 44); do check_daemon_health; done
+test "$restart_count" = 0
+test "$daemon_pid" = fixture
+    check_daemon_health
+test "$restart_count" = 1
+test "$daemon_pid" = fixture
+`;
+    const result = await runChild("/bin/sh", ["-c", fixture], { timeout: 20_000 });
+    expect({ status: result.status, stderr: result.stderr }).toEqual({
+      status: 0,
+      stderr: "cmux-devbox-boot: cmux-tui health probe failed 3 times; restarting daemon\n",
+    });
+  });
+
   test("the Freestyle boot path supervises the daemon through systemd", () => {
     const freestyleScript = readScript("build-devbox-freestyle.ts");
     expect(freestyleScript).toContain("ExecStart=/usr/local/bin/cmux-devbox-boot");
@@ -734,7 +789,7 @@ describe("devbox image template", () => {
     // RUN, no ARG moved) and any non-blank line change in the bake script; a
     // Dockerfile comment moves nothing. Schema 1, the formula the first
     // promoted ladders were recorded with, ignores both.
-    const withStep = dockerfile.replace(/^    bubblewrap \\$/m, "    bubblewrap \\\n    cowsay \\");
+    const withStep = dockerfile.replace(/^    e2fsprogs \\$/m, "    e2fsprogs \\\n    cowsay \\");
     expect(withStep).not.toBe(dockerfile);
     expect(devboxSourceDigest("base", withStep)).not.toBe(devboxSourceDigest("base", dockerfile));
     expect(devboxSourceDigest("base", withStep, 1)).toBe(devboxSourceDigest("base", dockerfile, 1));
@@ -773,18 +828,21 @@ describe("devbox image template", () => {
   });
 
   test("codex's Linux sandbox prerequisite is installed and the first agent launch is verified", () => {
-    // bubblewrap: without the distro bwrap, codex 0.151+ warns on every
-    // launch that it is falling back to its bundled copy (seen live on the
-    // termid ladder, 2026-09-09). Both recipes install it and prove it.
-    expect(dockerfile).toContain("    bubblewrap \\");
-    expect(dockerfile).toContain("bwrap --version");
+    // The Dockerfile and Freestyle bake select the same checksum-pinned
+    // upstream release; the Ubuntu integration test exercises the install.
+    const url = devboxBubblewrapUrl(dockerfile);
+    const sha256 = devboxBubblewrapSha256(dockerfile);
+    const version = devboxBubblewrapVersion(dockerfile);
+    const instructions = dockerfile.replace(/[ \t]*\\\n[ \t]*/g, " ").split("\n");
+    const install = instructions.find((line) => line.startsWith("RUN ") && line.includes("/tmp/bubblewrap.tar.xz"))!;
+    expect(install).toBeDefined();
+    expect(install.slice(4).replaceAll("$CMUX_IMAGE_BUBBLEWRAP_URL", url).replaceAll("$CMUX_IMAGE_BUBBLEWRAP_SHA256", sha256)).toBe(devboxBubblewrapInstallCommand(url, sha256, version));
     const bake = readScript("build-devbox-freestyle.ts");
-    expect(bake).toContain("util-linux e2fsprogs bubblewrap");
-    expect(bake).toContain("bwrap --version");
+    expect(bake).toContain("devboxBubblewrapInstallCommand(devboxBubblewrapUrl(), devboxBubblewrapSha256(), devboxBubblewrapVersion())");
     // The verifier launches the real claude (root) and codex (root and the
     // work user) TUIs and requires the ready composer with no first-run gate text.
     const verify = readScript("verify-devbox-image.ts");
-    expect(verify).toContain("bubblewrap-ok");
+    expect(verify).toContain("devboxBubblewrapCheckCommand()");
     // The work user's claude launch is the verifier's own
     // `claude-reaches-the-prompt`; these add root (the provider's exec API
     // runs as root) and codex for both accounts.
@@ -799,6 +857,19 @@ describe("devbox image template", () => {
 
   test("agent PTY readiness handles output, gates, exit, timeout and cancellation", async () => {
     const result = await runChild("python3", [fileURLToPath(new URL("./devbox-agent-launch-test.py", import.meta.url))], {
+      timeout: 30_000,
+    });
+    expect({ status: result.status, output: result.stderr }).toEqual({ status: 0, output: expect.stringContaining("OK") });
+  }, 35_000);
+
+  test("codex's own hook-trust verdict gates a daemon pane's codex launch", async () => {
+    // Codex draws its composer before "Hooks need review", so the PTY probes
+    // above cannot see a cmux-tui codex wrapper whose injected trust codex
+    // ignores (#20482); the verifier asks codex's hooks/list instead.
+    const verify = readScript("verify-devbox-image.ts");
+    expect(verify).toContain('codexHookTrustCheck(DEVBOX_WORK_USER, DEVBOX_WORK_HOME, "codex-pane-hooks-trusted"');
+    expect(verify).toContain("Hooks need review");
+    const result = await runChild("python3", [fileURLToPath(new URL("./devbox-codex-hook-trust-test.py", import.meta.url))], {
       timeout: 30_000,
     });
     expect({ status: result.status, output: result.stderr }).toEqual({ status: 0, output: expect.stringContaining("OK") });
@@ -830,7 +901,7 @@ describe("devbox image template", () => {
     const packageJson = JSON.parse(
       readFileSync(path.join(import.meta.dirname, "../package.json"), "utf8"),
     ) as { dependencies: Record<string, string> };
-    expect(packageJson.dependencies.freestyle).toBe("0.2.10");
+    expect(packageJson.dependencies.freestyle).toBe("0.2.21");
     expect(packageJson.dependencies["freestyle-beta"]).toBeUndefined();
   });
 
@@ -845,6 +916,9 @@ describe("devbox image template", () => {
       expect(dockerfile).toContain(`'[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> ${target}`);
     }
     // The image must prove generation in a throwaway HOME and ship none.
+    expect(readScript("build-devbox-freestyle.ts")).toContain(
+      "env HOME=/tmp/agent-config-check bash -lc 'echo $CLAUDE_CODE_SANDBOXED:$IS_SANDBOX:$DISABLE_AUTOUPDATER'",
+    );
     expect(dockerfile).toContain("test ! -e /root/.codex/config.toml");
     expect(dockerfile).toContain(
       "grep -q 'supports_websockets = false' /tmp/agent-config-check/.codex/config.toml",
@@ -928,6 +1002,7 @@ describe("devbox image template", () => {
       const env = {
         ...process.env,
         HOME: home,
+        PATH: "/usr/bin:/bin",
         OPENAI_BASE_URL: "https://example.invalid/v1",
         OPENAI_API_KEY: "cmux-vm-edge-placeholder",
         CMUX_CODEROUTER_URL: "https://example.invalid",
@@ -983,6 +1058,156 @@ describe("devbox image template", () => {
       }
     } finally {
       rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("agent config generator installs an idempotent CUA MCP server for every bundled agent", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-cua-config-"));
+    const bin = mkdtempSync(path.join(tmpdir(), "cmux-devbox-cua-bin-"));
+    const driver = path.join(bin, "cua-driver");
+    writeFileSync(driver, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    try {
+      const claudeConfig = {
+        hasCompletedOnboarding: true,
+        mcpServers: { existing: { command: "existing-mcp", args: [] } },
+      };
+      mkdirSync(path.join(home, ".codex"), { recursive: true });
+      mkdirSync(path.join(home, ".config/opencode"), { recursive: true });
+      writeFileSync(path.join(home, ".claude.json"), JSON.stringify(claudeConfig));
+      writeFileSync(
+        path.join(home, ".codex/config.toml"),
+        '[mcp_servers.existing]\ncommand = "existing-mcp"\nargs = []\n',
+      );
+      writeFileSync(
+        path.join(home, ".config/opencode/opencode.json"),
+        JSON.stringify({ mcp: { existing: { type: "local", command: ["existing-mcp"] } } }),
+      );
+      const env = {
+        ...process.env,
+        HOME: home,
+        PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+        OPENAI_BASE_URL: "",
+        OPENAI_API_KEY: "",
+        CMUX_CODEROUTER_URL: "",
+        ANTHROPIC_BASE_URL: "",
+        ANTHROPIC_API_KEY: "",
+      };
+      const source = `. ${path.join(templateDir, "agent-config.sh")}; cmux_write_cua_mcp_config allow-missing`;
+      expect((await runChild("/bin/bash", ["-c", source], { env })).status).toBe(0);
+
+      const claude = JSON.parse(readFileSync(path.join(home, ".claude.json"), "utf8")) as {
+        hasCompletedOnboarding: boolean;
+        mcpServers: Record<string, { command: string; args: string[] }>;
+      };
+      expect(claude.hasCompletedOnboarding).toBe(true);
+      expect(claude.mcpServers.existing).toEqual({ command: "existing-mcp", args: [] });
+      expect(claude.mcpServers["cua-computer-use"]).toEqual({ command: driver, args: ["mcp"] });
+
+      const codex = Bun.TOML.parse(readFileSync(path.join(home, ".codex/config.toml"), "utf8")) as {
+        mcp_servers: Record<string, { command: string; args: string[] }>;
+      };
+      expect(codex.mcp_servers.existing).toEqual({ command: "existing-mcp", args: [] });
+      expect(codex.mcp_servers["cua-driver"]).toEqual({ command: driver, args: ["mcp"] });
+
+      const opencode = JSON.parse(readFileSync(path.join(home, ".config/opencode/opencode.json"), "utf8")) as {
+        mcp: Record<string, unknown>;
+      };
+      expect(opencode.mcp.existing).toEqual({ type: "local", command: ["existing-mcp"] });
+      expect(opencode.mcp["cua-driver"]).toEqual({
+        type: "local",
+        command: [driver, "mcp"],
+        enabled: true,
+      });
+
+      const after = [
+        ".claude.json",
+        ".codex/config.toml",
+        ".config/opencode/opencode.json",
+      ].map((relative) => readFileSync(path.join(home, relative), "utf8"));
+      expect((await runChild("/bin/bash", ["-c", source], { env })).status).toBe(0);
+      expect([
+        ".claude.json",
+        ".codex/config.toml",
+        ".config/opencode/opencode.json",
+      ].map((relative) => readFileSync(path.join(home, relative), "utf8"))).toEqual(after);
+
+      writeFileSync(path.join(home, ".codex/config.toml"), "[mcp_servers\n");
+      expect((await runChild("/bin/bash", ["-c", source], { env })).status).toBe(0);
+      expect(readFileSync(path.join(home, ".codex/config.toml"), "utf8")).toBe("[mcp_servers\n");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+
+  test("agent config generator writes CUA to the selected OpenCode config", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-cua-opencode-selected-"));
+    const bin = mkdtempSync(path.join(tmpdir(), "cmux-devbox-cua-opencode-bin-"));
+    const driver = path.join(bin, "cua-driver");
+    const selected = path.join(home, ".config/cmux/opencode-team.json");
+    writeFileSync(driver, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    try {
+      const env = {
+        ...process.env,
+        HOME: home,
+        PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+        OPENCODE_CONFIG: selected,
+        OPENAI_BASE_URL: "",
+        OPENAI_API_KEY: "",
+        CMUX_CODEROUTER_URL: "",
+        ANTHROPIC_BASE_URL: "",
+        ANTHROPIC_API_KEY: "",
+      };
+      const source = `. ${path.join(templateDir, "agent-config.sh")}; cmux_write_cua_mcp_config allow-missing`;
+      expect((await runChild("/bin/bash", ["-c", source], { env })).status).toBe(0);
+
+      const config = JSON.parse(readFileSync(selected, "utf8")) as {
+        mcp: Record<string, unknown>;
+      };
+      expect(config.mcp["cua-driver"]).toEqual({
+        type: "local",
+        command: [driver, "mcp"],
+        enabled: true,
+      });
+      expect(existsSync(path.join(home, ".config/opencode/opencode.json"))).toBe(false);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+
+  test("agent config generator reports per-file write errors without a traceback", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-cua-opencode-error-"));
+    const bin = mkdtempSync(path.join(tmpdir(), "cmux-devbox-cua-opencode-error-bin-"));
+    const driver = path.join(bin, "cua-driver");
+    const blocked = path.join(home, "blocked");
+    const selected = path.join(blocked, "opencode.json");
+    writeFileSync(driver, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    writeFileSync(blocked, "not a directory");
+    try {
+      const env = {
+        ...process.env,
+        HOME: home,
+        PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+        OPENCODE_CONFIG: selected,
+        OPENAI_BASE_URL: "",
+        OPENAI_API_KEY: "",
+        CMUX_CODEROUTER_URL: "",
+        ANTHROPIC_BASE_URL: "",
+        ANTHROPIC_API_KEY: "",
+      };
+      const source = `. ${path.join(templateDir, "agent-config.sh")}; cmux_write_cua_mcp_config allow-missing`;
+      const result = await runChild("/bin/bash", ["-c", source], { env });
+      expect(result.status).toBe(0);
+      const stderr = result.stderr.toString();
+      expect(stderr).toBe(
+        "cmux: unable to update OpenCode computer-use configuration; keeping existing settings.\n",
+      );
+      expect(stderr).not.toContain("Traceback");
+      expect(stderr.trim().split("\n")).toHaveLength(1);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+      rmSync(bin, { recursive: true, force: true });
     }
   });
 
@@ -1048,7 +1273,7 @@ describe("devbox image template", () => {
       // claude: env only, nothing generated.
       expect(existsSync(path.join(home, ".claude"))).toBe(false);
       // opencode config is lazy; a normal shell never contacts the endpoint.
-      expect(existsSync(path.join(home, ".config/opencode/opencode.json"))).toBe(false);
+      expect(existsSync(path.join(home, ".config/cmux/opencode-team.json"))).toBe(false);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -1081,7 +1306,7 @@ describe("devbox image template", () => {
       await sourceAgentConfig(home, server.origin, true);
       // The guest sends only the placeholder; the edge adds the route token.
       expect(authorization).toBe("Bearer cmux-vm-edge-placeholder");
-      const configPath = path.join(home, ".config/opencode/opencode.json");
+      const configPath = path.join(home, ".config/cmux/opencode-team.json");
       const written = readFileSync(configPath, "utf8");
       // A route token the endpoint inlined is swapped for a runtime env
       // reference (as is the placeholder itself), so no token lands on disk.
@@ -1124,7 +1349,7 @@ describe("devbox image template", () => {
         if (++started === 4) releaseResponse();
       })));
       expect(requests).toBe(1);
-      const config = path.join(home, ".config/opencode/opencode.json");
+      const config = path.join(home, ".config/cmux/opencode-team.json");
       expect(JSON.parse(readFileSync(config, "utf8")).provider.go.options.apiKey).toBe("{env:OPENAI_API_KEY}");
       writeFileSync(config, '{"provider":{"mine":{}}}');
       await sourceAgentConfig(home, server.origin, true);
@@ -1149,7 +1374,7 @@ describe("devbox image template", () => {
       await expect(sourceAgentConfig(home, server.origin, true)).rejects.toThrow();
       await expect(sourceAgentConfig(home, server.origin, true)).rejects.toThrow();
       expect(requests).toBe(1);
-      expect(existsSync(path.join(home, ".config/opencode/opencode.json"))).toBe(false);
+      expect(existsSync(path.join(home, ".config/cmux/opencode-team.json"))).toBe(false);
     } finally {
       await server.close();
       rmSync(home, { recursive: true, force: true });
@@ -1166,7 +1391,7 @@ describe("devbox image template", () => {
       response.end(body);
     });
     try {
-      const configPath = path.join(home, ".config/opencode/opencode.json");
+      const configPath = path.join(home, ".config/cmux/opencode-team.json");
       // 503 no_usable_account: nothing written, the shell exits clean.
       await expect(sourceAgentConfig(home, server.origin, true)).rejects.toThrow();
       expect(existsSync(configPath)).toBe(false);
@@ -1176,6 +1401,34 @@ describe("devbox image template", () => {
       status = 200;
       await expect(sourceAgentConfig(home, server.origin, true)).rejects.toThrow();
       expect(existsSync(configPath)).toBe(false);
+    } finally {
+      await server.close();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("opencode config names the way out when the team has no OpenCode account", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-opencode-403-"));
+    const message = "No OpenCode account is shared with this Cloud machine's team. Or use your own provider sign-in on this machine: run `cr use own opencode`.";
+    const server = await listen((_request, response) => {
+      response.statusCode = 403;
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ error: { message, type: "invalid_request_error", code: "no_account_configured" } }));
+    });
+    try {
+      const result = await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; cmux_ensure_opencode_config`], {
+        env: {
+          PATH: process.env.PATH ?? "/usr/bin:/bin",
+          HOME: home,
+          CMUX_CODEROUTER_URL: server.origin,
+          OPENAI_BASE_URL: `${server.origin}/v1`,
+          OPENAI_API_KEY: "cmux-vm-edge-placeholder",
+        },
+      });
+      expect(result.status).toBe(78);
+      expect(result.stderr).toBe(`cmux: ${message}\n`);
+      expect(result.stderr).not.toContain("retry");
+      expect(existsSync(path.join(home, ".config/cmux/opencode-team.json"))).toBe(false);
     } finally {
       await server.close();
       rmSync(home, { recursive: true, force: true });

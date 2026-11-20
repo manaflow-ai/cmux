@@ -82,21 +82,26 @@ extension Workspace {
             ) else { return }
         }
 
-        for candidate in candidates {
-            // Remote tmux mirror tabs: the batch prompt above already covered
+        closeTabsAfterConfirmation(candidates.map(\.tabId), force: needsConfirmation)
+    }
+
+    /// Shared batch close for menu actions after their confirmation has succeeded.
+    func closeTabsAfterConfirmation(_ tabIds: [TabID], force: Bool) {
+        for tabId in tabIds {
+            // Remote tmux mirror tabs: the caller's batch prompt already covered
             // them (panelNeedsConfirmClose is mirror-aware), so route the kill
             // to the remote directly and veto local close. If routing fails
             // while reconnecting, keep the tab so the mirror can retry later.
             // A local force-close would bypass the shouldCloseTab kill routing
             // and leave the remote window alive, resurrecting the tab on the
             // next rebuild.
-            switch routeRemoteTmuxNonInteractiveTabCloseIfNeeded(candidate.tabId) {
+            switch routeRemoteTmuxNonInteractiveTabCloseIfNeeded(tabId) {
             case .routed, .rejectedMirrorTab:
                 continue
             case .notMirrorTab:
                 break
             }
-            _ = requestCloseTabRecordingHistory(candidate.tabId, force: needsConfirmation)
+            _ = requestCloseTabRecordingHistory(tabId, force: force)
         }
     }
 }

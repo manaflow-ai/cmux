@@ -7,7 +7,7 @@ public struct CloudWorkspaceProjectionPlan {
     public let missing: [SurfaceResourcePlacement]
     public let obsolete: [SurfaceProjection]
 
-    public init(desired: [SurfaceResourcePlacement], existing: [SurfaceProjection]) {
+    public init(desired: [SurfaceResourcePlacement], existing: [SurfaceProjection], protectedPanelIDs: Set<UUID> = []) {
         let wanted = Set(desired)
         // Desired placements an existing pane already shows: exact daemon tabs,
         // a local preview's own workspace row and the display memberships it
@@ -33,6 +33,19 @@ public struct CloudWorkspaceProjectionPlan {
                         && matching.remoteWorkspaceID == projection.remoteWorkspaceID {
                     seen.insert(matching)
                 }
+                continue
+            }
+            if protectedPanelIDs.contains(projection.panelID) {
+                // A pending pane already showing a wanted placement satisfies it.
+                if wanted.contains(placement) { seen.insert(placement) }
+                continue
+            }
+            // Browsers are shareable views: several local panes may present the
+            // same authorized daemon tab. Keep those views while the tab remains
+            // in the machine graph; terminals retain their exact-placement
+            // de-duplication behavior.
+            if projection.resource.kind == .browser, wanted.contains(placement) {
+                seen.insert(placement)
                 continue
             }
             if !wanted.contains(placement) || !seen.insert(placement).inserted { obsolete.append(projection) }

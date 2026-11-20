@@ -3,6 +3,15 @@ public struct SSHTerminalModeResetSequence: Sendable {
     /// Creates a terminal-mode reset sequence builder.
     public init() {}
 
+    /// The same reset as ``shellPrintfFormat``, encoded for direct terminal
+    /// parser injection after a local foreground process is reaped.
+    public var terminalBytes: [UInt8] {
+        Array("\u{1b}[?1000l\u{1b}[?1002l\u{1b}[?1003l\u{1b}[?1004l".utf8)
+            + Array("\u{1b}[?1005l\u{1b}[?1006l\u{1b}[?1015l\u{1b}[?1016l".utf8)
+            + Array("\u{1b}[?2004l\u{1b}[999<u\u{1b}[0;1=u\u{1b}[>m".utf8)
+            + Array("\u{1b}[?2031l\u{1b}[?2048l\u{1b}[?2026l".utf8)
+    }
+
     /// A `printf` format that disables input and reporting modes a remote TUI may leave enabled.
     ///
     /// The value uses shell `printf` escapes rather than literal control bytes

@@ -165,8 +165,10 @@ public enum AgentLaunchSanitizer {
             var tail = args
             while let first = tail.first {
                 let normalized = first.replacingOccurrences(of: "\\", with: "/")
+                // Compiled OpenCode reports Bun's virtual entry (src/index.js on
+                // 1.x, the TUI worker on V2); it is never a user argument.
                 let isInternalArgument = first == "tui-settings" ||
-                    (normalized.contains("/$bunfs/") && normalized.hasSuffix("/tui/worker.js"))
+                    normalized.contains("/$bunfs/") || normalized.contains("/~BUN/")
                 guard isInternalArgument else { break }
                 tail.removeFirst()
             }
@@ -202,6 +204,8 @@ public enum AgentLaunchSanitizer {
             return preserveOptions(args, policy: qoderPolicy)
         case "kimi":
             return preserveOptions(args, policy: kimiPolicy)
+        case "muse":
+            return preserveOptions(args, policy: musePolicy)
         case "ollama":
             return OllamaLaunchArgumentsPreserver().preservedArguments(args)
         default:

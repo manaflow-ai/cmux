@@ -1,0 +1,833 @@
+Our patches to the apple-codesign 0.29.0 crate, for signing parity with codesign.
+Applied by scripts/ci/build-rcodesign.sh with patch -p1 in the crate root.
+
+--- a/src/bundle_signing.rs
++++ b/src/bundle_signing.rs
+@@ -305,7 +305,7 @@
+             if let Some(designated) = requirements.requirements.get(&RequirementType::Designated) {
+                 let req = designated.parse_expressions()?;
+ 
+-                Some(format!("{}", req[0]))
++                Some(crate::code_requirement::apple_text::format(&req[0]))
+             } else {
+                 // In case no explicit requirements has been set, we use current file cdhashes.
+                 let mut requirement_expr = None;
+@@ -343,9 +343,8 @@
+                     }
+                 }
+ 
+-                Some(format!(
+-                    "{}",
+-                    requirement_expr.expect("a Mach-O should have been present")
++                Some(crate::code_requirement::apple_text::format(
++                    &requirement_expr.expect("a Mach-O should have been present"),
+                 ))
+             }
+         } else {
+--- a/src/code_requirement.rs
++++ b/src/code_requirement.rs
+@@ -2046,5 +2046,245 @@
+         );
+         assert!(data.is_empty());
+         verify_roundtrip(&els, &source);
++    }
++}
++
++/// Requirement text as codesign writes it (Security's requirement dumper):
++/// parentheses only where precedence needs them, and data unquoted only when
++/// it is a plain alphanumeric word that is not a keyword.
++pub mod apple_text {
++    use super::{CodeRequirementExpression as E, CodeRequirementMatchExpression as M, CodeRequirementValue};
++
++    #[derive(Clone, Copy, PartialEq, PartialOrd)]
++    enum Level {
++        Primary,
++        And,
++        Or,
++        Top,
++    }
++
++    const KEYWORDS: &[&str] = &[
++        "guest", "host", "designated", "library", "plugin", "or", "and", "always", "true", "never",
++        "false", "identifier", "cdhash", "platform", "notarized", "legacy", "anchor", "apple",
++        "generic", "certificate", "cert", "trusted", "info", "entitlement", "exists", "absent",
++        "leaf", "root", "timestamp", "",
++    ];
++
++    /// One requirement expression as codesign prints it.
++    pub fn format(expr: &E) -> String {
++        let mut out = String::new();
++        dump(&mut out, expr, Level::Top);
++        match out.strip_prefix(' ') {
++            Some(rest) => rest.to_string(),
++            None => out,
++        }
++    }
++
++    fn data(out: &mut String, bytes: &[u8], dot_ok: bool) {
++        #[derive(PartialEq)]
++        enum Mode {
++            Simple,
++            Printable,
++            Binary,
++        }
++        let mut mode = Mode::Simple;
++        for (n, &c) in bytes.iter().enumerate() {
++            if c.is_ascii_alphanumeric() || (c == b'.' && dot_ok) {
++                if n == 0 && c.is_ascii_digit() {
++                    mode = Mode::Printable;
++                }
++            } else if c.is_ascii_graphic() || matches!(c, b' ' | b'\t' | b'\n' | b'\x0b' | b'\x0c' | b'\r') {
++                if mode == Mode::Simple {
++                    mode = Mode::Printable;
++                }
++            } else {
++                mode = Mode::Binary;
++                break;
++            }
++        }
++        if mode == Mode::Simple && KEYWORDS.iter().any(|k| k.as_bytes() == bytes) {
++            mode = Mode::Printable;
++        }
++        match mode {
++            Mode::Simple => out.push_str(&String::from_utf8_lossy(bytes)),
++            Mode::Printable => {
++                out.push('"');
++                for &c in bytes {
++                    if c == b'\\' || c == b'"' {
++                        out.push('\\');
++                    }
++                    out.push(c as char);
++                }
++                out.push('"');
++            }
++            Mode::Binary => {
++                out.push_str("0x");
++                out.push_str(&hex::encode(bytes));
++            }
++        }
++    }
++
++    fn value(out: &mut String, v: &CodeRequirementValue) {
++        match v {
++            CodeRequirementValue::String(s) => data(out, s.as_bytes(), false),
++            CodeRequirementValue::Bytes(b) => data(out, b, false),
++        }
++    }
++
++    fn slot(out: &mut String, slot: i32) {
++        match slot {
++            -1 => out.push_str(" root"),
++            0 => out.push_str(" leaf"),
++            n => out.push_str(&format!(" {n}")),
++        }
++    }
++
++    fn hash(out: &mut String, digest: &[u8]) {
++        out.push_str("H\"");
++        out.push_str(&hex::encode(digest));
++        out.push('"');
++    }
++
++    fn matcher(out: &mut String, m: &M) {
++        match m {
++            M::Exists => out.push_str(" /* exists */"),
++            M::Absent => out.push_str(" absent "),
++            M::Equal(v) => { out.push_str(" = "); value(out, v) }
++            M::Contains(v) => { out.push_str(" ~ "); value(out, v) }
++            M::BeginsWith(v) => { out.push_str(" = "); value(out, v); out.push('*') }
++            M::EndsWith(v) => { out.push_str(" = *"); value(out, v) }
++            M::LessThan(v) => { out.push_str(" < "); value(out, v) }
++            M::GreaterThan(v) => { out.push_str(" > "); value(out, v) }
++            M::LessThanEqual(v) => { out.push_str(" <= "); value(out, v) }
++            M::GreaterThanEqual(v) => { out.push_str(" >= "); value(out, v) }
++            M::On(t) => out.push_str(&format!(" = <{t}>")),
++            M::Before(t) => out.push_str(&format!(" < <{t}>")),
++            M::After(t) => out.push_str(&format!(" > <{t}>")),
++            M::OnOrBefore(t) => out.push_str(&format!(" <= <{t}>")),
++            M::OnOrAfter(t) => out.push_str(&format!(" >= <{t}>")),
++        }
++    }
++
++    fn dump(out: &mut String, expr: &E, level: Level) {
++        match expr {
++            E::False => out.push_str("never"),
++            E::True => out.push_str("always"),
++            E::Identifier(s) => { out.push_str("identifier "); data(out, s.as_bytes(), false) }
++            E::AnchorApple => out.push_str("anchor apple"),
++            E::AnchorAppleGeneric => out.push_str("anchor apple generic"),
++            E::AnchorCertificateHash(s, d) => {
++                out.push_str("certificate");
++                slot(out, *s);
++                out.push_str(" = ");
++                hash(out, d)
++            }
++            E::InfoKeyValueLegacy(k, v) => {
++                out.push_str("info[");
++                data(out, k.as_bytes(), true);
++                out.push_str("] = ");
++                data(out, v.as_bytes(), false)
++            }
++            E::And(a, b) | E::Or(a, b) => {
++                let (own, word) = if matches!(expr, E::And(..)) {
++                    (Level::And, " and ")
++                } else {
++                    (Level::Or, " or ")
++                };
++                if level < own {
++                    out.push('(');
++                }
++                dump(out, a, own);
++                out.push_str(word);
++                dump(out, b, own);
++                if level < own {
++                    out.push(')');
++                }
++            }
++            E::Not(e) => { out.push_str("! "); dump(out, e, Level::Primary) }
++            E::CodeDirectoryHash(d) => { out.push_str("cdhash "); hash(out, d) }
++            E::InfoPlistKeyField(k, m) => {
++                out.push_str("info[");
++                data(out, k.as_bytes(), true);
++                out.push(']');
++                matcher(out, m)
++            }
++            E::EntitlementsKey(k, m) => {
++                out.push_str("entitlement[");
++                data(out, k.as_bytes(), true);
++                out.push(']');
++                matcher(out, m)
++            }
++            E::CertificateField(s, f, m) => {
++                out.push_str("certificate");
++                slot(out, *s);
++                out.push('[');
++                data(out, f.as_bytes(), true);
++                out.push(']');
++                matcher(out, m)
++            }
++            E::CertificateFieldDate(s, oid, m) => {
++                out.push_str("certificate");
++                slot(out, *s);
++                out.push_str(&format!("[timestamp.{oid}]"));
++                matcher(out, m)
++            }
++            E::CertificateGeneric(s, oid, m) => {
++                out.push_str("certificate");
++                slot(out, *s);
++                out.push_str(&format!("[field.{oid}]"));
++                matcher(out, m)
++            }
++            E::CertificatePolicy(s, oid, m) => {
++                out.push_str("certificate");
++                slot(out, *s);
++                out.push_str(&format!("[policy.{oid}]"));
++                matcher(out, m)
++            }
++            // Security prints no space before "trusted" here.
++            E::CertificateTrusted(s) => { out.push_str("certificate"); slot(out, *s); out.push_str("trusted") }
++            E::AnchorTrusted => out.push_str("anchor trusted"),
++            E::NamedAnchor(n) => { out.push_str("anchor apple "); data(out, n.as_bytes(), false) }
++            E::NamedCode(n) => { out.push('('); data(out, n.as_bytes(), false); out.push(')') }
++            E::Platform(p) => out.push_str(&format!("platform = {}", *p as i32)),
++            E::Notarized => out.push_str("notarized"),
++            E::LegacyDeveloperId => out.push_str("legacy"),
++        }
+     }
++
++    #[cfg(test)]
++    mod test {
++        use super::*;
++        use std::borrow::Cow;
++
++        #[test]
++        fn developer_id_requirement_as_codesign_prints_it() {
++            let oid = |b: &'static [u8]| bcder::Oid(b);
++            let expr = E::And(
++                Box::new(E::And(
++                    Box::new(E::And(
++                        Box::new(E::And(
++                            Box::new(E::Identifier(Cow::from("org.sparkle-project.Sparkle.Updater"))),
++                            Box::new(E::AnchorAppleGeneric),
++                        )),
++                        Box::new(E::CertificateGeneric(1, oid(&[42, 134, 72, 134, 247, 99, 100, 6, 2, 6]), M::Exists)),
++                    )),
++                    Box::new(E::CertificateGeneric(0, oid(&[42, 134, 72, 134, 247, 99, 100, 6, 1, 13]), M::Exists)),
++                )),
++                Box::new(E::CertificateField(0, Cow::from("subject.OU"), M::Equal(CodeRequirementValue::from("7WLXT3NR37")))),
++            );
++            assert_eq!(
++                format(&expr),
++                "identifier \"org.sparkle-project.Sparkle.Updater\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"7WLXT3NR37\""
++            );
++            assert_eq!(format(&E::Identifier(Cow::from("Autoupdate"))), "identifier Autoupdate");
++            assert_eq!(format(&E::Identifier(Cow::from("leaf"))), "identifier \"leaf\"");
++            let or = E::Or(
++                Box::new(E::CodeDirectoryHash(Cow::from(&[0xab_u8][..]))),
++                Box::new(E::CodeDirectoryHash(Cow::from(&[0xcd_u8][..]))),
++            );
++            assert_eq!(format(&or), "cdhash H\"ab\" or cdhash H\"cd\"");
++            let mixed = E::And(Box::new(or), Box::new(E::AnchorApple));
++            assert_eq!(format(&mixed), "(cdhash H\"ab\" or cdhash H\"cd\") and anchor apple");
++        }
++    }
+ }
+--- a/src/dmg.rs
++++ b/src/dmg.rs
+@@ -47,8 +47,11 @@
+     crate::{
+         code_directory::{CodeDirectoryBlob, CodeSignatureFlags},
+         cryptography::{Digest, DigestType},
++        code_requirement::{CodeRequirementExpression, CodeRequirements, RequirementType},
+         embedded_signature::{BlobData, CodeSigningSlot, EmbeddedSignature, RequirementSetBlob},
+         embedded_signature_builder::EmbeddedSignatureBuilder,
++        policy::derive_designated_requirements,
++        signing_settings::DesignatedRequirementMode,
+         AppleCodesignError, SettingsScope, SigningSettings,
+     },
+     log::warn,
+@@ -329,7 +332,7 @@
+     ) -> Result<Vec<u8>, AppleCodesignError> {
+         let mut builder = EmbeddedSignatureBuilder::default();
+ 
+-        for (slot, blob) in self.create_special_blobs()? {
++        for (slot, blob) in self.create_special_blobs(settings)? {
+             builder.add_blob(slot, blob)?;
+         }
+ 
+@@ -346,6 +349,7 @@
+                 settings.certificate_chain().iter().cloned(),
+                 settings.signing_time(),
+             )?;
++            builder.use_codesign_cms_encoding()?;
+         }
+ 
+         builder.create_superblob()
+@@ -389,9 +393,14 @@
+ 
+         let koly_digest = reader.koly().digest_for_code_directory(digest_type)?;
+ 
+-        let mut cd = CodeDirectoryBlob {
+-            version: 0x20100,
++        // As codesign does for a DMG: the team of an Apple-issued certificate,
++        // which needs the 0x20200 Code Directory (0x20100 has no team field).
++        let team_name = settings.team_id().map(|x| Cow::Owned(x.to_string()));
++
++        let mut cd = CodeDirectoryBlob {
++            version: if team_name.is_some() { 0x20200 } else { 0x20100 },
+             flags,
++            team_name,
+             code_limit: reader.koly().offset_after_plist() as u32,
+             digest_size: digest_type.hash_len()? as u8,
+             digest_type,
+@@ -407,12 +416,44 @@
+     }
+ 
+     /// Create special blobs that are added to the superblob.
++    ///
++    /// The requirement set holds the designated requirement codesign writes:
++    /// derived from the signing certificate (as for Mach-O), or the explicit one
++    /// in the settings.
+     pub fn create_special_blobs(
+         &self,
++        settings: &SigningSettings,
+     ) -> Result<Vec<(CodeSigningSlot, BlobData)>, AppleCodesignError> {
+-        Ok(vec![(
+-            CodeSigningSlot::RequirementSet,
+-            RequirementSetBlob::default().into(),
+-        )])
++        let mut requirements = CodeRequirements::default();
++
++        match settings.designated_requirement(SettingsScope::Main) {
++            DesignatedRequirementMode::Auto => {
++                if let Some((_, cert)) = settings.signing_key() {
++                    let identifier = Some(
++                        settings
++                            .binary_identifier(SettingsScope::Main)
++                            .ok_or(AppleCodesignError::NoIdentifier)?
++                            .to_string(),
++                    );
++                    requirements.push(derive_designated_requirements(
++                        cert,
++                        settings.certificate_chain(),
++                        identifier,
++                    )?);
++                }
++            }
++            DesignatedRequirementMode::Explicit(exprs) => {
++                for expr in exprs {
++                    requirements.push(CodeRequirementExpression::from_bytes(expr)?.0);
++                }
++            }
++        }
++
++        let mut blob = RequirementSetBlob::default();
++        if !requirements.is_empty() {
++            requirements.add_to_requirement_set(&mut blob, RequirementType::Designated)?;
++        }
++
++        Ok(vec![(CodeSigningSlot::RequirementSet, blob.into())])
+     }
+ }
+--- a/src/embedded_signature_builder.rs
++++ b/src/embedded_signature_builder.rs
+@@ -324,6 +324,24 @@
+         Ok(())
+     }
+ 
++    /// Re-encode the CMS signature's outer layers the way codesign writes them
++    /// (see [cms_der_to_codesign_ber]).
++    pub fn use_codesign_cms_encoding(&mut self) -> Result<(), AppleCodesignError> {
++        let der = match self.blobs.get(&CodeSigningSlot::Signature) {
++            Some(BlobData::BlobWrapper(blob)) => blob.serialize_payload()?,
++            _ => return Ok(()),
++        };
++        if der.is_empty() {
++            return Ok(());
++        }
++        let ber = cms_der_to_codesign_ber(&der)?;
++        self.blobs.insert(
++            CodeSigningSlot::Signature,
++            BlobData::BlobWrapper(Box::new(BlobWrapperBlob::from_data_owned(ber))),
++        );
++        Ok(())
++    }
++
+     /// Add notarization ticket data.
+     ///
+     /// This will register a new ticket slot holding the notarization ticket data.
+@@ -361,3 +379,104 @@
+         create_superblob(CodeSigningMagic::EmbeddedSignature, blobs.iter())
+     }
+ }
++
++/// The DER header at the start of `data`: (tag, header length, content length).
++fn der_header(data: &[u8]) -> Result<(u8, usize, usize), AppleCodesignError> {
++    let err = || AppleCodesignError::SignatureBuilder("malformed CMS DER");
++    let tag = *data.first().ok_or_else(err)?;
++    let first = *data.get(1).ok_or_else(err)?;
++    let (header, len) = if first < 0x80 {
++        (2, first as usize)
++    } else {
++        let n = (first & 0x7f) as usize;
++        if n == 0 || n > 4 {
++            return Err(err());
++        }
++        let mut len = 0usize;
++        for i in 0..n {
++            len = (len << 8) | *data.get(2 + i).ok_or_else(err)? as usize;
++        }
++        (2 + n, len)
++    };
++    if data.len() < header + len {
++        return Err(err());
++    }
++    Ok((tag, header, len))
++}
++
++/// Re-encode a DER CMS signature the way codesign writes it: the ContentInfo, its
++/// [0] content, the SignedData and the encapContentInfo use indefinite lengths
++/// (ending in end-of-contents octets); everything inside them stays DER.
++pub fn cms_der_to_codesign_ber(der: &[u8]) -> Result<Vec<u8>, AppleCodesignError> {
++    let err = || AppleCodesignError::SignatureBuilder("unexpected CMS layout");
++    let (tag, header, len) = der_header(der)?;
++    if tag != 0x30 || header + len != der.len() {
++        return Err(err());
++    }
++    let content_info = &der[header..];
++    let (tag, header, len) = der_header(content_info)?;
++    if tag != 0x06 {
++        return Err(err());
++    }
++    let content_type = &content_info[..header + len];
++    let explicit = &content_info[header + len..];
++    let (tag, header, len) = der_header(explicit)?;
++    if tag != 0xa0 || header + len != explicit.len() {
++        return Err(err());
++    }
++    let signed_data = &explicit[header..];
++    let (tag, header, len) = der_header(signed_data)?;
++    if tag != 0x30 || header + len != signed_data.len() {
++        return Err(err());
++    }
++    let mut fields = &signed_data[header..];
++
++    let mut out = Vec::with_capacity(der.len() + 8);
++    out.extend_from_slice(&[0x30, 0x80]);
++    out.extend_from_slice(content_type);
++    out.extend_from_slice(&[0xa0, 0x80, 0x30, 0x80]);
++    // version, digestAlgorithms, encapContentInfo; the rest is copied as it is.
++    for i in 0..3 {
++        let (tag, header, len) = der_header(fields)?;
++        if i == 2 {
++            if tag != 0x30 {
++                return Err(err());
++            }
++            out.extend_from_slice(&[0x30, 0x80]);
++            out.extend_from_slice(&fields[header..header + len]);
++            out.extend_from_slice(&[0, 0]);
++        } else {
++            out.extend_from_slice(&fields[..header + len]);
++        }
++        fields = &fields[header + len..];
++    }
++    out.extend_from_slice(fields);
++    out.extend_from_slice(&[0, 0, 0, 0, 0, 0]);
++    Ok(out)
++}
++
++#[cfg(test)]
++mod codesign_cms_encoding_test {
++    use super::cms_der_to_codesign_ber;
++
++    #[test]
++    fn outer_layers_become_indefinite() {
++        // ContentInfo { OID, [0] { SignedData { 1, SET {}, SEQ { OID }, SET { OCTET STRING } } } }
++        let signed_data = [
++            0x02, 0x01, 0x01, 0x31, 0x00, 0x30, 0x03, 0x06, 0x01, 0x2b, 0x31, 0x03, 0x04, 0x01,
++            0xff,
++        ];
++        let mut der = vec![0x30, 0x16, 0x06, 0x01, 0x2a, 0xa0, 0x11, 0x30, 0x0f];
++        der.extend_from_slice(&signed_data);
++        let ber = cms_der_to_codesign_ber(&der).unwrap();
++        assert_eq!(
++            ber,
++            vec![
++                0x30, 0x80, 0x06, 0x01, 0x2a, 0xa0, 0x80, 0x30, 0x80, 0x02, 0x01, 0x01, 0x31, 0x00,
++                0x30, 0x80, 0x06, 0x01, 0x2b, 0x00, 0x00, 0x31, 0x03, 0x04, 0x01, 0xff, 0x00, 0x00,
++                0x00, 0x00, 0x00, 0x00,
++            ]
++        );
++        assert!(cms_der_to_codesign_ber(&der[..der.len() - 1]).is_err());
++    }
++}
+--- a/src/macho_signing.rs
++++ b/src/macho_signing.rs
+@@ -18,13 +18,13 @@
+         embedded_signature_builder::EmbeddedSignatureBuilder,
+         entitlements::plist_to_executable_segment_flags,
+         error::AppleCodesignError,
+-        macho::{semver_to_macho_target_version, MachFile, MachOBinary},
+-        macho_universal::create_universal_macho,
++        macho::{semver_to_macho_target_version, MachFile, MachOBinary, Platform},
+         policy::derive_designated_requirements,
+         signing_settings::{DesignatedRequirementMode, SettingsScope, SigningSettings},
+     },
+     goblin::mach::{
+         constants::{SEG_LINKEDIT, SEG_PAGEZERO},
++        cputype::{CPU_TYPE_ARM64, CPU_TYPE_ARM64_32},
+         load_command::{
+             CommandVariant, LinkeditDataCommand, SegmentCommand32, SegmentCommand64,
+             LC_CODE_SIGNATURE, SIZEOF_LINKEDIT_DATA_COMMAND,
+@@ -37,6 +37,24 @@
+ };
+ 
+ /// Derive a new Mach-O binary with new signature data.
++/// The code page size codesign hashes with: 16 KiB for arm64 (but 4 KiB for
++/// tvOS, as codesign keeps it there), 4 KiB otherwise.
++fn code_page_size(macho: &MachOBinary) -> Result<u32, AppleCodesignError> {
++    let cputype = macho.macho.header.cputype();
++    if cputype == CPU_TYPE_ARM64 || cputype == CPU_TYPE_ARM64_32 {
++        if matches!(macho.find_targeting()?, Some(target) if target.platform == Platform::TvOs) {
++            Ok(4096)
++        } else {
++            Ok(16384)
++        }
++    } else {
++        Ok(4096)
++    }
++}
++
++/// The CMS room codesign reserves in a signature's allocation.
++const CODESIGN_CMS_RESERVATION: usize = 18000;
++
+ fn create_macho_with_signature(
+     macho: &MachOBinary,
+     signature_data: &[u8],
+@@ -313,8 +331,65 @@
+ pub struct MachOSigner<'data> {
+     /// Parsed Mach-O binaries.
+     machos: Vec<MachOBinary<'data>>,
++    /// The input, for its universal header's slice alignments.
++    data: &'data [u8],
++}
++
++/// The slice alignments (log2) of a 32-bit universal header, in slice order.
++fn universal_alignments(data: &[u8], count: usize) -> Result<Vec<u32>, AppleCodesignError> {
++    let word = |offset: usize| -> Result<u32, AppleCodesignError> {
++        data.get(offset..offset + 4)
++            .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
++            .ok_or(AppleCodesignError::SignatureBuilder("truncated universal header"))
++    };
++    if word(0)? != 0xcafebabe || word(4)? as usize != count {
++        return Err(AppleCodesignError::SignatureBuilder(
++            "only 32-bit universal binaries can be re-signed",
++        ));
++    }
++    (0..count).map(|i| word(8 + 20 * i + 16)).collect()
+ }
+ 
++/// A universal binary as lipo lays it out: each slice at the next multiple of
++/// its own alignment, the input's, so only the slices' signatures change.
++fn write_universal(
++    writer: &mut impl Write,
++    binaries: &[Vec<u8>],
++    alignments: &[u32],
++) -> Result<(), AppleCodesignError> {
++    let header_len = 8 + 20 * binaries.len();
++    let mut offset = header_len as u64;
++    let mut layout = vec![];
++    for (binary, &align) in binaries.iter().zip(alignments) {
++        if align > 15 {
++            return Err(AppleCodesignError::SignatureBuilder("universal slice alignment over 32 KiB"));
++        }
++        let unit = 1u64 << align;
++        offset = (offset + unit - 1) / unit * unit;
++        layout.push(offset);
++        offset += binary.len() as u64;
++    }
++    if offset > u32::MAX as u64 {
++        return Err(AppleCodesignError::SignatureBuilder("universal binary over 4 GiB"));
++    }
++    let mut out = Vec::with_capacity(offset as usize);
++    out.extend_from_slice(&0xcafebabeu32.to_be_bytes());
++    out.extend_from_slice(&(binaries.len() as u32).to_be_bytes());
++    for ((binary, &align), &at) in binaries.iter().zip(alignments).zip(&layout) {
++        // cputype and cpusubtype from the slice's own (little-endian) header.
++        let field = |o: usize| u32::from_le_bytes([binary[o], binary[o + 1], binary[o + 2], binary[o + 3]]);
++        for value in [field(4), field(8), at as u32, binary.len() as u32, align] {
++            out.extend_from_slice(&value.to_be_bytes());
++        }
++    }
++    for (binary, &at) in binaries.iter().zip(&layout) {
++        out.resize(at as usize, 0);
++        out.extend_from_slice(binary);
++    }
++    writer.write_all(&out)?;
++    Ok(())
++}
++
+ impl<'data> MachOSigner<'data> {
+     /// Construct a new instance from unparsed data representing a Mach-O binary.
+     ///
+@@ -323,7 +398,7 @@
+     pub fn new(macho_data: &'data [u8]) -> Result<Self, AppleCodesignError> {
+         let machos = MachFile::parse(macho_data)?.into_iter().collect::<Vec<_>>();
+ 
+-        Ok(Self { machos })
++        Ok(Self { machos, data: macho_data })
+     }
+ 
+     /// Write signed Mach-O data to the given writer using signing settings.
+@@ -345,9 +420,21 @@
+                 let settings = settings
+                     .as_universal_macho_settings(index, original_macho.macho.header.cputype());
+ 
+-                let signature_len =
++                let estimate =
+                     self.estimate_embedded_signature_size(original_macho, &settings)?;
+ 
++                // codesign reserves the signature's blobs other than the CMS, plus
++                // 18000 bytes for the CMS, aligned to 16. The size of those blobs does
++                // not depend on the reservation (code limit and slot count are fixed by
++                // the code before the signature), so measure them on a Mach-O with the
++                // estimate's room, then lay out the final reservation.
++                let estimate_macho_data =
++                    create_macho_with_signature(original_macho, &b"\0".repeat(estimate))?;
++                let estimate_macho = MachOBinary::parse(&estimate_macho_data)?;
++                let unsigned_len = self.create_superblob_without_cms(&settings, &estimate_macho)?;
++                let signature_len =
++                    (unsigned_len + CODESIGN_CMS_RESERVATION + 15) / 16 * 16;
++
+                 // Derive an intermediate Mach-O with placeholder NULLs for signature
+                 // data so Code Directory digests over the load commands are correct.
+                 let placeholder_signature_data = b"\0".repeat(signature_len);
+@@ -357,6 +444,7 @@
+ 
+                 // A nice side-effect of this is that it catches bugs if we write malformed Mach-O!
+                 let intermediate_macho = MachOBinary::parse(&intermediate_macho_data)?;
++                let signature_offset = intermediate_macho.code_limit_binary_offset()? as usize;
+ 
+                 let mut signature_data = self.create_superblob(&settings, &intermediate_macho)?;
+                 info!("total signature size: {} bytes", signature_data.len());
+@@ -369,9 +457,14 @@
+                     }
+                     Ordering::Equal => {}
+                     Ordering::Less => {
+-                        signature_data.extend_from_slice(
+-                            &b"\0".repeat(placeholder_signature_data.len() - signature_data.len()),
+-                        );
++                        // As codesign leaves them: the room past the new signature
++                        // keeps the input's bytes at the same offsets (the old
++                        // signature, if any), and zeros past the input's end.
++                        let start = signature_offset + signature_data.len();
++                        let end = signature_offset + placeholder_signature_data.len();
++                        signature_data.extend((start..end).map(|offset| {
++                            original_macho.data.get(offset).copied().unwrap_or(0)
++                        }));
+                     }
+                 }
+ 
+@@ -380,7 +473,8 @@
+             .collect::<Result<Vec<_>, AppleCodesignError>>()?;
+ 
+         if binaries.len() > 1 {
+-            create_universal_macho(writer, binaries.iter().map(|x| x.as_slice()))?;
++            let alignments = universal_alignments(self.data, binaries.len())?;
++            write_universal(writer, &binaries, &alignments)?;
+         } else {
+             writer.write_all(&binaries[0])?;
+         }
+@@ -442,6 +536,35 @@
+         }
+ 
+         builder.create_superblob()
++    }
++
++    /// The size of the SuperBlob with an empty CMS blob, less that blob: what
++    /// codesign counts before adding its CMS reservation.
++    fn create_superblob_without_cms(
++        &self,
++        settings: &SigningSettings,
++        macho: &MachOBinary,
++    ) -> Result<usize, AppleCodesignError> {
++        let mut builder = EmbeddedSignatureBuilder::default();
++        for (slot, blob) in self.create_special_blobs(settings, macho.is_executable())? {
++            builder.add_blob(slot, blob)?;
++        }
++        builder.add_code_directory(
++            CodeSigningSlot::CodeDirectory,
++            self.create_code_directory(settings, macho)?,
++        )?;
++        if let Some(digests) = settings.extra_digests(SettingsScope::Main) {
++            for digest_type in digests {
++                let mut alt_settings = settings.clone();
++                alt_settings.set_digest_type(SettingsScope::Main, *digest_type);
++                builder.add_alternative_code_directory(
++                    self.create_code_directory(&alt_settings, macho)?,
++                )?;
++            }
++        }
++        builder.create_empty_cms_signature()?;
++        // The empty CMS blob is its 8-byte header; its index entry stays counted.
++        Ok(builder.create_superblob()?.len() - 8)
+     }
+ 
+     /// Create the `CodeDirectory` for the current configuration.
+@@ -500,7 +623,7 @@
+         };
+ 
+         let platform = 0;
+-        let page_size = 4096u32;
++        let page_size = code_page_size(macho)?;
+ 
+         let (exec_seg_base, exec_seg_limit) = macho.executable_segment_boundary()?;
+         let (exec_seg_base, exec_seg_limit) = (Some(exec_seg_base), Some(exec_seg_limit));
+@@ -694,10 +817,19 @@
+ 
+         res.push((CodeSigningSlot::RequirementSet, blob.into()));
+ 
+-        if let Some(entitlements) = settings.entitlements_xml(SettingsScope::Main)? {
+-            let blob = EntitlementsBlob::from_string(&entitlements);
++        // codesign embeds no entitlements for an empty dictionary (how a signer
++        // clears inherited ones), and otherwise the XML exactly as given.
++        let has_entitlements = !matches!(
++            settings.entitlements_plist(SettingsScope::Main),
++            Some(plist::Value::Dictionary(d)) if d.is_empty()
++        );
+ 
+-            res.push((CodeSigningSlot::Entitlements, blob.into()));
++        if has_entitlements {
++            if let Some(entitlements) = settings.entitlements_xml(SettingsScope::Main)? {
++                let blob = EntitlementsBlob::from_string(&entitlements);
++
++                res.push((CodeSigningSlot::Entitlements, blob.into()));
++            }
+         }
+ 
+         // The DER encoded entitlements weren't always present in the signature. The feature
+@@ -705,7 +837,7 @@
+         // macOS 12 "when signing for all platforms." `codesign` appears to add the DER
+         // representation whenever entitlements are present, but only if the current binary is
+         // an executable (.filetype == MH_EXECUTE).
+-        if is_executable {
++        if is_executable && has_entitlements {
+             if let Some(value) = settings.entitlements_plist(SettingsScope::Main) {
+                 let blob = EntitlementsDerBlob::from_plist(value)?;
+ 
+@@ -754,11 +886,12 @@
+         let mut size = 1024 * code_directory_count;
+ 
+         // Reserve room for the code digests, which are proportional to binary size.
+-        size += macho.code_digests_size(settings.digest_type(SettingsScope::Main), 4096)?;
++        let page_size = code_page_size(macho)? as usize;
++        size += macho.code_digests_size(settings.digest_type(SettingsScope::Main), page_size)?;
+ 
+         if let Some(digests) = settings.extra_digests(SettingsScope::Main) {
+             for digest in digests {
+-                size += macho.code_digests_size(*digest, 4096)?;
++                size += macho.code_digests_size(*digest, page_size)?;
+             }
+         }
+ 
+--- a/src/signing_settings.rs
++++ b/src/signing_settings.rs
+@@ -312,6 +312,7 @@
+     team_id: BTreeMap<SettingsScope, String>,
+     identifiers: BTreeMap<SettingsScope, String>,
+     entitlements: BTreeMap<SettingsScope, plist::Value>,
++    entitlements_xml_raw: BTreeMap<SettingsScope, String>,
+     designated_requirement: BTreeMap<SettingsScope, DesignatedRequirementMode>,
+     code_signature_flags: BTreeMap<SettingsScope, CodeSignatureFlags>,
+     runtime_version: BTreeMap<SettingsScope, semver::Version>,
+@@ -587,6 +588,10 @@
+         &self,
+         scope: impl AsRef<SettingsScope>,
+     ) -> Result<Option<String>, AppleCodesignError> {
++        // The XML as given, which codesign embeds as is.
++        if let Some(raw) = self.entitlements_xml_raw.get(scope.as_ref()) {
++            return Ok(Some(raw.clone()));
++        }
+         if let Some(value) = self.entitlements_plist(scope) {
+             let mut buffer = vec![];
+             let writer = std::io::Cursor::new(&mut buffer);
+@@ -611,11 +616,13 @@
+         scope: SettingsScope,
+         value: impl ToString,
+     ) -> Result<(), AppleCodesignError> {
+-        let cursor = std::io::Cursor::new(value.to_string().into_bytes());
++        let raw = value.to_string();
++        let cursor = std::io::Cursor::new(raw.clone().into_bytes());
+         let value =
+             plist::Value::from_reader_xml(cursor).map_err(AppleCodesignError::PlistParseXml)?;
+ 
+-        self.entitlements.insert(scope, value);
++        self.entitlements.insert(scope.clone(), value);
++        self.entitlements_xml_raw.insert(scope, raw);
+ 
+         Ok(())
+     }
+@@ -1298,6 +1305,14 @@
+                     key_map(ScopedSetting::Entitlements, key).map(|key| (key, value))
+                 })
+                 .collect::<BTreeMap<_, _>>(),
++            entitlements_xml_raw: self
++                .entitlements_xml_raw
++                .clone()
++                .into_iter()
++                .filter_map(|(key, value)| {
++                    key_map(ScopedSetting::Entitlements, key).map(|key| (key, value))
++                })
++                .collect::<BTreeMap<_, _>>(),
+             designated_requirement: self
+                 .designated_requirement
+                 .clone()
+@@ -1670,7 +1685,7 @@
+         settings.set_entitlements_xml(SettingsScope::Main, ENTITLEMENTS_XML)?;
+ 
+         let s = settings.entitlements_xml(SettingsScope::Main)?;
+-        assert_eq!(s, Some("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n\t<key>application-identifier</key>\n\t<string>appid</string>\n\t<key>com.apple.developer.team-identifier</key>\n\t<string>ABCDEF</string>\n</dict>\n</plist>".into()));
++        assert_eq!(s, Some(ENTITLEMENTS_XML.to_string()));
+ 
+         Ok(())
+     }

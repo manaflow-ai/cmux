@@ -155,7 +155,11 @@
       rmdirSync: (p, o) => void op("rm", { path: abs(p), recursive: !!(o && o.recursive) }),
       unlinkSync: (p) => void op("rm", { path: abs(p) }),
       renameSync: (from, to) => void op("rename", { from: abs(from), to: abs(to) }),
-      copyFileSync: (from, to) => void op("copyFile", { from: abs(from), to: abs(to) }),
+      copyFileSync(from, to) {
+        // The app leaves out an extended attribute past 1 MiB and says so.
+        const r = op("copyFile", { from: abs(from), to: abs(to) });
+        for (const warning of (r && Array.isArray(r.warnings) ? r.warnings : [])) host.print("warn", String(warning));
+      },
       realpathSync: (p) => op("resolve", { path: abs(p) }),
       mkdtempSync(prefix) {
         const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -306,60 +310,6 @@
   // ---------------------------------------------------------------------------
   // Content export (page.exportContent, tabs.content)
 
-  // Runs in the page: its visible content as Markdown.
-  function pageMarkdown() {
-    const skip = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "SVG", "CANVAS", "IFRAME"]);
-    const clean = (t) => t.replace(/\s+/g, " ");
-    const hidden = (el) => { const cs = getComputedStyle(el); return cs.display === "none" || cs.visibility === "hidden"; };
-    const inline = (node) => {
-      if (node.nodeType === 3) return clean(node.textContent);
-      if (node.nodeType !== 1 || skip.has(node.tagName) || hidden(node)) return "";
-      const inner = [...node.childNodes].map(inline).join("");
-      if (node.tagName === "A" && node.getAttribute("href")) return inner.trim() ? `[${inner.trim()}](${node.href})` : "";
-      if (node.tagName === "B" || node.tagName === "STRONG") return inner.trim() ? `**${inner.trim()}**` : "";
-      if (node.tagName === "EM" || node.tagName === "I") return inner.trim() ? `*${inner.trim()}*` : "";
-      if (node.tagName === "CODE") return "`" + inner + "`";
-      if (node.tagName === "IMG") return node.alt ? `![${node.alt}](${node.src})` : "";
-      if (node.tagName === "BR") return "\n";
-      if (node.tagName === "INPUT" || node.tagName === "TEXTAREA") return node.type === "password" ? "" : node.value ? `\`${node.value}\`` : "";
-      return inner;
-    };
-    const out = [];
-    const block = (node, depth) => {
-      if (node.nodeType === 3) {
-        const t = clean(node.textContent).trim();
-        if (t) out.push(t);
-        return;
-      }
-      if (node.nodeType !== 1 || skip.has(node.tagName) || hidden(node)) return;
-      const tag = node.tagName;
-      const m = /^H([1-6])$/.exec(tag);
-      if (m) return void out.push("#".repeat(Number(m[1])) + " " + inline(node).trim());
-      if (tag === "P" || tag === "SUMMARY" || tag === "LABEL" || tag === "BUTTON") return void (inline(node).trim() && out.push(inline(node).trim()));
-      if (tag === "PRE") return void out.push("```\n" + node.innerText + "\n```");
-      if (tag === "UL" || tag === "OL") {
-        let n = 0;
-        for (const li of node.children) if (li.tagName === "LI") out.push(`${"  ".repeat(depth)}${tag === "OL" ? `${++n}.` : "-"} ${inline(li).trim()}`);
-        return;
-      }
-      if (tag === "TABLE") {
-        const rows = [...node.rows].map((r) => "| " + [...r.cells].map((c) => inline(c).trim().replace(/\|/g, "\\|")).join(" | ") + " |");
-        if (rows.length) out.push([rows[0], "| " + [...node.rows[0].cells].map(() => "---").join(" | ") + " |", ...rows.slice(1)].join("\n"));
-        return;
-      }
-      if (tag === "BLOCKQUOTE") return void out.push("> " + inline(node).trim());
-      const hasBlock = [...node.children].some((c) => /^(DIV|P|H[1-6]|UL|OL|TABLE|SECTION|ARTICLE|MAIN|NAV|HEADER|FOOTER|ASIDE|FORM|PRE|BLOCKQUOTE|DETAILS|FIELDSET|FIGURE|LI)$/.test(c.tagName));
-      if (!hasBlock) {
-        const t = inline(node).trim();
-        if (t) out.push(t);
-        return;
-      }
-      for (const c of node.childNodes) block(c, depth);
-    };
-    block(document.body || document.documentElement, 0);
-    return `# ${document.title}\n\n<${location.href}>\n\n` + out.filter(Boolean).join("\n\n") + "\n";
-  }
-
   // Google Workspace export endpoints for a Docs, Sheets or Slides URL.
   const GOOGLE_FORMATS = {
     document: ["pdf", "md", "docx", "txt", "odt", "rtf", "html", "epub"],
@@ -419,8 +369,15 @@
     return lines.join("\n") + (lines.length ? "\n" : "");
   }
 
+  // The longest page title an export's heading keeps.
+  const EXPORT_TITLE_MAX = 500;
+
+  // `fetch(input, init, bound)` is fetchWithCookies: each export request is
+  // bound to the exported tab ({ page, origin: its page's origin }), so it
+  // sends and stores that tab's cookies, never the current tab's.
   function createExporter({ fetch, fs, path, host, Buffer }) {
     let n = 0;
+    const fetchFor = (page, pageURL, url) => fetch(url, {}, { page, origin: new core.URL(pageURL).origin });
     const target = (options, ext) => {
       if (options.path) return path.resolve(String(options.path));
       // The session's own temporary directory (private, mode 0700).
@@ -429,15 +386,20 @@
       return path.join(dir, `export-${++n}${ext}`);
     };
     return {
+      // The page's Markdown is page.markdown()'s, read within the
+      // page-read budget (a page past it ends with the cut note), under a
+      // title (cut at EXPORT_TITLE_MAX characters) and the page's URL.
       async markdown(page, options) {
-        const text = await page.evaluate(pageMarkdown);
+        const title = String((await page.title()) || "").replace(/\s+/g, " ");
+        const heading = title.length > EXPORT_TITLE_MAX ? `${title.slice(0, EXPORT_TITLE_MAX)}…` : title;
+        const text = `# ${heading}\n\n<${page.url()}>\n\n${await page.markdown()}`;
         const file = target(options, ".md");
         fs.writeFileSync(file, text);
         return file;
       },
       async google(page, pageURL, options) {
         const { url } = googleExportURL(pageURL, options.format);
-        const r = await fetch(url);
+        const r = await fetchFor(page, pageURL, url);
         if (!r.ok) throw new Error(`page.exportContent: Google returned HTTP ${r.status} for ${url}`);
         const file = target(options, "." + options.format);
         fs.writeFileSync(file, Buffer.from(await r.arrayBuffer()));
@@ -456,13 +418,32 @@
         if (!usable.length) throw new Error(`page.exportContent: video ${id} has no captions on YouTube's caption hosts (${YOUTUBE_CAPTION_HOSTS.join(", ")})`);
         const want = options.lang ? usable.find((t) => t.lang === options.lang) : usable.find((t) => t.kind !== "asr") || usable[0];
         if (!want) throw new Error(`page.exportContent: video ${id} has no ${options.lang} captions; available: ${usable.map((t) => t.lang).join(", ")}`);
-        const r = await fetch(want.url.href + "&fmt=json3");
+        const r = await fetchFor(page, pageURL, want.url.href + "&fmt=json3");
         if (!r.ok) throw new Error(`page.exportContent: captions request returned HTTP ${r.status}`);
         const file = target(options, ".txt");
         fs.writeFileSync(file, transcriptText(await r.json()));
         return file;
       },
     };
+  }
+
+  // tabs.content reads in the page agent's world, within the page-read
+  // budget (A.budget, page-agent.js): the body's text or the document's
+  // HTML is built under the budget (the getter runs only when its string
+  // fits, else node by node), so a page's text or HTML crosses to the
+  // session cut at the URL's share, and no DOM-wide string is made first.
+  const CONTENT_READ_SIZE = 2000000;
+  function readContent(opts) {
+    const B = globalThis[Symbol.for("cmux.browserRepl.agent")].budget({ maxSize: opts.maxSize });
+    let content;
+    if (opts.html) {
+      const doctype = document.doctype ? B.fit(new XMLSerializer().serializeToString(document.doctype)) : "";
+      content = doctype + (document.documentElement ? B.outerHTML(document.documentElement) : "");
+    } else content = document.body ? B.innerText(document.body) : "";
+    return { content, truncated: B.truncated || null, report: B.report() };
+  }
+  function readTitle(opts) {
+    return globalThis[Symbol.for("cmux.browserRepl.agent")].budget({ maxSize: opts.maxSize }).fit(document.title);
   }
 
   function createGlobals(session, host) {
@@ -584,14 +565,23 @@
     // "same-origin" (only for the current tab's origin) or "omit" (none sent,
     // none stored). The native session checks the domain policy on every
     // redirect hop, caps the body at 64 MiB and masks secrets in text bodies.
-    async function fetchWithCookies(input, init = {}) {
-      const page = state.current && !state.current.isClosed() ? state.current : null;
+    // `bound` ({ page, origin }, site tools only) uses that tab's cookies and
+    // that origin instead of the current tab's; a closed tab fails.
+    // Unbound, the request goes through the current page's tab. A lazy page
+    // (no tab yet) opens its tab once the URL passed the domain policy, so
+    // its cookies come from, and the request is bound to, that tab's store;
+    // if the tab cannot open, fetch fails with that error. Without a tab
+    // both would use the active tab's store, another site's.
+    async function fetchWithCookies(input, init = {}, bound = null) {
+      if (bound && (!bound.page || bound.page.isClosed())) throw new Error("fetch: the tab this request is bound to was closed");
+      const page = bound ? bound.page : currentPage();
       const base = page && /^https?:/.test(page.url()) ? page.url() : undefined;
       const url = new core.URL(String(input && input.url ? input.url : input), base).href;
       const credentials = init.credentials === undefined ? "include" : init.credentials;
       if (!["include", "same-origin", "omit"].includes(credentials)) throw new TypeError(`fetch: credentials: expected "include", "same-origin" or "omit", got ${JSON.stringify(credentials)}`);
-      const origin = base ? new core.URL(base).origin : undefined;
+      const origin = bound ? bound.origin || undefined : base ? new core.URL(base).origin : undefined;
       if (session.agentTools) session.agentTools.checkURL("fetch", url);
+      const targetId = String(page._targetId).startsWith("lazy:") ? await session._materialize(page) : page._targetId;
       const headers = {};
       const src = init.headers || {};
       if (typeof src.forEach === "function" && !Array.isArray(src)) src.forEach((v, k) => (headers[k] = v));
@@ -599,12 +589,10 @@
       else Object.assign(headers, src);
       const sendsCookies = credentials === "include" || (credentials === "same-origin" && origin === new core.URL(url).origin);
       if (!host.fetchHandlesCookies && sendsCookies && !Object.keys(headers).some((k) => k.toLowerCase() === "cookie")) {
-        const scope = page && !String(page._targetId).startsWith("lazy:") ? { targetId: page._targetId } : {};
-        const cookies = await session.call("cookies.get", { ...scope, urls: [url] }).catch(() => []);
+        const cookies = await session.call("cookies.get", { targetId, urls: [url] }).catch(() => []);
         if (cookies.length) headers.cookie = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
       }
       const body = init.body === undefined || init.body === null ? undefined : Buffer.from(init.body).toString("base64");
-      const targetId = page && !String(page._targetId).startsWith("lazy:") ? page._targetId : undefined;
       const r = await host.fetch(url, { method: (init.method || "GET").toUpperCase(), headers, body, targetId, credentials, origin });
       const bytes = Buffer.from(r.base64 || "", "base64");
       return {
@@ -623,9 +611,14 @@
 
     async function pageById(id) {
       if (id instanceof core.Page) return id;
-      // Any tab tabs.list({ all: true }) lists can be attached (a claim).
+      // A tab tabs.list({ all: true }) lists can be attached, except one
+      // another running session opened; the driver refuses those. A user's
+      // tab of another workspace is not listed (a person must grant one,
+      // and cmux has no such grant yet).
       const list = await session.call("tabs.list", { all: true });
-      if (!list.some((t) => t.targetId === String(id))) throw new Error(`No open tab with id ${JSON.stringify(String(id))}; see tabs.list()`);
+      const row = list.find((t) => t.targetId === String(id));
+      if (!row) throw new Error(`No open tab with id ${JSON.stringify(String(id))}; see tabs.list()`);
+      if (row.ownerSession) throw new Error(`Tab ${JSON.stringify(String(id))} belongs to the REPL session ${JSON.stringify(row.ownerSession)}, which is still running; a session drives only the tabs it opened and the user's tabs`);
       const page = session.pageFor(String(id));
       await page._syncInfo().catch(() => {});
       return page;
@@ -634,8 +627,10 @@
     session.exporter = createExporter({ fetch: fetchWithCookies, fs, path, host, Buffer });
 
     const tabs = {
-      // `{ all: true }` also lists browser tabs in the user's other
-      // workspaces and windows; tabs.use(id) attaches any of them.
+      // `{ all: true }` also lists the session's own tabs that moved to
+      // another workspace (never a user's tab there); tabs.use(id) attaches
+      // a listed tab, but not one another running session opened (`ownedBy`
+      // names that session).
       async list(options = {}) {
         const list = await session.call("tabs.list", options && options.all ? { all: true } : {});
         const current = state.current && state.current._targetId;
@@ -645,12 +640,18 @@
           // "crashed" (page.reload() loads it again).
           const row = { id: t.targetId, title: t.title, url: t.url, active: !!t.active, current: t.targetId === current, state: t.state || "live" };
           if (options && options.all) row.workspace = t.windowId === undefined ? null : t.windowId;
+          // A tab another running session opened: listed, not usable.
+          if (t.ownerSession) row.ownedBy = t.ownerSession;
           return row;
         });
       },
       // Loads each URL in a background tab, extracts it and closes the tab;
       // the current tab does not change. format: "text" (default),
-      // "markdown", "html" or "snapshot".
+      // "markdown", "html" or "snapshot". The whole call reads at most the
+      // page-read budget's characters (2,000,000), each batch of URLs
+      // splitting what is left; a row cut there carries `truncated`, the
+      // note saying so, and a URL read after the budget is used up is not
+      // read.
       async content(input, options = {}) {
         const opts = Array.isArray(input) || typeof input === "string" ? { ...options, urls: [].concat(input) } : { ...(input || {}) };
         const urls = opts.urls;
@@ -658,16 +659,33 @@
         const format = opts.format || "text";
         if (!["text", "markdown", "html", "snapshot"].includes(format)) throw new Error(`tabs.content: format: expected one of text, markdown, html, snapshot, got ${JSON.stringify(format)}`);
         const timeout = opts.timeout !== undefined ? opts.timeout : 30000;
-        const one = async (url) => {
+        let left = CONTENT_READ_SIZE;
+        const cutNote = (maxSize) => core.readCutNote("tabs.content", { truncated: "size", maxSize });
+        const one = async (url, share) => {
+          if (share < 1) return { url, title: null, status: null, content: null, truncated: `${cutNote(CONTENT_READ_SIZE)} for this call; this URL was not read` };
           const page = await session.newPage(undefined, { background: true });
           try {
             const response = await page.goto(url, { timeout, waitUntil: opts.waitUntil || "load" });
             let content;
-            if (format === "html") content = await page.content();
-            else if (format === "snapshot") content = String((await ns.snapshot.takeSnapshot(page, undefined, { maxChars: Infinity })).tree);
-            else if (format === "markdown") content = await page.evaluate(ns.api.pageMarkdown);
-            else content = await page.evaluate(() => (document.body ? document.body.innerText : ""));
-            return { url: page.url(), title: await page.title(), status: response ? response.status() : null, content };
+            let cut = false;
+            let reason = null;
+            if (format === "snapshot") {
+              const snap = await ns.snapshot.takeSnapshot(page, undefined, { maxChars: Infinity, _maxSize: share });
+              content = String(snap.tree);
+              cut = /^# the page is too large to read whole/m.test(content);
+            } else if (format === "markdown") {
+              content = await page.markdown({ _maxSize: share });
+              cut = /<!-- the page is too large to read whole/.test(content);
+            } else {
+              const r = await page._mainFrame._call("agent", core.functionSource(readContent), [{ html: format === "html", maxSize: share }]);
+              content = r.content;
+              cut = !!r.truncated;
+              if (cut) reason = r.report;
+            }
+            const title = await page._mainFrame._call("agent", core.functionSource(readTitle), [{ maxSize: 1000 }]);
+            const row = { url: page.url(), title, status: response ? response.status() : null, content };
+            if (cut) row.truncated = reason ? core.readCutNote("tabs.content", reason) : cutNote(share);
+            return row;
           } catch (e) {
             return { url, title: null, status: null, content: null, error: String((e && e.message) || e) };
           } finally {
@@ -676,7 +694,13 @@
         };
         const out = [];
         // A few at a time, in the order given.
-        for (let i = 0; i < urls.length; i += 4) out.push(...(await Promise.all(urls.slice(i, i + 4).map(one))));
+        for (let i = 0; i < urls.length; i += 4) {
+          const batch = urls.slice(i, i + 4);
+          const share = Math.floor(left / batch.length);
+          const rows = await Promise.all(batch.map((u) => one(u, share)));
+          for (const row of rows) left -= row.content ? Math.min(share, row.content.length) : 0;
+          out.push(...rows);
+        }
         return out;
       },
       // cmux's browser history, most recent first: [{ url, title, dateVisited }].
@@ -733,7 +757,7 @@
       tabs,
       snapshot,
       screenshot,
-      fetch: fetchWithCookies,
+      fetch: (input, init) => fetchWithCookies(input, init),
       fs,
       path,
       os,
@@ -760,7 +784,20 @@
     if (ns.sites) {
       let sites = null;
       Object.defineProperty(globals, "sites", {
-        get: () => sites || (sites = ns.sites.createSites({ session, host, fetch: fetchWithCookies, fs, path, Buffer, URL: core.URL, currentPage, snapshot })),
+        get: () =>
+          sites ||
+          (sites = ns.sites.createSites({
+            session,
+            host,
+            fetch: (input, init) => fetchWithCookies(input, init),
+            fetchFrom: (page, origin) => (input, init) => fetchWithCookies(input, init, { page, origin }),
+            fs,
+            path,
+            Buffer,
+            URL: core.URL,
+            currentPage,
+            snapshot,
+          })),
         enumerable: true,
         configurable: true,
       });
@@ -772,5 +809,5 @@
     return { globals, show, importModule, state };
   }
 
-  ns.api = { createGlobals, createPath, createFs, inspect, Image, imageSize, pageMarkdown, googleExportURL, youtubeVideoId, youtubeCaptionURL, YOUTUBE_CAPTION_HOSTS, transcriptText };
+  ns.api = { createGlobals, createPath, createFs, inspect, Image, imageSize, googleExportURL, youtubeVideoId, youtubeCaptionURL, YOUTUBE_CAPTION_HOSTS, transcriptText };
 })(typeof globalThis !== "undefined" ? globalThis : this);

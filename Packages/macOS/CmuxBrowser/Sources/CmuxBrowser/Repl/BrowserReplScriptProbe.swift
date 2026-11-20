@@ -5,7 +5,9 @@ public import WebKit
 /// take. WebKit does not call a script's completion when a navigation
 /// replaces the document it runs in, and a busy page answers late; past the
 /// bound the call fails with `stale` instead of hanging the REPL call. The
-/// script itself cannot be cancelled; a late answer is dropped.
+/// script itself cannot be cancelled; a late answer is dropped. The script
+/// runs without a user gesture (WebKit's `withUserGesture: NO`; a WebKit
+/// without it fails the call with `unsupported`).
 @MainActor
 public struct BrowserReplScriptProbe {
     /// How long one script may take.
@@ -34,7 +36,11 @@ public struct BrowserReplScriptProbe {
         let race = ProbeRace()
         Task { @MainActor in
             do {
-                race.finish(.success(ProbeValue(value: try await webView.callAsyncJavaScript(source, arguments: arguments, in: frame, contentWorld: contentWorld))))
+                // Without a user gesture: code that replaced a getter the
+                // script reads in its world, or a page handler the script
+                // sets off, must not copy or open a window with one.
+                let value = try await webView.browserReplCallAsyncJavaScript(source, arguments: arguments, in: frame, contentWorld: contentWorld, userGesture: false)
+                race.finish(.success(ProbeValue(value: value)))
             } catch {
                 race.finish(.failure(error))
             }

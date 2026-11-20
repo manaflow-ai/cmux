@@ -16,6 +16,15 @@ import {
 
 const CHECKOUT_PATH = "/api/billing/checkout";
 
+/** Whether a link points at the checkout route, including an absolute app URL. */
+export function isCheckoutHref(href: string): boolean {
+  try {
+    return new URL(href, "https://cmux.invalid").pathname === CHECKOUT_PATH;
+  } catch {
+    return false;
+  }
+}
+
 // Intercepts a checkout link click: instead of navigating to the checkout route
 // (which flashes a blank page while it builds the Stripe session server-side),
 // fetch the resolved destination as JSON and redirect the browser straight
@@ -40,7 +49,7 @@ export function useCheckoutRedirect() {
       ) {
         return;
       }
-      if (!href.startsWith(CHECKOUT_PATH)) return;
+      if (!isCheckoutHref(href)) return;
       event?.preventDefault();
       if (pending) return;
       setPending(true);

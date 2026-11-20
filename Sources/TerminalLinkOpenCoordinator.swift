@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCore
+import CmuxSettings
 import CmuxTerminalCore
 import CmuxTestSupport
 import CmuxWorkspaces
@@ -89,7 +90,11 @@ struct TerminalLinkOpenCoordinator {
                trimmed,
                cwd: resolvedWorkingDirectory(request: request, container: container)
            ) {
-            if let line = reference.line, !isExplicitLocalFileURL {
+            // A Markdown file opens in the Markdown viewer even when printed
+            // with a line (`notes.md:12`); the viewer has no line to go to.
+            let opensInMarkdownViewer = FileRouteSettingsStore(defaults: defaults)
+                .shouldRouteMarkdown(path: reference.path)
+            if let line = reference.line, !isExplicitLocalFileURL, !opensInMarkdownViewer {
                 log(
                     "link.openURL resolvedAsFileLocation=\(reference.path):\(line)" +
                     (reference.column.map { ":\($0)" } ?? "")
@@ -102,7 +107,13 @@ struct TerminalLinkOpenCoordinator {
                 return true
             }
 
-            if !isExplicitLocalFileURL,
+            if reference.line == nil, TerminalFolderOpener.isFolder(reference.path) {
+                log("link.openURL resolvedAsFolder=\(reference.path)")
+                TerminalFolderOpener.open(reference.path)
+                return true
+            }
+
+            if reference.line == nil || opensInMarkdownViewer,
                CommandClickFileOpenRouter.shouldRouteInCmux(
                    path: reference.path,
                    defaults: defaults
@@ -131,6 +142,15 @@ struct TerminalLinkOpenCoordinator {
             remoteInitiated: request.isRemoteInitiated
         ) else {
             log("link.openURL refused local file from remote or unplaced terminal url=\(target.url)")
+            return false
+        }
+
+        // A plain local path that named no file above (cwd, git root) opens
+        // nothing: no editor launched on a missing file. An explicit
+        // `file://` URL keeps its URL-handler route (`file:///a.swift:42`).
+        if target.url.isFileURL, !isExplicitLocalFileURL, canResolveLocalFilePath,
+           !FileManager.default.fileExists(atPath: target.url.path) {
+            log("link.openURL no such file path=\(target.url.path)")
             return false
         }
 

@@ -20,12 +20,11 @@ unless they failed.
 A pull request whose judging checks (compile admission, app-host unit tests,
 ci-status and required checks) were not all green at merge gets the
 `merged-unverified` label, which main_regression_attribution.py uses to break
-ties between suspects. The comment is idempotent through a hidden marker on a
-github-actions comment and is edited in place on a re-run.
+ties between suspects. The receipt is the `receipt` line of the pull request's
+status comment (scripts/ci/pr_status.py), edited in place on a re-run; a
+receipt comment from before that is edited into the status comment.
 
 Known limits:
-- Only the last 100 comments are searched for the marker, so re-running this
-  on a pull request that has since gained more comments posts a second one.
 - A required check that never ran on the head has no isRequired to read, so
   only EXPECTED checks (ci-status) are named when missing. ci-status depends
   on the other jobs today, so that covers them.
@@ -41,11 +40,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pr_status  # noqa: E402
 
 MARKER = "<!-- cmux:merge-receipt -->"
 LABEL = "merged-unverified"
@@ -58,8 +62,6 @@ NOISE_RE = re.compile(
     r"^CLA |^CLA$|CLA Assistant|CLA policy guard|^welcome$|Watch owned pool jobs|\(report only\)|^changes$"
 )
 ACTIONS_APP = "github-actions"
-# The login GraphQL reports for comments this workflow's token posts.
-BOT_LOGIN = "github-actions"
 MAX_LISTED = 12
 
 # States, worst first. A group reports its worst member.
@@ -247,7 +249,6 @@ query($owner: String!, $name: String!, $number: Int!) {
     pullRequest(number: $number) {
       number merged mergedAt headRefOid
       labels(first: 50) { nodes { name } }
-      comments(last: 100) { nodes { databaseId body author { login } } }
     }
   }
 }
@@ -279,8 +280,9 @@ query($owner: String!, $name: String!, $oid: GitObjectID!, $number: Int!, $after
 """
 
 
-def gh(args: list[str]) -> str:
-    result = subprocess.run(["gh", *args], capture_output=True, text=True)
+def gh(args: list[str], token: str | None = None) -> str:
+    env = None if not token else {**os.environ, "GH_TOKEN": token}
+    result = subprocess.run(["gh", *args], capture_output=True, text=True, env=env)
     if result.returncode:
         print(result.stderr, file=sys.stderr)
         result.check_returncode()
@@ -293,11 +295,13 @@ def graphql(query: str, **variables: object) -> dict:
         if value is None:
             continue
         args += ["-F" if isinstance(value, int) else "-f", f"{key}={value}"]
-    return json.loads(gh(args))["data"]
+    # The check rollup needs checks and statuses read, which the job's own token has (CHECKS_TOKEN); GraphQL is
+    # its own hourly pool, apart from the REST one the comment and label writes spend.
+    return json.loads(gh(args, os.environ.get("CHECKS_TOKEN")))["data"]
 
 
 def fetch(repo: str, number: int) -> dict:
-    """The pull request's merge time, head, labels, receipt comment and head check contexts."""
+    """The pull request's merge time, head, labels and head check contexts."""
     owner, name = repo.split("/", 1)
     pr = graphql(PR_QUERY, owner=owner, name=name, number=number)["repository"]["pullRequest"]
     contexts: list[dict] = []
@@ -316,17 +320,8 @@ def fetch(repo: str, number: int) -> dict:
         "number": pr["number"], "merged": pr["merged"], "mergedAt": pr["mergedAt"],
         "headRefOid": pr["headRefOid"],
         "labels": [node["name"] for node in (pr.get("labels") or {}).get("nodes") or []],
-        "comments": (pr.get("comments") or {}).get("nodes") or [],
         "contexts": contexts,
     }
-
-
-def existing_comment(comments: Iterable[Mapping[str, object]]) -> int | None:
-    for comment in comments:
-        author = str(((comment.get("author") or {}) or {}).get("login") or "")
-        if author == BOT_LOGIN and MARKER in str(comment.get("body") or ""):
-            return int(comment["databaseId"])
-    return None
 
 
 def command_post(args: argparse.Namespace) -> int:
@@ -342,11 +337,12 @@ def command_post(args: argparse.Namespace) -> int:
     print(f"unverified={str(result.unverified).lower()}")
     if args.dry_run:
         return 0
-    comment_id = existing_comment(snapshot["comments"])
-    if comment_id is None:
-        gh(["api", f"repos/{args.repo}/issues/{args.pr}/comments", "-f", f"body={result.body}"])
-    else:
-        gh(["api", "-X", "PATCH", f"repos/{args.repo}/issues/comments/{comment_id}", "-f", f"body={result.body}"])
+    try:
+        pr_status.upsert(args.repo, args.pr, "receipt", result.body, legacy=MARKER)
+    except pr_status.QuotaSpent as error:
+        # The receipt is advisory and comes after the merge: a spent hourly REST quota (2026-11-16, #40579: HTTP 403
+        # on the comment read) is infrastructure, so it warns and the label below is still written.
+        print(f"::warning title=merge-receipt::#{args.pr} receipt not written: {str(error)[:300]}")
     has_label = LABEL in snapshot["labels"]
     if result.unverified and not has_label:
         gh(["api", f"repos/{args.repo}/issues/{args.pr}/labels", "-f", f"labels[]={LABEL}"])

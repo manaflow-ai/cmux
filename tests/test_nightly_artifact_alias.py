@@ -57,6 +57,11 @@ class NightlyArtifactAliasTests(unittest.TestCase):
                 payloads[variant] = payload
                 feed = "appcast.xml" if variant == "universal" else f"appcast-{variant}.xml"
                 (folder / feed).write_text("feed\n", encoding="utf-8")
+                tested = root / "tested" / f"launch-tested-{variant}-TEST"
+                tested.mkdir(parents=True)
+                (tested / f"tested-{variant}.sha256").write_text(
+                    f"{hashlib.sha256(payload).hexdigest()}  {immutable.name}\n", encoding="utf-8"
+                )
                 (folder / "cmux-nightly-notarization-recovery.json").write_text(
                     json.dumps({
                         "build": 123,
@@ -72,15 +77,8 @@ class NightlyArtifactAliasTests(unittest.TestCase):
                 "DMG_PREFIX": "cmux-nightly-macos",
                 "GITHUB_ENV": str(root / "github.env"),
             })
-            # Air's system Bash is 3.2 and cannot parse `${var,,}`. The real
-            # publish job runs on Ubuntu; fixture hashes are already lowercase,
-            # so direct comparison exercises the same gate here.
-            portable_assemble = assemble.replace(
-                '[ "${actual,,}" = "${expected,,}" ]',
-                '[ "$actual" = "$expected" ]',
-            )
             result = subprocess.run(
-                ["bash", "-euo", "pipefail", "-c", portable_assemble],
+                ["bash", "-euo", "pipefail", "-c", assemble],
                 cwd=root,
                 env=env,
                 capture_output=True,

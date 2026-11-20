@@ -30,6 +30,175 @@ struct ClaudeBackgroundWorkNotifyTests {
         #expect(statusLine(result.snapshot, value: "Waiting") == nil)
     }
 
+    @Test func preToolUseAfterStopDoesNotReopenRunningState() throws {
+        try assertToolUseAfterBoundary(boundary: "Stop", pendingWork: false, expectRunning: false)
+    }
+
+    @Test func pendingBackgroundWorkPreToolUseDoesNotReopenRunningState() throws {
+        try assertToolUseAfterBoundary(boundary: "Stop", pendingWork: true, expectRunning: false)
+    }
+
+    @Test func notificationAfterStopKeepsHelperToolFromReopeningTurn() throws {
+        let session = "helper-after-stop-notification"
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "helper-after-stop-notification")
+        defer { context.cleanup() }
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-helper-after-stop-notification",
+            ttySurfaceId: context.surfaceId
+        )
+        let environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-helper-after-stop-notification",
+            storeURL: storeURL
+        )
+        func runHook(_ subcommand: String, _ payload: String) {
+            let result = harness.runProcess(
+                executablePath: context.cliPath,
+                arguments: ["hooks", "claude", subcommand],
+                environment: environment,
+                standardInput: payload,
+                timeout: ClaudeHookLiveDeliveryHarness.processWallBound
+            )
+            #expect(handled.wait(timeout: .now() + 5) == .success)
+            harness.assertSuccessfulHook(result)
+        }
+        func lifecycle() throws -> String? {
+            let object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+            let sessions = try #require(object["sessions"] as? [String: Any])
+            let record = try #require(sessions[session] as? [String: Any])
+            return record["agentLifecycle"] as? String
+        }
+        func settledTurn() throws -> Bool? {
+            let object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+            let sessions = try #require(object["sessions"] as? [String: Any])
+            let record = try #require(sessions[session] as? [String: Any])
+            return record["turnSettled"] as? Bool
+        }
+        let prompt = #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"UserPromptSubmit","prompt":"finish this"}"#
+        let stop = #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"done","background_tasks":[],"session_crons":[]}"#
+        let notification = #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Notification","notification_type":"permission_prompt","message":"Claude needs your permission"}"#
+        let tool = #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status"}}"#
+
+        runHook("prompt-submit", prompt)
+        runHook("stop", stop)
+        #expect(try lifecycle() == "idle")
+        #expect(try settledTurn() == true)
+
+        runHook("notification", notification)
+        #expect(try lifecycle() == "needsInput")
+        #expect(try settledTurn() == true)
+        let commandCountAfterNotification = context.state.snapshot().count
+
+        // The notification overwrites hookEventName, so this specifically
+        // proves the persisted turn boundary—not the event name—owns the guard.
+        runHook("pre-tool-use", tool)
+        let afterTool = Array(context.state.snapshot().dropFirst(commandCountAfterNotification))
+        #expect(try lifecycle() == "needsInput")
+        #expect(try settledTurn() == true)
+        #expect(AgentJournalAppendCapture.captures(in: afterTool).contains {
+            $0.kind == "agent.state.changed" && $0.draft["declared_phase"] as? String == "running"
+        } == false)
+        #expect(statusLine(afterTool, value: "Running") == nil)
+
+        // The next real prompt clears the fence and allows its own tool call.
+        runHook("prompt-submit", prompt)
+        let commandCountAfterPrompt = context.state.snapshot().count
+        runHook("pre-tool-use", tool)
+        #expect(try lifecycle() == "running")
+        #expect(try settledTurn() == false)
+        #expect(statusLine(Array(context.state.snapshot().dropFirst(commandCountAfterPrompt)), value: "Running") != nil)
+    }
+
+    @Test(arguments: ["SessionStart", "Notification"])
+    func toolUseWithoutCompletedTurnRemainsRunning(boundary: String) throws {
+        try assertToolUseAfterBoundary(boundary: boundary, pendingWork: false, expectRunning: true)
+    }
+
+    private func assertToolUseAfterBoundary(
+        boundary: String,
+        pendingWork: Bool,
+        expectRunning: Bool
+    ) throws {
+        let session = "helper-after-stop"
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "helper-after-stop")
+        defer { context.cleanup() }
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-helper-after-stop",
+            ttySurfaceId: context.surfaceId
+        )
+        let environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-helper-after-stop",
+            storeURL: storeURL
+        )
+        func runHook(_ subcommand: String, _ payload: String) {
+            let result = harness.runProcess(
+                executablePath: context.cliPath,
+                arguments: ["hooks", "claude", subcommand],
+                environment: environment,
+                standardInput: payload,
+                timeout: ClaudeHookLiveDeliveryHarness.processWallBound
+            )
+            #expect(handled.wait(timeout: .now() + 5) == .success)
+            harness.assertSuccessfulHook(result)
+        }
+        func lifecycle() throws -> String? {
+            let object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+            let sessions = try #require(object["sessions"] as? [String: Any])
+            let record = try #require(sessions[session] as? [String: Any])
+            return record["agentLifecycle"] as? String
+        }
+        let prompt = #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"UserPromptSubmit","prompt":"finish this"}"#
+        let tool = #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status"}}"#
+        runHook("prompt-submit", prompt)
+        switch boundary {
+        case "SessionStart":
+            runHook("session-start", #"{"session_id":"\#(session)","hook_event_name":"SessionStart","source":"resume"}"#)
+        case "Notification":
+            runHook("notification", #"{"session_id":"\#(session)","hook_event_name":"Notification","notification_type":"permission_prompt","message":"Claude needs your permission"}"#)
+        default:
+            let tasks = pendingWork ? #"[{"status":"running"}]"# : "[]"
+            runHook("stop", #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"done","background_tasks":\#(tasks),"session_crons":[]}"#)
+            #expect(try lifecycle() == (pendingWork ? "backgroundWorkPending" : "idle"))
+        }
+        let commandCountAfterBoundary = context.state.snapshot().count
+
+        // This helper has no subagent marker or turn id, matching #19781.
+        runHook("pre-tool-use", tool)
+        let afterTool = Array(context.state.snapshot().dropFirst(commandCountAfterBoundary))
+        let expectedLifecycle = expectRunning ? "running" : (pendingWork ? "backgroundWorkPending" : "idle")
+        #expect(try lifecycle() == expectedLifecycle)
+        let runningEvents = AgentJournalAppendCapture.captures(in: afterTool).filter {
+            $0.kind == "agent.state.changed" && $0.draft["declared_phase"] as? String == "running"
+        }
+        #expect(!runningEvents.isEmpty == expectRunning)
+        #expect((statusLine(afterTool, value: "Running") != nil) == expectRunning)
+        if !expectRunning {
+            let expectedSettledStatus = pendingWork ? "Waiting" : "Idle"
+            #expect(lastLine(context.state.snapshot(), prefix: "set_status claude_code ")?.hasPrefix("set_status claude_code \(expectedSettledStatus) ") == true)
+            if pendingWork {
+                #expect(try lifecycle() == "backgroundWorkPending")
+            }
+
+            // The completed-turn guard must release on the next user prompt.
+            runHook("prompt-submit", prompt)
+            let commandCountAfterPrompt = context.state.snapshot().count
+            runHook("pre-tool-use", tool)
+            #expect(try lifecycle() == "running")
+            #expect(statusLine(Array(context.state.snapshot().dropFirst(commandCountAfterPrompt)), value: "Running") != nil)
+        }
+    }
+
     private func statusLine(_ snapshot: [String], value: String) -> String? {
         snapshot.first { $0.hasPrefix("set_status claude_code \(value) ") }
     }
@@ -58,6 +227,15 @@ struct ClaudeBackgroundWorkNotifyTests {
         sessionId: String,
         stdin: String
     ) throws -> (snapshot: [String], cachedPending: Bool?) {
+        let result = try runStopHookRecordingCrons(name: name, sessionId: sessionId, stdin: stdin)
+        return (result.snapshot, result.cachedPending)
+    }
+
+    private func runStopHookRecordingCrons(
+        name: String,
+        sessionId: String,
+        stdin: String
+    ) throws -> (snapshot: [String], cachedPending: Bool?, cachedCrons: Bool?) {
         let harness = ClaudeHookSurfaceResolutionSwiftTests()
         let context = try harness.makeClaudeHookContext(name: name)
         let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
@@ -84,17 +262,18 @@ struct ClaudeBackgroundWorkNotifyTests {
         harness.assertSuccessfulHook(result)
         let snapshot = context.state.snapshot()
         // Read the cached flag from the store BEFORE cleanup deletes the temp dir.
-        let cached = cachedPending(storeURL, sessionId: sessionId)
+        let cached = cachedFlag("hadPendingBackgroundWorkAtStop", storeURL, sessionId: sessionId)
+        let crons = cachedFlag("hadSessionCronsAtStop", storeURL, sessionId: sessionId)
         context.cleanup()
-        return (snapshot, cached)
+        return (snapshot, cached, crons)
     }
 
-    private func cachedPending(_ storeURL: URL, sessionId: String) -> Bool? {
+    private func cachedFlag(_ key: String, _ storeURL: URL, sessionId: String) -> Bool? {
         guard let data = try? Data(contentsOf: storeURL),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let sessions = obj["sessions"] as? [String: Any],
               let record = sessions[sessionId] as? [String: Any] else { return nil }
-        return record["hadPendingBackgroundWorkAtStop"] as? Bool
+        return record[key] as? Bool
     }
 
     @Test func stopWithRunningBackgroundTaskTagsPendingAndCaches() throws {
@@ -147,9 +326,35 @@ struct ClaudeBackgroundWorkNotifyTests {
         let stdin = #"""
         {"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok","background_tasks":[],"session_crons":[{"id":"c1"}]}
         """#
-        let (snapshot, _) = try runStopHook(name: "bg-cron", sessionId: session, stdin: stdin)
-        #expect(notifyLine(snapshot, containing: "c=turn-complete;p=1") != nil,
-                "A pending scheduled wakeup must tag pending=1; saw \(snapshot)")
+        let result = try runStopHookRecordingCrons(name: "bg-cron", sessionId: session, stdin: stdin)
+        #expect(notifyLine(result.snapshot, containing: "c=turn-complete;p=1") != nil,
+                "A pending scheduled wakeup must tag pending=1; saw \(result.snapshot)")
+        // The app's drain check must never settle a pane parked on a cron.
+        #expect(result.cachedCrons == true)
+    }
+
+    @Test func stopWithOnlyABackgroundTaskRecordsNoSessionCrons() throws {
+        let session = "bg-task-no-cron-session"
+        let stdin = #"""
+        {"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok","background_tasks":[{"id":"t1","type":"shell","status":"running","description":"sleep","command":"sleep 20"}],"session_crons":[]}
+        """#
+        let result = try runStopHookRecordingCrons(name: "bg-task-no-cron", sessionId: session, stdin: stdin)
+        #expect(result.cachedPending == true)
+        // Recorded false, so the app may settle the pane once the task ends.
+        // https://github.com/manaflow-ai/cmux/issues/26358
+        #expect(result.cachedCrons == false)
+    }
+
+    @Test func stopThatDoesNotReportCronsRecordsThemAsPossible() throws {
+        let session = "bg-task-unknown-cron-session"
+        let stdin = #"""
+        {"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok","background_tasks":[{"id":"t1","type":"shell","status":"running","description":"sleep","command":"sleep 20"}]}
+        """#
+        let result = try runStopHookRecordingCrons(name: "bg-task-unknown-cron", sessionId: session, stdin: stdin)
+        #expect(result.cachedPending == true)
+        // No `session_crons` key says nothing about crons, so the app must
+        // not settle this pane on transcript evidence.
+        #expect(result.cachedCrons == true)
     }
 
     @Test func stopWithoutBackgroundKeysOldClientTagsNotPending() throws {

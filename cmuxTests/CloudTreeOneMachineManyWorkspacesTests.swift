@@ -1,5 +1,6 @@
 import CmuxCloud
 import CmuxSurfaceCatalogModel
+import AppKit
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -100,6 +101,19 @@ struct CloudTreeOneMachineManyWorkspacesTests {
     private func terminalKey(_ node: CloudTreeNode) -> String? {
         if case .terminal(let row) = node.kind { return row.resource.id.key }
         return nil
+    }
+
+    private func browser(_ key: String, title: String = "Docs", in workspace: SurfaceRemoteWorkspace) -> SurfaceResource {
+        var resource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .browser, key: key), title: title, detail: nil,
+            lifecycle: .running, agent: nil, remoteWorkspace: workspace, port: nil,
+            url: "https://example.com/\(key)"
+        )
+        resource.remoteViews = [SurfaceRemoteView(
+            tabID: "tab_\(key)", workspace: workspace, screenID: "screen_1", paneID: "pane_1",
+            name: nil, index: 0, focused: true
+        )]
+        return resource
     }
 
     private func display(_ key: String = SurfaceResourceID.desktopDisplayKey, in workspaces: [SurfaceRemoteWorkspace]) -> SurfaceResource {
@@ -370,6 +384,89 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "resource:brave-otter/terminal/term_1",
             "resource:brave-otter/terminal/term_2",
         ], "Terminals lists every terminal once, whatever workspace shows it")
+    }
+
+    @Test("A Cloud browser placement exports an exact draggable tab")
+    func browserPlacementIsDragSource() throws {
+        let main = workspace("ws_main", "main", index: 0, focused: true)
+        let side = workspace("ws_side", "side", index: 1)
+        let resource = browser("docs", in: main)
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [info(workspaces: [main, side])], resources: [resource], projections: []
+        )
+        let row = try #require(rows(snapshot).first { $0.id == "machine:brave-otter/ws/ws_main" })
+        let browserNode = try #require(row.children.first)
+        guard case .browser(let browserRow) = browserNode.kind else {
+            Issue.record("expected a browser placement row")
+            return
+        }
+        let view = try #require(browserRow.remoteView)
+        #expect(browserNode.isDragSource)
+        #expect(browserNode.dragGroup?.resources == [resource.id])
+        #expect(browserNode.dragGroup?.remoteWorkspaceID == main.id)
+        #expect(browserNode.dragGroup?.placements == [
+            SurfaceResourcePlacement(resource: resource.id, remoteView: view)
+        ])
+        let localResource = SurfaceResource(
+            id: SurfaceResourceID(machine: .local, kind: .browser, key: "local-browser"),
+            title: "Private", detail: nil, lifecycle: .running, agent: nil,
+            remoteWorkspace: nil, port: nil, url: "https://private.example"
+        )
+        let localNode = CloudTreeNode(
+            id: "local-browser",
+            kind: .browser(CloudTreeBrowserRow(resource: localResource, isOpen: true, workspaceTitle: "Local"))
+        )
+        #expect(!localNode.isDragSource, "local browser sessions stay out of Cloud sidebar projection drags")
+    }
+
+    @Test("A Cloud browser drag onto a sibling workspace requests a remote tab move")
+    func browserDragTargetsSiblingWorkspace() throws {
+        let main = workspace("ws_main", "main", index: 0, focused: true)
+        let side = workspace("ws_side", "side", index: 1)
+        let resource = browser("docs", in: main)
+        let roots = CloudTreeNodeBuilder.nodes(
+            machines: [fleetRow()],
+            snapshot: SurfaceCatalogSnapshot(
+                machines: [info(workspaces: [main, side])], resources: [resource],
+                projections: []
+            ),
+            localWorkspaces: [],
+            includeLocalMachine: false
+        )
+        let flattened = CloudTreeNodeBuilder.flattened(roots)
+        let source = try #require(flattened.first { $0.id.contains("/ws/ws_main/") && $0.structureTag == "browser" })
+        let target = try #require(flattened.first { $0.id == "machine:brave-otter/ws/ws_side" })
+        let drop = try #require(CloudSidebarOrganizationDrop(
+            sourceID: source.id,
+            nodes: roots,
+            state: CloudSidebarOrganizationState(),
+            proposedItem: target,
+            proposedChildIndex: NSOutlineViewDropOnItemIndex,
+            dropAfterItem: false
+        ))
+        guard case .browser(let resourceID, let tabID, let targetWorkspaceID) = drop.operation else {
+            Issue.record("expected a browser workspace move operation")
+            return
+        }
+        #expect(resourceID == resource.id.rawValue)
+        #expect(tabID == "tab_docs")
+        #expect(targetWorkspaceID == side.id)
+
+        let sourceWorkspace = try #require(flattened.first { $0.id == "machine:brave-otter/ws/ws_main" })
+        let otherMachineWorkspace = CloudTreeNode(
+            id: "machine:other-machine/ws/ws_side",
+            kind: .workspace(machine: .cloud("other-machine"), side, terminalCount: 0, hiddenTabCount: 0, openIn: nil)
+        )
+        for rejectedTarget in [sourceWorkspace, otherMachineWorkspace] {
+            #expect(CloudSidebarOrganizationDrop(
+                sourceID: source.id,
+                nodes: roots + [otherMachineWorkspace],
+                state: CloudSidebarOrganizationState(),
+                proposedItem: rejectedTarget,
+                proposedChildIndex: NSOutlineViewDropOnItemIndex,
+                dropAfterItem: false
+            ) == nil, "browser moves require a different workspace on the same machine")
+        }
     }
 
     /// Regression for #12226: a pane holding several tabs must expose every tab as a
@@ -881,7 +978,8 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "the machine lists it, so it exists — with nothing in it"
         )
         #expect(CloudTreeNodeBuilder.lookupRemoteWorkspace("scratch", on: machine, snapshot: snapshot) == .ambiguous([scratchA, scratchB]))
-        // Empty daemon workspaces remain resolvable, but the Cloud sidebar omits them.
-        #expect(rows(snapshot).filter { $0.structureTag == "workspace" }.isEmpty)
+        #expect(rows(snapshot).filter { $0.structureTag == "workspace" }.map(\.id) == [
+            "machine:brave-otter/ws/ws_a", "machine:brave-otter/ws/ws_b"
+        ])
     }
 }

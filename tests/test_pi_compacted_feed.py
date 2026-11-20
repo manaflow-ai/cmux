@@ -61,8 +61,7 @@ let request = PiCompactedFeedEventExpander(
     "cmux_compacted_terminal_events": summaries,
 ])
 guard let request else {{ fatalError("expected compacted Feed batch request") }}
-let object = try JSONSerialization.jsonObject(with: Data(request.line.utf8)) as? [String: Any]
-let params = object?["params"] as? [String: Any]
+let params = request.request["params"] as? [String: Any]
 let requestEvents = params?["events"] as? [[String: Any]] ?? []
 let toolCallIds = requestEvents.map {{ $0["tool_call_id"] as? String }}
 guard request.eventCount == 64, requestEvents.count == 64 else {{
@@ -88,8 +87,7 @@ let relayRequest = PiCompactedFeedEventExpander(
     "cmux_compacted_terminal_events": summaries,
 ])
 guard let relayRequest else {{ fatalError("expected relay compacted Feed batch request") }}
-let relayObject = try JSONSerialization.jsonObject(with: Data(relayRequest.line.utf8)) as? [String: Any]
-let relayParams = relayObject?["params"] as? [String: Any]
+let relayParams = relayRequest.request["params"] as? [String: Any]
 let relayEvents = relayParams?["events"] as? [[String: Any]] ?? []
 let relayToolCallIds = relayEvents.map {{ $0["tool_call_id"] as? String }}
 guard relayRequest.eventCount == 2,

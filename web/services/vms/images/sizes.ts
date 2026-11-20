@@ -4,9 +4,10 @@
  * cmux derives `lgx` by resize + snapshot from the same bake
  * (`scripts/derive-devbox-sizes.ts`). A Freestyle VM always boots at its
  * snapshot's size, so each exposed row has one validated snapshot in the
- * manifest. Freestyle pins catalog shapes to plan caps (Free `md`, Hobby
- * `lg`, Pro `2xl`), and a size a plan cannot boot is simply not creatable by
- * it.
+ * manifest. Pro, Team, and Founder's Edition cap at `lg` (16 GiB / 8 vCPU),
+ * while Max can use the full ladder through `2xl` (64 GiB / 32 vCPU),
+ * including the 24 GiB / 12 vCPU and 32 GiB / 16 vCPU rows. A size a plan
+ * cannot boot is simply not creatable by it.
  *
  * `md` is Freestyle's bare default slug (`freestyle/ubuntu`); the others keep
  * Freestyle's suffixes.

@@ -237,6 +237,7 @@ extension TerminalController: ControlCanvasContext {
         switch type {
         case "browser": paneType = .browser
         case "simulator": paneType = .simulator
+        case "chief": paneType = .chief
         default: paneType = .terminal
         }
         guard let surfaceID = ws.openNewCanvasPane(type: paneType, focus: true, animated: false) else {

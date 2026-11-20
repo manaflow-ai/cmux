@@ -108,7 +108,8 @@ class ProductPublicationTests(unittest.TestCase):
                 consumers.append(name)
                 self.assertFalse(condition(job["if"], full_suite="false"), name)
                 self.assertTrue(condition(job["if"], full_suite="true"), name)
-        self.assertEqual(set(consumers), {"app-host-unit-tests", "cli-product-tests", "tests-build-and-lag"})
+        self.assertEqual(set(consumers), {"app-host-unit-tests", "cli-product-tests", "cli-regressions",
+                                          "tests-build-and-lag"})
         # `unit-ci` admits exactly one consumer under the compile-only policy,
         # and the product it reads is published for it (see the unit-tier case
         # in test_only_known_compile_only_forks_skip_packaging_and_upload).

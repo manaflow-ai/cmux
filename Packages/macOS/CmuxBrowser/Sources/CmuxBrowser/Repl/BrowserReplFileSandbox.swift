@@ -1,5 +1,6 @@
 import Darwin
-import Foundation
+public import Foundation
+public import WebKit
 
 /// A Node-style file system error for the REPL `fs` global.
 public struct BrowserReplFileSystemError: Error, Equatable, Sendable {
@@ -15,6 +16,15 @@ public struct BrowserReplFileSystemError: Error, Equatable, Sendable {
 
     static func escape(_ path: String) -> Self {
         Self(code: "EACCES", message: "EACCES: permission denied, path is outside the REPL working directory '\(path)'")
+    }
+
+    /// A path through a copy's staging file
+    /// (``BrowserReplFileSandbox/isCopyStagingName(_:)``).
+    static func copyStaging(_ path: String) -> Self {
+        Self(
+            code: "EACCES",
+            message: "EACCES: permission denied, '\(path)' goes through a staging file an fs.copyFile is writing; no session's fs reads, lists or changes it"
+        )
     }
 }
 
@@ -61,6 +71,11 @@ public struct BrowserReplFileSandbox: Sendable {
     /// Allows reading one file outside the root, for example a finished download.
     public mutating func allowReading(_ path: String) {
         readableFiles.insert(Self.canonicalize(Self.lexicallyNormalized(path)))
+    }
+
+    /// Whether `canonicalPath` is a file outside the root allowed for reading.
+    func allowsReading(_ canonicalPath: String) -> Bool {
+        readableFiles.contains(canonicalPath)
     }
 
     /// Keeps the files `other` allowed, when a session moves to a new root.
@@ -120,6 +135,470 @@ public struct BrowserReplFileSandbox: Sendable {
     }
 
     /// Removes `.` and `..` segments and duplicate slashes without touching the disk.
+    /// Why a REPL navigation (`tab.navigate`, `tabs.open`) to `urlString`
+    /// may not load, before any domain policy, or nil.
+    ///
+    /// The browser loads a `file:` URL with read access to its directory, so
+    /// the page could read files the session's `fs` cannot. Only web URLs
+    /// (`http`, `https`), `about:`, `data:` and `blob:` load, and `file:`
+    /// URLs of a file strictly inside one of `roots` (the session's working
+    /// and temporary directories), judged by the path as written (`..`
+    /// resolved lexically) and refused when any part of it below the root
+    /// is a symbolic link, which WebKit would follow out of the root. Any
+    /// other scheme (cmux's internal ones, `javascript:`) is refused. A
+    /// string without a scheme is left to the driver, which reads it as a
+    /// web address; one that looks like a path is refused. So is a file
+    /// `secrets.load` read, by its identity under any name
+    /// (``BrowserReplSecretSources``), and a path through a copy's staging
+    /// file (``isCopyStagingName(_:)``).
+    public static func navigationRefusal(_ urlString: String, roots: [String]) -> String? {
+        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() else {
+            if trimmed.hasPrefix("/") || trimmed.hasPrefix("~") || trimmed.hasPrefix(".") {
+                return "\(urlString) is a local path; use a file: URL inside the session's directories"
+            }
+            return nil
+        }
+        switch scheme {
+        case "http", "https":
+            guard isAppServed(url) else { return nil }
+            return "\(urlString.redactingBrowserReplURLCredentials()) is a page cmux serves from local files, which a REPL session may not load"
+        case "about", "data", "blob":
+            return nil
+        case "file":
+            let host = url.host(percentEncoded: false) ?? ""
+            guard host.isEmpty || host.lowercased() == "localhost" else {
+                return "\(urlString) names a file on another host"
+            }
+            let path = lexicallyNormalized(url.path(percentEncoded: false))
+            for root in roots.flatMap(aliases(of:)) where path.hasPrefix(root + "/") {
+                var current = root
+                for part in path.dropFirst(root.count).split(separator: "/") {
+                    current += "/" + part
+                    if isCopyStagingName(part) {
+                        return "\(urlString) goes through a staging file an fs.copyFile is writing"
+                    }
+                    var info = stat()
+                    if lstat(current, &info) == 0, info.st_mode & S_IFMT == S_IFLNK {
+                        return "\(urlString) goes through the symbolic link \(current), which may lead outside the session's directories"
+                    }
+                }
+                if BrowserReplSecretSources.shared.contains(path: path) {
+                    return "\(urlString) is a file secrets.load read (under this or another name); a tab would show its values unmasked"
+                }
+                return nil
+            }
+            return "a REPL session loads only files inside its working or temporary directory (\(roots.joined(separator: ", "))), not \(urlString)"
+        default:
+            return "a REPL session loads only http, https, about:, data: and blob: URLs and files inside its own directories, not \(scheme): URLs"
+        }
+    }
+
+    /// Why a session may not read or act on a tab that shows `url`, or nil.
+    ///
+    /// A local file outside `roots` (the session's working and temporary
+    /// directories), by the rule ``navigationRefusal(_:roots:)`` applies to
+    /// the session's own navigations, is refused: the tab may be a user's
+    /// that shows a file the session's `fs` cannot read, and the browser let
+    /// its page read that file's directory. So is any other document of a
+    /// local file's origin (`documentOrigin` `file://`: an `about:blank` or
+    /// `data:` document a file page wrote), whose maker cannot be told; the
+    /// caller passes `documentOrigin` only for tabs the session did not
+    /// create, whose file pages no session check stood before.
+    ///
+    /// A page of one of cmux's own URL schemes (``isAppServedScheme(_:)``),
+    /// or a document of such a page's origin, is refused the same way, under
+    /// any roots: the scheme's handler streams local files (a diff's) that
+    /// no root of the session granted.
+    public static func localPageRefusal(url: String, documentOrigin: String?, roots: [String]) -> String? {
+        let scheme = URL(string: url)?.scheme?.lowercased()
+        if scheme == "file" {
+            guard let reason = navigationRefusal(url, roots: roots) else { return nil }
+            return "the tab shows the local file \(url), which a REPL session may not read: \(reason)"
+        }
+        if documentOrigin?.lowercased() == "file://" {
+            return "the tab shows \(url.isEmpty ? "a document" : url) of a local file's origin, which a REPL session may not read; open files inside the session's directories with tabs.open"
+        }
+        return appServedRefusal(url: url, documentOrigin: documentOrigin)
+    }
+
+    /// Why a session may not read a page at `url`, or a document of
+    /// `documentOrigin`, that cmux serves from local files (``isAppServed(_:)``),
+    /// or nil. It is refused in any tab, under any roots and whatever the
+    /// domain policy: no root of the session granted those files.
+    public static func appServedRefusal(url: String, documentOrigin: String?) -> String? {
+        for candidate in [url, documentOrigin].compactMap({ $0 }) {
+            guard let parsed = URL(string: candidate), isAppServed(parsed) else { continue }
+            return "it is a page cmux serves from local files (\(parsed.scheme?.lowercased() ?? "")), which a REPL session may not read or load; open files inside the session's directories with tabs.open"
+        }
+        return nil
+    }
+
+    /// Whether cmux itself serves `url` from local files: a URL of one of
+    /// its own schemes (``isAppServedScheme(_:)``), or of a loopback server
+    /// it runs for the same files (``registerAppServedOrigin(of:)``).
+    public static func isAppServed(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        if isAppServedScheme(scheme) { return true }
+        guard scheme == "http" || scheme == "https", let origin = webOrigin(of: url) else { return false }
+        // The diff viewer's page names itself so, also on a server the app
+        // did not register here (a loopback alias of a remote one).
+        if url.fragment == "cmux-diff-viewer", let host = BrowserReplHostName.host(of: url), BrowserReplHostName.isLoopback(host) {
+            return true
+        }
+        return appServedOrigins.contains(origin)
+    }
+
+    /// Records that cmux serves local files at `url`'s origin (the diff
+    /// viewer's HTTP form, `http://127.0.0.1:<port>/<token>/...`): its pages,
+    /// and every document of its origin, are refused to REPL sessions as a
+    /// local file outside their directories is.
+    public static func registerAppServedOrigin(of url: URL) {
+        guard let origin = webOrigin(of: url) else { return }
+        appServedOrigins.insert(origin)
+    }
+
+    /// Ends ``registerAppServedOrigin(of:)`` for `url`'s origin.
+    public static func unregisterAppServedOrigin(of url: URL) {
+        guard let origin = webOrigin(of: url) else { return }
+        appServedOrigins.remove(origin)
+    }
+
+    /// `scheme://host:port` of an http(s) URL, the port always written and
+    /// the host normalized. A host that reaches this machine's loopback
+    /// listeners (``BrowserReplHostName/reachesLoopback(_:)``) is
+    /// `loopback:port` whatever its spelling and scheme: a server the app
+    /// runs on a loopback port answers every one of them.
+    private static func webOrigin(of url: URL) -> String? {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              let host = BrowserReplHostName.host(of: url) else { return nil }
+        let port = url.port ?? (scheme == "https" ? 443 : 80)
+        if BrowserReplHostName.reachesLoopback(host) { return "loopback:\(port)" }
+        return "\(scheme)://\(host):\(port)"
+    }
+
+    private static let appServedOrigins = BrowserReplAppServedOrigins()
+
+    /// Whether `scheme` (lowercased) is one of cmux's own URL schemes rather
+    /// than one of the web's, a file's or an opaque document's: a page of
+    /// one was served by a URL scheme handler cmux installs on the web view
+    /// (`cmux-diff-viewer:` streams local files), since WebKit loads no other
+    /// scheme in a frame.
+    public static func isAppServedScheme(_ scheme: String) -> Bool {
+        !["http", "https", "ws", "wss", "file", "about", "data", "blob", "javascript"].contains(scheme)
+    }
+
+    /// WebKit content rules that keep pages in a session's tabs from loading
+    /// local files outside `roots` (the session's working and temporary
+    /// directories) as subresources or child frames, whatever read access
+    /// their web process holds.
+    ///
+    /// Every `file:` load is blocked, then one under a root's path (also by
+    /// its `/var`, `/tmp` alias, and with the `localhost` host) is let
+    /// through, matched case-sensitively on the URL as WebKit spells it
+    /// (percent-encoded). A path that spells a root another way is blocked,
+    /// which only refuses more. An encoded slash (`%2F`) is blocked again:
+    /// a file name with one would name a path the rule did not judge. A
+    /// link below a root is resolved by WebKit's own read-access check,
+    /// which refuses a file outside the directory it granted. Main-frame
+    /// documents are left to the navigation checks, which report the block.
+    ///
+    /// A rule matches a URL, never a file's identity, so while a file
+    /// `secrets.load` protects may lie inside a root
+    /// (``rootsMayHoldSecretSource(_:)``) no `file:` subresource loads at
+    /// all: the protected file would load under any name inside the root
+    /// (a rename, another hard link, a link to it, another spelling). Child
+    /// frames inside the roots still load: a frame's document is a
+    /// navigation, which the navigation checks judge by the file's identity.
+    /// The caller compiles the rules again when
+    /// ``secretSourcesDidChange`` is posted.
+    public static func contentRules(roots: [String]) -> [[String: Any]] {
+        contentRules(roots: roots, secretSources: .shared)
+    }
+
+    static func contentRules(roots: [String], secretSources: BrowserReplSecretSources) -> [[String: Any]] {
+        contentRules(roots: roots, subresourcesInsideRoots: !secretSources.mayHoldFile(under: roots))
+    }
+
+    /// ``contentRules(roots:)`` with the judgment of
+    /// ``rootsMayHoldSecretSource(_:)`` made by the caller (off the main
+    /// actor): `subresourcesInsideRoots` false lets no `file:` subresource
+    /// load, inside the roots either.
+    public static func contentRules(roots: [String], subresourcesInsideRoots: Bool) -> [[String: Any]] {
+        var rules: [[String: Any]] = []
+        func add(_ filter: String, _ action: String, caseSensitive: Bool = false, subresources: Bool = true) {
+            var triggers: [[String: Any]] = [["url-filter": filter, "resource-type": ["document"], "load-context": ["child-frame"]]]
+            if subresources { triggers.insert(["url-filter": filter, "resource-type": fileSubresources], at: 0) }
+            for var trigger in triggers {
+                if caseSensitive { trigger["url-filter-is-case-sensitive"] = true }
+                rules.append(["trigger": trigger, "action": ["type": action]])
+            }
+        }
+        add("^file:", "block")
+        for root in Set(roots.flatMap(aliases(of:))) where root != "/" {
+            let spelled = URL(fileURLWithPath: root, isDirectory: true).absoluteString
+            guard spelled.hasPrefix("file:///") else { continue }
+            let path = escapeForContentRule(String(spelled.dropFirst("file://".count)))
+            add("^file://" + path, "ignore-previous-rules", caseSensitive: true, subresources: subresourcesInsideRoots)
+            add("^file://localhost" + path, "ignore-previous-rules", caseSensitive: true, subresources: subresourcesInsideRoots)
+        }
+        add("^file:.*%2[Ff]", "block")
+        return rules
+    }
+
+    /// Whether a file `secrets.load` protects may lie inside one of `roots`
+    /// (``BrowserReplSecretSources/mayHoldFile(under:)``), so that
+    /// ``contentRules(roots:)`` lets no `file:` subresource load there.
+    public static func rootsMayHoldSecretSource(_ roots: [String]) -> Bool {
+        BrowserReplSecretSources.shared.mayHoldFile(under: roots)
+    }
+
+    /// Posted when ``rootsMayHoldSecretSource(_:)`` may have changed for
+    /// some roots: `secretsLoad` protected another file, or a REPL
+    /// `fs.rename` ran while files are protected (it may have moved one
+    /// into a root). Posted on the thread that made the change, possibly
+    /// under ``pathChangeLock``: an observer only schedules its work.
+    public static let secretSourcesDidChange = Notification.Name("BrowserReplSecretSourcesDidChange")
+
+    private static let fileSubresources = ["image", "style-sheet", "script", "font", "raw", "svg-document", "media", "ping", "fetch", "websocket", "other"]
+
+    private static func escapeForContentRule(_ text: String) -> String {
+        var out = ""
+        for character in text {
+            if ".+?^${}()|[]\\*".contains(character) { out.append("\\") }
+            out.append(character)
+        }
+        return out
+    }
+
+    /// The marker in the name of the staging file `fs.copyFile` writes next
+    /// to its destination (``copyStagingName(for:)``).
+    private static let copyStagingMarker = ".cmux-copy-"
+
+    /// A new name for `fs.copyFile`'s staging file for the destination
+    /// `name`: `.<name>.cmux-copy-<UUID>`.
+    static func copyStagingName(for name: String) -> String {
+        "." + name + copyStagingMarker + UUID().uuidString
+    }
+
+    /// Whether `name` (one path component) is a staging file name
+    /// ``copyStagingName(for:)`` makes. Until its copy checked that no
+    /// `secrets.load` protected the source meanwhile, a staging file holds
+    /// bytes no session may read, so the fs refuses every path through such
+    /// a name (any session, any operation), `readdir` leaves it out and a
+    /// tab does not load it (``navigationRefusal(_:roots:)``).
+    static func isCopyStagingName(_ name: some StringProtocol) -> Bool {
+        guard name.hasPrefix("."), let marker = name.range(of: copyStagingMarker, options: .backwards) else { return false }
+        let suffix = name[marker.upperBound...]
+        return suffix.utf8.count == 36 && UUID(uuidString: String(suffix)) != nil
+    }
+
+    /// Held by every REPL `fs.rename` around its `renameat`, by `copyFile`
+    /// while it checks and renames its staging file into place, and by a
+    /// file navigation from its last check until the browser took its read
+    /// access (``withPinnedFileAccess(_:roots:_:)``): no REPL session (this
+    /// one included, from its own thread) moves an entry in between.
+    /// `rename` is the only `fs` operation that can put a link, or a
+    /// directory that holds one, at a path; `copyFile` renames only the
+    /// regular file it wrote, and the others make regular files and
+    /// directories or remove entries.
+    static let pathChangeLock = NSLock()
+
+    /// A directory by identity.
+    struct DirectoryIdentity: Hashable, Sendable {
+        let device: Int64
+        let inode: UInt64
+    }
+
+    /// The REPL `fs.rename`s, counted, with the latest one that changed an
+    /// entry of each directory; read and changed under ``pathChangeLock``.
+    /// The log is shared by every session, so it is kept per directory:
+    /// renames in one session's directories, however many, say nothing
+    /// about another's. It names at most ``maximumDirectories``; the
+    /// directories renamed least recently are folded into
+    /// ``droppedBuckets`` (the latest rename of any dropped directory that
+    /// hashes to a bucket), so a dropped directory reads as renamed no
+    /// earlier than it was, and possibly later (fail closed).
+    private final class RenameLog: @unchecked Sendable {
+        static let maximumDirectories = 1024
+        static let bucketCount = 4096
+        var count: UInt64 = 0
+        var latest: [DirectoryIdentity: UInt64] = [:]
+        var droppedBuckets = [UInt64](repeating: 0, count: bucketCount)
+        /// The latest rename between directories that could not be named:
+        /// it counts as a change to every directory.
+        var unnamed: UInt64 = 0
+
+        func note(_ directories: [DirectoryIdentity]?) {
+            count &+= 1
+            guard let directories else {
+                unnamed = count
+                return
+            }
+            for directory in directories { latest[directory] = count }
+            guard latest.count > Self.maximumDirectories else { return }
+            let dropped = latest.sorted { $0.value < $1.value }.prefix(latest.count - Self.maximumDirectories / 2)
+            for (directory, renamed) in dropped {
+                let bucket = Self.bucket(of: directory)
+                droppedBuckets[bucket] = max(droppedBuckets[bucket], renamed)
+                latest[directory] = nil
+            }
+        }
+
+        /// Whether a rename after `since` changed an entry of one of
+        /// `directories` (or of a directory it could not name).
+        func renamed(after since: UInt64, in directories: Set<DirectoryIdentity>) -> Bool {
+            guard count != since else { return false }
+            if unnamed > since { return true }
+            return directories.contains { directory in
+                max(latest[directory] ?? 0, droppedBuckets[Self.bucket(of: directory)]) > since
+            }
+        }
+
+        private static func bucket(of directory: DirectoryIdentity) -> Int {
+            Int(UInt(bitPattern: directory.hashValue) % UInt(bucketCount))
+        }
+    }
+
+    private static let renames = RenameLog()
+
+    /// Notes one REPL `fs.rename` between the directories open as
+    /// `directories`. The caller holds ``pathChangeLock`` and calls this in
+    /// the same hold as its `renameat`.
+    static func noteRenameLocked(between directories: [Int32]) {
+        let identities = directories.compactMap { fd -> DirectoryIdentity? in
+            var info = stat()
+            guard fstat(fd, &info) == 0 else { return nil }
+            return DirectoryIdentity(device: Int64(info.st_dev), inode: UInt64(info.st_ino))
+        }
+        renames.note(identities.count == directories.count ? identities : nil)
+    }
+
+    /// Whether a REPL `fs.rename` since `count` changed an entry of one of
+    /// `directories` (or of a directory it could not name). Call under
+    /// ``pathChangeLock``.
+    private static func renamedSince(_ count: UInt64, in directories: Set<DirectoryIdentity>) -> Bool {
+        renames.renamed(after: count, in: directories)
+    }
+
+    /// The identities of `root` and the directories below it on the way to
+    /// the file `path`, as the path names them now. Call under
+    /// ``pathChangeLock`` once ``navigationRefusal(_:roots:)`` found no link
+    /// on the path.
+    private static func directories(toward path: String, from root: String) -> Set<DirectoryIdentity> {
+        var found: Set<DirectoryIdentity> = []
+        guard let alias = aliases(of: root).first(where: { path.hasPrefix($0 + "/") }) else { return found }
+        var current = root
+        var parts = path.dropFirst(alias.count).split(separator: "/")
+        parts.removeLast()
+        for part in [Substring("")] + parts {
+            if !part.isEmpty { current += "/" + part }
+            var info = stat()
+            guard lstat(current, &info) == 0 else { break }
+            found.insert(DirectoryIdentity(device: Int64(info.st_dev), inode: UInt64(info.st_ino)))
+        }
+        return found
+    }
+
+    /// Runs `load`, which must start `webView`'s load of the file `url`
+    /// before it returns, with the directory to grant the page read access
+    /// to: the session root that holds the file.
+    ///
+    /// The browser loads a file by path, after this returns, so a check
+    /// that runs before the load can be raced: another REPL session sharing
+    /// the directory could rename a link in for a checked directory. Here,
+    /// while no REPL `fs.rename` can run (``pathChangeLock``), the file's
+    /// path is checked again (``navigationRefusal(_:roots:)``), the root
+    /// must still be the directory the session named (same identity, no
+    /// link on its path), and the browser is given that root.
+    ///
+    /// The browser opens the file when its load starts, later, and before
+    /// macOS 27 WebKit does not refuse a file outside the directory it
+    /// granted: its processes may read the user's temporary and cache
+    /// directories anyway, so a link swapped in meanwhile could lead the
+    /// load there. So `webView`'s load is also noted
+    /// (``BrowserReplPinnedFileLoads``), and its navigation delegate admits
+    /// the response, by when the browser holds the file open, only if no
+    /// REPL `fs.rename` since this check changed an entry of a directory on
+    /// the file's path and the path is still inside the root with no link
+    /// (``BrowserReplPinnedFileLoad/admitsResponse(_:)``).
+    /// - Throws: `blocked` when the file is outside the roots or a root was
+    ///   moved or replaced.
+    @MainActor
+    public static func withPinnedFileAccess<T>(
+        _ url: String,
+        roots: [BrowserReplFileRoot],
+        in webView: WKWebView,
+        _ load: (URL) throws -> T
+    ) throws -> T {
+        try pinnedFileAccess(url, roots: roots) { pin in
+            BrowserReplPinnedFileLoads.shared.expect(pin, in: webView)
+            return try load(pin.readAccess)
+        }
+    }
+
+    /// The check and grant of ``withPinnedFileAccess(_:roots:in:_:)``,
+    /// without noting a browser load.
+    static func withPinnedFileAccess<T>(_ url: String, roots: [BrowserReplFileRoot], _ load: (URL) throws -> T) throws -> T {
+        try pinnedFileAccess(url, roots: roots) { try load($0.readAccess) }
+    }
+
+    static func pinnedFileAccess<T>(_ url: String, roots: [BrowserReplFileRoot], _ load: (BrowserReplPinnedFileLoad) throws -> T) throws -> T {
+        try pathChangeLock.withLock {
+            if let reason = navigationRefusal(url, roots: roots.map(\.path)) {
+                throw BrowserReplDriverError(code: "blocked", message: "\(url) is blocked: \(reason)")
+            }
+            guard let file = URL(string: url.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+                throw BrowserReplDriverError(code: "invalid", message: "Invalid URL")
+            }
+            let path = lexicallyNormalized(file.path(percentEncoded: false))
+            guard let root = roots.first(where: { root in aliases(of: root.path).contains { path.hasPrefix($0 + "/") } }) else {
+                throw BrowserReplDriverError(code: "blocked", message: "\(url) is blocked: it is not inside the session's directories")
+            }
+            guard root.isStillInPlace else {
+                throw BrowserReplDriverError(
+                    code: "blocked",
+                    message: "\(url) is blocked: the session's directory \(root.path) was moved or replaced since the session began; start a new session there"
+                )
+            }
+            return try load(BrowserReplPinnedFileLoad(
+                root: root,
+                path: path,
+                renameCount: renames.count,
+                directories: directories(toward: path, from: root.path)
+            ))
+        }
+    }
+
+    /// Whether a file response of a pinned load (`pin`) may commit: no REPL
+    /// `fs.rename` since the load's check changed an entry of a directory
+    /// on the file's path, and `url` is still inside the pinned root with
+    /// no link below it, the root in place
+    /// (``BrowserReplPinnedFileLoad/admitsResponse(_:)``).
+    static func admits(_ url: URL, pin: BrowserReplPinnedFileLoad) -> Bool {
+        pathChangeLock.withLock {
+            guard !renamedSince(pin.renameCount, in: pin.directories) else { return false }
+            let path = lexicallyNormalized(url.path(percentEncoded: false))
+            guard aliases(of: pin.root.path).contains(where: { path.hasPrefix($0 + "/") }) else { return false }
+            return navigationRefusal(url.absoluteString, roots: [pin.root.path]) == nil && pin.root.isStillInPlace
+        }
+    }
+
+    /// Whether `path`, normalized without the file system, lies strictly
+    /// inside one of `roots` (also through a root's `/var`, `/tmp` alias).
+    static func isLexicallyInside(_ path: String, roots: [String]) -> Bool {
+        let normalized = lexicallyNormalized(path)
+        return roots.contains { root in aliases(of: root).contains { normalized.hasPrefix($0 + "/") } }
+    }
+
+    /// `root` and, for a root under `/private`, the same path through the
+    /// system's `/var`, `/tmp` and `/etc` links, as a file URL may name it.
+    private static func aliases(of root: String) -> [String] {
+        let normalized = lexicallyNormalized(root)
+        guard normalized.hasPrefix("/private/") else { return [normalized] }
+        return [normalized, String(normalized.dropFirst("/private".count))]
+    }
+
     static func lexicallyNormalized(_ path: String) -> String {
         var parts: [Substring] = []
         for part in path.split(separator: "/", omittingEmptySubsequences: true) {
@@ -165,4 +644,275 @@ public struct BrowserReplFileSandbox: Sendable {
         defer { free(resolved) }
         return String(cString: resolved)
     }
+}
+
+/// A directory a REPL session's tabs may show local files from: its
+/// canonical path and the identity of the directory there when the session
+/// named it.
+public struct BrowserReplFileRoot: Sendable, Equatable {
+    public let path: String
+    let device: Int64?
+    let inode: UInt64?
+
+    /// Whether `path` still names, with no link on the way, the directory
+    /// that was there when this was made.
+    var isStillInPlace: Bool {
+        guard let device, let inode,
+              BrowserReplFileSandbox.canonicalize(BrowserReplFileSandbox.lexicallyNormalized(path)) == path else { return false }
+        var info = stat()
+        return lstat(path, &info) == 0 && info.st_mode & S_IFMT == S_IFDIR
+            && Int64(info.st_dev) == device && UInt64(info.st_ino) == inode
+    }
+
+    /// Reads the identity of the directory at `path` now.
+    public init(path: String) {
+        self.path = path
+        var info = stat()
+        if lstat(path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR {
+            device = Int64(info.st_dev)
+            inode = UInt64(info.st_ino)
+        } else {
+            device = nil
+            inode = nil
+        }
+    }
+}
+
+/// The files any session's `secrets.load` read, by identity
+/// (``BrowserReplFileIdentity``): no session's tab loads one from then on
+/// (``BrowserReplFileSandbox/navigationRefusal(_:roots:)``), under any name,
+/// while the file exists. Value masking covers what `fs` reads back, but a
+/// tab renders the file as pixels no mask covers, and its page scripts
+/// read it.
+///
+/// The set is shared by every session for the app's life, so it holds at
+/// most ``maximumSources`` files. A protection ends only when its file is
+/// gone under every name (no tab can load it then); not when the session
+/// that loaded it ends, since a value it typed stays masked in text after
+/// that but a capture masks it only on the secret's domains, never in a
+/// `file:` page. Past the bound, once the files that are gone are dropped
+/// (asked of the volume by the id `fstatfs` gave when the file was
+/// protected; a file whose volume id is unknown is never dropped), a new
+/// protection is refused and `secrets.load` fails with nothing read.
+///
+/// Each protection is held by the claims of the sessions that protected
+/// the file (``protect(_:owner:)``). A `secrets.load` that fails loaded
+/// nothing, so it gives back its own claim (``release(_:owner:)``), and the
+/// file stays protected only while another claim holds it: failed loads
+/// take no room in the set (r38 native#1).
+final class BrowserReplSecretSources: @unchecked Sendable {
+    static let shared = BrowserReplSecretSources()
+
+    /// The most files protected at once (4,096 for the app).
+    let maximumSources: Int
+    /// Asks a volume for a file by its id (``BrowserReplFileIdentity/volumePath(_:_:)``).
+    private let volumeLookup: BrowserReplVolumeLookup
+    private let lock = NSLock()
+    /// Each protected file and the claims that hold it.
+    private var identities: [BrowserReplFileIdentity: Set<UUID>] = [:]
+    /// The claim of a protection taken without an owner, which nothing
+    /// gives back.
+    private static let permanentClaim = UUID()
+
+    init(maximumSources: Int = 4096, volumeLookup: @escaping BrowserReplVolumeLookup = BrowserReplFileIdentity.volumePath) {
+        self.maximumSources = maximumSources
+        self.volumeLookup = volumeLookup
+    }
+
+    /// Protects `identity`. The caller holds
+    /// ``BrowserReplFileSandbox/pathChangeLock``, which a file navigation
+    /// holds from its check until its load started
+    /// (``BrowserReplFileSandbox/withPinnedFileAccess(_:roots:_:)``), and has
+    /// held it since it opened the file: `secrets.load`'s read tells it
+    /// the identity in the same hold as the open
+    /// (``BrowserReplFileSystem``'s `readFile` with `opened`), so a
+    /// navigation runs wholly before the open or after the protection,
+    /// never between them.
+    ///
+    /// - Throws: `invalid` when ``maximumSources`` files that still exist
+    ///   are protected and `identity` is not one of them.
+    func protect(_ identity: BrowserReplFileIdentity, owner: UUID? = nil) throws {
+        let claim = owner ?? Self.permanentClaim
+        try lock.withLock {
+            if identities[identity] != nil {
+                identities[identity, default: []].insert(claim)
+                return
+            }
+            if identities.count >= maximumSources {
+                identities = identities.filter { $0.key.exists(lookup: volumeLookup) }
+            }
+            guard identities.count < maximumSources else {
+                throw BrowserReplFileSystemError(
+                    code: "invalid",
+                    message: "cmux protects at most \(maximumSources) files that secrets.load read, for every session together, and that many still exist; remove secrets files that are no longer needed, or set the secrets with secrets.set"
+                )
+            }
+            identities[identity] = [claim]
+        }
+        if self === Self.shared {
+            NotificationCenter.default.post(name: BrowserReplFileSandbox.secretSourcesDidChange, object: nil)
+        }
+    }
+
+    /// Gives back `owner`'s claim on `identity`, taken by a `secrets.load`
+    /// that then failed and so loaded nothing. The file stays protected
+    /// while another claim holds it (another session loaded it).
+    func release(_ identity: BrowserReplFileIdentity, owner: UUID) {
+        let dropped = lock.withLock { () -> Bool in
+            guard var claims = identities[identity], claims.remove(owner) != nil else { return false }
+            if claims.isEmpty {
+                identities[identity] = nil
+                return true
+            }
+            identities[identity] = claims
+            return false
+        }
+        if dropped, self === Self.shared {
+            NotificationCenter.default.post(name: BrowserReplFileSandbox.secretSourcesDidChange, object: nil)
+        }
+    }
+
+    /// Posts ``BrowserReplFileSandbox/secretSourcesDidChange`` when any
+    /// file is protected: a REPL `fs.rename` may have moved one into
+    /// another session's root.
+    func noteEntryMoved() {
+        guard lock.withLock({ !identities.isEmpty }) else { return }
+        NotificationCenter.default.post(name: BrowserReplFileSandbox.secretSourcesDidChange, object: nil)
+    }
+
+    /// Whether a protected file may lie inside one of `roots` (canonical
+    /// directories): a name of it is below a root, judged by the identity
+    /// of each directory above it, never by spelling. Fails closed (true)
+    /// when that cannot be told: a root that cannot be read, a file with
+    /// more than one hard link (only one of its names can be found), a
+    /// file whose volume id is not known, or one whose path the volume
+    /// does not name for a reason other than that it is gone.
+    func mayHoldFile(under roots: [String]) -> Bool {
+        let protected = lock.withLock { Array(identities.keys) }
+        guard !protected.isEmpty else { return false }
+        var rootIdentities: Set<BrowserReplFileIdentity> = []
+        for root in roots {
+            guard let identity = BrowserReplFileIdentity(path: root) else { return true }
+            rootIdentities.insert(identity)
+        }
+        let devices = Set(rootIdentities.map(\.device))
+        for identity in protected where devices.contains(identity.device) {
+            guard let volume = identity.volume else { return true }
+            let found = BrowserReplFileIdentity.volumePathString(volume, identity.inode)
+            guard let path = found.path else {
+                if found.error == ENOENT { continue }
+                return true
+            }
+            var info = stat()
+            guard stat(path, &info) == 0, BrowserReplFileIdentity(info) == identity else {
+                // Removed or replaced since the volume named it.
+                if !identity.exists(lookup: volumeLookup) { continue }
+                return true
+            }
+            if info.st_nlink > 1 { return true }
+            var directory = path
+            while let slash = directory.lastIndex(of: "/"), directory != "/" {
+                directory = slash == directory.startIndex ? "/" : String(directory[..<slash])
+                if let above = BrowserReplFileIdentity(path: directory), rootIdentities.contains(above) { return true }
+            }
+        }
+        return false
+    }
+
+    /// Whether the file at `path` (links followed) is one `secrets.load` read.
+    func contains(path: String) -> Bool {
+        guard let identity = BrowserReplFileIdentity(path: path) else { return false }
+        return contains(identity)
+    }
+
+    /// Whether `identity` is a file `secrets.load` read.
+    func contains(_ identity: BrowserReplFileIdentity) -> Bool {
+        lock.withLock { identities[identity] != nil }
+    }
+}
+
+/// A file by its device and inode, which a rename or another hard link
+/// keeps, and the id of the volume that holds it.
+struct BrowserReplFileIdentity: Hashable, Sendable {
+    let device: UInt64
+    let inode: UInt64
+    /// The volume's `statfs` `f_fsid`, the id `fsgetpath` takes (on some
+    /// volumes not `st_dev`), or nil when it could not be taken. Not part
+    /// of the identity: two identities with the same device and inode are
+    /// the same file.
+    let volume: fsid_t?
+
+    init(_ info: stat, volume: fsid_t? = nil) {
+        device = UInt64(bitPattern: Int64(info.st_dev))
+        inode = UInt64(info.st_ino)
+        self.volume = volume
+    }
+
+    /// The identity of the file at `path`, links followed, or nil. Its
+    /// volume id is kept only when the file is the same one before and
+    /// after `statfs` read it (no swap of the path in between).
+    init?(path: String) {
+        var info = stat()
+        guard stat(path, &info) == 0 else { return nil }
+        var volumeInfo = statfs()
+        var again = stat()
+        let sameFile = statfs(path, &volumeInfo) == 0 && stat(path, &again) == 0
+            && again.st_dev == info.st_dev && again.st_ino == info.st_ino
+        self.init(info, volume: sameFile ? volumeInfo.f_fsid : nil)
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.device == rhs.device && lhs.inode == rhs.inode
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(device)
+        hasher.combine(inode)
+    }
+
+    /// Whether the file may still exist: false only when its volume, asked
+    /// by the id it reported (``volume``), says no object has this inode
+    /// (`fsgetpath` fails with `ENOENT`, as for a file removed under every
+    /// name). A volume that cannot tell, and a file whose volume id is not
+    /// known, count as yes: a protection is never dropped on a guess.
+    var exists: Bool { exists(lookup: Self.volumePath) }
+
+    /// ``exists`` with `lookup` asking the volume.
+    func exists(lookup: BrowserReplVolumeLookup) -> Bool {
+        guard let volume else { return true }
+        return lookup(volume, inode) != ENOENT
+    }
+
+    /// `fsgetpath` for the object `inode` on the volume `volume`: 0 when the
+    /// volume names a path for it, else the `errno` it failed with.
+    static func volumePath(_ volume: fsid_t, _ inode: UInt64) -> Int32 {
+        volumePathString(volume, inode).error
+    }
+
+    /// The path `fsgetpath` gives the object `inode` on the volume
+    /// `volume` (error 0), or nil and the `errno` it failed with.
+    static func volumePathString(_ volume: fsid_t, _ inode: UInt64) -> (path: String?, error: Int32) {
+        var volume = volume
+        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) + 1)
+        let length = buffer.withUnsafeMutableBufferPointer { fsgetpath($0.baseAddress, $0.count - 1, &volume, inode) }
+        guard length >= 0 else { return (nil, errno) }
+        let bytes = buffer.prefix(Int(length)).map { UInt8(bitPattern: $0) }.prefix { $0 != 0 }
+        return (String(decoding: bytes, as: UTF8.self), 0)
+    }
+}
+
+/// Asks the volume `fsid_t` (a `statfs` `f_fsid`) for the object with an
+/// inode number: 0 when it names a path for it, else an `errno`.
+typealias BrowserReplVolumeLookup = @Sendable (fsid_t, UInt64) -> Int32
+
+/// The origins of loopback servers cmux runs that serve local files
+/// (``BrowserReplFileSandbox/registerAppServedOrigin(of:)``). Sessions read
+/// it off the main thread.
+final class BrowserReplAppServedOrigins: @unchecked Sendable {
+    private let lock = NSLock()
+    private var origins: Set<String> = []
+
+    func insert(_ origin: String) { lock.withLock { _ = origins.insert(origin) } }
+    func remove(_ origin: String) { lock.withLock { _ = origins.remove(origin) } }
+    func contains(_ origin: String) -> Bool { lock.withLock { origins.contains(origin) } }
 }

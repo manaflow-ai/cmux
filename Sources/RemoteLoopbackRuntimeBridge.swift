@@ -4,7 +4,7 @@ import CmuxCore
 enum RemoteLoopbackRuntimeBridge {
     static let runtimeBridgeScriptSource = scriptSource(aliasHost: RemoteLoopbackProxyAlias.aliasHost)
 
-    static func scriptSource(aliasHost: String, preservesSubdomains: Bool = true) -> String {
+    static func scriptSource(aliasHost: String, preservesSubdomains: Bool = true, allOrigins: Bool = false) -> String {
         let exactLoopbackHostLiterals = RemoteLoopbackProxyAlias.exactLoopbackHosts
             .sorted()
             .map(javaScriptStringLiteral)
@@ -29,13 +29,14 @@ enum RemoteLoopbackRuntimeBridge {
           // pages. An about:blank bootstrap has no host yet, so it remains
           // provisionally wrapped until its base URL becomes available.
           if (
-            window.location.protocol !== 'about:' &&
+            !\(allOrigins ? "true" : "false") && window.location.protocol !== 'about:' &&
             initialHost !== normalizedAliasHost &&
             !initialHost.endsWith(`.${normalizedAliasHost}`)
           ) {
             return true;
           }
           const isRemoteLoopbackPage = () => {
+            if (\(allOrigins ? "true" : "false")) return true;
             let pageHost = normalizeHost(window.location.hostname);
             // loadHTMLString(baseURL:) runs this at document start, before the
             // parser installs its <base> element. Resolve the host lazily for

@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxProductAnalytics
 import CmuxSettings
 import Foundation
 import Observation
@@ -43,6 +44,7 @@ final class CloudActivationCoordinator {
     private let isAvailable: @MainActor () -> Bool
     private let prepare: @MainActor () async throws -> Void
     private let cleanup: @MainActor () async -> Void
+    private let analytics: ProductAnalytics
     @ObservationIgnored var activationTask: Task<Void, Never>?
     private var activationID: UUID?
     @ObservationIgnored var cleanupTask: Task<Void, Never>?
@@ -56,8 +58,10 @@ final class CloudActivationCoordinator {
         isAvailable: @escaping @MainActor () -> Bool = { CloudMachinesFeature.isAvailable },
         prepare: @escaping @MainActor () async throws -> Void,
         cleanup: @escaping @MainActor () async -> Void = {},
-        observeChanges: Bool = true
+        observeChanges: Bool = true,
+        analytics: ProductAnalytics = .disabled
     ) {
+        self.analytics = analytics
         self.defaults = defaults
         self.notificationCenter = notificationCenter
         self.isAvailable = isAvailable
@@ -167,6 +171,8 @@ final class CloudActivationCoordinator {
                     await self.settle(id: id, state: .unavailable)
                     return
                 }
+                self.analytics.track(.cloudEnableCompleted(result: .success))
+                self.analytics.updateContext(.cloudEnabled(true))
             } catch is CancellationError {
                 // User cancellation clears activationID first, so settle()
                 // ignores it. A cancellation from preparation is a transient
@@ -215,6 +221,8 @@ final class CloudActivationCoordinator {
         notificationCenter.post(name: RightSidebarBetaFeatureSettings.didChangeNotification, object: nil)
         state = isAvailable() ? .disabled : .unavailable
         scheduleCleanup(after: nil)
+        analytics.track(.cloudDisabled)
+        analytics.updateContext(.cloudEnabled(false))
     }
 
     /// Replays the current state and then emits every transition.
@@ -243,6 +251,7 @@ final class CloudActivationCoordinator {
         rollbackOptimisticActivation()
         scheduleCleanup(after: task)
         state = .cancelled
+        analytics.track(.cloudEnableCompleted(result: .cancelled))
     }
 
     /// Retries a failed or cancelled activation through the same setup path.
@@ -258,6 +267,21 @@ final class CloudActivationCoordinator {
         await cleanup()
         guard activationID == id else { return }
         self.state = state
+        if let result = Self.enableResult(for: state) {
+            analytics.track(.cloudEnableCompleted(result: result))
+        }
+    }
+
+    /// The analytics result of a failed enable; nil for states that are not one.
+    static func enableResult(for state: State) -> CloudEnableResult? {
+        switch state {
+        case .failed(.requiresPro): .requiresPaidPlan
+        case .failed(.signInRequired): .signInRequired
+        case .failed(.serviceUnavailable): .serviceUnavailable
+        case .unavailable: .unavailable
+        case .cancelled: .cancelled
+        case .disabled, .enabling, .enabled: nil
+        }
     }
 
     private func scheduleCleanup(after activationTask: Task<Void, Never>?) {

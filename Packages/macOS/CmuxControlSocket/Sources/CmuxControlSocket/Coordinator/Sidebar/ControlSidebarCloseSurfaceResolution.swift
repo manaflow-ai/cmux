@@ -14,4 +14,8 @@ public enum ControlSidebarCloseSurfaceResolution: Sendable, Equatable {
     case closed
     /// The close call returned failure.
     case closeFailed
+    /// The surface is a browser tab a browser REPL session drives or typed a
+    /// secret into, which other socket clients may not close. Carries the
+    /// message.
+    case denied(String)
 }

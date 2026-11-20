@@ -33,7 +33,13 @@ tables (users, teams, memberships, direct team and project permissions) equal
 to Hexclave. Code is in `hexclave/`. Each verified body is validated against
 the Hexclave package's own yup schema for its type (`webhookEvents.ts`): a
 schema failure answers 400 and is never processed, and an unknown type answers
-200 and is logged. A valid event is only a signal: the named user or team is
+200 and is logged. A verified, schema-valid delivery is stored in `hexclave_webhook_inbox` and
+answered 200; a drain applies it (`hexclave/inbox.ts`). The drain runs after
+each delivery and from the every-minute `hexclave-inbox` cron, at most two
+at once. It coalesces every pending event of one user or team into one
+reconcile and stops on a Hexclave 429/5xx/timeout, rescheduling with
+Hexclave's Retry-After or backoff, so a redelivery burst cannot keep Hexclave
+throttling us. Rows are deleted only after the reconcile succeeded. A valid event is only a signal: the named user or team is
 re-read from the Hexclave server API under a per-entity advisory lock and the
 mirror is rewritten from that read, so Svix's unordered and repeated delivery
 cannot write stale state. Deleted users and teams leave a tombstone that stops

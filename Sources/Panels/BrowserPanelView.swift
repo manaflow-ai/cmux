@@ -247,6 +247,7 @@ struct BrowserPanelView: View {
     private enum TaskKey: Hashable, Sendable {
         case emptyStateImportBrowserRefresh
         case omnibarSuggestionRefreshConsumer
+        case historySuggestionRefresh
         case suggestion
     }
 
@@ -2548,6 +2549,7 @@ struct BrowserPanelView: View {
 
     private func cancelPendingOmnibarSuggestionWork() {
         omnibarSuggestionRefreshScheduler.cancelPendingRefresh()
+        tasks.cancel(.historySuggestionRefresh)
         tasks.cancel(.suggestion)
         isLoadingRemoteSuggestions = false
     }
@@ -2754,6 +2756,13 @@ struct BrowserPanelView: View {
     }
 
     private func refreshSuggestions() {
+        tasks.cancel(.historySuggestionRefresh)
+        tasks.replaceOnMainActor(.historySuggestionRefresh) {
+            await self.refreshSuggestionsNow()
+        }
+    }
+
+    private func refreshSuggestionsNow() async {
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         defer {
@@ -2783,12 +2792,18 @@ struct BrowserPanelView: View {
         }
 
         let query = omnibarState.buffer.trimmingCharacters(in: .whitespacesAndNewlines)
-        let historyEntries: [BrowserHistoryStore.Entry] = {
-            if query.isEmpty {
-                return panel.historyStore.recentSuggestions(limit: 12)
+        let historyEntries: [BrowserHistoryStore.Entry]
+        if query.isEmpty {
+            historyEntries = panel.historyStore.recentSuggestions(limit: 12)
+        } else {
+            historyEntries = await panel.historyStore.suggestionsAsync(for: query, limit: 12)
+            guard !Task.isCancelled,
+                  addressBarFocused,
+                  !omnibarHasMarkedText,
+                  omnibarState.buffer.trimmingCharacters(in: .whitespacesAndNewlines) == query else {
+                return
             }
-            return panel.historyStore.suggestions(for: query, limit: 12)
-        }()
+        }
         let openTabMatches = query.isEmpty ? [] : matchingOpenTabSuggestions(for: query, limit: 12)
         let isSingleCharacterQuery = omnibarSingleCharacterQuery(for: query) != nil
         let remoteSuggestionsEngine = searchConfiguration.remoteSuggestionsEngine
@@ -2876,7 +2891,7 @@ struct BrowserPanelView: View {
                 let merged = buildOmnibarSuggestions(
                     query: query,
                     engineName: searchConfiguration.displayName,
-                    historyEntries: panel.historyStore.suggestions(for: query, limit: 12),
+                    historyEntries: historyEntries,
                     openTabMatches: matchingOpenTabSuggestions(for: query, limit: 12),
                     remoteQueries: remote,
                     resolvedURL: panel.resolveNavigableURL(from: query),

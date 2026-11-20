@@ -24,7 +24,7 @@ SHA = "a" * 40
 
 def preflight_check(branch: str) -> tuple[str, str]:
     """Runs the preflight step up to the artifact lookup; returns (exit code, GITHUB_OUTPUT)."""
-    step = yaml.safe_load(WORKFLOW.read_text())["jobs"]["preflight"]["steps"][0]
+    step = next(s for s in yaml.safe_load(WORKFLOW.read_text())["jobs"]["preflight"]["steps"] if s.get("id") == "check")
     script = step["run"].split('gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts', 1)[0]
     with tempfile.TemporaryDirectory() as temp:
         temp_path = Path(temp)

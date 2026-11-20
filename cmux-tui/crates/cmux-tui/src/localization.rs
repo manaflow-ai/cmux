@@ -7,6 +7,11 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::config::Action;
 
+mod attention;
+pub(crate) use attention::AttentionMessages;
+mod copy_mode;
+pub(crate) use copy_mode::CopyModeMessages;
+
 const FOREIGN_VIEWPORT_HINT_CAPACITY: usize = 64;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -457,6 +462,50 @@ impl RuntimeMessages {
     }
 }
 
+/// Text for `cmux remote trust`. `{fingerprint}` and `{path}` are replaced
+/// at print time.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct PeerTrustMessages {
+    pub help: &'static str,
+    pub empty: &'static str,
+    pub audit_empty: &'static str,
+    pub grant_needs_scope: &'static str,
+    not_known: &'static str,
+    forgotten: &'static str,
+    invalid_folder: &'static str,
+}
+
+impl PeerTrustMessages {
+    pub(crate) fn not_known(&self, fingerprint: &str) -> String {
+        self.not_known.replace("{fingerprint}", &format!("{fingerprint:?}"))
+    }
+
+    pub(crate) fn forgotten(&self, fingerprint: &str) -> String {
+        self.forgotten.replace("{fingerprint}", fingerprint)
+    }
+
+    pub(crate) fn invalid_folder(&self, path: &str) -> String {
+        self.invalid_folder.replace("{path}", &format!("{path:?}"))
+    }
+}
+
+/// Hints printed by `cmux remote doctor`. `{port}` and `{host}` are
+/// replaced at print time.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct RemoteDoctorMessages {
+    pub ok: &'static str,
+    pub key_not_authorized: &'static str,
+    pub host_key_unknown: &'static str,
+    pub host_key_changed: &'static str,
+    pub ssh_failed: &'static str,
+    pub ssh_off: &'static str,
+    pub tailnet_policy_blocks: &'static str,
+    pub unreachable: &'static str,
+    pub tcp_unreachable: &'static str,
+    pub unresolved: &'static str,
+    pub not_reachable: &'static str,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct RemoteClientMessages {
     pub connect_help: &'static str,
@@ -466,6 +515,7 @@ pub(crate) struct RemoteClientMessages {
     pub rpc_help: &'static str,
     pub enroll_help: &'static str,
     pub known_daemons_help: &'static str,
+    pub remote_doctor_help: &'static str,
     pub remote_probe_help: &'static str,
     pub remote_link_help: &'static str,
     pub install_self_help: &'static str,
@@ -897,6 +947,8 @@ pub(crate) struct SidebarMessages {
     pub idle: &'static str,
     pub done: &'static str,
     pub unknown: &'static str,
+    /// A workspace row's screen count after its pane title; `{count}`.
+    pub screens_count: &'static str,
     pub connect_prompt: &'static str,
     pub connect_host_prompt: &'static str,
     pub connecting_to: &'static str,
@@ -1206,6 +1258,41 @@ pub(crate) struct AgentWrapperMessages {
     pub agent_start_failed: &'static str,
 }
 
+/// `cmux identify` and `cmux skill`: the identity labels and the help; and
+/// other lines the CLI prints itself.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct PaneCliMessages {
+    pub session: &'static str,
+    pub machine: &'static str,
+    pub workspace: &'static str,
+    pub screen: &'static str,
+    pub pane: &'static str,
+    pub tab: &'static str,
+    pub terminal: &'static str,
+    pub socket: &'static str,
+    pub outer_app: &'static str,
+    pub guide: &'static str,
+    /// The terminal row when the caller is not placed; `{why}` is the reason.
+    pub not_found: &'static str,
+    /// Why there is no caller when `CMUX_TUI_TERMINAL_ID` is not set.
+    pub outside_terminal: &'static str,
+    /// The caller's `{terminal}` has no tab, pane, screen or workspace.
+    pub not_in_workspace: &'static str,
+    /// The session `{socket}` refused the connection with `{error}`.
+    pub unreachable: &'static str,
+    /// Usage error for words after `identify`; `{words}` are the words.
+    pub identify_arguments: &'static str,
+    /// Usage error for words after `skill` other than `show`.
+    pub skill_arguments: &'static str,
+    /// The `AGENT COMMANDS` block at the end of the root help.
+    pub root_agent_commands: &'static str,
+    pub identify_help: &'static str,
+    pub skill_help: &'static str,
+    /// What `cmux agent|sidebar plugin list` prints when no plugin is
+    /// installed; `{command}` is `cmux agent plugin` or `cmux sidebar plugin`.
+    pub no_plugins_installed: &'static str,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Catalog {
     japanese: bool,
@@ -1221,15 +1308,20 @@ pub(crate) struct Catalog {
     pub machine_agent: MachineAgentMessages,
     pub menu: MenuMessages,
     pub shortcuts: ShortcutMessages,
+    pub copy_mode: CopyModeMessages,
     pub browser: BrowserMessages,
     pub layout: LayoutMessages,
     pub runtime: RuntimeMessages,
     pub remote_client: RemoteClientMessages,
+    pub remote_doctor: RemoteDoctorMessages,
+    pub peer_trust: PeerTrustMessages,
     pub remote: RemoteMessages,
     pub config: ConfigMessages,
     pub attach: AttachMessages,
     pub sidebar: SidebarMessages,
     pub agent_wrapper: AgentWrapperMessages,
+    pub attention: AttentionMessages,
+    pub pane_cli: PaneCliMessages,
 }
 
 impl Catalog {
@@ -1241,10 +1333,54 @@ impl Catalog {
 
 static ENGLISH: Catalog = Catalog {
     japanese: false,
+    attention: attention::ENGLISH,
+    copy_mode: copy_mode::ENGLISH,
     agent_wrapper: AgentWrapperMessages {
         hooks_unavailable: "cmux: starting the agent without cmux status updates",
         agent_not_found: "cmux: the agent executable was not found",
         agent_start_failed: "cmux: the agent could not be started",
+    },
+    pane_cli: PaneCliMessages {
+        session: "session",
+        machine: "machine",
+        workspace: "workspace",
+        screen: "screen",
+        pane: "pane",
+        tab: "tab",
+        terminal: "terminal",
+        socket: "socket",
+        outer_app: "outer app",
+        guide: "agent guide",
+        not_found: "not found ({why})",
+        outside_terminal: "this process does not run in a cmux-tui terminal (CMUX_TUI_TERMINAL_ID is not set)",
+        not_in_workspace: "the caller's terminal {terminal} is not in a workspace",
+        unreachable: "cannot connect to session socket {socket}: {error}",
+        identify_arguments: "identify takes no arguments: {words}",
+        skill_arguments: "skill takes one action, show: {words}",
+        root_agent_commands: "
+AGENT COMMANDS
+  identify           Print this terminal's session, workspace, screen, pane, tab and terminal
+  skill show         Print the agent guide for this cmux build
+  agent start NAME   Start a coding agent in a tab named NAME and wait until it is ready
+  agent resume NAME  Start an agent that exited again, in the same conversation
+",
+        identify_help: "USAGE
+  cmux identify
+
+Print where this process runs: the session, machine, workspace, screen, pane,
+tab and terminal of the cmux-tui terminal it runs in (CMUX_TUI_TERMINAL_ID),
+read from that terminal's session. Outside a cmux-tui terminal, caller.found
+is false. Pass --json for the record (kind, session, machine, caller,
+outer_app, guide).
+",
+        skill_help: "USAGE
+  cmux skill show
+
+Print the agent guide for this cmux build as Markdown: where you run, the
+rules, recipes, waits, errors, scopes and the terminal, pane and tab paths.
+Pass --json for {name, version, markdown}.
+",
+        no_plugins_installed: "No plugins are installed. {command} install <git-url> installs one.",
     },
     startup: StartupMessages {
         schema_too_new: "cannot open session \"{session}\" with cmux {version}: its saved state is incompatible with this build",
@@ -1270,8 +1406,8 @@ static ENGLISH: Catalog = Catalog {
     local_server: LocalServerMessages {
         shorthand_help: "USAGE\n  cmux help shorthands\n\nShorthands use the same public resource operations and output modes.\n-t/--target accepts a cmux selector, not tmux session:window.pane syntax.\nNo target means current in the selected session. Lists stay within that session.\nsplitw defaults to down; -h is right and -v is down. Use --help for help.\nselectp accepts one of -L/-R/-U/-D. neww accepts -n NAME.\nrenamew accepts one new name. capturep always prints (-p is optional).\nsend-keys accepts key names (Enter, C-c, M-x); -l joins literal UTF-8 text.\nIt does not mix arbitrary text and key names. Use terminal write for text.\nResource paths may omit current: pane split, term read, ws rename --name NAME.\nExplicit selector paths win; name: forces names that match command words.\nNo new-session alias: use cmux --session NAME or server ensure --session NAME.\n",
         shorthand_invalid: "invalid or unsupported shorthand argument {value}; use cmux help shorthands",
-        startup_lifecycle_usage: "  cmux server <ACTION>     Start, inspect, stop, or reload one local session\n  cmux remote connect <ROUTE>  Attach through an authenticated remote route\n  cmux remote ssh <HOST>       Bootstrap and attach over direct SSH\n  cmux remote forward <ROUTE>  Forward a workspace TCP service locally\n  cmux remote rpc <ROUTE>     Run workspace coding-agent RPC requests\n  cmux remote enroll <ACTION> Enroll, approve, list, or revoke devices\n  cmux remote known-daemons   List client-pinned daemon identities and routes\n  cmux remote stop            Stop a replaceable SSH sidecar explicitly",
-        root_remote_usage: "  cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [OPTIONS]",
+        startup_lifecycle_usage: "  cmux server <ACTION>     Start, inspect, stop, or reload one local session\n  cmux remote connect <ROUTE>  Attach through an authenticated remote route\n  cmux remote ssh <HOST>       Bootstrap and attach over direct SSH\n  cmux remote forward <ROUTE>  Forward a workspace TCP service locally\n  cmux remote rpc <ROUTE>     Run workspace coding-agent RPC requests\n  cmux remote enroll <ACTION> Enroll, approve, list, or revoke devices\n  cmux remote known-daemons   List client-pinned daemon identities and routes\n  cmux remote doctor <HOST>   Explain why SSH to a host fails\n  cmux remote trust <ACTION>  Decide what paired machines may do here\n  cmux remote stop            Stop a replaceable SSH sidecar explicitly",
+        root_remote_usage: "  cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|doctor|trust|stop> [OPTIONS]",
         root_server_usage: "  cmux server <start|ensure|status|stats|stop|reload-config> [OPTIONS]",
         root_server_scope: "  server        Manage one named local durable session owner",
         session_stop_help: "  cmux session <name>|current stop",
@@ -1663,11 +1799,12 @@ OPTIONS:
   connect accepts every option documented by `cmux remote connect`.
 "#,
         known_daemons_help: "USAGE: cmux remote known-daemons [list] [--state-dir PATH] [--json]\n       cmux remote known-daemons forget FINGERPRINT [--state-dir PATH] [--json]\n",
+        remote_doctor_help: "USAGE: cmux remote doctor HOST [--port N] [--user USER] [--timeout-seconds N] [--json]\n\nProbe whether this machine can reach HOST over SSH and explain why not. Runs a Tailscale TSMP ping, a TCP connect to the SSH port (from `ssh -G HOST`, default 22) and, when TCP connects, `ssh -o BatchMode=yes HOST true`. It changes nothing on either machine. Exits 0 only when SSH works.\n",
         remote_probe_help: "USAGE: cmux-tui remote-probe [--json]\n",
         remote_link_help: "USAGE: cmux-tui remote-link --stdio [--session NAME] [--state-dir PATH]\n",
         install_self_help: "USAGE: cmux-tui install-self --destination PATH\n",
-        command_help: "USAGE: cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [OPTIONS]\n\nRun `cmux remote COMMAND --help` for command-specific routes and options. Legacy top-level aliases remain available for one compatibility cycle.\n",
-        remote_lifecycle_help: "USAGE: cmux remote connect|ssh|forward|rpc [OPTIONS]\n       cmux remote enroll <ACTION> [OPTIONS]\n       cmux remote known-daemons [OPTIONS]\n       cmux remote stop [OPTIONS]\n\nAuthenticated remote operations are explicit under `remote`. Start the owning process with `cmux server start` and explicit remote flags. `cmux remote stop` manages only replaceable SSH sidecars. Stop a listener embedded by `cmux server start` with `cmux server stop`; this also stops its local owner and workspaces.\n",
+        command_help: "USAGE: cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|doctor|trust|stop> [OPTIONS]\n\nRun `cmux remote COMMAND --help` for command-specific routes and options. Legacy top-level aliases remain available for one compatibility cycle.\n",
+        remote_lifecycle_help: "USAGE: cmux remote connect|ssh|forward|rpc [OPTIONS]\n       cmux remote enroll <ACTION> [OPTIONS]\n       cmux remote known-daemons [OPTIONS]\n       cmux remote doctor HOST [OPTIONS]\n       cmux remote trust <ACTION> [OPTIONS]\n       cmux remote stop [OPTIONS]\n\nAuthenticated remote operations are explicit under `remote`. Start the owning process with `cmux server start` and explicit remote flags. `cmux remote stop` manages only replaceable SSH sidecars. Stop a listener embedded by `cmux server start` with `cmux server stop`; this also stops its local owner and workspaces.\n",
         option_needs_value: "{option} needs a value",
         invalid_option_value: "{option} has an invalid value; expected {expected}",
         option_must_be_positive: "{option} must be positive",
@@ -1749,6 +1886,28 @@ socket.
         known_daemons_empty: "No known daemons.",
         known_daemon_auth_enrolled: "enrolled",
         known_daemon_auth_carrier: "carrier",
+    },
+    remote_doctor: RemoteDoctorMessages {
+        ok: "SSH works without prompting. cmux can use this host directly.",
+        key_not_authorized: "Port {port} answers, but the server rejected every key. Add this machine's public key to the target user's ~/.ssh/authorized_keys, or pass --user if the login name is different there.",
+        host_key_unknown: "Port {port} answers, but the host key isn't in known_hosts. Connect once with plain ssh to check and trust it.",
+        host_key_changed: "The host key differs from the one in known_hosts. Don't accept it until you've checked the new key on the host itself; it may have been reinstalled, or someone may be intercepting the connection.",
+        ssh_failed: "Port {port} answers, but SSH failed for another reason. Run ssh -v against the host for details.",
+        ssh_off: "The host refuses port {port}, so SSH isn't running there. On a Mac, turn on System Settings > General > Sharing > Remote Login.",
+        tailnet_policy_blocks: "Tailscale reaches the host, but TCP to port {port} times out. The tailnet access policy most likely blocks this direction. Ask a tailnet admin for a rule that lets this machine reach the host on tcp:{port}, or connect from the other machine instead, for example with a reverse tunnel. cmux never changes the policy.",
+        unreachable: "Neither Tailscale nor TCP reaches the host. Check that both machines are online and on the same tailnet.",
+        tcp_unreachable: "TCP to port {port} gets no answer. Check that the host is online and that nothing in between drops the connection.",
+        unresolved: "The host name doesn't resolve. Use its tailnet name or its 100.x address.",
+        not_reachable: "{host} is not reachable over SSH",
+    },
+    peer_trust: PeerTrustMessages {
+        help: "USAGE: cmux remote trust [list] [--state-dir PATH] [--json]\n       cmux remote trust set FINGERPRINT --tier none|ask|folders [--folder PATH]... [--agent claude|codex|opencode|pi]... [--expires-in-hours N] [--state-dir PATH] [--json]\n       cmux remote trust forget FINGERPRINT [--state-dir PATH] [--json]\n       cmux remote trust audit [--limit N] [--state-dir PATH] [--json]\n\nDecide what each paired machine may do on this one. FINGERPRINT is the peer's device fingerprint from `cmux remote enroll devices`. A peer without a record gets nothing. `ask` waits for your approval on this machine for every session request; `folders` starts sessions without asking. Both allow only the listed agents in the listed folders (not / or your home folder). Records live only on this machine and a peer can't change them. `audit` prints the newest requests from peers and what was decided.\n",
+        empty: "No peer trust records. Paired machines can't start anything here.",
+        audit_empty: "No requests from peers yet.",
+        grant_needs_scope: "ask and folders need at least one --folder and one --agent",
+        not_known: "no trust record for peer {fingerprint}",
+        forgotten: "Forgot trust record for {fingerprint}.",
+        invalid_folder: "--folder {path} must be an existing project folder, not /, your home folder or a folder that contains it",
     },
     remote: RemoteMessages {
         remote_stop_help: "USAGE: cmux remote stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\nThis command manages only replaceable SSH sidecars. Stop a listener embedded by `cmux server start` with `cmux server stop`; this also stops its local owner and workspaces.\n\n--acknowledge-legacy-finalization is only for an already-stopped pre-fence daemon. Verify that no legacy cmux-tui process remains before using it.\n",
@@ -1884,6 +2043,7 @@ socket.
         idle: "idle",
         done: "done",
         unknown: "unknown",
+        screens_count: "({count} screens)",
         connect_prompt: "Host address or pairing code",
         connect_host_prompt: "SSH host or user@host",
         connecting_to: "Connecting to {target}…",
@@ -1966,10 +2126,54 @@ socket.
 
 static JAPANESE: Catalog = Catalog {
     japanese: true,
+    attention: attention::JAPANESE,
+    copy_mode: copy_mode::JAPANESE,
     agent_wrapper: AgentWrapperMessages {
         hooks_unavailable: "cmux: cmux のステータス更新なしでエージェントを起動します",
         agent_not_found: "cmux: エージェントの実行ファイルが見つかりません",
         agent_start_failed: "cmux: エージェントを起動できませんでした",
+    },
+    pane_cli: PaneCliMessages {
+        session: "セッション",
+        machine: "マシン",
+        workspace: "ワークスペース",
+        screen: "スクリーン",
+        pane: "ペイン",
+        tab: "タブ",
+        terminal: "ターミナル",
+        socket: "ソケット",
+        outer_app: "外側のアプリ",
+        guide: "エージェントガイド",
+        not_found: "見つかりません（{why}）",
+        outside_terminal: "このプロセスは cmux-tui ターミナルで動いていません（CMUX_TUI_TERMINAL_ID が設定されていません）",
+        not_in_workspace: "呼び出し元のターミナル {terminal} はワークスペースにありません",
+        unreachable: "セッションソケット {socket} に接続できません: {error}",
+        identify_arguments: "identify は引数を取りません: {words}",
+        skill_arguments: "skill のアクションは show だけです: {words}",
+        root_agent_commands: "
+AGENT COMMANDS
+  identify           このターミナルのセッション、ワークスペース、スクリーン、ペイン、タブ、ターミナルを表示
+  skill show         この cmux ビルドのエージェントガイドを表示
+  agent start NAME   NAME という名前のタブでコーディングエージェントを起動し、準備ができるまで待つ
+  agent resume NAME  終了したエージェントを同じ会話のまま再び起動
+",
+        identify_help: "使用方法
+  cmux identify
+
+このプロセスが動いている場所を表示します。実行中の cmux-tui ターミナル
+（CMUX_TUI_TERMINAL_ID）のセッション、マシン、ワークスペース、スクリーン、
+ペイン、タブ、ターミナルを、そのターミナルのセッションから読み取ります。
+cmux-tui ターミナルの外では caller.found が false になります。--json で
+レコード（kind、session、machine、caller、outer_app、guide）を表示します。
+",
+        skill_help: "使用方法
+  cmux skill show
+
+この cmux ビルドのエージェントガイドを Markdown で表示します。現在の場所、
+ルール、レシピ、待機、エラー、スコープ、terminal・pane・tab のパスを含みます。
+--json で {name, version, markdown} を表示します。
+",
+        no_plugins_installed: "インストール済みのプラグインはありません。{command} install <git-url> でインストールできます。",
     },
     startup: StartupMessages {
         schema_too_new: "cmux {version} ではセッション \"{session}\" を開けません。保存状態はこのビルドと互換性がありません",
@@ -1995,8 +2199,8 @@ static JAPANESE: Catalog = Catalog {
     local_server: LocalServerMessages {
         shorthand_help: "使用方法\n  cmux help shorthands\n\n短縮形は同じ公開リソース操作と出力形式を使います。\n-t/--target は cmux セレクターです。tmux の session:window.pane 形式ではありません。\n対象の省略は選択したセッションの current です。一覧もそのセッション内です。\nsplitw の既定は下、-h は右、-v は下です。ヘルプは --help を使います。\nselectp は -L/-R/-U/-D の一つ、neww は -n NAME を受け付けます。\nrenamew は新しい名前一つ、capturep は常に出力します（-p は省略可）。\nsend-keys は Enter、C-c、M-x などのキー名、-l は UTF-8 文字列を連結します。\n文字列とキー名の混在には対応しません。文字列には terminal write を使います。\nリソースの current は省略可能です: pane split、term read、ws rename --name NAME。\n明示的なセレクターパスを優先します。コマンドと同名なら name: を使います。\nnew-session はありません。cmux --session NAME または server ensure --session NAME を使います。\n",
         shorthand_invalid: "短縮形の引数 {value} は無効または未対応です。cmux help shorthands を参照してください",
-        startup_lifecycle_usage: "  cmux server <操作>       一つのローカルセッションを起動、確認、停止、再読み込み\n  cmux remote connect <ルート>  認証済みリモートルート経由で接続\n  cmux remote ssh <ホスト>       直接 SSH で導入して接続\n  cmux remote forward <ルート>  ワークスペースの TCP サービスをローカル転送\n  cmux remote rpc <ルート>       ワークスペースのコーディングエージェント RPC を実行\n  cmux remote enroll <操作>      デバイスを登録、承認、一覧、失効\n  cmux remote known-daemons      クライアントに固定したデーモン ID とルートを一覧表示\n  cmux remote stop               置換可能な SSH サイドカーを明示的に停止",
-        root_remote_usage: "  cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [オプション]",
+        startup_lifecycle_usage: "  cmux server <操作>       一つのローカルセッションを起動、確認、停止、再読み込み\n  cmux remote connect <ルート>  認証済みリモートルート経由で接続\n  cmux remote ssh <ホスト>       直接 SSH で導入して接続\n  cmux remote forward <ルート>  ワークスペースの TCP サービスをローカル転送\n  cmux remote rpc <ルート>       ワークスペースのコーディングエージェント RPC を実行\n  cmux remote enroll <操作>      デバイスを登録、承認、一覧、失効\n  cmux remote known-daemons      クライアントに固定したデーモン ID とルートを一覧表示\n  cmux remote doctor <ホスト>   ホストへの SSH が失敗する理由を説明\n  cmux remote trust <操作>      ペアリングしたマシンがここでできることを決める\n  cmux remote stop               置換可能な SSH サイドカーを明示的に停止",
+        root_remote_usage: "  cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|doctor|trust|stop> [オプション]",
         root_server_usage: "  cmux server <start|ensure|status|stats|stop|reload-config> [オプション]",
         root_server_scope: "  server        一つの名前付きローカル永続セッション所有者を管理",
         session_stop_help: "  cmux session <名前>|current stop",
@@ -2385,11 +2589,12 @@ ID とセッション:
   connect では `cmux remote connect` の全オプションを使用できます。
 "#,
         known_daemons_help: "使用方法: cmux remote known-daemons [list] [--state-dir パス] [--json]\n          cmux remote known-daemons forget フィンガープリント [--state-dir パス] [--json]\n",
+        remote_doctor_help: "使用方法: cmux remote doctor ホスト [--port 番号] [--user ユーザー] [--timeout-seconds 秒] [--json]\n\nこのマシンから SSH でホストに到達できるかを調べ、できない理由を説明します。Tailscale の TSMP ping、SSH ポート (`ssh -G ホスト` の値、既定は 22) への TCP 接続、TCP が成功した場合は `ssh -o BatchMode=yes ホスト true` を実行します。どちらのマシンも変更しません。SSH が動作する場合だけ終了コード 0 を返します。\n",
         remote_probe_help: "使用方法: cmux-tui remote-probe [--json]\n",
         remote_link_help: "使用方法: cmux-tui remote-link --stdio [--session 名前] [--state-dir パス]\n",
         install_self_help: "使用方法: cmux-tui install-self --destination パス\n",
-        command_help: "使用方法: cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [オプション]\n\nコマンド別のルートとオプションは `cmux remote コマンド --help` で表示します。従来のトップレベル別名は互換期間中も使用できます。\n",
-        remote_lifecycle_help: "使用方法: cmux remote connect|ssh|forward|rpc [オプション]\n          cmux remote enroll <操作> [オプション]\n          cmux remote known-daemons [オプション]\n          cmux remote stop [オプション]\n\n認証済みリモート操作は `remote` で明示的に指定します。所有プロセスは明示的なリモートフラグを付けた `cmux server start` で起動します。`cmux remote stop` は置換可能な SSH サイドカーだけを管理します。`cmux server start` に組み込まれたリスナーは `cmux server stop` で停止してください。この操作はローカルの所有者とワークスペースも停止します。\n",
+        command_help: "使用方法: cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|doctor|trust|stop> [オプション]\n\nコマンド別のルートとオプションは `cmux remote コマンド --help` で表示します。従来のトップレベル別名は互換期間中も使用できます。\n",
+        remote_lifecycle_help: "使用方法: cmux remote connect|ssh|forward|rpc [オプション]\n          cmux remote enroll <操作> [オプション]\n          cmux remote known-daemons [オプション]\n          cmux remote doctor ホスト [オプション]\n          cmux remote trust <操作> [オプション]\n          cmux remote stop [オプション]\n\n認証済みリモート操作は `remote` で明示的に指定します。所有プロセスは明示的なリモートフラグを付けた `cmux server start` で起動します。`cmux remote stop` は置換可能な SSH サイドカーだけを管理します。`cmux server start` に組み込まれたリスナーは `cmux server stop` で停止してください。この操作はローカルの所有者とワークスペースも停止します。\n",
         option_needs_value: "{option} には値が必要です",
         invalid_option_value: "{option} の値が無効です。{expected} を指定してください",
         option_must_be_positive: "{option} には正の値を指定してください",
@@ -2470,6 +2675,28 @@ SIGTERM または SIGINT で終了し、ソケットを削除します。
         known_daemons_empty: "登録済みのデーモンはありません。",
         known_daemon_auth_enrolled: "登録済み",
         known_daemon_auth_carrier: "信頼済み搬送路",
+    },
+    remote_doctor: RemoteDoctorMessages {
+        ok: "SSH はプロンプトなしで動作します。cmux はこのホストを直接使用できます。",
+        key_not_authorized: "ポート {port} は応答しますが、サーバーがすべての鍵を拒否しました。このマシンの公開鍵を接続先ユーザーの ~/.ssh/authorized_keys に追加するか、ログイン名が異なる場合は --user を指定してください。",
+        host_key_unknown: "ポート {port} は応答しますが、ホスト鍵が known_hosts にありません。通常の ssh で一度接続して確認し、信頼してください。",
+        host_key_changed: "ホスト鍵が known_hosts のものと異なります。ホスト上で新しい鍵を確認するまで受け入れないでください。再インストールされたか、接続が傍受されている可能性があります。",
+        ssh_failed: "ポート {port} は応答しますが、別の理由で SSH が失敗しました。詳細はホストに対して ssh -v を実行してください。",
+        ssh_off: "ホストがポート {port} を拒否しているため、SSH が動作していません。Mac では「システム設定」>「一般」>「共有」>「リモートログイン」をオンにしてください。",
+        tailnet_policy_blocks: "Tailscale ではホストに到達できますが、ポート {port} への TCP がタイムアウトします。tailnet のアクセスポリシーがこの方向をブロックしている可能性があります。tailnet 管理者に、このマシンから tcp:{port} でホストに到達できるルールを依頼するか、リバーストンネルなどで反対側のマシンから接続してください。cmux がポリシーを変更することはありません。",
+        unreachable: "Tailscale でも TCP でもホストに到達できません。両方のマシンがオンラインで、同じ tailnet にあることを確認してください。",
+        tcp_unreachable: "ポート {port} への TCP 接続に応答がありません。ホストがオンラインで、途中で接続が遮断されていないことを確認してください。",
+        unresolved: "ホスト名を解決できません。tailnet 名または 100.x アドレスを使用してください。",
+        not_reachable: "{host} には SSH で到達できません",
+    },
+    peer_trust: PeerTrustMessages {
+        help: "使用方法: cmux remote trust [list] [--state-dir パス] [--json]\n          cmux remote trust set フィンガープリント --tier none|ask|folders [--folder パス]... [--agent claude|codex|opencode|pi]... [--expires-in-hours 時間] [--state-dir パス] [--json]\n          cmux remote trust forget フィンガープリント [--state-dir パス] [--json]\n          cmux remote trust audit [--limit 件数] [--state-dir パス] [--json]\n\nペアリングした各マシンがこのマシンで何をできるかを決めます。フィンガープリントは `cmux remote enroll devices` に表示されるピアのデバイスフィンガープリントです。記録のないピアには何も許可されません。`ask` はセッション要求のたびにこのマシンでの承認を待ち、`folders` は確認なしでセッションを開始します。どちらも指定したフォルダ (/ やホームフォルダは不可) で指定したエージェントだけを許可します。記録はこのマシンにだけ保存され、ピアは変更できません。`audit` はピアからの最新の要求と判定を表示します。\n",
+        empty: "ピアの信頼記録はありません。ペアリングしたマシンはここで何も開始できません。",
+        audit_empty: "ピアからの要求はまだありません。",
+        grant_needs_scope: "ask と folders には --folder と --agent をそれぞれ 1 つ以上指定してください",
+        not_known: "ピア {fingerprint} の信頼記録はありません",
+        forgotten: "{fingerprint} の信頼記録を削除しました。",
+        invalid_folder: "--folder {path} には既存のフォルダを指定してください (/、ホームフォルダ、その上位フォルダは不可)",
     },
     remote: RemoteMessages {
         remote_stop_help: "使用方法: cmux remote stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\nこのコマンドは置換可能な SSH サイドカーだけを管理します。`cmux server start` に組み込まれたリスナーは `cmux server stop` で停止してください。この操作はローカルの所有者とワークスペースも停止します。\n\n--acknowledge-legacy-finalization は、停止済みでライフサイクルフェンス導入前のデーモン専用です。使用前に旧 cmux-tui プロセスが残っていないことを確認してください。\n",
@@ -2605,6 +2832,7 @@ SIGTERM または SIGINT で終了し、ソケットを削除します。
         idle: "待機中",
         done: "完了",
         unknown: "不明",
+        screens_count: "({count} 画面)",
         connect_prompt: "ホストアドレスまたはペアリングコード",
         connect_host_prompt: "SSH ホストまたは user@host",
         connecting_to: "{target} に接続中…",

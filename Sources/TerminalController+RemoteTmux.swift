@@ -32,7 +32,21 @@ extension TerminalController {
             else {
                 throw RemoteTmuxError.unreachable("app not ready")
             }
-            let sessions = try await controller.listSessions(host: host)
+            let sessions: [RemoteTmuxSession]
+            do {
+                sessions = try await controller.listSessions(host: host)
+            } catch let error as RemoteTmuxError {
+                if case .commandFailed(_, let stderr) = error,
+                   RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(stderr),
+                   host.transportProfile.authenticationIsSSHShaped {
+                    return [
+                        "host": host.destination,
+                        "auth_required": true,
+                        "ssh_argv": host.interactiveAuthInvocation(),
+                    ]
+                }
+                throw error
+            }
             return [
                 "host": host.destination,
                 "sessions": sessions.map { Self.sessionPayload($0) },
@@ -268,10 +282,10 @@ extension TerminalController {
         }
     }
 
-    /// `remote.tmux.mirror` — mirror every tmux session on a host as its own
-    /// sidebar workspace in the resolved window. Params: `host` (required),
-    /// optional `port`, `identity_file`, `activate`, `workspace_name`, and
-    /// routing selectors.
+    /// `remote.tmux.mirror` — mirror tmux sessions on a host as sidebar workspaces
+    /// in the resolved window. Params: `host` (required), optional `session` for
+    /// one exact session, `port`, `identity_file`, `activate`, `workspace_name`,
+    /// and routing selectors.
     nonisolated func v2RemoteTmuxMirror(id: Any?, params: [String: Any]) -> String {
         guard ManagedRemoteConnectionsPolicy.isEnabled else {
             return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
@@ -287,6 +301,10 @@ extension TerminalController {
         }
         let activate = Self.remoteTmuxActivate(from: params)
         let workspaceName = Self.remoteTmuxWorkspaceName(from: params)
+        let sessionName = Self.remoteTmuxSessionName(from: params, transport: host.transport)
+        if params["session"] != nil, sessionName == nil {
+            return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.sessionRequired", defaultValue: "session is required"))
+        }
         let routing = remoteTmuxRouting(from: params)
         return v2VmCall(id: id, timeoutSeconds: RemoteTmuxController.attachSocketTimeoutSeconds) {
             guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController })
@@ -300,7 +318,8 @@ extension TerminalController {
                 host: host,
                 windowTarget: windowTarget,
                 activate: activate,
-                workspaceName: workspaceName
+                workspaceName: workspaceName,
+                sessionName: sessionName
             )
             switch outcome {
             case .mirrored(let windowId, let workspaceIds):
@@ -338,6 +357,10 @@ extension TerminalController {
         }
         let activate = Self.remoteTmuxActivate(from: params)
         let workspaceName = Self.remoteTmuxWorkspaceName(from: params)
+        let sessionName = Self.remoteTmuxSessionName(from: params, transport: host.transport)
+        if params["session"] != nil, sessionName == nil {
+            return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.sessionRequired", defaultValue: "session is required"))
+        }
         return v2VmCall(id: id, timeoutSeconds: RemoteTmuxController.attachSocketTimeoutSeconds) {
             guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController })
             else {
@@ -347,7 +370,8 @@ extension TerminalController {
                 host: host,
                 windowTarget: .dedicatedNewWindow,
                 activate: activate,
-                workspaceName: workspaceName
+                workspaceName: workspaceName,
+                sessionName: sessionName
             )
             switch outcome {
             case .mirrored(let windowId, let workspaceIds):

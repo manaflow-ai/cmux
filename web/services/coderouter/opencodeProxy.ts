@@ -1,4 +1,5 @@
 import { accountAccessForIdentity, type CoderouterAccountAccess } from "./accountAccess";
+import { noAccountConfiguredMessage } from "./noAccountMessage";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { request as httpRequest, type ClientRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
@@ -559,7 +560,7 @@ async function noUsableOpenCodeAccount(
     // answer uses the OpenAI error shape. No retry-after: it surfaces once.
     return Response.json({
       error: {
-        message: "No OpenCode account is configured for this team or shared with this caller. Add one with `cr add opencode` or at coderouter.dev.",
+        message: noAccountConfiguredMessage("opencode", identity),
         type: "invalid_request_error",
         code: "no_account_configured",
       },

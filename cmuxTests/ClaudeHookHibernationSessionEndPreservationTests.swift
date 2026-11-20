@@ -54,6 +54,7 @@ struct ClaudeHookHibernationSessionEndPreservationTests {
         #expect((params["pid"] as? NSNumber)?.intValue == 43219)
         #expect((params["pid_start_seconds"] as? NSNumber)?.int64Value == 17)
         #expect((params["pid_start_microseconds"] as? NSNumber)?.int64Value == 23)
+        #expect(params["local_process"] as? Bool == true)
         #expect(!commands.contains { $0.contains("\"method\":\"surface.resume.clear\"") })
         #expect(!commands.contains { $0.contains("\"method\":\"feed.push\"") })
         #expect(try Harness.sessionRecord(in: context.storeURL, sessionId: sessionID) != nil)

@@ -19,6 +19,11 @@ if [[ ! -f "$REGISTRY_VALIDATOR" || ! -f "$PBX_NORMALIZER" ]]; then
     exit 1
 fi
 
+# Warn (never fail) when a remote fetches from a local mirror but pushes to GitHub.
+if [[ -x "$HOOK_DIR/check-git-remotes.sh" ]]; then
+    "$HOOK_DIR/check-git-remotes.sh" || true
+fi
+
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 PBXPROJ="cmux.xcodeproj/project.pbxproj"
 

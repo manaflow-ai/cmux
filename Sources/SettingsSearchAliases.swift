@@ -111,6 +111,10 @@ enum SettingsSearchAliasIndex {
             "settings.search.alias.setting.app.warn-before-closing-workspace",
             defaultValue: "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent"
         ),
+        "app:always-confirm-workspace-close": localized(
+            "settings.search.alias.setting.app.always-confirm-workspace-close",
+            defaultValue: "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation"
+        ),
         "app:warn-before-closing-window": localized(
             "settings.search.alias.setting.app.warn-before-closing-window",
             defaultValue: "app.warnBeforeClosingWindow close window confirmation command-control-w cmd-ctrl-w running process"
@@ -134,7 +138,6 @@ enum SettingsSearchAliasIndex {
         "terminal:reflow-hard-wrap-on-copy": localized("settings.search.alias.setting.terminal.reflow-hard-wrap-on-copy", defaultValue: "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste"),
         "terminal:password-input-indicator": localized("settings.search.alias.setting.terminal.password-input-indicator", defaultValue: "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt"),
         "terminal:password-input-dots": localized("settings.search.alias.setting.terminal.password-input-dots", defaultValue: "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt"),
-        "terminal:jump-to-bottom-button": localized("settings.search.alias.setting.terminal.jump-to-bottom-button", defaultValue: "terminal.showJumpToBottomButton jump to bottom button scroll to bottom scrollback follow output latest newest pill arrow down agent codex claude"),
         "terminal:predictive-local-echo": localized("settings.search.alias.setting.terminal.predictive-local-echo", defaultValue: "terminal.predictiveLocalEcho predictive local echo typing latency lag ssh remote speculative mosh round trip underline"),
         "terminal:tab-bar-font-size": localized("settings.search.alias.setting.terminal.tab-bar-font-size", defaultValue: "surface-tab-bar-font-size tab bar font size text scale terminal browser pane tab title"),
         "terminal:resume-commands": localized("settings.search.alias.setting.terminal.resume-commands", defaultValue: "surface resume commands approvals command prefixes auto restore ask manual tmux hibernation sticky process"),
@@ -232,6 +235,7 @@ enum SettingsSearchAliasIndex {
         "workspaceColors:selection": localized("settings.search.alias.setting.workspaceColors.selection", defaultValue: "workspaceColors.selectionColor selected workspace color highlight background active tab"),
         "workspaceColors:subtle-selection": localized("settings.search.alias.setting.workspaceColors.subtle-selection", defaultValue: "workspaceColors.subtleSelection subtle calm quiet selection highlight tint hairline edge selected workspace accent"),
         "workspaceColors:brighten-dark-mode": localized("settings.search.alias.setting.workspaceColors.brighten-dark-mode", defaultValue: "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color"),
+        "workspaceColors:unselected-fill-opacity": localized("settings.search.alias.setting.workspaceColors.unselected-fill-opacity", defaultValue: "workspaceColors.unselectedFillOpacity opacity transparency alpha solid fill unselected inactive workspace row color dull faded strength"),
         "workspaceColors:badge": localized("settings.search.alias.setting.workspaceColors.badge", defaultValue: "workspaceColors.notificationBadgeColor unread notification badge color dot count"),
         "workspaceColors:palette": localized("settings.search.alias.setting.workspaceColors.palette", defaultValue: "workspaceColors.colors workspace palette named colors custom color reset built-in"),
         "settingsJSON:open-file": localized("settings.search.alias.setting.settingsJSON.open-file", defaultValue: "open config file json jsonc config editor ~/.config cmux preferences"),

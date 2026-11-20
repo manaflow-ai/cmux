@@ -167,6 +167,252 @@ struct HermesAgentHookConfigTests {
         #expect(HermesAgentHookConfig.uninstalling(from: installed) == existing)
     }
 
+    private let lifecycleEvents = [
+        HermesAgentHookConfig.Event(name: "pre_tool_call", command: "sh -c 'cmux hooks feed --source hermes-agent --event pre_tool_call'", timeout: 120),
+        HermesAgentHookConfig.Event(name: "post_tool_call", command: "sh -c 'cmux hooks feed --source hermes-agent --event post_tool_call'", timeout: 120),
+    ]
+
+    private func occurrences(of needle: String, in text: String) -> Int {
+        text.components(separatedBy: needle).count - 1
+    }
+
+    /// With no `hooks:` key cmux writes the key itself, inside its markers. A
+    /// tool that later adds an entry under that key is still inside them.
+    @Test("A refresh keeps entries another tool added under the hooks key cmux created")
+    func refreshKeepsEntriesAddedUnderCreatedHooksKey() {
+        let installed = HermesAgentHookConfig.installing(events: lifecycleEvents, in: "model: m\n")
+        let shared = installed
+            .replacingOccurrences(
+                of: "  pre_tool_call:\n",
+                with: "  pre_tool_call:\n    - command: \"my_tool pre\"\n      timeout: 3\n"
+            )
+            .replacingOccurrences(
+                of: "# cmux hooks hermes-agent end",
+                with: "    - matcher: \"terminal\"\n      command: 'my_tool post'\n# cmux hooks hermes-agent end"
+            )
+        #expect(occurrences(of: "my_tool", in: shared) == 2)
+
+        let refreshed = HermesAgentHookConfig.installing(events: lifecycleEvents, in: shared)
+
+        #expect(occurrences(of: "my_tool", in: refreshed) == 2)
+        #expect(refreshed.contains("    - command: \"my_tool pre\"\n      timeout: 3\n"))
+        #expect(refreshed.contains("    - matcher: \"terminal\"\n      command: 'my_tool post'\n"))
+        #expect(occurrences(of: "--event pre_tool_call", in: refreshed) == 1)
+        #expect(occurrences(of: "--event post_tool_call", in: refreshed) == 1)
+        #expect(occurrences(of: "\nhooks:", in: refreshed) == 1)
+        #expect(occurrences(of: "\n  pre_tool_call:", in: refreshed) == 1)
+        #expect(occurrences(of: "\n  post_tool_call:", in: refreshed) == 1)
+        #expect(HermesAgentHookConfig.installing(events: lifecycleEvents, in: refreshed) == refreshed)
+        #expect(HermesAgentHookConfig.uninstalling(from: refreshed) == """
+        model: m
+
+        hooks:
+          pre_tool_call:
+            - command: "my_tool pre"
+              timeout: 3
+          post_tool_call:
+            - matcher: "terminal"
+              command: 'my_tool post'
+
+        """)
+    }
+
+    /// With `hooks:` present but no event key, cmux writes the event keys
+    /// inside its markers.
+    @Test("A refresh keeps entries another tool added under an event key cmux created")
+    func refreshKeepsEntriesAddedUnderCreatedEventKey() {
+        let existing = """
+        hooks:
+          on_session_start:
+            - command: "echo start"
+
+        """
+        let installed = HermesAgentHookConfig.installing(events: lifecycleEvents, in: existing)
+        let shared = installed.replacingOccurrences(
+            of: "  # cmux hooks hermes-agent end",
+            with: "    - command: my_tool post\n  on_custom:\n    - command: my_tool custom\n  # cmux hooks hermes-agent end"
+        )
+        #expect(occurrences(of: "my_tool", in: shared) == 2)
+
+        let refreshed = HermesAgentHookConfig.installing(events: lifecycleEvents, in: shared)
+
+        #expect(occurrences(of: "my_tool", in: refreshed) == 2)
+        #expect(occurrences(of: "--event pre_tool_call", in: refreshed) == 1)
+        #expect(occurrences(of: "--event post_tool_call", in: refreshed) == 1)
+        #expect(occurrences(of: "\n  post_tool_call:", in: refreshed) == 1)
+        #expect(HermesAgentHookConfig.installing(events: lifecycleEvents, in: refreshed) == refreshed)
+        #expect(HermesAgentHookConfig.uninstalling(from: refreshed) == """
+        hooks:
+          post_tool_call:
+            - command: my_tool post
+          on_custom:
+            - command: my_tool custom
+          on_session_start:
+            - command: "echo start"
+
+        """)
+    }
+
+    @Test("Uninstall keeps entries another tool added inside cmux's markers")
+    func uninstallKeepsEntriesAddedInsideMarkers() {
+        let installed = HermesAgentHookConfig.installing(events: lifecycleEvents, in: "")
+        let shared = installed.replacingOccurrences(
+            of: "  post_tool_call:\n",
+            with: "  post_tool_call:\n    - command: |\n        my_tool post\n      timeout: 9\n"
+        )
+
+        #expect(HermesAgentHookConfig.uninstalling(from: shared) == """
+        hooks:
+          post_tool_call:
+            - command: |
+                my_tool post
+              timeout: 9
+
+        """)
+    }
+
+    @Test("A refresh keeps an entry another tool added between cmux's entries under an existing key")
+    func refreshKeepsEntryAddedBetweenCmuxEntries() {
+        let existing = """
+        hooks:
+          pre_tool_call:
+            - command: "echo user"
+          post_tool_call:
+            - command: "echo post"
+
+        """
+        let installed = HermesAgentHookConfig.installing(events: lifecycleEvents, in: existing)
+        let shared = installed.replacingOccurrences(
+            of: "    # cmux hooks hermes-agent end\n    - command: \"echo user\"",
+            with: "    - command: \"my_tool pre\"\n    # cmux hooks hermes-agent end\n    - command: \"echo user\""
+        )
+        #expect(occurrences(of: "my_tool", in: shared) == 1)
+
+        let refreshed = HermesAgentHookConfig.installing(events: lifecycleEvents, in: shared)
+
+        #expect(occurrences(of: "my_tool", in: refreshed) == 1)
+        #expect(occurrences(of: "--event pre_tool_call", in: refreshed) == 1)
+        #expect(HermesAgentHookConfig.uninstalling(from: refreshed) == """
+        hooks:
+          pre_tool_call:
+            - command: "my_tool pre"
+            - command: "echo user"
+          post_tool_call:
+            - command: "echo post"
+
+        """)
+    }
+
+    /// cmux's lifecycle hooks run `"$cmux_cli" hooks enqueue hermes-agent ...`
+    /// inside a longer script. A cmux entry kept as another tool's would be
+    /// written again on every refresh and left behind on uninstall.
+    @Test("cmux's own entries in any form are replaced, not kept beside the new ones")
+    func cmuxEntriesInAnyFormAreReplaced() {
+        func events(timeoutSeconds: Int) -> [HermesAgentHookConfig.Event] {
+            [
+                HermesAgentHookConfig.Event(
+                    name: "on_session_start",
+                    command: "sh -c 'cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-cmux}\"; CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=\(timeoutSeconds) \"$cmux_cli\" hooks enqueue hermes-agent session-start || true'"
+                ),
+                HermesAgentHookConfig.Event(
+                    name: "pre_tool_call",
+                    command: "sh -c '\"$cmux_cli\" hooks feed --source hermes-agent --event pre_tool_call'",
+                    timeout: 120
+                ),
+            ]
+        }
+        let existing = """
+        model: m
+        hooks:
+          pre_tool_call:
+            - command: other
+
+        """
+
+        let installed = HermesAgentHookConfig.installing(events: events(timeoutSeconds: 2), in: existing)
+        #expect(HermesAgentHookConfig.uninstalling(from: installed) == existing)
+        #expect(HermesAgentHookConfig.uninstalling(
+            from: HermesAgentHookConfig.installing(events: events(timeoutSeconds: 2), in: "")
+        ) == "")
+
+        let upgraded = HermesAgentHookConfig.installing(events: events(timeoutSeconds: 3), in: installed)
+        #expect(occurrences(of: "hooks enqueue hermes-agent session-start", in: upgraded) == 1)
+        #expect(occurrences(of: "TIMEOUT_SEC=2", in: upgraded) == 0)
+        #expect(HermesAgentHookConfig.uninstalling(from: upgraded) == existing)
+
+        // A comment a person left inside a cmux entry goes with the entry.
+        let annotated = HermesAgentHookConfig.installing(events: events(timeoutSeconds: 2), in: "")
+            .replacingOccurrences(of: "      timeout: 120", with: "      # slow on first run\n\n      timeout: 120")
+        #expect(HermesAgentHookConfig.uninstalling(from: annotated) == "")
+
+        // So does a comment after a key cmux wrote.
+        let annotatedKey = HermesAgentHookConfig.installing(events: events(timeoutSeconds: 2), in: "")
+            .replacingOccurrences(of: "  on_session_start:", with: "  on_session_start: # note: mine")
+        #expect(HermesAgentHookConfig.uninstalling(from: annotatedKey) == "")
+    }
+
+    @Test("A kept entry is kept whole, whatever its lines look like")
+    func keptEntryIsKeptWhole() {
+        let installed = HermesAgentHookConfig.installing(events: lifecycleEvents, in: "")
+        let entry = """
+            - matcher:
+              command: |
+                if true; then
+                  echo hi:
+                fi
+                echo done:
+              timeout: 9
+
+        """
+        let shared = installed.replacingOccurrences(of: "  pre_tool_call:\n", with: "  pre_tool_call:\n" + entry)
+
+        let refreshed = HermesAgentHookConfig.installing(events: lifecycleEvents, in: shared)
+
+        #expect(refreshed.contains(entry))
+        #expect(HermesAgentHookConfig.uninstalling(from: refreshed) == "hooks:\n  pre_tool_call:\n" + entry)
+    }
+
+    /// PyYAML writes a list at the same indent as its key, and a tool may
+    /// indent the children of `hooks:` by four spaces.
+    @Test("Installs beside existing entries at the indent they already use")
+    func installsAtTheIndentExistingEntriesUse() {
+        let unindentedList = """
+        hooks:
+          pre_tool_call:
+          - command: my_tool pre
+            timeout: 3
+          post_tool_call:
+          - command: my_tool post
+
+        """
+        let installed = HermesAgentHookConfig.installing(events: lifecycleEvents, in: unindentedList)
+        #expect(installed.contains("""
+          pre_tool_call:
+          # cmux hooks hermes-agent begin
+          - command: "sh -c 'cmux hooks feed --source hermes-agent --event pre_tool_call'"
+            timeout: 120
+          # cmux hooks hermes-agent end
+          - command: my_tool pre
+            timeout: 3
+        """))
+        #expect(HermesAgentHookConfig.uninstalling(from: installed) == unindentedList)
+
+        let fourSpaces = """
+        hooks:
+            on_session_start:
+                - command: my_tool start
+
+        """
+        let installedFourSpaces = HermesAgentHookConfig.installing(events: lifecycleEvents, in: fourSpaces)
+        #expect(installedFourSpaces.contains("""
+        hooks:
+            # cmux hooks hermes-agent begin
+            pre_tool_call:
+              - command: "sh -c 'cmux hooks feed --source hermes-agent --event pre_tool_call'"
+        """))
+        #expect(HermesAgentHookConfig.uninstalling(from: installedFourSpaces) == fourSpaces)
+    }
+
     @Test("Allowlist install and uninstall only touches cmux commands")
     func allowlistInstallAndUninstallOnlyTouchesCmuxCommands() throws {
         let existing = """

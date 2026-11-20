@@ -155,11 +155,16 @@ extension TabItemView {
 
         Menu(String(localized: "contextMenu.workspaceColor", defaultValue: "Workspace Color")) {
             let tabColorPalette = WorkspaceTabColorSettings.palette()
-            let currentColorHex = workspaceSnapshot.customColorHex.flatMap {
+            // The menu edits persisted manual colors. An origin tint is only a
+            // rendering fallback and must not appear selected or prefill the
+            // custom-color editor as though the user chose it.
+            let currentColorHex = (workspaceSnapshot.hasManualCustomColor ? workspaceSnapshot.customColorHex : nil).flatMap {
                 WorkspaceTabColorSettings.normalizedHex($0)
             }
 
-            if workspaceSnapshot.customColorHex != nil {
+            // Gate on the MANUAL color, not the effective row color: an
+            // origin-tinted row with no manual color has nothing to clear.
+            if context.hasManualCustomColor {
                 Button {
                     applyTabColor(nil, targetIds: targetIds)
                 } label: {
@@ -239,6 +244,10 @@ extension TabItemView {
             }
         }
         .disabled(targetIds.isEmpty)
+
+        if !isMulti {
+            WorkspaceMergeIntoMenu(sourceWorkspaceId: snapshot.workspaceId)
+        }
 
         Divider()
 

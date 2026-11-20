@@ -4,9 +4,9 @@
 #
 #   scripts/sign-cmux-tui-ssh-payloads.sh <app-path> <entitlements> <signing-identity>
 #
-# install-cmux-tui-client.sh copies every platform's cmux-tui build into
-# Contents/Resources/bin/cmux-tui-ssh/ so the app can bootstrap an SSH host
-# without a download. Notarization rejects the bundle while the two
+# install-cmux-tui-client.sh copies the cmux-tui builds a packaged client cannot
+# serve itself into Contents/Resources/bin/cmux-tui-ssh/ (none for a current
+# client, which leaves only manifest.json; then nothing is signed or re-pinned). Notarization rejects the bundle while the two
 # *-apple-darwin payloads there are unsigned or only linker-signed, so each
 # Mach-O payload is signed with the hardened runtime and a secure timestamp,
 # the same way sign-cmux-bundle.sh signs Resources/bin helpers.

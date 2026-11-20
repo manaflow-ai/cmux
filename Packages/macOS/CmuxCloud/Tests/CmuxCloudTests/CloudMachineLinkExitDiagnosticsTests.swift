@@ -32,11 +32,11 @@ struct CloudMachineLinkExitDiagnosticsTests {
         do {
             _ = try await link.connect(route: "ws://10.0.0.1:1337/v1/link", session: "main", carrier: true)
             Issue.record("a client that exits before its socket line must fail the connect")
-        } catch CloudMachineLink.LinkError.exited(let status, let output) {
+        } catch CloudMachineLink.LinkError.exitedBeforeSocket(let status, let output) {
             #expect(status == 2)
             #expect(output.contains("route refused"), "stderr written before the pipe closed must reach the error: \(output)")
         } catch {
-            Issue.record("expected LinkError.exited, got \(error)")
+            Issue.record("expected LinkError.exitedBeforeSocket, got \(error)")
         }
     }
 

@@ -18,8 +18,9 @@ protocol DeferredAgentResumeAdmissionOwner: AnyObject {
     func resolveDeferredAgentResumeRestores(using index: RestorableAgentSessionIndex)
     /// Presents pending restores as still checking when no index is available.
     func presentPendingAgentResumeRestores()
-    /// Fresh evidence for this owner's pending requests.
-    var deferredAgentResumeIndexProvider: @MainActor @Sendable () async -> SharedLiveAgentIndexRefreshOutcome { get }
+    /// Fresh evidence for this owner's pending requests. The argument is the
+    /// uptime the pass began; any scan that started after it is fresh enough.
+    var deferredAgentResumeIndexProvider: @MainActor @Sendable (UInt64) async -> SharedLiveAgentIndexRefreshOutcome { get }
     /// Waits for the next evidence event; cancellation releases the wait.
     /// The process identities are the owners observed by the just-completed
     /// scan. Waiting on their kernel exit events closes the gap where a
@@ -40,8 +41,12 @@ extension DeferredAgentResumeAdmissionOwner {
         let refresh = deferredAgentResumeIndexProvider
         let waitForEvidence = deferredAgentResumeEvidenceWait
         deferredAgentResumeIndexTask = Task { @MainActor [weak self] in
+            // Every retry of this pass accepts a scan that began after the
+            // pass did, so a census longer than one request's deadline still
+            // decides the pending restores (#20186).
+            let freshAfter = DispatchTime.now().uptimeNanoseconds
             while !Task.isCancelled {
-                let outcome = await refresh()
+                let outcome = await refresh(freshAfter)
                 guard !Task.isCancelled else { return }
                 // Do not hold the owner across the evidence wait: teardown must
                 // not be delayed by a restore that is still observing evidence.
@@ -57,8 +62,12 @@ extension DeferredAgentResumeAdmissionOwner {
         }
     }
 
-    var deferredAgentResumeIndexProvider: @MainActor @Sendable () async -> SharedLiveAgentIndexRefreshOutcome {
-        { await SharedLiveAgentIndex.shared.indexForOwnershipDecision() }
+    var deferredAgentResumeIndexProvider: @MainActor @Sendable (UInt64) async -> SharedLiveAgentIndexRefreshOutcome {
+        { freshAfter in
+            await SharedLiveAgentIndex.shared.indexForOwnershipDecision(
+                freshAfterUptimeNanoseconds: freshAfter
+            )
+        }
     }
 
     var deferredAgentResumeEvidenceWait: @Sendable ([AgentPIDProcessIdentity]) async -> Void {

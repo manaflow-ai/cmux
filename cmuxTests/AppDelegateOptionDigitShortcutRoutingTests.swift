@@ -1,4 +1,5 @@
 import AppKit
+import struct CmuxSettings.ChiefCatalogSection
 import Foundation
 import Testing
 
@@ -486,7 +487,7 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             defer { closeWindow(withId: windowId) }
 
             let testWindow = try #require(self.window(withId: windowId))
-            // Cmd+Shift+Y (New Cloud Workspace) and Cmd+Y (New Cloud Machine) are
+            // Cmd+Y (New Cloud Workspace) and Cmd+Shift+Y (New Cloud Machine) are
             // Cloud defaults that swapped strokes in 9c2ba78be4; this test isolates
             // modifier matching for focus history rather than shortcut conflict
             // priority, so clear both regardless of which one owns the shifted key.
@@ -718,6 +719,21 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
 
     private func withIsolatedShortcutRoutingState(_ body: () async throws -> Void) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
+            // Chief Home (on by default) adds a pinned Home workspace at index 0
+            // of every new main window. These tests address workspaces by index
+            // (`selectTab(at: 0)`, Option+digit numbering, adjacent-tab arrows),
+            // so keep Home out of the window they create.
+            let defaults = UserDefaults.standard
+            let chiefEnabledKey = ChiefCatalogSection().enabled.userDefaultsKey
+            let originalChiefEnabled = defaults.object(forKey: chiefEnabledKey)
+            ChiefSettings.setEnabled(false, in: defaults)
+            defer {
+                if let originalChiefEnabled {
+                    defaults.set(originalChiefEnabled, forKey: chiefEnabledKey)
+                } else {
+                    defaults.removeObject(forKey: chiefEnabledKey)
+                }
+            }
             let actionsWithPersistedShortcut = Set(
                 KeyboardShortcutSettings.Action.allCases.filter {
                     UserDefaults.standard.object(forKey: $0.defaultsKey) != nil

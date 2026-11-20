@@ -162,6 +162,43 @@ describe("observability alerts", () => {
     expect(summary.alertSink).toEqual({ configured: false, droppedAlerts: 1 });
   });
 
+  test("runVmAlertChecks pages once on the provider TLS rule cap and clears when it recovers", async () => {
+    const sent: AlertInput[] = [];
+    const cleared: string[] = [];
+    const delivered = new Set<string>();
+    const alertStateStore = {
+      claim: async (input: AlertInput) => (delivered.has(input.key) ? null : "lease"),
+      acknowledge: async (key: string) => { delivered.add(key); },
+      clear: async (key: string) => { cleared.push(key); delivered.delete(key); },
+    };
+    let usage: { provider: string; count: number; limit: number } | null = { provider: "freestyle", count: 2170, limit: 2000 };
+    const run = () => runVmAlertChecks({
+      db: fakeAlertDb(),
+      now: new Date("2026-10-09T16:00:00.000Z"),
+      env: { CMUX_VM_ALERT_CREATE_FAILURES_15M: "5" },
+      alertStateStore,
+      readTlsRuleUsage: async () => usage,
+      sendAlert: async (input): Promise<AlertResult> => {
+        sent.push(input);
+        return { sent: true, configured: true, status: 200 };
+      },
+    });
+
+    const first = await run();
+    expect(first.tlsRuleCapacity).toEqual({ triggered: true, count: 2170, limit: 2000 });
+    await run();
+    expect(sent.filter((alert) => alert.key === "provider-tls-rule-capacity").map((alert) => alert.severity)).toEqual(["critical"]);
+
+    usage = null;
+    await run();
+    expect(cleared).not.toContain("provider-tls-rule-capacity");
+
+    usage = { provider: "freestyle", count: 400, limit: 2000 };
+    const recovered = await run();
+    expect(recovered.tlsRuleCapacity).toEqual({ triggered: false, count: 400, limit: 2000 });
+    expect(cleared).toContain("provider-tls-rule-capacity");
+  });
+
   test("dropped alerts use stable per-key insert IDs within a daily bucket", async () => {
     const captures: Array<{ properties: Record<string, unknown> }> = [];
     const fetchMock = mock(async (...args: unknown[]) => {

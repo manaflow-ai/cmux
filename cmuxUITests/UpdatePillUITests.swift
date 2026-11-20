@@ -482,6 +482,9 @@ final class TitlebarShortcutHintsUITests: XCTestCase {
         let hintedNotificationsFrame = hintedNotifications.frame
         let hintedNewTabFrame = hintedNewTab.frame
 
+        XCTAssertEqual(hintedToggleFrame.minX, baselineToggleFrame.minX, accuracy: 1.0)
+        XCTAssertEqual(hintedNotificationsFrame.minX, baselineNotificationsFrame.minX, accuracy: 1.0)
+        XCTAssertEqual(hintedNewTabFrame.minX, baselineNewTabFrame.minX, accuracy: 1.0)
         XCTAssertEqual(hintedToggleFrame.minY, baselineToggleFrame.minY, accuracy: 1.0)
         XCTAssertEqual(hintedNotificationsFrame.minY, baselineNotificationsFrame.minY, accuracy: 1.0)
         XCTAssertEqual(hintedNewTabFrame.minY, baselineNewTabFrame.minY, accuracy: 1.0)

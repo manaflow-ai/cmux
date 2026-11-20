@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 
 @MainActor
 extension BrowserPanel {

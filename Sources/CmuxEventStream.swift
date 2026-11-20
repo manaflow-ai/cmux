@@ -14,13 +14,18 @@ extension TerminalController {
         return method == "events.stream"
     }
 
+    /// Streams events until the peer, authorization, or subscription ends.
+    ///
+    /// Runs on the cooperative pool, so idle waits must suspend rather than
+    /// block: a blocked waiter per subscriber would exhaust the pool and stop
+    /// the control socket from answering (#21348).
     nonisolated func handleEventsStreamRequest(
         _ line: String,
         socket: Int32,
         authorizationGeneration: UInt64,
         authorizationRevocationSignal: SocketAuthorizationRevocationSignal,
         passwordAuthorization: SocketPasswordAuthorization
-    ) {
+    ) async {
         var streamPasswordAuthorization = passwordAuthorization
         guard socketEventStreamAuthorizationIsCurrent(
             authorizationGeneration,
@@ -77,7 +82,7 @@ extension TerminalController {
             authorizationGeneration,
             passwordAuthorization: &streamPasswordAuthorization
         ) {
-            let event = snapshot.subscription.next(timeout: CmuxEventBus.defaultHeartbeatIntervalSeconds)
+            let event = await snapshot.subscription.nextAsync(timeout: CmuxEventBus.defaultHeartbeatIntervalSeconds)
             guard socketEventStreamAuthorizationIsCurrent(
                 authorizationGeneration,
                 passwordAuthorization: &streamPasswordAuthorization

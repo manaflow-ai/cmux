@@ -158,6 +158,52 @@ struct SessionContentWidthSettingsFileStoreTests {
         }
     }
 
+    /// `remoteTmux.beta.originColors.enabled` in cmux.json reaches the same stored value the Settings toggle writes.
+    @Test
+    func settingsFileStoreAppliesRemoteTmuxOriginColors() throws {
+        let defaults = UserDefaults.standard
+        let key = SettingCatalog().betaFeatures.remoteTmuxOriginColors
+        #expect(key.defaultValue == false)
+        try preservingDefaults(keys: [key.userDefaultsKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try #"{"remoteTmux":{"beta":{"originColors":{"enabled":true}}}}"#.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            #expect(defaults.object(forKey: key.userDefaultsKey) as? Bool == true)
+        }
+    }
+
+    /// `remoteTmux.beta.originHostTitles.enabled` in cmux.json reaches the same stored value the Settings toggle writes.
+    @Test
+    func settingsFileStoreAppliesRemoteTmuxOriginHostTitles() throws {
+        let defaults = UserDefaults.standard
+        let key = SettingCatalog().betaFeatures.remoteTmuxOriginHostTitles
+        #expect(key.defaultValue == false)
+        try preservingDefaults(keys: [key.userDefaultsKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try #"{"remoteTmux":{"beta":{"originHostTitles":{"enabled":true}}}}"#.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            #expect(defaults.object(forKey: key.userDefaultsKey) as? Bool == true)
+        }
+    }
+
     @Test(.timeLimit(.minutes(1)))
     @MainActor
     func canonicalSidebarAndIntegrationEditsApplyThroughWatcher() async throws {
@@ -376,6 +422,23 @@ struct SessionContentWidthSettingsFileStoreTests {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
+
+    /// `remoteTmux.beta.newWorkspaceOnHost.enabled` in cmux.json reaches the same stored value the Settings toggle writes.
+    @Test
+    func settingsFileStoreAppliesRemoteTmuxNewWorkspaceOnHost() throws {
+        let defaults = UserDefaults.standard
+        let key = SettingCatalog().betaFeatures.remoteTmuxNewWorkspaceOnHost
+        #expect(key.defaultValue == false)
+        try preservingDefaults(keys: [key.userDefaultsKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try #"{"remoteTmux":{"beta":{"newWorkspaceOnHost":{"enabled":false}}}}"#.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+            _ = KeyboardShortcutSettingsFileStore(primaryPath: settingsFileURL.path, fallbackPath: nil, additionalFallbackPaths: [], startWatching: false)
+            #expect(defaults.object(forKey: key.userDefaultsKey) as? Bool == false)
+        }
+    }
+
 }
 
 @Suite("Session content width presentation")

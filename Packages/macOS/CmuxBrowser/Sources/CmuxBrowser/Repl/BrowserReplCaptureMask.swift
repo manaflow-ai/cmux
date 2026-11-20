@@ -59,10 +59,20 @@ extension WKContentWorld {
 /// picks the values from that origin, and masks only in a document that
 /// still holds the mark. After the capture every frame must still show a
 /// marked document, so none showed another page meanwhile (a navigation
-/// gives the frame a new global object, without the mark).
+/// gives the frame a new global object, without the mark), and every
+/// marked child frame must still be there (`stale` otherwise): one removed
+/// during the capture could have shown any page in it.
 ///
-/// The domain policy judges the document each frame shows when it is
-/// marked, the one the capture shows. A blocked main frame refuses the
+/// WebKit's frame list can lack frames (no tree at all, or a child it
+/// cannot describe), and a frame missing from it would be neither masked
+/// nor judged. Each marked document counts its child frames (`window.frames`
+/// and the frames in its shadow trees); every frame but the main one is the
+/// child of one document, so a list that names fewer frames than that
+/// refuses the capture (`stale`).
+///
+/// The domain policy (with ``init(secretMasks:gate:blockedChildFrames:probe:)``,
+/// the frame gate's rules, local files included) judges the document each
+/// frame shows when it is marked, the one the capture shows. A blocked main frame refuses the
 /// capture. A blocked child frame refuses a capture that cannot hide it (a
 /// PDF, ``BlockedChildFrames/refuse``); a screenshot is handed those
 /// frames and blanks them (``BlockedChildFrames/handToCapture``).
@@ -103,6 +113,15 @@ public struct BrowserReplCaptureMask {
 
     let masks: [Mask]
     let policy: BrowserReplDomainPolicy
+    /// Judges the documents the capture shows: the domain policy, or with
+    /// a gate the gate's rules (its policy, and in a tab the session did
+    /// not create the local-file rule, which holds without a policy).
+    private(set) var judge: Judge
+
+    struct Judge {
+        let isActive: @MainActor (WKWebView) -> Bool
+        let blockReason: @MainActor (BrowserReplFrameDocument, WKWebView) -> String?
+    }
     let blockedChildFrames: BlockedChildFrames
     /// Bounds each of the mask's scripts: WebKit drops a script's
     /// completion when a navigation replaces its document.
@@ -124,6 +143,10 @@ public struct BrowserReplCaptureMask {
         probe: BrowserReplScriptProbe = BrowserReplScriptProbe()
     ) {
         self.policy = policy
+        let authority = BrowserReplDocumentAuthority(sessionID: "", policy: policy)
+        judge = Judge(isActive: { _ in policy.isActive }, blockReason: { document, _ in
+            authority.verdict(BrowserReplAccess(.document(document))).reason
+        })
         self.blockedChildFrames = blockedChildFrames
         self.probe = probe
         masks = secretMasks.compactMap { mask in
@@ -131,6 +154,21 @@ public struct BrowserReplCaptureMask {
                   let domains = mask["domains"] as? [[String: Any]] else { return nil }
             return Mask(value: value, domains: domains.compactMap(BrowserReplDomainPattern.from(json:)))
         }
+    }
+
+    /// A mask whose capture is judged by `gate`
+    /// (``BrowserReplFrameGate/blockReason(_:in:)``): its domain policy,
+    /// and in a tab the session did not create the local-file rule, which
+    /// holds with no policy. It runs whenever the gate judges the tab
+    /// (``BrowserReplFrameGate/isActive(in:)``).
+    public init(
+        secretMasks: [[String: Any]],
+        gate: BrowserReplFrameGate,
+        blockedChildFrames: BlockedChildFrames = .refuse,
+        probe: BrowserReplScriptProbe = BrowserReplScriptProbe()
+    ) {
+        self.init(secretMasks: secretMasks, policy: gate.policy, blockedChildFrames: blockedChildFrames, probe: probe)
+        judge = Judge(isActive: { gate.isActive(in: $0) }, blockReason: { gate.blockReason($0, in: $1) })
     }
 
     public var isEmpty: Bool { masks.isEmpty }
@@ -152,16 +190,22 @@ public struct BrowserReplCaptureMask {
         frames: () async -> [WKFrameInfo?],
         _ capture: (_ blockedChildFrames: [String: String]) async throws -> T
     ) async throws -> T {
-        guard !isEmpty || policy.isActive else { return try await capture([:]) }
+        guard !isEmpty || judge.isActive(webView) else { return try await capture([:]) }
         var marked: [WKFrameInfo?] = []
         var blockedChildren: [String: String] = [:]
         do {
+            // Child frames the marked documents hold: every frame but the
+            // main one is the child of one document, so a list that names
+            // fewer frames than that lacks some, which would go unmasked
+            // and unjudged.
+            var children = 0
             for frame in await frames() {
                 marked.append(frame)
                 let document = try await mark(frame, in: webView)
+                children += document.children
                 // Judged on the document the mark step marked, the one the
                 // capture shows (the after-capture check refuses another).
-                if let reason = policy.blockReason(document: document.policyDocument) {
+                if let reason = judge.blockReason(document.policyDocument, webView) {
                     let isMain = frame?.isMainFrame ?? true
                     guard !isMain, blockedChildFrames == .handToCapture,
                           let id = frame.flatMap(BrowserReplFrame.frameID(of:)) else {
@@ -177,6 +221,12 @@ public struct BrowserReplCaptureMask {
                     try await step(frame, mode: "on", values: values, shown: document.shown, in: webView)
                 }
             }
+            if children + 1 > marked.count {
+                throw BrowserReplDriverError(
+                    code: "stale",
+                    message: "the capture was refused: WebKit's frame tree of this tab came back without some of its frames (its documents hold \(children) child frames, the tree \(max(0, marked.count - 1))), which could not be masked or checked; try again"
+                )
+            }
         } catch {
             await unmark(marked, in: webView)
             throw error
@@ -189,7 +239,21 @@ public struct BrowserReplCaptureMask {
             throw error
         }
         do {
-            for frame in await frames() {
+            let after = await frames()
+            // A frame marked before the capture and gone after it could have
+            // shown any page while it was taken (a response WebKit accepted
+            // before the load hold), and no check below reaches it.
+            let present = Set(after.compactMap { $0.flatMap(BrowserReplFrame.frameID(of:)) })
+            for frame in marked {
+                guard let info = frame, !info.isMainFrame else { continue }
+                guard let id = BrowserReplFrame.frameID(of: info), present.contains(id) else {
+                    throw BrowserReplDriverError(
+                        code: "stale",
+                        message: "the capture was refused: a frame it marked was removed while it was taken, so what it showed cannot be checked; try again"
+                    )
+                }
+            }
+            for frame in after {
                 try await step(frame, mode: "verify", values: [], shown: nil, in: webView)
             }
         } catch {
@@ -223,6 +287,9 @@ public struct BrowserReplCaptureMask {
         /// `location.origin` and the URL's scheme and host, as the domain
         /// policy judges frames (`BrowserReplFrameDocument`).
         let policyDocument: BrowserReplFrameDocument
+        /// The document's child frames: `window.frames` and the frames in
+        /// its shadow trees (closed ones too, which the mask's world sees).
+        let children: Int
 
         var shown: String { origin == "null" ? policyDocument.place : origin }
     }
@@ -249,12 +316,14 @@ public struct BrowserReplCaptureMask {
             )
         }
         guard let document = reply as? [String: Any], let origin = document["origin"] as? String,
-              let place = document["place"] as? String else {
+              let place = document["place"] as? String, let children = (document["children"] as? NSNumber)?.intValue else {
             throw BrowserReplDriverError(code: "invalid", message: "the capture was refused: a frame did not answer; try again")
         }
         return MarkedDocument(
             origin: origin,
-            policyDocument: BrowserReplFrameDocument(origin: document["locationOrigin"] as? String, place: place)
+            policyDocument: BrowserReplFrameDocument(origin: document["locationOrigin"] as? String, place: place, local: document["local"] as? String)
+                .withMakers(frame: frame, in: webView),
+            children: children
         )
     }
 
@@ -328,7 +397,19 @@ public struct BrowserReplCaptureMask {
     const prop = "-webkit-text-security";
     if (mode === "mark") {
       state.marks.set(token, []);
-      return { origin: String(self.origin), locationOrigin: location.origin, place: location.protocol + "//" + location.host };
+      const children = new Set();
+      for (let i = 0; i < window.frames.length; i++) children.add(window.frames[i]);
+      const visitShadows = (root) => {
+        for (const el of root.querySelectorAll("*")) {
+          if (!el.shadowRoot) continue;
+          for (const f of el.shadowRoot.querySelectorAll("iframe, frame, object, embed")) if (f.contentWindow) children.add(f.contentWindow);
+          visitShadows(el.shadowRoot);
+        }
+      };
+      visitShadows(document);
+      const local = location.origin === "file://" || location.protocol === "file:"
+        ? location.href.slice(0, location.href.length - location.hash.length) : null;
+      return { origin: String(self.origin), locationOrigin: location.origin, place: location.protocol + "//" + location.host, local, children: children.size };
     }
     if (mode === "off") {
       state.marks.delete(token);

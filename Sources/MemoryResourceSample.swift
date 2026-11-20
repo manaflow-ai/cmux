@@ -2,6 +2,7 @@ import CmuxFoundation
 import CmuxTerminal
 import Darwin
 import Foundation
+import CmuxMemoryPressure
 
 /// One resource sample shared by local diagnostics and opt-in Sentry reporting.
 struct MemoryResourceSample: Sendable {

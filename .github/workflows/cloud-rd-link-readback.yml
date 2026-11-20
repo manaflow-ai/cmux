@@ -1,0 +1,25 @@
+name: Cloud desktop UDP link readback (staging, Mac behind NAT)
+
+# The implementation lives on feat-cmux-next (#39461). GitHub dispatches only a
+# workflow the default branch registers, so this inert copy lets lanes run:
+#
+#   gh workflow run cloud-rd-link-readback.yml -R manaflow-ai/cmux --ref feat-cmux-next
+#
+# A dispatch runs the file at --ref, so feat-cmux-next's inputs and jobs win;
+# these inputs only mirror them for the Actions form.
+on:
+  workflow_dispatch:
+    inputs:
+      team:
+        description: A team id to act as (--team); empty is the account's own team
+        required: false
+        default: ""
+        type: string
+
+permissions: {}
+
+jobs:
+  registration:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - run: echo "The desktop link readback is implemented on feat-cmux-next; dispatch it with --ref feat-cmux-next"

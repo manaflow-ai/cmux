@@ -44,7 +44,8 @@ final class RecordingReverseRelayLauncher:
         launchContinuation.yield(RecordedReverseRelayLaunch(
             arguments: arguments,
             localRelayPort: localRelayPort,
-            startupMarker: startupMarker
+            startupMarker: startupMarker,
+            environment: environment
         ))
         lock.withLock {
             _launchCount += 1

@@ -211,6 +211,154 @@ class RangeAssemblyTests(unittest.TestCase):
                                       transport.MAX_BYTES + 1, fetch=lambda *a: None)
 
 
+class RangeDeadlineTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="cmux-parallel-deadline-")
+        self.addCleanup(self.temp.cleanup)
+        self.target = Path(self.temp.name) / "out.bin"
+        self.clock = 0.0
+        self.sleeps = []
+
+    def sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.clock += seconds
+
+    def download(self, factory, fetch, *, deadline_seconds=1, size=1, connections=1):
+        with mock.patch.object(transport.time, "monotonic", side_effect=lambda: self.clock), \
+                mock.patch.object(transport.time, "sleep", side_effect=self.sleep):
+            transport.download_ranges(factory, self.target, size, connections=connections,
+                                      chunk_bytes=1, deadline_seconds=deadline_seconds, fetch=fetch)
+
+    def test_expired_budget_does_not_resolve_initial_url(self):
+        factory = mock.Mock(return_value="https://blob.example/initial")
+        fetch = mock.Mock()
+        with self.assertRaises(transport.TransportError):
+            self.download(factory, fetch, deadline_seconds=0)
+        factory.assert_not_called()
+        fetch.assert_not_called()
+        self.assertEqual(self.sleeps, [])
+
+    def test_slow_initial_url_resolution_does_not_start_a_fetch(self):
+        def factory():
+            self.clock = 1.0
+            return "https://blob.example/initial"
+
+        fetch = mock.Mock(side_effect=lambda url, start, end, fd, deadline: os.pwrite(fd, b"x", start))
+        with self.assertRaises(transport.TransportError):
+            self.download(factory, fetch)
+        fetch.assert_not_called()
+        self.assertEqual(self.sleeps, [])
+
+    def test_expired_403_does_not_renew_the_url(self):
+        factory = mock.Mock(return_value="https://blob.example/initial")
+
+        def forbidden(*args):
+            self.clock = 1.0
+            raise transport.urllib.error.HTTPError(args[0], 403, "expired", {}, None)
+
+        fetch = mock.Mock(side_effect=forbidden)
+        with self.assertRaises(transport.TransportError):
+            self.download(factory, fetch)
+        factory.assert_called_once()
+        fetch.assert_called_once()
+        self.assertEqual(self.sleeps, [])
+
+    def test_slow_url_renewal_does_not_sleep_or_start_another_fetch(self):
+        def renew():
+            self.clock = 1.0
+            return "https://blob.example/renewed"
+
+        factory = mock.Mock()
+        factory.side_effect = lambda: renew() if factory.call_count > 1 else "https://blob.example/initial"
+        fetch = mock.Mock(side_effect=transport.urllib.error.HTTPError("url", 403, "expired", {}, None))
+        with self.assertRaises(transport.TransportError):
+            self.download(factory, fetch)
+        self.assertEqual(factory.call_count, 2)
+        fetch.assert_called_once()
+        self.assertEqual(self.sleeps, [])
+
+    def test_last_attempt_does_not_renew_or_sleep(self):
+        factory = mock.Mock(return_value="https://blob.example/initial")
+        def forbidden(url, *args):
+            raise transport.urllib.error.HTTPError(url, 403, "expired", {}, None)
+
+        fetch = mock.Mock(side_effect=forbidden)
+        with self.assertRaises(transport.TransportError):
+            self.download(factory, fetch, deadline_seconds=60)
+        self.assertEqual(fetch.call_count, transport.ATTEMPTS)
+        self.assertEqual(factory.call_count, transport.ATTEMPTS)
+        self.assertEqual(self.sleeps, [1, 2, 4])
+
+    def test_retry_backoff_uses_only_the_remaining_budget(self):
+        factory = mock.Mock(return_value="https://blob.example/initial")
+        fetch = mock.Mock(side_effect=OSError("unavailable"))
+        with self.assertRaises(transport.TransportError):
+            self.download(factory, fetch, deadline_seconds=0.5)
+        self.assertEqual(self.sleeps, [0.5])
+        fetch.assert_called_once()
+        factory.assert_called_once()
+
+    def test_a_transient_failure_can_retry_within_the_budget(self):
+        factory = mock.Mock(return_value="https://blob.example/initial")
+
+        def fetch(url, start, end, fd, deadline):
+            if not self.sleeps:
+                raise OSError("transient")
+            os.pwrite(fd, b"x", start)
+
+        self.download(factory, fetch, deadline_seconds=10)
+        self.assertEqual(self.target.read_bytes(), b"x")
+        self.assertEqual(self.sleeps, [1])
+        factory.assert_called_once()
+
+    def test_waiting_403_renewal_checks_the_budget_under_the_lock(self):
+        import threading
+
+        first_pair = threading.Barrier(2)
+        factory = mock.Mock()
+
+        def resolve():
+            if factory.call_count == 1:
+                return "https://blob.example/initial"
+            self.clock = 1.0
+            return "https://blob.example/renewed"
+
+        factory.side_effect = resolve
+
+        def request(url, start, end, fd, deadline):
+            if url.endswith("initial"):
+                first_pair.wait(timeout=5)
+                raise transport.urllib.error.HTTPError(url, 403, "expired", {}, None)
+            os.pwrite(fd, b"x", start)
+
+        fetch = mock.Mock(side_effect=request)
+        with self.assertRaises(transport.TransportError):
+            self.download(factory, fetch, size=2, connections=2)
+        self.assertEqual(factory.call_count, 2)
+        self.assertEqual(fetch.call_count, 2)
+        self.assertEqual(self.sleeps, [])
+
+    def test_concurrent_403s_share_one_url_renewal(self):
+        import threading
+
+        first_pair = threading.Barrier(2)
+        factory = mock.Mock(side_effect=["https://blob.example/initial", "https://blob.example/renewed"])
+
+        def fetch(url, start, end, fd, deadline):
+            if url.endswith("initial"):
+                first_pair.wait(timeout=5)
+                raise transport.urllib.error.HTTPError(url, 403, "expired", {}, None)
+            os.pwrite(fd, b"x", start)
+
+        # No time passes in this coalescing control; both callers must reuse the
+        # refreshed URL rather than each requesting their own signed URL.
+        with mock.patch.object(transport.time, "monotonic", return_value=0), \
+                mock.patch.object(transport.time, "sleep"):
+            transport.download_ranges(factory, self.target, 2, connections=2,
+                                      chunk_bytes=1, deadline_seconds=10, fetch=fetch)
+        self.assertEqual(self.target.read_bytes(), b"xx")
+        self.assertEqual(factory.call_count, 2)
+
 class AggregateRestoreTests(unittest.TestCase):
     ARCHIVE = b"compiled products" * 1000
 
@@ -245,6 +393,25 @@ class AggregateRestoreTests(unittest.TestCase):
         record = self.restore()
         self.assertEqual((self.root / "app-host-products/app-host-products.tar.gz").read_bytes(), self.ARCHIVE)
         self.assertEqual(record["zip_bytes"], len(self.zip_bytes))
+
+    def test_failed_transfer_preserves_existing_empty_destination(self):
+        def fail(*args):
+            raise transport.TransportError("transfer unavailable")
+
+        for name, fetch in (("transfer", fail), ("digest", self.fetch(b"unverified bytes"))):
+            with self.subTest(miss=name):
+                destination = self.root / name
+                destination.mkdir()
+                with self.assertRaises(transport.TransportError):
+                    self.restore(destination=name, fetch=fetch)
+                self.assertTrue(destination.is_dir())
+                self.assertEqual(list(destination.iterdir()), [])
+
+    def test_verified_product_replaces_existing_empty_destination(self):
+        destination = self.root / "app-host-products"
+        destination.mkdir()
+        self.restore()
+        self.assertEqual((destination / "app-host-products.tar.gz").read_bytes(), self.ARCHIVE)
 
     def test_foreign_run_is_rejected(self):
         with self.assertRaises(transport.TransportError):

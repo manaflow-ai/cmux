@@ -12,6 +12,66 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testAppStoreCloudUIHasNoSystemVPN() {
+        let app = launchApp(mockData: true, launchArguments: [
+            "-dev.cmux.mobile.onboarding.redesign.progress.v1", "complete",
+            "-mobile.cloud.onboarding.completed.v2", "NO",
+        ])
+        defer { app.terminate() }
+        app.activate()
+        let pairingCancel = app.buttons["MobilePairingCancelButton"]
+        if pairingCancel.waitForExistence(timeout: 3) {
+            pairingCancel.tap()
+        }
+        let cloudTab = app.tabBars.buttons["MobilePrimaryTabCloud"]
+        XCTAssertTrue(cloudTab.waitForExistence(timeout: 15))
+        XCTAssertTrue(cloudTab.isHittable)
+        cloudTab.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["CloudInlineOnboarding"].waitForExistence(timeout: 10))
+
+        let primary = app.buttons["CloudOnboardingPrimaryButton"]
+        func assertNoVPN() {
+            XCTAssertFalse(app.staticTexts["System VPN"].exists)
+            XCTAssertFalse(app.descendants(matching: .any)["CloudOnboardingVPNToggle"].exists)
+            XCTAssertFalse(app.descendants(matching: .any)["CloudOnboardingGraphic-vpn"].exists)
+        }
+        func capture(_ name: String) {
+            assertNoVPN()
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        XCTAssertTrue(primary.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Your workspace lives in the Cloud"].waitForExistence(timeout: 5))
+        XCTAssertEqual(primary.label, "Continue")
+        capture("appstore-cloud-page-1")
+        primary.tap()
+        XCTAssertTrue(app.staticTexts["A private key keeps it private"].waitForExistence(timeout: 5))
+        XCTAssertEqual(primary.label, "Get started")
+        capture("appstore-cloud-page-2")
+        app.buttons["CloudOnboardingSecondaryButton"].tap()
+        XCTAssertTrue(app.staticTexts["Your workspace lives in the Cloud"].waitForExistence(timeout: 5))
+        capture("appstore-cloud-back")
+        primary.tap()
+        XCTAssertTrue(app.staticTexts["A private key keeps it private"].waitForExistence(timeout: 5))
+        primary.tap()
+        let basics = app.buttons["CloudBasicsButton"]
+        XCTAssertTrue(basics.waitForExistence(timeout: 5))
+        capture("appstore-cloud-settings")
+        basics.tap()
+        XCTAssertTrue(primary.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Your workspace lives in the Cloud"].waitForExistence(timeout: 5))
+        capture("appstore-cloud-basics-reopened")
+        primary.tap()
+        XCTAssertTrue(app.staticTexts["A private key keeps it private"].waitForExistence(timeout: 5))
+        capture("appstore-cloud-basics-final-page")
+        primary.tap()
+        XCTAssertTrue(basics.waitForExistence(timeout: 5))
+        assertNoVPN()
+    }
+
+    @MainActor
     func testFeedStartsBelowToolbar() {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_FEED_FULL_TEXT_PREVIEW": "1",
@@ -1015,6 +1075,110 @@ final class cmuxUITests: XCTestCase {
             ]
         )
         capture("onboarding-09-connect-compact-height")
+    }
+
+    /// App Review (iPad, 2026-11-07) on a fresh install with no paired Mac:
+    /// after choosing Tailscale Only on the connect page, "Scan Pairing Code"
+    /// did nothing, and the page offered no way to continue without a Mac.
+    /// No mock data here, so no Computer exists and the real scanner gate sees
+    /// the same `.notSelected` Tailscale status the reviewer's install had.
+    @MainActor
+    func testFreshInstallTailscaleScanOpensScannerAndSkipLeavesOnboarding() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+            "-dev.cmux.mobile.onboarding.redesign.progress.v1", "connect",
+        ]
+        app.launchEnvironment = [
+            "CMUX_UITEST_ONBOARDING_PREVIEW": "1",
+            "CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK": "1",
+            "CMUX_UITEST_SCANNER_PREVIEW": "1",
+        ]
+        app.launch()
+        defer { app.terminate() }
+
+        func element(_ identifier: String) -> XCUIElement {
+            app.descendants(matching: .any)[identifier]
+        }
+        func capture(_ name: String) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        let connectScene = element("MobileOnboardingConnectScene")
+        XCTAssertTrue(connectScene.waitForExistence(timeout: 8))
+        let skip = app.buttons["MobileOnboardingSkipButton"]
+        XCTAssertTrue(skip.waitForExistence(timeout: 4), "connect page must offer Skip without a Mac")
+
+        tap(app.buttons["MobileOnboardingConnectionMethodTailscale"], in: app)
+        XCTAssertTrue(app.staticTexts["Connect over Tailscale"].waitForExistence(timeout: 4))
+        let scan = app.buttons["MobileOnboardingPrimaryButton"]
+        XCTAssertTrue(scan.waitForExistence(timeout: 4))
+        XCTAssertTrue(scan.label.contains("Scan Pairing Code"))
+        capture("fresh-install-01-connect-tailscale")
+
+        scan.tap()
+        XCTAssertTrue(
+            element("MobilePairingScannerPreview").waitForExistence(timeout: 6),
+            "Scan Pairing Code must open the scanner on a fresh install"
+        )
+        capture("fresh-install-02-scanner-open")
+
+        app.buttons["MobileScannerCancelButton"].tap()
+        if app.buttons["MobilePairingCancelButton"].waitForExistence(timeout: 4) {
+            app.buttons["MobilePairingCancelButton"].tap()
+        }
+        XCTAssertTrue(connectScene.waitForExistence(timeout: 4))
+        tap(skip, in: app)
+        XCTAssertTrue(connectScene.waitForNonExistence(timeout: 6), "Skip must leave onboarding")
+        capture("fresh-install-03-after-skip")
+    }
+
+    /// App Review signs in with the server-flagged demonstration account. Its
+    /// Demo Mac stands in for a live Mac, so the connect page is ready
+    /// ("Open Workspaces") and never offers Tailscale Only, which a reviewer
+    /// has no network for.
+    @MainActor
+    func testDemonstrationAccountOnboardingHidesTailscaleAndOpensWorkspaces() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+            "-dev.cmux.mobile.onboarding.redesign.progress.v1", "connect",
+        ]
+        app.launchEnvironment = [
+            "CMUX_UITEST_ONBOARDING_PREVIEW": "1",
+            "CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK": "1",
+            "CMUX_UITEST_ONBOARDING_DEMONSTRATION_ACCOUNT": "1",
+        ]
+        app.launch()
+        defer { app.terminate() }
+
+        func element(_ identifier: String) -> XCUIElement {
+            app.descendants(matching: .any)[identifier]
+        }
+        func capture(_ name: String) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        let connectScene = element("MobileOnboardingConnectScene")
+        XCTAssertTrue(connectScene.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["Your Mac is connected"].waitForExistence(timeout: 4))
+        XCTAssertFalse(element("MobileOnboardingConnectionMethodPicker").exists)
+        XCTAssertFalse(app.buttons["MobileOnboardingConnectionMethodTailscale"].exists)
+        XCTAssertFalse(app.buttons["Scan Pairing Code"].exists)
+        let open = app.buttons["MobileOnboardingPrimaryButton"]
+        XCTAssertTrue(open.waitForExistence(timeout: 4))
+        XCTAssertTrue(open.label.contains("Open Workspaces"))
+        capture("demo-account-01-connect-ready")
+
+        open.tap()
+        XCTAssertTrue(connectScene.waitForNonExistence(timeout: 6), "Open Workspaces must leave onboarding")
+        capture("demo-account-02-after-open")
     }
 
     /// Add Computer (the manual host:port form) is available under every

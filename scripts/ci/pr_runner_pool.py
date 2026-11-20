@@ -342,12 +342,37 @@ ROOT_PREFIX = "glaeda-root-"
 SIDE_PREFIX = "glaeda-side-"
 GUI_PREFIX = "glaeda-gui-"
 ROLE_NAMES = ("root", "side", "gui")
+# feat-cmux-next's lane labels, which main's picker never hands out (so persistent() leaves them out): the session
+# and fast roles (glaeda#1530), the freshness slot's dev role (glaeda#1628) and the nightly slot (glaeda#1684). The
+# rescue watches jobs on them (owned_pool_rescue.job_pool()) and the janitor's snapshot counts them
+# (queue_janitor.pool_load_snapshot()), so a placement or the rescue can tell a lane label that runs nothing.
+LANE_LABEL = re.compile(rf"glaeda-(?:aws-)?(?:session-|fast-|dev-|nightly-)(?:xl|std|light)-xcode-{XCODE_VERSION}")
 # Capability labels glaeda puts on some runners of an owned pool, requested
 # beside the pool label, never alone. `glaeda-ios-sim`: a mini with an iOS
 # simulator role and an iOS 26.x runtime (ios_runner_pool.py). They are not
 # pools: slots() leaves them out, and capability_slots() reads their count
 # (machines, one simulator job each) from CI_OWNED_POOL_SLOTS.
 CAPABILITY_LABELS = ("glaeda-ios-sim",)
+# glaeda's sim-first runner (teamleaderleo/glaeda#1983): one per simulator
+# mini, labelled `glaeda-sim-xcode-<version>` (its Xcode, as the pool label
+# names it) without the pool label or `glaeda-ios-sim`. glaeda keeps it online
+# while that mini's one simulator token is free, even when the mini's capacity
+# units are full and every `glaeda-ios-sim` runner has stopped listening, so an
+# online idle one is a free simulator. It takes only simulator and
+# simulator-step jobs. A job on it holds that simulator, as a simulator job on
+# `glaeda-ios-sim` does (SIM_FIRST_CAPABILITY), and may wait on the mini for
+# CPU units. Requested alone, not beside a pool label: ios_runner_pool.py puts
+# simulator jobs on it, the rescue watches a job queued there like one on an
+# owned pool (owned_pool_rescue.job_pool()), and the janitor counts it toward
+# `glaeda-ios-sim` (queue_janitor.capabilities()).
+SIM_FIRST_LABEL = re.compile(r"glaeda-sim-xcode-[0-9]+(?:\.[0-9]+)*")
+SIM_FIRST_CAPABILITY = "glaeda-ios-sim"
+# The owned Mac fleet's Linux VMs (arm64 Ubuntu 24.04): each runner is a just-in-time runner on a fresh clone of
+# the VM image, takes one job and is then discarded, so a job there leaves nothing for the next one, as on a
+# Blacksmith label. Named one by one, never by pattern: a label here may lead a RUNNER_POOLS pool
+# (runner_pools.owned_ephemeral()), and the janitor's snapshot counts its queue and starts
+# (queue_janitor.pool_load_snapshot(), label_started()) so a full fleet moves its pool to Blacksmith.
+OWNED_EPHEMERAL_LINUX = ("glaeda-linux-arm64",)
 # A warm key (owned_warm_state.py): a main commit's first 12 hex digits, or
 # `pr-<number>` for a kept build of that pull request.
 WARM_KEY = re.compile(r"[0-9a-f]{12}|pr-[1-9][0-9]{0,8}")
@@ -404,15 +429,18 @@ MAIN_BRANCH = "main"
 # swift-package-tests (SWIFT_PACKAGE_JOB) is a third side lane on a run that
 # builds no Release helper (package_lane_owned()): a package change, or a full
 # suite with release_build false, which then peaks at all three side lanes
-# beside admission and its nine follow-on jobs. MAX_RUN_JOBS counts all three;
+# beside admission and its twelve follow-on jobs. MAX_RUN_JOBS counts all three;
 # the replay charge leaves out the package lane, which a compile-only run
 # carries only on a package change. release-build (RELEASE_BUILD_JOB) is the
 # package lane's alternative: it runs only on a full suite with release_build,
 # exactly when swift-package-tests builds the SDK 15 helper on Blacksmith, so a
 # run still has at most three side lanes.
 APP_HOST_SHARDS = 7
+# ci-macos.yml cli-regressions: the shell and CLI no-socket regressions in this
+# many shards beside cli-product-tests, for a CLI change or a full suite.
+CLI_REGRESSION_SHARDS = 3
 SIDE_LANES = 3
-MAX_RUN_JOBS = SIDE_LANES + APP_HOST_SHARDS + 2
+MAX_RUN_JOBS = SIDE_LANES + APP_HOST_SHARDS + 2 + CLI_REGRESSION_SHARDS
 REPLAYED_RUN_JOBS = 3
 # Owned pools once had a stricter snapshot age (20 minutes) than the rest,
 # but GitHub delays scheduled runs: the janitor's */10 cron fired 55 minutes
@@ -495,9 +523,31 @@ class Settings:
     queue_rounds: int = 0
 
 
+# The dedicated nightly-next builder's label (feat-cmux-next's nightly_build_runner.py offers it
+# first): one mini whose job-started hook admits only nightly-next's app build. The rescue moves a
+# build queued on it past its budget, as on an owned pool, so no build waits on that one machine.
+NIGHTLY_DEDICATED_LABEL = "glaeda-trusted-next-nightly"
+
+
+def nightly_dedicated(label: str) -> bool:
+    """The dedicated nightly-next builder's label."""
+    return (label or "") == NIGHTLY_DEDICATED_LABEL
+
+
 def persistent(label: str) -> bool:
     """An owned pool: its machines outlive the job, so a queued job there can wait for good."""
     return bool(OWNED_LABEL.fullmatch(label or ""))
+
+
+def sim_first(label: str) -> bool:
+    """glaeda's sim-first simulator label (SIM_FIRST_LABEL): not a pool, but a job queued there can wait too."""
+    return bool(SIM_FIRST_LABEL.fullmatch(label or ""))
+
+
+def sim_first_label(pr_xcode_app: str | None) -> str:
+    """The sim-first label for the lane's Xcode pin (`glaeda-sim-xcode-26.6`), or "" without one."""
+    match = XCODE_APP.search(pr_xcode_app or "")
+    return f"glaeda-sim-xcode-{match.group(1)}" if match else ""
 
 
 def _role_name(label: str) -> str:
@@ -734,8 +784,13 @@ def shard_job(index: int) -> str:
     return f"shard-{index}"
 
 
+CLI_REGRESSION_JOBS = tuple(f"cli-regressions-{index}" for index in range(1, CLI_REGRESSION_SHARDS + 1))
+# What a CLI change or a full suite runs after admission: cli-product-tests and the regression shards.
+CLI_JOBS = ("cli-product", *CLI_REGRESSION_JOBS)
+
+
 # A full suite with every side lane: what a run whose routing is unknown is charged.
-FULL_RUN = RunJobs(True, (*(shard_job(index) for index in range(1, APP_HOST_SHARDS + 1)), "lag", "cli-product"),
+FULL_RUN = RunJobs(True, (*(shard_job(index) for index in range(1, APP_HOST_SHARDS + 1)), "lag", *CLI_JOBS),
                    ("claude-wrapper", "remote-daemon", "swift-package"))
 
 
@@ -773,7 +828,7 @@ def run_plan(*, macos: str | None, full_suite: str | None, unit_suite: str | Non
         shards = (shard_job(CHANGED_SUITES_SHARD),)
     else:
         shards = ()
-    after = shards + (("lag",) if full else ()) + (("cli-product",) if flag(cli) or full else ())
+    after = shards + (("lag",) if full else ()) + (CLI_JOBS if flag(cli) or full else ())
     return RunJobs(True, after, side)
 
 
@@ -814,10 +869,10 @@ def run_jobs(**routing: str | None) -> int:
 # session; CI_PR_POOL_OWNED_GUI=0 keeps them off.
 # release-build is not light (a 15-minute universal compile), but it follows
 # cli-product: it is the side lane that saves the most Blacksmith time.
-LIGHT_JOBS = ("cli-product", RELEASE_BUILD_JOB, "remote-daemon", "claude-wrapper", SWIFT_PACKAGE_JOB)
+LIGHT_JOBS = (*CLI_JOBS, RELEASE_BUILD_JOB, "remote-daemon", "claude-wrapper", SWIFT_PACKAGE_JOB)
 # glaeda's canonical-root jobs: admission and every job after it (RunJobs.after:
 # the shards, tests-build-and-lag, cli-product-tests). The side lanes are not.
-ROOT_JOBS = "admission, shards, lag, cli-product"
+ROOT_JOBS = "admission, shards, lag, cli-product, cli-regressions"
 # The side lanes (RunJobs.side): light, no canonical root; they take side_runner() on a pool with a root count.
 SIDE_LANE_JOBS = ("claude-wrapper", "remote-daemon", SWIFT_PACKAGE_JOB, RELEASE_BUILD_JOB)
 
@@ -1214,8 +1269,20 @@ def owned_room(label: str, counts: Mapping[str, int], added_jobs: int, taken_pea
     return min(wait, bound)
 
 
+def snapshot_truncated(snapshot: Mapping[str, Any]) -> str:
+    """Why `snapshot`'s queue counts are partial, or "": the janitor marks a sweep that could not list every
+    in-flight run `truncated` (queue_janitor.listing_state()). Its pools then miss demand, so a reader takes
+    the queue as unknown, never as nothing queued. Any value but false counts as truncated; a snapshot
+    without the key (written before it existed) does not."""
+    if "truncated" not in snapshot or snapshot.get("truncated") is False:
+        return ""
+    bound = "at least " if snapshot.get("total_at_least") else ""
+    return (f"pool snapshot is truncated (it lists {snapshot.get('listed', '?')} of {bound}{snapshot.get('total', '?')} "
+            "in-flight runs), so its queues are unknown")
+
+
 def snapshot_problem(snapshot: Any, now: dt.datetime) -> str:
-    """Why decide() would not read `snapshot` (missing, undated, stale or without pools), or ""."""
+    """Why decide() would not read `snapshot` (missing, undated, stale, truncated or without pools), or ""."""
     if not isinstance(snapshot, Mapping) or not snapshot.get("generated_at"):
         return "no readable pool snapshot"
     if not isinstance(snapshot.get("pools"), Mapping):
@@ -1223,7 +1290,7 @@ def snapshot_problem(snapshot: Any, now: dt.datetime) -> str:
     age = snapshot_age_minutes(snapshot, now)
     if age is None or age < -5 or age > MAX_SNAPSHOT_MINUTES:
         return f"pool snapshot is stale or undated (age {age if age is None else round(age)} min)"
-    return ""
+    return snapshot_truncated(snapshot)
 
 
 def iso(moment: dt.datetime) -> str:
@@ -1666,6 +1733,8 @@ def decide(
     age = snapshot_age_minutes(snapshot, now)
     if age is None or age < -5 or age > MAX_SNAPSHOT_MINUTES:
         return Choice("", "", f"pool snapshot is stale or undated (age {age if age is None else round(age)} min)")
+    if snapshot_truncated(snapshot):
+        return Choice("", "", snapshot_truncated(snapshot))
     try:
         load = {label: pool(snapshot, label, owned_slots) for label in limits.order}
         roots = {label: pool(snapshot, root_label(label), owned_slots) for label in limits.order

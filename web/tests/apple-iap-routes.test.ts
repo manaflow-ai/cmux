@@ -78,11 +78,12 @@ describe("Apple billing route auth", () => {
       "x-stack-refresh-token": "refresh-token",
       "x-cmux-bundle-id": "dev.cmux.app.beta",
       "x-cmux-storekit-environment": "Sandbox",
+      "x-cmux-billing-periods": "monthly,yearly",
     }));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       appAccountToken: "token-user-a",
-      app: { bundleId: "dev.cmux.app.beta", storeKitEnvironment: "Sandbox" },
+      app: { bundleId: "dev.cmux.app.beta", storeKitEnvironment: "Sandbox", billingPeriods: ["monthly", "yearly"] },
     });
     expect(getUserCalls[0]).toMatchObject({ tokenStore: { accessToken: "access-token" } });
   });
@@ -111,6 +112,11 @@ describe("POST /api/billing/apple/transactions", () => {
     const mismatch = await transactionsRoute.POST(post("/api/billing/apple/transactions", { signedTransactionInfo: "jws" }));
     expect(mismatch.status).toBe(403);
     expect(await mismatch.json()).toEqual({ error: "account_mismatch" });
+
+    transactionImpl = async () => { throw new RejectedError("family_shared"); };
+    const family = await transactionsRoute.POST(post("/api/billing/apple/transactions", { signedTransactionInfo: "jws" }));
+    expect(family.status).toBe(409);
+    expect(await family.json()).toEqual({ error: "family_shared" });
 
     transactionImpl = async () => { throw new AppleVerificationError("invalid_signature"); };
     expect((await transactionsRoute.POST(post("/api/billing/apple/transactions", { signedTransactionInfo: "jws" }))).status).toBe(400);

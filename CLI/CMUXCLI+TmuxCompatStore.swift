@@ -8,6 +8,9 @@ extension CMUXCLI {
         /// The surface ID of the bottom-most pane in the right column.
         /// Subsequent teammate splits target this pane with direction "down".
         var lastColumnSurfaceId: String?
+        /// The last leader width chosen by the user or by the Claude Teams
+        /// default. A repeated fixed-width request must not undo a later drag.
+        var mainPaneWidthFraction: Double? = nil
     }
 
     struct TmuxCompatStore: Codable {

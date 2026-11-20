@@ -1,0 +1,636 @@
+#!/usr/bin/env bash
+# cmux-machine-hygiene: report, and with --apply reclaim, disk on an agent
+# machine that cmux can safely regenerate: build artifacts of idle projects,
+# package caches under disk pressure, old agent logs, stale temp files,
+# orphaned git worktree records and dangling Docker data.
+#
+# It never deletes source. Every removal goes through safe_remove, which
+# refuses symlinks (in any path component), mount points and trees holding
+# one, repository roots, git-tracked files, protected directories (~/.ssh,
+# the cmux daemon's ~/.cmux, agent configs and sessions, credentials),
+# anything a running process has open, runs from or works in, names with
+# control characters, and any path outside the roots it was given. A kept
+# path is reported with the reason. Dry-run is the default, and --apply
+# needs an explicit --home and --root.
+#
+# A removal first renames the path to .cmux-hygiene-deleting-<name>-<pid> and
+# then deletes it in the same step, so a run killed midway leaves a clearly
+# named leftover (finished by the next run) instead of a half-deleted tree
+# under its real name. It is not a holding area.
+#
+# Usage: cmux-machine-hygiene [--apply] --home DIR --root DIR [--root DIR]...
+#          [--tmp-dir DIR] [--min-age-days N] [--settle-hours N] [--log-age-days N]
+#          [--pressure-pct N] [--only CATEGORY]... [--skip CATEGORY]...
+#          [--include docker]
+# Categories: interrupted project-artifacts build-incremental package-caches
+#             agent-logs temp-files git-worktrees; docker only with --include docker
+#             (a Docker prune affects the whole machine, not just one home),
+#             and never under CMUX_HYGIENE_SANDBOX.
+# It never runs as root. Home must be /home/NAME or /Users/NAME; roots lie
+# inside home; the temp directory is /tmp, /var/tmp (or their /private
+# forms), the user's macOS $TMPDIR, or ~/.cache/tmp. Only one --apply run per
+# user at a time.
+# Output: one JSON object on stdout. Exit 0 on success, 2 on bad usage, 3 when
+# a home, root or temp directory is unsafe or the user is root, 4 when
+# another --apply run holds the lock.
+#
+# Liveness before age: a checkout (the git worktree or clone holding a
+# project) with no process inside it, so no agent session, shell or build,
+# loses its build output once nothing in it changed for --settle-hours (2).
+# --min-age-days only decides for checkouts something still works in.
+# build-incremental drops rustc's incremental caches mid-session whenever no
+# cargo or rustc runs in that checkout: they only speed up the edit loop.
+#
+# Shipped to machines through exec (images do not bake it yet), so keep it
+# self-contained, well under the provider's 64 KiB command limit, runnable
+# from stdin (`bash -s -- ARGS < script`) and compatible with bash 3.2.
+
+set -u
+export LC_ALL=C
+
+mode="dry-run"
+home_dir="${HOME:-}"
+home_given=0
+tmp_dir="${TMPDIR:-/tmp}"
+min_age_days=7
+settle_hours=2
+log_age_days=14
+pressure_pct=85
+roots=()
+only=""
+skip=""
+include=""
+
+usage() {
+  echo "usage: cmux-machine-hygiene [--apply] --home DIR --root DIR... [--tmp-dir DIR]" >&2
+  echo "         [--min-age-days N] [--settle-hours N] [--log-age-days N] [--pressure-pct N]" >&2
+  echo "         [--only C]... [--skip C]..." >&2
+  echo "         [--include docker]" >&2
+  exit 2
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --apply) mode="apply" ;;
+    --dry-run) mode="dry-run" ;;
+    --home) shift; home_dir="${1:-}"; home_given=1 ;;
+    --root) shift; roots+=("${1:-}") ;;
+    --tmp-dir) shift; tmp_dir="${1:-}" ;;
+    --min-age-days) shift; min_age_days="${1:-}" ;;
+    --settle-hours) shift; settle_hours="${1:-}" ;;
+    --log-age-days) shift; log_age_days="${1:-}" ;;
+    --pressure-pct) shift; pressure_pct="${1:-}" ;;
+    --only) shift; only="$only ${1:-} " ;;
+    --skip) shift; skip="$skip ${1:-} " ;;
+    --include) shift; include="$include ${1:-} " ;;
+    -h|--help) usage ;;
+    *) echo "unknown argument: $1" >&2; usage ;;
+  esac
+  shift
+done
+
+case "$min_age_days$settle_hours$log_age_days$pressure_pct" in *[!0-9]*|"") echo "ages and percentages must be whole numbers" >&2; exit 2 ;; esac
+if [ "$(id -u)" = 0 ]; then echo "refusing to run as root" >&2; exit 3; fi
+if [ "$mode" = apply ] && { [ "$home_given" = 0 ] || [ ${#roots[@]} -eq 0 ]; }; then
+  echo "--apply needs an explicit --home and at least one --root" >&2; exit 2
+fi
+
+# Resolve a directory to an absolute physical path, or print nothing.
+abs_dir() { [ -n "$1" ] && [ -d "$1" ] && (cd -P -- "$1" 2>/dev/null && pwd -P); }
+
+under() { case "$1" in "$2"|"$2"/*) return 0 ;; esac; return 1; }
+strictly_under() { [ "$1" != "$2" ] && under "$1" "$2"; }
+
+unsafe() { echo "refusing unsafe $1: '${2:-<empty>}'" >&2; exit 3; }
+
+# Real temp directories, exactly: /tmp, /var/tmp, their macOS /private
+# forms, and on macOS the user's own $TMPDIR (/private/var/folders/X/Y/T),
+# never the rest of that tree (its C/ holds every app's caches).
+user_tmp="$(abs_dir "${TMPDIR:-}")"
+is_temp_dir() {
+  case "$1" in
+    /tmp|/var/tmp|/private/tmp|/private/var/tmp) return 0 ;;
+    /private/var/folders/*)
+      case "${1#/private/var/folders/}" in */*/*/*) return 1 ;; */*/T) [ "$1" = "$user_tmp" ] && return 0 ;; esac ;;
+  esac
+  return 1
+}
+
+# Tests set CMUX_HYGIENE_SANDBOX to a fresh directory directly inside a real
+# temp directory; home, roots and the temp directory must then all lie
+# inside it. It only narrows what the script may touch.
+sandbox=""
+if [ -n "${CMUX_HYGIENE_SANDBOX:-}" ]; then
+  sandbox="$(abs_dir "$CMUX_HYGIENE_SANDBOX")"
+  [ -n "$sandbox" ] && is_temp_dir "${sandbox%/*}" || unsafe sandbox "$CMUX_HYGIENE_SANDBOX"
+  if [ "$mode" = apply ] && [ "${CMUX_HYGIENE_SANDBOX_APPLY:-}" != 1 ]; then
+    echo "--apply under CMUX_HYGIENE_SANDBOX needs CMUX_HYGIENE_SANDBOX_APPLY=1 (tests only)" >&2; exit 2
+  fi
+fi
+
+tmp_dir="$(abs_dir "$tmp_dir")"
+[ -n "$tmp_dir" ] || unsafe tmp-dir "$tmp_dir"
+home_dir="$(abs_dir "$home_dir")"
+if [ -n "$sandbox" ]; then
+  strictly_under "$tmp_dir" "$sandbox" || unsafe tmp-dir "$tmp_dir"
+  strictly_under "$home_dir" "$sandbox" || unsafe home "$home_dir"
+else
+  is_temp_dir "$tmp_dir" || [ "$tmp_dir" = "$home_dir/.cache/tmp" ] || unsafe tmp-dir "$tmp_dir"
+  # Home is a real user's home, exactly.
+  case "$home_dir" in
+    /home/*/*|/Users/*/*) unsafe home "$home_dir" ;;
+    /home/?*|/Users/?*) ;;
+    *) unsafe home "$home_dir" ;;
+  esac
+fi
+# A temp directory must never hold a home directory.
+under "$home_dir" "$tmp_dir" && unsafe tmp-dir "$tmp_dir"
+
+# Every root lies inside home.
+[ ${#roots[@]} -eq 0 ] && roots=("$home_dir")
+resolved_roots=()
+for root in "${roots[@]}"; do
+  r="$(abs_dir "$root")"
+  [ -n "$r" ] && under "$r" "$home_dir" || unsafe root "$root"
+  resolved_roots+=("$r")
+done
+roots=("${resolved_roots[@]}")
+
+enabled() {
+  local category="$1"
+  case "$skip" in *" $category "*) return 1 ;; esac
+  # Docker is opt-in, and never runs under the test sandbox.
+  if [ "$category" = docker ]; then
+    case "$include" in *" docker "*) ;; *) return 1 ;; esac
+    [ -z "$sandbox" ] || { add_item docker docker 0 skipped sandbox; return 1; }
+  fi
+  [ -z "$only" ] && return 0
+  case "$only" in *" $category "*) return 0 ;; esac
+  return 1
+}
+
+# Never remove these, or anything inside them, whatever a category asks for.
+protected_prefixes=(
+  "$home_dir/.ssh" "$home_dir/.gnupg" "$home_dir/.cmux" "$home_dir/.config"
+  "$home_dir/.local/share/keyrings" "$home_dir/.aws" "$home_dir/.kube"
+  "$home_dir/.docker" "$home_dir/.netrc" "$home_dir/.git-credentials"
+)
+# Agent homes are protected except for their log directories.
+agent_homes=("$home_dir/.claude" "$home_dir/.codex" "$home_dir/.opencode" "$home_dir/.pi")
+agent_log_dirs=("$home_dir/.claude/debug" "$home_dir/.codex/log" "$home_dir/.npm/_logs")
+
+state_dir="$(mktemp -d "${tmp_dir}/.cmux-hygiene-state.XXXXXX")" || exit 1
+lock_dir=""
+trap 'rm -rf "$state_dir"; [ -z "$lock_dir" ] || rm -rf "$lock_dir"' EXIT
+
+# One --apply run per user at a time; a lock whose process is gone is taken over.
+if [ "$mode" = apply ]; then
+  lock="$tmp_dir/.cmux-hygiene-$(id -u).lock"
+  if ! mkdir "$lock" 2>/dev/null; then
+    holder="$(cat "$lock/pid" 2>/dev/null)"
+    if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+      echo "another cmux-machine-hygiene --apply is running (pid $holder)" >&2; exit 4
+    fi
+    rm -rf "$lock"
+    mkdir "$lock" 2>/dev/null || { echo "another cmux-machine-hygiene --apply is starting" >&2; exit 4; }
+  fi
+  lock_dir="$lock"
+  echo $$ > "$lock/pid"
+fi
+in_use_file="$state_dir/in-use"
+mounts_file="$state_dir/mounts"
+
+# rm must refuse to cross into another filesystem: GNU --one-file-system, or
+# BSD -x. With neither, nothing is deleted.
+rm_flags=""
+mkdir -p "$state_dir/probe"
+if rm -rf --one-file-system -- "$state_dir/probe" 2>/dev/null; then
+  rm_flags="-rf --one-file-system"
+elif rm -rfx -- "$state_dir/probe" 2>/dev/null; then
+  rm_flags="-rfx"
+fi
+
+# Mount points other than /, from `mount`: Linux "SRC on X type T (opts)" or
+# macOS "SRC on X (opts)". A line with more than one " on /" is ambiguous
+# and counts as unparsable. Only the kernel's \040, \011 and \134 escapes are
+# decoded. Any line that does not parse, a target with an escaped newline, or
+# an empty list leaves no mount evidence, and then nothing is deleted.
+mount_evidence=0
+if mount_out="$(mount 2>/dev/null)"; then
+  printf '%s\n' "$mount_out" | awk '
+    NF == 0 { next }
+    {
+      i = index($0, " on /"); if (!i) { bad = 1; next }
+      t = substr($0, i + 4)
+      if (index(t, " on /")) { bad = 1; next }
+      if (t ~ / type [^ ]+ \([^()]*\)$/) sub(/ type [^ ]+ \([^()]*\)$/, "", t)
+      else if (t ~ / \([^()]*\)$/) sub(/ \([^()]*\)$/, "", t)
+      else { bad = 1; next }
+      if (index(t, "\\012")) { bad = 1; next }
+      gsub(/\\040/, " ", t); gsub(/\\011/, "\t", t); gsub(/\\134/, "\\", t)
+      print t
+    }
+    END { if (bad) print "__CMUX_HYGIENE_UNPARSABLE__" }' > "$state_dir/mounts-all"
+  if [ -s "$state_dir/mounts-all" ] && ! grep -q -x '__CMUX_HYGIENE_UNPARSABLE__' "$state_dir/mounts-all"; then
+    mount_evidence=1
+  fi
+  grep -v -x '/' "$state_dir/mounts-all" > "$mounts_file"
+else
+  : > "$mounts_file"
+fi
+
+# Mounts nested inside home, the temp dir or a root. A bind mount of the same
+# filesystem shares its device, so find -xdev and rm's mount guard would both
+# cross it: nothing under one of these is ever removed.
+nested_mounts_file="$state_dir/nested-mounts"
+: > "$nested_mounts_file"
+while IFS= read -r m; do
+  if strictly_under "$m" "$home_dir" || strictly_under "$m" "$tmp_dir"; then
+    printf '%s\n' "$m" >> "$nested_mounts_file"; continue
+  fi
+  for root in "${roots[@]}"; do
+    strictly_under "$m" "$root" && { printf '%s\n' "$m" >> "$nested_mounts_file"; break; }
+  done
+done < "$mounts_file"
+
+# A sandbox needs mount evidence and must not itself be a mount point.
+if [ -n "$sandbox" ]; then
+  [ "$mount_evidence" = 1 ] || unsafe sandbox "$sandbox (no mount evidence)"
+  grep -q -F -x -e "$sandbox" "$mounts_file" && unsafe sandbox "$sandbox (mount point)"
+fi
+
+# Paths running processes hold open, run from or work in, collected once
+# (after the cheap mount and sandbox checks, so a refused run exits fast):
+# /proc on Linux, lsof elsewhere. With neither, nothing counts as idle.
+in_use_evidence=1
+if [ -d /proc/self/fd ]; then
+  for pid_dir in /proc/[0-9]*; do
+    readlink "$pid_dir/cwd" 2>/dev/null
+    readlink "$pid_dir/exe" 2>/dev/null
+    for fd in "$pid_dir"/fd/*; do readlink "$fd" 2>/dev/null; done
+  done | grep '^/' | sort -u > "$in_use_file"
+elif command -v lsof >/dev/null 2>&1; then
+  lsof -n -F n 2>/dev/null | sed -n 's/^n//p' | grep '^/' | sort -u > "$in_use_file"
+else
+  in_use_evidence=0; : > "$in_use_file"
+fi
+
+# Working directories of running build tools (cargo, rustc and friends).
+# Without /proc, ps and lsof, every checkout counts as building.
+build_cwds_file="$state_dir/build-cwds"
+build_evidence=1
+if [ -d /proc/self/fd ]; then
+  for pid_dir in /proc/[0-9]*; do
+    case "$(cat "$pid_dir/comm" 2>/dev/null)" in
+      cargo|rustc|rustdoc|clippy-driver|sccache|cargo-clippy|cargo-nextest) readlink "$pid_dir/cwd" 2>/dev/null ;;
+    esac
+  done | grep '^/' | sort -u > "$build_cwds_file"
+elif command -v lsof >/dev/null 2>&1; then
+  lsof -n -a -d cwd -c cargo -c rustc -c rustdoc -c clippy-driver -c sccache -F n 2>/dev/null \
+    | sed -n 's/^n//p' | grep '^/' | sort -u > "$build_cwds_file"
+else
+  build_evidence=0; : > "$build_cwds_file"
+fi
+
+# Another user's processes are invisible without root, so every checkout in
+# their home would look idle: there, keep the age rule and leave incremental
+# caches alone.
+liveness_reclaim=1
+if [ "$(id -u)" != 0 ] && [ ! -O "$home_dir" ]; then
+  liveness_reclaim=0; build_evidence=0
+fi
+
+# True when a listed path equals the path or lies under it. The path goes
+# through the environment: awk -v would interpret backslashes in it.
+listed_under() {
+  HYGIENE_PATH="$1" awk 'BEGIN { p = ENVIRON["HYGIENE_PATH"] }
+    $0 == p || index($0, p "/") == 1 { found = 1; exit } END { exit !found }' "$2"
+}
+
+# True when the path lies strictly under a listed path.
+listed_above() {
+  HYGIENE_PATH="$1" awk 'BEGIN { p = ENVIRON["HYGIENE_PATH"] }
+    index(p, $0 "/") == 1 { found = 1; exit } END { exit !found }' "$2"
+}
+
+# True when a process holds the path, or anything under it, open, when a
+# socket lives near its top, or when there is no evidence either way.
+in_use() {
+  [ "$in_use_evidence" = 1 ] || return 0
+  listed_under "$1" "$in_use_file" && return 0
+  [ -d "$1" ] && [ -n "$(find "$1" -maxdepth 2 -type s -print 2>/dev/null | head -n 1)" ]
+}
+
+inside_allowed_root() {
+  local path="$1" root
+  strictly_under "$path" "$home_dir" && return 0
+  strictly_under "$path" "$tmp_dir" && return 0
+  for root in "${roots[@]}"; do strictly_under "$path" "$root" && return 0; done
+  return 1
+}
+
+# True when the path holds files its enclosing repository tracks. Pathspecs
+# are literal, so a name like `*` matches only itself.
+git_tracked() {
+  local parent="${1%/*}"
+  command -v git >/dev/null 2>&1 || return 1
+  git -C "$parent" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 1
+  [ -n "$(git --literal-pathspecs -C "$parent" ls-files -- "${1##*/}" 2>/dev/null | head -n 1)" ]
+}
+
+# Why the path's location must not be trusted right now, or nothing.
+location_refusal() {
+  local path="$1"
+  case "$path" in *[[:cntrl:]]*) echo "unsafe-name"; return ;; esac
+  case "$path" in /*) ;; *) echo "not-absolute"; return ;; esac
+  case "$path" in *"/../"*|*"/.."|*"/./"*|*"//"*) echo "not-normalized"; return ;; esac
+  [ -L "$path" ] && { echo "symlink"; return; }
+  [ -e "$path" ] || { echo "missing"; return; }
+  [ "$(abs_dir "${path%/*}")" = "${path%/*}" ] || { echo "symlinked-parent"; return; }
+  inside_allowed_root "$path" || { echo "outside-roots"; return; }
+  return 0
+}
+
+# Why a path must not be removed, or nothing when it may be.
+refusal_reason() {
+  local path="$1" prefix log_dir reason
+  reason="$(location_refusal "$path")"; [ -n "$reason" ] && { echo "$reason"; return; }
+  for prefix in "${protected_prefixes[@]}"; do
+    under "$path" "$prefix" && { echo "protected"; return; }
+  done
+  for prefix in "${agent_homes[@]}"; do
+    if under "$path" "$prefix"; then
+      for log_dir in "${agent_log_dirs[@]}"; do
+        strictly_under "$path" "$log_dir" && break 2
+      done
+      echo "protected"; return
+    fi
+  done
+  [ "$mount_evidence" = 1 ] || { echo "mounts-unknown"; return; }
+  [ -n "$rm_flags" ] || { echo "no-mount-guard"; return; }
+  grep -q -F -x -e "$path" "$mounts_file" && { echo "mount-point"; return; }
+  listed_under "$path" "$mounts_file" && { echo "contains-mount"; return; }
+  listed_above "$path" "$nested_mounts_file" && { echo "under-mount"; return; }
+  [ -e "$path/.git" ] && { echo "repository-root"; return; }
+  git_tracked "$path" && { echo "git-tracked"; return; }
+  in_use "$path" && { echo "in-use"; return; }
+  return 0
+}
+
+size_kb() { du -skx -- "$1" 2>/dev/null | awk '{print $1+0}'; }
+
+json_string() {
+  local s="$1" out="" ch code i
+  s="${s//\\/\\\\}"; s="${s//\"/\\\"}"
+  case "$s" in
+    *[[:cntrl:]]*)
+      for ((i = 0; i < ${#s}; i++)); do
+        ch="${s:i:1}"
+        case "$ch" in
+          [[:cntrl:]]) printf -v code '%d' "'$ch"; out="$out$(printf '\\u%04x' "$code")" ;;
+          *) out="$out$ch" ;;
+        esac
+      done
+      s="$out" ;;
+  esac
+  printf '"%s"' "$s"
+}
+
+items_json=""
+total_kb=0
+add_item() {
+  local category="$1" path="$2" kb="$3" action="$4" reason="${5:-}"
+  local entry="{\"category\":$(json_string "$category"),\"path\":$(json_string "$path"),\"kb\":$kb,\"action\":$(json_string "$action")"
+  [ -n "$reason" ] && entry="$entry,\"reason\":$(json_string "$reason")"
+  items_json="${items_json:+$items_json,}$entry}"
+  case "$action" in deleted|would-delete) total_kb=$((total_kb + kb)) ;; esac
+}
+
+safe_remove() {
+  local category="$1" path="$2" reason kb aside
+  reason="$(refusal_reason "$path")"
+  if [ -n "$reason" ]; then
+    [ "$reason" = missing ] || add_item "$category" "$path" 0 skipped "$reason"
+    return
+  fi
+  kb="$(size_kb "$path")"; kb="${kb:-0}"
+  if [ "$mode" != apply ]; then
+    add_item "$category" "$path" "$kb" would-delete
+    return
+  fi
+  # Re-check the location immediately before the rename, so a component
+  # swapped for a symlink since the scan is caught.
+  reason="$(location_refusal "$path")"
+  [ -n "$reason" ] && { add_item "$category" "$path" 0 skipped "$reason"; return; }
+  aside="${path%/*}/.cmux-hygiene-deleting-${path##*/}-$$"
+  # shellcheck disable=SC2086
+  if mv -- "$path" "$aside" 2>/dev/null && rm $rm_flags -- "$aside" 2>/dev/null; then
+    add_item "$category" "$path" "$kb" deleted
+  else
+    add_item "$category" "$path" "$kb" skipped remove-failed
+  fi
+}
+
+# True when nothing under the directory changed in the last N days.
+idle_for() {
+  [ -z "$(find "$1" -maxdepth 3 -mtime "-$2" -print 2>/dev/null | head -n 1)" ]
+}
+
+idle_for_hours() {
+  [ -z "$(find "$1" -maxdepth 3 -mmin "-$(($2 * 60))" -print 2>/dev/null | head -n 1)" ]
+}
+
+# The checkout holding a project: the nearest directory with a .git (a clone
+# or a worktree) between it and its root, else the project itself.
+checkout_of() {
+  local dir="$1" root="$2"
+  while :; do
+    [ -e "$dir/.git" ] && { echo "$dir"; return; }
+    [ "$dir" = "$root" ] && break
+    case "$dir" in "$root"/*) dir="${dir%/*}" ;; *) break ;; esac
+  done
+  echo "$1"
+}
+
+# Project roots to scan: the given roots plus Claude Code's worktrees
+# (<repo>/.claude/worktrees), which the main scan skips with the rest of .claude.
+scan_roots() {
+  local root
+  for root in "${roots[@]}"; do
+    printf '%s\0' "$root"
+    find "$root" -xdev -maxdepth 4 \( -name .git -o -name node_modules -o -name target \) -prune -o \
+      -type d -path '*/.claude/worktrees' -print0 2>/dev/null
+  done
+}
+
+disk_used_pct() {
+  df -P -- "$home_dir" 2>/dev/null | awk 'NR == 2 { gsub("%", "", $5); print $5 + 0 }'
+}
+
+# --- interrupted: finish removals an earlier run renamed aside but did not
+# delete, once the process that started them is gone.
+clean_interrupted() {
+  local root entry pid
+  for root in "$tmp_dir" "${roots[@]}"; do
+    while IFS= read -r -d '' entry; do
+      pid="${entry##*-}"
+      case "$pid" in ""|*[!0-9]*) continue ;; esac
+      kill -0 "$pid" 2>/dev/null && continue
+      safe_remove interrupted "$entry"
+    done < <(find "$root" -xdev -name '.cmux-hygiene-deleting-*' -prune -print0 2>/dev/null)
+  done
+}
+
+# --- project-artifacts: regenerable build output next to its project marker.
+artifact_marker() {
+  case "$1" in
+    node_modules|.next|.turbo|.parcel-cache|.svelte-kit|.nuxt) echo package.json ;;
+    target) echo Cargo.toml ;;
+    .gradle) echo settings.gradle build.gradle settings.gradle.kts build.gradle.kts ;;
+    __pycache__|.pytest_cache|.mypy_cache|.ruff_cache) echo "*" ;;
+  esac
+}
+
+has_marker() {
+  local project="$1" markers="$2" marker
+  [ "$markers" = "*" ] && return 0
+  for marker in $markers; do [ -f "$project/$marker" ] && return 0; done
+  return 1
+}
+
+clean_project_artifacts() {
+  local root dir name markers project checkout
+  while IFS= read -r -d '' root; do
+    while IFS= read -r -d '' dir; do
+      name="${dir##*/}"; project="${dir%/*}"
+      markers="$(artifact_marker "$name")"
+      has_marker "$project" "$markers" || continue
+      checkout="$(checkout_of "$project" "$root")"
+      if [ "$liveness_reclaim" = 1 ] && [ "$checkout" != "$project" ] && ! in_use "$checkout"; then
+        # Nothing works in this checkout: liveness says go, after a short settle.
+        idle_for_hours "$dir" "$settle_hours" || continue
+      else
+        idle_for "$dir" "$min_age_days" || continue
+        in_use "$project" && { add_item project-artifacts "$dir" 0 skipped project-in-use; continue; }
+      fi
+      safe_remove project-artifacts "$dir"
+    done < <(find "$root" -xdev \
+      \( -name .git -o -name .cmux -o -name .ssh -o -name .config -o -name .claude \
+         -o -name .codex -o -name .cache -o -name .npm -o -name .cargo -o -name .rustup \
+         -o -name .bun -o -name .local -o -name '.cmux-hygiene-*' \) -prune -o \
+      -type d \( -name node_modules -o -name target -o -name .next -o -name .turbo \
+         -o -name .parcel-cache -o -name .svelte-kit -o -name .nuxt -o -name .gradle \
+         -o -name __pycache__ -o -name .pytest_cache -o -name .mypy_cache -o -name .ruff_cache \) \
+      -print0 -prune 2>/dev/null)
+  done < <(scan_roots)
+}
+
+# --- build-incremental: rustc's incremental caches (target/<profile>/incremental)
+# in checkouts that are in use, whenever no cargo or rustc runs there.
+clean_build_incremental() {
+  local root inc target project checkout
+  [ "$build_evidence" = 1 ] || return 0
+  while IFS= read -r -d '' root; do
+    while IFS= read -r -d '' inc; do
+      target="${inc%/*}"; target="${target%/*}"; project="${target%/*}"
+      [ "${target##*/}" = target ] && [ -f "$project/Cargo.toml" ] || continue
+      checkout="$(checkout_of "$project" "$root")"
+      listed_under "$checkout" "$build_cwds_file" && { add_item build-incremental "$inc" 0 skipped building; continue; }
+      safe_remove build-incremental "$inc"
+    done < <(find "$root" -xdev \
+      \( -name .git -o -name node_modules -o -name .claude -o -name '.cmux-hygiene-*' \) -prune -o \
+      -type d -name incremental -path '*/target/*/incremental' -print0 -prune 2>/dev/null)
+  done < <(scan_roots)
+}
+
+# --- package-caches: re-downloadable, but they make the next install warm, so
+# they go only under disk pressure.
+clean_package_caches() {
+  local used cache
+  used="$(disk_used_pct)"; used="${used:-0}"
+  if [ "$used" -lt "$pressure_pct" ]; then
+    add_item package-caches "$home_dir" 0 skipped "disk-${used}%-below-${pressure_pct}%"
+    return
+  fi
+  for cache in "$home_dir/.npm/_cacache" "$home_dir/.bun/install/cache" \
+    "$home_dir/.cache/pip" "$home_dir/.cache/uv" "$home_dir/.cache/go-build" \
+    "$home_dir/.cache/yarn" "$home_dir/.cache/pnpm" "$home_dir/.local/share/pnpm/store" \
+    "$home_dir/.cargo/registry/cache" "$home_dir/Library/Caches/Yarn"; do
+    [ -d "$cache" ] && safe_remove package-caches "$cache"
+  done
+}
+
+# --- agent-logs: old debug logs written by coding agents and npm.
+clean_agent_logs() {
+  local log_dir file
+  for log_dir in "${agent_log_dirs[@]}"; do
+    [ -d "$log_dir" ] && [ ! -L "$log_dir" ] || continue
+    while IFS= read -r -d '' file; do
+      safe_remove agent-logs "$file"
+    done < <(find "$log_dir" -mindepth 1 -maxdepth 1 -mtime "+$log_age_days" -print0 2>/dev/null)
+  done
+}
+
+# --- temp-files: the user's own top-level temp entries, idle for N days.
+# cmux, tmux, X and coding-agent scratch directories are never touched.
+clean_temp_files() {
+  local entry name
+  while IFS= read -r -d '' entry; do
+    name="${entry##*/}"
+    case "$name" in
+      cmux*|.cmux*|tmux-*|.X*|.ICE-unix|systemd-*|snap-private-tmp|claude-*|codex-*|opencode-*) continue ;;
+    esac
+    if [ -d "$entry" ]; then idle_for "$entry" "$min_age_days" || continue; fi
+    safe_remove temp-files "$entry"
+  done < <(find "$tmp_dir" -mindepth 1 -maxdepth 1 -user "$(id -u)" \( -type f -o -type d \) \
+    -mtime "+$min_age_days" -print0 2>/dev/null)
+}
+
+# --- git-worktrees: drop worktree records whose directory is gone. This never
+# removes a worktree directory; uncommitted work lives there.
+clean_git_worktrees() {
+  local root git_dir repo stale
+  for root in "${roots[@]}"; do
+    while IFS= read -r -d '' git_dir; do
+      repo="${git_dir%/.git}"
+      case "$repo" in *[[:cntrl:]]*) continue ;; esac
+      stale="$(git -C "$repo" worktree prune --dry-run --verbose 2>&1 | grep -c "^Removing" || true)"
+      [ "${stale:-0}" -gt 0 ] || continue
+      if [ "$mode" = apply ]; then
+        if git -C "$repo" worktree prune 2>/dev/null; then add_item git-worktrees "$repo" 0 deleted "pruned-$stale-records"
+        else add_item git-worktrees "$repo" 0 skipped prune-failed; fi
+      else
+        add_item git-worktrees "$repo" 0 would-delete "prune-$stale-records"
+      fi
+    done < <(find "$root" -xdev -maxdepth 5 \( -name node_modules -o -name .cmux -o -name .cache \) -prune \
+      -o -type d -name .git -print0 -prune 2>/dev/null)
+  done
+}
+
+# --- docker: dangling images and build cache older than a week.
+clean_docker() {
+  command -v docker >/dev/null 2>&1 || return 0
+  docker info >/dev/null 2>&1 || { add_item docker docker 0 skipped daemon-unavailable; return; }
+  if [ "$mode" = apply ]; then
+    docker image prune --force >/dev/null 2>&1 && add_item docker dangling-images 0 deleted
+    docker builder prune --force --filter until=168h >/dev/null 2>&1 && add_item docker build-cache 0 deleted
+  else
+    add_item docker dangling-images 0 would-delete
+    add_item docker build-cache 0 would-delete "older-than-168h"
+  fi
+}
+
+disk_before="$(disk_used_pct)"
+enabled interrupted && clean_interrupted
+enabled project-artifacts && clean_project_artifacts
+enabled build-incremental && clean_build_incremental
+enabled package-caches && clean_package_caches
+enabled agent-logs && clean_agent_logs
+enabled temp-files && clean_temp_files
+enabled git-worktrees && clean_git_worktrees
+enabled docker && clean_docker
+disk_after="$(disk_used_pct)"
+
+printf '{"version":1,"mode":%s,"home":%s,"diskUsedPctBefore":%s,"diskUsedPctAfter":%s,"reclaimableKb":%s,"items":[%s]}\n' \
+  "$(json_string "$mode")" "$(json_string "$home_dir")" "${disk_before:-null}" "${disk_after:-null}" \
+  "$total_kb" "$items_json"

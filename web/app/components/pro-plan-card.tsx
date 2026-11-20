@@ -3,7 +3,9 @@
 import { useId, useState, type ReactNode } from "react";
 import { posthog } from "../lib/posthog-client";
 import {
+  MAX_PRICING_USD,
   PRO_PRICING_USD,
+  type PlanPrice,
   type BillingInterval,
 } from "../../services/billing/plans";
 import { ProCtaLink } from "../[locale]/components/pro-cta-link";
@@ -16,11 +18,13 @@ export type ProAnnualLabels = {
 };
 
 /**
- * The Pro pricing card. Pro is the only plan sold yearly, so the card owns the
- * billing period: its price, checkout link, and CTA analytics always agree.
- * Yearly is the default. The period toggle sits in the header row and the
- * yearly note sits under the button, so the price block and the button line
- * up with the Free and Max cards in either period.
+ * The recurring personal-plan pricing card. Pro and Max are sold monthly or
+ * yearly, so the card owns the billing period: its price, checkout link, and
+ * CTA analytics always agree.
+ * Monthly is the default and listed first, so checkout opens on the monthly
+ * price; yearly shows its per-month equivalent. The period toggle sits in the
+ * header row and the yearly note sits under the button, so the price block
+ * and the button line up with the Free and Max cards in either period.
  */
 export function ProPlanCard({
   name,
@@ -33,7 +37,9 @@ export function ProPlanCard({
   ctaLabel,
   action,
   monthlyOnly = false,
-  initialInterval = "year",
+  initialInterval = "month",
+  plan = "pro",
+  pricing,
   children,
 }: {
   name: string;
@@ -52,10 +58,13 @@ export function ProPlanCard({
    * offers monthly prices only (a Go subscriber upgrading), so no toggle.
    */
   monthlyOnly?: boolean;
-  /** A link back from checkout (`?interval=month`) keeps the buyer's period. */
+  /** A link back from checkout (`?interval=year`) keeps the buyer's period. */
   initialInterval?: BillingInterval;
+  plan?: "pro" | "max";
+  pricing?: Readonly<Record<BillingInterval, PlanPrice>>;
   children: ReactNode;
 }) {
+  const planPricing = pricing ?? (plan === "max" ? MAX_PRICING_USD : PRO_PRICING_USD);
   const [chosen, setInterval] = useState<BillingInterval>(initialInterval);
   const interval = monthlyOnly ? "month" : chosen;
   const radioName = useId();
@@ -63,15 +72,15 @@ export function ProPlanCard({
     setInterval(next);
     posthog.capture("cmuxterm_pricing_interval_selected", {
       surface,
-      plan: "pro",
+      plan,
       interval: next,
-      billed_amount_usd: PRO_PRICING_USD[next].billedAmount,
-      discount_percent: PRO_PRICING_USD[next].discountPercent,
+      billed_amount_usd: planPricing[next].billedAmount,
+      discount_percent: planPricing[next].discountPercent,
     });
   };
   // A subscriber sees their own plan, whose period the card does not know,
   // so the monthly price stays the reference there.
-  const price = PRO_PRICING_USD[action ? "month" : interval];
+  const price = planPricing[action ? "month" : interval];
 
   return (
     <div className="relative flex h-full min-w-0 flex-col border border-border p-6">
@@ -84,7 +93,7 @@ export function ProPlanCard({
           {/* Native radios give the arrow-key and single-tab-stop behavior. */}
           <fieldset className="flex items-center gap-1.5 text-sm">
             <legend className="sr-only">{labels.billingPeriod}</legend>
-            {(["year", "month"] as const).map((option, index) => (
+            {(["month", "year"] as const).map((option, index) => (
               <span key={option} className="flex items-center gap-1.5">
                 {index > 0 ? (
                   <span aria-hidden className="text-muted">
@@ -126,6 +135,7 @@ export function ProPlanCard({
             requiresSignIn={requiresSignIn}
             interval={interval}
             location={location}
+            plan={plan}
           >
             {ctaLabel}
           </ProCtaLink>

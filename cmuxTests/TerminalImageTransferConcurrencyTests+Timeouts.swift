@@ -265,10 +265,14 @@ extension TerminalImageTransferConcurrencyTests {
     }
 
     @MainActor
-    func makeLivePreparationService()
-        -> TerminalImageTransferPreparationService {
+    func makeLivePreparationService(
+        deadlineSleep: @escaping TerminalImageTransferPreparationService.DeadlineSleep = { duration in
+            try await ContinuousClock().sleep(for: duration)
+        }
+    ) -> TerminalImageTransferPreparationService {
         let pasteboardService = GhosttyApp.terminalPasteboard
         return TerminalImageTransferPreparationService(
+            deadlineSleep: deadlineSleep,
             operation: { request in
                 let client = TerminalPastePreparationWorkerClient
                     .reexecingCurrentBinary(

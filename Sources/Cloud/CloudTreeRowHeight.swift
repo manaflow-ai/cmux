@@ -43,6 +43,8 @@ struct CloudTreeRowHeight {
                 presentation: presentation,
                 style: style
             )
+        case .placeholder(_, let placeholder) where placeholder.style == .empty:
+            return GlobalFontMagnification.scaledSize(style.emptyStateRowHeight)
         default:
             return GlobalFontMagnification.scaledSize(style.rowHeight)
         }

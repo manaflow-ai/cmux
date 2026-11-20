@@ -114,6 +114,10 @@ final class HostSettingsActions: SettingsHostActions {
         }
     }
 
+    var isChiefAvailable: Bool {
+        CmuxFeatureFlags.shared.isChiefAvailable
+    }
+
     func clearBrowserHistory() {
         BrowserHistoryStore.shared.clearHistory()
     }

@@ -418,6 +418,22 @@ struct SSHTuiMigrationTests {
         #expect(!SSHTuiWorkspaceCoordinator.usesDurableCreationReceipt(machineID: "ssh:fixture", restoring: false))
     }
 
+    @Test("Fresh SSH opens skip the graph round trip before remote creation")
+    func freshSSHOpenDoesNotNeedInitialGraphRefresh() {
+        #expect(!SSHTuiWorkspaceCoordinator.needsInitialGraphRefresh(
+            restoring: false, hasExistingProjections: false, hasRemoteBinding: false
+        ))
+        #expect(SSHTuiWorkspaceCoordinator.needsInitialGraphRefresh(
+            restoring: true, hasExistingProjections: false, hasRemoteBinding: false
+        ))
+        #expect(SSHTuiWorkspaceCoordinator.needsInitialGraphRefresh(
+            restoring: false, hasExistingProjections: true, hasRemoteBinding: false
+        ))
+        #expect(SSHTuiWorkspaceCoordinator.needsInitialGraphRefresh(
+            restoring: false, hasExistingProjections: false, hasRemoteBinding: true
+        ))
+    }
+
     @Test("A legacy persistent SSH snapshot running a named tmux session reattaches it through cmux-tui")
     func legacyTmuxSnapshotReattachesItsTmuxSession() throws {
         // The remote block 0.64.25 wrote for `cmux ssh` workspaces with a tmux

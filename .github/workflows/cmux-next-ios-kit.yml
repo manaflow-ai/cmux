@@ -1,0 +1,32 @@
+name: cmux-next-ios kit tests
+
+# CmuxMobileKit's tests, the instant-list bench included (#40285), run from
+# feat-cmux-next's cmux-next-ios-kit.yml, on push and pull request with path
+# filters. So a quiet week leaves the bench with no fresh numbers. GitHub runs a
+# schedule, and registers a dispatch, only from the default branch, so this
+# file is on main too. Here the nightly cron (07:47 UTC) runs job start, which
+# dispatches the workflow on feat-cmux-next. That dispatch runs
+# feat-cmux-next's own file (event workflow_dispatch, branch feat-cmux-next),
+# never this one, so this file holds no test jobs to drift from it. A dispatch
+# on main does nothing.
+on:
+  schedule:
+    - cron: "47 7 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  # No secrets: it only dispatches this workflow on feat-cmux-next.
+  start:
+    if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'schedule'
+    permissions:
+      actions: write # dispatch cmux-next-ios-kit.yml
+      contents: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Dispatch the kit tests and bench on feat-cmux-next
+        run: gh workflow run cmux-next-ios-kit.yml -R "$GITHUB_REPOSITORY" --ref feat-cmux-next

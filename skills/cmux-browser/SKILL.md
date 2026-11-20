@@ -180,10 +180,12 @@ combination exceeds WKWebView render limits.
 
 ## Limits (WKWebView)
 
-Offline emulation, trace/screencast recording, network route
-interception/mocking, and low-level raw input injection return `not_supported`;
-they depend on Chrome/CDP-only APIs. Use `click`, `fill`, `press`, `scroll`,
-`wait`, and `snapshot` instead.
+Trace/screencast recording, network route interception/mocking, and low-level
+raw input injection return `not_supported`; they depend on Chrome/CDP-only APIs.
+Use `click`, `fill`, `press`, `scroll`, `wait`, and `snapshot` instead.
+`geolocation <lat> <lon>` and `offline true|false` work: pages get the given
+position without a permission prompt, and offline mode blocks http(s) and
+ws(s) loads and reports `navigator.onLine === false`.
 
 ## Troubleshooting `js_error`
 

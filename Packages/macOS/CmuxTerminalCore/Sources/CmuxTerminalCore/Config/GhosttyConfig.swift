@@ -55,6 +55,8 @@ public struct GhosttyConfig {
     public var theme: String?
     /// The configured `working-directory`, or `nil` when unset.
     public var workingDirectory: String?
+    /// The `*-inherit-working-directory` keys.
+    public var workingDirectoryInheritance = GhosttyWorkingDirectoryInheritance()
     /// The explicit `command` directive, or `nil` when Ghostty should resolve the login shell.
     public var command: String?
     /// The scrollback limit. Ghostty measures this in bytes, not lines.
@@ -605,6 +607,18 @@ public struct GhosttyConfig {
                     }
                 case "working-directory":
                     workingDirectory = value
+                case "window-inherit-working-directory":
+                    if let inherits = Self.parseBool(value) {
+                        workingDirectoryInheritance.window = inherits
+                    }
+                case "tab-inherit-working-directory":
+                    if let inherits = Self.parseBool(value) {
+                        workingDirectoryInheritance.tab = inherits
+                    }
+                case "split-inherit-working-directory":
+                    if let inherits = Self.parseBool(value) {
+                        workingDirectoryInheritance.split = inherits
+                    }
                 case "command":
                     if !value.isEmpty {
                         command = value
@@ -1043,6 +1057,15 @@ public struct GhosttyConfig {
     /// Clamps a surface tab-bar font size into the supported range.
     public static func clampedSurfaceTabBarFontSize(_ value: CGFloat) -> CGFloat {
         CGFloat(CmuxGhosttyConfigSettingEditor().clampedSurfaceTabBarFontSize(Double(value)))
+    }
+
+    /// Ghostty's boolean spellings; an empty value resets to the default.
+    private static func parseBool(_ value: String) -> Bool? {
+        switch value {
+        case "", "true", "t", "1": true
+        case "false", "f", "0": false
+        default: nil
+        }
     }
 
     private static func parseBackgroundBlur(_ value: String) -> GhosttyBackgroundBlur? {

@@ -43,10 +43,11 @@ DECLARATION = "SOURCE_WORKFLOW_PATHS"
 # (consumer, producer, job id); the expected display name is derived from the
 # producer's job rather than written out a second time here.
 PINNED_JOB_NAMES = (
+    # The nightly signing admission takes each variant's digest from this job.
     (
-        ".github/workflows/ios-testflight.yml",
-        ".github/workflows/ios-testflight.yml",
-        "upload",
+        "scripts/ci/nightly_sign_admit.py",
+        ".github/workflows/nightly.yml",
+        "prepare-nightly-variant",
     ),
     # The persistent-pool rescue waits for the job that runs the pool picker.
     (

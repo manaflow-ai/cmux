@@ -22,6 +22,23 @@ public struct BrowserReplDriverError: Error, Equatable, Sendable {
     }
 }
 
+/// How a REPL session ended, which decides what becomes of the tabs it
+/// opened (docs/browser-repl/README.md, Sessions and tabs).
+public enum BrowserReplSessionEnd: Sendable, Equatable {
+    /// Reset, closed by its client, or ended by itself.
+    case closed
+    /// Unused for the idle timeout (30 minutes).
+    case idle
+
+    /// Whether a tab the session opened (and did not `page.keep()`) closes
+    /// with it. A session that idled out leaves a tab the user can see
+    /// (shown in a visible window, the selected tab of its pane and
+    /// workspace), which becomes the user's; a hidden one closes.
+    public func closesOpenedTab(visibleToUser: Bool) -> Bool {
+        self == .closed || !visibleToUser
+    }
+}
+
 /// Receives driver events (`tab.created`, `dialog.opened`, ...).
 public typealias BrowserReplDriverEventSink = @Sendable (_ name: String, _ payloadJSON: String) -> Void
 
@@ -44,15 +61,58 @@ public protocol BrowserReplDriver: AnyObject, Sendable {
     /// Stops events and releases held dialogs, file choosers and input state.
     func detach()
 
+    /// Like ``detach()``, for a session that ended `ending`: the tabs the
+    /// session opened close, except those ``BrowserReplSessionEnd/closesOpenedTab(visibleToUser:)``
+    /// keeps. A driver without tabs of its own ignores `ending`.
+    func detach(ending: BrowserReplSessionEnd)
+
     /// The session's domain policy changed. The driver refuses navigations
     /// the policy blocks (redirects too), blocks subresources and frames with
     /// content rules built from it, and refuses reads and input on a tab
     /// whose page is blocked. The session calls this, never JavaScript.
     func setDomainPolicy(_ policy: BrowserReplDomainPolicy)
+
+    /// The session's working and temporary directories changed (canonical
+    /// paths): the only directories its tabs may show or load local files
+    /// from. The session calls this, never JavaScript.
+    func setFileRoots(_ roots: [String])
+
+    /// The secrets other sessions typed into tabs (``BrowserReplTypedSecrets``),
+    /// as a store that masks them, or `nil` when there are none. This
+    /// session does not hold them, so its own store would not mask them: the
+    /// session applies this store wherever it applies its own (fetch
+    /// responses, files written and read back, output lines, errors,
+    /// results and events). Called from any thread.
+    func typedSecretRedaction() -> BrowserReplSecretStore?
+
+    /// Gives the driver the session's check that a secret an
+    /// `input.insertText` call carries (`secretName`, `secretRevision`) is
+    /// still the one the session holds under that name: the session filled
+    /// the value in when the call was made, and the agent may delete or
+    /// replace the secret before the driver types it. The driver asks right
+    /// before it commits the text and refuses a secret that fails. The
+    /// session calls this, never JavaScript.
+    func setSecretCheck(_ isCurrent: @escaping @Sendable (_ name: String, _ revision: Int) -> Bool)
+
+    /// Gives the driver the session's resource ledger, which what the
+    /// driver holds for the session in memory (its tabs' clipboards,
+    /// ``BrowserReplResource/clipboardBytes``) is charged to. The session
+    /// calls this once, before any call, never JavaScript.
+    func useLedger(_ ledger: BrowserReplResourceLedger)
 }
 
 extension BrowserReplDriver {
+    public func detach(ending: BrowserReplSessionEnd) { detach() }
+
     public func setDomainPolicy(_ policy: BrowserReplDomainPolicy) {}
+
+    public func setFileRoots(_ roots: [String]) {}
+
+    public func typedSecretRedaction() -> BrowserReplSecretStore? { nil }
+
+    public func setSecretCheck(_ isCurrent: @escaping @Sendable (_ name: String, _ revision: Int) -> Bool) {}
+
+    public func useLedger(_ ledger: BrowserReplResourceLedger) {}
 }
 
 /// JSON helpers for values crossing the JavaScriptCore bridge.
@@ -75,5 +135,61 @@ extension JSONSerialization {
     /// Decodes a JSON object, returning an empty dictionary for anything else.
     public static func browserReplObject(_ text: String) -> [String: Any] {
         browserReplValue(text) as? [String: Any] ?? [:]
+    }
+
+    /// The most structural elements (each `[`, `{` and `,` outside a
+    /// string) the JSON of one driver or host call may hold: its byte
+    /// limits admit tens of millions, which take the session's thread about
+    /// a second and a gigabyte to parse, and no timeout interrupts a parse.
+    static let browserReplMaximumCallElements = 2_000_000
+
+    /// The deepest nesting the JSON of one call may have; Foundation's
+    /// parser takes about this much and fails past it.
+    static let browserReplMaximumCallDepth = 512
+
+    /// Why the JSON `text` of one driver or host call is past the structure
+    /// one call may pass (``browserReplMaximumCallElements``,
+    /// ``browserReplMaximumCallDepth``), or nil. One scan of its bytes that
+    /// builds nothing, so the caller refuses the call before parsing it.
+    static func browserReplCallStructureRefusal(_ text: String) -> String? {
+        var text = text
+        return text.withUTF8 { bytes -> String? in
+            var elements = 0
+            var depth = 0
+            var inString = false
+            var escaped = false
+            for byte in bytes {
+                if inString {
+                    if escaped {
+                        escaped = false
+                    } else if byte == UInt8(ascii: "\\") {
+                        escaped = true
+                    } else if byte == UInt8(ascii: "\"") {
+                        inString = false
+                    }
+                    continue
+                }
+                switch byte {
+                case UInt8(ascii: "\""):
+                    inString = true
+                case UInt8(ascii: "["), UInt8(ascii: "{"):
+                    depth += 1
+                    elements += 1
+                    if depth > browserReplMaximumCallDepth {
+                        return "the call's JSON nests deeper than \(browserReplMaximumCallDepth) levels, the most one call may pass"
+                    }
+                case UInt8(ascii: "]"), UInt8(ascii: "}"):
+                    depth -= 1
+                case UInt8(ascii: ","):
+                    elements += 1
+                default:
+                    continue
+                }
+                if elements > browserReplMaximumCallElements {
+                    return "the call's JSON holds more than \(browserReplMaximumCallElements) elements (arrays, objects and the values they separate), the most one call may pass; pass less at once"
+                }
+            }
+            return nil
+        }
     }
 }

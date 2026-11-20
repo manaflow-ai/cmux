@@ -47,6 +47,12 @@ const ALLOWED_EVENTS: ReadonlySet<string> = new Set([
   "ios_purchase_pending",
   "ios_restore_started",
   "ios_restore_completed",
+  // StoreKit catalog and purchase delivery (CmuxMobileBilling)
+  "ios_products_loaded",
+  "ios_products_failed",
+  "ios_purchase_succeeded",
+  "ios_refund_request_opened",
+  "ios_refund_request_result",
   // App lifecycle + session
   "ios_app_first_launch",
   "ios_app_launched",
@@ -87,7 +93,49 @@ const ALLOWED_EVENTS: ReadonlySet<string> = new Set([
   "ios_crash",
 ]);
 
+// Event families the app grows without a server change: every event under
+// one of these prefixes is accepted. The suffix grammar keeps the name a
+// plain identifier.
+const ALLOWED_EVENT_FAMILIES: readonly RegExp[] = [
+  /^ios_onboarding_[a-z0-9_]{1,64}$/,
+  /^ios_email_verification_[a-z0-9_]{1,64}$/,
+  /^ios_mac_update_hint_[a-z0-9_]{1,64}$/,
+];
+
 /** Whether the proxy will forward the given event name to PostHog. */
 export function isAllowedAnalyticsEvent(name: unknown): name is string {
-  return typeof name === "string" && ALLOWED_EVENTS.has(name);
+  return typeof name === "string" &&
+    (ALLOWED_EVENTS.has(name) || ALLOWED_EVENT_FAMILIES.some((family) => family.test(name)));
+}
+
+/** Max entries kept from a list property (`product_ids`). */
+export const MAX_ANALYTICS_LIST_PROPERTY_ITEMS = 32;
+
+/**
+ * Properties forwarded for an unauthenticated event. An anonymous event may
+ * be a queued event from a session whose account was deleted, so it keeps
+ * only build and store facts that identify no person: which app (and so
+ * which channel) sent it, its version, and the StoreKit environment.
+ */
+export const ANONYMOUS_SAFE_PROPERTIES: ReadonlySet<string> = new Set([
+  "bundle_identifier",
+  "app_version",
+  "build_number",
+  "storekit_environment",
+]);
+
+export type IosAnalyticsChannel = "production" | "beta" | "dev" | "third_party" | "unknown";
+
+/**
+ * Release channel of the app that sent an event, from its bundle id:
+ * `com.cmux.app` is the App Store app, `dev.cmux.app.beta` is TestFlight beta,
+ * any other `dev.cmux.*` is a tagged dev build, and anything else is a build
+ * we do not ship. `unknown` when the event carried no bundle id.
+ */
+export function iosAnalyticsChannel(bundleIdentifier: unknown): IosAnalyticsChannel {
+  if (typeof bundleIdentifier !== "string" || bundleIdentifier.length === 0) return "unknown";
+  if (bundleIdentifier === "com.cmux.app") return "production";
+  if (bundleIdentifier === "dev.cmux.app.beta") return "beta";
+  if (bundleIdentifier.startsWith("dev.cmux.")) return "dev";
+  return "third_party";
 }

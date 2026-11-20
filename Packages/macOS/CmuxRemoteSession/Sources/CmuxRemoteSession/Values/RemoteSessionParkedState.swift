@@ -13,6 +13,8 @@ struct RemoteSessionParkedState: Equatable, Sendable {
         case hostUnreachable
         /// The daemon answered, but the relay or proxy never became ready.
         case readinessTimedOut
+        /// The standalone relay could not authenticate to the SSH endpoint.
+        case sshAuthenticationFailed
     }
 
     let cause: Cause

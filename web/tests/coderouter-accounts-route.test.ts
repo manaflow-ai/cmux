@@ -49,7 +49,30 @@ describe("coderouter account addition", () => {
       alreadyExists: false,
     });
     expect(add).toHaveBeenCalledTimes(1);
-    expect(add).toHaveBeenCalledWith("team_1", expect.objectContaining({ provider: "codex" }), undefined, undefined, undefined, { createdBy: "user_1", visibility: "private" });
+    expect(add).toHaveBeenCalledWith("team_1", expect.objectContaining({ provider: "codex" }), undefined, undefined, undefined, { createdBy: "user_1", visibility: "team" });
+  });
+
+  test("an organization import with no visibility is shared, so the team's machines can use it", async () => {
+    const visibilityFor = async (teamId: string, body: Record<string, unknown>) => {
+      const add = mock(async () => ({ accountId: "new", alreadyExists: false }));
+      const POST = makeCoderouterAccountsPostHandler({
+        resolveContext: mock(async () => ({ ...context, value: { ...context.value, team: { ...context.value.team, teamId } } })) as never,
+        add,
+      });
+      const response = await POST(new Request("https://coderouter.dev/api/coderouter/accounts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...JSON.parse(credentialBody), ...body }),
+      }));
+      expect(response.status).toBe(201);
+      return (add.mock.calls[0] as unknown[])[5];
+    };
+    // `cr add codex` and `cr add opencode` (the sidebar's add path) send no visibility.
+    expect(await visibilityFor("team_1", {})).toEqual({ createdBy: "user_1", visibility: "team" });
+    // A personal scope stays private; its owner's machines already use private accounts.
+    expect(await visibilityFor("user_1", {})).toEqual({ createdBy: "user_1", visibility: "private" });
+    // An explicit choice is respected.
+    expect(await visibilityFor("team_1", { visibility: "private" })).toEqual({ createdBy: "user_1", visibility: "private" });
   });
 
   test("re-importing an existing account is a 200, not a conflict", async () => {

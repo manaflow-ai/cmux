@@ -10,8 +10,9 @@ name: reload-build
 # run dispatched on the ephemeral branch itself saves caches no later run reads.
 # This is the Blacksmith alternative to SSH-leasing a fleet Mac. It runs only on
 # workflow_dispatch and workflow_call: nothing here runs on push or
-# pull_request, so it never adds to the heavy CI fan-out. The one caller is
-# cmux-next-frame-pacing.yml, which builds the app its nightly bench measures.
+# pull_request, so it never adds to the heavy CI fan-out. Nothing on main calls
+# it: cmux-next-frame-pacing.yml runs feat-cmux-next's copy, whose own
+# reload-build.yml builds that tree.
 
 on:
   workflow_call:
@@ -118,7 +119,7 @@ jobs:
     # re-run), then Blacksmith. iOS builds stay on Blacksmith: the side runners
     # do not carry the glaeda-ios-sim capability (an iOS Simulator runtime).
     # Any other label is honored.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (contains(fromJSON('["","auto","blacksmith-6vcpu-macos-26"]'), inputs.runner) && (inputs.platform == 'macos' && needs.resolve-ref.outputs.trusted_ref == 'true' && vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26') || startsWith(inputs.runner, 'depot-') && 'blacksmith-6vcpu-macos-26' || inputs.runner) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (contains(fromJSON('["","auto","blacksmith-6vcpu-macos-26"]'), inputs.runner) && (inputs.platform == 'macos' && needs.resolve-ref.outputs.trusted_ref == 'true' && vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt == 1 || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]')) && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || 'blacksmith-6vcpu-macos-26') || startsWith(inputs.runner, 'depot-') && 'blacksmith-6vcpu-macos-26' || inputs.runner) }}
     timeout-minutes: 60
     env:
       # The ghostty CLI helper zig build is skipped; GhosttyKit comes prebuilt.

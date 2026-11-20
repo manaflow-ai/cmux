@@ -170,16 +170,43 @@ struct AgentChatChildRunTests {
         #expect(!rec.children[0].isRunning)
     }
 
-    @Test func stopClosesAllOpenChildren() {
+    @Test func claudeParentStopLeavesBackgroundChildrenRunningUntilTheirStop() {
         var rec = record()
         AgentChatSessionRegistry.applyChildRunEvent(
             &rec, event: event(.preToolUse, tool: "Task", requestId: "a", at: 10)
         )
         AgentChatSessionRegistry.applyChildRunEvent(
-            &rec, event: event(.preToolUse, tool: "Task", requestId: "b", at: 11)
+            &rec, event: event(.stop, at: 50)
+        )
+        #expect(rec.children[0].isRunning)
+
+        AgentChatSessionRegistry.applyChildRunEvent(
+            &rec, event: event(.subagentStop, requestId: "a", at: 60)
+        )
+        #expect(!rec.children[0].isRunning)
+    }
+
+    @Test func claudeSessionEndClosesBackgroundChildren() {
+        var rec = record()
+        AgentChatSessionRegistry.applyChildRunEvent(
+            &rec, event: event(.preToolUse, tool: "Task", requestId: "a", at: 10)
         )
         AgentChatSessionRegistry.applyChildRunEvent(
-            &rec, event: event(.stop, at: 50)
+            &rec, event: event(.sessionEnd, at: 50)
+        )
+        #expect(!rec.children[0].isRunning)
+    }
+
+    @Test func nonClaudeParentStopClosesAllOpenChildren() {
+        var rec = record()
+        AgentChatSessionRegistry.applyChildRunEvent(
+            &rec, event: event(.preToolUse, tool: "Task", requestId: "a", source: "codex", at: 10)
+        )
+        AgentChatSessionRegistry.applyChildRunEvent(
+            &rec, event: event(.preToolUse, tool: "Task", requestId: "b", source: "codex", at: 11)
+        )
+        AgentChatSessionRegistry.applyChildRunEvent(
+            &rec, event: event(.stop, source: "codex", at: 50)
         )
         #expect(rec.children.allSatisfy { $0.endedAt != nil })
     }

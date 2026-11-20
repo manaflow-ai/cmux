@@ -1,0 +1,25 @@
+name: Cloud harness start matrix (staging, on dispatch)
+
+# The implementation lives on feat-cmux-next. GitHub dispatches only a
+# workflow the default branch registers, so this inert copy lets lanes run:
+#
+#   gh workflow run cloud-harness-matrix.yml -R manaflow-ai/cmux --ref feat-cmux-next
+#
+# A dispatch runs the file at --ref, so feat-cmux-next's inputs and jobs win;
+# these inputs only mirror them for the Actions form.
+on:
+  workflow_dispatch:
+    inputs:
+      cells:
+        description: comma-separated cells (cloud-chat-matrix.ts --list); default every app-start cell
+        required: false
+        default: claude-app-start,codex-app-start,gemini-app-start,grok-app-start,cursor-app-start,opencode-app-start
+        type: string
+
+permissions: {}
+
+jobs:
+  registration:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - run: echo "The Cloud harness start matrix is implemented on feat-cmux-next; dispatch it with --ref feat-cmux-next"

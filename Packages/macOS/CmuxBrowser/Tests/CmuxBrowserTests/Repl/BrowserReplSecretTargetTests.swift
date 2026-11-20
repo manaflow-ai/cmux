@@ -11,6 +11,7 @@ import WebKit
 @MainActor
 @Suite("Browser REPL secret typing target", .serialized)
 struct BrowserReplSecretTargetTests {
+
     /// Collects each frame's `WKFrameInfo` as its document posts its name.
     private final class Frames: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         var infos: [String: WKFrameInfo] = [:]
@@ -42,12 +43,12 @@ struct BrowserReplSecretTargetTests {
     private let frames = Frames()
     private let world = WKContentWorld.world(name: "cmux-secret-target-test")
 
-    private func load(_ body: String, posting names: [String]) async -> WKWebView {
+    private func load(_ body: String, posting names: [String], baseURL: String = "https://example.test/") async -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.userContentController.add(frames, name: "frame")
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 800, height: 600), configuration: configuration)
         webView.navigationDelegate = frames
-        webView.loadHTMLString("<html><body>\(body)</body></html>", baseURL: URL(string: "https://example.test/"))
+        webView.loadHTMLString("<html><body>\(body)</body></html>", baseURL: URL(string: baseURL))
         let frames = frames
         await frames.wait { frames.finished && names.allSatisfy { frames.infos[$0] != nil } }
         return webView
@@ -122,4 +123,5 @@ struct BrowserReplSecretTargetTests {
         }
         #expect(error??.code == "stale", "a focus probe that did not answer hung or passed: \(String(describing: error))")
     }
+
 }

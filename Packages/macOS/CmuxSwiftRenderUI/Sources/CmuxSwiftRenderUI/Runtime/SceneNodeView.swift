@@ -161,7 +161,7 @@ private struct SceneNodeContent: View {
             // menu button.
             Menu(node.string("text") ?? "") { children }
         case "textfield":
-            SceneTextFieldView(node: node, sink: sink)
+            SceneTextFieldView(node: node, sink: sink, autofocusGate: store?.autofocusGate)
         case "reorderable":
             ReorderableColumnView(node: node)
         default:
@@ -314,21 +314,27 @@ private struct SceneCursor: ViewModifier {
     }
 }
 
-/// Editable one-line text field backed by NSTextField: grabs first responder
-/// and selects all its text the moment it mounts (type-over ready), Return
-/// submits, Escape cancels, and losing focus any other way (clicking outside)
-/// commits like Return. SwiftUI's TextField cannot express select-all or
-/// blur-commit, which is exactly the rename UX.
+/// Editable one-line text field backed by NSTextField: when the user gave
+/// the sidebar focus, it grabs first responder and selects all its text the
+/// moment it mounts (type-over ready); Return submits, Escape cancels, and
+/// losing focus any other way (clicking outside) commits like Return.
+/// SwiftUI's TextField cannot express select-all or blur-commit, which is
+/// exactly the rename UX.
 private struct SceneTextFieldView: NSViewRepresentable {
     let node: SceneNode
     let sink: SceneEventSink
+    /// Decides whether this mount may take focus; `nil` (no scene store)
+    /// never autofocuses.
+    let autofocusGate: SceneAutofocusGate?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(nodeId: node.id, sink: sink)
     }
 
-    func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField(string: node.string("text") ?? "")
+    func makeNSView(context: Context) -> SceneTextField {
+        let field = SceneTextField(string: node.string("text") ?? "")
+        field.autofocusGate = autofocusGate
+        field.nodeId = node.id
         field.placeholderString = node.string("placeholder")
         field.isBordered = false
         field.drawsBackground = false
@@ -339,21 +345,28 @@ private struct SceneTextFieldView: NSViewRepresentable {
             weight: Self.nsWeight(node.string("weight"))
         )
         field.delegate = context.coordinator
-        // Rename editors grab focus on mount (type-over ready). Persistent
-        // fields (a panel's search box) pass autofocus:false and wait for a
-        // click instead of stealing the terminal's focus.
-        if node.bool("autofocus") != false || node.props["autofocus"] == nil {
+        // Rename editors grab focus on mount (type-over ready), but only
+        // focus the user gave this sidebar: a click in it just now, or focus
+        // already in one of its fields. A field that a data update mounts
+        // while the user types in a terminal must not take the terminal's
+        // keystrokes. Persistent fields (a panel's search box) pass
+        // autofocus:false and always wait for a click.
+        if node.props["autofocus"]?.boolValue != false, let autofocusGate {
             // First responder can only be claimed once the field is in a
             // window; hop one runloop turn (plain async, not a timed delay).
-            DispatchQueue.main.async {
-                field.window?.makeFirstResponder(field)
+            // The gate is asked at that moment, against the window's focus
+            // as it is then.
+            DispatchQueue.main.async { [weak field] in
+                guard let field, let window = field.window,
+                      autofocusGate.allowsFocus(nodeId: field.nodeId, in: window) else { return }
+                window.makeFirstResponder(field)
                 field.currentEditor()?.selectAll(nil)
             }
         }
         return field
     }
 
-    func updateNSView(_ field: NSTextField, context: Context) {
+    func updateNSView(_ field: SceneTextField, context: Context) {
         field.placeholderString = node.string("placeholder")
     }
 

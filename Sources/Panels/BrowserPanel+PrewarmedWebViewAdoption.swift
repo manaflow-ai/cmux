@@ -45,6 +45,11 @@ extension BrowserPanel {
               let initialURL else {
             return nil
         }
+        guard !requiresAppSessionBootstrap(initialURL) else {
+            // The prewarm loaded without session cookies; never show it signed in.
+            BrowserPrewarmedWebViewPool.shared.discard(reason: "app-session-required")
+            return nil
+        }
         return BrowserPrewarmedWebViewPool.shared.claim(
             url: initialURL,
             profileID: profileID,

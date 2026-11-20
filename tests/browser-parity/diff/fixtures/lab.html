@@ -21,6 +21,22 @@
 <button id="counter" onclick="this.dataset.n=String(Number(this.dataset.n||0)+1);this.textContent='Count '+this.dataset.n">Count 0</button>
 <input id="keys" aria-label="Keys">
 <canvas id="canvas" width="120" height="60" style="border:1px solid"></canvas>
+<script>
+// mouse.members aims at whole pixels from the canvas's box: the canvas is
+// nudged (position: relative, which moves nothing else) onto whole page
+// pixels, here and again once images change the flow above it.
+(() => {
+  const c = document.getElementById("canvas");
+  const snap = () => {
+    c.style.position = "relative"; c.style.left = "0px"; c.style.top = "0px";
+    const r = c.getBoundingClientRect();
+    const x = r.left + scrollX, y = r.top + scrollY;
+    c.style.left = `${Math.ceil(x) - x}px`; c.style.top = `${Math.ceil(y) - y}px`;
+  };
+  snap();
+  addEventListener("load", snap);
+})();
+</script>
 <div id="late-slot"></div>
 <button id="make-late" onclick="setTimeout(()=>{document.getElementById('late-slot').innerHTML='<button id=late>Late button</button>'},400)">Make late</button>
 <button id="remove-self" onclick="this.remove()">Remove me</button>

@@ -161,4 +161,23 @@ import GhosttyKit
         #expect(basePoints == 0.5)
         #expect(restoredRuntimePoints == 1)
     }
+
+    @Test func withoutStartupWorkKeepsDisplayConfiguration() {
+        var template = CmuxSurfaceConfigTemplate()
+        template.fontSize = 15
+        template.workingDirectory = "/tmp/project"
+        template.command = "agent --resume"
+        template.environmentVariables = ["PROJECT": "cmux"]
+        template.initialInput = "resume\r"
+        template.waitAfterCommand = true
+
+        let sanitized = template.withoutStartupWork()
+
+        #expect(sanitized.fontSize == template.fontSize)
+        #expect(sanitized.workingDirectory == template.workingDirectory)
+        #expect(sanitized.environmentVariables == template.environmentVariables)
+        #expect(sanitized.command == nil)
+        #expect(sanitized.initialInput == nil)
+        #expect(!sanitized.waitAfterCommand)
+    }
 }

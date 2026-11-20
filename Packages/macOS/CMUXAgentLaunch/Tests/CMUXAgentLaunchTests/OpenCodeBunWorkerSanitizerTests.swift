@@ -6,6 +6,8 @@ struct OpenCodeBunWorkerSanitizerTests {
     @Test("Drops internal TUI worker paths", arguments: [
         "/$bunfs/root/src/cli/cmd/tui/worker.js",
         "/$bunfs/root/src/cli/tui/worker.js",
+        "/$bunfs/root/src/index.js",
+        "B:/~BUN/root/src/index.js",
     ])
     func dropsInternalTUIWorkerPaths(workerPath: String) {
         #expect(

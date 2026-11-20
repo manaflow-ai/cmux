@@ -114,6 +114,27 @@ struct GhosttyTerminalStartupEnvironmentTests {
     }
 
     @Test
+    func testManagedTerminalIdentityBlanksEmbeddedGhosttyVersion() {
+        // Ghostty exports its own TERM_PROGRAM_VERSION before applying cmux's
+        // environment, so cmux must override it with an empty value; omitting
+        // the key would leave the embedded version in the child environment.
+        var environment = [
+            "TERM_PROGRAM": "Apple_Terminal",
+            "TERM_PROGRAM_VERSION": "1.3.2-HEAD-+324c027",
+        ]
+        var protectedKeys: Set<String> = []
+
+        TerminalSurface.applyManagedTerminalIdentityEnvironment(
+            to: &environment,
+            protectedKeys: &protectedKeys
+        )
+
+        expectEqual(environment["TERM_PROGRAM"], TerminalSurface.managedTerminalProgram)
+        expectEqual(environment["TERM_PROGRAM_VERSION"], "")
+        expectTrue(protectedKeys.contains("TERM_PROGRAM_VERSION"))
+    }
+
+    @Test
     func testApplyManagedGitWatchEnvironmentDisablesShellGitWatch() {
         var environment: [String: String] = [:]
         var protectedKeys: Set<String> = []
@@ -559,12 +580,14 @@ struct GhosttyTerminalStartupEnvironmentTests {
                 "TERM": "screen-256color",
                 "COLORTERM": "false",
                 "TERM_PROGRAM": "WarpTerminal",
+                "TERM_PROGRAM_VERSION": "9.9.9",
             ]
         )
 
         expectEqual(merged["TERM"], TerminalSurface.managedTerminalType)
         expectEqual(merged["COLORTERM"], TerminalSurface.managedColorTerm)
         expectEqual(merged["TERM_PROGRAM"], TerminalSurface.managedTerminalProgram)
+        expectEqual(merged["TERM_PROGRAM_VERSION"], "")
     }
 
     @Test

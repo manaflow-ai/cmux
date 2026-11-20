@@ -4,7 +4,7 @@ import CmuxSettingsUI
 import SwiftUI
 
 /// The Cloud panel's full-width New Cloud Machine button, between the team
-/// header and the machine list. It runs the same action as Cmd-Y, so the list
+/// header and the machine list. It runs the same action as Cmd-Shift-Y, so the list
 /// itself carries no create row for machines. Like the rest of cmux's chrome,
 /// its shortcut shows only while Command is held.
 struct CloudNewMachineButton: View {

@@ -88,3 +88,12 @@ export function scopedSessionKey(key: string | null, access?: CoderouterAccountA
     ? ["vm", access.vmId, access.poolId, key]
     : ["user", access.userId, key]);
 }
+
+/** The visibility of a new import whose client named none (`cr add codex`,
+ * `cr add opencode`, and the sidebar that runs them). An account added to an
+ * organization is for that organization, including every machine it runs, so
+ * it is shared. A personal scope stays private: its owner's machines already
+ * use private accounts and nobody else is in it. An explicit request wins. */
+export function defaultImportVisibility(teamId: string, userId: string): "private" | "team" {
+  return teamId === userId ? "private" : "team";
+}

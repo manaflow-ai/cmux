@@ -1,0 +1,36 @@
+2026-10-28T03:45:42.4071490Z ◇ Suite HomeAttachmentPanelWarmUpTests started.
+2026-10-28T03:45:42.4082580Z ◇ Suite ChiefIntroPanelTests started.
+2026-10-28T03:45:42.4440880Z ◇ Suite ChiefIntroTests started.
+2026-10-28T03:45:42.4771500Z ◇ Test aProcessThatNeverRanTheAppMakesNoPanelAhead() started.
+2026-10-28T03:46:00.9105720Z ✘ Test everyCloudActionHasADescription() recorded an issue at CloudActionDescriptionTests.swift:14:13: Expectation failed: !((text → "").isEmpty → true → true)
+2026-10-28T03:46:00.9106680Z ✘ Test everyCloudActionHasADescription() failed after 18.380 seconds with 1 issue.
+2026-10-28T03:47:08.7125000Z ◇ Test case passing 2 argumenterror: Process '/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/libexec/swift/pm/swiftpm-testing-helper --test-bundle-path /Users/cmux/actions-runner/_work/cmux/cmux/Packages/macOS/CmuxNext/.build/arm64-apple-macosx/debug/CmuxNextPackageTests.xctest/Contents/MacOS/CmuxNextPackageTests --skip-build --skip CmuxNextControlTests --skip BranchStateResourcesTests --skip CloudBringBackTests --skip CommitBoundaryAppKitTests /Users/cmux/actions-runner/_work/cmux/cmux/Packages/macOS/CmuxNext/.build/arm64-a …
+2026-10-28T03:47:08.7197500Z ✘ Test fortyExtensionsOpenWithinAFrame() recorded an issue at ExtensionsMenuPerformanceTests.swift:108:9: Expectation failed: (Self.milliseconds(first) → 51.399959) < (50 → 50.0)
+2026-10-28T03:47:08.7198220Z ✘ Test fortyExtensionsOpenWithinAFrame() failed after 86.211 seconds with 1 issue.
+2026-10-28T03:47:08.7205200Z ✔ Test ignoresTheEmbeddedOriginBoundForm() passed after 86.239 seconds.
+2026-10-28T03:47:08.7205780Z ◇ Test case passing 3 arguments subject → "", body → "Your verification code is 482913.", code → "482913" to findsTheCode(subject:body:code:) started.
+2026-10-28T03:47:08.7206520Z *** Terminating app due to uncaught exception 'NSInternalInconsistencyException', reason: 'View <CmuxNextHome.HomeFirstRunIntro: 0x753861cc80> is not (and has to be) in stack view <NSStackView: 0x753861d900>.'
+2026-10-28T03:47:08.7206960Z *** First throw call stack:
+2026-10-28T03:47:08.7207070Z (
+2026-10-28T03:47:08.7207260Z 	0   CoreFoundation                      0x000000019e5628c0 __exceptionPreprocess + 176
+2026-10-28T03:47:08.7207540Z 	1   libobjc.A.dylib                     0x000000019dfc060c objc_exception_throw + 88
+2026-10-28T03:47:08.7207820Z 	2   Foundation                          0x000000019fca94d8 -[NSCalendarDate initWithCoder:] + 0
+2026-10-28T03:47:08.7208170Z 	3   AppKit                              0x00000001a2ca09ec -[NSStackView _setCustomSpacing:afterView:animated:] + 168
+2026-10-28T03:47:08.7208650Z 	4   CmuxNextPackageTests                0x000000700c62f2f8 $s12CmuxNextHome0C12FirstRunViewC12applySpacing33_0DC0C065E58797D3F0A6E087FAC64C27LLyyF + 892
+2026-10-28T03:47:08.7209200Z 	5   CmuxNextPackageTests                0x000000700c62c714 $s12CmuxNextHome0C12FirstRunViewC7arrange33_0DC0C065E58797D3F0A6E087FAC64C27LLyyF + 1772
+2026-10-28T03:47:08.7209690Z 	6   CmuxNextPackageTests                0x000000700c62bb48 $s12CmuxNextHome0C12FirstRunViewC5frameACSo6CGRectV_tcfc + 3768
+2026-10-28T03:47:08.7210140Z 	7   CmuxNextPackageTests                0x000000700c62c7e8 $s12CmuxNextHome0C12FirstRunViewC5frameACSo6CGRectV_tcfcTo + 180
+2026-10-28T03:47:08.7210500Z 	8   CmuxNextPackageTests                0x00000070017f2718 $sSo6NSViewCABycfcTO + 16
+2026-10-28T03:47:08.7210790Z 	9   CmuxNextPackageTests                0x00000070017ee598 $sSo6NSViewCABycfC + 32
+2026-10-28T03:47:08.7212360Z 	10  CmuxNextPackageTests                0x000000700c6a4044 $s12CmuxNextHome0C20NativeTranscriptViewC5store12conversation2me8diagrams9openPanelAC0aC4Core0C5StoreC_AI14ConversationIDVAI011ParticipantP0V0aC6Render0C16DiagramRendering_pSg0aB6Design013MadeAhe	11  CmuxNextPackageTests                0x000000700c6a3f40 $s12CmuxNextHome0C20NativeTranscriptViewC5store12conversation2me8diagrams9openPanelAC0aC4Core0C5StoreC_AI14ConversationIDVAI011ParticipantP0V0aC6Render0C16DiagramRendering_pSg0aB6Design013MadeAhe	12  CmuxNextPackageTests                0x0000007003859d28 $ …
+2026-10-28T03:47:08.7213970Z 	13  CmuxNextPackageTests                0x0000007003859828 $s11CmuxNextApp12HomeHostViewC8services12conversationAcA0C8ServicesC_SStcfC + 56
+2026-10-28T03:47:08.7214590Z 	14  CmuxNextPackageTests                0x00000070060edfc0 $s16CmuxNextAppTests025HomeAttachmentPanelWarmUpD0V023aProcessThatNeverRanThec7MakesNoG5AheadyyYaKFTY0_ + 1260
+2026-10-28T03:47:08.7219340Z 	15  CmuxNextPackageTests                0x00000070060ed62d $s16CmuxNextAppTests025HomeAttachmentPanelWarmUpD0V04$s16abc8Tests025efghI76D0V023aProcessThatNeverRanThec7MakesNoG5Ahead4TestfMp_16d68e8679b79a03effMu_33_35DF8C877F28315CDBEBC8AFCC9B84C7LLyyYaYb	16  CmuxNextPackageTests                0x00000070060efcd1 $s16CmuxNextAppTests025HomeAttachmentPanelWarmUpD0V04$s16abc8Tests025efghI85D0V023aProcessThatNeverRanThec7MakesNoG5Ahead4TestfMp_25generatord68e8679b79a03effMu_33_35DF8C877F28315CDBEBC8AFCC9B84C	17  CmuxNextPackageTests                0x00000070060f0735 $ …
+2026-10-28T03:47:08.7224090Z 	23  Testing                             0x000000010a433901 $s7Testing18__checkClosureCall6throws10performing10expression8comments10isRequired14sourceLocations6ResultOyyts5Error_pGx_q_yYaKXEAA12__ExpressionVSayAA7CommentVGyXKSbAA06SourceL0VtYaSQRzsAKRzr0_	24  Testing                             0x000000010a4328a1 $s7Testing14withKnownIssue_14isIntermittent14sourceLocation_4when8matchingyAA7CommentVSg_SbAA06SourceH0VyyYaKXESbyYaXESbAA0D0VYbctYaKFyyYaKXEfU_TQ0_ + 1
+2026-10-28T03:47:08.7227990Z 	25  Testing                             0x000000010a420fc5 $s7Testing18__checkClosureCall10performing6throws19mismatchExplanation10expression8comments10isRequired14sourceLocations6ResultOyyts5Error_pGxyYaKXE_SbsAL_pYaKXESSsAL_pcSgAA12__ExpressionVSayAA7C	26  Testing                             0x000000010a4338fd $s7Testing18__checkClosureCall6throws10performing10expression8comments10isRequired14sourceLocations6ResultOyyts5Error_pGx_q_yYaKXEAA12__ExpressionVSayAA7CommentVGyXKSbAA06SourceL0VtYaSQRzsAKRzr0_	27  Testing                             0x000000010a433901 $ …
+2026-10-28T03:47:08.7230800Z )
+2026-10-28T03:47:08.7230990Z libc++abi: terminating due to uncaught exception of type NSException
+2026-10-28T03:47:08.7853880Z ##[error]2 red tests: everyCloudActionHasADescription() CloudActionDescriptionTests.swift:14; fortyExtensionsOpenWithinAFrame() ExtensionsMenuPerformanceTests.swift:108
+2026-10-28T03:47:08.7995060Z ##[error]no "Test run with" summary line (crash, kill or truncation); swift test exited 1, and SwiftPM prints no line when the test helper ends on SIGINT, SIGTERM or SIGKILL or exits by itself; 5096 tests started and never finished: theIconAndTheMarkSitOnTheFirstLinesCapitals(lines:); theHoverCardWindowIsGlassNotASolidCard(look:); aCardBelowATabTouchesItsBottomEdge(fraction:); relayoutsUnderAStillPointerAskTheWindowServerOnce(noActivate:); theNewTabPageLoadsWithTheSettledToolbar(_:); cardTextKeepsAAOverAnyBackdrop(material:); anOpenDeviceKeepsThePageUntilItCloses(_ …
+2026-10-28T03:47:29.0045290Z ##[error]the test helper died on signal 6; crashed thread: no crash report from this run 
+2026-10-28T03:47:29.0096520Z ##[error]Process completed with exit code 1.

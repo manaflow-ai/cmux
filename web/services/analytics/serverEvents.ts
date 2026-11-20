@@ -11,7 +11,7 @@
 //
 // Delivery is best effort: bounded timeout, one retry on transient failure,
 // deferred past the response with `after()`, never throws into the caller.
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { after } from "next/server";
 
 import { isAnalyticsTestRun, POSTHOG_HOST, POSTHOG_PROJECT_KEY } from "./iosEventPolicy";
@@ -39,6 +39,11 @@ export type ServerEventInput = {
    */
   readonly insertId?: string;
   readonly timestamp?: Date;
+  /**
+   * Send without a person profile (`$process_person_profile: false`) for a
+   * key that is not a real person (a deleted account placeholder).
+   */
+  readonly personless?: boolean;
 };
 
 export type ServerEventTask = () => Promise<void>;
@@ -99,24 +104,32 @@ export function serverEventPayload(
   const distinctId = normalizedOpaqueId(input.distinctId);
   if (!distinctId) return null;
   const teamId = normalizedOpaqueId(input.teamId);
+  const insertId = normalizedInsertId(input.insertId);
   const properties: Record<string, unknown> = {
     ...cleanProperties(input.properties),
     $lib: SERVER_EVENT_LIB,
-    $insert_id: normalizedInsertId(input.insertId) ?? randomUUID(),
+    $insert_id: insertId ?? randomUUID(),
     // Server IPs are Vercel's, not the user's; never geolocate them.
     $geoip_disable: true,
   };
   if (teamId) properties.$groups = { [STACK_TEAM_GROUP]: teamId };
-  const set = cleanProperties(input.set);
-  if (Object.keys(set).length > 0) properties.$set = set;
-  const setOnce = cleanProperties(input.setOnce);
-  if (Object.keys(setOnce).length > 0) properties.$set_once = setOnce;
+  if (input.personless) {
+    properties.$process_person_profile = false;
+  } else {
+    const set = cleanProperties(input.set);
+    if (Object.keys(set).length > 0) properties.$set = set;
+    const setOnce = cleanProperties(input.setOnce);
+    if (Object.keys(setOnce).length > 0) properties.$set_once = setOnce;
+  }
   return {
     api_key: POSTHOG_PROJECT_KEY,
     event: input.event,
     distinct_id: distinctId,
     timestamp: (input.timestamp ?? now).toISOString(),
     properties,
+    // PostHog deduplicates on the event uuid, not `$insert_id`. A natural key
+    // maps to a stable uuid so a retry or replay of the same fact collapses.
+    ...(insertId ? { uuid: uuidFromKey(insertId) } : {}),
   };
 }
 
@@ -174,6 +187,56 @@ export function captureServerEvent(
   return delivery;
 }
 
+/** Events per `/batch/` request; PostHog accepts far larger bodies, this keeps each request small. */
+export const SERVER_EVENT_BATCH_SIZE = 200;
+
+export type ServerEventBatchResult = {
+  readonly sent: number;
+  readonly failed: number;
+};
+
+/**
+ * Deliver many product events now, in `/batch/` requests of
+ * SERVER_EVENT_BATCH_SIZE, and report how many were accepted. For cron jobs
+ * that own their run and must await delivery before answering; request paths
+ * use `captureServerEvent`. Same gating as `captureServerEvent`; never throws.
+ */
+export async function captureServerEventBatch(
+  inputs: readonly ServerEventInput[],
+  dependencies: Partial<ServerEventDependencies> = {},
+): Promise<ServerEventBatchResult> {
+  const deps: ServerEventDependencies = { ...defaultDependencies, ...dependencies };
+  if (isAnalyticsTestRun(deps.env) && !dependencies.fetch) return { sent: 0, failed: 0 };
+  if (!serverAnalyticsEnabled(deps.env)) return { sent: 0, failed: 0 };
+  const posthogHost = configuredPosthogHost(deps.env);
+  if (!isAllowedPosthogHost(posthogHost, deps.env)) return { sent: 0, failed: inputs.length };
+  const now = deps.now();
+  const batch = inputs.flatMap((input) => {
+    const payload = serverEventPayload(input, now);
+    if (!payload) return [];
+    // The key travels once at the top of the batch body.
+    const event: Record<string, unknown> = { ...payload };
+    delete event.api_key;
+    return [event];
+  });
+  let sent = 0;
+  let failed = inputs.length - batch.length;
+  for (let start = 0; start < batch.length; start += SERVER_EVENT_BATCH_SIZE) {
+    const chunk = batch.slice(start, start + SERVER_EVENT_BATCH_SIZE);
+    try {
+      await deliver(JSON.stringify({ api_key: POSTHOG_PROJECT_KEY, batch: chunk }), deps.fetch, posthogHost, "/batch/");
+      sent += chunk.length;
+    } catch (error: unknown) {
+      failed += chunk.length;
+      console.warn("[analytics] server event batch delivery failed", {
+        events: chunk.length,
+        error: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200),
+      });
+    }
+  }
+  return { sent, failed };
+}
+
 export function isSecurePosthogHost(host: string): boolean {
   try {
     const url = new URL(host);
@@ -207,12 +270,17 @@ function configuredPosthogHost(env: Record<string, string | undefined>): string 
   return (env.POSTHOG_HOST ?? POSTHOG_HOST).replace(/\/$/, "");
 }
 
-async function deliver(body: string, fetchImpl: typeof fetch, posthogHost: string): Promise<void> {
+async function deliver(
+  body: string,
+  fetchImpl: typeof fetch,
+  posthogHost: string,
+  path: "/capture/" | "/batch/" = "/capture/",
+): Promise<void> {
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     let response: Response;
     try {
-      response = await fetchImpl(`${posthogHost}/capture/`, {
+      response = await fetchImpl(`${posthogHost}${path}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body,
@@ -249,6 +317,15 @@ function cleanProperties(properties: ServerEventProperties | undefined): Record<
 function normalizedOpaqueId(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed && /^[A-Za-z0-9_-]{1,128}$/.test(trimmed) ? trimmed : null;
+}
+
+/** A stable RFC 4122 version-5-shaped uuid from a natural key. */
+function uuidFromKey(key: string): string {
+  const bytes = createHash("sha1").update(`cmux-server-event:${key}`).digest().subarray(0, 16);
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 function normalizedInsertId(value: string | undefined): string | null {

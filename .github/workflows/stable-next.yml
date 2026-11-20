@@ -1,0 +1,147 @@
+name: cmux NEXT Stable
+
+# cmux NEXT Stable: once a night, the newest cmux NEXT nightly build, gated harder, re-signed as its
+# own app and published to its own feed (scripts/ci/stable_next.py has the whole contract; docs/ci/stable-next.md).
+#
+#   app    cmux NEXT Stable, com.cmuxterm.app.nightly.cmux-next-stable, regular cmux icon,
+#          sign-in scheme cmux-next-stable (scripts/ci/stable-next-identity.sh)
+#   feed   https://files-next.cmux.com/nightly-next/stable/appcast-arm64.xml, bucket cmux-nightly-next,
+#          the cmux NEXT Sparkle key; every item tagged cmux-next-stable; the feed keeps 3 builds
+#   when   a scheduled tick every hour from 21:00 to 06:59 America/Los_Angeles dispatches one publish
+#          run on nightly-next (release-next holds the signing, notary, Sparkle and R2 secrets and
+#          deploys only there), until a stable build is published that night or 3 runs failed
+#
+# Gates, all on the candidate's exact nightly-next commit or on the signed stable DMG itself:
+#   crash-class   the cmux-next-crash-class.yml rules on the whole tree (Linux)
+#   swift-suites  every CmuxNext test target, package-test-lane.sh suite, as build-fleet steps on
+#                 macOS 27 M4 Pro workers (labels macos-27 + ram48; no M6 mini has ram48)
+#   perf-budgets  scripts/cmux-next/perf-budgets.py --gate (split-spring.sh --suite=budgets) on an
+#                 exclusive macOS 27 M4 Pro measure worker, against apple-m4-pro-macos27's baseline
+#   smoke-27      fresh-home launch smoke of the signed stable app on an owned M4 Pro mini, macOS 27
+#   smoke-26      the same launch smoke on Blacksmith macOS 26 (the basic sanity on 26)
+#   soak          the build is still on the cmux NEXT feed, was never pulled, has no fail verdict,
+#                 and Sentry saw no new unhandled issue first seen in its release
+# Signing and notarization stay on Blacksmith macOS 26 like the nightly's: the Developer ID
+# certificate, notary key and Sparkle key never reach an owned Mac. No job here uses an M6 mini:
+# owned macOS jobs take CI_SIDE_LANE_RUNNER (the std class, M4 Pro) and refuse any other chip.
+#
+# This workflow adds no job to any push, pull request or nightly run (repo rule: no new gates there).
+# It runs only on its schedule, a dispatch, or a push to the stable-next-dry-run branch. A dry run
+# (mode dry-run, or that branch) plans, runs every gate, re-signs ad hoc and smokes the result, and
+# publishes nothing; it needs no secret.
+#
+# Undo: stable-next-rollback.yml (bad_build / to_build), on nightly-next.
+# A schedule and a dispatch register only from the default branch. This is main's copy: the tick,
+# and the dispatch inputs. The publish run itself runs feat-cmux-next's copy on nightly-next.
+on:
+  schedule:
+    - cron: "5 4-14 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: publish (nightly-next only) or dry-run (gates and an ad-hoc signed copy; publishes nothing)
+        required: false
+        default: publish
+        type: choice
+        options: [publish, dry-run]
+      build:
+        description: The cmux NEXT feed build to promote (digits); empty takes the newest Nightly build
+        required: false
+        default: ''
+        type: string
+      force:
+        description: Run even when tonight's stable build is already published
+        required: false
+        default: false
+        type: boolean
+
+permissions: {}
+
+# No run-level concurrency: a run holds the night's gates for hours, and a group would make a
+# rollback wait behind them, or a dispatch replace a pending rollback. The tick starts at most one
+# publish run at a time, and every feed write (publish, rollback) is a compare-and-swap on R2.
+
+env:
+  NEXT_FEED_BASE: https://files-next.cmux.com/nightly-next/next
+  # The path keeps /nightly-next/: UpdateFeedResolver classifies the feed by it.
+  STABLE_FEED_BASE: https://files-next.cmux.com/nightly-next/stable
+  STABLE_APPCAST: appcast-arm64.xml
+  STABLE_R2_BUCKET: cmux-nightly-next
+  STABLE_R2_PREFIX: nightly-next/stable/
+  # The nightly-next-guard.py name prefix every cmux NEXT download carries.
+  STABLE_DMG_PREFIX: cmux-nightly-next-macos-stable-arm64-
+  # The same pinned key as nightly.yml: stable ships the nightly's bits with their SUPublicEDKey.
+  NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY: IOPItMLjtc4NsROTNZ6a/jsUW+C4fcicl6SNjVVvzRM=
+  MODE: ${{ github.event_name == 'push' && 'dry-run' || inputs.mode || 'publish' }}
+  STABLE_XCODE_APP: /Applications/Xcode_26.6.app
+
+jobs:
+  # main's copy, every hour of the night: dispatch one publish run on nightly-next.
+  tick:
+    if: github.event_name == 'schedule' && github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      # The tooling comes from nightly-next, where the publish run runs.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: nightly-next
+          persist-credentials: false
+          sparse-checkout: scripts/ci/stable_next.py
+          sparse-checkout-cone-mode: false
+
+      - name: Is this the night window
+        id: window
+        run: |
+          if [ ! -f scripts/ci/stable_next.py ]; then
+            echo "::notice title=cmux NEXT Stable::nightly-next has no stable tooling yet (scripts/ci/stable_next.py); no run tonight"
+            echo "open=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 -I scripts/ci/stable_next.py window
+
+      - name: Was tonight's stable build published
+        id: tonight
+        if: steps.window.outputs.open == 'true'
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 3 -A cmux-stable-next/1 -o "$RUNNER_TEMP/stable.xml" "$STABLE_FEED_BASE/$STABLE_APPCAST" \
+            || : > "$RUNNER_TEMP/stable.xml"
+          python3 -I scripts/ci/stable_next.py published-tonight --stable "$RUNNER_TEMP/stable.xml" \
+            --night-start "${{ steps.window.outputs.night_start }}"
+
+      - name: Dispatch tonight's stable run
+        if: steps.window.outputs.open == 'true' && steps.tonight.outputs.published == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NIGHT_START: ${{ steps.window.outputs.night_start }}
+        run: |
+          set -euo pipefail
+          # A run with a job that has waited for a runner over 90 minutes (an owned pool or the
+          # Blacksmith macOS lane not taking jobs) is cancelled, so it never holds the night; the next
+          # hourly tick dispatches a fresh run once the cancel has landed. It counts the job's own wait,
+          # not the run's age: a run is "queued" too while a later job waits briefly after hours of gates.
+          for id in $(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/stable-next.yml/runs?branch=nightly-next&status=queued&per_page=20" \
+              --jq '.workflow_runs[].id'); do
+            stuck="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs?per_page=100" \
+              --jq '[.jobs[] | select(.status == "queued" and (now - (.created_at | fromdateiso8601)) > 5400)] | length')"
+            if [ "${stuck:-0}" -gt 0 ]; then
+              echo "::warning title=cmux NEXT Stable::run $id has a job waiting for a runner over 90 min; cancelling it"
+              gh run cancel "$id" -R "$GITHUB_REPOSITORY" || true
+            fi
+          done
+          runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/stable-next.yml/runs?branch=nightly-next&event=workflow_dispatch&created=%3E%3D$NIGHT_START&per_page=50" \
+            --jq '[.workflow_runs[] | .status + ":" + (.conclusion // "")]')"
+          active="$(jq '[.[] | select(startswith("completed") | not)] | length' <<<"$runs")"
+          failed="$(jq '[.[] | select(. == "completed:failure")] | length' <<<"$runs")"
+          echo "tonight's runs since $NIGHT_START: $runs"
+          if [ "$active" -gt 0 ]; then echo "a stable run is already queued or running"; exit 0; fi
+          if [ "$failed" -ge 3 ]; then
+            echo "::warning title=cmux NEXT Stable::$failed runs failed tonight; no more attempts until tomorrow night (see the 'cmux NEXT Stable blocked' issue)"
+            exit 0
+          fi
+          gh workflow run stable-next.yml -R "$GITHUB_REPOSITORY" --ref nightly-next -f mode=publish
+          echo "dispatched tonight's stable run on nightly-next"

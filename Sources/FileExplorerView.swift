@@ -107,6 +107,10 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
         private var needsReloadAfterContextMenu = false
+        /// The most recently queued file mutation. Each mutation waits for the
+        /// previous one, so none is cancelled mid-flight and each reports its
+        /// own failure.
+        private var mutationTask: Task<Void, Never>?
         // Keep one coordinator-level record for the promoted native source.
         // The source view can be replaced during SwiftUI reconstruction, so
         // view-local markers alone cannot reclaim a lost endedAt callback.
@@ -175,6 +179,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         deinit {
+            mutationTask?.cancel()
             if let observer = styleObserver {
                 NotificationCenter.default.removeObserver(observer)
             }
@@ -836,10 +841,29 @@ struct FileExplorerPanelView: NSViewRepresentable {
             menu.removeAllItems()
             guard let outlineView else { return }
             let clickedRow = outlineView.clickedRow
-            guard clickedRow >= 0,
-                  let node = outlineView.item(atRow: clickedRow) as? FileExplorerNode else { return }
+            let node: FileExplorerNode
+            if clickedRow >= 0 {
+                guard let clickedNode = outlineView.item(atRow: clickedRow) as? FileExplorerNode else { return }
+                node = clickedNode
+            } else {
+                // A blank tree still represents the current directory. Keep
+                // creation available when it has no children yet, and avoid
+                // offering rename/delete for the directory itself.
+                guard !store.rootPath.isEmpty else { return }
+                node = FileExplorerNode(name: store.displayRootPath, path: store.rootPath, isDirectory: true)
+            }
 
             let isLocal = store.provider is LocalFileExplorerProvider
+
+            if store.provider?.isAvailable == true {
+                addCreationMenuItems(for: node, to: menu)
+                if clickedRow >= 0 {
+                    addEntryMutationMenuItems(for: node, to: menu)
+                    menu.addItem(.separator())
+                }
+            }
+
+            guard clickedRow >= 0 else { return }
 
             if !node.isDirectory && isLocal {
                 FileExplorerExternalOpenMenuItems(
@@ -881,6 +905,183 @@ struct FileExplorerPanelView: NSViewRepresentable {
             copyRelItem.target = self
             copyRelItem.representedObject = node
             menu.addItem(copyRelItem)
+        }
+
+        private func addCreationMenuItems(for node: FileExplorerNode, to menu: NSMenu) {
+            let newFolderItem = NSMenuItem(
+                title: String(localized: "fileExplorer.contextMenu.newFolder", defaultValue: "New Folder"),
+                action: #selector(contextMenuNewFolder(_:)),
+                keyEquivalent: ""
+            )
+            newFolderItem.target = self
+            newFolderItem.representedObject = node
+            menu.addItem(newFolderItem)
+
+            let newFileItem = NSMenuItem(
+                title: String(localized: "fileExplorer.contextMenu.newFile", defaultValue: "New File"),
+                action: #selector(contextMenuNewFile(_:)),
+                keyEquivalent: ""
+            )
+            newFileItem.target = self
+            newFileItem.representedObject = node
+            menu.addItem(newFileItem)
+        }
+
+        private func addEntryMutationMenuItems(for node: FileExplorerNode, to menu: NSMenu) {
+            let renameItem = NSMenuItem(
+                title: String(localized: "fileExplorer.contextMenu.rename", defaultValue: "Rename"),
+                action: #selector(contextMenuRename(_:)),
+                keyEquivalent: ""
+            )
+            renameItem.target = self
+            renameItem.representedObject = node
+            menu.addItem(renameItem)
+
+            let duplicateItem = NSMenuItem(
+                title: String(localized: "fileExplorer.contextMenu.duplicate", defaultValue: "Duplicate"),
+                action: #selector(contextMenuDuplicate(_:)),
+                keyEquivalent: ""
+            )
+            duplicateItem.target = self
+            duplicateItem.representedObject = node
+            menu.addItem(duplicateItem)
+
+            let deleteItem = NSMenuItem(
+                title: store.removesToTrash
+                    ? String(localized: "fileExplorer.contextMenu.moveToTrash", defaultValue: "Move to Trash")
+                    : String(localized: "fileExplorer.contextMenu.delete", defaultValue: "Delete"),
+                action: #selector(contextMenuDelete(_:)),
+                keyEquivalent: ""
+            )
+            deleteItem.target = self
+            deleteItem.representedObject = node
+            menu.addItem(deleteItem)
+        }
+
+        @objc private func contextMenuNewFolder(_ sender: NSMenuItem) {
+            createEntry(kind: .directory, relativeTo: sender.representedObject as? FileExplorerNode)
+        }
+
+        @objc private func contextMenuNewFile(_ sender: NSMenuItem) {
+            createEntry(kind: .file, relativeTo: sender.representedObject as? FileExplorerNode)
+        }
+
+        private func createEntry(kind: FileExplorerEntryKind, relativeTo node: FileExplorerNode?) {
+            guard let node else { return }
+            let title: String
+            switch kind {
+            case .directory:
+                title = String(localized: "fileExplorer.dialog.newFolder.title", defaultValue: "New Folder")
+            case .file:
+                title = String(localized: "fileExplorer.dialog.newFile.title", defaultValue: "New File")
+            }
+            guard let name = promptForName(title: title, initialName: nil, confirmTitle: String(localized: "common.create", defaultValue: "Create")) else {
+                return
+            }
+            let parentPath = node.isDirectory ? node.path : (node.path as NSString).deletingLastPathComponent
+            performMutation { [weak self] in
+                guard let self else { return }
+                _ = try await self.store.createEntry(kind: kind, in: parentPath, named: name)
+            }
+        }
+
+        @objc private func contextMenuRename(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? FileExplorerNode,
+                  let name = promptForName(
+                      title: String(localized: "fileExplorer.dialog.rename.title", defaultValue: "Rename"),
+                      initialName: node.name,
+                      confirmTitle: String(localized: "common.rename", defaultValue: "Rename")
+                  ) else {
+                return
+            }
+            performMutation { [weak self] in
+                guard let self else { return }
+                _ = try await self.store.renameEntry(path: node.path, toName: name)
+            }
+        }
+
+        @objc private func contextMenuDuplicate(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? FileExplorerNode else { return }
+            performMutation { [weak self] in
+                guard let self else { return }
+                _ = try await self.store.duplicateEntry(path: node.path)
+            }
+        }
+
+        @objc private func contextMenuDelete(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? FileExplorerNode else { return }
+            // Act on the whole selection when the clicked row is part of it.
+            let selection = store.selectedPaths
+            let paths = selection.count > 1 && selection.contains(node.path)
+                ? selection.sorted()
+                : [node.path]
+            // Trash is recoverable, so only permanent deletion asks first.
+            if !store.removesToTrash {
+                guard confirmPermanentDelete(paths: paths, node: node) else { return }
+            }
+            performMutation { [weak self] in
+                guard let self else { return }
+                try await self.store.removeEntries(paths: paths)
+            }
+        }
+
+        private func confirmPermanentDelete(paths: [String], node: FileExplorerNode) -> Bool {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            if paths.count > 1 {
+                alert.messageText = String(localized: "fileExplorer.dialog.delete.multipleTitle", defaultValue: "Delete the selected items?")
+                alert.informativeText = String(localized: "fileExplorer.dialog.delete.multipleMessage", defaultValue: "These items and their contents will be deleted.")
+            } else {
+                let format = String(localized: "fileExplorer.dialog.delete.title", defaultValue: "Delete “%@”?")
+                alert.messageText = String.localizedStringWithFormat(format, node.name)
+                alert.informativeText = String(localized: "fileExplorer.dialog.delete.message", defaultValue: "This item and its contents will be deleted.")
+            }
+            alert.addButton(withTitle: String(localized: "fileExplorer.contextMenu.delete", defaultValue: "Delete"))
+            alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+            return alert.runCmuxModal(presentingWindow: containerView?.window) == .alertFirstButtonReturn
+        }
+
+        private func promptForName(title: String, initialName: String?, confirmTitle: String) -> String? {
+            let alert = NSAlert()
+            alert.messageText = title
+            alert.informativeText = String(localized: "fileExplorer.dialog.name.message", defaultValue: "Enter a name for this item.")
+            let input = NSTextField(string: initialName ?? "")
+            input.placeholderString = String(localized: "fileExplorer.dialog.name.placeholder", defaultValue: "Name")
+            input.frame = NSRect(x: 0, y: 0, width: 280, height: 24)
+            alert.accessoryView = input
+            alert.addButton(withTitle: confirmTitle)
+            alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+            let alertWindow = alert.window
+            alertWindow.initialFirstResponder = input
+            guard alert.runCmuxModal(presentingWindow: containerView?.window) == .alertFirstButtonReturn else { return nil }
+            let name = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else {
+                showMutationError(FileExplorerError.invalidMutationName)
+                return nil
+            }
+            return name
+        }
+
+        private func performMutation(_ operation: @escaping @MainActor () async throws -> Void) {
+            let previous = mutationTask
+            mutationTask = Task { @MainActor [weak self] in
+                await previous?.value
+                guard self != nil else { return }
+                do {
+                    try await operation()
+                } catch {
+                    self?.showMutationError(error)
+                }
+            }
+        }
+
+        private func showMutationError(_ error: Error) {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = String(localized: "fileExplorer.error.mutationTitle", defaultValue: "File operation failed")
+            alert.informativeText = error.localizedDescription
+            alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+            _ = alert.runCmuxModal(presentingWindow: containerView?.window)
         }
 
         @objc private func contextMenuOpenExternally(_ sender: NSMenuItem) {

@@ -1,4 +1,5 @@
 import { coderouterControlRoute, spanned } from "@/services/coderouter/requestTelemetry";
+import { defaultImportVisibility } from "@/services/coderouter/accountAccess";
 // Team Claude upstream accounts: list, add, remove all. One account is
 // addressed under ./[accountId]. Every team member may read and write
 // (`manageAccounts` is team membership, permissions.ts). Secrets never leave the server: responses
@@ -64,7 +65,9 @@ export function makeClaudeUpstreamHandlers(
     const access = resolved.value.access;
     const body = await readJsonBody(request);
     if (!body.ok) return body.response;
-    const requestedVisibility = body.value && typeof body.value === "object" && "visibility" in body.value ? (body.value as { visibility: unknown }).visibility : "private";
+    const requestedVisibility = body.value && typeof body.value === "object" && "visibility" in body.value
+      ? (body.value as { visibility: unknown }).visibility
+      : defaultImportVisibility(resolved.value.team.teamId, resolved.value.user.id);
     if (requestedVisibility !== "private" && requestedVisibility !== "team") return Response.json({ error: "invalid_visibility" }, { status: 400 });
     const visibility = access.kind === "vm" ? "team" : requestedVisibility;
     if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });

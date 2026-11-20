@@ -77,6 +77,7 @@ function harness(options: { vm?: CloudVmRow; exec?: () => Effect.Effect<{ exitCo
       execs.push(command);
       return options.exec?.() ?? Effect.succeed({ exitCode: 0, stdout: "", stderr: "" });
     },
+    getStats: () => Effect.succeed({ cpus: 4, memoryTotalMb: 8192, diskTotalMb: 32768 }),
     supportsPrivateNetworking: () => true,
     ensureNetwork: () => Effect.succeed({ id: "network-1", slug: "cmux-agents", cidr: "10.0.0.0/24", cidrV6: "fd00::/64" }),
   } as unknown as VmProviderGatewayShape;

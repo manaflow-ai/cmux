@@ -261,7 +261,7 @@ class WiringTests(unittest.TestCase):
         declared = set(resolver.load_map(REAL_MAP)["capabilities"])
         used = set()
         for chunk in text.split(marker)[1:]:
-            used.add(chunk.split()[0].strip("}").strip())
+            used.add(chunk.split()[0].strip("})").strip())
         self.assertTrue(used)
         self.assertEqual(used - declared, set())
 
@@ -336,7 +336,7 @@ class TheResolverStartsAnywhere(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertEqual(
                     job["runs-on"],
-                    '${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || contains(fromJSON(\'["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}',
+                    '${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || contains(fromJSON(\'["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}',
                 )
 
 

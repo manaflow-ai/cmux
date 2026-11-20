@@ -2,6 +2,8 @@
 # the workers.dev URL (cmux-presence-dev.<account>.workers.dev), NOT the
 # production presence.cmux.dev custom domain. Use:
 #   bunx wrangler deploy --config wrangler.dev.toml
+# Worker secrets are per Worker: provision STACK_*, CONNECTIVITY_INVALIDATION_SECRET
+# and VMS_PUBLISHER_SECRET once on this instance too (see README.md).
 name = "cmux-presence-dev"
 main = "src/index.ts"
 compatibility_date = "2026-05-01"
@@ -41,3 +43,17 @@ class_name = "WorkspacePresence"
 [[migrations]]
 tag = "v3"
 new_sqlite_classes = ["WorkspacePresence"]
+
+# Release push: one ReleaseFeed DO per allowlisted update feed id, serving the
+# public /releases/v1 routes (src/releaseFeedRoute.ts). The minute cron pokes
+# every feed, so a publisher poke that never arrived heals within a minute.
+[[durable_objects.bindings]]
+name = "RELEASE_FEED"
+class_name = "ReleaseFeed"
+
+[[migrations]]
+tag = "v4"
+new_sqlite_classes = ["ReleaseFeed"]
+
+[triggers]
+crons = ["* * * * *"]

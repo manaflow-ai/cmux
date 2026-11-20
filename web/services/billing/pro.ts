@@ -26,11 +26,16 @@ import {
 } from
   "../account/metadataMutation";
 import { activeApplePlanForUser } from "./apple/entitlement";
+import { hasCompanyPlanGrant } from "./companyPlan";
+import { planTierRank } from "./planTier";
+import { NEXT_PLAN_METADATA_KEY, isNextPlanId, nextPlanId } from "./nextPlans";
+import { planItem } from "./subscriptionItems";
 import { APPLE_MANAGE_SUBSCRIPTIONS_URL } from "./apple/config";
+import type { BillingInterval } from "./plans";
 
 export const PRO_PLAN_ID = "pro";
 export const GO_PLAN_ID = "go";
-// Max is Pro plus the 16, 24, and 32 GB machine sizes. It is a personal
+// Max is Pro plus the 24, 32, and 64 GB machine sizes. It is a personal
 // subscription like Pro: same Stripe customer scope, same metadata mirror
 // (`cmuxPlan: "max"`), and it satisfies every "is Pro" check.
 export const MAX_PLAN_ID = "max";
@@ -78,8 +83,6 @@ export const PAID_PLAN_IDS = [GO_PLAN_ID, PRO_PLAN_ID, MAX_PLAN_ID, TEAM_PLAN_ID
  */
 export const PERSONAL_PLAN_IDS = [GO_PLAN_ID, PRO_PLAN_ID, MAX_PLAN_ID] as const;
 export type PersonalPlanId = (typeof PERSONAL_PLAN_IDS)[number];
-/** Higher index wins when an account has more than one active personal row. */
-const PERSONAL_PLAN_RANK: Record<PersonalPlanId, number> = { go: 1, pro: 2, max: 3 };
 
 export function isPersonalPlanId(planId: string | null | undefined): planId is PersonalPlanId {
   return typeof planId === "string" &&
@@ -94,7 +97,7 @@ export function highestPersonalPlanId(
   for (const candidate of planIds) {
     if (!isPersonalPlanId(candidate)) continue;
     const normalized = candidate.trim().toLowerCase() as PersonalPlanId;
-    if (!best || PERSONAL_PLAN_RANK[normalized] > PERSONAL_PLAN_RANK[best]) best = normalized;
+    if (!best || planTierRank(normalized) > planTierRank(best)) best = normalized;
   }
   return best;
 }
@@ -170,12 +173,17 @@ async function writeProPlanMirror(
 
   if (isPro) {
     if (current === plan) return metadata as ProMetadataJson;
+    // A cmux NEXT subscription stays named by `cmuxNextPlan` while the
+    // classic plan takes `cmuxPlan`.
     metadata.cmuxPlan = plan;
   } else {
     // Any paid mirror value is stale once no Stripe Pro row backs it; VM
-    // entitlements read cmuxPlan whenever no override is set.
+    // entitlements read cmuxPlan whenever no override is set. A cmux NEXT
+    // plan is not a classic plan, so it is never cleared here.
     if (!isPaidPlanId(typeof current === "string" ? current : null)) return metadata as ProMetadataJson;
-    delete metadata.cmuxPlan;
+    const nextPlan = nextPlanId(metadata[NEXT_PLAN_METADATA_KEY]);
+    if (nextPlan) metadata.cmuxPlan = nextPlan;
+    else delete metadata.cmuxPlan;
   }
   // Existing metadata came from Stack as JSON; the only value added is a string.
   await lease.refresh();
@@ -186,6 +194,8 @@ async function writeProPlanMirror(
 export type ProReconcileUser = ProMetadataCustomer & {
   readonly id?: string;
   readonly isAnonymous?: boolean;
+  readonly primaryEmail?: string | null;
+  readonly primaryEmailVerified?: boolean;
 };
 
 export type ActiveStripeSubscriptionQuery = (stackUserId: string) => Promise<boolean>;
@@ -211,6 +221,20 @@ export type StripeBillingStatus = {
   readonly hasCustomer: boolean;
   /** Whether the newest subscription grants current Pro access. */
   readonly hasActiveSubscription: boolean;
+  /**
+   * The lookup key of the plan price behind `subscriptionId`, or null when
+   * it has none (or it is unknown). Decides whether the hosted portal can
+   * switch the subscription's plan.
+   */
+  readonly planLookupKey?: string | null;
+  /** The recurring interval of the subscription behind `subscriptionId`. */
+  readonly subscriptionInterval?: BillingInterval | null;
+  /**
+   * The account owns Founder's Edition, a one-time purchase of Pro for life.
+   * It is never a recurring subscription, so leaving Max returns the account
+   * to Pro without paying for it.
+   */
+  readonly hasFoundersEdition?: boolean;
 };
 export type StripeBillingStatusQuery = (
   stackUserId: string,
@@ -248,6 +272,11 @@ export type ProPlanStatus = {
    * end, so pricing offers Resume instead of a new purchase.
    */
   readonly cancelScheduled?: boolean;
+  /**
+   * The Stripe subscription that grants the plan has a failed payment, so
+   * pricing sends the subscriber to fix it before offering a plan switch.
+   */
+  readonly paymentPastDue?: boolean;
 };
 
 /**
@@ -270,8 +299,7 @@ export async function reconcileProPlanMetadata(
     raw && typeof raw === "object" && !Array.isArray(raw)
       ? (raw as Record<string, unknown>)
       : {};
-  const override = metadata.cmuxVmPlan;
-  if (typeof override === "string" && override.trim()) return false;
+  if (classicManualVmPlanOverride(metadata) !== null) return false;
 
   const activePlan = user.id
     ? highestPersonalPlanId([
@@ -344,7 +372,9 @@ export async function resolveProPlanStatus(
   // Stripe and Apple grant through the same mirror; the higher plan wins.
   const activeSubscriptionPlan = highestPersonalPlanId([activeStripePlan, activeApplePlan]);
   const hasActiveStripePro = activeStripePlan !== null;
-  const planId = personalPlanIdForStatus(activeSubscriptionPlan, manualVmPlanOverride(metadata));
+  const subscribedPlanId = personalPlanIdForStatus(activeSubscriptionPlan, classicManualVmPlanOverride(metadata));
+  // Staff accounts are Pro without a subscription (see hasCompanyPlanGrant).
+  const planId = subscribedPlanId === FREE_PLAN_ID && hasCompanyPlanGrant(user) ? PRO_PLAN_ID : subscribedPlanId;
   const isPro = planId !== FREE_PLAN_ID;
   const stripeManagement = billingManagementForStatus(
     stripeBillingStatus,
@@ -379,9 +409,17 @@ export async function resolveProPlanStatus(
     metadataPlanId,
     hasManualVmPlanOverride,
     metadataChanged,
-    ...(billingSource === "stripe" && hasActiveStripePro && stripeBillingStatus?.cancelAtPeriodEnd
-      ? { cancelScheduled: true }
-      : {}),
+    ...(billingSource === "stripe" && hasActiveStripePro ? stripeSubscriptionFlags(stripeBillingStatus) : {}),
+  };
+}
+
+/** Pricing states of the Stripe subscription that grants the plan. */
+function stripeSubscriptionFlags(
+  status: StripeBillingStatus | null,
+): Pick<ProPlanStatus, "cancelScheduled" | "paymentPastDue"> {
+  return {
+    ...(status?.cancelAtPeriodEnd ? { cancelScheduled: true } : {}),
+    ...(status?.subscriptionStatus === "past_due" ? { paymentPastDue: true } : {}),
   };
 }
 
@@ -695,7 +733,6 @@ export async function stripeBillingStatusForUser(
           isNull(stripeSubscriptions.stackTeamId),
           eq(stripeSubscriptions.scope, "user"),
           inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
-          sql`coalesce(${stripeSubscriptions.raw}->'metadata'->>'founders_edition', '') <> 'true'`,
         ),
       );
     // Keep the ordering in the real Drizzle query, while allowing lightweight
@@ -717,7 +754,12 @@ export async function stripeBillingStatusForUser(
       orderedSubscriptionQuery.limit(10),
       activePersonalPlanForUser(stackUserId),
     ]);
+    // Founder rows are read only to report the lifetime purchase; every
+    // subscription decision below uses the recurring rows.
     const recurringRows = subscriptionRows.filter((row) => !isFounderSubscriptionRow(row));
+    const hasFoundersEdition = subscriptionRows.some((row) =>
+      isFounderSubscriptionRow(row) && (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status)
+    );
     const subscription = recurringRows.find((row) =>
       row.plan === activePlanId && (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status)
     ) ?? pickPortalMetadataRow(recurringRows);
@@ -727,6 +769,9 @@ export async function stripeBillingStatusForUser(
       activePlanId !== null,
       activePlanId,
     ), subscriptionStatus: subscription?.status ?? null,
+    planLookupKey: planLookupKeyFromRaw(subscription?.raw),
+    subscriptionInterval: subscriptionIntervalFromRaw(subscription?.raw),
+    hasFoundersEdition,
     hasRecurringSubscription: recurringRows.some((row) =>
       (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status)
     ) };
@@ -854,7 +899,21 @@ export async function syncTeamPlanMetadata(
   isTeam: boolean,
   seats: number | null = null,
 ): Promise<void> {
-  const raw = team.clientReadOnlyMetadata;
+  const metadata = nextTeamPlanMetadata(team.clientReadOnlyMetadata, isTeam, seats);
+  if (metadata === null) return;
+  await team.update({ clientReadOnlyMetadata: metadata as ProMetadataJson });
+}
+
+/**
+ * The team metadata after mirroring the subscription, or null when it already
+ * matches and the write can be skipped. Decide from a team read under the
+ * team lease; an unleased read can be stale.
+ */
+export function nextTeamPlanMetadata(
+  raw: unknown,
+  isTeam: boolean,
+  seats: number | null,
+): Record<string, unknown> | null {
   const metadata: Record<string, unknown> =
     raw && typeof raw === "object" && !Array.isArray(raw)
       ? { ...(raw as Record<string, unknown>) }
@@ -864,16 +923,16 @@ export async function syncTeamPlanMetadata(
 
   if (isTeam) {
     const nextSeats = seats !== null && Number.isSafeInteger(seats) && seats > 0 ? seats : null;
-    if (currentPlan === TEAM_PLAN_ID && currentSeats === (nextSeats ?? undefined)) return;
+    if (currentPlan === TEAM_PLAN_ID && currentSeats === (nextSeats ?? undefined)) return null;
     metadata.cmuxPlan = TEAM_PLAN_ID;
     if (nextSeats === null) delete metadata.cmuxSeats;
     else metadata.cmuxSeats = nextSeats;
   } else {
-    if (currentPlan !== TEAM_PLAN_ID && currentSeats === undefined) return;
+    if (currentPlan !== TEAM_PLAN_ID && currentSeats === undefined) return null;
     if (currentPlan === TEAM_PLAN_ID) delete metadata.cmuxPlan;
     delete metadata.cmuxSeats;
   }
-  await team.update({ clientReadOnlyMetadata: metadata as ProMetadataJson });
+  return metadata;
 }
 
 function proMetadataRecord(raw: unknown): Record<string, unknown> {
@@ -882,8 +941,22 @@ function proMetadataRecord(raw: unknown): Record<string, unknown> {
     : {};
 }
 
+/**
+ * Whether an operator override masks the classic plan mirror. A cmux NEXT
+ * grant does not: it names no classic plan, so the classic mirror keeps
+ * following Stripe and Apple underneath it.
+ */
 function hasManualVmOverride(metadata: Record<string, unknown>): boolean {
-  return manualVmPlanOverride(metadata) !== null;
+  return classicManualVmPlanOverride(metadata) !== null;
+}
+
+/**
+ * The operator override as the classic app reads it: null when unset or when
+ * it grants a cmux NEXT plan, which is no classic plan and no restriction.
+ */
+export function classicManualVmPlanOverride(raw: unknown): string | null {
+  const override = manualVmPlanOverride(raw);
+  return isNextPlanId(override) ? null : override;
 }
 
 /** The operator-owned `cmuxVmPlan` override, normalized, or null when unset. */
@@ -934,6 +1007,7 @@ function stripeBillingStatusFromRows(
     readonly id?: string | null;
     readonly status?: string | null;
     readonly cancelAtPeriodEnd?: boolean | null;
+    readonly raw?: unknown;
   } | undefined,
   activeSubscriptionOverride?: boolean,
   activePlanId: PersonalPlanId | null = null,
@@ -951,7 +1025,21 @@ function stripeBillingStatusFromRows(
       subscriptionStatus !== null &&
       (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(subscriptionStatus)
     ),
+    subscriptionInterval: subscriptionIntervalFromRaw(subscription?.raw),
   };
+}
+
+function planLookupKeyFromRaw(raw: unknown): string | null {
+  const item = raw && typeof raw === "object" ? planItem(raw as Parameters<typeof planItem>[0]) : undefined;
+  const lookupKey = (item as { price?: { lookup_key?: unknown } | null } | undefined)?.price?.lookup_key;
+  return typeof lookupKey === "string" && lookupKey ? lookupKey : null;
+}
+
+function subscriptionIntervalFromRaw(raw: unknown): BillingInterval | null {
+  const item = raw && typeof raw === "object" ? planItem(raw as Parameters<typeof planItem>[0]) : undefined;
+  const interval = (item as { price?: { recurring?: { interval?: unknown } | null } | null } | undefined)
+    ?.price?.recurring?.interval;
+  return interval === "year" || interval === "month" ? interval : null;
 }
 
 function emptyStripeBillingStatus(): StripeBillingStatus {
@@ -963,5 +1051,6 @@ function emptyStripeBillingStatus(): StripeBillingStatus {
     cancelAtPeriodEnd: false,
     hasCustomer: false,
     hasActiveSubscription: false,
+    subscriptionInterval: null,
   };
 }

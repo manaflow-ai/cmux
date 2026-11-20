@@ -33,8 +33,11 @@ struct CloudSidebarSectionIdentityIconTests {
             let cell = try tree.cell(for: header)
             let display = try CloudTreeHeaderActionsTests.display(in: cell)
             let icons = Self.icons(in: display)
-            #expect(icons.count == 1, "\(header.id) shows exactly one identity glyph")
-            let icon = try #require(icons.first)
+            // A resolved refresh icon can follow the section title. Only the
+            // leading glyph names the section and must occupy the first ink.
+            let icon = try #require(icons.min {
+                $0.convert($0.bounds, to: display).minX < $1.convert($1.bounds, to: display).minX
+            })
             let iconFrame = icon.convert(icon.bounds, to: display)
             let ink = try Self.inkRuns(in: display)
             // The glyph is the leading ink; the title follows it.

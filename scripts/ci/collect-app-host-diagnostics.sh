@@ -71,4 +71,23 @@ if [ -n "${CMUX_APP_HOST_HOME:-}" ]; then
   fi
 fi
 
+# ReportCrash files a crashed app host's report under the runner account's
+# real home, not the isolated XCTest HOME above, and symbolicates the system
+# frames on this host's OS build. The account is shared between jobs, so keep
+# only reports for the app-host processes this job's captures name.
+account_home="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null \
+  | sed -n 's/^NFSHomeDirectory: //p' || true)"
+account_reports="${account_home:-/nonexistent}/Library/Logs/DiagnosticReports"
+job_pids="$(cat "$diagnostics"/captures/* 2>/dev/null \
+  | grep -oE 'cmux DEV\[[0-9]+' | grep -oE '[0-9]+$' | sort -u || true)"
+if [ -n "$job_pids" ] && [ -d "$account_reports" ]; then
+  while IFS= read -r report; do
+    report_pid="$(sed -n 's/.*"pid" *: *\([0-9][0-9]*\).*/\1/p' "$report" | head -n 1 || true)"
+    if [ -n "$report_pid" ] && printf '%s\n' "$job_pids" | grep -qx "$report_pid"; then
+      mkdir -p "$diagnostics/account-diagnostic-reports"
+      cp "$report" "$diagnostics/account-diagnostic-reports/" || true
+    fi
+  done < <(find "$account_reports" -maxdepth 1 -type f -name 'cmux DEV*.ips' -mmin -240 2>/dev/null || true)
+fi
+
 find "$diagnostics" -type f -print | sort || true

@@ -134,6 +134,7 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
             submenu.items.filter { !$0.isSeparatorItem }.map(\.title),
             [
                 "tmux attach -t work",
+                "Review Approval…",
                 "Edit",
                 "Clear",
             ]

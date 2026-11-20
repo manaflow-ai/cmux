@@ -128,6 +128,8 @@ struct ActionsAndLaunchersDiscoveryModel: Equatable {
             return "builtin"
         case .command:
             return "command"
+        case .text:
+            return "text"
         case .agent:
             return "agent"
         case .workspaceCommand:

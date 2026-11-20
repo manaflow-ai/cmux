@@ -92,6 +92,7 @@ CODEROUTER_API_KEY=<key> cr codex exec "run the tests"`}</CodeBlock>
         <li>{t("cloudOpencode")}</li>
       </ul>
       <p>{t("cloudYours")}</p>
+      <p>{t("cloudOwnLogin")}</p>
       <p>{t("cloudRun")}</p>
       <CodeBlock lang="bash">{`# Inside a Cloud machine
 claude

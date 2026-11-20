@@ -1,5 +1,4 @@
 import {
-  defaultHostedSubrouterURL,
   hostedSubrouterBaseURL,
 } from "@/services/subrouter/constants";
 
@@ -27,14 +26,24 @@ export function GET(request: Request): Response {
   if (!projectId || !publishableClientKey) {
     return unavailableResponse();
   }
-  let subrouterUrl: string;
-  try {
-    subrouterUrl = hostedSubrouterBaseURL(
-      process.env.SUBROUTER_HOSTED_URL?.trim() ||
-        defaultHostedSubrouterURL(),
-    );
-  } catch {
-    return unavailableResponse();
+  const configuredHostedURL = process.env.SUBROUTER_HOSTED_URL?.trim();
+  let hostedSubrouter:
+    | { readonly url: string; readonly exchangeUrl: string }
+    | undefined;
+  if (configuredHostedURL) {
+    let subrouterUrl: string;
+    try {
+      subrouterUrl = hostedSubrouterBaseURL(configuredHostedURL);
+    } catch {
+      return unavailableResponse();
+    }
+    hostedSubrouter = {
+      url: subrouterUrl,
+      exchangeUrl: new URL(
+        "/api/subrouter/tenant-exchange",
+        request.url,
+      ).toString(),
+    };
   }
 
   return Response.json(
@@ -64,15 +73,9 @@ export function GET(request: Request): Response {
         ).toString(),
         openaiBaseUrl: new URL("/v1", request.url).toString(),
       },
-      // Keep the hosted Subrouter fields for released sr clients while cmux
-      // migrates its CodeRouter data plane to Vercel.
-      subrouter: {
-        url: subrouterUrl,
-        exchangeUrl: new URL(
-          "/api/subrouter/tenant-exchange",
-          request.url,
-        ).toString(),
-      },
+      // Hosted Subrouter is opt-in. Do not advertise the retired default
+      // origin to released sr clients when the deployment has no hosted URL.
+      ...(hostedSubrouter ? { subrouter: hostedSubrouter } : {}),
     },
     {
       headers: {

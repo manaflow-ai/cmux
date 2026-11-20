@@ -136,6 +136,83 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func sidebarImmediateObservationPublisherDeliversDirectTitleChangeSynchronously() {
+        let workspace = Workspace()
+
+        var publishCount = 0
+        let cancellable = workspace.sidebarImmediateObservationPublisher.sink {
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+        publishCount = 0
+
+        // Remote reconciliation and automatic title ownership can update the
+        // published display title without changing customTitle. The sidebar
+        // snapshot owner must still rebuild the row for that mutation.
+        workspace.title = "Authoritative rename"
+
+        #expect(
+            publishCount == 1,
+            "A direct published workspace-title change must reach the sidebar in the same run-loop turn."
+        )
+    }
+
+    @Test func renameToTitleBeforeAutomaticTitleRefreshesSynchronously() {
+        let workspace = Workspace()
+        let originalTitle = workspace.title
+
+        var publishCount = 0
+        let cancellable = workspace.sidebarImmediateObservationPublisher.sink {
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+
+        // Automatic titles refresh rows through the settle model, not the
+        // immediate publisher. A later rename back to the pre-agent title must
+        // not be mistaken for a duplicate of what the immediate path last saw.
+        workspace.applyProcessTitle("Agent title")
+        publishCount = 0
+
+        workspace.setCustomTitle(originalTitle)
+
+        #expect(workspace.title == originalTitle)
+        #expect(
+            publishCount == 1,
+            "A rename must reach the sidebar synchronously even when it matches the title from before an automatic title change."
+        )
+    }
+
+    @Test func customTitleChangeRefreshesTheCachedSidebarRow() throws {
+        let workspace = Workspace()
+        let suiteName = "WorkspaceSidebarObservationTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let cache = SidebarRowSnapshotCache()
+        let factory = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: settings,
+            showsAgentActivity: false
+        )
+        cache.replace(with: [workspace.id: factory.makeSnapshot()])
+
+        let cancellable = workspace.sidebarImmediateObservationPublisher
+            .dropFirst()
+            .sink {
+                cache.refresh(workspaceIds: [workspace.id]) { id in
+                    guard id == workspace.id else { return nil }
+                    return factory.makeSnapshot()
+                }
+            }
+        defer {
+            cancellable.cancel()
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        #expect(workspace.setCustomTitle("Authoritative rename"))
+
+        #expect(cache.value(for: workspace.id)?.title == "Authoritative rename")
+    }
+
     @Test func sidebarImmediateObservationPublisherCoalescesDescriptionBursts() async {
         let workspace = Workspace()
 

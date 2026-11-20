@@ -12,6 +12,7 @@ import {
   type CloudVmPublicationRepositoryShape,
 } from "../services/vm-publications/repository";
 import { teardownVmPublicationsForVmDeletion } from "../services/vm-publications/vmDeletion";
+import { ingressRule, publicationRuleStore } from "./fixtures/publicationRuleStore";
 
 function runTeardown(input: {
   readonly repository: Partial<CloudVmPublicationRepositoryShape>;
@@ -55,6 +56,8 @@ describe("VM deletion publication teardown", () => {
                   publicationId: "00000000-0000-4000-8000-000000000002",
                   provider: "freestyle",
                   hostname: "one.preview.example.test",
+                  providerVmId: "vm-1",
+                  hostnameClaimed: true,
                   providerTlsRuleId: "tls-one",
                   state: "disabling",
                 },
@@ -62,6 +65,8 @@ describe("VM deletion publication teardown", () => {
                   publicationId: "00000000-0000-4000-8000-000000000003",
                   provider: "freestyle",
                   hostname: "two.preview.example.test",
+                  providerVmId: "vm-1",
+                  hostnameClaimed: true,
                   providerTlsRuleId: null,
                   state: "disabling",
                 },
@@ -74,8 +79,8 @@ describe("VM deletion publication teardown", () => {
           },
         },
         provider: {
-          deleteTlsRulesForHostnames: (hostnames) => {
-            events.push(`delete:${hostnames.join(",")}`);
+          deletePublicationTlsRules: (publications) => {
+            events.push(`delete:${publications.map((publication) => publication.hostname).join(",")}`);
             return Effect.succeed(2);
           },
         },
@@ -107,6 +112,8 @@ describe("VM deletion publication teardown", () => {
                     publicationId: "00000000-0000-4000-8000-000000000002",
                     provider: "freestyle",
                     hostname: "one.preview.example.test",
+                    providerVmId: "vm-1",
+                    hostnameClaimed: true,
                     providerTlsRuleId: "tls-one",
                     state: "disabling",
                   },
@@ -119,11 +126,11 @@ describe("VM deletion publication teardown", () => {
             },
           },
           provider: {
-            deleteTlsRulesForHostnames: () => {
+            deletePublicationTlsRules: () => {
               events.push("provider-delete");
               return Effect.fail(
                 new VmPublicationProviderError({
-                  operation: "deleteTlsRulesForHostnames",
+                  operation: "deletePublicationTlsRules",
                   cause: new Error("provider unavailable"),
                 }),
               );
@@ -161,5 +168,46 @@ describe("VM deletion publication teardown", () => {
         retryAt,
       });
     }
+  });
+
+  test("removes the deleted VM's own rules and never another VM's rule for a shared hostname", async () => {
+    const store = publicationRuleStore([
+      ingressRule("tls-foreign-owner", "app.example.com", "vm-foreign"),
+      ingressRule("tls-own", "own.example.com", "provider-vm-1"),
+      ingressRule("tls-own-duplicate", "own.example.com", "provider-vm-1"),
+    ]);
+    const result = await Effect.runPromise(runTeardown({
+      repository: {
+        freezeVmPublicationsForDeletion: () => Effect.succeed({
+          kind: "ready",
+          vmId: "00000000-0000-4000-8000-000000000001",
+          publications: [
+            {
+              publicationId: "00000000-0000-4000-8000-00000000000a",
+              provider: "freestyle",
+              hostname: "own.example.com",
+              providerVmId: "provider-vm-1",
+              hostnameClaimed: true,
+              providerTlsRuleId: "tls-own",
+              state: "disabling",
+            },
+            {
+              // Unclaimed: another account verified app.example.com first.
+              publicationId: "00000000-0000-4000-8000-00000000000b",
+              provider: "freestyle",
+              hostname: "app.example.com",
+              providerVmId: "provider-vm-1",
+              hostnameClaimed: false,
+              providerTlsRuleId: null,
+              state: "disabling",
+            },
+          ],
+        }),
+        finishDisablePublication: () => Effect.succeed({ state: "disabled" } as never),
+      },
+      provider: store.provider,
+    }));
+    expect(result).toEqual({ publications: 2, providerRules: 2 });
+    expect(store.rules.map((rule) => rule.id)).toEqual(["tls-foreign-owner"]);
   });
 });

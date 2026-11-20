@@ -50,4 +50,26 @@ extension CmuxTuiSurfaceProvider {
             return await self.performRefresh(force: force)
         }
     }
+
+    /// Re-syncs the graph for a caller that cannot wait for the background
+    /// recovery read, such as `cmux ssh` opening a workspace. A refresh that
+    /// finds the delta-built graph disagreeing with a full snapshot at the same
+    /// cursor refuses it once and arms recovery; the next full read adopts the
+    /// daemon's answer. Running that read here keeps the open from failing on a
+    /// conflict the provider already knows how to resolve (#19214).
+    func refreshCurrentGraphResolvingEqualCursorConflict() async -> Bool {
+        await Self.refreshResolvingEqualCursorConflict(
+            refresh: { [weak self] force in await self?.refreshCurrentGraph(force: force) ?? false },
+            conflictArmed: { [weak self] in self?.equalCursorConflict != nil }
+        )
+    }
+
+    static func refreshResolvingEqualCursorConflict(
+        refresh: (Bool) async -> Bool,
+        conflictArmed: () -> Bool
+    ) async -> Bool {
+        if await refresh(false) { return true }
+        guard conflictArmed() else { return false }
+        return await refresh(true)
+    }
 }

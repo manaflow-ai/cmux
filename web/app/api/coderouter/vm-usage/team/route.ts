@@ -4,6 +4,7 @@ import { listTeamMachines } from "../../../../../services/coderouter/teamMachine
 import { loadCoderouterTeamMachineMetrics } from "../../../../../services/coderouter/vmMetrics";
 import { teamVmUsageResponse } from "../../../../../services/coderouter/vmUsageContract";
 import { reportCoderouterFailure } from "../../../../../services/coderouter/observability";
+import { isCoderouterViewOpenRequest } from "../../../../../services/coderouter/viewAnalytics";
 
 const JSON_HEADERS = {
   "cache-control": "no-store",
@@ -25,9 +26,11 @@ async function handleGet(request: Request): Promise<Response> {
       { status: 503, headers: { ...JSON_HEADERS, "retry-after": "5" } },
     );
   }
+  // Clients poll machine usage; only the request that opened the view counts.
   const metrics = await loadCoderouterTeamMachineMetrics(
     resolved.teamId,
     "team_machines_api",
+    { captureView: isCoderouterViewOpenRequest(request) },
   );
   return Response.json(teamVmUsageResponse(resolved.teamId, metrics, owned), {
     headers: JSON_HEADERS,

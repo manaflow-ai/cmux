@@ -1,6 +1,7 @@
 internal import CMUXAuthCore
 import Foundation
 import OSLog
+import StackAuth
 
 private let authLog = Logger(subsystem: "ai.manaflow.cmux", category: "auth")
 
@@ -106,9 +107,13 @@ extension AuthCoordinator {
         }
         isRevalidatingSession = true
         defer { completeSessionRevalidation() }
-        await checkExistingSessionBody(
-            retryOnStorageAvailable: retryOnStorageAvailable
-        )
+        // A 429 on the user fetch or team load is reported, with the backoff
+        // it sets, by noteTeamScopeFailure as a session check.
+        await StackAuthRateLimitReporting.$callerReports.withValue(true) {
+            await checkExistingSessionBody(
+                retryOnStorageAvailable: retryOnStorageAvailable
+            )
+        }
     }
 
     private func checkExistingSessionBody(
@@ -336,6 +341,7 @@ extension AuthCoordinator {
                 )
                 return
             }
+            noteTeamScopeFailure(error)
             let action = AuthError(displaySafe: error)?.cachedSessionValidationFailureAction
                 ?? .preserveCachedSession
             authLog.error(

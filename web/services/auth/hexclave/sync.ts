@@ -48,28 +48,51 @@ export async function applyHexclaveWebhookEvent(
   event: HexclaveWebhookEvent,
   dependencies: HexclaveSyncDependencies,
 ): Promise<HexclaveSyncResult> {
+  return applyHexclaveTarget(hexclaveEventTarget(event), dependencies);
+}
+
+/**
+ * The entity an event names, plus the memberships it may have ended. Several
+ * events for one entity coalesce into one target (the union of candidates):
+ * the reconcile reads Hexclave fresh, so one read answers all of them.
+ */
+export type HexclaveSyncTarget =
+  | { readonly kind: "user"; readonly id: string; readonly revokeCandidateTeamIds: readonly string[] }
+  | { readonly kind: "team"; readonly id: string; readonly revokeCandidateTeamIds: readonly string[] };
+
+export function hexclaveEventTarget(event: HexclaveWebhookEvent): HexclaveSyncTarget {
   switch (event.type) {
     case "user.created":
     case "user.updated":
-      return syncHexclaveUser(event.data.id, [], dependencies);
+      return { kind: "user", id: event.data.id, revokeCandidateTeamIds: [] };
     case "user.deleted":
       // The payload's team list survives a retry after the mirror rows are gone.
-      return syncHexclaveUser(event.data.id, event.data.teams.map((team) => team.id), dependencies);
+      return { kind: "user", id: event.data.id, revokeCandidateTeamIds: event.data.teams.map((team) => team.id) };
     case "team_membership.deleted":
-      return syncHexclaveUser(event.data.user_id, [event.data.team_id], dependencies);
+      return { kind: "user", id: event.data.user_id, revokeCandidateTeamIds: [event.data.team_id] };
     case "team_membership.created":
     case "team_permission.created":
     case "team_permission.deleted":
     case "project_permission.created":
     case "project_permission.deleted":
-      return syncHexclaveUser(event.data.user_id, [], dependencies);
+      return { kind: "user", id: event.data.user_id, revokeCandidateTeamIds: [] };
     case "team.created":
     case "team.updated":
     case "team.deleted":
-      return syncHexclaveTeam(event.data.id, dependencies);
+      return { kind: "team", id: event.data.id, revokeCandidateTeamIds: [] };
     default:
       return assertNever(event);
   }
+}
+
+/** Reconcile one (possibly coalesced) target from a fresh Hexclave read. */
+export async function applyHexclaveTarget(
+  target: HexclaveSyncTarget,
+  dependencies: HexclaveSyncDependencies,
+): Promise<HexclaveSyncResult> {
+  return target.kind === "user"
+    ? syncHexclaveUser(target.id, target.revokeCandidateTeamIds, dependencies)
+    : syncHexclaveTeam(target.id, dependencies);
 }
 
 /**

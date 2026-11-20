@@ -3,6 +3,7 @@
   "cmux": {
     "user-tab-keeps-its-user-agent": true,
     "created-tab-gets-the-user-agent": true,
+    "other-session-refused-on-owner-tab": true,
     "owner-options-survive-another-session": true
   }
 }

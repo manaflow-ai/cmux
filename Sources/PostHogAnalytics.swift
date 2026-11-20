@@ -21,6 +21,10 @@ final class PostHogAnalytics: @unchecked Sendable {
     private let lastActiveDayUTCKey = "posthog.lastActiveDayUTC"
     private let lastActiveHourUTCKey = "posthog.lastActiveHourUTC"
     private let lastReportedCrashAtKey = "posthog.lastReportedCrashAt"
+    /// The Cloud account this install last identified as. Kept across launches
+    /// so a sign-out or account switch can reset the persisted identity even
+    /// when it happens in a later launch than the identify call.
+    private let identifiedAccountIDKey = "posthog.identifiedAccountID"
 
     private let workQueue: DispatchQueue
     private let workQueueSpecificKey = DispatchSpecificKey<Void>()
@@ -30,12 +34,16 @@ final class PostHogAnalytics: @unchecked Sendable {
     private let now: @Sendable () -> Date
     private let capturePostHog: @Sendable (String, [String: Any]) -> Void
     private let flushPostHog: @Sendable () -> Void
+    private let contextCalls: PostHogContextCalls
     private let environment: [String: String]
     private let telemetryEnabled: @Sendable () -> Bool
     private let previousLaunchIdentity: [String: Any]
     private let launchStartedAt: Date
 
     private var didStart: Bool
+    /// The product context last registered as super properties. `reset()`
+    /// clears registered properties, so an identity reset restores these.
+    private var registeredContext: [String: Any] = [:]
     private var activeCheckTimer: Timer?
 
     init(
@@ -47,6 +55,7 @@ final class PostHogAnalytics: @unchecked Sendable {
             PostHogSDK.shared.capture(event, properties: properties)
         },
         flushPostHog: @escaping @Sendable () -> Void = { PostHogSDK.shared.flush() },
+        contextCalls: PostHogContextCalls = .live,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         telemetryEnabled: @escaping @Sendable () -> Bool = { TelemetrySettings.enabledForCurrentLaunch }
     ) {
@@ -56,6 +65,7 @@ final class PostHogAnalytics: @unchecked Sendable {
         self.now = now
         self.capturePostHog = capturePostHog
         self.flushPostHog = flushPostHog
+        self.contextCalls = contextCalls
         self.environment = environment
         self.telemetryEnabled = telemetryEnabled
         self.previousLaunchIdentity = userDefaults.dictionary(forKey: "posthog.previousLaunchIdentity") ?? [:]
@@ -118,6 +128,22 @@ final class PostHogAnalytics: @unchecked Sendable {
         }
     }
 
+    /// Whether this launch sends analytics at all: telemetry on, not under
+    /// XCTest, and (in debug builds) explicitly enabled. Product analytics
+    /// uses the same answer so it never queues work that would be dropped.
+    var isCaptureEnabled: Bool { isEnabled }
+
+    /// Registers super properties sent with every later event.
+    func register(_ properties: [String: Any]) {
+        dispatchAsyncOnWorkQueue { [weak self] in
+            guard let self else { return }
+            self.startIfNeededOnWorkQueue()
+            guard self.didStart else { return }
+            self.registeredContext.merge(properties) { _, new in new }
+            self.contextCalls.register(properties)
+        }
+    }
+
     /// Capture one product event with the app version properties attached.
     /// No-op when telemetry is disabled or the SDK never started. Used by the
     /// Cloud VM request telemetry (`VMClientTelemetry`).
@@ -129,6 +155,61 @@ final class PostHogAnalytics: @unchecked Sendable {
             var merged = properties
             merged.merge(Self.versionProperties(infoDictionary: Bundle.main.infoDictionary ?? [:])) { current, _ in current }
             self.capturePostHog(event, merged)
+        }
+    }
+
+    /// Merge this install's anonymous PostHog person into the signed-in Cloud
+    /// account. `accountID` is the sign-in service user id, the same value the
+    /// web server uses as `distinct_id`. Only the id is sent: no email or name.
+    /// A different previously identified account is reset first so two
+    /// accounts never share one person. No-op when telemetry is disabled.
+    func identify(accountID: String) {
+        guard !accountID.isEmpty else { return }
+        dispatchAsyncOnWorkQueue { [weak self] in
+            guard let self else { return }
+            self.startIfNeededOnWorkQueue()
+            guard self.didStart else { return }
+            let previous = self.userDefaults.string(forKey: self.identifiedAccountIDKey)
+            let distinctID = PostHogSDK.shared.getDistinctId()
+            if previous == accountID, distinctID == accountID {
+                return
+            }
+            // The SDK ignores `identify` while it is identified as another id,
+            // so reset first when the stored account or the SDK names someone
+            // else. An anonymous SDK keeps its id so this launch's events merge.
+            let sdkIdentifiedAsOther = distinctID != PostHogSDK.shared.getAnonymousId()
+                && distinctID != accountID
+            if (previous != nil && previous != accountID) || sdkIdentifiedAsOther {
+                self.resetPostHogIdentityOnWorkQueue()
+            }
+            PostHogSDK.shared.identify(accountID)
+            self.userDefaults.set(accountID, forKey: self.identifiedAccountIDKey)
+            self.flushPostHog()
+        }
+    }
+
+    /// Drop the identified account after Cloud sign-out so later events use a
+    /// fresh anonymous id. No-op when this install never identified, or when
+    /// telemetry is disabled (the stored account then stays so a later launch
+    /// with telemetry on still resets before identifying someone else).
+    func resetIdentity() {
+        dispatchAsyncOnWorkQueue { [weak self] in
+            guard let self else { return }
+            guard self.userDefaults.string(forKey: self.identifiedAccountIDKey) != nil else { return }
+            self.startIfNeededOnWorkQueue()
+            guard self.didStart else { return }
+            self.resetPostHogIdentityOnWorkQueue()
+            self.userDefaults.removeObject(forKey: self.identifiedAccountIDKey)
+        }
+    }
+
+    private func resetPostHogIdentityOnWorkQueue() {
+        PostHogSDK.shared.reset()
+        // `reset()` also clears registered super properties: restore the
+        // desktop tags and the product context (plan, sign-in, Cloud state).
+        PostHogSDK.shared.register(Self.superProperties(infoDictionary: Bundle.main.infoDictionary ?? [:]))
+        if !registeredContext.isEmpty {
+            contextCalls.register(registeredContext)
         }
     }
 

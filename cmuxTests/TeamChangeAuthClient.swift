@@ -1,4 +1,5 @@
 import CMUXAuthCore
+import CmuxCloud
 import CmuxAuthRuntime
 import Foundation
 import Testing
@@ -97,7 +98,10 @@ actor TeamChangeAuthClient: AuthClient {
 
 extension HostAccountFlow {
     /// A signed-in flow over `client`, with `team-a` confirmed.
-    static func makeForTeamChangeTests(client: TeamChangeAuthClient) async throws -> HostAccountFlow {
+    static func makeForTeamChangeTests(
+        client: TeamChangeAuthClient,
+        billingPlanClient: BillingPlanClient = BillingPlanClient()
+    ) async throws -> HostAccountFlow {
         let defaults = try #require(UserDefaults(suiteName: "HostAccountFlowTeamChangeTests.\(UUID())"))
         let anchor = AuthPresentationContextProvider()
         let coordinator = AuthCoordinator(
@@ -137,7 +141,11 @@ extension HostAccountFlow {
             callbackScheme: { "cmux-test" },
             openExternalURL: { _ in false }
         )
-        let flow = HostAccountFlow(coordinator: coordinator, browserSignIn: browserSignIn)
+        let flow = HostAccountFlow(
+            coordinator: coordinator,
+            browserSignIn: browserSignIn,
+            billingPlanClient: billingPlanClient
+        )
         try #require(flow.confirmedTeamID == "team-a")
         return flow
     }

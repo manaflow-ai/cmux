@@ -108,9 +108,16 @@ extension AppDelegate {
         didRegisterDisplayReconfigurationCallback = false
     }
 
-    func handleDisplayReconfiguration(isBeginning _: Bool) {
+    func handleDisplayReconfiguration(isBeginning: Bool) {
         displayReconfigurationGeneration += 1
+        didObserveDisplayReconfigurationSinceReconcile = true
         beginScreenChangeCaptureSuppression()
+        // An idle reconcile can run between the begin and end callbacks and
+        // clear the marker; the end callback re-sets it, so it must queue the
+        // pass that consumes it rather than wait for a later screen change.
+        if !isBeginning {
+            scheduleScreenChangeReconcileWhenIdle()
+        }
     }
 
     func handleScreenParametersDidChange() {
@@ -131,9 +138,12 @@ extension AppDelegate {
             return
         }
 
-        // Restore remembered per-configuration frames only when the connected
-        // display set genuinely changed — so sleep/wake and Dock resize (same
-        // signature) never reposition a deliberately-placed window.
+        // Restore remembered per-configuration frames when the connected display
+        // set genuinely changed, or when a display reconfiguration settled back
+        // on the same signature: macOS may have shrunk windows while the display
+        // reported a transient mode (wake in clamshell), and nothing else would
+        // undo that. A Dock resize raises no reconfiguration, so it never
+        // repositions a deliberately-placed window.
         let signature = displays.available
             .displayConfigurationSignature(isMirrored: Self.displaysAreMirrored())
         let signatureChanged = signature.map {
@@ -155,7 +165,14 @@ extension AppDelegate {
         if let signature {
             if signatureChanged {
                 restoreRememberedFrames(for: signature, displays: displays)
+            } else if didObserveDisplayReconfigurationSinceReconcile {
+                restoreRememberedFrames(
+                    for: signature,
+                    displays: displays,
+                    skippingZoomedWindows: true
+                )
             }
+            didObserveDisplayReconfigurationSinceReconcile = false
             lastAppliedConfigurationSignature = signature
             didObserveUnknownDisplayConfiguration = false
             screenChangeReconcileRetryBudget = 0
@@ -182,6 +199,12 @@ extension AppDelegate {
         let mainWindows = mainWindowsForVisibilityController()
         for window in mainWindows {
             guard let window = window as? CmuxMainWindow else { continue }
+            // AppKit owns inactive-Space placement while it restores a display
+            // topology. Setting a frame on those windows moves them onto the
+            // currently visible Space instead of letting macOS restore them.
+            guard Self.shouldReconcileWindowAfterScreenChange(
+                isOnActiveSpace: window.isOnActiveSpace
+            ) else { continue }
             // Native-fullscreen windows are owned by AppKit's Space machinery;
             // clamping them mid-transition fights the fullscreen teardown.
             guard !window.styleMask.contains(.fullScreen) else { continue }
@@ -200,9 +223,17 @@ extension AppDelegate {
 #endif
             window.setFrameForManagedPlacement(corrected, display: true)
         }
+        // Keep inactive-Space windows out of the fit pass for the same reason:
+        // the reconciler applies frames even when reachability needed no fix.
+        let activeSpaceWindows = mainWindows.filter { window in
+            guard let window = window as? CmuxMainWindow else { return false }
+            return Self.shouldReconcileWindowAfterScreenChange(
+                isOnActiveSpace: window.isOnActiveSpace
+            )
+        }
         let fitCompleted = MainWindowFrameReconciler().repair(
             displays: displays.available,
-            windows: mainWindows,
+            windows: activeSpaceWindows,
             trigger: .displayTopology(changed: visibleFrameFitTopologyChanged)
         )
         if visibleFrameFitTopologyChanged {
@@ -219,14 +250,21 @@ extension AppDelegate {
 
     /// Restores each window's remembered frame for `signature`, routed through
     /// `resolvedWindowFrame` (so a remembered frame that no longer fits is
-    /// re-clamped rather than applied raw). Fullscreen windows are skipped.
+    /// re-clamped rather than applied raw). Fullscreen windows are skipped, and
+    /// zoomed ones too when `skippingZoomedWindows` (the zoom repair owns them
+    /// and restoring would retire their zoom intent).
     func restoreRememberedFrames(
         for signature: String,
-        displays: (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?)
+        displays: (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?),
+        skippingZoomedWindows: Bool = false
     ) {
         for window in mainWindowsForVisibilityController() {
             guard let window = window as? CmuxMainWindow else { continue }
             guard !window.styleMask.contains(.fullScreen) else { continue }
+            guard !(skippingZoomedWindows && window.cmuxWantsZoomedFrame) else { continue }
+            guard Self.shouldReconcileWindowAfterScreenChange(
+                isOnActiveSpace: window.isOnActiveSpace
+            ) else { continue }
             guard let context = contextForMainTerminalWindow(window) else { continue }
             let windowTag = context.windowId.uuidString.prefix(8)
             guard let entry = windowConfigFrames[context.windowId]?.entry(for: signature) else {

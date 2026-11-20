@@ -33,6 +33,10 @@ public enum ControlPaneSwapResolution: Sendable, Equatable {
     /// `internal_error` / "Failed moving target surface into source pane",
     /// `data: nil`).
     case moveTargetFailed
+    /// The surface is a browser tab a browser REPL session drives or typed a
+    /// secret into, which other socket clients may not close, move or
+    /// reload (legacy `denied`). Carries the surface id and the message.
+    case denied(UUID, message: String)
     /// The swap succeeded. Carries the echoed window/workspace/pane/surface
     /// identity for both sides.
     case swapped(

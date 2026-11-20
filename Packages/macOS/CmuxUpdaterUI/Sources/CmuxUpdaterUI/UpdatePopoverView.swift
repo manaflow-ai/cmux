@@ -169,7 +169,7 @@ private struct DetectedBackgroundUpdateView: View {
                         dismiss()
                     }
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
+                    .updatePrimaryButtonStyle()
                     .controlSize(.small)
                 }
             }
@@ -248,7 +248,7 @@ private struct PermissionRequestView: View {
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .updatePrimaryButtonStyle()
             }
         }
         .padding(16)
@@ -323,7 +323,7 @@ private struct UpdateAvailableView: View {
                         dismiss()
                     }
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
+                    .updatePrimaryButtonStyle()
                     .controlSize(.small)
                 }
             }
@@ -425,7 +425,7 @@ private struct InstallingView: View {
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .updatePrimaryButtonStyle()
                 .controlSize(.small)
             }
         }

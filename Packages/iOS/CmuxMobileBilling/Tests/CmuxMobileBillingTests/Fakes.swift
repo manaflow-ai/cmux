@@ -126,6 +126,10 @@ actor FakeStoreKitClient: StoreKitClient {
         if let syncError { throw syncError }
     }
 
+    func storefrontCountryCode() async -> String? {
+        "USA"
+    }
+
     func finish(transactionID: UInt64) async {
         // Record every effect before publishing completion, so a waiter that
         // returns on `finished` or the stream sees the log entry too.

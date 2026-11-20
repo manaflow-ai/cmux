@@ -130,6 +130,7 @@ extension TerminalController {
             guard let panel = mobileBrowserPanel(params: params) else {
                 return mobileBrowserPanelResolutionError(params: params)
             }
+            if let refusal = v2BrowserReplTabRefusal(panel.id) { return refusal }
             guard let rawURL = v2String(params, "url") else {
                 return .err(code: "invalid_params", message: "Missing or invalid url", data: nil)
             }
@@ -334,6 +335,7 @@ extension TerminalController {
         guard let panel = mobileBrowserPanel(params: params) else {
             return mobileBrowserPanelResolutionError(params: params)
         }
+        if let refusal = v2BrowserReplTabRefusal(panel.id) { return refusal }
         action(panel)
         return .ok(["ok": true, "panel_id": panel.id.uuidString])
     }

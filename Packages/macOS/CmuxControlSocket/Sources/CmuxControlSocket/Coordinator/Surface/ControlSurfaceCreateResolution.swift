@@ -30,6 +30,14 @@ public enum ControlSurfaceCreateResolution: Sendable, Equatable {
     case dockConflictingRoutingSelectors(message: String)
     /// The browser was disabled; carries the shared external-open outcome.
     case browserDisabled(ControlSurfaceBrowserDisabledOutcome)
+    /// An explicit browser profile selector did not identify exactly one
+    /// profile. An empty candidate list means no profile matched; otherwise the
+    /// candidates share the requested display name.
+    case invalidBrowserProfile(
+        selector: String,
+        message: String,
+        candidates: [ControlPaneBrowserProfileCandidate]
+    )
     /// No workspace resolved (legacy `not_found` / "Workspace not found").
     case workspaceNotFound
     /// The requested/focused pane did not resolve (legacy `not_found` / "Pane not

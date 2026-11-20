@@ -21,6 +21,7 @@ struct AgentHookDeliveryProcess: Sendable {
     private let processTimeout: Duration
     private let deliveryTimeout: Duration
     private let terminationGrace: Duration
+    private let socketCapabilityProvider: (@Sendable () -> String?)?
 
     init(
         executableURLProvider: @escaping @Sendable () -> URL? = {
@@ -28,12 +29,14 @@ struct AgentHookDeliveryProcess: Sendable {
         },
         processTimeout: Duration = .seconds(15),
         deliveryTimeout: Duration = .seconds(16),
-        terminationGrace: Duration = .milliseconds(250)
+        terminationGrace: Duration = .milliseconds(250),
+        socketCapabilityProvider: (@Sendable () -> String?)? = nil
     ) {
         self.executableURLProvider = executableURLProvider
         self.processTimeout = processTimeout
         self.deliveryTimeout = deliveryTimeout
         self.terminationGrace = terminationGrace
+        self.socketCapabilityProvider = socketCapabilityProvider
     }
 
     func deliver(_ event: AgentHookDeliveryEvent) async {
@@ -216,6 +219,14 @@ struct AgentHookDeliveryProcess: Sendable {
         environment["CMUX_SOCKET_PATH"] = event.socketPath
         environment["CMUX_BUNDLED_CLI_PATH"] = executableURL.path
         environment["CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP"] = "1"
+        // This child is app-owned, so issue a fresh capability from the
+        // app's authority instead of persisting the hook process's bearer in
+        // the spool or event payload.
+        if !event.relayBacked,
+           let socketCapability = socketCapabilityProvider?(),
+           !socketCapability.isEmpty {
+            environment["CMUX_SOCKET_CAPABILITY"] = socketCapability
+        }
         if event.relayBacked {
             environment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] = "1"
             environment["CMUX_AGENT_HOOK_ROUTE_SNAPSHOT"] = "1"

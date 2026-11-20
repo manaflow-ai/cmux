@@ -5,17 +5,18 @@ extension WorkspaceContentView {
         isWorkspaceVisible: Bool,
         paneHasSelectedTab: Bool,
         isSelectedInPane: Bool,
-        isFocused: Bool
+        isFocused: Bool,
+        isFallbackInPane: Bool = false
     ) -> Bool {
-        // During pane/tab reparenting, Bonsplit can transiently report selected=false
-        // for the currently focused panel. Keep focused content visible only when
-        // the pane has no selected tab to report; if another tab is selected, a
-        // stale focused terminal must not keep its portal view visible.
+        // During pane/tab reparenting, Bonsplit can transiently report no selected
+        // tab. Keep the focused panel or Bonsplit's first-tab fallback visible for
+        // that gap; if another tab is selected, stale content must stay hidden.
         return WorkspacePanelVisibilityPolicy.panelVisibleInUI(
             isWorkspaceVisible: isWorkspaceVisible,
             paneHasSelectedTab: paneHasSelectedTab,
             isSelectedInPane: isSelectedInPane,
-            isFocused: isFocused
+            isFocused: isFocused,
+            isFallbackInPane: isFallbackInPane
         )
     }
 

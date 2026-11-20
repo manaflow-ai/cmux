@@ -58,7 +58,7 @@ extension TerminalNotificationDirectInteractionTests {
         )
         drainMainQueue()
         XCTAssertFalse(hostedView.hasVisibilityRevealRefreshScheduled)
-        XCTAssertEqual(surface.debugForceRefreshCount(), 0)
+        XCTAssertEqual(nonRecoveryRefreshReasons(surface), [])
 #else
         throw XCTSkip("Debug-only regression test")
 #endif
@@ -151,15 +151,34 @@ extension TerminalNotificationDirectInteractionTests {
             line: line
         )
         XCTAssertEqual(
-            surface.debugForceRefreshCount(), 0,
+            nonRecoveryRefreshReasons(surface), [],
             "The reveal must defer its redraw until after the visibility update",
             file: file,
             line: line
         )
+        // A presentation probe the renderer rejects while the reveal drains
+        // runs its own recovery redraw (#19685 CI). Queue that redraw so the
+        // race happens on every run instead of only on a loaded runner.
+        DispatchQueue.main.async {
+            surface.forceRefresh(reason: "renderer.recover.probeRejected.ensure.presented")
+        }
         drainMainQueue(file: file, line: line)
         XCTAssertFalse(hostedView.hasVisibilityRevealRefreshScheduled, file: file, line: line)
 
-        XCTAssertEqual(surface.debugForceRefreshCount(), expected, message, file: file, line: line)
+        XCTAssertEqual(
+            nonRecoveryRefreshReasons(surface),
+            Array(repeating: "setVisibleInUI.deferred", count: expected),
+            message,
+            file: file,
+            line: line
+        )
+    }
+
+    /// The force refreshes other than renderer recovery. A presentation probe
+    /// the renderer rejects runs one recovery redraw of its own, and whether
+    /// that happens depends on the GPU, so reveal assertions leave it out.
+    private func nonRecoveryRefreshReasons(_ surface: TerminalSurface) -> [String] {
+        surface.debugForceRefreshReasons().filter { !$0.hasPrefix("renderer.recover.") }
     }
 #endif
 

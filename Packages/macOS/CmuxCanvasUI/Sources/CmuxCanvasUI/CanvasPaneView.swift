@@ -71,6 +71,14 @@ final class CanvasPaneView: NSView {
         }
     }
 
+    /// False when the window backdrop shows through; the layer stays clear.
+    var drawsBackground = true {
+        didSet {
+            guard drawsBackground != oldValue else { return }
+            applyChromeColors()
+        }
+    }
+
     private static let resizeBandWidth: CGFloat = 6
     private static let cornerBandWidth: CGFloat = 12
     private static let cornerRadius: CGFloat = 9
@@ -117,6 +125,25 @@ final class CanvasPaneView: NSView {
     }
 
     override var isFlipped: Bool { true }
+
+    // The document leaves its dot grid out from under panes, so a moved or
+    // resized pane must repaint both the area it left and the area it covers.
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        let oldFrame = frame
+        super.setFrameOrigin(newOrigin)
+        invalidateDocumentGrid(oldFrame: oldFrame)
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let oldFrame = frame
+        super.setFrameSize(newSize)
+        invalidateDocumentGrid(oldFrame: oldFrame)
+    }
+
+    private func invalidateDocumentGrid(oldFrame: CGRect) {
+        guard oldFrame != frame else { return }
+        superview?.setNeedsDisplay(oldFrame.union(frame))
+    }
 
     /// Updates the tab strip and focus ring. No-op when nothing changed.
     func updateChrome(_ chrome: CanvasPaneChrome) {
@@ -195,7 +222,7 @@ final class CanvasPaneView: NSView {
             ? accentColor.nsColor(for: effectiveAppearance).cgColor
             : NSColor.separatorColor.cgColor
         layer?.borderWidth = chrome.isFocused ? CGFloat.paneIndicatorStrokeWidth : 1
-        layer?.backgroundColor = paneBackground.cgColor
+        layer?.backgroundColor = drawsBackground ? paneBackground.cgColor : NSColor.clear.cgColor
     }
 
     override func updateTrackingAreas() {

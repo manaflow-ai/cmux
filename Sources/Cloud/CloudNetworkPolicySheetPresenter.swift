@@ -10,6 +10,7 @@ final class CloudNetworkPolicySheetPresenter {
     static let shared = CloudNetworkPolicySheetPresenter()
 
     private var sheetWindow: NSWindow?
+    private var sheetController: CloudSheetWindow?
     private var hostWindow: NSWindow?
     private var model: CloudNetworkPolicySheetModel?
     private var loadTask: Task<Void, Never>?
@@ -40,6 +41,7 @@ final class CloudNetworkPolicySheetPresenter {
         window.title = String(localized: "cloud.network.section.label", defaultValue: "Network")
         window.isReleasedWhenClosed = false
         self.model = model
+        sheetController = sheet
         sheetWindow = window
         loadTask = Task { [weak model] in await model?.load() }
 
@@ -61,6 +63,7 @@ final class CloudNetworkPolicySheetPresenter {
             host.endSheet(window)
         }
         window.orderOut(nil)
+        sheetController = nil
         sheetWindow = nil
         hostWindow = nil
         model = nil

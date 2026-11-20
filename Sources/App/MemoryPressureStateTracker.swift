@@ -1,4 +1,5 @@
 import Foundation
+import CmuxMemoryPressure
 
 struct MemoryPressureStateTracker: Sendable {
     let thresholds: MemoryPressureFootprintThresholds

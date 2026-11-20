@@ -26,6 +26,11 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     private var isClosed = false
     private var isProviderStartPending = false
     private var processStore = AgentSessionProcessStore()
+    /// Posts the panel's finished turns and provider failures (cx-sg1qz).
+    private var turnNotifier: AgentSessionTurnNotifier?
+    private var turnNotifierPanelId: UUID?
+    /// The folder the running provider started in, for "Completed in <project>".
+    private var providerWorkingDirectory: String?
     nonisolated private static let imagePreviewMaxBytes = 512 * 1024
     nonisolated private static let imagePreviewTotalMaxBytes = 2 * 1024 * 1024
     var onHasActiveProviderChanged: ((Bool) -> Void)? {
@@ -65,7 +70,16 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         if themeChanged {
             applyThemeToLoadedPage()
         }
+        if turnNotifier == nil || turnNotifierPanelId != panelId {
+            turnNotifierPanelId = panelId
+            turnNotifier = AgentSessionTurnNotifier(
+                surfaceID: panelId,
+                workspaceID: { [weak self] in self?.workspaceId ?? workspaceId },
+                workingDirectory: { [weak self] in self?.providerWorkingDirectory ?? self?.workingDirectory }
+            )
+        }
         processStore.eventSink = { [weak self] event in
+            self?.turnNotifier?.observe(event)
             self?.sendEvent(event)
         }
         processStore.activeProviderSink = { [weak self] hasActiveProvider in
@@ -636,9 +650,11 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             guard !isClosed else {
                 throw AgentSessionBridgeError.invalidRequest
             }
+            let providerDirectory = request.string("workingDirectory") ?? workingDirectory
+            providerWorkingDirectory = providerDirectory
             let session = try await processStore.start(
                 plan: plan,
-                workingDirectory: request.string("workingDirectory") ?? workingDirectory
+                workingDirectory: providerDirectory
             )
             return [
                 "sessionId": session.sessionId,
@@ -813,3 +829,12 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         return false
     }
 }
+
+#if DEBUG
+extension AgentSessionWebRendererCoordinator {
+    /// The page's bridge, for tests: one request as the page sends it.
+    func handleBridgeRequestForTesting(_ body: [String: Any]) async throws -> Any {
+        try await handle(AgentSessionBridgeRequest(body: body))
+    }
+}
+#endif

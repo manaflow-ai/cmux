@@ -16,8 +16,13 @@ jobs:
     # not discard a successful exact-head Dogfood build; the trusted gate below
     # requires that job and its matching GitHub artifact explicitly. A run the
     # event lists no pull request for has nothing to publish, so it never starts.
-    if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion != 'cancelled' && toJSON(github.event.workflow_run.pull_requests) != '[]' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # The event names the pull request's base, so a run the script would skip
+    # for its base (CI on a feat-cmux-next pull request, cmux-next on any
+    # other) never starts either and spends no API call. CI_QUOTA_HOLD=1
+    # pauses this publish while the installation's GITHUB_TOKEN budget is
+    # reserved for the nightly (tests/test_ci_quota_hold_gate.py).
+    if: ${{ vars.CI_QUOTA_HOLD != '1' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion != 'cancelled' && toJSON(github.event.workflow_run.pull_requests) != '[]' && (github.event.workflow_run.name == 'CI' && github.event.workflow_run.pull_requests[0].base.ref != 'feat-cmux-next' || github.event.workflow_run.name == 'cmux-next' && github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: artifacts
     permissions:
       actions: write
@@ -38,6 +43,10 @@ jobs:
       - name: Find the trusted org-member dogfood artifact
         id: pr
         env:
+          # This job runs in the artifacts environment, whose trust boundary
+          # intentionally contains only R2 credentials. Keep GitHub API calls
+          # on its explicitly scoped workflow token; the capture job below has
+          # no artifact secrets and may use cmux-bot's separate budget.
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RUN_ID: ${{ github.event.workflow_run.id }}
@@ -196,6 +205,8 @@ jobs:
           DIGEST: ${{ steps.artifact.outputs.digest }}
           DOWNLOAD_URL: ${{ steps.signed-url.outputs.url }}
           BUILD_TIME: ${{ steps.pr.outputs.build_time }}
+          SOURCE_RUN_URL: ${{ github.event.workflow_run.html_url }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
           MARKER: '<!-- cmux-fleet-dogfood-artifact -->'
         run: |
           set -euo pipefail
@@ -212,7 +223,12 @@ jobs:
               f"SHA-256: `{os.environ['DIGEST']}`\n"
               f"Tag: `{os.environ['TAG']}`\n\n"
               f"Build time: `{os.environ['BUILD_TIME']}`\n\n"
-              "The download URL expires after 15 minutes."
+              "The download URL expires after 15 minutes. "
+              # The comment outlives the signed link; the CI artifact it came
+              # from stays downloadable until it expires (retention-days: 2).
+              f"For 2 days after the build, [the CI run]({os.environ['SOURCE_RUN_URL']}) still has it: "
+              f"`gh run download {os.environ['SOURCE_RUN_ID']} -R {os.environ['GH_REPO']} "
+              f"-n dogfood-app-{os.environ['PR']}-{os.environ['HEAD_SHA']}`"
           )
           Path(os.environ['BODY_PATH']).write_text(body + "\n", encoding="utf-8")
           PY
@@ -233,25 +249,86 @@ jobs:
           retention-days: 1
           compression-level: 0
 
-  capture:
-    name: cmux-next before/after capture
+  # The capture runs on the GUI capture mini, a reused machine that a variable picks
+  # (MACOS_RUNNER_DISPLAY, which the overflow switch also sets). So the capture job
+  # holds no secret and no App token: it reads two artifacts of this run and uploads
+  # one. The cmux-bot token is minted only in the two short jobs around it, on a
+  # literal ephemeral label no variable can move (tests/test_ci_fork_runner_routing.py).
+  capture-inputs:
+    name: cmux-next capture inputs
     needs: publish
     if: ${{ needs.publish.outputs.published == 'true' && needs.publish.outputs.workflow == 'cmux-next' }}
-    # MACOS_RUNNER_DISPLAY must name the GUI-enabled capture mini. The cloud
-    # fallback keeps workflow validation and fork checks deterministic; the
-    # step below fails closed when capture tools are absent.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
-    timeout-minutes: 20
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
     permissions:
-      actions: write
+      actions: read
       contents: read
-      pull-requests: write
+      pull-requests: read
     env:
-      GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       PR: ${{ needs.publish.outputs.pr }}
       HEAD_SHA: ${{ needs.publish.outputs.sha }}
+    steps:
+      - name: Mint the cmux-bot token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-checks: read
+          permission-contents: read
+          permission-issues: write
+          permission-pull-requests: write
+
+      - name: Find the exact base cmux-next artifact
+        env:
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+        run: |
+          set -euo pipefail
+          base_sha="$(gh api "repos/$GH_REPO/pulls/$PR" --jq '.base.sha')"
+          run_id="$(gh run list --repo "$GH_REPO" --workflow cmux-next.yml --branch feat-cmux-next \
+            --limit 100 --json databaseId,headSha,status,conclusion |
+            python3 -c 'import json,sys; rows=json.load(sys.stdin); sha=sys.argv[1]; print(next((str(r["databaseId"]) for r in rows if r["headSha"] == sha and r["status"] == "completed" and r["conclusion"] == "success"), ""))' "$base_sha")"
+          test -n "$run_id" || { echo "no successful cmux-next base run for $base_sha" >&2; exit 1; }
+          mkdir -p "$RUNNER_TEMP/capture/base"
+          gh run download "$run_id" --repo "$GH_REPO" \
+            --name "cmux-next-base-app-$base_sha" \
+            --dir "$RUNNER_TEMP/capture/base"
+          find "$RUNNER_TEMP/capture/base" -type f -name '*.zip' -print -quit | grep -q .
+
+      - name: Retain the base app for capture
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dogfood-capture-base-${{ needs.publish.outputs.pr }}-${{ needs.publish.outputs.sha }}
+          path: ${{ runner.temp }}/capture/base
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  capture:
+    name: cmux-next before/after capture
+    needs: [publish, capture-inputs]
+    if: ${{ needs.publish.outputs.published == 'true' && needs.publish.outputs.workflow == 'cmux-next' }}
+    # MACOS_RUNNER_DISPLAY must name the GUI-enabled capture mini. The cloud
+    # fallback keeps workflow validation and fork checks deterministic; the
+    # step below fails closed when capture tools are absent. No secret and no
+    # App token here (capture-inputs above).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+    env:
+      PR: ${{ needs.publish.outputs.pr }}
+      HEAD_SHA: ${{ needs.publish.outputs.sha }}
       CAPTURE_HOST_TOOL: ${{ vars.CMUX_NEXT_CAPTURE_HOST_TOOL || 'capture-host' }}
+      # capture-host records the owner of every lease from CMUX_AGENT_ID only and refuses an acquire without it
+      # (cmuxterm-hq#5650): this job's leases name its workflow run.
+      CMUX_AGENT_ID: gha-dogfood-capture-${{ github.run_id }}
       CUA_SSH: ${{ vars.CMUX_NEXT_CUA_SSH || 'cua-ssh' }}
     steps:
       - name: Checkout capture workflow scripts
@@ -265,43 +342,27 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
 
       - name: Download the published head archive
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/capture/head"
-          gh run download "$GITHUB_RUN_ID" --repo "$GH_REPO" \
-            --name "dogfood-capture-head-$PR-$HEAD_SHA" \
-            --dir "$RUNNER_TEMP/capture/head"
-          find "$RUNNER_TEMP/capture/head" -type f -name '*.zip' -print -quit > "$RUNNER_TEMP/capture/head.path"
-          test -s "$RUNNER_TEMP/capture/head.path"
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: dogfood-capture-head-${{ needs.publish.outputs.pr }}-${{ needs.publish.outputs.sha }}
+          path: ${{ runner.temp }}/capture/head
 
-      - name: Find the exact base cmux-next artifact
-        id: base
-        run: |
-          set -euo pipefail
-          base_sha="$(gh api "repos/$GH_REPO/pulls/$PR" --jq '.base.sha')"
-          run_id="$(gh run list --repo "$GH_REPO" --workflow cmux-next.yml --branch feat-cmux-next \
-            --limit 100 --json databaseId,headSha,status,conclusion |
-            python3 -c 'import json,sys; rows=json.load(sys.stdin); sha=sys.argv[1]; print(next((str(r["databaseId"]) for r in rows if r["headSha"] == sha and r["status"] == "completed" and r["conclusion"] == "success"), ""))' "$base_sha")"
-          test -n "$run_id" || { echo "no successful cmux-next base run for $base_sha" >&2; exit 1; }
-          mkdir -p "$RUNNER_TEMP/capture/base"
-          gh run download "$run_id" --repo "$GH_REPO" \
-            --name "cmux-next-base-app-$base_sha" \
-            --dir "$RUNNER_TEMP/capture/base"
-          find "$RUNNER_TEMP/capture/base" -type f -name '*.zip' -print -quit > "$RUNNER_TEMP/capture/base.path"
-          test -s "$RUNNER_TEMP/capture/base.path"
+      - name: Download the exact base archive
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: dogfood-capture-base-${{ needs.publish.outputs.pr }}-${{ needs.publish.outputs.sha }}
+          path: ${{ runner.temp }}/capture/base
 
       - name: Capture fixed before and after surfaces under a lease
-        env:
-          HEAD_ARCHIVE: ${{ runner.temp }}/capture/head.path
-          BASE_ARCHIVE: ${{ runner.temp }}/capture/base.path
         run: |
           set -euo pipefail
           capture_host="$CAPTURE_HOST_TOOL"; [[ "$capture_host" == */* ]] || capture_host="$(command -v "$capture_host" || true)"
           cua_ssh="$CUA_SSH"; [[ "$cua_ssh" == */* ]] || cua_ssh="$(command -v "$cua_ssh" || true)"
           test -x "$capture_host" || { echo "capture-host is not installed on this runner" >&2; exit 1; }
           test -x "$cua_ssh" || { echo "cua-ssh is not installed on this runner" >&2; exit 1; }
-          head_archive="$(cat "$HEAD_ARCHIVE")"
-          base_archive="$(cat "$BASE_ARCHIVE")"
+          head_archive="$(find "$RUNNER_TEMP/capture/head" -type f -name '*.zip' -print -quit)"
+          base_archive="$(find "$RUNNER_TEMP/capture/base" -type f -name '*.zip' -print -quit)"
+          test -n "$head_archive" && test -n "$base_archive"
           scripts/cmux-next/capture-pr-surfaces.sh \
             --host capture-mini \
             --head-archive "$head_archive" \
@@ -320,8 +381,38 @@ jobs:
           retention-days: 14
           compression-level: 0
 
+  capture-report:
+    name: cmux-next capture link
+    needs: [publish, capture]
+    if: ${{ needs.publish.outputs.published == 'true' && needs.publish.outputs.workflow == 'cmux-next' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      GH_REPO: ${{ github.repository }}
+      PR: ${{ needs.publish.outputs.pr }}
+      HEAD_SHA: ${{ needs.publish.outputs.sha }}
+    steps:
+      - name: Mint the cmux-bot token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-checks: read
+          permission-contents: read
+          permission-issues: write
+          permission-pull-requests: write
+
       - name: Post before/after capture link
         env:
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           MARKER: '<!-- cmux-next-before-after-capture -->'
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           BUILD_TIME: ${{ needs.publish.outputs.build_time }}

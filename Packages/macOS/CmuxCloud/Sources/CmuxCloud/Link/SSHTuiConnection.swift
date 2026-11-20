@@ -54,16 +54,18 @@ public struct SSHTuiConnection: Sendable {
     /// Hashes the route inputs that must share, or avoid sharing, an SSH master.
     private func digest(includeAgentSocket: Bool) -> String {
         let resolver = SSHAgentSocketResolver(environment: [:])
-        let sharingOptions = SSHConnectionSharingOptions()
         let persistentOptions = configuration.sshOptions.filter {
             let key = resolver.optionKey($0) ?? ""
             return !["controlmaster", "controlpersist", "controlpath"].contains(key)
-                && sharingOptions.routeSensitiveIdentifier(in: [$0]) == nil
         }
         var components = [configuration.destination, configuration.port.map(String.init) ?? "",
                           configuration.identityFile ?? ""] + persistentOptions
-        if let routeIdentifier = sharingOptions.routeSensitiveIdentifier(in: configuration.sshOptions) {
+        if let routeIdentifier = configuration.routeSensitiveIdentifier {
             components.append(routeIdentifier)
+        } else if configuration.routeSensitivity == .unidentified {
+            // Before the marker moved out of the options, the `true`
+            // placeholder was hashed as one of them.
+            components.append(SSHConnectionSharingOptions.unidentifiedRouteSensitiveMarkerOption)
         }
         if includeAgentSocket {
             if let agent = sshProcessEnvironment["SSH_AUTH_SOCK"]?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -98,6 +100,21 @@ public struct SSHTuiConnection: Sendable {
         if let identity = configuration.identityFile { arguments += ["-i", identity] }
         for option in sshOptions { arguments += ["-o", option] }
         return arguments
+    }
+
+    /// The SSH options for a one-off `ssh`, `scp` or `sftp` beside the carrier,
+    /// such as a file drop, the Files explorer or a file preview.
+    ///
+    /// They keep the carrier's route and the ControlPath of its authenticated
+    /// master: those batch-mode runs can log in to a password-only host only
+    /// through it. `ControlMaster` and `ControlPersist` are left out so a
+    /// one-off run never becomes the master itself.
+    public var fileOperationSSHOptions: [String] {
+        let resolver = SSHAgentSocketResolver(environment: [:])
+        return sshOptions.filter { option in
+            let key = resolver.optionKey(option)
+            return key != "controlmaster" && key != "controlpersist"
+        }
     }
 
     /// The caller's options plus cmux's shared ControlMaster, as 0.64.25's
@@ -149,6 +166,9 @@ public struct SSHTuiConnection: Sendable {
             // of the credentials carried by a multiplexed master.
             routeSensitiveOptions.append("inherited-agent-route")
         }
+        // `cmux ssh` resolved a route that must not share the `%C` master;
+        // `routeIdentityDigest` covers its identity.
+        routeSensitiveOptions += configuration.routeSensitivity.markerOptions
         return sharing.mergingDefaults(
             into: options,
             routeSensitiveOptions: routeSensitiveOptions,

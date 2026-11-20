@@ -8,6 +8,7 @@ import SwiftUI
 final class CloudCreateTeamSheetPresenter: NSObject, NSWindowDelegate {
     private let resolveHostWindow: @MainActor (NSWindow?) -> NSWindow?
     private var sheetWindow: NSWindow?
+    private var sheetController: CloudSheetWindow?
     private weak var hostWindow: NSWindow?
     /// Identifies the current sheet, so a late finish from an earlier sheet
     /// cannot close this one.
@@ -61,6 +62,7 @@ final class CloudCreateTeamSheetPresenter: NSObject, NSWindowDelegate {
         window.delegate = self
         window.title = String(localized: "cloud.teamPicker.createSheet.title", defaultValue: "Create Team")
         window.isReleasedWhenClosed = false
+        sheetController = sheet
         sheetWindow = window
 
         let host = resolveHostWindow(preferredWindow ?? NSApp.keyWindow)
@@ -92,6 +94,7 @@ final class CloudCreateTeamSheetPresenter: NSObject, NSWindowDelegate {
     }
 
     private func reset() {
+        sheetController = nil
         sheetWindow = nil
         hostWindow = nil
         sessionID = nil

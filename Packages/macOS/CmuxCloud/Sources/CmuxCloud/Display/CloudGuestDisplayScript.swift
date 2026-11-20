@@ -457,7 +457,10 @@ MAoKCmlmIF9fbmFtZV9fID09ICJfX21haW5fXyI6CiAgICByYWlzZSBTeXN0ZW1FeGl0KG1haW4oKSkK
         \"$path\" \(action)\(argument)
         """
         // A plain shell: a login shell costs about 0.7s per request, and only
-        // the service launch above needs that environment.
-        return "runuser -u cmux -- env HOME=/home/cmux USER=cmux /bin/bash -c '\(body)'"
+        // the service launch above needs that environment. VM exec runs as the
+        // work user (#16769); only root may `runuser`, and an older backend still
+        // execs as root.
+        return "as_work_user=; [ \"$(id -u)\" = 0 ] && as_work_user=\"runuser -u cmux --\"; "
+            + "$as_work_user env HOME=/home/cmux USER=cmux /bin/bash -c '\(body)'"
     }
 }

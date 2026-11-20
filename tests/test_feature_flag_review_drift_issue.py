@@ -91,6 +91,18 @@ run().catch(error => { console.error(error); process.exitCode = 1; });
         self.assertIn("Already expired", result["issue"]["body"])
         self.assertIn("-1", result["issue"]["body"])
 
+    def test_owner_is_pinged_once_when_a_flag_expires(self):
+        def day(days):
+            return json.dumps([{"key": "lapsing-release", "source": "Example.swift",
+                                "owner": "flag-owner", "reviewBy": "2026-10-18",
+                                "daysRemaining": days}])
+        result = self.run_monitor([day(1), day(-1), day(-2)])
+        self.assertIn("@flag-owner", result["issue"]["body"])
+        comments = [args["body"] for kind, args in result["writes"] if kind == "comment"]
+        self.assertEqual(len(comments), 1, comments)
+        self.assertIn("@flag-owner", comments[0])
+        self.assertIn("lapsing-release", comments[0])
+
     def test_failed_payloads_never_close_an_open_issue(self):
         report = [{"key": "soon-release", "source": "Example.swift",
                    "reviewBy": "2026-10-05", "daysRemaining": 5}]

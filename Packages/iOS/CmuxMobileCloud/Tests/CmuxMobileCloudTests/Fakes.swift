@@ -15,6 +15,7 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
         var approve: [(machineID: String, invitationId: String)] = []
         var pause: [String] = []
         var resume: [String] = []
+        var restart: [String] = []
         var delete: [String] = []
     }
 
@@ -226,6 +227,12 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
 
     func resumeMachine(id: String) async throws {
         lock.withLock { $0.resume.append(id) }
+        await waitForLifecycleActionIfNeeded()
+        if let lifecycleFailure { throw lifecycleFailure }
+    }
+
+    func restartMachine(id: String) async throws {
+        lock.withLock { $0.restart.append(id) }
         await waitForLifecycleActionIfNeeded()
         if let lifecycleFailure { throw lifecycleFailure }
     }

@@ -1,4 +1,5 @@
 import CmuxAuthRuntime
+import CmuxCloudResizeCore
 import Foundation
 
 extension VMClient {
@@ -34,6 +35,9 @@ extension VMClient {
                     freeAccessWindowDays: freeAccessWindowDays,
                     freeAccessExpiresAt: Self.epochMilliseconds(rawLimits["freeAccessExpiresAt"]),
                     memoryOptionsMb: Self.decodeIntArray(rawLimits["memoryOptionsMb"]),
+                    maxDiskMb: Self.decodePositiveInt(rawLimits["maxDiskMb"]),
+                    maxMemoryMb: Self.decodePositiveInt(rawLimits["maxMemoryMb"]),
+                    maxVcpus: Self.decodePositiveInt(rawLimits["maxVcpus"]),
                     lockedMemoryOptionsMb: (rawLimits["lockedMemoryOptionsMb"] as? [Any]).map { Self.decodeIntArray($0) },
                     memoryUpgradePlanId: (rawLimits["memoryUpgradePlanId"] as? String)
                         .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 },
@@ -44,36 +48,8 @@ extension VMClient {
                     resourcePool: CloudVMResourcePool(limits: rawLimits)
                 )
             }
-            let vms = try items.enumerated().map { index, dict -> VMSummary in
-                guard let id = dict["id"] as? String, !id.isEmpty else {
-                    throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
-                }
-                guard let provider = dict["provider"] as? String, !provider.isEmpty else {
-                    throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
-                }
-                guard let image = dict["image"] as? String, !image.isEmpty else {
-                    throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
-                }
-                let rawStatus = (dict["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-                let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
-                let createdAt = (dict["createdAt"] as? Int64)
-                    ?? Int64((dict["createdAt"] as? Double) ?? 0)
-                var summary = VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(dict["base"]))
-                summary.kind = Self.decodeKind(dict["kind"])
-                summary.capabilities = VMCapabilities(vmResponse: dict)
-                if let label = dict["displayName"] as? String, !label.isEmpty {
-                    summary.displayName = label
-                }
-                summary.slug = (dict["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                summary.createdBy = VMCreator(vmResponse: dict)
-                summary.agentUpdates = CloudAgentUpdates(wireValue: dict["agentUpdates"])
-                summary.freeAccessExpiresAt = Self.epochMilliseconds(dict["freeAccessExpiresAt"])
-                if let address = dict["address"] as? [String: Any] {
-                    summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                    summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                }
-                summary.cmuxTuiContract = (dict["cmuxTuiContract"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                return summary
+            let vms = try items.enumerated().map { index, dict in
+                try Self.decodeListItem(dict, index: index)
             }
             machineCache.record(hasAnyMachine: !vms.isEmpty)
             // Background discovery also reads resource stats. Register its
@@ -89,6 +65,60 @@ extension VMClient {
             }
             return VMListPage(vms: vms, limits: limits)
         }
+    }
+
+    /// Decodes one `GET /api/vm` list entry into a ``VMSummary``.
+    ///
+    /// The presence worker's `vms` sync collection carries the same entry
+    /// shape (`workers/presence/src/syncVms.ts` `VmRecord`), so the Mac list's
+    /// realtime consumer decodes its records here too; fields only the REST
+    /// list serves stay nil when absent.
+    ///
+    /// - Parameters:
+    ///   - dict: The decoded JSON object of one entry.
+    ///   - index: The entry's position, named in the error for a malformed entry.
+    /// - Throws: ``VMClientError/malformedResponse(_:)`` when `id`, `provider` or `image` is missing.
+    public static func decodeListItem(_ dict: [String: Any], index: Int = 0) throws -> VMSummary {
+        guard let id = dict["id"] as? String, !id.isEmpty else {
+            throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
+        }
+        guard let provider = dict["provider"] as? String, !provider.isEmpty else {
+            throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
+        }
+        guard let image = dict["image"] as? String, !image.isEmpty else {
+            throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
+        }
+        let rawStatus = (dict["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
+        let createdAt = (dict["createdAt"] as? Int64)
+            ?? Int64((dict["createdAt"] as? Double) ?? 0)
+        var summary = VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: Self.decodeBaseSummary(dict["base"]))
+        summary.kind = Self.decodeKind(dict["kind"])
+        summary.capabilities = VMCapabilities(vmResponse: dict)
+        if let label = dict["displayName"] as? String, !label.isEmpty {
+            summary.displayName = label
+        }
+        summary.slug = (dict["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        // The `vms` stream record names the creator by id only.
+        summary.createdBy = VMCreator(vmResponse: dict)
+            ?? (dict["createdByUserId"] as? String)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .flatMap { $0.isEmpty ? nil : VMCreator(userId: $0) }
+        summary.agentUpdates = CloudAgentUpdates(wireValue: dict["agentUpdates"])
+        // `resources` is the pool claim used by limits.used*. A
+        // legacy row may conservatively claim the provider maximum;
+        // only the explicit marker is safe as the live grow-only
+        // shape. Native menus use guest stats when that marker is
+        // absent, while the CLI fails closed until reconciliation.
+        summary.resourcePoolClaim = Self.decodeResourceReservation(dict["resources"])
+        summary.resourceReservation = Self.decodeResourceReservation(dict["resourceReservation"])
+        summary.freeAccessExpiresAt = Self.epochMilliseconds(dict["freeAccessExpiresAt"])
+        if let address = dict["address"] as? [String: Any] {
+            summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        }
+        summary.cmuxTuiContract = (dict["cmuxTuiContract"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        return summary
     }
 
     /// Enroll (or refresh) this Mac's WireGuard tunnel into the user's private

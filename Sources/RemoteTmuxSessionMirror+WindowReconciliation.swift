@@ -53,7 +53,8 @@ extension RemoteTmuxSessionMirror {
                 }
                 return workspace?.makeRemoteTmuxPanePanel(
                     onInput: onInput,
-                    keyNameResolver: { RemoteTmuxKeyName(inputEvent: $0)?.value }
+                    keyNameResolver: { RemoteTmuxKeyName(inputEvent: $0)?.value },
+                    allowsRemoteClipboardWrites: workspace?.allowsRemoteTmuxClipboardWrites ?? false
                 )
             }
         )

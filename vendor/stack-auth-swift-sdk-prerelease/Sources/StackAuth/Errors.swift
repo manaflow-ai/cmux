@@ -22,6 +22,9 @@ public struct StackAuthError: StackAuthErrorProtocol {
         self.message = message
         self.details = details
     }
+
+    /// `details` key holding a 429 response's `Retry-After`, in seconds.
+    public static let retryAfterSecondsKey = "retry_after_seconds"
 }
 
 // MARK: - Specific Error Types

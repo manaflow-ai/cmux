@@ -84,6 +84,70 @@ import Testing
         #expect(flock(coordination, LOCK_EX | LOCK_NB) == 0)
     }
 
+    @Test func settleRetriesOnlyNamespaceChangesUntilTheyEnd() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let coordination = try fixture.hold(fixture.locks.appendingPathComponent(".coordination.lock").path)
+        defer { close(coordination) }
+        var waits: [TimeInterval] = []
+        // Another Codex finishes its own lock update while this restore waits.
+        let settled = CodexWriterLockSettle().inspection(
+            awaitChange: { observed, delay in
+                #expect(observed.state == .changing)
+                waits.append(delay)
+                if waits.count == 3 { #expect(flock(coordination, LOCK_UN) == 0) }
+            },
+            probe: fixture.inspect
+        )
+        #expect(settled.state == .available)
+        #expect(waits == Array(CodexWriterLockSettle.delays.prefix(3)))
+    }
+
+    @Test func settleReportsPersistentChangeAfterItsBudget() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let coordination = try fixture.hold(fixture.locks.appendingPathComponent(".coordination.lock").path)
+        defer { close(coordination) }
+        var waits = 0
+        let settled = CodexWriterLockSettle().inspection(awaitChange: { _, _ in waits += 1 }, probe: fixture.inspect)
+        #expect(settled.state == .changing)
+        #expect(waits == CodexWriterLockSettle.delays.count)
+    }
+
+    @Test func settleNeverRetriesAHeldOrUnreadableLock() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let writer = try fixture.hold()
+        defer { close(writer) }
+        let held = CodexWriterLockSettle().inspection(
+            awaitChange: { _, _ in Issue.record("A held writer is an owner, not a transient change") },
+            probe: fixture.inspect
+        )
+        #expect(held.state == .active)
+        let unreadable = CodexWriterLockSettle().inspection(
+            awaitChange: { _, _ in Issue.record("Unreadable state must fail closed at once") },
+            probe: { CodexWriterLockInspector().inspect(sessionID: "../escape", codexHome: fixture.home.path) }
+        )
+        #expect(unreadable.state == .unavailable)
+    }
+
+    @Test func namespaceWaitReturnsOnALockFileChange() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let coordination = try fixture.hold(fixture.locks.appendingPathComponent(".coordination.lock").path)
+        defer { close(coordination) }
+        let observed = fixture.inspect()
+        try #require(observed.state == .changing)
+        let path = fixture.path
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) {
+            FileManager.default.createFile(atPath: path, contents: nil)
+        }
+        let start = ContinuousClock.now
+        // The created lock file, not the generous bound, ends this wait.
+        CodexWriterLockSettle.awaitNamespaceChange(observed, timeout: 30)
+        #expect(start.duration(to: .now) < .seconds(10))
+    }
+
     @Test func malformedAndNonregularPathsFailClosed() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

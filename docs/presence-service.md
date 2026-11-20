@@ -128,6 +128,36 @@ pins** are never pruned, so a change to their shape is the one case that
 genuinely requires the versioned-record plus lazy-upgrade treatment. Most
 presence deploys can ship freely; only owner-pin schema changes need care.
 
+## Cloud machine list sync (`vms`)
+
+The Mac machines list no longer needs to poll `GET /api/vm`. The web backend
+publishes list-relevant `cloud_vms` writes to `POST /v1/sync/vms` on the
+presence Worker (`workers/presence/src/syncVms.ts`), and the per-team
+`TeamPresence` DO broadcasts them as `vms` sync deltas over the existing
+`sync.hello` channel on `/v1/presence/subscribe`. Postgres stays the source of
+truth: each op carries the row's `updated_at` as `sourceUpdatedAtMs`, the DO
+rejects older ops, and every list read publishes a full `replace` (with its
+observation time) that tombstones ids missing from the list, so the DO
+converges without a backfill job and a machine created after the observation
+survives. A republish of an unchanged row mints no rev. Until the first
+`replace` lands, a DO holds only rows written since the collection shipped;
+its `sync.snapshot` frames for `vms` carry `backfilled: false` (true after),
+so the client applies such a snapshot upsert-only and keeps its REST list as
+the initial truth instead of dropping machines the snapshot lacks. Other
+collections never carry the field. The publisher on the web side is
+`web/services/vms/presencePublisher.ts`: a decorator around the VM repository
+re-reads a row after each list-relevant write and publishes it best-effort
+(750 ms timeout, never failing the mutation). Request-scoped writers publish
+after the response with `after()`; cron and reconcile writers, which run with
+no request scope where Vercel would freeze detached work, await the bounded
+publish inline before the write resolves.
+The route is service-to-service only: Worker secret `VMS_PUBLISHER_SECRET`
+must equal web `CMUX_PRESENCE_VMS_PUBLISHER_SECRET` (set once per Worker with
+`wrangler secret put VMS_PUBLISHER_SECRET` on production and on the dev
+instance); the body's `teamId` is the list scope (`ownerTeamId`) and is trusted
+only behind that secret. No new Durable Object migration: the collection adds
+`synced:vms:*` keys next to the existing sync key space.
+
 ## Workspace viewing presence
 
 Workspace viewing is a separate protocol from device reachability. The source
@@ -204,6 +234,24 @@ the first production deploy and dogfood.
   tag, best-effort, never disturbs the Mac. Every beat carries the full
   current attach-route set, a route change triggers one immediate
   out-of-cadence beat, and a clean quit sends a goodbye.
+- **Mac Cloud machines list** (`Sources/Cloud/CloudVMSyncSubscriber.swift`,
+  owned by `MachinesPanelViewModel`): a second subscribe socket per visible
+  machines panel whose `sync.hello` asks only for `vms`, from the cursor and
+  epoch it last applied (0/0 on the first connect and after a team switch).
+  It sends the same `X-Cmux-Team-Id` header as `VMClient`
+  (`auth.resolvedTeamID`; omitted for a personal account without teams) and
+  fails closed on an account or team change, after which the panel
+  resubscribes under the new scope. Frames decode records with the REST list
+  parser (`VMClient.decodeListItem`) and merge into the rows in place:
+  upserts replace by id or insert in createdAt-descending order, tombstones
+  remove, a `backfilled: true` snapshot is the complete fleet, and an
+  unbackfilled snapshot is upsert-only. The stream never carries `limits`, so
+  a REST `GET /api/vm` still runs on panel show, wake, app activation,
+  network online and on every stream (re)connect; the routine poll stretches
+  from 45 s to 5 minutes while the stream is connected. Reconnect backoff is
+  `DeviceDirectory`'s (`1, 2, 5, 10, 30` s; at once after the 15-minute clean
+  close). The socket exists exactly while the panel polls (Cloud enabled,
+  signed in, visible, online).
 - **iOS** (`Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/PresenceClient.swift`):
   typed WebSocket subscribe client. `MobileShellComposite` owns the
   subscription (starts on sign-in, blanks and stops on sign-out, backoff

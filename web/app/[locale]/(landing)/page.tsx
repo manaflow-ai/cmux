@@ -1,4 +1,5 @@
 import { useTranslations, useLocale } from "next-intl";
+import { PRO_CHECKOUT_URL } from "@/app/lib/billing";
 import { HeroScreenshot } from "@/app/[locale]/components/hero-screenshot";
 import { TypingTagline } from "@/app/[locale]/typing";
 import { DownloadButton } from "@/app/[locale]/components/download-button";
@@ -170,7 +171,7 @@ function HomeContent() {
               <span>
                 <strong className="font-medium">
                   <a
-                    href="https://github.com/manaflow-ai/cmux#founders-edition"
+                    href={PRO_CHECKOUT_URL}
                     className={linkClass}
                   >
                     {t("feature.ios")}
@@ -227,9 +228,9 @@ function HomeContent() {
               <p className="font-medium mb-1">{t("faqIosQ")}</p>
               <p className="text-muted">
                 {t.rich("faqIosA", {
-                  foundersLink: (chunks) => (
+                  proLink: (chunks) => (
                     <a
-                      href="https://github.com/manaflow-ai/cmux#founders-edition"
+                      href={PRO_CHECKOUT_URL}
                       className={linkClass}
                     >
                       {chunks}
@@ -431,9 +432,9 @@ function HomeContent() {
               <p className="font-medium mb-1">{t("faqSupportQ")}</p>
               <p className="text-muted">
                 {t.rich("faqSupportA", {
-                  foundersLink: (chunks) => (
+                  proLink: (chunks) => (
                     <a
-                      href="https://github.com/manaflow-ai/cmux#founders-edition"
+                      href={PRO_CHECKOUT_URL}
                       className={linkClass}
                     >
                       {chunks}

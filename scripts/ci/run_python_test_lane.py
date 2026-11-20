@@ -7,11 +7,17 @@ directory or pid-scoped names; entries marked `serial = true` in the
 registry run first, alone, because they assert wall-clock bounds that a busy
 machine could miss. Every test runs even after a failure so one red run names
 every failing file, and each test's output prints as one block when it ends.
+
+With `--shard K/N` it runs only the K-th of N parts of the lanes' tests, so N
+machines can share a lane. The parts are balanced by the seconds each test took
+in CI (SECONDS_FILE; a test without a record counts UNKNOWN_SECONDS), longest
+first onto the least loaded part, and each part keeps registry order.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import os
 import shutil
@@ -35,6 +41,9 @@ SUPPORTED_REQUIREMENTS = {"cmux-cli", "fish"}
 # output until the job times out.
 DEFAULT_TIMEOUT_SECONDS = 900
 TIMEOUT_EXIT = 124
+# Seconds per test on an owned Mac (CI logs' "==> path ok in Ns"); only balances shards.
+SECONDS_FILE = ROOT / "scripts" / "ci" / "python-test-lane-seconds.json"
+UNKNOWN_SECONDS = 5.0
 
 
 @dataclass
@@ -119,6 +128,31 @@ def run_one(path: str, env: dict[str, str], log_path: Path, timeout: float) -> R
     return Result(path, returncode, time.monotonic() - started, output)
 
 
+def shard(paths: list[str], seconds: dict[str, float], index: int, count: int) -> list[str]:
+    """The `index`-th (1-based) of `count` parts of `paths`, balanced by `seconds`, in the order of `paths`."""
+    loads = [0.0] * count
+    part: dict[str, int] = {}
+    for path in sorted(set(paths), key=lambda path: (-seconds.get(path, UNKNOWN_SECONDS), path)):
+        lightest = min(range(count), key=lambda candidate: (loads[candidate], candidate))
+        part[path] = lightest
+        loads[lightest] += seconds.get(path, UNKNOWN_SECONDS)
+    return [path for path in paths if part[path] == index - 1]
+
+
+def shard_argument(value: str) -> tuple[int, int]:
+    index, _, count = value.partition("/")
+    if not (index.isdigit() and count.isdigit()) or not 1 <= int(index) <= int(count):
+        raise argparse.ArgumentTypeError(f"--shard takes K/N with 1 <= K <= N, got {value!r}")
+    return int(index), int(count)
+
+
+def recorded_seconds() -> dict[str, float]:
+    try:
+        return {str(path): float(value) for path, value in json.loads(SECONDS_FILE.read_text()).items()}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
 def report(result: Result) -> None:
     status = "ok" if result.returncode == 0 else f"FAILED (exit {result.returncode})"
     sys.stdout.write(f"==> {result.path} {status} in {result.seconds:.1f}s\n")
@@ -134,6 +168,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--jobs", type=int, default=1, help="tests to run at once (serial entries always run alone)")
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SECONDS, help="seconds before one test is killed")
     parser.add_argument("--list", action="store_true", help="print lane members without executing them")
+    parser.add_argument("--shard", type=shard_argument, help="K/N: run only the K-th of N balanced parts")
     args = parser.parse_args(argv)
     if args.jobs < 1:
         raise SystemExit("--jobs must be at least 1")
@@ -159,6 +194,9 @@ def main(argv: list[str]) -> int:
     for entry in tests:
         if not isinstance(entry.get("path"), str):
             raise SystemExit(f"lane {entry.get('lane')!r} contains an entry without a string path")
+    if args.shard:
+        chosen = set(shard([str(entry["path"]) for entry in tests], recorded_seconds(), *args.shard))
+        tests = [entry for entry in tests if entry["path"] in chosen]
     if args.list:
         for entry in tests:
             print(entry["path"])

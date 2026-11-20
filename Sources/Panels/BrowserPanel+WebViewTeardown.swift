@@ -7,6 +7,8 @@ extension BrowserPanel {
     func tearDownWebViewBeforeReplacement(_ oldWebView: WKWebView, reason: String) {
         guard oldWebView === webView else { return }
 
+        mobileBrowserDialogBroker.resolveAll()
+
         if let window = oldWebView.window,
            Self.responderChainContains(window.firstResponder, target: oldWebView) {
             window.makeFirstResponder(nil)
@@ -43,6 +45,7 @@ extension BrowserPanel {
             oldCmuxWebView.onKeyboardFocusedLinkChanged = nil
             oldCmuxWebView.onMouseBackButton = nil
             oldCmuxWebView.onMouseForwardButton = nil
+            oldCmuxWebView.onPhysicalUserInteraction = nil
             oldCmuxWebView.onContextMenuDownloadStateChanged = nil
             oldCmuxWebView.onSessionDownloadEvent = nil
             oldCmuxWebView.onScreenshotCopied = nil

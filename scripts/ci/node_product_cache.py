@@ -7,6 +7,7 @@ restore validation after a local object is materialized.
 """
 from __future__ import annotations
 
+import argparse
 import contextlib
 import errno
 import fcntl
@@ -36,6 +37,7 @@ METADATA_NAME = "metadata.json"
 REUSE_RECEIPT = "Build/Products/cmux-product-reuse.json"
 PRODUCT_RECEIPT = "Build/Products/cmux-test-products.json"
 DEFAULT_BUDGET_BYTES = 24 * 1024**3
+DEFAULT_OWNED_NEED_BYTES = 100 * 1024**3
 DEFAULT_WAIT_SECONDS = 180.0
 # How long a consumer in CI waits for another job's fill on the same node
 # unless CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS says otherwise. A filler only
@@ -205,6 +207,26 @@ class Store:
         for child in ("objects", "state", "fills", "leases", "locks", "signals", "staging"):
             _mkdir(root / child)
 
+    @classmethod
+    def open_existing(cls, root: Path) -> "Store":
+        """Open a previously initialized store without creating any state.
+
+        The maintenance command must never turn a typo or a missing mount into
+        a new cache.  Validate every directory used by the owner API and reject
+        symlinked roots or children, while leaving unrelated entries untouched.
+        """
+        root = root.expanduser()
+        if not root.is_absolute() or not root.exists() or root.is_symlink() or not root.is_dir():
+            raise ValueError("cache root is not an existing directory")
+        required = ("objects", "state", "fills", "leases", "locks", "signals", "staging")
+        for child in required:
+            path = root / child
+            if path.is_symlink() or not path.is_dir():
+                raise ValueError(f"cache store layout is incomplete: {child}")
+        instance = object.__new__(cls)
+        instance.root = root
+        return instance
+
     def entry(self, key: str) -> Path:
         return self.root / "objects" / key[:2] / key
 
@@ -274,6 +296,17 @@ def configured_store(env=os.environ) -> Store | None:
         return None
 
 
+def configured_existing_store(env=os.environ) -> Store | None:
+    """Open the configured store for maintenance without creating directories."""
+    raw = configured_root(env)
+    if not raw:
+        return None
+    try:
+        return Store.open_existing(Path(raw).expanduser())
+    except (OSError, ValueError):
+        return None
+
+
 def budget_bytes(env=os.environ) -> int:
     raw = env.get("CMUX_NODE_PRODUCT_CACHE_MAX_BYTES", "").strip()
     if not raw:
@@ -283,6 +316,45 @@ def budget_bytes(env=os.environ) -> int:
     except ValueError:
         return DEFAULT_BUDGET_BYTES
     return value if value > 0 else DEFAULT_BUDGET_BYTES
+
+
+def _parse_bytes(value: str) -> int:
+    """Parse a positive decimal byte count with an optional binary suffix."""
+    match = re.fullmatch(r"([0-9]+)\s*(b|kib|mib|gib|tib)?", value.strip(), re.IGNORECASE)
+    if not match:
+        raise ValueError("invalid byte count")
+    amount = int(match.group(1))
+    multiplier = {
+        None: 1,
+        "b": 1,
+        "kib": 1024,
+        "mib": 1024**2,
+        "gib": 1024**3,
+        "tib": 1024**4,
+    }[match.group(2).lower() if match.group(2) else None]
+    return amount * multiplier
+
+
+def _cache_budget_for_need(store: Store, need_bytes: int) -> tuple[int, int]:
+    """Return a logical cache budget that can satisfy a free-space target."""
+    current = _snapshot(store)["disk_bytes"]
+    free = shutil.disk_usage(store.root).free
+    return max(0, current - max(0, int(need_bytes) - free)), free
+
+
+def _pressure_budget(store: Store, budget: int, env=os.environ) -> int:
+    """Optionally lower the hook budget when an owner requests free space."""
+    raw = env.get("CMUX_NODE_PRODUCT_CACHE_RECLAIM_NEED_BYTES", "").strip()
+    if not raw and OWNED_RUNNER.fullmatch(env.get("RUNNER_NAME", "").strip()):
+        raw = str(DEFAULT_OWNED_NEED_BYTES)
+    if not raw:
+        return budget
+    try:
+        need = _parse_bytes(raw)
+        pressure_budget, _ = _cache_budget_for_need(store, need)
+    except (OSError, ValueError):
+        return budget
+    return min(max(0, int(budget)), pressure_budget)
 
 
 def wait_seconds(env=os.environ) -> float:
@@ -322,6 +394,42 @@ def _active_leases_locked(store: Store, key: str, now: float | None = None) -> i
         else:
             path.unlink(missing_ok=True)
     return active
+
+
+def _active_leases_readonly(store: Store, key: str, now: float | None = None) -> int:
+    """Count live leases without expiring or deleting anything."""
+    now = time.time() if now is None else now
+    active = 0
+    for path in (store.root / "leases").glob(f"{key}.*.json"):
+        value = _read_json(path)
+        if (
+            value
+            and isinstance(value.get("deadline_epoch"), (int, float))
+            and value["deadline_epoch"] > now
+        ):
+            active += 1
+    return active
+
+
+def _strict_lease_scan(store: Store, key: str, *, remove_expired: bool, now: float | None = None) -> tuple[int, bool]:
+    """Return active and invalid lease counts without trusting malformed state."""
+    now = time.time() if now is None else now
+    active = 0
+    invalid = False
+    for path in (store.root / "leases").glob(f"{key}.*.json"):
+        if path.is_symlink() or not path.is_file():
+            invalid = True
+            continue
+        value = _read_json(path)
+        deadline = value.get("deadline_epoch") if value else None
+        if not isinstance(deadline, (int, float)):
+            invalid = True
+            continue
+        if deadline > now:
+            active += 1
+        elif remove_expired:
+            path.unlink(missing_ok=True)
+    return active, invalid
 
 
 def _create_lease_locked(store: Store, key: str, lifetime: float = DEFAULT_RESTORE_LEASE_SECONDS) -> str:
@@ -933,7 +1041,7 @@ def finalize(
                 fill_started = fill.get("created_epoch")
                 waiters = _finish_fill_locked(store, key, token)
             _signal_waiters(store, key, waiters)
-            reclaim_result = reclaim(store, budget, protected_key=key)
+            reclaim_result = reclaim(store, _pressure_budget(store, budget), protected_key=key)
             producer_epoch = _parse_created(metadata.get("provider_created_at"))
             now_epoch = time.time()
             return {
@@ -1000,18 +1108,19 @@ def seed(
             current_fill = _read_json(store.fill(key)) or {}
             waiters = _abort_fill_locked(store, key, current_fill.get("token", ""))
         _signal_waiters(store, key, waiters)
-        reclaim_result = reclaim(store, budget, protected_key=key)
+        reclaim_result = reclaim(store, _pressure_budget(store, budget), protected_key=key)
         return {"status": "seeded", "archive_bytes": metadata["size"], **reclaim_result}
     except (OSError, ValueError, KeyError, TypeError, tarfile.TarError, subprocess.SubprocessError) as error:
         return {"status": "cache-error", "error": type(error).__name__}
 
 
 def _reclaim_abandoned_staging(store: Store) -> tuple[int, int]:
+    """Remove abandoned staging only under a nonblocking per-key owner lock."""
     reclaimed = 0
     reclaimed_bytes = 0
     staging_root = store.root / "staging"
     for path in staging_root.iterdir():
-        if not path.is_dir():
+        if path.is_symlink() or not path.is_dir():
             continue
         key = path.name.split(".", 1)[0]
         if not _HEX64.fullmatch(key):
@@ -1023,7 +1132,7 @@ def _reclaim_abandoned_staging(store: Store) -> tuple[int, int]:
                 size = 0
                 for child in path.rglob("*"):
                     try:
-                        if child.is_file():
+                        if not child.is_symlink() and child.is_file():
                             size += child.stat().st_size
                     except OSError:
                         pass
@@ -1033,7 +1142,8 @@ def _reclaim_abandoned_staging(store: Store) -> tuple[int, int]:
                     pass
                 for child in path.rglob("*"):
                     try:
-                        child.chmod(0o660 if child.is_file() else 0o770)
+                        if not child.is_symlink():
+                            child.chmod(0o660 if child.is_file() else 0o770)
                     except OSError:
                         pass
                 shutil.rmtree(path, ignore_errors=True)
@@ -1045,17 +1155,82 @@ def _reclaim_abandoned_staging(store: Store) -> tuple[int, int]:
     return reclaimed, reclaimed_bytes
 
 
-def reclaim(store: Store, budget: int, *, protected_key: str | None = None) -> dict:
+def _staging_snapshot(store: Store) -> tuple[int, int]:
+    """Measure abandoned staging without creating locks or following symlinks."""
+    count = 0
+    total = 0
+    for path in (store.root / "staging").iterdir():
+        if path.is_symlink() or not path.is_dir() or not _HEX64.fullmatch(path.name.split(".", 1)[0]):
+            continue
+        count += 1
+        for child in path.rglob("*"):
+            try:
+                if child.is_file():
+                    total += child.stat().st_size
+            except OSError:
+                continue
+    return count, total
+
+
+def reclaim(
+    store: Store,
+    budget: int,
+    *,
+    protected_key: str | None = None,
+    dry_run: bool = False,
+    strict_state: bool = False,
+) -> dict:
+    """Keep the immutable store below *budget*, preserving leased/protected keys.
+
+    ``dry_run`` is deliberately read-only: it does not create lock files, clean
+    expired leases, update stats, or remove abandoned staging.  The normal path
+    retains the existing per-key nonblocking owner locks and lease checks.
+    """
     budget = max(0, int(budget))
-    staging_reclaims, staging_reclaimed_bytes = _reclaim_abandoned_staging(store)
+    staging_pending = staging_pending_bytes = 0
+    if dry_run:
+        staging_reclaims, staging_reclaimed_bytes = _staging_snapshot(store)
+    elif strict_state:
+        staging_reclaims = staging_reclaimed_bytes = 0
+        staging_pending, staging_pending_bytes = _staging_snapshot(store)
+    else:
+        staging_reclaims, staging_reclaimed_bytes = _reclaim_abandoned_staging(store)
     candidates = []
     total = 0
     for prefix in (store.root / "objects").glob("*"):
-        if not prefix.is_dir():
+        if prefix.is_symlink() or not prefix.is_dir() or not re.fullmatch(r"[a-f0-9]{2}", prefix.name):
             continue
         for entry in prefix.iterdir():
+            if entry.is_symlink() or not entry.is_dir() or not _HEX64.fullmatch(entry.name):
+                continue
+            metadata_path = entry / METADATA_NAME
+            object_path = entry / OBJECT_NAME
+            if metadata_path.is_symlink() or object_path.is_symlink() or not object_path.is_file():
+                continue
+            try:
+                if {child.name for child in entry.iterdir()} != {METADATA_NAME, OBJECT_NAME}:
+                    continue
+            except OSError:
+                continue
             metadata = _read_json(entry / METADATA_NAME)
-            if not metadata or not isinstance(metadata.get("size"), int):
+            identity = metadata.get("identity") if metadata else None
+            if (
+                not metadata
+                or metadata.get("schema_generation") != SCHEMA_GENERATION
+                or metadata.get("format_generation") != FORMAT_GENERATION
+                or metadata.get("source_class") not in SOURCE_CLASSES
+                or not isinstance(identity, dict)
+                or hashlib.sha256(
+                    json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
+                ).hexdigest() != entry.name
+                or not isinstance(metadata.get("size"), int)
+                or metadata["size"] <= 0
+            ):
+                continue
+            try:
+                if object_path.stat().st_size != metadata["size"]:
+                    continue
+            except OSError:
                 continue
             size = metadata["size"]
             total += size
@@ -1064,31 +1239,92 @@ def reclaim(store: Store, budget: int, *, protected_key: str | None = None) -> d
             candidates.append((int(state.get("last_used_ns", 0)), key, size))
     evicted = 0
     evicted_bytes = 0
+    locked = 0
+    leased = 0
+    protected = 0
+    invalid_state = 0
     for _, key, size in sorted(candidates):
         if total <= budget:
             break
         if key == protected_key:
+            protected += 1
+            continue
+        if dry_run:
+            active, invalid = (
+                _strict_lease_scan(store, key, remove_expired=False)
+                if strict_state
+                else (_active_leases_readonly(store, key), False)
+            )
+            if invalid:
+                invalid_state += 1
+                continue
+            if active:
+                leased += 1
+                continue
+            lock_path = store.lock_path(key)
+            if strict_state and (lock_path.is_symlink() or (lock_path.exists() and not lock_path.is_file())):
+                invalid_state += 1
+                continue
+            try:
+                fd = os.open(lock_path, os.O_RDWR)
+            except FileNotFoundError:
+                fd = -1
+            if fd >= 0:
+                try:
+                    try:
+                        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        locked += 1
+                        continue
+                    finally:
+                        with contextlib.suppress(OSError):
+                            fcntl.flock(fd, fcntl.LOCK_UN)
+                finally:
+                    os.close(fd)
+            total -= size
+            evicted += 1
+            evicted_bytes += size
             continue
         try:
+            lock_path = store.lock_path(key)
+            if strict_state and (lock_path.is_symlink() or (lock_path.exists() and not lock_path.is_file())):
+                invalid_state += 1
+                continue
             with store.lock(key, blocking=False):
                 entry = store.entry(key)
                 if not entry.exists():
                     continue
-                if _active_leases_locked(store, key):
+                if strict_state:
+                    active, invalid = _strict_lease_scan(store, key, remove_expired=True)
+                    if invalid:
+                        invalid_state += 1
+                        continue
+                else:
+                    active, invalid = _active_leases_locked(store, key), False
+                if active:
+                    leased += 1
                     continue
                 _remove_entry_locked(store, key)
                 total -= size
                 evicted += 1
                 evicted_bytes += size
         except BlockingIOError:
+            locked += 1
             continue
-    stats = _stats_update(store, evictions=evicted, evicted_bytes=evicted_bytes) if evicted else None
+    stats = _stats_update(store, evictions=evicted, evicted_bytes=evicted_bytes) if evicted and not dry_run else None
     return {
         "disk_bytes": total,
         "evicted_objects": evicted,
         "evicted_bytes": evicted_bytes,
         "staging_reclaims": staging_reclaims,
         "staging_reclaimed_bytes": staging_reclaimed_bytes,
+        "staging_pending": staging_pending,
+        "staging_pending_bytes": staging_pending_bytes,
+        "dry_run": dry_run,
+        "locked_objects": locked,
+        "leased_objects": leased,
+        "protected_objects": protected,
+        "invalid_state": invalid_state,
         "snapshot": _snapshot(store, stats),
     }
 
@@ -1128,10 +1364,68 @@ def _report(event: str, result: dict) -> None:
             pass
 
 
+def _maintenance_reclaim(argv: list[str]) -> int:
+    """Run the explicit owner maintenance command and return a retry-aware status."""
+    parser = argparse.ArgumentParser(
+        prog="node-product-cache.py reclaim",
+        description="Reclaim the existing node-local product cache under owner locks.",
+    )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--plan", action="store_true", help="report candidates without changing the store (default)")
+    mode.add_argument("--apply", action="store_true", help="remove eligible entries")
+    target = parser.add_mutually_exclusive_group()
+    target.add_argument("--budget", type=_parse_bytes, help="maximum logical cache bytes (for example 8GiB)")
+    target.add_argument("--need", type=_parse_bytes, help="desired free bytes, such as 100GiB")
+    parser.add_argument("--protect-key", default=None, help="identity key to preserve during this pass")
+    args = parser.parse_args(argv)
+    store = configured_existing_store()
+    if store is None:
+        _report("reclaim", {"status": "store-unavailable", "dry_run": not args.apply})
+        return 3
+    result: dict
+    if args.need is not None:
+        budget, free_bytes = _cache_budget_for_need(store, args.need)
+        result = reclaim(
+            store, budget, protected_key=args.protect_key, dry_run=not args.apply, strict_state=True
+        )
+        free_after = shutil.disk_usage(store.root).free
+        result.update({
+            "need_bytes": args.need,
+            "free_bytes_before": free_bytes,
+            "free_bytes_after": free_after,
+            "target_met": free_after >= args.need,
+            "budget_bytes": budget,
+        })
+    else:
+        budget = args.budget if args.budget is not None else budget_bytes()
+        result = reclaim(
+            store, budget, protected_key=args.protect_key, dry_run=not args.apply, strict_state=True
+        )
+        result["budget_bytes"] = budget
+    safe = not any(result.get(key, 0) for key in ("invalid_state", "locked_objects", "leased_objects"))
+    if args.need is not None:
+        result["target_met"] = bool(result.get("target_met", False) and safe)
+    else:
+        result["budget_met"] = bool(result.get("disk_bytes", 0) <= budget and safe)
+    complete = bool(result.get("target_met", result.get("budget_met", False)))
+    if args.apply and not complete:
+        result["status"] = "partial"
+    else:
+        result["status"] = "planned" if not args.apply else "reclaimed"
+    result["complete"] = complete if args.apply else False
+    _report("reclaim", result)
+    return 0 if complete or not args.apply else 3
+
+
 def main() -> None:
-    if len(sys.argv) < 2 or sys.argv[1] not in {"acquire", "finalize", "seed"}:
-        raise SystemExit("usage: node-product-cache.py acquire DEST | finalize ARCHIVE | seed ARCHIVE")
+    if len(sys.argv) < 2 or sys.argv[1] not in {"acquire", "finalize", "seed", "reclaim"}:
+        raise SystemExit(
+            "usage: node-product-cache.py acquire DEST | finalize ARCHIVE | seed ARCHIVE | "
+            "reclaim [--plan|--apply]"
+        )
     command = sys.argv[1]
+    if command == "reclaim":
+        return _maintenance_reclaim(sys.argv[2:])
     store = configured_store()
     try:
         identity = Identity.from_env()
@@ -1184,4 +1478,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -1,0 +1,182 @@
+import Foundation
+
+/// Where a download's bytes came from: every URL its request went through
+/// (the navigation it was, each redirect of it, the redirects of the
+/// download itself and the response's URL), and the document that started
+/// the navigation.
+///
+/// A download a session receives stays in the temporary directory, where
+/// `download.path()` and `fs` read it. Its bytes are a read of each place
+/// the request went, so a session gets it only when its domain policy allows
+/// every one of them and its local files lie inside the session's own
+/// directories (``refusal(policy:fileRoots:)``), and a document's own
+/// writing (`data:`) only when cmux knows that document. The policy never filters a
+/// user's tab: there such a download keeps the user's own download location.
+public struct BrowserReplDownloadSource: Sendable, Equatable {
+    /// The URLs in the order the request went through them.
+    public private(set) var hops: [String]
+    /// The document that started the navigation (WebKit's record of the
+    /// source frame), when one did: a `data:`, `about:` or opaque `blob:`
+    /// download is its writing.
+    public var initiator: BrowserReplFrameDocument?
+    /// Whether a record says who started the download: a navigation claim
+    /// (whose ``initiator`` is nil when no page started it), or a scripted
+    /// download's message, which names its frame. False for a download
+    /// WebKit made with no such record (``unclaimed(hops:)``): then a
+    /// `data:`, `about:` or opaque `blob:` URL is the writing of a document
+    /// cmux cannot tell, and a domain policy refuses it.
+    public private(set) var isClaimed = true
+
+    /// The most URLs kept; a request that goes through more is refused.
+    public static let maximumHops = 32
+
+    public init(hops: [String] = [], initiator: BrowserReplFrameDocument? = nil) {
+        self.hops = hops
+        self.initiator = initiator
+    }
+
+    /// A download no navigation claim or scripted-download message
+    /// describes; ``initiator`` stays unknown until one is set.
+    public static func unclaimed(hops: [String] = []) -> Self {
+        var source = Self(hops: hops)
+        source.isClaimed = false
+        return source
+    }
+
+    /// The request went on to `url` (a redirect, or the response's URL).
+    public mutating func went(to url: String) {
+        guard hops.last != url, hops.count <= Self.maximumHops else { return }
+        hops.append(url)
+    }
+
+    /// Why a session with `policy` (`nil`: none) and the working and
+    /// temporary directories `fileRoots` may not receive this download, or
+    /// `nil`.
+    ///
+    /// Each URL is judged: a page cmux serves from local files (its own
+    /// schemes, a loopback origin it registered, or a document such a page
+    /// wrote) is refused under any policy and roots, a local file by the rule the session's own
+    /// navigations follow (``BrowserReplFileSandbox/navigationRefusal(_:roots:)``),
+    /// any other by the policy as a navigation started by ``initiator``
+    /// (``BrowserReplDomainPolicy/navigationBlockReason(_:initiator:)``), so
+    /// a `data:` or opaque `blob:` download a blocked document wrote is
+    /// refused too. A request that went through more than ``maximumHops``
+    /// URLs is refused, since the record of it is cut short.
+    public func refusal(policy: BrowserReplDomainPolicy?, fileRoots: [String]) -> BrowserReplDownloadRefusal? {
+        guard hops.count <= Self.maximumHops else {
+            return BrowserReplDownloadRefusal(hop: nil, rule: .tooManyHops, detail: "the download went through more than \(Self.maximumHops) addresses")
+        }
+        for hop in hops {
+            let scheme = hop.prefix { $0 != ":" }.lowercased()
+            if let reason = appServedRefusal(hop) {
+                return BrowserReplDownloadRefusal(hop: hop, rule: .fileSandbox, detail: reason)
+            }
+            if scheme == "file" {
+                if let reason = BrowserReplFileSandbox.navigationRefusal(hop, roots: fileRoots) {
+                    return BrowserReplDownloadRefusal(hop: hop, rule: .fileSandbox, detail: reason)
+                }
+                continue
+            }
+            guard let policy, policy.isActive else { continue }
+            let reason: String?
+            if !isClaimed, initiator == nil, Self.isWriting(hop) {
+                reason = "cmux cannot tell which document wrote this \(scheme): download, which a domain policy refuses"
+            } else if let url = URL(string: hop) {
+                reason = policy.navigationBlockReason(url, initiator: initiator)
+            } else {
+                // Not a URL Foundation reads (a `data:` URL with spaces):
+                // judged as text, and by the document that wrote it.
+                reason = policy.blockReason(hop) ?? initiator.flatMap(policy.blockReason(document:))
+            }
+            if let reason {
+                return BrowserReplDownloadRefusal(hop: hop, rule: .domainPolicy, detail: reason)
+            }
+        }
+        return nil
+    }
+
+    /// Why `hop` is a read of files cmux serves from its own local files
+    /// (``BrowserReplFileSandbox/appServedRefusal(url:documentOrigin:)``),
+    /// or nil: a URL of one of cmux's own schemes or of a loopback origin
+    /// it registered, a `blob:` of such an origin, or a document's own
+    /// writing (``isWriting(_:)``) whose ``initiator`` is such a page or an
+    /// opaque document one made
+    /// (``BrowserReplFrameGate/appServedBlockReason(_:)``). No root of any
+    /// session grants those files, so this holds with or without a domain
+    /// policy.
+    func appServedRefusal(_ hop: String) -> String? {
+        let isBlob = hop.prefix(while: { $0 != ":" }).lowercased() == "blob"
+        if let reason = BrowserReplFileSandbox.appServedRefusal(url: hop, documentOrigin: isBlob ? BrowserReplDomainPolicy.blobOrigin(hop) : nil) {
+            return reason
+        }
+        guard Self.isWriting(hop), let initiator else { return nil }
+        return BrowserReplFrameGate.appServedBlockReason(initiator)
+    }
+
+    /// Whether `hop` is a document's own writing rather than a place
+    /// (``BrowserReplDomainPolicy/navigationBlockReason(_:initiator:)``
+    /// judges such a URL by its initiator): `data:`, `about:`, or a `blob:`
+    /// of an opaque origin.
+    static func isWriting(_ hop: String) -> Bool {
+        switch hop.prefix(while: { $0 != ":" }).lowercased() {
+        case "data", "about": return true
+        case "blob": return BrowserReplDomainPolicy.blobOrigin(hop) == nil
+        default: return false
+        }
+    }
+}
+
+/// Why a session may not receive a download
+/// (``BrowserReplDownloadSource/refusal(policy:fileRoots:)``), kept as data
+/// so each session gets it in the form it may read
+/// (``reason(seesCredentials:)``): the URLs a download went through carry
+/// signatures and tokens, which only the tab's creator reads as written.
+public struct BrowserReplDownloadRefusal: Sendable, Equatable {
+    /// The rule that refuses the download.
+    public enum Rule: Sendable, Equatable {
+        /// It went through more than ``BrowserReplDownloadSource/maximumHops`` URLs.
+        case tooManyHops
+        /// A local file outside the session's directories, or a page cmux
+        /// serves from local files.
+        case fileSandbox
+        /// A place the session's domain policy blocks.
+        case domainPolicy
+    }
+
+    /// The URL refused, as the request went through it; `nil` for
+    /// ``Rule/tooManyHops``.
+    public let hop: String?
+    public let rule: Rule
+    /// The rule's own explanation, which may repeat the URL as written.
+    public let detail: String
+
+    public init(hop: String?, rule: Rule, detail: String) {
+        self.hop = hop
+        self.rule = rule
+        self.detail = detail
+    }
+
+    /// The reason as the tab's creator gets it, every URL as written.
+    public var reason: String { reason(seesCredentials: true) }
+
+    /// The reason for a session. One that does not see the tab's credentials
+    /// (``BrowserReplNetworkRecipient/seesCredentials``) gets the refused URL
+    /// with its credential values replaced
+    /// (``Swift/String/redactingBrowserReplURLCredentials()``) and the rule
+    /// without its explanation, which may repeat the URL as written.
+    public func reason(seesCredentials: Bool) -> String {
+        guard let hop else { return detail }
+        switch (rule, seesCredentials) {
+        case (.tooManyHops, _):
+            return detail
+        case (.fileSandbox, true):
+            return "the download came from \(hop): \(detail)"
+        case (.fileSandbox, false):
+            return "the download came from \(hop.redactingBrowserReplURLCredentials()), a local file outside the session's directories"
+        case (.domainPolicy, true):
+            return "the download came from \(hop), which the domain policy blocks: \(detail)"
+        case (.domainPolicy, false):
+            return "the download came from \(hop.redactingBrowserReplURLCredentials()), which the domain policy blocks"
+        }
+    }
+}

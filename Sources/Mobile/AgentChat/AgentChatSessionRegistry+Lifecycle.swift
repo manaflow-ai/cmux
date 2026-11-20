@@ -107,6 +107,12 @@ extension AgentChatSessionRegistry {
             // is idle, so it must not create a synthetic working state.
             return previous
         case .permissionRequest, .askUserQuestion, .exitPlanMode, .notification:
+            // Structured idle reminders are informational regardless of
+            // whether a new prompt has already made the session working, and
+            // must never reopen Needs input or overwrite a later state.
+            if event.hookEventName == .notification, event.isIdleReminder {
+                return previous
+            }
             if case .needsInput = previous { return previous }
             return .needsInput(since: event.receivedAt)
         case .stop:
@@ -126,4 +132,5 @@ extension AgentChatSessionRegistry {
         }
         return false
     }
+
 }
