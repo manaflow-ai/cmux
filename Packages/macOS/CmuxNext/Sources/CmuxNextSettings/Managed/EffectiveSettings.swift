@@ -23,6 +23,8 @@ public nonisolated struct TeamPolicyLayer: Sendable, Equatable {
 
     /// Only keys the settings catalog lists, and their older names (``EffectiveSettings/legacyKeys``).
     public func limitedToCatalog() -> TeamPolicyLayer {
+        // Nothing to limit, and no catalog to build: `main`'s settings read has no team layer (CMUX-631).
+        if defaults.isEmpty && enforced.isEmpty { return self }
         let ids = Set(SettingsSchema.all.map(\.id)).union(EffectiveSettings.legacyKeys.keys)
         var copy = self
         copy.defaults = defaults.filter { ids.contains($0.key) }
