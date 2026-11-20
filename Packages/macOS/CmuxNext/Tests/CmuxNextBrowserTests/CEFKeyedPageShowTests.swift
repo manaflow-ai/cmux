@@ -68,4 +68,40 @@ extension CEFDeferredFocusTests {
         #expect(log.items.isEmpty && !hosting.isDetached, "the page with the keys was detached or granted again: \(log.items)")
         #expect(keys.key === page && keys.made.count == 1, "the keys moved after the page showed again: \(keys.made.count) key changes")
     }
+
+    /// The same Cmd-N, at the drain of its held keys (cmdn-typing bench, cmux21, 2026-11-20: 3 of 30 runs lost 9 keys
+    /// after the fix above). The New Tab page reported its field ready, and the hold asked again for the focus of the
+    /// page that already had it, with its window key. Each ask is one `SetFocus(true)` in Chromium, and the keys
+    /// typed in the next 20 to 50 ms reached no element of the page (no keydown, no input). A page that has the focus
+    /// and whose window has the keys from that grant needs no grant: the ask moves nothing.
+    @Test func aFocusAskForAPageThatHasTheFocusAndTheKeysGrantsNothing() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        let (tab, _) = try createdTab(runtime, browser: 48)
+        try #require(window.contentView).addSubview(tab.contentView)
+        Self.load(runtime, 48, "https://example.com/new-tab")
+        Self.endTurn()
+        let page = pageWindow(over: tab, in: window)
+        defer { page.closeAfterTest() }
+        let keys = KeyRecorder(key: window)
+        tab.keyWindows = keys.seam
+        tab.setFocused(true)
+        try #require(FocusSpyShim.granted == [48] && keys.key === page, "the page did not take the focus and the keys: the test proves nothing")
+
+        // The field reports ready: the hold asks for the page's focus again.
+        tab.setFocused(true)
+        #expect(FocusSpyShim.granted == [48], "a page with the focus and the keys was granted the focus again: \(FocusSpyShim.granted)")
+        #expect(keys.key === page && keys.made.count == 1)
+
+        // After a blur, or with the keys in another window, an ask grants again.
+        tab.setFocused(false)
+        tab.setFocused(true)
+        #expect(FocusSpyShim.granted == [48, 48], "a page that lost the focus was not granted it again: \(FocusSpyShim.granted)")
+        keys.key = window
+        tab.setFocused(true)
+        #expect(FocusSpyShim.granted == [48, 48, 48], "a page whose window lost the keys was not granted the focus again: \(FocusSpyShim.granted)")
+        #expect(keys.key === page)
+    }
 }
