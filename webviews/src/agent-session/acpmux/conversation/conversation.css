@@ -8391,3 +8391,15 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   line-height: 18px;
   white-space: nowrap;
 }
+
+/* Optional Claude look card study. Paint only: no change to transcript row measurement,
+   disclosure hit targets or the composer. Theme roles keep dark and translucent chats readable. */
+.cv-tool-output-card.cv-claude-card-soft,
+.cv-turn-error.cv-claude-card-soft,
+div.acpmux-edited.cv-claude-card-soft {
+  background: color-mix(in srgb, var(--cv-card-fill) 90%, var(--cv-text) 10%);
+  box-shadow: inset 0 0 0 var(--cmux-hairline) var(--cv-card-ring);
+}
+.cv-tool-output-card.cv-claude-card-soft .cv-tool-output {
+  background: transparent;
+}
