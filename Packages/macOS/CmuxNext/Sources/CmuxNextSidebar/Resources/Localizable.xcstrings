@@ -36047,127 +36047,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archived (%lld)"
+            "value": "Archived · %lld"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "المؤرشفة (%lld)"
+            "state": "translated",
+            "value": "المؤرشفة · %lld"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Arhivirano (%lld)"
+            "state": "translated",
+            "value": "Arhivirano · %lld"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Arkiverede (%lld)"
+            "state": "translated",
+            "value": "Arkiverede · %lld"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Archiviert (%lld)"
+            "state": "translated",
+            "value": "Archiviert · %lld"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Archivados (%lld)"
+            "state": "translated",
+            "value": "Archivados · %lld"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Archivés (%lld)"
+            "state": "translated",
+            "value": "Archivés · %lld"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Archiviati (%lld)"
+            "state": "translated",
+            "value": "Archiviati · %lld"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "アーカイブ済み (%lld)"
+            "state": "translated",
+            "value": "アーカイブ済み · %lld"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "បានទុកក្នុងប័ណ្ណសារ (%lld)"
+            "state": "translated",
+            "value": "បានទុកក្នុងប័ណ្ណសារ · %lld"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "보관됨 (%lld)"
+            "state": "translated",
+            "value": "보관됨 · %lld"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Arkiverte (%lld)"
+            "state": "translated",
+            "value": "Arkiverte · %lld"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Zarchiwizowane (%lld)"
+            "state": "translated",
+            "value": "Zarchiwizowane · %lld"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Arquivados (%lld)"
+            "state": "translated",
+            "value": "Arquivados · %lld"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "В архиве (%lld)"
+            "state": "translated",
+            "value": "В архиве · %lld"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "เก็บถาวรแล้ว (%lld)"
+            "state": "translated",
+            "value": "เก็บถาวรแล้ว · %lld"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Arşivlenenler (%lld)"
+            "state": "translated",
+            "value": "Arşivlenenler · %lld"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "В архіві (%lld)"
+            "state": "translated",
+            "value": "В архіві · %lld"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Đã lưu trữ (%lld)"
+            "state": "translated",
+            "value": "Đã lưu trữ · %lld"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "已归档 (%lld)"
+            "state": "translated",
+            "value": "已归档 · %lld"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "已封存 (%lld)"
+            "state": "translated",
+            "value": "已封存 · %lld"
           }
         }
       }

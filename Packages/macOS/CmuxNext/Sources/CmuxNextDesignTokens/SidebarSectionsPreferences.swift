@@ -72,6 +72,8 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var showProjects = true
     /// The Projects menu's Group By (`sidebar.groupBy`).
     public var groupBy: SidebarGroupBy = .none
+    /// `sidebar.archivedPlacement`: grouped archives stay inline or collect in Archive.
+    public var archivedPlacement: SidebarArchivedPlacement = .archiveSection
     /// Show All Chats on New Tab: the New Tab page's Threads and Console styles list every
     /// chat on this device; off, the recent chats only (Lawrence 2026-10-09: on by default). The
     /// key keeps its `sidebar.` name from when All chats was a sidebar section (cx-n0i9).

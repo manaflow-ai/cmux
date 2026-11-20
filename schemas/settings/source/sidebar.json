@@ -1818,6 +1818,51 @@
             "type": "SidebarNavigationSetting",
             "prefixed": true
           }
+        },
+        {
+          "key": "sidebar.archivedPlacement",
+          "title": {
+            "key": "settings.sidebar.archivedPlacement",
+            "text": "Show archived workspaces"
+          },
+          "help": {
+            "key": "settings.sidebar.archivedPlacement.help",
+            "text": "Keep archived workspaces folded within their groups, or collect them in Archive. Ungrouped workspaces always use Archive."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "withinGroups",
+              "title": {
+                "key": "settings.choice.archivedPlacement.withinGroups",
+                "text": "Within their groups"
+              }
+            },
+            {
+              "value": "archiveSection",
+              "title": {
+                "key": "settings.choice.archivedPlacement.archiveSection",
+                "text": "In the Archive section"
+              }
+            }
+          ],
+          "default": "archiveSection",
+          "keywords": [
+            "archive",
+            "archived",
+            "workspace",
+            "group",
+            "fold"
+          ],
+          "swift_enum": {
+            "name": "SidebarArchivedPlacement",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
         }
       ]
     },

@@ -147,7 +147,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         // A row per key: a workspace id two machines list draws once (`listingEachWorkspaceOnce`).
         let once = Self.listingEachWorkspaceOnce(sections)
         // The Archive section takes the archived rows out of the lists; they draw under its row at the end.
-        let archive = Self.drawsArchiveSection(o) ? Self.splittingArchive(once, keeping: o.activeWorkspaceID) : nil
+        let archive = Self.drawsArchiveSection(o) ? Self.splittingArchive(once, keeping: o.activeWorkspaceID, withinGroups: o.archivesWithinGroups) : nil
         // Projects and Recents takes the loose rows out of the computers' lists; they draw under "Recents" after them.
         let recents = Self.drawsRecents(o) ? Self.splittingRecents(archive?.live ?? once, options: o) : nil
         let sections = recents?.sections ?? archive?.live ?? once

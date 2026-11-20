@@ -6,7 +6,7 @@ extension Strings {
         String(localized: "sidebar.doneFold.title", defaultValue: "Done (\(count))", bundle: .module)
     }
     static func archivedFold(_ count: Int) -> String {
-        String(localized: "sidebar.archivedFold.title", defaultValue: "Archived (\(count))", bundle: .module)
+        String(localized: "sidebar.archivedFold.title", defaultValue: "Archived · \(count)", bundle: .module)
     }
     /// The bottom Archive section's row (`SidebarLayout+ArchiveSection`).
     static func archiveSection(_ count: Int) -> String {

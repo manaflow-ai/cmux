@@ -72,6 +72,7 @@ public nonisolated enum SidebarSectionsSetting {
         let priority = SidebarPriorityViewSetting.self
         result.priorityViewEnabled = flag(root, priority.enabledPath, fallback: priority.enabledDefault, &diagnostics)
         result.priorityViewShown = flag(root, priority.shownPath, fallback: priority.shownDefault, &diagnostics)
+        result.archivedPlacement = ColumnLayoutSettings.choice(root, archivedPlacementPath, fallback: archivedPlacementDefault, diagnostics: &diagnostics)
         result.groupBy = ColumnLayoutSettings.choice(root, groupByPath, fallback: groupByDefault, diagnostics: &diagnostics)
         result.density = ColumnLayoutSettings.choice(root, densityPath, fallback: densityDefault, diagnostics: &diagnostics)
         result.textSize = ColumnLayoutSettings.choice(root, textSizePath, fallback: textSizeDefault, diagnostics: &diagnostics)

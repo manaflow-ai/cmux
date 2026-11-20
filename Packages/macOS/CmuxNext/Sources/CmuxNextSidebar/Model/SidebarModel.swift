@@ -144,7 +144,11 @@ public final class SidebarModel {
     /// `itemOrder` and the inputs it was made from.
     @ObservationIgnored var itemOrderCache: (inputs: SidebarItemOrderInputs, order: SidebarItemOrder)?
     /// The "Done (N)" rows the person opened (`SidebarLayout+DoneFold`), kept here so `itemOrder` numbers what they show.
-    @ObservationIgnored var openDoneFolds: Set<SidebarDoneFoldID> = []
+    @ObservationIgnored package var openDoneFolds: Set<SidebarDoneFoldID> = [] {
+        didSet { if oldValue != openDoneFolds { onListFoldsChanged?() } }
+    }
+    /// The window snapshot records disclosure changes without waiting for a row mutation.
+    @ObservationIgnored package var onListFoldsChanged: (() -> Void)?
     /// The lists whose "Show N more" row the person opened, kept here for the same reason.
     @ObservationIgnored var openShowMore: Set<SidebarDoneFoldID> = []
     /// Told the workspaces `patchWorkspaces` changed in place (the list reconfigures their rows).
@@ -811,6 +815,7 @@ public final class SidebarModel {
     func rowOptions() -> SidebarLayoutOptions {
         var o = SidebarLayoutOptions()
         o.filterMatches = filterMatches
+        o.archivesWithinGroups = DesignSettings.shared.sidebarSections.archivedPlacement == .withinGroups
         (o.workspacesAsTabs, o.foldsDone, o.rowLimit) = (SidebarTunables.workspacesAsTabsOn, true, SidebarTunables.rowLimit)
         // Projects and Recents lists a group's first rows and "Show N more", as ChatGPT lists a project's chats.
         if grouping.groupsByRecents && o.rowLimit == 0 { o.rowLimit = SidebarLayout.projectLimit }

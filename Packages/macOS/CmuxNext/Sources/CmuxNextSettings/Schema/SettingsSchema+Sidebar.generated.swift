@@ -122,6 +122,9 @@ extension SidebarSectionsSetting {
     /// `sidebar.cards.tips`.
     public nonisolated static let tipsPath = ["sidebar", "cards", "tips"]
     public nonisolated static let tipsDefault = true
+    /// `sidebar.archivedPlacement`.
+    public nonisolated static let archivedPlacementPath = ["sidebar", "archivedPlacement"]
+    public nonisolated static let archivedPlacementDefault: SidebarArchivedPlacement = .archiveSection
 }
 
 extension WorkspaceColorsSetting {

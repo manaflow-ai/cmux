@@ -1,6 +1,242 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.choice.archivedPlacement.archiveSection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In the Archive section"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Archivbereich"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dans la section Archives"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "في قسم الأرشيف"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En la sección Archivo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在封存區"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在归档区"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보관함 섹션"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーカイブセクション内"
+          }
+        }
+      }
+    },
+    "settings.choice.archivedPlacement.withinGroups": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Within their groups"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Innerhalb ihrer Gruppen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dans leurs groupes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "داخل مجموعاتها"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dentro de sus grupos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在原群組內"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在原分组内"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그룹 내"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ内"
+          }
+        }
+      }
+    },
+    "settings.sidebar.archivedPlacement": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show archived workspaces"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archivierte Arbeitsbereiche anzeigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les espaces de travail archivés"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار مساحات العمل المؤرشفة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar espacios de trabajo archivados"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示已封存的工作區"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示已归档的工作区"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보관된 작업 공간 표시"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーカイブ済みワークスペースの表示"
+          }
+        }
+      }
+    },
+    "settings.sidebar.archivedPlacement.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep archived workspaces folded within their groups, or collect them in Archive. Ungrouped workspaces always use Archive."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archivierte Arbeitsbereiche in ihren Gruppen einklappen oder im Archiv sammeln. Arbeitsbereiche ohne Gruppe erscheinen immer im Archiv."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repliez les espaces de travail archivés dans leurs groupes ou rassemblez-les dans les archives. Ceux sans groupe restent dans les archives."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "احتفظ بمساحات العمل المؤرشفة مطوية داخل مجموعاتها أو اجمعها في الأرشيف. تُعرض مساحات العمل غير المجمّعة دائمًا في الأرشيف."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantén los espacios de trabajo archivados plegados en sus grupos o reúnelos en Archivo. Los espacios sin grupo siempre aparecen en Archivo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將已封存的工作區收合在原群組中，或集中於封存區。未分組的工作區一律使用封存區。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将已归档的工作区折叠在原分组中，或集中到归档区。未分组的工作区始终使用归档区。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보관된 작업 공간을 그룹 안에 접어 두거나 보관함에 모읍니다. 그룹이 없는 작업 공간은 항상 보관함에 표시됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーカイブ済みのワークスペースをグループ内に折りたたむか、アーカイブにまとめます。グループに属さないものは常にアーカイブに表示されます。"
+          }
+        }
+      }
+    },
     "settings.group.agentGuidance": {
       "comment": "Settings > Agents: group title for cmux's guidance and the person's skills",
       "extractionState": "manual",

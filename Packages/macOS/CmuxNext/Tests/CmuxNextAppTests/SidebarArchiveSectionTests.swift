@@ -134,4 +134,66 @@ import Testing
         #expect(row.accessibilityRole() == .disclosureTriangle)
         #expect(row.showsChevron)
     }
+
+    @Test func withinGroupsKeepsMixedAndEntirelyArchivedGroupsInPlace() throws {
+        var o = Self.options()
+        o.archivesWithinGroups = true
+        let sections = Self.sections()
+        let section = sections[0].id
+        func fold(_ group: String) -> SidebarRowKey {
+            .doneFold(SidebarDoneFoldID(section: section, group: GroupID(group), kind: .archived))
+        }
+        #expect(Self.keys(o) == [Self.w("a"), Self.w("c"), Self.g("g"), Self.w("g1"), fold("g"),
+                                Self.g("h"), fold("h"), Self.g("k"), fold("k"), .doneFold(.archive)])
+        let closed = SidebarLayout.make(sections: sections, metrics: .standard, options: o)
+        #expect(try #require(closed.row(for: .doneFold(.archive))).childCount == 1)
+        #expect(try #require(closed.row(for: fold("k"))).childCount == 2)
+        o.openDoneFolds = [SidebarDoneFoldID(section: section, group: GroupID("g"), kind: .archived), .archive]
+        let opened = SidebarLayout.make(sections: sections, metrics: .standard, options: o)
+        #expect(try #require(opened.row(for: Self.w("g2"))).group == GroupID("g"))
+        #expect(opened.row(for: Self.w("h1")) == nil)
+        #expect(opened.row(for: Self.w("b")) != nil)
+        #expect(Set(opened.rows.map(\.key)).count == opened.rows.count)
+        // Switching placement does not erase the remembered per-group disclosure.
+        o.archivesWithinGroups = false
+        #expect(!Self.keys(o).contains(fold("g")))
+        o.archivesWithinGroups = true
+        #expect(Self.keys(o).contains(Self.w("g2")))
+        #expect(sections == Self.sections(), "Layout never changes stored archive membership or order")
+    }
+
+    @Test func withinGroupsPreservesNestedParentsAndActiveSelection() throws {
+        var child = SidebarGroup(id: GroupID("child"), name: "Child", color: .green,
+                                 workspaces: [Self.ws("archived-child", archived: true)])
+        child.parent = GroupID("parent")
+        child.depth = 1
+        let sections = [SidebarSection(kind: .machine(Self.local), nodes: [
+            Self.group("parent", [Self.ws("archived-parent", archived: true)]), .group(child),
+        ])]
+        var o = Self.options(active: "archived-child")
+        o.archivesWithinGroups = true
+        let split = SidebarLayout.splittingArchive(sections, keeping: o.activeWorkspaceID, withinGroups: true)
+        #expect(split.live == sections)
+        #expect(split.archived.isEmpty)
+        let layout = SidebarLayout.make(sections: sections, metrics: .standard, options: o)
+        #expect(layout.row(for: Self.g("parent")) != nil)
+        #expect(try #require(layout.row(for: Self.w("archived-child"))).group == child.id)
+        o.filterMatches = [WorkspaceID("archived-parent"), WorkspaceID("archived-child")]
+        let filtered = Self.keys(o, sections)
+        #expect(filtered.contains(Self.w("archived-parent")) && filtered.contains(Self.w("archived-child")))
+        #expect(!filtered.contains { if case .doneFold = $0 { true } else { false } })
+    }
+
+
+    @Test func disclosuresRoundTripAndOlderSnapshotsStartCollapsed() throws {
+        var snapshot = SidebarSnapshot(sections: Self.sections(), profiles: [], activeProfileID: nil)
+        let fold = SidebarDoneFoldID(section: Self.sections()[0].id, group: GroupID("g"), kind: .archived)
+        snapshot.openDoneFolds = [fold]
+        let data = try JSONEncoder().encode(snapshot)
+        #expect(try JSONDecoder().decode(SidebarSnapshot.self, from: data).openDoneFolds == [fold])
+        var old = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        old.removeValue(forKey: "openDoneFolds")
+        #expect(try JSONDecoder().decode(SidebarSnapshot.self, from: JSONSerialization.data(withJSONObject: old)).openDoneFolds == nil)
+    }
+
 }

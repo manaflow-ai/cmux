@@ -381,6 +381,7 @@
         "sidebar.showProfileControl",
         "sidebar.showSearchButton",
         "sidebar.showNewWorkspaceChooser",
+        "sidebar.archivedPlacement",
         "sidebar.workspacesAsTabs",
         "sidebar.chromeGroups",
         "sidebar.sideBySide",
