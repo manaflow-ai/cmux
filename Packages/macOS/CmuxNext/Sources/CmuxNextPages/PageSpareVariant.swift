@@ -17,7 +17,7 @@ public enum PageSpareVariant: String, Sendable, CaseIterable {
     public static let current = variant(ProcessInfo.processInfo.environment["CMUX_NEXT_SETTINGS_SPARE"])
 
     /// The variant with no environment value.
-    public static let defaultVariant: PageSpareVariant = .painted
+    public static let defaultVariant: PageSpareVariant = .blank
 
     static func variant(_ value: String?) -> PageSpareVariant {
         value.flatMap { PageSpareVariant(rawValue: $0.lowercased()) } ?? defaultVariant
