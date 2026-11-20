@@ -128,6 +128,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # Warm start (.github/warm-sources.json: actions-cache). The build keeps what it made in
       # CI_SHARED_CACHE_DIR: the tip's app (split-spring-apps/<sha>), the GhosttyKit archive
@@ -543,6 +544,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Install webview dependencies
         working-directory: webviews
