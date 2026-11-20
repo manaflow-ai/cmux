@@ -189,17 +189,32 @@ if (values.video) {
   const size = { width: width + 64, height: VIDEO_HEIGHT + 96 };
   const context = await browser.newContext({ viewport: size, recordVideo: { dir: videoDir, size } });
   const tour = await context.newPage();
+  // While a look loads, a title card with its name covers the half-drawn window; once it settles the card
+  // shrinks to a tag at the top right. The name rides in window.name, which outlives the navigation.
+  await tour.addInitScript(() => {
+    if (window !== window.top || !window.name.startsWith("golden:")) return;
+    const label = window.name.slice("golden:".length);
+    document.addEventListener("DOMContentLoaded", () => {
+      const tag = document.createElement("div");
+      tag.id = "golden-video-tag";
+      tag.textContent = label;
+      tag.style.cssText =
+        "position:fixed;inset:0;z-index:99999;display:grid;place-items:center;font:600 44px system-ui,sans-serif;" +
+        "color:#fff;background:#111";
+      document.body.append(tag);
+    });
+  });
   for (const look of looks)
     for (const scheme of schemes) {
+      await tour.evaluate((label) => (window.name = `golden:${label}`), `${look.title}, ${scheme}`);
       await load(look, scheme, VIDEO_HEIGHT, tour);
-      await tour.evaluate((label) => {
-        const tag = document.createElement("div");
-        tag.textContent = label;
+      await tour.evaluate(() => {
+        const tag = document.getElementById("golden-video-tag");
+        if (!tag) return;
         tag.style.cssText =
           "position:fixed;right:32px;top:8px;z-index:99999;font:600 22px system-ui,sans-serif;color:#fff;" +
           "background:rgba(0,0,0,.72);padding:6px 14px;border-radius:8px";
-        document.body.append(tag);
-      }, `${look.title}, ${scheme}`);
+      });
       const frame = tour.frames().find((candidate) => candidate.url().includes("frame.html"))!;
       await frame.evaluate(async () => {
         const scroll = document.querySelector(".acpmux-scroll");
