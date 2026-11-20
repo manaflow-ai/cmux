@@ -473,7 +473,7 @@ def main() -> int:
         app_pid = int(Path(args.pid_file).read_text().strip())
         receipt |= {"app": str(app), "app_commit": reload_nightly.hot.app_commit(app)}
         control = reload_nightly.wait_until("the copy's control socket", time.monotonic() + 120,
-                                            lambda: control_socket(app_pid))
+                                            lambda: control_socket(app_pid, args.control_socket))
         # A workspace with a terminal starts the copy's daemon.
         reload_nightly.bench.rpc_at(control, "action.run", {"action": "workspace.newAtBottom"}, timeout=30)
         reload_nightly.bench.rpc_at(control, "action.run", {"action": "newSurface"}, timeout=30)

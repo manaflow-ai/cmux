@@ -301,9 +301,17 @@ def apps_list(app):
             "count": len(apps) if isinstance(apps, list) else None}
 
 
+COMMAND_ACTION = "edit-repaint"  # the command case's key in cmux-next.json `actions`
+
+
 def palette_lists(app, title):
+    """Whether `palette.query` returns a row that is the saved command: its title is `title` and its id or
+    action names COMMAND_ACTION. Only `items` count: the reply echoes the query itself in `query`."""
     reply = app.rpc("palette.query", {"scope": "root", "query": title, "limit": 10}, timeout=10)
-    return title in json.dumps(reply)
+    items = reply.get("items") if isinstance(reply, dict) else None
+    return any(isinstance(item, dict) and item.get("title") == title
+               and any(COMMAND_ACTION in str(item.get(key) or "") for key in ("action", "id"))
+               for item in items or [])
 
 
 def key_resolves(app, keys, command):
@@ -340,12 +348,16 @@ def main():
     parser.add_argument("--window", type=float, default=3.0, help="seconds of snapshots after each write")
     parser.add_argument("--mode", choices=("pixels", "readback"), default="pixels",
                         help="pixels: window snapshots (a bench build); readback: control-socket reads (any build)")
-    parser.add_argument("--cases", default="theme,sidebar,extension,rows,pane,command,shortcut")
+    parser.add_argument("--cases", help="comma-separated cases (default: every case the mode can read: all of "
+                        "them for pixels; extension, rows, pane, command, shortcut for readback)")
     opts = parser.parse_args()
-    cases = opts.cases.split(",")
+    readable = ALL_CASES if opts.mode == "pixels" else CUSTOMIZE_CASES + READBACK_CASES
+    cases = opts.cases.split(",") if opts.cases else list(readable)
     for case in cases:
         if case not in ALL_CASES:
             raise SystemExit(f"edit-repaint: unknown case {case} (cases: {', '.join(ALL_CASES)})")
+        if case not in readable:  # refused before anything is launched or written
+            raise SystemExit(f"edit-repaint: {case} has no read-back; run it with --mode pixels")
     os.makedirs(opts.out, exist_ok=True)
     if opts.attach_socket:
         if not (opts.cli and opts.config and opts.customize):
@@ -401,8 +413,9 @@ def main():
                 json.dump(MANIFEST, f, indent=2)
             time.sleep(8)
             if "pane" in cases:
-                result["pane_open"] = app.rpc("action.run", {"action": "app.open", "args": {"app": APP_ID}},
-                                              timeout=30)
+                # focus: the pane's tab is selected, so pixel rounds snapshot the pane, not the tab before it.
+                result["pane_open"] = app.rpc("action.run", {"action": "app.open", "args": {"app": APP_ID},
+                                                             "focus": True}, timeout=30)
                 time.sleep(3)
             result["installed"] = {"apps_list": apps_list(app),
                                    "views": {c: view_readback(app, INTERFACES[c], words[c])
@@ -431,7 +444,7 @@ def main():
                 elif case == "command":
                     action = {"type": "command", "command": "true", "title": word, "target": "newTabInCurrentPane",
                               "palette": True}
-                    write = save_config(lambda c, a=action: c.setdefault("actions", {}).__setitem__("edit-repaint", a))
+                    write = save_config(lambda c, a=action: c.setdefault("actions", {}).__setitem__(COMMAND_ACTION, a))
                     seen = lambda word=word: palette_lists(app, word)  # noqa: E731
                 elif case == "shortcut":
                     def write(word=word):
@@ -465,7 +478,7 @@ def main():
                 save_config(lambda c: c.get("appearance", {}).pop("themeFile", None))()
                 time.sleep(2)
             if case == "command":
-                save_config(lambda c: c.get("actions", {}).pop("edit-repaint", None))()
+                save_config(lambda c: c.get("actions", {}).pop(COMMAND_ACTION, None))()
             if case == "shortcut" and os.path.exists(keybindings_path):
                 os.unlink(keybindings_path)
     finally:
