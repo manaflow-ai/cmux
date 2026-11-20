@@ -195,11 +195,22 @@ pub(super) fn view(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcE
         // cursor before the first record left out (`afterSeq`): the turn ends and status that
         // still went out moved the client's own cursor past it, and a read from there would skip
         // every chunk left out (direct.ts `lagCursor` reads from the older of the two).
-        if visible && sub.left_out > 0 {
+        // The same notice says (`watch: true`) when other chats' row changes were left out while
+        // every attachment here was hidden (`Conn::leaves_out_row`): the page reads its list again
+        // from its cursor, only the rows changed since.
+        let rows = if visible { conn.take_rows_left_out() } else { 0 };
+        if visible && (sub.left_out > 0 || rows > 0) {
             let dropped = std::mem::take(&mut sub.left_out);
             let after_seq = std::mem::take(&mut sub.left_from);
-            let notice = json!({"dropped": dropped, "reason": "hidden", "sessionIds": [s.id],
-                "afterSeq": after_seq});
+            let mut notice =
+                json!({"dropped": dropped + rows, "reason": "hidden", "sessionIds": []});
+            if dropped > 0 {
+                notice["sessionIds"] = json!([s.id]);
+                notice["afterSeq"] = json!(after_seq);
+            }
+            if rows > 0 {
+                notice["watch"] = json!(true);
+            }
             conn.send(&Message::notification("_acpmux/lagged", notice));
         }
         // Under the lock, so a detach racing this one counts the same look.

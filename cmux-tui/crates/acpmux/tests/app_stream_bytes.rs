@@ -16,7 +16,8 @@
 //! Run by hand, as the other acpmux benches:
 //! `cargo test -p acpmux --release --test app_stream_bytes -- --ignored --nocapture`
 //! (`ACPMUX_BENCH_CHATS`, `ACPMUX_BENCH_SHOWN`, `ACPMUX_BENCH_TICKS`, `ACPMUX_BENCH_TICK_MS`;
-//! `ACPMUX_BENCH_QUIET=0` attaches as a pane before `quietHidden`, the before of the same build).
+//! `ACPMUX_BENCH_QUIET=0` attaches as a pane before `quietHidden`, the before of the same build;
+//! `ACPMUX_BENCH_IDLE_SECS`, the idle arm after the streams: every pane open, nothing streaming).
 //! It prints one `app-stream-bytes: {json}` line and one `app-stream-bytes-kind:` line per kind.
 //! The plain tests below hold the fix: a hidden
 //! pane hears no stream of its chat until it is shown, and then it is told to read again.
@@ -31,6 +32,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_BENCH_TICKS",
     "ACPMUX_BENCH_TICK_MS",
     "ACPMUX_BENCH_QUIET",
+    "ACPMUX_BENCH_IDLE_SECS",
 ]);
 
 use futures_util::{SinkExt, StreamExt};
@@ -204,6 +206,10 @@ struct Counts {
     own_stream: u64,
     /// `_acpmux/lagged` notices: read again from your cursor.
     lagged: u64,
+    /// `_acpmux/session_changed` notices of other chats than the pane's own.
+    other_rows: u64,
+    /// Every byte received since `reset_bytes`, whatever `counting` says.
+    bytes: u64,
     /// The last `_acpmux/lagged` notice's params.
     lag: Option<Value>,
     /// The page's cursor (direct.ts `lastSeq`): the newest seq of its own chat's records it heard.
@@ -280,6 +286,10 @@ impl Pane {
                         c.lagged += 1;
                         c.lag = Some(params.clone());
                     }
+                    if method == "_acpmux/session_changed" && !of_own {
+                        c.other_rows += 1;
+                    }
+                    c.bytes += text.len() as u64;
                     if of_own && method == "_acpmux/event" {
                         let seq = params.get("seq").and_then(Value::as_u64).unwrap_or(0);
                         c.cursor = c.cursor.max(seq);
@@ -406,6 +416,19 @@ impl Pane {
     fn lagged(&self) -> u64 {
         self.counts.lock().unwrap().lagged
     }
+
+    fn other_rows(&self) -> u64 {
+        self.counts.lock().unwrap().other_rows
+    }
+
+    fn lag(&self) -> Option<Value> {
+        self.counts.lock().unwrap().lag.clone()
+    }
+
+    /// Every byte received since the last call, which starts the count again.
+    fn take_bytes(&self) -> u64 {
+        std::mem::take(&mut self.counts.lock().unwrap().bytes)
+    }
 }
 
 async fn new_chat(rpc: &mut Rpc, d: &Daemon, n: usize) -> String {
@@ -444,7 +467,13 @@ struct Report {
     cpu_ms: Option<f64>,
     shown: BTreeMap<String, (u64, u64)>,
     hidden: BTreeMap<String, (u64, u64)>,
+    /// Every pane's bytes over `idle_seconds` after the streams ended and settled (`IDLE_SETTLE`).
+    idle_bytes: u64,
+    idle_seconds: f64,
 }
+
+/// After the last turn ends, what its end still sends (usage reads, unread) before the idle arm.
+const IDLE_SETTLE: Duration = Duration::from_secs(2);
 
 fn total(m: &BTreeMap<String, (u64, u64)>) -> u64 {
     m.values().map(|(b, _)| b).sum()
@@ -458,7 +487,14 @@ fn as_rows(m: &BTreeMap<String, (u64, u64)>, seconds: f64) -> Vec<Value> {
         .collect()
 }
 
-async fn measure(chats: usize, shown: usize, ticks: usize, tick_ms: usize, quiet: bool) -> Report {
+async fn measure(
+    chats: usize,
+    shown: usize,
+    ticks: usize,
+    tick_ms: usize,
+    quiet: bool,
+    idle: Duration,
+) -> Report {
     let d = Daemon::start("bench");
     let mut rpc = Rpc::connect(&d).await;
     let mut ids = Vec::new();
@@ -481,7 +517,14 @@ async fn measure(chats: usize, shown: usize, ticks: usize, tick_ms: usize, quiet
     tokio::time::sleep(Duration::from_millis(300)).await;
     let seconds = t0.elapsed().as_secs_f64();
     let cpu_ms = d.cpu().zip(cpu0).map(|(b, a)| (b - a).as_secs_f64() * 1000.0);
-    let mut report = Report { seconds, cpu_ms, shown: BTreeMap::new(), hidden: BTreeMap::new() };
+    let mut report = Report {
+        seconds,
+        cpu_ms,
+        shown: BTreeMap::new(),
+        hidden: BTreeMap::new(),
+        idle_bytes: 0,
+        idle_seconds: 0.0,
+    };
     for (visible, p) in &panes {
         p.counting(false);
         let into = if *visible { &mut report.shown } else { &mut report.hidden };
@@ -491,6 +534,14 @@ async fn measure(chats: usize, shown: usize, ticks: usize, tick_ms: usize, quiet
             e.1 += n;
         }
     }
+    // The idle arm: no chat streams, every pane stays open; what the daemon still sends them.
+    tokio::time::sleep(IDLE_SETTLE).await;
+    for (_, p) in &panes {
+        p.take_bytes();
+    }
+    tokio::time::sleep(idle).await;
+    report.idle_bytes = panes.iter().map(|(_, p)| p.take_bytes()).sum();
+    report.idle_seconds = idle.as_secs_f64();
     report
 }
 
@@ -504,8 +555,11 @@ async fn app_stream_bytes_bench() {
     let ticks = env_usize("ACPMUX_BENCH_TICKS", 400);
     let tick_ms = env_usize("ACPMUX_BENCH_TICK_MS", 10);
     let quiet = env_usize("ACPMUX_BENCH_QUIET", 1) == 1;
-    let r = measure(chats, shown, ticks, tick_ms, quiet).await;
+    let idle = Duration::from_secs(env_usize("ACPMUX_BENCH_IDLE_SECS", 5) as u64);
+    let r = measure(chats, shown, ticks, tick_ms, quiet, idle).await;
     let s = r.seconds;
+    let idle_per_min =
+        (r.idle_seconds > 0.0).then(|| (r.idle_bytes as f64 * 60.0 / r.idle_seconds).round());
     let out = json!({
         "quietHidden": quiet, "chats": chats, "shown": shown, "ticks": ticks, "tickMs": tick_ms,
         "seconds": (s * 1000.0).round() / 1000.0,
@@ -513,6 +567,8 @@ async fn app_stream_bytes_bench() {
         "shownBytesPerSec": (total(&r.shown) as f64 / s).round(),
         "hiddenBytesPerSec": (total(&r.hidden) as f64 / s).round(),
         "daemonCpuMsPerSec": r.cpu_ms.map(|ms| (ms / s * 10.0).round() / 10.0),
+        "idleSeconds": r.idle_seconds,
+        "idleBytesPerMin": idle_per_min,
     });
     println!("app-stream-bytes: {out}");
     for (scope, kinds) in [("shown", &r.shown), ("hidden", &r.hidden)] {
@@ -620,4 +676,54 @@ async fn a_quiet_pane_shown_again_reads_back_every_chunk_it_missed_in_order() {
     got.sort_unstable();
     got.dedup();
     assert_eq!(got, truth, "every chunk it missed, in order (lag {lag}, cursor {cursor})");
+}
+
+/// Every pane watches every chat's row (`_acpmux/watch`), so each row change went to every pane,
+/// shown or not (Leo's Mac, 2026-11-19: about 280 MB a minute from acpmux to the app, most of it
+/// `session_changed` copies). A hidden quiet pane hears no other chat's row change; a hidden pane
+/// that did not ask, and a shown one, hear each as before. Shown, the quiet pane gets one
+/// `_acpmux/lagged {watch: true}` (read the list again from its cursor), then the rows again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hidden_quiet_pane_hears_no_other_chats_rows_until_shown() {
+    let d = Daemon::start("quiet-rows");
+    let (ids, mut quiet, older, shown) = three_panes(&d).await;
+    // Rows the opens themselves changed are told on the first show, not counted here.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    // Before its attach, the pane has no attachment to be hidden by: rows then reach it.
+    let (quiet0, older0, shown0) = (quiet.other_rows(), older.other_rows(), shown.other_rows());
+    stream_all(&d, &ids[1..], 5, 0).await;
+    until(|| older.other_rows() > older0 && shown.other_rows() > shown0).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(quiet.other_rows(), quiet0, "a hidden quiet pane heard other chats' rows");
+    assert!(older.other_rows() > older0, "a hidden pane that did not ask hears rows as before");
+    assert!(shown.other_rows() > shown0, "a shown pane hears every row");
+    assert_eq!(quiet.lagged(), 0, "no lag notice while it stays hidden");
+    quiet.view(true).await;
+    until(|| quiet.lagged() > 0).await;
+    assert_eq!(quiet.lagged(), 1, "one lag notice on show");
+    let lag = quiet.lag().expect("the show's lag notice");
+    assert_eq!(lag["watch"], json!(true), "the lag says to read the list again: {lag}");
+    assert_eq!(lag["reason"], json!("hidden"), "{lag}");
+    assert!(lag["dropped"].as_u64().unwrap_or(0) > 0, "{lag}");
+    // Shown: other chats' rows reach it again.
+    stream_all(&d, &ids[1..2], 2, 0).await;
+    until(|| quiet.other_rows() > quiet0).await;
+    assert!(quiet.other_rows() > quiet0, "a shown pane hears other chats' rows again");
+}
+
+/// Nothing changes, nothing is sent: with every chat at rest, the panes the app keeps open (shown
+/// and hidden) receive no byte at all. The target is under 1 MB a minute at idle; any periodic
+/// frame (a heartbeat carrying state, a snapshot on a timer, a row re-sent unchanged) fails this.
+#[tokio::test(flavor = "multi_thread")]
+async fn idle_panes_are_sent_nothing() {
+    let d = Daemon::start("idle");
+    let (_ids, quiet, older, shown) = three_panes(&d).await;
+    tokio::time::sleep(IDLE_SETTLE).await;
+    let panes = [&quiet, &older, &shown];
+    for p in panes {
+        p.take_bytes();
+    }
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let bytes: Vec<u64> = panes.iter().map(|p| p.take_bytes()).collect();
+    assert_eq!(bytes, [0, 0, 0], "bytes sent to idle panes (quiet hidden, hidden, shown)");
 }
