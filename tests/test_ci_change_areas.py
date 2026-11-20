@@ -5056,6 +5056,22 @@ def test_web_status_rejects_selected_skip_failure_or_cancellation() -> None:
             assert result.returncode != 0, (web_job, outcome)
 
 
+def test_web_status_checks_react_when_real_daemon_tests_are_unselected() -> None:
+    # An unrelated standalone test still needs React validation even though it
+    # does not need another acpmux build. The summary must distinguish the two.
+    subareas = {name: "true" for name in (
+        "db", "diff_sidecar", "instant", "production_build", "react_apps",
+        "typecheck", "unit_tests",
+    )}
+    subareas["agent_pane"] = "false"
+    for react_result, expected in (("success", 0), ("skipped", 1), ("failure", 1)):
+        result = run_web_status(
+            results={"agent-pane-real-acpmux": "skipped", "react-apps-check": react_result},
+            subareas=subareas,
+        )
+        assert result.returncode == expected, (react_result, result.stdout, result.stderr)
+
+
 def test_web_status_rejects_a_scope_that_succeeded_with_no_subareas() -> None:
     # cmux#40171 review: web=true, the scope green with outputs={} and every child skipped must stay a red, as on base.
     result = run_web_status(
