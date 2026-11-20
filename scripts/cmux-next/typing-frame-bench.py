@@ -402,17 +402,19 @@ def agent_typing_verdict(stats, expected, dispatch):
                and "".join(keys) == expected)
     exact = stats.get("composer_text") == expected
     finite = bool(samples) and len(samples) == len(expected)
+
+    def good(value):
+        return isinstance(value, (int, float)) and math.isfinite(value) and value >= 0
+    # frame and paint are the measurement; listener and work only split it into stages. The page's work mark waits
+    # for the key's `input` event until the key's frame, so a key whose edit lands after that frame (under load:
+    # 1 of 200 in L2 on cmux20-bench, 2026-11-20) has no work stage. Such keys are counted, and a run stays complete.
+    stage_missing = {"listener": 0, "work": 0}
     for sample in samples:
-        if not isinstance(sample, dict):
+        if not isinstance(sample, dict) or not (good(sample.get("frame")) and good(sample.get("paint"))):
             finite = False
             break
-        for field in ("frame", "paint", "listener", "work"):
-            value = sample.get(field)
-            if not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
-                finite = False
-                break
-        if not finite:
-            break
+        for field in stage_missing:
+            stage_missing[field] += not good(sample.get(field))
     paints = [sample["paint"] for sample in samples if isinstance(sample, dict)
               and isinstance(sample.get("paint"), (int, float))]
     paint_distribution = pct(paints)
@@ -430,6 +432,7 @@ def agent_typing_verdict(stats, expected, dispatch):
         "complete": finite and ordered and exact and joined,
         "key_order_ok": ordered,
         "text_exact": exact,
+        "stage_missing": stage_missing,
         "expected_keys": len(expected),
         "observed_keys": len(samples),
         "key_to_frame_ms": paint_distribution,
