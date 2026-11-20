@@ -135,7 +135,7 @@ NO_PHONE=0
 REPORT_MAC="not built"
 REPORT_SIM="not run"
 MAC_JOB="" SIM_STEP="" SHA=""
-STATE="" TAG_STATE="" MAC_APP="" MAC_SOCKET="" MAC_DEVICE_ID=""
+STATE="" TAG_STATE="" MAC_APP="" MAC_SOCKET="" MAC_DEVICE_ID="" MAC_BUILD_SPACE=""
 # The phones that passed, as " udid udid " (a string, so an empty set needs no array expansion,
 # which aborts under set -u on macOS's bash 3.2).
 PASSED_PHONES=" "
@@ -477,6 +477,12 @@ mac_start() {
     mac_py wait-socket "$MAC_SOCKET" --timeout 120 ||
       { REPORT_MAC="$REPORT_MAC; BLOCKED: the tagged Mac app never answered on its control socket"; return 1; }
   fi
+  # The cloud data space the tagged Mac's requests and hostd carry: every phone receipt must name it, or
+  # the phone lists none of this Mac's devices (and another space's Macs instead).
+  MAC_BUILD_SPACE="$(mac_py space "$MAC_APP")" ||
+    { REPORT_MAC="$REPORT_MAC; BLOCKED: could not read the tagged Mac app's build space"; return 1; }
+  [[ "$MAC_BUILD_SPACE" == dev:* ]] ||
+    { REPORT_MAC="$REPORT_MAC; BLOCKED: the tagged Mac app has no build space of its own (${MAC_BUILD_SPACE:-the default space})"; return 1; }
   local account
   account="$(mac_py account "$MAC_SOCKET" --timeout 120)" ||
     { REPORT_MAC="$REPORT_MAC; BLOCKED: the tagged Mac app is not signed in (it signs in from ~/.secrets/cmuxterm-dev.env as ~/.config/cmux/dev-account)"; return 1; }
@@ -547,7 +553,8 @@ phone_launch_and_check() {
       rc=0
       verdict="$(/usr/bin/python3 -I "$SCRIPT_DIR/handoff_receipt.py" check "$receipt" --nonce "$nonce" \
         --client-id "$client" --bundle-id "$BUNDLE_ID" --account "$PERSONAL_ACCOUNT" --session "$session" \
-        --mac-id "$mac_id" --git-sha "$SHA" --dev-tag "$SLUG" --cloud-backend "${BACKEND_URL:-default}")" || rc=$?
+        --mac-id "$mac_id" --git-sha "$SHA" --dev-tag "$SLUG" --cloud-backend "${BACKEND_URL:-default}" \
+        ${MAC_BUILD_SPACE:+--build-space "$MAC_BUILD_SPACE"})" || rc=$?
       [[ $rc -eq 1 ]] || break
     else
       rc=1 verdict="no readiness receipt yet"
