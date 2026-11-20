@@ -60,7 +60,7 @@ fn serve(limits: Limits) -> i32 {
         Ok(write) => write,
         Err(_) => return exit::IO,
     };
-    host_loop::run(stream, write, limits)
+    host_loop::run_then_exit(stream, write, limits)
 }
 
 #[cfg(not(unix))]

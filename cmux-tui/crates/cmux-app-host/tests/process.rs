@@ -168,6 +168,9 @@ mod apps {
             "for (let i = 0; i < 1e7; i++) __cmuxAppNative.call('workspace.list', '{}', '{}', i)",
             "__cmuxAppNative.timer(1e308, false); __cmuxAppNative.timer(Infinity, true)",
             "for (;;) {}",
+            // cmuxterm-hq#15405: an interrupt inside `find` leaves an element counted once
+            // short; freeing the engine at exit aborted in JS_RunGC.
+            "const o = {}; globalThis.keep = [o]; globalThis.items = []; for (let i = 0; i < 1e5; i++) items.push(o); for (;;) items.find(() => false)",
         ];
         for bad in hostile {
             let mut host = Host::spawn();

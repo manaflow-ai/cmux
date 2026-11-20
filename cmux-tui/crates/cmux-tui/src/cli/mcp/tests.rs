@@ -1869,7 +1869,16 @@ fn code_mode_stops_a_script_that_loops_or_allocates_without_end() {
     assert!(matches!(code.as_str(), "script.memory" | "script.timeout"), "{grew}");
     assert_eq!(grew["structuredContent"]["state"], "not_run");
 
-    // The server still answers after both.
+    // cmuxterm-hq#15405: an interrupt inside `find` leaves an element counted once short, and
+    // freeing that engine aborted the whole process in JS_RunGC.
+    let found = call(
+        &mut server,
+        "cmux_exec",
+        json!({"script": "const o = {}; globalThis.keep = [o]; globalThis.items = []; for (let i = 0; i < 1e5; i++) items.push(o); while (true) items.find(() => false);"}),
+    );
+    assert_eq!(found["structuredContent"]["error"]["code"], "script.timeout", "{found}");
+
+    // The server still answers after all three.
     let after = call(&mut server, "cmux_exec", json!({"script": "return 2 + 2;"}));
     assert_eq!(after["structuredContent"]["result"], 4, "{after}");
 }
