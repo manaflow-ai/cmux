@@ -7,7 +7,7 @@ path that can reach the app (the DEV product's closure), the whole nightly.yml, 
 that reach the build (job_input_fingerprint.NIGHTLY_PRODUCT_FLAGS), Xcode, the SDK, the arch, the
 cmux-tui tree it bundles and RECIPE. The key is content only: no branch, commit or path.
 
-The products are the unsigned app exactly as the job hands it on (after the Computer Use helper,
+The products are the unsigned app exactly as the job hands it on (after the bundled helpers,
 the Iroh stub drop and the strip) plus the dSYMs xcodebuild wrote beside it. Nothing in them names
 the run: the version, build number and CMUXCommit are stamped by build-sign-notarize-nightly, and
 signing, notarization and publication always run fresh at the exact SHA.
