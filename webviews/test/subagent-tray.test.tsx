@@ -1928,3 +1928,46 @@ test("many live and finished commands share one terminal header mark without hid
     await shown.done();
   }
 });
+
+// The rim's drag (trayResize.ts) ends where its press does. With pointer capture the page hears most
+// releases, but one let go where it never does (the window lost focus mid-drag, the button came up
+// over another window) ends on the window's own blur or the next move with no button down: the
+// height dragged to is kept, and later moves size nothing.
+describe("the rim's drag ends on a release the page never hears", () => {
+  for (const release of ["the window's blur", "a move with no button down"] as const)
+    test(`${release} ends the drag at the height it reached`, async () => {
+      const { setHatHeight } = await import("../src/agent-session/acpmux/subagents/trayResize");
+      setHatHeight(undefined, true);
+      const items = trayItems([agent("Reviewer"), agent("Tester")], [], NONE, true);
+      const { root, done } = await render(
+        createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }),
+        { open: true },
+      );
+      const proto = dom.window.HTMLElement.prototype as unknown as Record<string, unknown>;
+      const capture = proto.setPointerCapture;
+      proto.setPointerCapture = () => {};
+      try {
+        const tray = root.querySelector<HTMLElement>(".acpmux-running-tray")!;
+        const rim = tray.querySelector<HTMLElement>(".acpmux-running-tray__rim")!;
+        const height = () => tray.style.getPropertyValue("--acpmux-tray-list-height");
+        const pointer = (target: EventTarget, type: string, clientY: number, buttons: number) =>
+          target.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, button: 0, buttons, clientY }));
+        await act(async () => {
+          pointer(rim, "pointerdown", 500, 1);
+          pointer(rim, "pointermove", 400, 1);
+        });
+        expect(height()).toBe("100px");
+        await act(async () => {
+          if (release === "the window's blur") dom.window.dispatchEvent(new dom.window.FocusEvent("blur"));
+          else pointer(dom.window.document.body, "pointermove", 400, 0);
+        });
+        // Over the rim again with a button down from elsewhere: no drag follows it.
+        await act(async () => void pointer(rim, "pointermove", 300, 1));
+        expect(height()).toBe("100px");
+      } finally {
+        proto.setPointerCapture = capture;
+        setHatHeight(undefined, true);
+        await done();
+      }
+    });
+});

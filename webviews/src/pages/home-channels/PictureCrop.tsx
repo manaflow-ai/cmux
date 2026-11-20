@@ -1,6 +1,7 @@
 // Placing a Chief's picture in its circle (backgrounds plan phase 4): drag to move, the slider
 // zooms. A GIF is not placed here; it keeps its motion and is drawn centered.
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
+import { watchPress } from "../../ui/pressRelease";
 import { cropSquare, dragCrop, MAX_ZOOM, type PictureCrop as Crop } from "./picture";
 
 const VIEW = 160;
@@ -19,6 +20,10 @@ export function PictureCrop({
   labels: { zoom: string; hint: string };
 }) {
   const drag = useRef<{ x: number; y: number } | null>(null);
+  // The drag ends on its pointerup or pointercancel, and also where the page never hears one: the
+  // window's blur, or a move with no button down (pressRelease.ts).
+  const stopPress = useRef<() => void>(undefined);
+  useEffect(() => () => stopPress.current?.(), []);
   const square = cropSquare(size.width, size.height, crop);
   const scale = VIEW / square.side;
   return (
@@ -31,6 +36,14 @@ export function PictureCrop({
         onPointerDown={(event) => {
           drag.current = { x: event.clientX, y: event.clientY };
           event.currentTarget.setPointerCapture?.(event.pointerId);
+          stopPress.current?.();
+          stopPress.current = watchPress(event.currentTarget.ownerDocument, {
+            pointerId: event.pointerId,
+            end: () => {
+              stopPress.current = undefined;
+              drag.current = null;
+            },
+          });
         }}
         onPointerMove={(event) => {
           if (!drag.current) return;
@@ -39,8 +52,6 @@ export function PictureCrop({
           drag.current = { x: event.clientX, y: event.clientY };
           onChange(dragCrop(crop, size.width, size.height, VIEW, dx, dy));
         }}
-        onPointerUp={() => (drag.current = null)}
-        onPointerCancel={() => (drag.current = null)}
       >
         <img
           src={url}

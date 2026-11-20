@@ -358,7 +358,7 @@ for (const [fontSize, room] of [
       menu.getBoundingClientRect = () => ({ left: room - 695, right: room + 5, width: 700 }) as DOMRect;
     await act(async () => {
       grip.dispatchEvent(new dom!.window.MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 500 }));
-      grip.dispatchEvent(new dom!.window.MouseEvent("pointermove", { clientX: 500 - direction * 1000 }));
+      grip.dispatchEvent(new dom!.window.MouseEvent("pointermove", { buttons: 1, clientX: 500 - direction * 1000 }));
       grip.dispatchEvent(new dom!.window.MouseEvent("pointerup", { clientX: 500 - direction * 1000 }));
     });
     const minimum = Math.min(room, 270);
@@ -418,6 +418,7 @@ for (const fromEnd of [false, true]) {
           );
           grip.dispatchEvent(
             new dom!.window.MouseEvent("pointermove", {
+              buttons: 1,
               clientX: 500 + delta * (fromEnd ? -1 : 1),
               clientY: 500 + delta * (fromTop ? -1 : 1),
             }),
@@ -455,12 +456,48 @@ test("the height edge changes only height", async () => {
   const direction = grip.dataset.edge === "top" ? -1 : 1;
   await act(async () => {
     grip.dispatchEvent(new dom!.window.MouseEvent("pointerdown", { bubbles: true, button: 0, clientY: 500 }));
-    grip.dispatchEvent(new dom!.window.MouseEvent("pointermove", { clientY: 500 + direction * 60 }));
+    grip.dispatchEvent(new dom!.window.MouseEvent("pointermove", { buttons: 1, clientY: 500 + direction * 60 }));
     grip.dispatchEvent(new dom!.window.MouseEvent("pointerup"));
   });
   expect(modelMenuHeight()).toBe(360);
   expect(modelMenuWidth()).toBeUndefined();
 });
+
+// A mouse press has no implicit pointer capture: let go over another window, or after the window
+// lost focus mid-drag, the page hears no pointerup. The window's blur, or the first move with no
+// button down, ends the drag where it is; later moves resize nothing.
+for (const ending of ["the window's blur", "a move with no button down"] as const) {
+  test(`a height drag ends on ${ending}`, async () => {
+    await openMenu();
+    const menu = popup();
+    const frame = menu.querySelector<HTMLElement>(".acpmux-cols-frame")!;
+    menu.getBoundingClientRect = () =>
+      ({ left: 5, right: 405, top: 5, bottom: 305, width: 400, height: 300 }) as DOMRect;
+    frame.getBoundingClientRect = () => ({ height: 300 }) as DOMRect;
+    menu.parentElement!.getBoundingClientRect = () => ({ left: 5, top: 5 }) as DOMRect;
+    const grip = menu.querySelector<HTMLElement>(".acpmux-cols-resize-y")!;
+    const direction = grip.dataset.edge === "top" ? -1 : 1;
+    const move = (y: number, buttons: number) =>
+      grip.dispatchEvent(new dom!.window.MouseEvent("pointermove", { buttons, clientY: 500 + direction * y }));
+    await act(async () => {
+      grip.dispatchEvent(new dom!.window.MouseEvent("pointerdown", { bubbles: true, button: 0, clientY: 500 }));
+      move(60, 1);
+    });
+    expect(grip.hasAttribute("data-dragging")).toBe(true);
+    await act(async () => {
+      if (ending === "the window's blur") {
+        // An element's blur is no end: only the window's own.
+        grip.dispatchEvent(new dom!.window.FocusEvent("blur"));
+        expect(grip.hasAttribute("data-dragging")).toBe(true);
+        dom!.window.dispatchEvent(new dom!.window.FocusEvent("blur"));
+      } else move(60, 0);
+    });
+    expect(grip.hasAttribute("data-dragging")).toBe(false);
+    expect(modelMenuHeight()).toBe(360);
+    await act(async () => move(120, 1));
+    expect(modelMenuHeight()).toBe(360);
+  });
+}
 
 test("a kept height sizes the menu, and a double-click on the edge away from the chip goes back", async () => {
   setModelMenuHeight(300);

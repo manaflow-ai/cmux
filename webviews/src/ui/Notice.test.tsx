@@ -354,7 +354,15 @@ test("a held toast never times out, and one dragged past the edge is closed", ()
   const pointer = (type: string, x: number, y: number) =>
     act(() => {
       card.dispatchEvent(
-        new dom!.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y }),
+        new dom!.window.MouseEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          // The button is down until the pointerup, as a held mouse reports it.
+          buttons: type === "pointerup" ? 0 : 1,
+          clientX: x,
+          clientY: y,
+        }),
       );
     });
   pointer("pointerdown", 100, 100);
@@ -369,6 +377,58 @@ test("a held toast never times out, and one dragged past the edge is closed", ()
   expect(reasons).toEqual(["closed"]);
   expect(queue.snapshot()).toHaveLength(0);
 });
+
+// A mouse press has no implicit pointer capture: let go over another window, or after the window
+// lost focus mid-drag, the page hears no pointerup. The window's blur, or the first move with no
+// button down, puts the held card back, as a cancelled drag does.
+for (const ending of ["the window's blur", "a move with no button down"] as const) {
+  test(`a held toast is let go on ${ending}, and stays`, () => {
+    const armed: { fire(): void; ms: number; live: boolean }[] = [];
+    const arm = (fire: () => void, ms: number) => {
+      const timer = { fire, ms, live: true };
+      armed.push(timer);
+      return () => {
+        timer.live = false;
+      };
+    };
+    const live = () => armed.filter((timer) => timer.live);
+    const queue = createNoticeQueue();
+    queue.show({ id: "t", message: "Copied.", duration: 4000 });
+    const doc = render(<NoticeStack queue={queue} dismissLabel="Dismiss" layout="stacked" drag="spring" arm={arm} />);
+    const card = doc.querySelector<HTMLElement>(".ui-notice-deck-card")!;
+    const pointer = (type: string, x: number, buttons: number) =>
+      act(() => {
+        card.dispatchEvent(
+          new dom!.window.MouseEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+            buttons,
+            clientX: x,
+            clientY: 90,
+          }),
+        );
+      });
+    pointer("pointerdown", 100, 1);
+    pointer("pointermove", 140, 1);
+    expect(card.hasAttribute("data-dragging")).toBe(true);
+    expect(live()).toHaveLength(0);
+    if (ending === "the window's blur") {
+      // An element's blur is no end: only the window's own.
+      act(() => void card.dispatchEvent(new dom!.window.FocusEvent("blur")));
+      expect(card.hasAttribute("data-dragging")).toBe(true);
+      act(() => void dom!.window.dispatchEvent(new dom!.window.FocusEvent("blur")));
+    } else pointer("pointermove", 2000, 0);
+    expect(card.hasAttribute("data-dragging")).toBe(false);
+    expect(card.style.getPropertyValue("--ui-notice-drag-x")).toBe("");
+    expect(live().map((timer) => timer.ms)).toEqual([4000]);
+    // The press is over: a later move drags nothing, and no pointerup closes it.
+    pointer("pointermove", 2000, 1);
+    pointer("pointerup", 2000, 0);
+    expect(card.hasAttribute("data-dragging")).toBe(false);
+    expect(queue.snapshot()).toHaveLength(1);
+  });
+}
 
 test("a hovered deck at a top anchor (drawn in another host) keeps its toast's time stopped through a queue update", () => {
   const armed: { fire(): void; ms: number; live: boolean }[] = [];

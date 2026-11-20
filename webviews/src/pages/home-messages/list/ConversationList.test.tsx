@@ -139,7 +139,9 @@ test("a row's drag start moves no row; the grid opens as the pointer goes up int
   const top = listMetrics(320).pinnedHeight(pinned);
   const pointer = (type: string, y: number, target: EventTarget) =>
     act(async () => {
-      const event = new dom!.window.MouseEvent(type, { bubbles: true, clientX: 160, clientY: y, button: 0 });
+      // The button is down from the press to its release, as a real mouse reports it.
+      const buttons = type === "pointerup" ? 0 : 1;
+      const event = new dom!.window.MouseEvent(type, { bubbles: true, clientX: 160, clientY: y, button: 0, buttons });
       Object.defineProperty(event, "pointerId", { value: 1 });
       target.dispatchEvent(event);
     });
@@ -170,4 +172,29 @@ test("a search with no match shows the Orb, No Results and a Clear Search that e
   expect(button.textContent).toBe("Clear Search");
   await act(async () => button.click());
   expect(calls).toEqual(["query:"]);
+});
+
+// A mouse press has no pointer capture: let go over another window, the page hears no pointerup.
+// The window's blur ends the press, so a later move lifts no row (it carries a button here, so only
+// the blur can have ended the press).
+test("the window's blur ends a row's press: a move after it drags nothing", async () => {
+  const { element, calls } = await mount(3);
+  const rowIds = () => [...element.querySelectorAll("[data-list-row]")].map((row) => row.getAttribute("data-list-row"));
+  const rows = rowIds();
+  const row = element.querySelector<HTMLElement>("[data-list-row]")!;
+  const top = listMetrics(320).pinnedHeight(element.querySelectorAll("[data-pinned-tile]").length);
+  const pointer = (type: string, y: number, target: EventTarget, buttons: number) =>
+    act(async () => {
+      const event = new dom!.window.MouseEvent(type, { bubbles: true, clientX: 160, clientY: y, button: 0, buttons });
+      Object.defineProperty(event, "pointerId", { value: 1 });
+      target.dispatchEvent(event);
+    });
+  await pointer("pointerdown", top + 2, row, 1);
+  await act(async () => {
+    dom!.window.dispatchEvent(new dom!.window.Event("blur"));
+  });
+  await pointer("pointermove", top + 8, dom!.window, 1);
+  await pointer("pointermove", 10, dom!.window, 1);
+  expect(rowIds()).toEqual(rows);
+  expect(calls.filter((call) => call.startsWith("arrange") || call.startsWith("pin"))).toEqual([]);
 });
