@@ -44,6 +44,12 @@ pub enum Command {
         #[arg(long)]
         reason: String,
     },
+    /// Start a new session with a finished session's handoff as its unsent draft.
+    Fresh {
+        session: String,
+        #[arg(long)]
+        name: String,
+    },
     /// Run a task on several models in separate worktrees and compare the reviewer's winner.
     #[command(subcommand)]
     Race(crate::cli::race::RaceCmd),

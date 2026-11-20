@@ -163,7 +163,7 @@ pub(super) async fn route(
     if let Some(reply) = heap(|| super::run_elsewhere::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
-    if let Some(reply) = super::session_lifecycle::dispatch(hub, conn, m, &params) {
+    if let Some(reply) = heap(|| super::session_lifecycle::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
     if let Some(reply) = super::goal::dispatch(hub, conn, m, &params) {

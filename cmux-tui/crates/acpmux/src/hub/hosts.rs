@@ -534,6 +534,10 @@ impl Hub {
         {
             return false;
         }
+        if self.check_finished(&session).is_err() {
+            self.end_unadopted_host(&session).await;
+            return false;
+        }
         // MDM forces full access off (start-mode.json, loaded with the hub), or the chat's grant
         // was cleared (`policy_source.rs`): its host is ended, never adopted (#23322). One whose
         // end failed is not adopted either (review 51), and may still write a line the previous

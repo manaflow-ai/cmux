@@ -327,6 +327,31 @@ three operations; an empty list allows none. Claimed names, hosts and session ID
 authority. An allowed sender still follows the target daemon's existing peer and start-policy
 rules, including app-only permission checks.
 
+## Finished sessions and recovery admission
+
+`acpmux finish SESSION --handoff "what completed and what comes next"` records a durable
+completion. Finish lets the current turn end, retires its harness, and prevents later prompts,
+notices, retries and restart adoption from starting it again. Opening a finished chat is a read;
+it does not reopen it. A completed turn alone does not finish the session.
+
+A send to a finished chat returns `session.finished` with its handoff and a next command:
+`acpmux fresh SESSION --name NEW`. This creates a separate chat with the handoff as its unsent
+composer draft, without replaying the old task. To intentionally reopen the original chat, use
+`acpmux wake SESSION --reason "why this task needs more work"`, then send the follow-up.
+Only this explicit operation clears completion, and it records the reason.
+
+`acpmux fleet-pause --reason "capacity outage"` persists a pause on this daemon's automatic
+work. It covers recovery, goal and notice prompts, and incoming agent messages; the person's
+new prompts remain available. `acpmux fleet-resume --reason "capacity restored"` releases the
+pause. Fleet operators apply these local controls on each daemon they administer; this command
+does not broadcast to other machines. Neither command changes finished sessions.
+
+Recovery starts at most one queued request per second and holds at most four concurrent retry
+turns per daemon. The `lane.priority=high` tag precedes `normal`, then other work; equal priorities
+keep arrival order. Paused and queued admission waits have a one-hour deadline. An unreadable
+saved pause fails paused. Normal agent messages do not hold a retry slot while waiting on a
+reply, so reciprocal messages cannot exhaust the retry slots.
+
 ## Orchestrating agents from scripts
 
 Every command takes `--json` before it for machine output; errors then go to stderr as one

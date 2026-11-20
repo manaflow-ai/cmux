@@ -174,6 +174,7 @@ impl Hub {
         turn_id: &str,
         result: &Result<Value, RpcError>,
     ) -> Option<Box<NextTurn>> {
+        self.check_finished(session).ok()?;
         let carried = carried(result)?;
         // Also while the daemon stops: the turn's end names the next one, which the next daemon
         // runs on (`recover_carried`).

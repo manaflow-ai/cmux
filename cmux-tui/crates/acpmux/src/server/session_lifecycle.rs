@@ -1,7 +1,7 @@
 //! Explicit completion and wake intent. Kept local, like the goal controls.
 use super::*;
 
-pub(super) fn dispatch(
+pub(super) async fn dispatch(
     hub: &Arc<Hub>,
     conn: &Conn,
     method: &str,
@@ -10,12 +10,22 @@ pub(super) fn dispatch(
     if method != crate::hub::finished::METHOD {
         return None;
     }
-    Some(handle(hub, conn, params))
+    Some(handle(hub, conn, params).await)
 }
 
-fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
-    if conn.origin.web_class() || (!conn.is_person() && conn.caller().is_none()) {
-        return Err(RpcError::invalid_params("session lifecycle requires a local proven caller"));
+async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
+    // As for a terminal's send, this is a local declaration, not permission-approval proof.
+    // Old CLIs, unproven agent tokens and generic socket programs do not count as terminals.
+    let terminal = conn.origin == Origin::Local
+        && !conn.is_trigger()
+        && conn.caller().is_none()
+        && conn.unproven_caller.get().is_none()
+        && matches!(conn.declared(), Some(crate::cli_caller::Declared::Terminal));
+    let person = conn.is_person() || terminal;
+    if conn.origin.web_class() || (!person && conn.caller().is_none()) {
+        return Err(RpcError::invalid_params(
+            "session lifecycle requires a local caller or current terminal CLI",
+        ));
     }
     if let Some(op @ ("pause" | "resume")) = str_param(params, "op") {
         let reason = str_param(params, "reason").unwrap_or("");
@@ -26,19 +36,107 @@ fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError
     let session = hub.resolve(key)?;
     match str_param(params, "op") {
         Some("finish") => {
-            if !conn.is_person() && conn.caller() != Some(session.id.as_str()) {
+            if !person && conn.caller() != Some(session.id.as_str()) {
                 return Err(RpcError::invalid_params("an agent may finish only its own session"));
             }
             let handoff = str_param(params, "handoff")
                 .filter(|s| !s.trim().is_empty())
                 .ok_or_else(|| RpcError::invalid_params("finish requires a handoff"))?;
-            hub.finish_session(&session, handoff)
+            let reply = hub.finish_session(&session, handoff)?;
+            let _retirement = hub.retire_finished(&session);
+            Ok(reply)
         }
         Some("wake") => {
             let reason = str_param(params, "reason")
                 .ok_or_else(|| RpcError::invalid_params("wake requires a reason"))?;
             hub.wake_finished(&session, reason)
         }
-        _ => Err(RpcError::invalid_params("op must be finish or wake")),
+        Some("fresh") => {
+            let name = str_param(params, "name")
+                .filter(|s| !s.trim().is_empty())
+                .ok_or_else(|| RpcError::invalid_params("fresh requires a name"))?;
+            hub.fresh_from_finished(&session, name, conn.caller().map(str::to_owned)).await
+        }
+        _ => Err(RpcError::invalid_params("op must be finish, wake, fresh, pause or resume")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{Config, StoreMode};
+    use tokio::sync::mpsc;
+
+    async fn request(
+        hub: &Arc<Hub>,
+        origin: Origin,
+        caller: Option<&str>,
+        op: &str,
+        target: &str,
+    ) -> Value {
+        let (input, incoming) = mpsc::channel(32);
+        let (output, mut outgoing) = mpsc::channel(32);
+        tokio::spawn(serve_connection_with(hub.clone(), incoming, output, origin));
+        let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}});
+        if caller == Some("terminal") {
+            hello["_meta"] = json!({"acpmux": {"callerProtocol": 1, "callerKind": "terminal"}});
+        } else if let Some(caller) = caller {
+            hello["_meta"] = json!({"acpmux": {"callerSession": {
+                "sessionId": caller, "token": crate::hub::person::caller_token(caller)
+            }}});
+        }
+        input.send(Message::request(1, method::INITIALIZE, hello).to_line()).await.unwrap();
+        let next = async |id, output: &mut mpsc::Receiver<String>| {
+            tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                loop {
+                    let reply: Value = serde_json::from_str(&output.recv().await.unwrap()).unwrap();
+                    if reply["id"] == id {
+                        return reply;
+                    }
+                }
+            })
+            .await
+            .unwrap()
+        };
+        let _hello = next(1, &mut outgoing).await;
+        input.send(Message::request(2, crate::hub::finished::METHOD,
+            json!({"op": op, "sessionId": target, "handoff": "done", "reason": "explicit follow-up"})).to_line()).await.unwrap();
+        next(2, &mut outgoing).await
+    }
+
+    #[tokio::test]
+    async fn finished_lifecycle_requires_local_proof_and_finish_ownership() {
+        let mut config = Config::default();
+        config.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+        for id in ["self", "other"] {
+            let meta = serde_json::from_value(json!({
+                "schema": crate::store::META_SCHEMA, "id": id, "name": id, "harness": "fake",
+                "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
+            }))
+            .unwrap();
+            store.save(&meta).unwrap();
+        }
+        let hub = Hub::new(config, store);
+        for (origin, caller, target) in [
+            (Origin::Local, None, "self"),
+            (Origin::Peer, Some("self"), "self"),
+            (Origin::Web, Some("self"), "self"),
+            (Origin::Local, Some("self"), "other"),
+        ] {
+            let reply = request(&hub, origin, caller, "finish", target).await;
+            assert!(reply.get("error").is_some(), "{reply}");
+            assert!(hub.resolve(target).unwrap().meta().finished.is_none());
+        }
+        let reply = request(&hub, Origin::Local, Some("self"), "finish", "self").await;
+        assert!(reply.get("error").is_none(), "{reply}");
+        assert!(hub.resolve("self").unwrap().meta().finished.is_some());
+        let reply = request(&hub, Origin::Local, Some("self"), "wake", "self").await;
+        assert!(reply.get("error").is_none(), "{reply}");
+        assert!(hub.resolve("self").unwrap().meta().finished.is_none());
+        let reply = request(&hub, Origin::Local, Some("terminal"), "finish", "other").await;
+        assert!(reply.get("error").is_none(), "{reply}");
+        let reply = request(&hub, Origin::Local, Some("terminal"), "wake", "other").await;
+        assert!(reply.get("error").is_none(), "{reply}");
     }
 }

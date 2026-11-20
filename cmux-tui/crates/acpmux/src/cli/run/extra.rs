@@ -78,6 +78,25 @@ fn moved_line(host: &str) -> String {
 pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> Result<()> {
     let fleet_paused = matches!(&cmd, Command::FleetPause { .. });
     match cmd {
+        Command::Fresh { session, name } => {
+            let client = connect(true).await?;
+            let id = resolve_id(&client, &session).await?;
+            let reply = client
+                .request(
+                    crate::hub::finished::METHOD,
+                    json!({"sessionId": id, "op": "fresh", "name": name}),
+                )
+                .await?;
+            if json_out {
+                print_json(&reply);
+            } else {
+                println!(
+                    "{}: handoff saved as an unsent draft",
+                    reply["name"].as_str().unwrap_or(&name)
+                );
+            }
+            Ok(())
+        }
         Command::FleetPause { reason } | Command::FleetResume { reason } => {
             let paused = fleet_paused;
             let client = connect(true).await?;

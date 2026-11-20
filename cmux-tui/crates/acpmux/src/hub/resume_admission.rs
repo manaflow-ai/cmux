@@ -57,6 +57,14 @@ impl Admission {
         Ok(())
     }
 
+    pub(super) fn recovering(&self) -> bool {
+        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.paused.is_some()
+            || !state.waiting.is_empty()
+            || state.active > 0
+            || Instant::now() < state.next
+    }
+
     pub(super) fn start<T>(
         &self,
         person: bool,
@@ -223,5 +231,7 @@ mod tests {
         assert!(admission.state.lock().unwrap().waiting.is_empty());
         admission.pause(None).unwrap();
         assert!(Admission::open(Some(dir.path())).start(false, || Ok(())).is_ok());
+        std::fs::write(dir.path().join("resume-admission.json"), b"broken").unwrap();
+        assert!(Admission::open(Some(dir.path())).start(false, || Ok(())).is_err());
     }
 }
