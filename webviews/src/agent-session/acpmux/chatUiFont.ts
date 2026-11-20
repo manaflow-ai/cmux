@@ -120,8 +120,7 @@ const INTER_TUNED: Record<(typeof STEPS)[number], string> = {
 
 /// cmux Sans: Source Sans 3's narrow letters under a taller lowercase read packed at chat sizes, so
 /// it draws a step looser than its designed spacing, most at the small steps (Leo, 2026-11-19: "The
-/// reason why anthropic sans is good is bc of the legibility between characters The kerning in cmux
-/// sans is off it all looks too packed together and narrow a lot of the time").
+/// kerning in cmux sans is off it all looks too packed together and narrow a lot of the time").
 const CMUX_SANS: Record<(typeof STEPS)[number], string> = {
   caption: "0.02em",
   detail: "0.018em",
