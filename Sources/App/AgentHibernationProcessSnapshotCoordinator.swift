@@ -71,11 +71,15 @@ actor AgentHibernationProcessSnapshotCoordinator {
         }
     }
 
+    /// - Parameter knownSurvivors: the panel's processes that the census
+    ///   allowed but does not terminate: the agent's shell ancestors, such as
+    ///   `login` and the shell, which stay on the terminal until it closes.
     func refreshedExitEpoch(
         processGroupLeaders: [pid_t: AgentPIDProcessIdentity],
         processScopeKey: AgentHibernationPanelKey?,
         ttyDevice: Int64?,
-        excluding exitedIdentities: Set<AgentPIDProcessIdentity>
+        excluding exitedIdentities: Set<AgentPIDProcessIdentity>,
+        knownSurvivors: Set<AgentPIDProcessIdentity> = []
     ) async -> AgentHibernationProcessExitEpoch? {
         guard let snapshot = await nextSnapshot(), snapshot.enumerationIsComplete,
               !Task.isCancelled else { return nil }
@@ -87,7 +91,8 @@ actor AgentHibernationProcessSnapshotCoordinator {
             processArgumentsProvider: processArgumentsProvider,
             processIdentityProvider: processIdentityProvider,
             processGroupProvider: processGroupProvider,
-            excluding: exitedIdentities
+            excluding: exitedIdentities,
+            knownSurvivors: knownSurvivors
         )
     }
 
@@ -155,7 +160,8 @@ actor AgentHibernationProcessSnapshotCoordinator {
         processArgumentsProvider: ProcessArgumentsProvider,
         processIdentityProvider: ProcessIdentityProvider,
         processGroupProvider: ProcessGroupProvider,
-        excluding exitedIdentities: Set<AgentPIDProcessIdentity>
+        excluding exitedIdentities: Set<AgentPIDProcessIdentity>,
+        knownSurvivors: Set<AgentPIDProcessIdentity>
     ) -> AgentHibernationProcessExitEpoch? {
         var authorizedLeaders: [pid_t: AgentPIDProcessIdentity] = [:]
         for (processGroupID, leaderIdentity) in processGroupLeaders {

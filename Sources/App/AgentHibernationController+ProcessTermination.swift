@@ -8,7 +8,8 @@ extension AgentHibernationRecord {
             key: key,
             processIDs: processIDs,
             processIdentities: processIdentities,
-            cmuxHelperProcessIDs: cmuxHelperProcessIDs
+            cmuxHelperProcessIDs: cmuxHelperProcessIDs,
+            knownSurvivorProcessIDs: panelProcessIDs.subtracting(processIDs)
         )
     }
 }
@@ -24,17 +25,23 @@ extension AgentHibernationController {
         let processIDs: Set<Int>
         let processIdentities: [Int: AgentPIDProcessIdentity]
         let cmuxHelperProcessIDs: Set<Int>
+        /// The panel's processes the census allowed but does not terminate:
+        /// the agent's shell ancestors, such as `login` and the shell. They
+        /// stay on the terminal after the agent exits, until it closes.
+        let knownSurvivorProcessIDs: Set<Int>
 
         init(
             key: AgentHibernationPanelKey,
             processIDs: Set<Int>,
             processIdentities: [Int: AgentPIDProcessIdentity],
-            cmuxHelperProcessIDs: Set<Int> = []
+            cmuxHelperProcessIDs: Set<Int> = [],
+            knownSurvivorProcessIDs: Set<Int> = []
         ) {
             self.key = key
             self.processIDs = processIDs
             self.processIdentities = processIdentities
             self.cmuxHelperProcessIDs = cmuxHelperProcessIDs
+            self.knownSurvivorProcessIDs = knownSurvivorProcessIDs
         }
     }
 
@@ -103,6 +110,16 @@ extension AgentHibernationController {
             }
             return (processID, identity)
         })
+    }
+
+    /// The exact process generations of a scope's known survivors, read
+    /// while the agent they lead to still runs, before any signal. A refreshed
+    /// exit epoch accepts only these generations, so a reused PID is never
+    /// mistaken for one.
+    nonisolated static func knownSurvivorIdentities(
+        for processIDs: Set<Int>
+    ) -> Set<AgentPIDProcessIdentity> {
+        Set(processIdentities(for: processIDs).values)
     }
 
     #if compiler(>=6.2)
@@ -275,6 +292,12 @@ extension AgentHibernationController {
             }
             return false
         }
+        // The agent still runs here, so its shell ancestors do too. Their
+        // exact generations let each refreshed exit epoch tell them apart
+        // from new work on the terminal.
+        let knownSurvivors = Self.knownSurvivorIdentities(
+            for: record.processTerminationScope.knownSurvivorProcessIDs
+        )
 
         let lastActivityAt = Date(
             timeIntervalSince1970: request.effectiveLastActivityAt
@@ -395,7 +418,8 @@ extension AgentHibernationController {
                 processGroupLeaders: processGroupLeaders,
                 processScopeKey: processScopeKey,
                 ttyDevice: Self.commonTTYDevice(in: scopedProcessTerminations),
-                excluding: []
+                excluding: [],
+                knownSurvivors: knownSurvivors
             ) else {
                 return .rejected
             }
@@ -463,6 +487,7 @@ extension AgentHibernationController {
                     requestID: committedTerminationRequestID,
                     terminations: [],
                     processScopeKey: nil,
+                    knownSurvivors: knownSurvivors,
                     processExitCompletion: processExitCompletion,
                     retryTermination: retryTermination,
                     waitForRecoveryReadiness: waitForRecoveryReadiness,
@@ -487,6 +512,7 @@ extension AgentHibernationController {
                 requestID: committedTerminationRequestID,
                 terminations: scopedProcessTerminations,
                 processScopeKey: record.key,
+                knownSurvivors: knownSurvivors,
                 processExitCompletion: processExitCompletion,
                 retryTermination: retryTermination,
                 waitForRecoveryReadiness: waitForRecoveryReadiness,
@@ -497,22 +523,36 @@ extension AgentHibernationController {
                 onRecoveryFailure: handleRecoveryFailure,
                 onRecoveryRetry: beginRecoveryRetry
             )
-            // Routine reclaim moves on and lets the observation finish. A
-            // manual request answers for this one pane, so it waits for the
-            // exit to be observed and reports the pane's settled phase; the
-            // commit alone is neither a hibernation nor a refusal.
-            guard request.trigger == .manual,
-                  let observation = committedTerminationObservationsByPanelID[panelID],
-                  observation.requestID == committedTerminationRequestID else {
-                return false
-            }
-            await observation.task?.value
-            return record.terminalPanel.isAgentHibernated &&
-                !record.terminalPanel.isAgentHibernationCommitPending
+            return await committedTerminationOutcome(
+                trigger: request.trigger,
+                panelID: panelID,
+                requestID: committedTerminationRequestID,
+                terminalPanel: record.terminalPanel
+            )
         }
 
         return record.terminalPanel.isAgentHibernated &&
             !record.terminalPanel.isAgentHibernationTerminating
     }
 
+    /// Whether a teardown whose termination committed and awaits its exit
+    /// hibernated its pane. Routine reclaim moves on and lets the observation
+    /// finish. A manual request answers for this one pane, so it waits for
+    /// the exit to be observed and reports the pane's settled phase; the
+    /// commit alone is neither a hibernation nor a refusal.
+    func committedTerminationOutcome(
+        trigger: AgentHibernationReclaimTrigger,
+        panelID: UUID,
+        requestID: UUID,
+        terminalPanel: TerminalPanel
+    ) async -> Bool {
+        guard trigger == .manual,
+              let observation = committedTerminationObservationsByPanelID[panelID],
+              observation.requestID == requestID else {
+            return false
+        }
+        await observation.task?.value
+        return terminalPanel.isAgentHibernated &&
+            !terminalPanel.isAgentHibernationCommitPending
+    }
 }
