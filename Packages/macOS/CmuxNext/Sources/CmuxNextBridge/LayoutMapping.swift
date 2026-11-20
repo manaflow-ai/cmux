@@ -67,7 +67,7 @@ public struct LayoutMapping {
     }
 
     /// The tiled layout `screen` shows once unzoomed, whether it is zoomed or not: where a pane-navigation key lands
-    /// under `split-preserve-zoom = navigation` (cmux#47785). Its floating panes stay out, as ``map(_:)`` leaves them.
+    /// under `split-preserve-zoom = navigation` (cmux#47785). Its floating panes stay out: the daemon never zooms a floating pane.
     public func unzoomedLayout(of screen: ScreenModel) -> ScreenLayout? {
         var handles = LayoutHandleMap()
         var paneIDs: [DaemonPaneID: LayoutPaneID] = [:]

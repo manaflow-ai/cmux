@@ -123,7 +123,17 @@ struct SplitPreserveZoomNavigationTests {
         text.withCString { ghostty_config_load_string(config, $0, UInt(text.utf8.count), "test") }
         ghostty_config_finalize(config)
         runtime.adoptAppliedConfig(config)
-        try #require(runtime.splitPreserveZoom == flags, "the runtime did not take the test's config")
+        do {
+            return try await shownAfterAdopting(flags, restore: restore)
+        } catch {
+            // A failed setup never leaves the test's config applied for the suites after it.
+            if let restore { runtime.adoptAppliedConfig(restore) }
+            throw error
+        }
+    }
+
+    private static func shownAfterAdopting(_ flags: GhosttySplitPreserveZoom, restore: ghostty_config_t?) async throws -> Shown {
+        try #require(GhosttyRuntime.shared.splitPreserveZoom == flags, "the runtime did not take the test's config")
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false

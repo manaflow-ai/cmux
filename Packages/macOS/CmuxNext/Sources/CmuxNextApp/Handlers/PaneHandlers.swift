@@ -241,7 +241,7 @@ enum PaneHandlers {
     }
 
     private static func cycleFocus(_ ctx: AppActionContext, _ invocation: ActionInvocation, offset: Int, _ action: ActionID) {
-        guard let pane = ctx.paneController(invocation), let content = pane.workspace, !navigateZoomed(ctx, invocation, pane, .cycle(offset: offset), action) else { return }
+        guard let pane = ctx.paneController(invocation), let content = pane.workspace, content.layoutModel.screen(containing: pane.layoutPaneID) != nil, !navigateZoomed(ctx, invocation, pane, .cycle(offset: offset), action) else { return }
         guard let next = content.layoutView.paneTarget(of: pane.layoutPaneID, .cycle(offset: offset)) else { return ctx.refuseQuietly(RefusalStrings.screenHasOnePane) }
         focusByKey(next, in: content, invocation)
     }

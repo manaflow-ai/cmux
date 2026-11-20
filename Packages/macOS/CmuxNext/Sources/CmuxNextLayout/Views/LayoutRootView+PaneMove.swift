@@ -13,9 +13,10 @@ extension LayoutRootView {
     /// nothing laid out: a zoomed screen's unzoomed layout under Ghostty's `split-preserve-zoom = navigation`
     /// (cmux#47785). Nil when no pane lies there (a cycle on a one-pane screen).
     public func paneTarget(of pane: PaneID, _ move: PaneMove, recency: [PaneID] = [], showing layout: ScreenLayout? = nil) -> PaneID? {
-        guard let screen = model.screen(containing: pane), let view = screenViews[screen.id] else { return nil }
+        guard let screen = model.screen(containing: pane) else { return nil }
         switch move {
         case .direction(let direction):
+            guard let view = screenViews[screen.id] else { return nil } // a deferred screen has no frames yet
             // One logical line: docked columns before and after the strip. The frames of `pane`'s own screen,
             // active or not: what opens beside a chat on a screen the person left reads that screen (#28044).
             let frames = layout.map(view.navigationFrames(showing:)) ?? view.navigationFrames
