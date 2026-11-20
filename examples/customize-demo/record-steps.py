@@ -2,7 +2,7 @@
 """Write NIGHTLY capture steps in demo.sh's order.
 
     python3 examples/customize-demo/record-steps.py --ref FULL_SHA > /tmp/demo-steps.json
-    cmux-ci capture --nightly latest --state /tmp/demo-steps.json --on fleet
+    cmux-ci capture --nightly latest --state /tmp/demo-steps.json
 
 --ref downloads published profiles into a unique temporary folder on the capture
 Mac. --root instead uses files already staged there. Neither capture runner copies

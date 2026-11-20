@@ -51,13 +51,15 @@ Use the NIGHTLY capture route for these profiles:
 
 ```sh
 python3 examples/customize-demo/record-steps.py --ref "$(git rev-parse HEAD)" > /tmp/demo-steps.json
-cmux-ci capture --nightly latest --state /tmp/demo-steps.json --on fleet
+cmux-ci capture --nightly latest --state /tmp/demo-steps.json
 ```
 
 Every profile opens a fresh New Tab so its own start page appears. The result includes all 13
 looks and a reset shot. The library status before and after is recorded too; `discard` resets
 the profile, but does not turn off library overlays. Inspect those answers and every step's
 `ok` result, as the runner continues after a failed step.
+The default route queues on a fleet display worker through the controller from a lane VM;
+it does not require a direct SSH route from the lane to the Mac.
 
 For a short video, choose a few profiles (repeat `--only`); the runner limits each clip to
 120 seconds and each state to 60 steps. A video records the whole display on an isolated fleet
