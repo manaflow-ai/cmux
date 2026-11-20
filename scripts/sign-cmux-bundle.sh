@@ -225,6 +225,11 @@ for screen_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
   [[ -d "$screen_helper" ]] || continue
   /usr/bin/codesign --verify --strict --verbose=2 "$screen_helper"
 done
+# One Screen Recording holder whose bundle id and requirement stay the same between builds, so a
+# grant survives every update (an ad-hoc signing's requirement is a cdhash by design).
+if [[ "$SIGN_MODE" == "all" && "$IDENTITY" != "-" ]]; then
+  "$SCRIPT_DIR/ci/check-screen-share-identity.sh" "$APP_PATH"
+fi
 # An unsandboxed app extension is one macOS never lists in the Share menu.
 share_extension="$APP_PATH/Contents/PlugIns/$SHARE_EXTENSION"
 if [[ -d "$share_extension" ]]; then
