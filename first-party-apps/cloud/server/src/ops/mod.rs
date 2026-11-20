@@ -463,6 +463,13 @@ impl<C: ControlPlane> Server<C> {
             return self.run(name, &args, request, Some(&upstream));
         }
         if let Some(done) = self.ledger.replay(key, name, &args)? {
+            if name == "cloud.machine.pause_all" && pause_all::retryable(&done) {
+                let mut ctx = Ctx::new(&mut self.control_plane, &mut self.projection, Some(key))
+                    .with_origin(request.origin);
+                let result = pause_all::retry(&mut ctx, done)?;
+                self.ledger.succeed(key, result.clone());
+                return Ok(result);
+            }
             // The host's open token is never cached: a replay of an op that
             // needs one answers only a request that carries one.
             if TOKEN_OPS.contains(&name) {

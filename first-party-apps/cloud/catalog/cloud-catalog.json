@@ -1557,6 +1557,9 @@
                     },
                     "message": {
                       "type": "string"
+                    },
+                    "retryable": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -1570,10 +1573,14 @@
                 "status"
               ]
             }
+          },
+          "idempotency_key": {
+            "type": "string"
           }
         },
         "required": [
-          "machines"
+          "machines",
+          "idempotency_key"
         ]
       },
       "cli": {
@@ -1584,7 +1591,7 @@
         "expose": "opt_in",
         "group": "cloud"
       },
-      "docs": "List the current team machines and pause each through cloud.machine.pause, including already paused machines so automatic wakes remain held until explicit resume. Returns per-machine outcomes; a failure does not prevent the remaining pauses.",
+      "docs": "List the current team machines and pause each through cloud.machine.pause, including already paused machines so automatic wakes remain held until explicit resume. Returns per-machine outcomes; a failure does not prevent the remaining pauses. Retryable target failures can be retried with the returned idempotency_key; completed targets are kept in the app server’s in-memory snapshot.",
       "since": "cloud/1"
     }
   ]

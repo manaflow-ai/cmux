@@ -67,7 +67,8 @@ fn human_result(answer: &Value) -> String {
     if rows.is_empty() {
         return "No Cloud machines to pause.".to_owned();
     }
-    rows.iter()
+    let mut lines = rows
+        .iter()
         .map(|row| {
             let machine = row["machine"].as_str().unwrap_or("unknown");
             let status = row["status"].as_str().unwrap_or("unknown");
@@ -77,7 +78,16 @@ fn human_result(answer: &Value) -> String {
             }
         })
         .collect::<Vec<_>>()
-        .join("\n")
+        .join("\n");
+    if rows.iter().any(|row| row.pointer("/error/retryable") == Some(&Value::Bool(true)))
+        && let Some(key) = answer.pointer("/data/idempotency_key").and_then(Value::as_str)
+    {
+        lines.push_str(&format!(
+            "\nRetry unfinished machines: cmux vm pause-all --idempotency-key {}",
+            super::cloud_start_chat::shell_quote(key)
+        ));
+    }
+    lines
 }
 
 fn partial_failure(answer: &Value) -> bool {

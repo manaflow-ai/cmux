@@ -105,6 +105,78 @@ fn pause_all_snapshots_every_page_and_preserves_partial_results() {
 }
 
 #[test]
+fn pause_all_retries_only_indeterminate_targets_with_the_same_key() {
+    let mut s = listed();
+    let mut first = record(&s, &vm(1));
+    let mut second = record(&s, &vm(2));
+    s.control_plane_mut().calls.clear();
+    s.control_plane_mut().answer(
+        "cloud.machine.list",
+        json!({"limit":100}),
+        None,
+        json!({"machines":[first.clone(), second.clone()], "next_cursor":null}),
+    );
+    first["status"] = json!("paused");
+    let first_params = json!({"machine":vm(1)});
+    let first_key =
+        cmux_cloud::api::upstream_key("cloud.machine.pause_all", &first_params, "partial-key");
+    s.control_plane_mut().answer(
+        "cloud.machine.pause",
+        first_params,
+        Some(&first_key),
+        json!({"machine":first}),
+    );
+    let second_params = json!({"machine":vm(2)});
+    let second_key =
+        cmux_cloud::api::upstream_key("cloud.machine.pause_all", &second_params, "partial-key");
+    s.control_plane_mut().answer("cloud.machine.pause", second_params.clone(), Some(&second_key),
+        json!({"error":{"code":"mutation.indeterminate", "message":"answer lost", "retryable":true}}));
+    let request = mutation("cloud.machine.pause_all", json!({}), "partial-key");
+    let partial = s.handle(&request).unwrap();
+    assert_eq!(partial["idempotency_key"], "partial-key");
+    assert_eq!(partial["machines"][1]["error"]["retryable"], true);
+    second["status"] = json!("paused");
+    s.control_plane_mut().answer(
+        "cloud.machine.pause",
+        second_params,
+        Some(&second_key),
+        json!({"machine":second}),
+    );
+    let completed = s.handle(&request).unwrap();
+    assert_eq!(completed["machines"][1]["status"], "paused");
+    assert_eq!(s.control_plane().calls.len(), 4, "no new list or repeated successful pause");
+    assert_eq!(s.control_plane().calls[3].idempotency_key.as_deref(), Some(second_key.as_str()));
+    assert_eq!(s.handle(&request).unwrap(), completed);
+    assert_eq!(s.control_plane().calls.len(), 4);
+}
+
+#[test]
+fn pause_all_propagates_sign_out_and_stops_before_the_next_machine() {
+    let mut s = listed();
+    let machines = [record(&s, &vm(1)), record(&s, &vm(2))];
+    s.control_plane_mut().calls.clear();
+    s.control_plane_mut().answer(
+        "cloud.machine.list",
+        json!({"limit":100}),
+        None,
+        json!({"machines":machines, "next_cursor":null}),
+    );
+    let params = json!({"machine":vm(1)});
+    let key = cmux_cloud::api::upstream_key("cloud.machine.pause_all", &params, "signout-key");
+    s.control_plane_mut().answer(
+        "cloud.machine.pause",
+        params,
+        Some(&key),
+        json!({"error":{"code":"auth.unauthenticated", "message":"signed out", "retryable":false}}),
+    );
+    let error =
+        s.handle(&mutation("cloud.machine.pause_all", json!({}), "signout-key")).unwrap_err();
+    assert_eq!(error.code, "cmux.cloud.auth_required");
+    assert!(s.projection().is_empty());
+    assert_eq!(s.control_plane().calls.len(), 2);
+}
+
+#[test]
 fn pause_all_refuses_a_repeated_page_before_pausing_any_machine() {
     let mut s = listed();
     let machine = record(&s, &vm(1));
