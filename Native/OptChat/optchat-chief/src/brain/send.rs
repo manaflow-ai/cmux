@@ -160,7 +160,17 @@ impl Brain {
             *thread_root = Some(root.clone());
         }
         self.sent_keys.insert(key);
-        self.wake_run_posted();
+        // The wake run's `result`: the posted text, or the files it sent.
+        let posted = if text.is_empty() {
+            let names: Vec<String> = files
+                .iter()
+                .filter_map(|f| f.path.file_name().map(|n| n.to_string_lossy().into_owned()))
+                .collect();
+            format!("[{} file(s): {}]", names.len(), names.join(", "))
+        } else {
+            text.clone()
+        };
+        self.wake_run_posted(&posted);
         let entry = self.reply_with_media(entry, files.clone());
         self.state.outbox.push(entry);
         self.save();

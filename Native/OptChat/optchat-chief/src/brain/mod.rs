@@ -22,6 +22,7 @@
 //! `Settings::turn_limit`.
 
 mod approvals;
+mod background;
 mod chief_inbox;
 pub use chief_inbox::name as chief_inbox_name;
 mod children;
@@ -139,6 +140,13 @@ pub enum Input {
     SteersWithdrawn {
         key: String,
         all: bool,
+    },
+    /// The deadline found a person's steer of turn `key` unread and asked
+    /// acpmux to move the turn's running work to the background
+    /// (`steer.rs`): whether something moved.
+    SteerBackgrounded {
+        key: String,
+        moved: bool,
     },
     TurnEnded {
         key: String,
@@ -923,6 +931,15 @@ pub struct Brain {
     /// The turn (its key) whose unread steers are being taken back now:
     /// no new steer goes into it (`steer.rs`).
     withdrawing: Option<String>,
+    /// The turn (its key) whose running work the steer deadline asked to
+    /// move to the background, once a turn (`steer.rs`).
+    backgrounded: Option<String>,
+    /// The turn (its key) whose running work did move to the background
+    /// (`steer.rs`): its session must outlive the turn (`background.rs`).
+    moved: Option<String>,
+    /// Turn sessions that are not kept but still run moved work: followed
+    /// until their background turn ends, then ended (`background.rs`).
+    draining: Vec<background::Draining>,
     steer_seq: u64,
     /// A draft could not be published (logged once).
     draft_failed: bool,
@@ -1139,6 +1156,9 @@ pub struct Brain {
     last_memory_block: Option<String>,
     /// The running wake run (memory.rs), when the turn is one.
     wake_run: Option<memory::WakeRunState>,
+    /// The planned time (ms) of each wake note queued (a follow-up's or
+    /// sleep's time, a check-in slot), by its text, for `scheduled_at`.
+    wake_planned: std::collections::HashMap<String, i64>,
     /// A wake run whose turn was cut: its resume turn goes on as it.
     cut_wake_run: Option<memory::WakeRunState>,
     /// This Chief's measured $/token rates and when they were read.
@@ -1234,6 +1254,9 @@ impl Brain {
             steering: Vec::new(),
             steer_left: None,
             withdrawing: None,
+            backgrounded: None,
+            moved: None,
+            draining: Vec::new(),
             steer_seq: 0,
             draft_failed: false,
             run_failed: false,
@@ -1325,6 +1348,7 @@ impl Brain {
             last_memory_block: None,
             wake_run: None,
             cut_wake_run: None,
+            wake_planned: std::collections::HashMap::new(),
             rates: None,
 
             cuts: 0,
@@ -1681,6 +1705,7 @@ impl Brain {
             Input::Run(update) => self.turn_run(*update),
             Input::Steered { id, result } => self.steered(id, result),
             Input::SteersWithdrawn { key, all } => self.steers_withdrawn(&key, all),
+            Input::SteerBackgrounded { key, moved } => self.steer_backgrounded(&key, moved),
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, *outcome),
             Input::Notice { key, text } => self.notice(key, text),
             Input::CompactorStatus(status) => self.compactor_status(status),

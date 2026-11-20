@@ -122,8 +122,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
+import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
+
+// The shipped app's CloudMachineCreateFlow.named and the platform's CHAT_START_SHAPE (4/16/64).
+// A smaller explicit ask cannot claim that pool, even when warm-spare just reported a ready machine.
+const CHAT_START_SIZE = Object.freeze({ cpu: 4, memory_mb: 16384, disk_mb: 65536 });
 
 export const STACK_API = "https://api.stack-auth.com";
 export const STACK = {
@@ -256,6 +261,7 @@ export function preclaimPublicMeta(): Record<string, string> {
 
 export class Journey {
   readonly steps: Step[] = [];
+  readonly guestDiagnostics: GuestDiagnostics[] = [];
   readonly secrets: string[] = [];
   readonly firstText = new FirstTextTiming();
   preclaimRows: PreclaimClaimRecord[] | null = null;
@@ -291,6 +297,7 @@ export class Journey {
     if (!this.outDir) return;
     const meta = this.publicSafe ? preclaimPublicMeta() : this.meta;
     writeFileSync(path.join(this.outDir, "journey.json"), `${JSON.stringify({ backend: this.backend, meta, steps: this.steps }, null, 2)}\n`);
+    writeFileSync(path.join(this.outDir, "guest-updater.json"), `${JSON.stringify({ schema: 1, observations: this.guestDiagnostics }, null, 2)}\n`);
     const preclaim = this.preclaimRows === null ? "" : `\n${preclaimSummaryMarkdown(this.preclaimRows, this.preclaimFailures, this.preclaimBurst)}`;
     writeFileSync(path.join(this.outDir, "summary.md"), summaryMarkdown(this.backend, this.steps, meta) + preclaim);
   }
@@ -1185,7 +1192,7 @@ export async function runStartBench(args: {
 }): Promise<StartSample[]> {
   const samples: StartSample[] = [];
   const notes: string[] = [];
-  const size = { cpu: 2, memory_mb: 4096, disk_mb: 16384 };
+  const size = CHAT_START_SIZE;
   const write = () => {
     const md = `${startBenchMarkdown(samples, `Start bench (${args.backend}, N=${args.n})`)}${notes.length ? `\n${notes.map((n) => `- ${n}`).join("\n")}\n` : ""}`;
     if (args.outDir) { mkdirSync(args.outDir, { recursive: true }); writeFileSync(path.join(args.outDir, "start-bench.md"), md); }
@@ -1253,7 +1260,7 @@ export async function runStartBench(args: {
   const vmHeaders = { authorization: `Bearer ${args.api.bearer}`, "x-cmux-team-id": vmTeam };
   const vm = (method: string, route: string, body?: unknown, timeoutMs = 130_000) => http(method, `${vmOrigin}${route}`, body, vmHeaders, timeoutMs, method !== "POST");
   const vmCreate = (snapshotId: string | null, asked: StartPath) => async (run: number) => {
-    const r = await vm("POST", "/v1/vms", { displayName: `start bench ${args.tag} ${asked} ${run}`, idleTimeoutSeconds: 300, autoDeleteSeconds: 3600, ...(snapshotId ? { snapshotId } : {}) });
+    const r = await vm("POST", "/v1/vms", { displayName: `start bench ${args.tag} ${asked} ${run}`, resources: { vcpus: size.cpu, memoryMib: size.memory_mb, diskMib: size.disk_mb }, idleTimeoutSeconds: 300, autoDeleteSeconds: 3600, ...(snapshotId ? { snapshotId } : {}) });
     if (r.status !== 200 && r.status !== 201 && r.status !== 202) throw new Error(`POST /v1/vms: HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
     const id = r.body?.id ?? r.body?.vm?.id;
     if (typeof id !== "string") throw new Error(`POST /v1/vms answered no id: ${short(r.body)}`);
@@ -1656,7 +1663,7 @@ export async function runPreclaimBurst(args: {
       const { spare, leaseId } = prepared;
       const claimSentAt = Date.now();
       step = "claim";
-      const answer = await api.op("cloud.machine.create", { name: `cloud preclaim ${args.tag} ${index}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${args.tag}-preclaim-${index}`);
+      const answer = await api.op("cloud.machine.create", { name: `cloud preclaim ${args.tag} ${index}`, size: CHAT_START_SIZE }, `${args.tag}-preclaim-${index}`);
       const machine = typeof answer?.machine === "string" ? answer.machine : answer?.machine?.id ?? answer?.machine_id ?? answer?.id ?? null;
       claimedMachine = typeof machine === "string" ? machine : null;
       claimedBehind = spareFields(answer).claimed_behind;
@@ -3829,6 +3836,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   let createSentAt: number | null = null;
   // The chat machine's exec once the run has one, for the failure facts below.
   let machineExec: Exec | null = null;
+  let guestFinalRead = false;
+  const guestDiagnosticsAbort = new AbortController();
+  const readGuestDiagnostics = async (phase: "journey-facts" | "before-cleanup") => {
+    if (phase === "before-cleanup") {
+      if (guestFinalRead) return;
+      guestFinalRead = true;
+    }
+    const observation = await collectGuestDiagnostics(machineExec, phase, 18_000, guestDiagnosticsAbort.signal);
+    J.guestDiagnostics.push(observation);
+    try {
+      J.record({ step: `guest updater (${phase})`, status: "skip", ms: observation.duration_ms,
+        detail: `${observation.status}; updater=${observation.updater.look.outcome}; first_ready=${observation.updater.first_ready.outcome}; full evidence: guest-updater.json` });
+    } catch { console.warn("Guest updater evidence could not be written; continuing cleanup"); }
+  };
   // The journey-only checks, once the machine runs: after the reply, or after the failure that cut the chat off.
   let runJourneyOnly: (() => Promise<void>) | null = null;
   // What probe.json adds once create answered: the claim's spare report, claimed_spare and the failure facts.
@@ -3876,6 +3897,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // Delete what this run made, pass, fail or cancel. A create whose reply was lost leaves `machine`
   // null, so the run's own machine is also found by its name (`cloud journey <tag>`).
   const cleanup = sharedCleanup(async () => {
+    await readGuestDiagnostics("before-cleanup");
     await readFailureFacts();
     if (preclaimStateDir) {
       rmSync(preclaimStateDir, { recursive: true, force: true });
@@ -3943,6 +3965,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     // The runner kills the job about 10 s after a cancel; the facts reads (up to 27 s) would lose the delete. A
     // cancel deletes first and reads no facts.
     factsRead = true;
+    guestFinalRead = true;
+    guestDiagnosticsAbort.abort();
     for (const dial of carrierDials) dial.kill("SIGTERM");
     for (const dir of carrierStateDirs) rmSync(dir, { recursive: true, force: true });
     void cleanup().finally(() => {
@@ -4168,7 +4192,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       : await J.step("create machine", async () => {
           J.firstText.mark("create");
           createSentAt = Date.now();
-          const v = await api.op("cloud.machine.create", { name: machineName, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 }, ...(seed === "none" ? { seed: "none" } : {}) }, `${tag}-create`);
+          const v = await api.op("cloud.machine.create", { name: machineName, size: CHAT_START_SIZE, ...(seed === "none" ? { seed: "none" } : {}) }, `${tag}-create`);
           machine = v.machine.id as string;
           createAnsweredAt = Date.now();
           afterCreate = J.steps.length;
@@ -4239,6 +4263,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         J.record({ step: "machine facts", status: "skip", ms: Date.now() - factsAt, detail: `read failed: ${String((e as Error)?.message ?? e).slice(0, 300)}` });
       }
 
+      await readGuestDiagnostics("journey-facts");
       // GitHub through the team's connection with no setup on the machine (HQ docs/design/remote-integrations.md).
       // First, from here, what the app's Set Up GitHub reads: the team's connection (GET /v1/integrations/github/status)
       // and its repository list (GET /v1/integrations/github/repos), counts only. Then
@@ -4970,6 +4995,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       else J.skip("turn after resume", only.has("lifecycle") ? "--skip lifecycle" : `agent ${agent}`);
     }
     // A step that failed without ending the run (the key probe, a chaos fault, the handoff record): its facts first.
+    await readGuestDiagnostics("before-cleanup");
     await readFailureFacts();
     if (!keep) {
       await J.step("delete", async () => {

@@ -13,7 +13,11 @@ use crate::tools::WakeCall;
 #[derive(Clone, Debug, Default)]
 pub(super) struct WakeRunState {
     pub id: String,
-    pub at: i64,
+    pub started_at: i64,
+    /// The earliest planned time of the wakes that started it.
+    pub scheduled_at: Option<i64>,
+    /// What it posted: its last send or reply, else the turn's final text.
+    pub result: String,
     pub reasons: Vec<String>,
     /// `nothing` or `ask`, with its text, when the Chief chose one.
     pub outcome: Option<(String, String)>,
@@ -157,6 +161,17 @@ impl Brain {
             loops.len()
         ));
         let text = crate::check_in::note(&loops, &slot);
+        // The slot's own time, for the wake run's `scheduled_at`.
+        let planned = chrono::NaiveDateTime::parse_from_str(&slot, "%Y-%m-%d %H:%M")
+            .ok()
+            .and_then(|n| {
+                use chrono::TimeZone;
+                chrono::Local.from_local_datetime(&n).earliest()
+            })
+            .map(|t| t.timestamp_millis());
+        if let Some(at) = planned {
+            self.wake_planned.insert(text.clone(), at);
+        }
         self.queue(text, Source::Note);
     }
 
@@ -339,7 +354,7 @@ impl Brain {
                 {
                     out.push_str("\nLast wake runs:");
                     for r in runs {
-                        let when = chrono::DateTime::from_timestamp_millis(r.at)
+                        let when = chrono::DateTime::from_timestamp_millis(r.started_at)
                             .map(|t| {
                                 t.with_timezone(&chrono::Local)
                                     .format("%a %H:%M")
@@ -348,13 +363,13 @@ impl Brain {
                             .unwrap_or_default();
                         out.push_str(&format!(
                             "\n- {when} {} -> {}{}{}",
-                            r.reasons,
+                            r.wake_reasons,
                             r.outcome,
                             r.cost_usd.map(|c| format!(", ${c:.3}")).unwrap_or_default(),
-                            if r.stopped.is_empty() {
+                            if r.state == "succeeded" {
                                 String::new()
                             } else {
-                                format!(", stopped: {}", r.stopped)
+                                format!(", {} ({})", r.state, r.reason)
                             }
                         ));
                     }
@@ -407,6 +422,18 @@ impl Brain {
         codex: bool,
     ) -> Option<crate::turn::Budget> {
         self.wake_run = None;
+        // The planned times of this turn's wake notes, taken out of the map.
+        // A note that left the queue another way (steered into a running
+        // turn, delivered at its tool boundary) is dropped here too, so the
+        // map holds only notes still queued.
+        let planned: Option<i64> = items
+            .iter()
+            .filter_map(|q| self.wake_planned.remove(&q.text))
+            .min();
+        let queued: std::collections::HashSet<&str> =
+            self.queue.iter().map(|q| q.text.as_str()).collect();
+        self.wake_planned
+            .retain(|text, _| queued.contains(text.as_str()));
         // The resume of a cut wake run (only its resume item): the same run.
         // A cut run that a person's message joined ends here as `cut`.
         if let Some(run) = self.cut_wake_run.take() {
@@ -419,7 +446,15 @@ impl Brain {
                 self.wake_run = Some(run);
                 return limit.and_then(|l| self.budget(l, key, codex));
             }
-            self.record_run(&run, "cut", String::new(), None, "");
+            self.record_run(
+                &run,
+                "cut",
+                String::new(),
+                String::new(),
+                None,
+                "cancelled",
+                "superseded",
+            );
         }
         let wake_only = !items.is_empty()
             && items.iter().all(|q| {
@@ -438,7 +473,9 @@ impl Brain {
         let limit = self.wake_settings.limit();
         self.wake_run = Some(WakeRunState {
             id: key.to_owned(),
-            at: chrono::Utc::now().timestamp_millis(),
+            started_at: chrono::Utc::now().timestamp_millis(),
+            scheduled_at: planned,
+            result: String::new(),
             reasons,
             outcome: None,
             posted: false,
@@ -488,24 +525,30 @@ impl Brain {
     }
 
     /// Writes one wake run's row.
+    #[allow(clippy::too_many_arguments)]
     fn record_run(
         &self,
         run: &WakeRunState,
         outcome: &str,
-        text: String,
+        result: String,
+        outcome_text: String,
         cost: Option<f64>,
-        stopped: &str,
+        state: &str,
+        reason: &str,
     ) {
         if let Some(files) = &self.memory_files
             && let Err(e) = files.record_wake_run(&crate::memory_files::WakeRun {
                 id: run.id.clone(),
-                at: run.at,
-                reasons: run.reasons.join("; "),
+                started_at: run.started_at,
+                scheduled_at: run.scheduled_at,
+                wake_reasons: run.reasons.join("; "),
                 outcome: outcome.to_owned(),
-                text,
+                result,
+                outcome_text,
                 cost_usd: cost,
                 limit_usd: run.limit,
-                stopped: stopped.to_owned(),
+                state: state.to_owned(),
+                reason: reason.to_owned(),
             })
         {
             (self.log)(&format!("wake run {}: not recorded ({e})", run.id));
@@ -526,9 +569,12 @@ impl Brain {
     }
 
     /// Something was posted in the running turn (send, reply).
-    pub(super) fn wake_run_posted(&mut self) {
+    pub(super) fn wake_run_posted(&mut self, text: &str) {
         if let Some(run) = self.wake_run.as_mut() {
             run.posted = true;
+            if !text.trim().is_empty() {
+                run.result = text.trim().to_owned();
+            }
         }
     }
 
@@ -538,10 +584,21 @@ impl Brain {
         let Some(run) = self.wake_run.take() else {
             return;
         };
+        // `outcome_text`: nothing's reason or ask's question; `result`: what
+        // a send posted (its last post, else the turn's final text).
         let (kind, text) = match run.outcome.clone() {
             Some(o) => o,
             None if run.posted || final_posted => ("send".to_owned(), String::new()),
             None => ("none".to_owned(), String::new()),
+        };
+        let result = if kind == "send" {
+            if run.result.is_empty() && final_posted {
+                outcome.reply.as_deref().unwrap_or("").trim().to_owned()
+            } else {
+                run.result.clone()
+            }
+        } else {
+            String::new()
         };
         let cost = outcome.stats.cost;
         let over = match (run.limit, outcome.budget_stopped, cost) {
@@ -575,10 +632,22 @@ impl Brain {
                 }
             }
         }
-        self.record_run(&run, &kind, text, cost, over.unwrap_or(""));
+        // The spec's run state: a run the cost limit stopped is cancelled
+        // (reason cost_limit), one that failed says why, else it succeeded.
+        let (state, reason) = if outcome.budget_stopped.is_some() {
+            ("cancelled", "cost_limit".to_owned())
+        } else if let Some(e) = outcome.error.as_deref().filter(|e| !e.trim().is_empty()) {
+            (
+                "failed",
+                format!("error: {}", e.trim().chars().take(200).collect::<String>()),
+            )
+        } else {
+            ("succeeded", String::new())
+        };
+        self.record_run(&run, &kind, result, text, cost, state, &reason);
         self.trace.emit(
             "chief.wake_run",
-            serde_json::json!({"id": run.id, "outcome": kind, "cost_usd": cost, "limit_usd": run.limit, "stopped": over}),
+            serde_json::json!({"id": run.id, "outcome": kind, "cost_usd": cost, "limit_usd": run.limit, "state": state, "reason": reason}),
         );
     }
 
