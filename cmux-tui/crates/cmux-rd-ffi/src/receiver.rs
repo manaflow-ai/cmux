@@ -118,7 +118,8 @@ impl Receiver {
     }
 
     /// Adds one datagram (datagram carrier). Video and parity shards feed the
-    /// reassembler; every other valid kind is queued as a [`Message`].
+    /// reassembler; a bandwidth probe is only reported in feedback; every other
+    /// valid kind is queued as a [`Message`].
     pub fn push_datagram(&mut self, datagram: &[u8], now_us: u64) -> Result<(), ReceiverError> {
         if self.carrier != Carrier::Datagram {
             return Err(ReceiverError::Carrier);
@@ -337,6 +338,19 @@ impl Receiver {
                 let released = self.reassembler.push(&header, payload, now_us);
                 released.into_iter().for_each(|f| self.on_released(f));
                 self.count_losses();
+                Ok(())
+            }
+            // D4 bandwidth probe padding (cap `probe`): its arrival goes in the transport-wide
+            // feedback, nothing else. It never reaches reassembly, NACKs or loss counts, and
+            // is not queued for the app.
+            DatagramKind::Probe => {
+                if self.arrivals.len() >= MAX_PENDING_ARRIVALS {
+                    self.arrivals.pop_front();
+                }
+                self.arrivals.push_back(Arrival {
+                    transport_seq: header.transport_seq,
+                    arrival_us: now_us as u32,
+                });
                 Ok(())
             }
             _ => self.queue_message(STREAM_DATAGRAM, datagram.to_vec()),

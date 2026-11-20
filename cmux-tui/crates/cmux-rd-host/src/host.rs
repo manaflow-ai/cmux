@@ -145,6 +145,7 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
         // stream moving while that measurement is still unknown.
         frames_in_flight: 2,
         input_frame_now: opts.flag("input-frame-now"),
+        probe: opts.flag("probe"),
         max_width: opts
             .get("max-width")
             .map(|w| w.parse().map_err(|_| format!("--max-width {w}: a pixel count")))
@@ -510,6 +511,10 @@ fn serve_viewer<S: ViewerStream>(
     // The cursor as metadata where this desktop reports it: the viewer draws one cursor.
     if crate::desktop::reports_cursor() {
         host_caps.push(caps::CURSOR);
+    }
+    // D4 bandwidth probes (`--probe 1`), only to a viewer that reports them.
+    if cfg.probe {
+        host_caps.push(caps::PROBE);
     }
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,

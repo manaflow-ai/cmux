@@ -56,6 +56,9 @@ pub struct SessionCfg {
     /// After injected input, frames skip the frame-rate cap for a short window
     /// (`--input-frame-now 1`; the engine's `input_frame_now`).
     pub input_frame_now: bool,
+    /// D4: probe the path's capacity while the screen is quiet (`--probe 1`; the engine's
+    /// `probe`), for a viewer that offers cap `probe`. Off by default.
+    pub probe: bool,
     /// macOS: stream at most this many pixels wide (`--max-width`; the display's aspect is
     /// kept). Encode time grows with the pixel count (remote-desktop-mac-host.md section 6).
     #[cfg_attr(target_os = "linux", allow(dead_code))]
@@ -266,6 +269,9 @@ impl MediaSession {
                 path: PathKind::ViaCloudRegion,
                 frames_in_flight: cfg.frames_in_flight,
                 input_frame_now: cfg.input_frame_now,
+                // A viewer that does not report probe arrivals would read them as silence.
+                probe: cfg.probe
+                    && negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::PROBE),
                 ..EngineConfig::default()
             },
             now_us(),
@@ -330,10 +336,17 @@ impl MediaSession {
             if let Err(e) = self.send_paced(carrier) {
                 return format!("send failed: {e}");
             }
+            if let Err(e) = self.send_probe(carrier) {
+                return format!("send failed: {e}");
+            }
             // The engine's deadlines and the pacer's next datagram.
             let deadline = [
                 self.engine.next_deadline_us(),
                 self.pacer.as_ref().and_then(Pacer::next_deadline_us),
+                // D4: the next probe train, asked for only on an empty pacer.
+                self.engine
+                    .next_probe_us()
+                    .filter(|_| self.pacer.as_ref().is_some_and(Pacer::is_empty)),
             ]
             .into_iter()
             .flatten()
@@ -568,6 +581,20 @@ impl MediaSession {
             }
         }
         Ok(())
+    }
+
+    /// D4: a probe train the engine asks for while the screen is quiet, queued only on an
+    /// empty pacer (behind nothing, and every frame or repair pushed later goes ahead of
+    /// it). Without a pacer nothing probes: a train is never one unpaced burst.
+    fn send_probe(&mut self, carrier: &mut dyn Carrier) -> std::io::Result<()> {
+        let Some(pacer) = self.pacer.as_mut() else { return Ok(()) };
+        if !pacer.is_empty() {
+            return Ok(());
+        }
+        let now = now_us();
+        let Some(train) = self.engine.probe_train(now) else { return Ok(()) };
+        pacer.push_probe(train.datagrams, train.rate_bps, now);
+        self.send_paced(carrier)
     }
 
     /// D12: the path came back from an outage. What queued in the pacer while the
@@ -889,6 +916,7 @@ mod encode_off_loop_tests {
             upstream_record_max_bytes: 0,
             frames_in_flight: 2,
             input_frame_now: false,
+            probe: false,
             max_width: None,
             capture: crate::capture_backend::CaptureBackend::default(),
         }

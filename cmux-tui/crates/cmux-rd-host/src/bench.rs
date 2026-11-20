@@ -434,6 +434,13 @@ impl Viewer {
                     let _ = self.send_datagram(&datagram);
                 }
             }
+            // D4 bandwidth probe padding (cap `probe`): reported in feedback, never reassembled.
+            DatagramKind::Probe => {
+                self.arrivals.push(Arrival {
+                    transport_seq: h.transport_seq,
+                    arrival_us: (now / 1000) as u32,
+                });
+            }
             DatagramKind::InputAck if payload.len() >= 4 => {
                 self.sender
                     .ack(u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]));
@@ -831,11 +838,12 @@ pub fn run(opts: &Opts) -> Res<()> {
             None => None,
         },
         service: cmux_rd_core::service::SERVICE_DESKTOP.into(),
-        // Upstream media needs both caps (rd change C4).
+        // Upstream media needs both caps (rd change C4). This viewer reports bandwidth
+        // probes (D4); a host sends them only with its own `--probe 1`.
         caps: if upstream.is_some() {
-            vec![caps::UP_MEDIA.into(), caps::STREAM_OPEN.into()]
+            vec![caps::UP_MEDIA.into(), caps::STREAM_OPEN.into(), caps::PROBE.into()]
         } else {
-            Vec::new()
+            vec![caps::PROBE.into()]
         },
     })?;
     v.io.send_control(&Control::Start {
