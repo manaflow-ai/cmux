@@ -345,6 +345,10 @@ def runner_label_errors(runs_on: str) -> list[str]:
     for index, operand in enumerate(chain):
         conditions, result = (operand[1][:-1], operand[1][-1]) if operand[0] == "and" else ([], operand)
         label = _string(result)
+        # The gate switch passes only in the exact gate expressions above, ahead of the trusted selector.
+        if any("vars.CI_GATE_SKIP_FLEET" in _refs(condition) for condition in conditions):
+            errors.append(f"{runs_on!r}: operand {index + 1} reads CI_GATE_SKIP_FLEET outside the gate expression")
+            continue
         if label is not None and (blacksmith.fullmatch(label) or label in FLEET_EPHEMERAL_LABELS
                                   or label in OWNED_EPHEMERAL_LABELS):
             continue
