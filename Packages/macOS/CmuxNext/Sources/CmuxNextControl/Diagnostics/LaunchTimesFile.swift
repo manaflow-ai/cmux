@@ -150,6 +150,14 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
     public var homeFirstPageMs: Double?
     /// What showed Home: `mark` (its first page came) or `deadline` (``LaunchReveal``'s deadline passed first).
     public var homeRevealedBy: String?
+    /// Process start to the window taking keys (`window_usable`): Home's message field has the keyboard in the key
+    /// window. Nil when it had not by the time the record was written (the keyboard went elsewhere, no Home).
+    public var windowUsableMs: Double?
+    /// Process start to the first live output of a shell this launch (`first_shell_live`), when one came before the record.
+    public var firstShellLiveMs: Double?
+    /// The launch found no launch snapshot (`launch.no_snapshot`): nothing saved to show, a fresh install's launch.
+    /// Nil in records written before this field.
+    public var noSnapshot: Bool?
     /// Process start to the restored front tab's agent chat on screen, drawn with its recent messages
     /// (`agent_pane.painted`); nil when the front tab is not a chat or it has not drawn yet (``LaunchPriorChat``).
     public var priorChatPaintedMs: Double?
@@ -161,13 +169,17 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
     /// The launch before this one (in the file) was another build or there was none: the first launch of
     /// this bundle's build, so likely the first exec of its files.
     public var firstLaunchOfBuild: Bool
+    /// Process start to each of ``phaseMarks`` this launch reached, by mark name; nil in a row written before
+    /// it. A regression names its phase from the file alone (2026-11-16: main to first frame, 650 to 1900 ms).
+    public var phases: [String: Double]?
 
     enum CodingKeys: String, CodingKey {
         case startedAt = "started_at", version, build, commit
         case preMainMs = "pre_main_ms", mainMs = "main_ms", firstWindowFrameMs = "first_window_frame_ms"
         case homeFirstPageMs = "home_first_page_ms", homeRevealedBy = "home_revealed_by"
+        case windowUsableMs = "window_usable_ms", firstShellLiveMs = "first_shell_live_ms", noSnapshot = "no_snapshot"
         case priorChatPaintedMs = "prior_chat_painted_ms", priorChatLiveMs = "prior_chat_live_ms"
-        case prewarmed, firstLaunchOfBuild = "first_launch_of_build"
+        case prewarmed, firstLaunchOfBuild = "first_launch_of_build", phases
     }
 
     /// The record of a launch whose marks are `marks` (name to milliseconds since process start).
@@ -183,13 +195,26 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
         if let main = marks["main_start"], let frame = marks["first_window_frame_committed"] { mainMs = round(frame - main) }
         homeFirstPageMs = round(marks["home.saved_page_shown"] ?? marks["home.first_page"])
         if marks["reveal.home"] != nil { homeRevealedBy = marks["reveal.home.by_deadline"] != nil ? "deadline" : "mark" }
+        windowUsableMs = round(marks["window_usable"])
+        firstShellLiveMs = round(marks["first_shell_live"])
+        noSnapshot = marks["launch.no_snapshot"] != nil
         if let chat = LaunchPriorChat.times(marks) { (priorChatPaintedMs, priorChatLiveMs) = (round(chat.painted), round(chat.live)) }
+        let phases = marks.filter { Self.phaseMarks.contains($0.key) }.mapValues { ($0 * 10).rounded() / 10 }
+        self.phases = phases.isEmpty ? nil : phases
         self.prewarmed = prewarmed
         firstLaunchOfBuild = true
     }
 
     /// The marks the record waits for before it is written: the first window frame and Home's reveal.
     public static let awaitedMarks = ["first_window_frame_committed", "reveal.home"]
+
+    /// The launch marks a row keeps under ``phases``, in launch order (`cmux app launch-times --phases`).
+    public static let phaseMarks = [
+        "did_finish_launching_start", "dfl.settings_read", "dfl.services", "dfl.bind", "dfl.menu",
+        "daemon.prepare_start", "daemon.prepare_end", "daemon.socket_connected", "daemon_connected",
+        "launch_snapshot_applied", "launch_snapshot_shown", "dfl.windows", "did_finish_launching_end",
+        "cef.initialize_start", "cef.ready", "reveal.sidebar", "reveal.home",
+    ]
 }
 
 /// `~/Library/Application Support/<bundle id>/launch-times.jsonl`: one ``LaunchTimesRecord`` per

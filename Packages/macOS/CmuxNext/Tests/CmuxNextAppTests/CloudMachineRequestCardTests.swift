@@ -17,6 +17,14 @@ import Testing
 
     @MainActor final class Stops { var count = 0 }
 
+    /// A machine made with no size named is 4 vCPU / 16 GB / 64 GB disk. RED before: 2 vCPU / 4 GB / 16 GB,
+    /// whose disk a chat's 23 GB folder could not fit (2026-11-13).
+    @Test func theDefaultMachineIsFourCoresSixteenGigabytesAndASixtyFourGigabyteDisk() {
+        let machine = CloudMachineCreateFlow.named(" builder ")
+        #expect(machine.name == "builder")
+        #expect((machine.cpu, machine.memoryMB, machine.diskMB) == (4, 16_384, 65_536))
+    }
+
     func make() -> (AppServices, NSWindow) {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless], backing: .buffered, defer: false)

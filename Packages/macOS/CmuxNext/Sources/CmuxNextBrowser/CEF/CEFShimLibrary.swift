@@ -36,6 +36,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setDefaultSearch: @convention(c) (UnsafePointer<CChar>?) -> Void
     /// The managed preference domain Chromium reads Chrome policies from (`CEFRuntime.chromePolicyIDSetting`).
     let setChromePolicyID: @convention(c) (UnsafePointer<CChar>?) -> Void
+    /// cmux's own Safe Storage keychain item (`CEFKeychainItem`); nil in a shim without it.
+    let setKeychainItem: (@convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32)?
     let setBackgroundColor: @convention(c) (UInt32) -> Void
     let browserSetBackgroundColor: @convention(c) (Int32, UInt32) -> Int32
     /// A see-through page (fork API 17, `CEFTab.pageSeeThrough`); 0 when the fork lacks it.
@@ -50,6 +52,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let browserSetLayerHosting: @convention(c) (Int32, Int32) -> UInt32
     /// Fork API 27: `cmux_shim_browser_set_resize_sync` (deadline in ms, 0 never holds the commit).
     let browserSetResizeSync: @convention(c) (Int32, Int32) -> Int32
+    /// Fork API 32: `cmux_shim_browser_resize_fence(browser, port, timeout ms, done, context)` (1 when the fork took
+    /// the fence); nil in an older shim.
+    let browserResizeFence: (@convention(c) (Int32, UInt32, Int32,
+                                             (@convention(c) (UnsafeMutableRawPointer?, Int32) -> Void)?,
+                                             UnsafeMutableRawPointer?) -> Int32)?
     /// Fork API 30: `cmux_shim_browser_set_detached_hosting` (1 when the fork took it); nil in an older shim.
     let browserSetDetachedHosting: (@convention(c) (Int32, Int32) -> Int32)?
     let initialize: @convention(c) (
@@ -185,6 +192,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setPasswordGenerationEnabled: @convention(c) (Int32) -> Int32
     /// Password filling on or off in one tab (off while an agent drives it).
     let setPasswordFill: @convention(c) (Int32, Int32) -> Int32
+    /// WebAuthn refused (1) or allowed (0) in one tab (refused while an agent drives it; fork API 23).
+    let setWebAuthnMode: @convention(c) (Int32, Int32) -> Int32
     /// Profile (Touch ID) passkeys, metadata only (fork API 18; see CEFRuntime+Passkeys).
     let passkeysAvailable: @convention(c) () -> Int32
     let passkeysList: @convention(c) (UnsafePointer<CChar>?, Int32) -> Int32
@@ -349,6 +358,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         setExtensionDeveloperMode = try r("cmux_shim_set_extension_developer_mode")
         setDefaultSearch = try r("cmux_shim_set_default_search")
         setChromePolicyID = try r("cmux_shim_set_chrome_policy_id")
+        setKeychainItem = r.optional("cmux_shim_set_keychain_item")
         setBackgroundColor = try r("cmux_shim_set_background_color")
         browserSetBackgroundColor = try r("cmux_shim_browser_set_background_color")
         tabSetTransparentBackground = try r("cmux_shim_tab_set_transparent_background")
@@ -357,6 +367,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         fileDialogAnswer = try r("cmux_shim_file_dialog_answer")
         browserSetLayerHosting = try r("cmux_shim_browser_set_layer_hosting")
         browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
+        browserResizeFence = r.optional("cmux_shim_browser_resize_fence")
         browserSetDetachedHosting = r.optional("cmux_shim_browser_set_detached_hosting")
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
@@ -444,6 +455,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         passwordPromptAnswer = try r("cmux_shim_password_prompt_answer")
         setPasswordGenerationEnabled = try r("cmux_shim_set_password_generation_enabled")
         setPasswordFill = try r("cmux_shim_set_password_fill")
+        setWebAuthnMode = try r("cmux_shim_tab_set_webauthn_mode")
         passkeysAvailable = try r("cmux_shim_passkeys_available")
         passkeysList = try r("cmux_shim_passkeys_list")
         passkeyDelete = try r("cmux_shim_passkey_delete")

@@ -38,7 +38,7 @@ import Testing
         card.frame = NSRect(x: 0, y: 0, width: 240, height: SidebarNoticeCardView.height(for: notice, width: 240))
         card.configure(notice)
         card.layoutSubtreeIfNeeded()
-        let pad = Metrics.space3
+        let pad = Metrics.cardPadding
         #expect(card.titleLabel.frame.minX == pad, "the title is indented: \(card.titleLabel.frame)")
         let button = card.trailingButton
         #expect(!button.isHidden)

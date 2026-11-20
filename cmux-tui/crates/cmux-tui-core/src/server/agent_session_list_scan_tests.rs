@@ -29,6 +29,12 @@ const TUI_CORE_V1_LIST_USES: &[Named<'static>] = &[
         "the children verb's fallback (7c part two)",
     ),
     (
+        "cmux-tui-core/src/server/agent_session_side_known.rs",
+        "\"_acpmux/sessions\"",
+        1,
+        "the side chats a team list hides after a restart: every session's persisted `tags.side`",
+    ),
+    (
         "cmux-tui-core/src/server/agent_session_stream.rs",
         "\"_acpmux/sessions\"",
         1,

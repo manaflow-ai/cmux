@@ -50,6 +50,12 @@ nonisolated enum RemoteViewStrings {
 
     static var stoppedTitle: String { t("rd.state.stopped.title", "Host stopped sharing") }
 
+    static var hostFailedTitle: String { t("rd.state.hostFailed.title", "Host couldn’t share its screen") }
+    /// The host's own reason (`failed: <reason>`), named for the host.
+    static func hostFailedDetail(_ host: String, _ reason: String) -> String {
+        String(format: t("rd.state.hostFailed.detail", "%1$@ couldn’t share its screen: %2$@"), host, reason)
+    }
+
     static var viewerStoppedTitle: String { t("rd.state.viewerStopped.title", "Session ended") }
     static var lostTitle: String { t("rd.state.lost.title", "Connection lost") }
     static var deniedTitle: String { t("rd.state.denied.title", "Not allowed") }

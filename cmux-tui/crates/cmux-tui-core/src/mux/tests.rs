@@ -27,6 +27,10 @@ mod agent_roster_poison;
 mod agent_roster_restore;
 mod agent_screen_exit;
 mod agent_start_mark;
+#[cfg(unix)]
+mod agent_turn_end_commits;
+#[cfg(unix)]
+mod agent_turn_end_crash_order;
 pub(crate) mod at_rest_writers;
 mod cell_pixel_fanout;
 mod cell_pixels;
@@ -44,6 +48,8 @@ mod dock_columns;
 mod exit_snapshot_cost;
 pub(crate) mod floating_panes;
 mod history_agent_fold;
+#[cfg(unix)]
+mod history_agent_save_stride;
 #[cfg(unix)]
 mod holder_late_start;
 mod input_queue_backstop;
@@ -101,6 +107,8 @@ mod workspace_close_cost;
 #[cfg(unix)]
 mod workspace_close_time;
 mod workspace_materialize;
+#[cfg(unix)]
+mod workspace_registry_stress;
 mod workspaces;
 mod writer_lock_order;
 

@@ -65,7 +65,7 @@ public final class ActionRegistry {
     public var disabledFeatures: Set<ActionFeature> = [] { didSet { shortcutIndex = nil } }
     /// Why a cmux.json setting turns `id` off now (`browser.import.enabled`), or nil. Such an action
     /// leaves the palette, menus and context menus, and a run is refused with this reason (the
-    /// person's own choice, not `DisabledFeatures`). The App installs it.
+    /// person's own choice, not `DisabledFeatures`). Owners add theirs with `addSettingOffReason` (docks, hang reports too).
     @ObservationIgnored public var settingOffReason: @MainActor (ActionID) -> String? = { _ in nil }
     /// Debug-only actions: offered to the person only while Internal Developer Mode is on, to scripts
     /// wherever developer tools exist (`DebugActionGate`). The App installs the setting's read.
@@ -145,6 +145,13 @@ public final class ActionRegistry {
     /// Ways past an unavailable reason that a person's own gesture may take (``ActionRecovery``),
     /// asked in order with the action and its current reason; the first non-nil answer wins.
     @ObservationIgnored public var unavailableRecoveries: [@MainActor (_ action: ActionID, _ reason: String) -> ActionRecovery?] = []
+    /// Ways to hold a person's run whose handler refused for a reason that passes by itself (cmux still
+    /// starting), asked in order with the run's action, invocation and reason. One that returns true
+    /// keeps the run to perform later, and the refusal is not shown (`refuse(_:quiet:)`). The CLI,
+    /// MCP, scripts and pages are refused as before.
+    @ObservationIgnored public var refusalDeferrals: [@MainActor (_ action: ActionID, _ invocation: ActionInvocation, _ reason: String) -> Bool] = []
+    /// The person's innermost run whose handler runs now, while any ``refusalDeferrals`` is set.
+    @ObservationIgnored var personRun: PersonRun?
     /// Writes a Copy row's text (the App's `AppActionContext.copy`): to the general pasteboard; a test,
     /// whose host may reach no pasteboard, records it instead.
     @ObservationIgnored public var copyText: @MainActor (String) -> Void = { NSPasteboard.general.clearContents(); NSPasteboard.general.setString($0, forType: .string) }
@@ -293,6 +300,24 @@ public final class ActionRegistry {
     public private(set) var duplicateBindings: [ActionID] = []
     private var placeholders: Set<ActionID> = []
 
+    /// Ids a handler tried to bind that the catalog does not have, in bind order: a typo, or an
+    /// action the Rust source has that the pinned app FFI release does not carry yet (a Swift
+    /// step B landed before its re-pin, docs/ci/app-ffi-release.md). The bind returns false and
+    /// the action stays unbound. Checked by the `everyBoundActionIsInTheCatalog` test, never
+    /// trapped: a Debug build must still launch on a catalog that lags its Swift; the app logs a
+    /// fault.
+    public private(set) var uncataloguedBindings: [ActionID] = []
+
+    /// The descriptor a bind takes for `id`, or nil (noting `id` in ``uncataloguedBindings``)
+    /// when the catalog does not have it.
+    func bindingDescriptor(for id: ActionID) -> ActionDescriptor? {
+        guard let descriptor = descriptor(for: id) else {
+            uncataloguedBindings.append(id)
+            return nil
+        }
+        return descriptor
+    }
+
     func noteBinding(_ id: ActionID, placeholder: Bool) {
         let canonical = canonicalID(for: id)
         if indexByID[canonical] != nil, !placeholders.contains(canonical) { duplicateBindings.append(id) }
@@ -345,7 +370,7 @@ public final class ActionRegistry {
         invoke: (@MainActor (ActionInvocation) -> Void)?,
         handler: @escaping @MainActor () -> Void
     ) -> Bool {
-        guard let descriptor = descriptor(for: id) else { return false }
+        guard let descriptor = bindingDescriptor(for: id) else { return false }
         noteBinding(descriptor.id, placeholder: false)
         register(Action(
             id: descriptor.id,

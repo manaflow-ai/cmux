@@ -84,9 +84,12 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// The usage rules the workspace's agent chats on this Mac break (their acpmux lanes'
     /// `usageWarnings`, one line each): the row's warning badge and its tooltip. Empty: no badge.
     public var usageWarnings: [String] = []
-    /// Set only when the user chose an icon or color. When nil, the row
+    /// The user's icon or color, else the shown tab's page icon or favicon (``iconFromShownTab``). When nil, the row
     /// draws no icon (WORKSPACE-ROWS-NO-DEFAULT-ICON).
     public var icon: WorkspaceIcon?
+    /// ``icon`` is the shown tab's (its page's favicon, page icon or globe), not one the user chose: a pinned row
+    /// draws its pin there, not the tab's mark (msg 40501, "shows gh logo instead of the pin logo").
+    public var iconFromShownTab = false
     /// The workspace's own color (workspace-metadata-v1 `color`), whatever icon it shows: the row's
     /// leading rail or fill under `workspaceColors.indicatorStyle` (#25653).
     public var color: GroupColor?
@@ -145,6 +148,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// compact row has no second line of its own, Leo 2026-10-30). Nil for
     /// every other row.
     public var stage: String?
+    /// Its front tab is a New Tab page whose Send starts a Cloud chat (`AgentCloudStartTitles`): the row draws the
+    /// cloud mark from the Send, as the chat's own row on its machine does once it opens (``WorkspaceRowContent/runsInCloud``).
+    public var startsInCloud = false
     /// Archived in the sidebar document (`extra.archived`, or under an archived group): the row
     /// draws dimmed at the end of its list (plans/cmux-next/archiving-DESIGN.md). Set by `arrange`.
     public var isArchived = false

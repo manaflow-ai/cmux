@@ -1,11 +1,10 @@
 //! Screen capture: XShm GetImage on the root window, driven by XDamage raw rectangles.
 
-use crate::shm::ShmSeg;
+use crate::shm::{ServerAccess, ShmSeg};
 use crate::Res;
 use std::os::fd::{AsRawFd, RawFd};
 use x11rb::connection::Connection;
 use x11rb::protocol::damage::{ConnectionExt as _, ReportLevel};
-use x11rb::protocol::shm::ConnectionExt as _;
 use x11rb::protocol::xproto::{ConnectionExt as _, ImageFormat, Window};
 use x11rb::protocol::Event;
 use x11rb::rust_connection::RustConnection;
@@ -58,7 +57,7 @@ impl Readback {
 
 /// Whether the X server on `conn` takes a shared segment; `Err` says why not.
 pub fn shm_works(conn: &RustConnection, len: usize) -> Res<ShmSeg> {
-    ShmSeg::new(conn, len)
+    ShmSeg::new(conn, len, ServerAccess::ReadWrite)
 }
 
 /// What the capture logs once when XShm is refused.
@@ -154,9 +153,8 @@ impl Capturer {
         let len = (r.w * r.h * 4) as usize;
         let fmt = ImageFormat::Z_PIXMAP;
         let (x, y, w, h) = (r.x as i16, r.y as i16, r.w as u16, r.h as u16);
-        if let Some(shm) = self.shm.as_ref() {
-            self.conn.shm_get_image(self.root, x, y, w, h, !0, fmt.into(), shm.seg, 0)?.reply()?;
-            return Ok(&shm.as_slice()[..len]);
+        if let Some(shm) = self.shm.as_mut() {
+            return shm.get_image(&self.conn, self.root, (x, y), (w, h));
         }
         let reply = self.conn.get_image(fmt, self.root, x, y, w, h, !0)?.reply()?;
         if reply.data.len() < len {
