@@ -58,7 +58,7 @@ impl Customize {
     pub fn recover_plan(&self, expiry: &Expiry) -> Option<RecoverPlan> {
         let layers = self.code_layers_on();
         let overlay = self.overlay(expiry.app_abi).is_some_and(|o| !o.library && o.enabled);
-        let target = if self.live_problems() { self.good_generation() } else { None };
+        let target = if self.live_files_fail() { self.good_generation() } else { None };
         if layers.is_empty() && !overlay && target.is_none() {
             return None;
         }
@@ -112,7 +112,7 @@ impl Customize {
             out.overlay_off = true;
             out.said.push("turned the web-dev overlay off".to_owned());
         }
-        if self.live_problems()
+        if self.live_files_fail()
             && let Some(target) = self.good_generation()
         {
             let restored = self.rollback(Some(target.n), origin, now)?;
@@ -193,7 +193,7 @@ impl Customize {
     }
 
     /// Some live file does not load.
-    fn live_problems(&self) -> bool {
+    fn live_files_fail(&self) -> bool {
         let Ok(scan) = tree::scan(self.roots()) else { return false };
         let mut bytes = BTreeMap::new();
         for path in scan.tree.keys() {

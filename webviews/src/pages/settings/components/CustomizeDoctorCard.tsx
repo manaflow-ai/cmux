@@ -190,9 +190,9 @@ export function CustomizeDoctorView({
         ))}
       </div>
       {said && (
-        <div className="row-error" role="status" data-doctor-said="">
+        <output className="row-error" data-doctor-said="">
           {said}
-        </div>
+        </output>
       )}
       {refusal && (
         <div className="row-error" role="alert" data-doctor-refusal="">

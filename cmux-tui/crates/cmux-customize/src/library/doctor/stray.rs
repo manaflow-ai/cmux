@@ -337,7 +337,10 @@ fn json_files(dir: &Path, limit: usize) -> Vec<PathBuf> {
     out
 }
 
-/// The home folder when the config folder is the usual `~/.config/cmux`.
+/// The home folder when the config folder is the one under it, so the classic
+/// app's files are read only for the person's own setup, never a test's or an
+/// overridden root's. Only read: nothing here writes there.
 fn home_of(config: &Path) -> Option<PathBuf> {
-    config.ends_with(".config/cmux").then(|| config.parent()?.parent().map(Path::to_path_buf))?
+    let home = PathBuf::from(std::env::var_os("HOME")?);
+    config.starts_with(&home).then_some(home)
 }

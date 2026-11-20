@@ -97153,7 +97153,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Put back the last %@ that loaded?"
+            "value": "Restore the last %@ that loaded?"
           }
         },
         "ar": {
