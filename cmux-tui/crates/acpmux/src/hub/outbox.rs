@@ -534,10 +534,6 @@ impl Outbox {
         in_memory || self.disk.lock().unwrap_or_else(|e| e.into_inner()).saved >= change
     }
 
-    pub(crate) fn team_receipt(&self, id: &str) -> Option<Delivery> {
-        self.mesh_origin(id).filter(Delivery::team_origin)
-    }
-
     /// The record of hub message `id` this daemon posted, team or direct.
     pub(crate) fn mesh_origin(&self, id: &str) -> Option<Delivery> {
         self.book().deliveries.get(&format!("mesh:{id}")).filter(|d| d.is_team_receipt()).cloned()
