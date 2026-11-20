@@ -285,3 +285,24 @@ fn app_chat_drive_summary_reads_an_older_apps_wheel() {
     assert!(text.contains("Wheel: 30 of 30 ticks of 100 px sent;"), "{text}");
     assert!(!text.contains("transcript moved"), "{text}");
 }
+
+/// A run cut off before its text was typed says how much went in and why; a complete one does not.
+#[test]
+fn app_chat_drive_summary_tells_cut_off_typing_from_done() {
+    let mut cut = report();
+    cut["page"]["typed"] = json!(2);
+    cut["page"]["type_asked"] = json!(6);
+    cut["page"]["type_stopped"] = json!("time_up");
+    let text = human(&cut, &english().app_control);
+    assert!(
+        text.contains(
+            "Typed 2 of 6 characters, then stopped (time_up); what was typed stays in the draft\n"
+        ),
+        "{text}"
+    );
+    let mut done = report();
+    done["page"]["typed"] = json!(6);
+    done["page"]["type_asked"] = json!(6);
+    let text = human(&done, &english().app_control);
+    assert!(text.contains("Typed 6 characters; they stay in the draft\n"), "{text}");
+}

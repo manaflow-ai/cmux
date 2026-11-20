@@ -150,6 +150,7 @@ pub(crate) struct ChatDriveMessages {
     pub flips: &'static str,
     pub hover_frames: &'static str,
     pub typed: &'static str,
+    pub typed_cut: &'static str,
     pub engine_counters: &'static str,
     pub engine_counters_unavailable: &'static str,
 }
@@ -441,6 +442,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         flips: "Flips: focus {focus}, :focus-within {within}, page inactive {inactive}",
         hover_frames: "Hovered in {hovered} of {frames} frames; hover card open in {card}",
         typed: "Typed {count} characters; they stay in the draft",
+        typed_cut: "Typed {count} of {asked} characters, then stopped ({why}); what was typed stays in the draft",
         engine_counters: "Engine: {counters}",
         engine_counters_unavailable: "Engine layout and style counts: not available ({reason})",
     },
@@ -639,6 +641,7 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         flips: "切り替わり: フォーカス {focus}、:focus-within {within}、ページ非アクティブ {inactive}",
         hover_frames: "ホバー中 {hovered} / {frames} フレーム、ホバーカード表示 {card} フレーム",
         typed: "{count} 文字を入力しました。下書きに残っています",
+        typed_cut: "{asked} 文字中 {count} 文字を入力して止まりました ({why})。入力した分は下書きに残っています",
         engine_counters: "エンジン: {counters}",
         engine_counters_unavailable: "エンジンのレイアウトとスタイルの回数: 取得できません ({reason})",
     },
