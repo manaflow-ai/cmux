@@ -315,13 +315,13 @@ install_cli() {
   sum="$(json_hex "cmux-tui-$cli_target" "$tmp/manifest.json")"
   [ "${#sum}" -eq 64 ] || return 1
   cli="$HOME/.cmux/bin/cmux"
-  if [ -x "$cli" ] && [ "$(sha256 "$cli")" = "$sum" ]; then
-    return 0
+  if [ ! -x "$cli" ] || [ "$(sha256 "$cli")" != "$sum" ]; then
+    fetch "$files/$commit/cmux-tui-$cli_target" "$tmp/cmux" || return 1
+    [ "$(sha256 "$tmp/cmux")" = "$sum" ] || return 1
+    mkdir -p "$HOME/.cmux/bin" && [ ! -d "$cli" ] && install -m 755 "$tmp/cmux" "$cli" || return 1
+    say "installed cmux to $cli"
   fi
-  fetch "$files/$commit/cmux-tui-$cli_target" "$tmp/cmux" || return 1
-  [ "$(sha256 "$tmp/cmux")" = "$sum" ] || return 1
-  mkdir -p "$HOME/.cmux/bin"
-  install -m 755 "$tmp/cmux" "$cli"
+  # A repair can follow a shell change even when the binary is current.
   case ":$PATH:" in
     *":$HOME/.cmux/bin:"*) ;;
     *)
@@ -330,12 +330,14 @@ install_cli() {
         bash) profile="$HOME/.bashrc" ;;
         *) profile="" ;;
       esac
-      if [ -n "$profile" ] && ! grep -F "$HOME/.cmux/bin" "$profile" >/dev/null 2>&1; then
-        printf '\n# cmux\nexport PATH="%s:$PATH"\n' "$HOME/.cmux/bin" >>"$profile"
+      path_line='export PATH="$HOME/.cmux/bin:$PATH"'
+      if [ -n "$profile" ] && ! grep -Fxq -e "$path_line" -e "export PATH=\"$HOME/.cmux/bin:\$PATH\"" "$profile" 2>/dev/null; then
+        if ! printf '\n# cmux\n%s\n' "$path_line" >>"$profile"; then
+          say "warning: could not update $profile; run $cli directly or add its directory to PATH"
+        fi
       fi
       ;;
   esac
-  say "installed cmux to $cli"
 }
 install_cli || say "warning: the cmux CLI did not install (acpmux is enough to join); retry later with the same line without a token"
 

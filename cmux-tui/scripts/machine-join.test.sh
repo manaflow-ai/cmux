@@ -367,6 +367,17 @@ suite() {
   check "the CLI came from the selected commit" cmp "$d/home/.cmux/bin/cmux" "$d/serve/cmux"
   check "the binary URL uses the channel commit" grep -Fq '/0bb2eda1a2029e41086d6ef6d2afadd85e99235f/cmux-tui-x86_64-unknown-linux-gnu' "$d/log/argv"
 
+  # The teammate switches to zsh after enrollment. Repair the new profile
+  # without re-downloading the CLI or adding a second entry on the next repair.
+  : >"$d/log/argv"
+  for repair in 1 2; do
+    run_join none SHELL=/bin/zsh
+    check "zsh repair $repair succeeds" rc_is 0
+  done
+  check "new shell can resolve cmux" env -i HOME="$d/home" PATH="$shims" /bin/sh -c '. "$HOME/.zshrc" && [ "$(command -v cmux)" = "$HOME/.cmux/bin/cmux" ]'
+  check "repair adds one PATH entry" test "$(grep -c '^export PATH=' "$d/home/.zshrc")" = 1
+  check "repair did not download the CLI again" eval '! grep -Fq "/cmux-tui-x86_64-unknown-linux-gnu" "$d/log/argv"'
+
   new_case mismatched-cli-manifest
   sed 's/0bb2eda1a2029e41086d6ef6d2afadd85e99235f/1111111111111111111111111111111111111111/g' "$d/serve/manifest.json" >"$d/wrong-release"
   mv "$d/wrong-release" "$d/serve/manifest.json"
