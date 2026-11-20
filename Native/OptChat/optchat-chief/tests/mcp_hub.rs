@@ -13,11 +13,23 @@ use std::time::{Duration, Instant};
 use optchat_chief::mcp_hub::{Caller, McpHub};
 use serde_json::{Value, json};
 
+/// The fake server's script, copied once to the temp folder: the tests add it as a command
+/// target, which the hub splits on spaces, and a checkout under a folder with a space in its path
+/// (a fleet Mac's "Application Support") would split the path itself.
 fn fake() -> String {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/mcp/fake_mcp.py")
-        .display()
-        .to_string()
+    static COPY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    COPY.get_or_init(|| {
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mcp/fake_mcp.py");
+        let dir =
+            std::env::temp_dir().join(format!("optchat-chief-fake-mcp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let copy = dir.join("fake_mcp.py");
+        std::fs::copy(&source, &copy).unwrap();
+        let path = copy.display().to_string();
+        assert!(!path.contains(' '), "the temp folder has a space: {path}");
+        path
+    })
+    .clone()
 }
 
 struct Rig {
