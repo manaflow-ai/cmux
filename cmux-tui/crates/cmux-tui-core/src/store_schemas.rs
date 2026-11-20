@@ -49,9 +49,11 @@ pub enum Stored {
 /// after a fixed time, and a check that is ended gives no answer. So before
 /// each session after the first, the check reads the clock; at or after
 /// `end` it stops and says how far it is ([`Stored::NotReady`]). The first
-/// session of a call is always read, so that a call after it goes on: a
-/// session that was read once reads faster again. With no `end` it reads
-/// each session.
+/// session of a call is always read, so each call reads 1 session or more.
+/// The check keeps nothing between 2 calls: a call after it starts at the
+/// first session again, in the same order (the session folders sorted by
+/// path), and is faster only because the files are in the file cache. With
+/// no `end` it reads each session.
 pub fn stored_until(state_root: &Path, end: Option<Instant>) -> anyhow::Result<Stored> {
     let mut found = BTreeMap::new();
     let entries = match std::fs::read_dir(state_root) {
@@ -63,29 +65,29 @@ pub fn stored_until(state_root: &Path, end: Option<Instant>) -> anyhow::Result<S
             return Err(error).with_context(|| format!("read {}", state_root.display()));
         }
     };
-    // The session folders that hold a store, each with its stores, before
-    // the first read: an answer before the end names how many there are.
-    let mut sessions: Vec<Vec<(&str, PathBuf)>> = Vec::new();
+    // The session folders that hold a store, before the first read: an
+    // answer before the end names how many there are.
+    let mut sessions: Vec<PathBuf> = Vec::new();
     for entry in entries {
         let session = entry.with_context(|| format!("read {}", state_root.display()))?.path();
-        if !session.is_dir() {
-            continue;
-        }
-        let stores: Vec<(&str, PathBuf)> = STORES
-            .iter()
-            .map(|(name, file, _)| (*name, session.join(file)))
-            .filter(|(_, path)| path.is_file())
-            .collect();
-        if !stores.is_empty() {
-            sessions.push(stores);
+        if session.is_dir() && STORES.iter().any(|(_, file, _)| session.join(file).is_file()) {
+            sessions.push(session);
         }
     }
-    for (sessions_read, stores) in sessions.iter().enumerate() {
+    // The same order in each call.
+    sessions.sort();
+    for (sessions_read, session) in sessions.iter().enumerate() {
         if sessions_read > 0 && end.is_some_and(|end| Instant::now() >= end) {
             return Ok(Stored::NotReady { sessions: sessions.len(), sessions_read });
         }
-        for (name, path) in stores {
-            if let Some(version) = schema_version(path)? {
+        for (name, file, _) in STORES {
+            let path = session.join(file);
+            // A store can go away after the listing (a session that is
+            // reset is renamed, then deleted): then it is no store.
+            if !path.is_file() {
+                continue;
+            }
+            if let Some(version) = schema_version(&path)? {
                 let newest = found.entry((*name).to_string()).or_insert(version);
                 *newest = (*newest).max(version);
             }
@@ -123,6 +125,12 @@ fn schema_version(path: &Path) -> anyhow::Result<Option<i64>> {
 
 const USAGE: &str = "usage: cmux-tui __store-schemas [--stored [--within-ms N]]";
 
+/// The time of `--within-ms N`: `text` as a count of milliseconds, nil when
+/// it is not one.
+pub fn within_of(text: &str) -> Option<Duration> {
+    text.parse::<u64>().ok().map(Duration::from_millis)
+}
+
 /// `cmux-tui __store-schemas [--stored [--within-ms N]]`: one JSON object
 /// of store name to schema, what this build reads or (`--stored`) what the
 /// state directory holds. Internal plumbing for the app's build stamp and
@@ -130,8 +138,8 @@ const USAGE: &str = "usage: cmux-tui __store-schemas [--stored [--within-ms N]]"
 ///
 /// `--within-ms N` is the check's own end time, N milliseconds after its
 /// start, below the time at which its caller ends the process. A check that
-/// is not at its end then prints
-/// `{"not_ready":{"sessions":M,"sessions_read":N}}` and still exits 0
+/// is not at its end then stops before the next session, prints
+/// `{"not_ready":{"sessions":M,"sessions_read":R}}` and still exits 0
 /// ([`stored_until`]). A caller that knows only the object of numbers reads
 /// that as no answer, as it reads a process that was ended.
 pub fn run(args: &[String]) -> Result<String, String> {
@@ -140,7 +148,7 @@ pub fn run(args: &[String]) -> Result<String, String> {
         [] => return serde_json::to_string(&readable()).map_err(|error| error.to_string()),
         [flag] if flag == "--stored" => None,
         [flag, within, millis] if flag == "--stored" && within == "--within-ms" => {
-            Some(Duration::from_millis(millis.parse().map_err(|_| USAGE.to_string())?))
+            Some(within_of(millis).ok_or_else(|| USAGE.to_string())?)
         }
         _ => return Err(USAGE.to_string()),
     };

@@ -8,13 +8,21 @@
 //! Each state root here is a temp folder with session folders that hold one
 //! small registry file with a stored schema number and nothing else: the
 //! check reads that number only.
+//!
+//! No row here measures a time. 2 rows call the check's functions of
+//! cmux-tui-core directly, with an end time that is past or far ahead and
+//! with the text of `--within-ms`: the executable cannot show those with no
+//! wait.
 
 #![cfg(unix)]
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use std::time::{Duration, Instant};
 
+use cmux_tui_core::store_schemas::{Stored, stored_until, within_of};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
@@ -29,8 +37,14 @@ fn sessions_of(folder: &Path) -> std::path::PathBuf {
 /// A test folder whose state root has `sessions` session folders, each with
 /// a registry file whose stored schema number is `number`.
 fn state_root(sessions: usize, number: i64) -> tempfile::TempDir {
+    state_root_of(&vec![number; sessions])
+}
+
+/// A test folder whose state root has one session folder for each of
+/// `numbers`, with a registry file whose stored schema number is that number.
+fn state_root_of(numbers: &[i64]) -> tempfile::TempDir {
     let root = tempfile::tempdir().unwrap();
-    for index in 0..sessions {
+    for (index, number) in numbers.iter().enumerate() {
         let session = sessions_of(root.path()).join(format!("session-{index}"));
         fs::create_dir_all(&session).unwrap();
         let store = Connection::open(session.join(REGISTRY_FILE)).unwrap();
@@ -48,8 +62,16 @@ fn state_root(sessions: usize, number: i64) -> tempfile::TempDir {
 /// after `--stored`: its exit code, its stdout as JSON (null when it is not
 /// JSON) and its stderr. Its config and its log are files of `folder`.
 fn check(folder: &Path, arguments: &[&str]) -> (Option<i32>, Value, String) {
+    let mut all = vec!["--stored"];
+    all.extend_from_slice(arguments);
+    call(folder, &all)
+}
+
+/// One run of `cmux-tui __store-schemas` with `arguments` and no other
+/// argument, for the state root of `folder`: as [`check`] gives it.
+fn call(folder: &Path, arguments: &[&str]) -> (Option<i32>, Value, String) {
     let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
-        .args(["__store-schemas", "--stored"])
+        .arg("__store-schemas")
         .args(arguments)
         .env("CMUX_TUI_STATE_DIR", sessions_of(folder))
         .env("CMUX_TUI_CONFIG", folder.join("config.json"))
@@ -115,5 +137,74 @@ fn a_folder_with_no_store_is_not_counted_as_a_session() {
         (code, answer),
         (Some(0), json!({ "not_ready": { "sessions": 2, "sessions_read": 1 } })),
         "stderr: {stderr}"
+    );
+}
+
+/// The answer is the newest number over the sessions: not the first one, not
+/// the last one, not the oldest.
+#[test]
+fn a_check_of_sessions_with_different_numbers_gives_the_newest() {
+    let root = state_root_of(&[13, 15, 14]);
+    let (code, answer, stderr) = check(root.path(), &[]);
+    assert_eq!((code, answer), (Some(0), json!({ "workspace_registry": 15 })), "stderr: {stderr}");
+}
+
+/// A state root that is not there has no session: the answer is an empty
+/// object, with an end time and with none.
+#[test]
+fn a_state_root_that_is_not_there_gives_an_empty_object() {
+    let root = tempfile::tempdir().unwrap();
+    let forms: [&[&str]; 2] = [&[], &["--within-ms", "0"]];
+    for arguments in forms {
+        let (code, answer, stderr) = check(root.path(), arguments);
+        assert_eq!((code, answer), (Some(0), json!({})), "{arguments:?}, stderr: {stderr}");
+    }
+}
+
+/// Each form of the arguments that is not `--stored` alone or `--stored
+/// --within-ms N` with a count of milliseconds is the usage error: exit 1
+/// and no answer, never a check with no end time.
+#[test]
+fn a_wrong_form_of_the_arguments_is_the_usage_error() {
+    let root = state_root(1, 15);
+    let forms: [&[&str]; 5] = [
+        &["--stored", "--within-ms"],
+        &["--stored", "--within-ms", "x"],
+        &["--stored", "--within-ms", "-1"],
+        &["--stored", "--within-ms", "5", "--within-ms", "5"],
+        &["--within-ms", "5"],
+    ];
+    for form in forms {
+        let (code, answer, stderr) = call(root.path(), form);
+        assert_eq!((code, answer), (Some(1), Value::Null), "{form:?}, stderr: {stderr}");
+        assert!(stderr.contains("usage: cmux-tui __store-schemas"), "{form:?}, stderr: {stderr}");
+    }
+}
+
+/// `--within-ms N` is a count of milliseconds.
+#[test]
+fn a_within_ms_of_1500_is_1500_milliseconds() {
+    assert_eq!(within_of("1500"), Some(Duration::from_millis(1500)));
+    assert_eq!(within_of("0"), Some(Duration::ZERO));
+    for text in ["", "x", "-1", "1.5", "5ms"] {
+        assert_eq!(within_of(text), None, "{text:?}");
+    }
+}
+
+/// The check's function with an end time that is past stops after the first
+/// session; with an end time far ahead it reads each session.
+#[test]
+fn a_check_with_a_past_end_time_stops_and_one_with_a_far_end_time_reads_each_session() {
+    let root = state_root(3, 15);
+    let sessions = sessions_of(root.path());
+    let start = Instant::now();
+    assert_eq!(
+        stored_until(&sessions, Some(start)).unwrap(),
+        Stored::NotReady { sessions: 3, sessions_read: 1 }
+    );
+    let numbers = BTreeMap::from([("workspace_registry".to_string(), 15)]);
+    assert_eq!(
+        stored_until(&sessions, Some(start + Duration::from_secs(3600))).unwrap(),
+        Stored::Schemas(numbers)
     );
 }
