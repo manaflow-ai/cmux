@@ -11,13 +11,12 @@ struct SidebarRemoteSessionTests {
         let experiment = SidebarRemoteHostExperiment()
         let registry = ActionRegistry(catalog: [])
         let sidebar = NSView()
-        let (starts, recorder) = AsyncStream.makeStream(of: MachineID.self)
-        defer { recorder.finish() }
+        var starts: [MachineID] = []
         var settings = CmuxConfigSnapshot.empty
         func menu(_ machine: MachineID) throws -> NSMenu {
             try #require(experiment.menu(NSMenu(), for: .section(.machine(machine)), anchoredIn: sidebar,
                                          settings: settings, registry: registry) { id in
-                recorder.yield(id)
+                starts.append(id)
                 return nil
             })
         }
@@ -33,9 +32,10 @@ struct SidebarRemoteSessionTests {
         let item = try #require(firstMenu.items.first)
         let target = try #require(item.target as? NSObject)
         let selection = try #require(item.action)
-        _ = target.perform(selection, with: item)
-        var iterator = starts.makeAsyncIterator()
-        let requested = await iterator.next()
-        #expect(requested == first)
+        let work = registry.capturingWork { _ = target.perform(selection, with: item) }
+        let create = try #require(work.first)
+        let failure = await create.value
+        #expect(failure == nil)
+        #expect(starts == [first])
     }
 }

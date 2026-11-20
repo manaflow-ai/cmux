@@ -18,9 +18,7 @@ public final class SidebarRemoteHostExperiment {
         case .section(.machine(let machine)) where machine != .local:
             menu.insertItem(RemoteHostMenuAction.item(Self.newSession) {
                 // task-owner: one workspace creation for this menu selection.
-                Task { @MainActor in
-                    if let failure = await startSession(machine) { registry.refuse(failure: failure) }
-                }
+                registry.trackOrRefuse(Task { await startSession(machine) })
             }, at: 0)
             return menu
         case .background: break
