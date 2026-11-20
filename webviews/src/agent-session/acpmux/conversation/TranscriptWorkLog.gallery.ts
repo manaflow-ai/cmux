@@ -14,7 +14,7 @@ import type { PromptContentPart } from "../model";
 type Bridge = { cmuxAcpmuxBridge?: { applyExperiments?: (value: unknown) => void } };
 const workLogOn: Play = async ({ document, waitFor }) => {
   const apply = () => (document.defaultView as unknown as Bridge).cmuxAcpmuxBridge?.applyExperiments;
-  await waitFor(() => apply());
+  await waitFor(() => Boolean(apply()));
   apply()!({ transcriptWorkLog: true });
   await waitFor(() => document.querySelector(".acpmux-worklog-headline"));
 };
