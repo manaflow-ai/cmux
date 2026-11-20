@@ -413,7 +413,6 @@ fn a_frame_lost_whole_is_resent_then_recovered_from_a_keyframe() {
 
 #[test]
 fn repaired_shard_delay_does_not_collapse_the_media_bitrate() {
-    use cmux_rd_proto::Arrival;
     for tail_probe in [false, true] {
         let mut e = engine();
         let first = e.start(0).expect("first");
@@ -463,7 +462,6 @@ fn repaired_shard_delay_does_not_collapse_the_media_bitrate() {
 
 #[test]
 fn a_small_feedback_batch_does_not_turn_two_percent_loss_into_congestion() {
-    use cmux_rd_proto::Arrival;
     let mut e = engine();
     let first = e.start(0).expect("first");
     let sent = send(&mut e, &first, true, 100_000, 0);
@@ -528,7 +526,6 @@ fn a_recovery_request_with_damage_pending_hands_out_one_keyframe() {
 
 #[test]
 fn an_outage_end_holds_the_rate_and_stops_waiting_for_stale_acks() {
-    use cmux_rd_proto::Arrival;
     let mut e = engine();
     let arrived = |sent: &[Vec<u8>], at: u32| -> Vec<Arrival> {
         sent.iter()
@@ -604,9 +601,9 @@ fn outage_with_queue(
     (e, out, [(a, sent_a), (b, sent_b)])
 }
 
-fn arrived(sent: &[Vec<u8>], at: u32) -> Vec<cmux_rd_proto::Arrival> {
+fn arrived(sent: &[Vec<u8>], at: u32) -> Vec<Arrival> {
     sent.iter()
-        .map(|d| cmux_rd_proto::Arrival {
+        .map(|d| Arrival {
             transport_seq: DatagramHeader::decode(d).expect("header").0.transport_seq,
             arrival_us: at,
         })
@@ -665,7 +662,6 @@ fn an_outage_end_keeps_unstarted_frames_smaller_than_a_keyframe() {
 /// waits on. Once the path is up, older frames are repaired too.
 #[test]
 fn only_the_newest_frame_is_repaired_while_the_path_is_away() {
-    use cmux_rd_proto::Arrival;
     let mut e = engine();
     let arrived = |sent: &[Vec<u8>], at: u32| -> Vec<Arrival> {
         sent.iter()
@@ -725,7 +721,6 @@ fn only_the_newest_frame_is_repaired_while_the_path_is_away() {
 /// keeps asking); it is answered with a keyframe once the path is up.
 #[test]
 fn no_recovery_keyframe_while_the_path_is_away() {
-    use cmux_rd_proto::Arrival;
     let mut e = engine();
     let arrived = |sent: &[Vec<u8>], at: u32| -> Vec<Arrival> {
         sent.iter()
