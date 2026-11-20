@@ -92,11 +92,11 @@ final class SidebarRows {
         #if DEBUG
         if let fixture { return model.setSections(fixture) }
         #endif
-        var sections = PendingWorkspaceRow.adding(self.creating.rows, to: edits.applying(to: self.live), home: self.creating.home,
-                                                   catchingUp: layoutCatchingUp)
-        edits.applyFolds(to: &sections)
+        let edited = BenchSpans.measure("rows.edits") { edits.applying(to: self.live) }, catchingUp = BenchSpans.measure("rows.catchingUp") { layoutCatchingUp }
+        var sections = BenchSpans.measure("rows.adding") { PendingWorkspaceRow.adding(self.creating.rows, to: edited, home: self.creating.home, catchingUp: catchingUp) }
+        BenchSpans.measure("rows.folds") { edits.applyFolds(to: &sections) }
         // Manual order only (Leo 2026-10-20): a row state shows as a badge; attention order is the Priority view's.
-        model.setSections(sections)
+        BenchSpans.measure("rows.setSections") { model.setSections(sections) }
     }
 
     /// The live rows are a projection behind the sidebar document (`NewWorkspaceDefaultSlot.layoutCatchingUp`).

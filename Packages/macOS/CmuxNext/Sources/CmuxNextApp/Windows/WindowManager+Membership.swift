@@ -550,7 +550,7 @@ extension WindowManager {
 
     private func installWorkspaceListHook(on daemon: DaemonService) {
         guard daemon.store.onWorkspaceListChanged == nil else { return }
-        daemon.store.onWorkspaceListChanged = { [weak self] in self?.reconcileMembership() }
+        daemon.store.onWorkspaceListChanged = { [weak self] in BenchSpans.measure("membership.reconcile") { self?.reconcileMembership() } }
     }
 
     /// True when `id` is known gone: its machine is loaded and lacks it, or
