@@ -19,6 +19,9 @@ final class ChatRowContext {
     var openURL = OpenURLAction { _ in .systemAction }
     /// A tapped disclosure holds its line while it opens or closes (the dock sets it).
     var foldHold = TranscriptFoldHold(begin: {}, end: {})
+    /// The current Find in Chat match. A match inside an open Worked for fold is marked by the
+    /// nested SwiftUI row because it is not a top-level transcript item.
+    var findMarked: String?
 
     init(store: AgentChatStore, surface: AgentChatSurface) {
         self.store = store
@@ -174,7 +177,7 @@ struct ChatRowView: View {
         case .whoElse(let id, let call):
             WhoElseCard(id: id, call: call, open: openWhoElse)
         case .worked(let fold):
-            WorkedForRow(fold: fold, context: context)
+            WorkedForRow(fold: fold, context: context, findMarked: context.findMarked)
         case .actions(let turn, let isLast):
             AnswerActionRow(turn: turn, isLast: isLast, insetsTargets: false, retryWith: RetryModelChoice(store: store, turn: turn),
                             polish: ChatPolishMenuButtons(store: store, turnID: turn.id, prompt: nil)) {

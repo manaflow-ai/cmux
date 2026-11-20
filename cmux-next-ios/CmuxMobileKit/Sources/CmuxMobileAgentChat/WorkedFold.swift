@@ -46,7 +46,9 @@ struct WorkedFold: Equatable, Sendable {
     /// and the cards a finished turn leaves for the person stay out.
     static func folds(_ kind: ChatRow.Kind) -> Bool {
         switch kind {
-        case .block, .thought, .tool, .toolGroup, .edit, .plan, .permission, .question, .subagents, .whoElse: true
+        // Coordination cards remain in the transcript so their participants and routing action
+        // stay visible when a finished turn's implementation work is folded.
+        case .block, .thought, .tool, .toolGroup, .edit, .plan, .permission, .question: true
         default: false
         }
     }
@@ -89,6 +91,7 @@ import SwiftUI
 struct WorkedForRow: View {
     let fold: WorkedFold
     let context: ChatRowContext
+    let findMarked: String?
     @Environment(\.chatDisclosures) private var disclosures
     @Environment(\.transcriptFoldHold) private var holdFold
     @State private var localOpen = false
@@ -123,7 +126,17 @@ struct WorkedForRow: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(fold.rows) { row in
                         // Erased: a row view holding row views has no concrete type of its own.
-                        AnyView(ChatRowView(row: row, context: context))
+                        let marked = findMarked == row.id
+                        AnyView(ChatRowView(row: row, context: context)
+                            .background {
+                                if marked {
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .fill(Color(uiColor: .systemYellow).opacity(0.28))
+                                        .padding(.horizontal, -14)
+                                        .padding(.vertical, -6)
+                                }
+                            }
+                            .accessibilityAddTraits(marked ? .isSelected : []))
                             .padding(.top, row.id == fold.rows.first?.id ? 10 : row.gap)
                     }
                 }
