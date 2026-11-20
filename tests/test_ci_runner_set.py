@@ -75,7 +75,16 @@ class RunnerSetTests(unittest.TestCase):
                 route = runs_on_text(job, name)
                 expected = "cmux-gcp-pr-control-jit-x64" if name == "comment" else "cmux-linux"
                 self.assertEqual(labels_at(route, "pull_request"), {expected})
-                self.assertNotIn("cmux-linux", labels_at(route, "pull_request", "outside/fork"))
+                fork_labels = labels_at(route, "pull_request", "outside/fork")
+                if name == "comment":
+                    self.assertEqual(fork_labels, {"ubuntu-24.04"})
+                else:
+                    self.assertNotIn("cmux-linux", fork_labels)
+
+    def test_release_verifier_executes_the_tag_only_on_a_single_job_runner(self) -> None:
+        job = workflow_jobs.jobs(WORKFLOWS / "coderouter-verify-release.yml")["verify"]
+        for event in ("release", "workflow_dispatch"):
+            self.assertEqual(labels_at(runs_on_text(job, "verify"), event), {"cmux-gcp-pr-control-jit-x64"})
 
     def test_no_light_job_takes_hosted_ubuntu_on_attempt_one(self) -> None:
         # On 2026-11-18 jobs that finished on GitHub-hosted had waited a median 10,768 s, so every pull request's

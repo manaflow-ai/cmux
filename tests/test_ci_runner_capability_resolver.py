@@ -331,16 +331,21 @@ class TheResolverStartsAnywhere(unittest.TestCase):
 
         workflow = Path(__file__).resolve().parents[1] / ".github/workflows/resolve-runners.yml"
         jobs = yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"]
-        # A fork takes GitHub-hosted Linux first. In manaflow-ai the resolver
-        # reads the CI_TRUSTED_RUNNER selector, else Blacksmith, on every attempt:
-        # it took GitHub-hosted Ubuntu on attempt 1 until 2026-11-18, when hosted
-        # runners left light jobs queued for hours (cmux#45735).
+        from runs_on_labels import resolve_labels
+
         for name, job in jobs.items():
-            with self.subTest(job=name):
-                self.assertEqual(
-                    workflow_jobs.runs_on_cells(job),
-                    ['${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || contains(fromJSON(\'["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}'],
-                )
+            route, = workflow_jobs.runs_on_cells(job)
+            for owner, event, head, expected in (
+                ("outside", "push", "", "ubuntu-24.04"),
+                ("manaflow-ai", "pull_request", "outside/cmux", "ubuntu-24.04"),
+                ("manaflow-ai", "pull_request", "manaflow-ai/cmux", "cmux-gcp-pr-control-jit-x64"),
+                ("manaflow-ai", "push", "", "cmux-gcp-pr-control-jit-x64"),
+            ):
+                with self.subTest(job=name, owner=owner, event=event, head=head):
+                    self.assertEqual(resolve_labels(route, owner=owner, context={
+                        "github.event_name": event,
+                        "github.repository": "manaflow-ai/cmux", "github.event.pull_request.head.repo.full_name": head,
+                    }), {expected})
 
 
 if __name__ == "__main__":
