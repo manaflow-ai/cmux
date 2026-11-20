@@ -40,6 +40,15 @@ import Testing
 /// the letter: when the app forgot the first id before a letter of case `known`, the row writes it again, and when
 /// the app still knows it before a letter of case `forgotten`, the row takes it out; the print says if the row did.
 /// Both rows have the WebKit page host, and no page loads.
+///
+/// What no row holds. The hold keeps each id that the tab of the key had in the hold's life: the pane's id and the
+/// app's id of it at the hold's begin (`Entry.init`), and the app's id again when the daemon made the tab
+/// (`tabMade`). Row 10 holds the second part. No row holds the first part, or a pane that still has the first id of
+/// a tab after the daemon made it. By a read, a pane that has such a tab selected, with its page view, takes the
+/// daemon's id in the turn of the store's report (`PaneController.selectWhenReported`), so the scene has no turn
+/// with that state. Those parts are by a read. 3 cases are known and not mended, the same as before the hold kept
+/// more than one id: a hold that begins while the pane has the first id of a tab and the app forgot that id; a pane
+/// that shows no tab at the hold's begin; 2 machines that have a tab with the same first id (a first id has a UUID).
 extension NewTabHoldInTheFirstNewTabTests {
     /// One new tab of a row: its page reported, and that page's web view has the keyboard.
     @MainActor struct One {

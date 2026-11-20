@@ -49,7 +49,7 @@ final class NewTabInputCoordinator {
         /// What had the keyboard at the opening: it gets no key of a hold that ends with no field ready.
         let keyboard: NewTabHoldKeyboard
         let limit: Duration
-        /// The tab the pane showed before Cmd-T, by all its ids (`tabMade`): it counts as the opening only until the page shows.
+        /// The tab the pane showed at Cmd-T, by each id that the hold knows (`tabMade`): the opening only until the page shows.
         var opened: Set<String>
         weak var pane: PaneController?
         weak var window: NSWindow?
