@@ -22,6 +22,7 @@ fn existing(wait: bool) -> Request {
         until: None,
         allow_large: false,
         timings: false,
+        no_focus: false,
     }
 }
 

@@ -142,6 +142,11 @@ pub(super) struct Request {
     pub allow_large: bool,
     /// `--timings`: the answer's `stages` as a table on stderr (start_stages.rs).
     pub timings: bool,
+    /// `--no-focus` (the CLI's word for it: `workspace create`, `agent start`, `app open`): every app
+    /// step runs with `focus: false`, so the start never shows its workspace, selects its tab, raises a
+    /// window or moves focus in the person's app; the steps and their timings are the same. An agent's
+    /// or a probe's start passes it (Leo: "you guys kept fighting focus"). Without it nothing changes.
+    pub no_focus: bool,
 }
 
 // One `Parsed` is made per command line and taken apart at once, so the size gap between `Help`
@@ -247,6 +252,7 @@ pub(super) fn send_existing(
         until: None,
         allow_large: false,
         timings: false,
+        no_focus: false,
     };
     let mut runner = SelfRunner::new(global);
     report(&send_to(&mut runner, &request, machine_id, session), global.output)
@@ -351,6 +357,7 @@ pub(super) fn wait_on(
         until: None,
         allow_large: false,
         timings: false,
+        no_focus: false,
     };
     let answer = json!({
         "machine_id": machine_id,
@@ -492,6 +499,7 @@ pub(super) fn parse(
     let mut make_room = false;
     let mut allow_large = false;
     let mut timings = false;
+    let mut no_focus = false;
     let mut timeout = DEFAULT_TIMEOUT;
     let (mut effort, mut mode, mut no_folder) = (None, None, false);
     // The prompt came after `--`: text, so `-- -` is "-", not stdin.
@@ -534,6 +542,7 @@ pub(super) fn parse(
             "--make-room" => make_room = true,
             "--allow-large" => allow_large = true,
             "--timings" => timings = true,
+            "--no-focus" => no_focus = true,
             "--no-wait" => wait = false,
             // `-- TEXT`: the prompt, read as text even when it starts with `-`.
             "--" if inline.is_none() => match words.get(index.saturating_add(1)..) {
@@ -634,6 +643,7 @@ pub(super) fn parse(
         until: None,
         allow_large,
         timings,
+        no_focus,
     })))
 }
 
@@ -957,6 +967,9 @@ pub(super) fn again_command(request: &Request, machine: &Machine) -> String {
     }
     if request.wait {
         words.push("--wait".to_owned());
+    }
+    if request.no_focus {
+        words.push("--no-focus".to_owned());
     }
     words.push("--json".to_owned());
     words.join(" ")
@@ -1661,6 +1674,9 @@ fn steps(
     }
     if let Some(folder) = &request.from_folder {
         start.extend(["--from-folder".to_owned(), folder.clone()]);
+    }
+    if request.no_focus {
+        start.push("--no-focus".to_owned());
     }
     start.push("--json".to_owned());
     // On a machine this run makes for itself, the start is bounded and a stuck machine is given up (fresh.rs); a
@@ -2708,6 +2724,9 @@ fn new_machine(
     args.push(name.clone());
     if let Some(environment) = environment {
         args.extend(["--environment".to_owned(), environment.to_owned()]);
+    }
+    if request.no_focus {
+        args.push("--no-focus".to_owned());
     }
     args.push("--json".to_owned());
     progress.machine = Some(Machine::Named(name.clone()));
