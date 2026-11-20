@@ -38,6 +38,12 @@
   --cmux-diff-addition-fg: var(--cmux-diff-addition-fg-light);
   --cmux-diff-deletion-fg: var(--cmux-diff-deletion-fg-light);
   --cmux-diff-modified-fg: var(--cmux-diff-modified-fg-light);
+  /* The same colors as text (counts, file names): applyDiffViewerAppearance measures them on what text
+     sits on, the window's tint over the desktop when the window is see-through (appearance.ts
+     `changeText`); until it runs, the colors themselves. */
+  --cmux-diff-addition-text: var(--cmux-diff-addition-text-light, var(--cmux-diff-addition-fg));
+  --cmux-diff-deletion-text: var(--cmux-diff-deletion-text-light, var(--cmux-diff-deletion-fg));
+  --cmux-diff-modified-text: var(--cmux-diff-modified-text-light, var(--cmux-diff-modified-fg));
   --cmux-diff-count-added: color-mix(in srgb, var(--cmux-diff-addition-fg) 66%, var(--cmux-diff-solid-bg));
   --cmux-diff-count-deleted: color-mix(in srgb, var(--cmux-diff-deletion-fg) 66%, var(--cmux-diff-solid-bg));
   /* A modified file's name and square in the files list, softened as the counts are. */
@@ -86,7 +92,18 @@
     --cmux-diff-addition-fg: var(--cmux-diff-addition-fg-dark);
     --cmux-diff-deletion-fg: var(--cmux-diff-deletion-fg-dark);
     --cmux-diff-modified-fg: var(--cmux-diff-modified-fg-dark);
+    --cmux-diff-addition-text: var(--cmux-diff-addition-text-dark, var(--cmux-diff-addition-fg));
+    --cmux-diff-deletion-text: var(--cmux-diff-deletion-text-dark, var(--cmux-diff-deletion-fg));
+    --cmux-diff-modified-text: var(--cmux-diff-modified-text-dark, var(--cmux-diff-modified-fg));
   }
+}
+/* Over a see-through window the counts take their text colors as they are: softening them toward the
+   solid backdrop (the opaque theme color, which the window does not show there) made them unreadable on
+   the tint over a picture (1.1 to 1.7:1, fleet capture of a1eec60d). */
+:root[data-cmux-see-through] {
+  --cmux-diff-count-added: var(--cmux-diff-addition-text);
+  --cmux-diff-count-deleted: var(--cmux-diff-deletion-text);
+  --cmux-diff-count-modified: var(--cmux-diff-modified-text);
 }
 * {
   box-sizing: border-box;
@@ -1082,10 +1099,16 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   color: var(--cmux-diff-text-muted);
 }
 .stat-add {
-  color: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
+  color: light-dark(
+    var(--cmux-diff-addition-text-light, var(--cmux-diff-addition-fg-light)),
+    var(--cmux-diff-addition-text-dark, var(--cmux-diff-addition-fg-dark))
+  );
 }
 .stat-del {
-  color: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
+  color: light-dark(
+    var(--cmux-diff-deletion-text-light, var(--cmux-diff-deletion-fg-light)),
+    var(--cmux-diff-deletion-text-dark, var(--cmux-diff-deletion-fg-dark))
+  );
 }
 #viewer {
   --diffs-font-family: var(--cmux-diff-code-font-family);
@@ -1966,10 +1989,16 @@ svg[data-icon-fill] {
   gap: var(--ds-space-1);
 }
 .source-pill-additions {
-  color: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
+  color: light-dark(
+    var(--cmux-diff-addition-text-light, var(--cmux-diff-addition-fg-light)),
+    var(--cmux-diff-addition-text-dark, var(--cmux-diff-addition-fg-dark))
+  );
 }
 .source-pill-deletions {
-  color: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
+  color: light-dark(
+    var(--cmux-diff-deletion-text-light, var(--cmux-diff-deletion-fg-light)),
+    var(--cmux-diff-deletion-text-dark, var(--cmux-diff-deletion-fg-dark))
+  );
 }
 /* The base picker joins the toolbar as a chip too: "head -> base v". */
 #toolbar .base-picker-button {
