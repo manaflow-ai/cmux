@@ -1,0 +1,11 @@
+/* Basalt's Markdown viewer: code in the bordered box's 8 px corners on a quiet gray, headings
+   with no rule, quotes on a gray line; nothing blue but links.
+   Only --cmux-md-* custom properties on :root; every color is mixed from the page's own, so
+   this one file reads over the light and the dark theme file alike. */
+:root {
+  --cmux-md-code-background: color-mix(in srgb, var(--page-text) 6%, transparent);
+  --cmux-md-code-radius: 8px;
+  --cmux-md-heading-weight: 600;
+  --cmux-md-heading-rule: none;
+  --cmux-md-quote-border: 2px solid var(--cmux-md-border-color);
+}
