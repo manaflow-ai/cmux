@@ -36,4 +36,50 @@ struct AgentCursorGlassBlurTests {
         host.setPlanesWantPanel(false)
         #expect(glass.blendingMode == .withinWindow)
     }
+
+    /// Leo, 2026-11-20: "me moving my mouse is slow, even scrolling thru claude code desktop is slow (cmux next
+    /// still slower unfortunately)". An active full-window glass makes WindowServer blur the backdrop on every
+    /// frame under it, so it sleeps (hidden) while no cursor shows a blur well: before the first cursor, after
+    /// one hides or goes, and once its idle fade ends.
+    @Test func theCursorGlassSleepsWhileNoCursorShows() async throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
+                              backing: .buffered, defer: true)
+        defer { window.closeWithOverlayHost() }
+        let host = WindowOverlayHost.host(for: window)
+        let mask = host.agentCursorGlassLayer
+        let carrier = try #require(host.agentCursorCarrier)
+        let glass = carrier.glassView
+        #expect(glass.isHidden, "no cursor yet: nothing to blur")
+
+        let root = CALayer()
+        mask.addSublayer(root)
+        host.agentCursorTagsDidChange()
+        #expect(!glass.isHidden, "a shown cursor wakes the glass")
+
+        root.isHidden = true
+        host.agentCursorTagsDidChange()
+        #expect(glass.isHidden, "a hidden cursor puts it back to sleep")
+
+        root.isHidden = false
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1
+        fade.toValue = 0
+        fade.duration = 0.05
+        fade.beginTime = root.convertTime(CACurrentMediaTime(), from: nil) + 0.05
+        fade.fillMode = .forwards
+        fade.isRemovedOnCompletion = false
+        root.add(fade, forKey: "idleHide")
+        host.agentCursorTagsDidChange()
+        #expect(!glass.isHidden, "still shown while its idle fade waits and plays")
+        let deadline = Date().addingTimeInterval(3)
+        while !glass.isHidden, Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(glass.isHidden, "asleep once the fade ends, with no new cursor event")
+
+        root.removeAnimation(forKey: "idleHide")
+        host.agentCursorTagsDidChange()
+        #expect(!glass.isHidden, "the next action wakes it")
+        root.removeFromSuperlayer()
+        host.agentCursorTagsDidChange()
+        #expect(glass.isHidden, "a removed cursor leaves nothing to blur")
+    }
 }

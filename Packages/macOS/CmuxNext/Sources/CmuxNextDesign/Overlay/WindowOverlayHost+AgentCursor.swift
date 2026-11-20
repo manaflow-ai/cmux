@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesignTokens
+import CmuxNextWakeups
 
 /// The view that carries a window's agent cursor layer. It takes the mouse
 /// only on a name tag, which is a link to its agent's workspace (user,
@@ -24,6 +25,8 @@ final class AgentCursorCarrierView: NSView {
     /// The tag a mouse down landed on; its mouse up there presses it.
     private var pressing: String?
     private var tracking: NSTrackingArea?
+    /// The pending re-check for when the last shown cursor's idle fade ends.
+    private let glassRecheck = DemandTimer(owner: "agentCursor.glass.fadeEnd")
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -46,12 +49,57 @@ final class AgentCursorCarrierView: NSView {
         addSubview(glassView)
         addSubview(cursorView)
         glassView.layer?.mask = glassLayer
+        // No cursor yet: no backdrop to sample (`syncGlassActivity`).
+        glassView.isHidden = true
         setAccessibilityElement(false)
         syncLayerFrame()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
+
+    /// Shows the behind-window glass only while a cursor's blur wells can
+    /// show. An active full-window `NSVisualEffectView` makes WindowServer
+    /// sample and blur the backdrop of the whole carrier on every frame the
+    /// page under it changes (a scroll, a stream), mask or not; it used to
+    /// stay active for the window's life after an agent's first cursor
+    /// (Leo, 2026-11-20: "me moving my mouse is slow, even scrolling thru
+    /// claude code desktop is slow (cmux next still slower unfortunately)").
+    /// A cursor shows while its glass root is not hidden and not faded out
+    /// by its idle fade; when one is fading, this runs again once it ends.
+    func syncGlassActivity() {
+        glassRecheck.cancel()
+        let now = CACurrentMediaTime()
+        var shown = false
+        var nextFadeEnd: CFTimeInterval?
+        for root in glassLayer.sublayers ?? [] where !root.isHidden && root.opacity > 0 {
+            guard let fadeEnd = Self.fadeOutEnd(of: root) else {
+                shown = true
+                continue
+            }
+            if fadeEnd > now {
+                shown = true
+                nextFadeEnd = min(nextFadeEnd ?? fadeEnd, fadeEnd)
+            }
+        }
+        if glassView.isHidden == shown { glassView.isHidden = !shown }
+        guard let nextFadeEnd else { return }
+        let wait = max(nextFadeEnd - now, 0) + 0.05
+        glassRecheck.schedule(after: .seconds(wait)) { @MainActor [weak self] in
+            self?.syncGlassActivity()
+        }
+    }
+
+    /// When `layer`'s held fade to opacity 0 ends, in media time; nil when it has none.
+    static func fadeOutEnd(of layer: CALayer) -> CFTimeInterval? {
+        for key in layer.animationKeys() ?? [] {
+            guard let fade = layer.animation(forKey: key) as? CABasicAnimation, fade.keyPath == "opacity",
+                  (fade.toValue as? NSNumber)?.doubleValue == 0, !fade.isRemovedOnCompletion,
+                  fade.fillMode == .forwards || fade.fillMode == .both else { continue }
+            return layer.convertTime(fade.beginTime + fade.duration, to: nil)
+        }
+        return nil
+    }
 
     /// The carrier's own (y-up) rect of a y-down cursor-layer rect.
     func localRect(_ frame: CGRect) -> NSRect {
@@ -234,6 +282,7 @@ extension WindowOverlayHost {
     /// takes the mouse over their tags (`acceptsMouse`) while any shows.
     public func agentCursorTagsDidChange() {
         if agentCursorTags?.agentCursorTags().isEmpty != false { agentCursorCarrier?.hover(nil) }
+        agentCursorCarrier?.syncGlassActivity()
         updateMouseRouting()
     }
 
