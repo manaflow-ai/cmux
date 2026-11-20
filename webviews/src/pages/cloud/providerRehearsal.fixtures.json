@@ -1,0 +1,203 @@
+{
+  "lifecycle": {
+    "simulated": true,
+    "scenario": "lifecycle",
+    "proposed_idle_stop_minutes": 30,
+    "receipts": [
+      {
+        "provider": "fake",
+        "project": "rehearsal-project",
+        "machine": "rehearsal-machine",
+        "operation": "create",
+        "state": "running",
+        "generation": 1,
+        "replayed": false,
+        "outcome": "simulated"
+      },
+      {
+        "provider": "fake",
+        "project": "rehearsal-project",
+        "machine": "rehearsal-machine",
+        "operation": "create",
+        "state": "running",
+        "generation": 1,
+        "replayed": true,
+        "outcome": "simulated"
+      },
+      {
+        "provider": "fake",
+        "project": "rehearsal-project",
+        "machine": "rehearsal-machine",
+        "operation": "connect",
+        "state": "connected",
+        "generation": 1,
+        "replayed": false,
+        "outcome": "simulated"
+      },
+      {
+        "provider": "fake",
+        "project": "rehearsal-project",
+        "machine": "rehearsal-machine",
+        "operation": "stop",
+        "state": "stopped",
+        "generation": 1,
+        "replayed": false,
+        "outcome": "simulated"
+      },
+      {
+        "provider": "fake",
+        "project": "rehearsal-project",
+        "machine": "rehearsal-machine",
+        "operation": "start",
+        "state": "running",
+        "generation": 2,
+        "replayed": false,
+        "outcome": "simulated"
+      },
+      {
+        "provider": "fake",
+        "project": "rehearsal-project",
+        "machine": "rehearsal-machine",
+        "operation": "connect",
+        "state": "connected",
+        "generation": 2,
+        "replayed": false,
+        "outcome": "simulated"
+      },
+      {
+        "provider": "fake",
+        "project": "rehearsal-project",
+        "machine": "rehearsal-machine",
+        "operation": "snapshot",
+        "state": "connected",
+        "generation": 2,
+        "replayed": false,
+        "outcome": "simulated"
+      },
+      {
+        "provider": "fake",
+        "project": "rehearsal-project",
+        "machine": "rehearsal-machine",
+        "operation": "cost_estimate",
+        "state": "connected",
+        "generation": 2,
+        "replayed": false,
+        "outcome": "cost_unavailable"
+      },
+      {
+        "provider": "fake",
+        "project": "rehearsal-project",
+        "machine": "rehearsal-machine",
+        "operation": "delete",
+        "state": "deleted",
+        "generation": 2,
+        "replayed": false,
+        "outcome": "simulated"
+      },
+      {
+        "provider": "fake",
+        "project": "rehearsal-project",
+        "machine": "rehearsal-machine",
+        "operation": "delete",
+        "state": "deleted",
+        "generation": 2,
+        "replayed": true,
+        "outcome": "simulated"
+      }
+    ]
+  },
+  "enrollment_failure": {
+    "simulated": true,
+    "scenario": "enrollment_failure",
+    "proposed_idle_stop_minutes": 30,
+    "receipts": [
+      {
+        "provider": "fake",
+        "project": "rehearsal-project",
+        "machine": "rehearsal-machine",
+        "operation": "create",
+        "state": "running",
+        "generation": 1,
+        "replayed": false,
+        "outcome": "simulated"
+      },
+      {
+        "provider": "fake",
+        "project": "rehearsal-project",
+        "machine": "rehearsal-machine",
+        "operation": "connect",
+        "state": "running",
+        "generation": 1,
+        "replayed": false,
+        "outcome": "enrollment_failed"
+      },
+      {
+        "provider": "fake",
+        "project": "rehearsal-project",
+        "machine": "rehearsal-machine",
+        "operation": "delete",
+        "state": "deleted",
+        "generation": 1,
+        "replayed": false,
+        "outcome": "simulated"
+      },
+      {
+        "provider": "fake",
+        "project": "rehearsal-project",
+        "machine": "rehearsal-machine",
+        "operation": "delete",
+        "state": "deleted",
+        "generation": 1,
+        "replayed": true,
+        "outcome": "simulated"
+      }
+    ]
+  },
+  "cleanup_failure": {
+    "simulated": true,
+    "scenario": "cleanup_failure",
+    "proposed_idle_stop_minutes": 30,
+    "receipts": [
+      {
+        "provider": "fake",
+        "project": "rehearsal-project",
+        "machine": "rehearsal-machine",
+        "operation": "create",
+        "state": "running",
+        "generation": 1,
+        "replayed": false,
+        "outcome": "simulated"
+      },
+      {
+        "provider": "fake",
+        "project": "rehearsal-project",
+        "machine": "rehearsal-machine",
+        "operation": "connect",
+        "state": "running",
+        "generation": 1,
+        "replayed": false,
+        "outcome": "enrollment_failed"
+      },
+      {
+        "provider": "fake",
+        "project": "rehearsal-project",
+        "machine": "rehearsal-machine",
+        "operation": "delete",
+        "state": "orphaned",
+        "generation": 1,
+        "replayed": false,
+        "outcome": "cleanup_failed_orphan"
+      },
+      {
+        "provider": "fake",
+        "project": "rehearsal-project",
+        "machine": "rehearsal-machine",
+        "operation": "delete",
+        "state": "orphaned",
+        "generation": 1,
+        "replayed": true,
+        "outcome": "cleanup_failed_orphan"
+      }
+    ]
+  }
+}

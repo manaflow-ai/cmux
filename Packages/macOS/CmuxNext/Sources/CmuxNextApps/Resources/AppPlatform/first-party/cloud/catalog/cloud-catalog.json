@@ -1514,6 +1514,139 @@
       },
       "docs": "Give the browser host a proxy route to the machine's localhost: an HTTP proxy on 127.0.0.1 that reaches only the machine (other hosts get 403) and the URL to load through it. It opens no browser tab; the browser host owns tabs.",
       "since": "cloud/1"
+    },
+    {
+      "name": "cloud.provider.rehearse",
+      "owner": "app:cmux/cloud",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "const": true
+          },
+          "scenario": {
+            "type": "string",
+            "enum": [
+              "lifecycle",
+              "enrollment_failure",
+              "cleanup_failure"
+            ]
+          }
+        },
+        "required": [
+          "enabled",
+          "scenario"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "simulated": {
+            "type": "boolean",
+            "const": true
+          },
+          "scenario": {
+            "type": "string",
+            "enum": [
+              "lifecycle",
+              "enrollment_failure",
+              "cleanup_failure"
+            ]
+          },
+          "proposed_idle_stop_minutes": {
+            "type": "integer",
+            "const": 30
+          },
+          "receipts": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "provider": {
+                  "type": "string",
+                  "const": "fake"
+                },
+                "project": {
+                  "type": "string"
+                },
+                "machine": {
+                  "type": "string"
+                },
+                "generation": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "operation": {
+                  "type": "string",
+                  "enum": [
+                    "create",
+                    "connect",
+                    "stop",
+                    "start",
+                    "snapshot",
+                    "delete",
+                    "cost_estimate"
+                  ]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "absent",
+                    "running",
+                    "connected",
+                    "stopped",
+                    "deleted",
+                    "orphaned"
+                  ]
+                },
+                "replayed": {
+                  "type": "boolean"
+                },
+                "outcome": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "provider",
+                "project",
+                "machine",
+                "generation",
+                "operation",
+                "state",
+                "replayed",
+                "outcome"
+              ]
+            }
+          }
+        },
+        "required": [
+          "simulated",
+          "scenario",
+          "proposed_idle_stop_minutes",
+          "receipts"
+        ]
+      },
+      "cli": {
+        "path": "provider rehearse",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "docs": "Opt-in local fake-provider lifecycle rehearsal. No credentials, control-plane requests, catalog writes or billable resources. Requires enabled=true; all receipts are simulated.",
+      "since": "cloud/1"
     }
   ]
 }

@@ -14,6 +14,7 @@ pub mod fs;
 pub mod link;
 pub mod ops;
 pub mod ports;
+pub mod provider_rehearsal;
 pub mod proxy;
 pub mod rescue;
 

@@ -1,3 +1,4 @@
+import rehearsalFixtures from "./providerRehearsal.fixtures.json";
 // An in-memory `cmux.cloud` provider for the browser dev loop (`/cloud/?mock`) and tests. It is not
 // the backend: the Cloud app server (first-party-apps/cloud/server) owns machines, idempotency and
 // the native confirmations. The mock answers like the server does today (`cmux.wire/1` records, the
@@ -200,6 +201,12 @@ export class MockCloudProvider implements PageClient {
       throw pageError("cmux.cloud.upstream_error", "The Cloud service did not answer.", true);
     }
     const p = (params ?? {}) as Params;
+    if (op === CloudOps.providerRehearse) {
+      const scenario = p.scenario as keyof typeof rehearsalFixtures;
+      if (p.enabled !== true || !Object.hasOwn(rehearsalFixtures, scenario))
+        throw pageError("cmux.protocol.invalid_args", "Invalid rehearsal scenario");
+      return structuredClone(rehearsalFixtures[scenario]) as R;
+    }
     if (op === CloudOps.authStatus) return this.authStatus() as R;
     if (op === ACTION_RUN && p.action === AccountOps.signIn) return this.runAction(p) as R;
     if (!this.signedIn) throw pageError("cmux.cloud.auth_required", "Sign in to cmux Cloud.");

@@ -3,6 +3,11 @@
 // filled by `format`. strings.test.ts checks that every key has every required language.
 
 export const L = {
+  rehearsalTitle: "rehearsal.title",
+  rehearsalNote: "rehearsal.note",
+  rehearsalLifecycle: "rehearsal.lifecycle",
+  rehearsalEnrollment: "rehearsal.enrollment",
+  rehearsalCleanup: "rehearsal.cleanup",
   envNetworkPending: "environment.networkPending",
   envTitle: "environment.title",
   envDefaultLocked: "environment.defaultLocked",

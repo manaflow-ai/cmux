@@ -1194,3 +1194,8 @@ select {
   display: block;
   margin: 8px 0;
 }
+
+/* The default-off provider rehearsal uses the Cloud page's quiet disclosure treatment. */
+.cloud-provider-rehearsal { margin-block: 8px; }
+.cloud-provider-rehearsal-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.cloud-provider-rehearsal pre { max-height: 320px; overflow: auto; font-size: var(--text-detail); }

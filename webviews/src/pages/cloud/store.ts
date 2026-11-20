@@ -313,6 +313,12 @@ export class CloudStore {
     return this.client !== null;
   }
 
+  /** Explicitly opted-in, local fake provider; never changes this store's machine projection. */
+  async rehearseProvider(scenario: import("./ProviderRehearsal").RehearsalScenario): Promise<unknown> {
+    if (!this.client) throw new Error("Page bridge unavailable");
+    return this.client.call(CloudOps.providerRehearse, { enabled: true, scenario });
+  }
+
   /** After a disconnect: drops the old session and starts again (the localized Retry button). */
   async retry(): Promise<void> {
     this.stop();
