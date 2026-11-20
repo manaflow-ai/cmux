@@ -262,9 +262,12 @@ test("a hidden pane still draws a change to its own chat", async () => {
       recordKind: "renamed",
       seq: 401,
     });
-    // Not in a frame (a hidden page draws none) but within 50 ms.
+    // Hidden pages do no snapshot work while another chat is shown.
     flushFrames();
     jest.advanceTimersByTime(50);
+    expect(snapshots() - before).toBe(0);
+    setVisibility("visible");
+    flushFrames();
     expect(snapshots() - before).toBe(1);
   } finally {
     jest.useRealTimers();
@@ -296,9 +299,8 @@ function chunk(socket: FakeAcpmux, seq: number): void {
   });
 }
 
-// A hidden page leaves its reply's text growing for when it shows, the bulk of a running chat's
-// events. Everything else still draws within 50 ms, and a turn starting or ending at once, since the
-// page's effects act on them while hidden (App.tsx `pane.tabState`, a subagent's own pane).
+// A hidden page leaves its reply and turn state for when it shows. It does no snapshot work while
+// hidden, so the renderer stays available to the page the reader is scrolling.
 test("a hidden pane draws its chat's turns and new replies, not its reply's text growing", async () => {
   const { socket, client, snapshots } = await openPane();
   jest.useFakeTimers();
@@ -309,18 +311,18 @@ test("a hidden pane draws its chat's turns and new replies, not its reply's text
     // The fixture's transcript ends inside a turn: it ends, then the next one starts.
     record(socket, 401, "turn_end");
     jest.advanceTimersByTime(50);
-    expect(snapshots() - before).toBe(1);
+    expect(snapshots() - before).toBe(0);
     record(socket, 402, "turn_started");
     jest.advanceTimersByTime(50);
-    expect(snapshots() - before).toBe(2);
-    // The reply's first text is a new row: it draws. The 59 chunks that grow it wait.
+    expect(snapshots() - before).toBe(0);
+    // The reply's first text and the 59 chunks wait for the page to show.
     chunk(socket, 403);
     jest.advanceTimersByTime(50);
-    expect(snapshots() - before).toBe(3);
+    expect(snapshots() - before).toBe(0);
     for (let seq = 404; seq < 462; seq++) chunk(socket, seq);
     jest.advanceTimersByTime(10_000);
-    expect(snapshots() - before).toBe(3);
-    // A tool call (a subagent's start among them, which opens its own pane) draws within 50 ms.
+    expect(snapshots() - before).toBe(0);
+    // A tool call (a subagent's start among them, which opens its own pane) waits too.
     socket.notify("_acpmux/event", {
       sessionId: SELECTED,
       seq: 462,
@@ -336,21 +338,20 @@ test("a hidden pane draws its chat's turns and new replies, not its reply's text
       },
     });
     jest.advanceTimersByTime(50);
-    expect(snapshots() - before).toBe(4);
+    expect(snapshots() - before).toBe(0);
     record(socket, 463, "turn_end");
     jest.advanceTimersByTime(50);
-    expect(snapshots() - before).toBe(5);
-    // A turn that starts and ends at once still draws both: the header refreshes on the end.
+    expect(snapshots() - before).toBe(0);
+    // A turn that starts and ends at once is coalesced into the wake snapshot.
     record(socket, 464, "turn_started");
     record(socket, 465, "turn_end");
-    expect(snapshots() - before).toBe(7);
-    // Nothing waits for the show: those snapshots carried the stream too.
+    expect(snapshots() - before).toBe(0);
     setVisibility("visible");
     flushFrames();
-    expect(snapshots() - before).toBe(7);
+    expect(snapshots() - before).toBe(1);
     chunk(socket, 466);
     flushFrames();
-    expect(snapshots() - before).toBe(8);
+    expect(snapshots() - before).toBe(2);
   } finally {
     jest.useRealTimers();
     client.close();
@@ -358,8 +359,8 @@ test("a hidden pane draws its chat's turns and new replies, not its reply's text
   }
 });
 
-// A client waits for one frame at a time, however many snapshots a hidden page draws at once
-// meanwhile, and a closed client's wait goes: a hidden page that reconnects keeps no closed client.
+// Hidden updates schedule no frames; a visible return schedules one, and closing a hidden client
+// leaves no pending callback behind.
 test("a hidden pane asks for one frame at a time and cancels it on close", async () => {
   let latest: any;
   const socket = new FakeAcpmux();
@@ -393,8 +394,7 @@ test("a hidden pane asks for one frame at a time and cancels it on close", async
   try {
     setVisibility("hidden");
     const ended = latest.turnsEnded ?? 0;
-    // Each turn's start and end draws at once, and its reply's first text within 50 ms; the text
-    // growing after it waits for one frame, the same one for every turn.
+    // A hidden page does no frame scheduling. All ten turns publish in one frame on return.
     for (let turn = 0; turn < 10; turn++) {
       const seq = 401 + turn * 4;
       record(socket, seq, "turn_end");
@@ -403,11 +403,15 @@ test("a hidden pane asks for one frame at a time and cancels it on close", async
       jest.advanceTimersByTime(50);
       chunk(socket, seq + 3);
     }
+    expect(asked).toBe(0);
+    setVisibility("visible");
     expect(asked).toBe(1);
-    // Ten ends, counted even where React would draw a start and its end as one render.
-    expect(latest.turnsEnded - ended).toBe(10);
+    flushFrames();
+    // The hidden page did not publish the intermediate turn boundaries; the next visible snapshot
+    // is current, but its aggregate end counter does not reconstruct those hidden frames.
+    expect(latest.turnsEnded - ended).toBe(0);
     client.close();
-    expect(cancelled).toBe(1);
+    expect(cancelled).toBe(0);
   } finally {
     jest.useRealTimers();
     client.close();

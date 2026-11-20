@@ -3123,8 +3123,10 @@ export class AcpmuxDirectClient {
   private frameSnapshot?: string;
   /// Another chat changed while the page was hidden: the list draws again when it shows.
   private listChangedWhileHidden = false;
-  /// `isWorking` as the last snapshot said it, and a hidden page's draw of a change other than its
-  /// text stream (`emitInFrame`): one 50 ms timer at a time, which ends when it fires or on close.
+  /// The newest snapshot reason that arrived while this page was hidden. Hidden pages keep
+  /// reducing only the state they need for an eventual wake, and publish one snapshot on return.
+  private hiddenEmit?: string;
+  /// `isWorking` as the last snapshot said it. Kept for the visible turn transition checks.
   private drawnWorking = false;
   private drawnWorkingSession?: string;
   /// The event just reduced only grew the streaming reply's or thought's text (`emitInFrame`).
@@ -6235,13 +6237,20 @@ export class AcpmuxDirectClient {
   private showChanged = (): void => {
     if (this.listChangedWhileHidden && pageShown() && !this.closed) {
       this.listChangedWhileHidden = false;
-      this.emitInFrame("session changed");
+      // The list was deliberately not walked while hidden. Read it once on return so a page that
+      // sat behind a visible chat does not publish a stale picker.
+      void this.refreshSessions().catch(() => this.rereadSessionsLater());
     }
     if (this.closed) return;
     if (pageShown()) this.wake();
     if (pageShown() && this.readAheadOwed) {
       this.readAheadOwed = false;
       this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
+    }
+    if (pageShown() && this.hiddenEmit !== undefined && !this.closed) {
+      const connection = this.hiddenEmit;
+      this.hiddenEmit = undefined;
+      this.emitInFrame(connection);
     }
     // Showing the page is the reader's own move, made outside it (a tab, a workspace).
     if (pageShown()) pageAttention()?.touch();
@@ -7900,6 +7909,14 @@ export class AcpmuxDirectClient {
   private sessionChanged(params: SessionChanged): void {
     // Only a purge carries the id alone; every other change carries the whole summary.
     const session = params?.session as SessionSummary | undefined;
+    // A hidden page does not need another chat's summary until it is shown. Avoid replacing the
+    // entry, rebuilding its list projections and scheduling a renderer task for every busy chat;
+    // refreshSessions() catches the list up once on return. The selected chat still updates so a
+    // hidden turn can finish and be shown without losing its state.
+    if (!pageShown() && session?.sessionId && session.sessionId !== this.selectedSessionId) {
+      this.listChangedWhileHidden = true;
+      return;
+    }
     // A change older than the list the row came with is in that row already (acpmux hub/row_log.rs).
     const listSeq = (params as { listSeq?: unknown } | undefined)?.listSeq;
     if (!this.sessionPages.fresh(listSeq)) return;
@@ -8447,11 +8464,19 @@ export class AcpmuxDirectClient {
     if (!schedule) return this.emit(connection);
     const scheduled = this.frameSnapshot !== undefined;
     this.frameSnapshot = connection;
-    // A hidden page's frames wait for it to show (`nextFrame`), and only the reply's and the
-    // thought's text growing waits for them: the token stream, the bulk of a running chat's events.
-    // Everything else draws within 50 ms as before, since the page's effects still act on it while
-    // hidden (a subagent's own pane, the tab's header). A turn starting or ending draws at once, each
-    // one, so the header refreshes on every end (App.tsx `pane.tabState`).
+    // A hidden page has no frame to draw. Hold the reason and let visibility's first frame publish
+    // the latest state; no 50 ms timer or frame callback should wake the renderer in the meantime.
+    if (!pageShown()) {
+      this.hiddenEmit = connection;
+      this.frameSnapshot = undefined;
+      if (this.hiddenDraw !== undefined) {
+        clearTimeout(this.hiddenDraw);
+        this.hiddenDraw = undefined;
+      }
+      return;
+    }
+    // A visible page's frames wait for the next display frame. Hidden pages took the old 50 ms
+    // fallback here; they now return above and publish only once on visibility's first frame.
     if (!pageShown() && this.workingNow() !== this.drawnWorking) return this.emit(connection);
     if (!pageShown() && !streamGrew) {
       this.hiddenDraw ??= setTimeout(() => {
@@ -11152,6 +11177,14 @@ export class AcpmuxDirectClient {
   }
 
   private emit(connection = this.socket?.readyState === WebSocket.OPEN ? "connected" : "disconnected"): void {
+    // A page kept in a background workspace cannot paint this snapshot. Keep only its newest
+    // reason; showChanged() emits once after the page is visible again. This covers the direct
+    // emit callers as well as emitInFrame(), so no hidden page runs snapshot construction work.
+    if (!pageShown()) {
+      this.hiddenEmit = connection;
+      return;
+    }
+    this.hiddenEmit = undefined;
     acpmuxPerf.timed("client.emit", () => this.emitNow(connection));
   }
 
