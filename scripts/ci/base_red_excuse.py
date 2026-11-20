@@ -326,6 +326,150 @@ def escape_flag_unknown(stderr: str) -> bool:
     return bool(gh_lines) and gh_lines[0] == UNKNOWN_ESCAPE_FLAG
 
 
+# Settled reads (2026-11-17): GitHub answers that can no longer change are read once per host and kept, so a merge
+# check run again after a quota refusal reads none of them again. merge_hold refused cmux#45097 at 6aa5d9938d5f five
+# times with "[quota: not judged, retry]" while it read "ok: may merge": each run re-read the same finished head and
+# base runs over the shared login's REST, which other callers spent within minutes of each reset. Kept (in
+# jobs_cache(), so BASE_RED_EXCUSE_JOBS_CACHE=off turns it off): a completed job (a re-run is a new job id), a commit, a
+# compare of two commits, and a completed run's record and job lists. A run's record and job lists are served only
+# while the run is the same completed attempt GitHub serves now (run_now: a run record or list this process read live,
+# else this host's glaeda-gh at most GLAEDA_RUN_FRESH_SECONDS old); a run re-run since, still in progress, or not known
+# now is read live, as before. Never kept: lists of a branch's runs, a commit's checks or statuses, compares of a
+# branch: they are answers about now.
+SETTLED_KEEP_SECONDS = 14 * 24 * 3600
+GLAEDA_RUN_FRESH_SECONDS = 600
+_SETTLED_REPO = r"repos/(?P<repo>[\w.-]+/[\w.-]+)"
+SETTLED_JOB = re.compile(rf"{_SETTLED_REPO}/actions/jobs/\d+")
+SETTLED_RUN = re.compile(rf"{_SETTLED_REPO}/actions/runs/(?P<run>\d+)")
+SETTLED_RUN_JOBS = re.compile(rf"{_SETTLED_REPO}/actions/runs/(?P<run>\d+)/jobs\?filter=(?:all|latest)&per_page=\d+")
+SETTLED_FOREVER = re.compile(rf"{_SETTLED_REPO}/(?:commits/[0-9a-f]{{40}}|compare/[0-9a-f]{{40}}\.\.\.[0-9a-f]{{40}}"
+                             r"(?:\?per_page=\d+)?)")
+RUNS_LIST = re.compile(rf"{_SETTLED_REPO}/actions/(?:workflows/[^/?]+/)?runs\?.*")
+_SETTLED_PRUNED: list[bool] = []
+NOT_KEPT = object()
+
+
+def live_runs() -> dict[tuple[str, int], dict]:
+    """Every run record this judgement read live (a run, or a list of runs), by (repo, run id): what GitHub serves
+    now. Kept in the judgement's memo (JUDGEMENT_READS), so it lives no longer than that; outside a judgement, none."""
+    memo = JUDGEMENT_READS.get()
+    return {} if memo is None else memo.setdefault(("live runs",), {})
+
+
+def settled_file(route: str, state: tuple | None = None) -> Path | None:
+    where = jobs_cache()
+    if where is None:
+        return None
+    import hashlib
+    name = hashlib.sha256(json.dumps([route, state]).encode()).hexdigest()[:40]
+    return where / "settled" / f"{name}.json"
+
+
+def settled_get(route: str, state: tuple | None = None):
+    """The answer kept for ROUTE (in STATE), or NOT_KEPT."""
+    path = settled_file(route, state)
+    if path is None:
+        return NOT_KEPT
+    try:
+        kept = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return NOT_KEPT
+    return kept.get("answer", NOT_KEPT) if isinstance(kept, dict) and kept.get("route") == route else NOT_KEPT
+
+
+def settled_put(route: str, found, state: tuple | None = None) -> None:
+    path = settled_file(route, state)
+    if path is None:
+        return
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        spare = path.with_name(f".{path.name}.{os.getpid()}")
+        spare.write_text(json.dumps({"route": route, "state": state, "answer": found}))
+        os.replace(spare, path)
+        if not _SETTLED_PRUNED:
+            _SETTLED_PRUNED.append(True)
+            for old in path.parent.glob("*.json"):
+                if time.time() - old.stat().st_mtime > SETTLED_KEEP_SECONDS:
+                    old.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def completed_state(run: object) -> tuple[int, str] | None:
+    """(run_attempt, updated_at) of a completed RUN, or None for one in progress or that names neither."""
+    if not isinstance(run, dict) or run.get("status") != "completed":
+        return None
+    attempt, updated = run.get("run_attempt"), run.get("updated_at")
+    if not isinstance(attempt, int) or not isinstance(updated, str) or not updated:
+        return None
+    return attempt, updated
+
+
+def run_now(repo: str, run: int) -> dict | None:
+    """RUN's record as GitHub serves it now: one this process read live, else this host's glaeda-gh's when it read
+    the run within GLAEDA_RUN_FRESH_SECONDS (its state alone), else None."""
+    if (repo, run) in live_runs():
+        return live_runs()[(repo, run)]
+    kept = read_once(("glaeda run", repo, run), lambda: glaeda_log.cached_run(repo, run)
+                     if glaeda_log is not None and hasattr(glaeda_log, "cached_run") else None)
+    if isinstance(kept, dict) and time.time() - float(kept.get("at") or 0) <= GLAEDA_RUN_FRESH_SECONDS:
+        return kept
+    return None
+
+
+def note_live_runs(repo: str, found) -> None:
+    """Remember every full run record in FOUND (a run, a list of runs, or pages of one), read live just now."""
+    pages, live = found if isinstance(found, list) else [found], live_runs()
+    for page in pages:
+        runs = page.get("workflow_runs") if isinstance(page, dict) and "workflow_runs" in page else [page]
+        for run in runs or []:
+            if isinstance(run, dict) and isinstance(run.get("id"), int) and isinstance(run.get("workflow_id"), int):
+                live[(repo, run["id"])] = run
+                route = f"repos/{repo}/actions/runs/{run['id']}"
+                # A list names up to 100 runs: each is written once, and again only when re-run since.
+                if completed_state(run) not in (None, completed_state(settled_get(route))):
+                    settled_put(route, run)
+
+
+def settled_answer(route: str):
+    """ROUTE's kept answer when it is still what GitHub would serve, else NOT_KEPT."""
+    if SETTLED_FOREVER.fullmatch(route) is not None:
+        return settled_get(route)
+    if SETTLED_JOB.fullmatch(route) is not None:
+        kept = settled_get(route)
+        return kept if isinstance(kept, dict) and kept.get("status") == "completed" else NOT_KEPT
+    if (found := SETTLED_RUN.fullmatch(route)) is not None:
+        repo, run = found["repo"], int(found["run"])
+        if (repo, run) in live_runs():
+            return copy.deepcopy(live_runs()[(repo, run)])
+        state = completed_state(run_now(repo, run))
+        kept = settled_get(route) if state is not None else NOT_KEPT
+        return kept if completed_state(kept) == state else NOT_KEPT
+    if (found := SETTLED_RUN_JOBS.fullmatch(route)) is not None:
+        state = completed_state(run_now(found["repo"], int(found["run"])))
+        return settled_get(route, state) if state is not None else NOT_KEPT
+    return NOT_KEPT
+
+
+def settle(route: str, found) -> None:
+    """Keep FOUND, ROUTE's live answer, when it can no longer change (settled_answer serves it)."""
+    if SETTLED_FOREVER.fullmatch(route) is not None:
+        settled_put(route, found)
+    elif SETTLED_JOB.fullmatch(route) is not None:
+        if isinstance(found, dict) and found.get("status") == "completed":
+            settled_put(route, found)
+    elif (match := SETTLED_RUN.fullmatch(route) or RUNS_LIST.fullmatch(route)) is not None:
+        note_live_runs(match["repo"], found)
+    elif (match := SETTLED_RUN_JOBS.fullmatch(route)) is not None:
+        state = completed_state(run_now(match["repo"], int(match["run"])))
+        jobs = [job for page in (found if isinstance(found, list) else [found]) if isinstance(page, dict)
+                for job in page.get("jobs") or []]
+        # Only the attempt the run's state names, every job of it done: a list read while a re-run started is not.
+        if (state is not None and jobs and all(isinstance(job, dict) and job.get("status") == "completed"
+                                               for job in jobs)
+                and max((job.get("run_attempt") or 1) for job in jobs) == state[0]):
+            settled_put(route, found, state)
+
 # Conditional CI reads. Every judgement is a new process, and every landing check of a head judges its reds again: on
 # 2026-11-17 (2 h to 12:58Z on cosmic-gray) this script spent 673 REST under merge_hold, 402 of them a run's jobs and
 # 133 of those the exact page read again, mostly base runs that finished long before. When the caller names a folder in
@@ -446,6 +590,16 @@ class GitHub(_evidence.GitHub):
         return test_reds.plain(self.run(["api", route]).replace("\ufeff", ""))
 
     def json(self, route: str, *, paginate: bool = False, per_page: int = 100):
+        """ROUTE's answer: kept on this host when it is settled (settled_answer), else read live and kept when it
+        can no longer change (settle)."""
+        kept = settled_answer(route)
+        if kept is not NOT_KEPT:
+            return kept
+        found = self.live_json(route, paginate=paginate, per_page=per_page)
+        settle(route, found)
+        return found
+
+    def live_json(self, route: str, *, paginate: bool = False, per_page: int = 100):
         # A run's job list carries every job's steps; see JOBS_PAGE.
         if paginate and "/jobs?" in route:
             per_page = min(per_page, JOBS_PAGE)
@@ -1900,6 +2054,11 @@ BARE_WHY = ("its failed steps' own lines name no failing test or error line (a s
             "in a whole-log comparison)")
 UNPLACED_WHY = ("its log does not map one to one onto its steps (step_owners: a composite action, a silent step or a "
                 "header that is not its step's own), so no line can be told to the step that printed it")
+# What a placed head says when its red base verdict's log is the one step_owners does not place: compared whole too,
+# never refused as the head's own red (hq#13746, whose base Fleet tests log carried a git fetch's own `##[error]`
+# lines and failed the same 4 subtests).
+BASE_UNPLACED_WHY = ("its red base verdict's log does not map one to one onto its steps (step_owners), so no base line "
+                     "can be told to a failed step")
 
 
 def signature(view: "FailedView | Unplaced") -> tuple[set[str], set[str], set[str]] | Unplaced:
@@ -2073,6 +2232,11 @@ def unplaced_base_evidence(repo: str, base_job: dict, github) -> UnplacedSignatu
     return unplaced_signature(base_job, github.log(repo, base_job))
 
 
+def unplaced_head_evidence(repo: str, job: dict, github) -> UnplacedSignature:
+    """unplaced_signature of placed red head JOB's whole log, compared with a red base verdict not placed (hq#13746)."""
+    return unplaced_signature(job, github.log(repo, job))
+
+
 def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, found: UnplacedSignature,
                      base_run: dict, *, why: str | None = None) -> str:
     """The audit line for an unplaced red job NAME whose whole-log signature HEAD is FOUND's, the newest red base
@@ -2101,8 +2265,9 @@ def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, f
                           f": more on this head: {'; '.join(more)[:500]}"
                           + (f"; more on the base: {'; '.join(fewer)[:300]}" if fewer else ""))
     said = sorted(head.tests) or sorted(head.errors)
-    said_why = ("its log does not map onto its steps" if why == UNPLACED_WHY
-                else "its failed steps name no failing test or error line")
+    said_why = {UNPLACED_WHY: "its log does not map onto its steps",
+                BASE_UNPLACED_WHY: "its base verdict's log does not map onto its steps"}.get(
+                    why, "its failed steps name no failing test or error line")
     besides = sum(((found.steps - head.steps) + (found.tests - head.tests) + (found.errors - head.errors)).values())
     if besides:
         return (f"excused '{name}': {said_why}, so it was compared whole: its failed steps "
@@ -6498,6 +6663,55 @@ def unittest_failures(section: list[str]) -> list[tuple[str, list[str]]]:
     return found
 
 
+# 2026-11-18: merge_hold refused teamleaderleo/leo-workspace#5992 at aa178907 twice as red_not_excused, "'ws-check' has
+# no result: job 'checks' in run 44407040407 is completed/cancelled: no result to read". Since hq#12237 the lane-gh
+# broker moves a ws-check run no Actions runner starts to the build fleet: it cancels the run (its one `checks` job
+# ends cancelled with no steps) and runs the snapshot as a controller job, whose log prints the same WS_CHECK_RESULT
+# and a FAST_CHECKS_RECEIPT naming the cancelled run (hq tools/lane-gh-broker/parts/43-calls-ci-fleet.py). The broker
+# judges and posts the ws-check status from that log, linking the cancelled run, and keeps it beside the run's record
+# in its state folder (ci/JID.json, ci/JID.fleet-log). Read only as GitHub's job, every fleet-route ws-check was "no
+# result", never excusable. A broker land's merge_hold runs on the broker host, so this reads the kept log there:
+# the record must name this run as the one it moved (fleet.from_run), be settled done with the status's verdict, and
+# the log's receipt must name the run again (ws_check_verdict). Elsewhere, or once the record is pruned (the broker
+# keeps settled records CI_RECORD_RETENTION_S, 6 h), it is "no result" as before: run ws-check again.
+FLEET_RECORDS_ENV = "BASE_RED_FLEET_RECORDS"  # the broker's ci records folder; default its state's (cfg "state")
+FLEET_RECORDS_DEFAULT = Path(".local") / "state" / "lane-gh-broker" / "ci"
+FLEET_VERDICTS = {"failure": "failure", "success": "success"}  # status state: the record's conclusion
+
+
+def fleet_records_dir(env=os.environ) -> Path:
+    named = env.get(FLEET_RECORDS_ENV)
+    return Path(named) if named else Path(env.get("HOME") or Path.home()) / FLEET_RECORDS_DEFAULT
+
+
+def fleet_kept_log(repo: str, host: str, run: str, state: str, env=os.environ) -> str | None:
+    """The build-fleet log this host's lane-gh broker kept for REPO's ws-check run RUN (in HOST), the run it cancelled
+    and moved to the fleet, when its record is settled done with the verdict STATE names; else None."""
+    folder = fleet_records_dir(env)
+    try:
+        records = sorted(folder.glob("*.json"))
+    except OSError:
+        return None
+    for path in records:
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        fleet = record.get("fleet") if isinstance(record, dict) else None
+        if not isinstance(fleet, dict) or str(fleet.get("from_run")) != str(run):
+            continue
+        if (fleet.get("state") != "done" or record.get("repo") != repo or record.get("dispatch") != host
+                or str(record.get("run_id")) != str(run) or record.get("conclusion") != FLEET_VERDICTS.get(state)
+                or record.get("mismatch")):
+            return None
+        try:
+            text = path.with_name(f"{path.stem}.fleet-log").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+        return text if text.strip() else None
+    return None
+
+
 def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
     """(kind, verdict) of SHA's ws-check status: kind "none" (no result), "pass" or "fail". A fail's verdict has
     "steps" ({step: {"tests", "lines", "failures" ({test: its failure text})}}), "url" and "at" (the status time);
@@ -6530,11 +6744,28 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
     if len(picked) != 1:
         raise Refused(f"{where}: run {link[1]} has {len(picked)} ws-check jobs for it, not one")
     job = picked[0]
-    if job.get("status") != "completed" or job.get("conclusion") not in ("success", "failure"):
+    fleet = None
+    if job.get("status") == "completed" and job.get("conclusion") == "cancelled":
+        # The broker cancelled it and the build fleet ran its snapshot (fleet_kept_log): that log is the run's.
+        fleet = fleet_kept_log(repo, host, link[1], state)
+    if fleet is None and (job.get("status") != "completed" or job.get("conclusion") not in ("success", "failure")):
         # No verdict (startup_failure, cancelled, still running): no result, skipped on the base (cmux#36219 F2).
         return "none", dict(found, why=f"job '{job.get('name')}' in run {link[1]} is {job.get('status')}/"
-                                       f"{job.get('conclusion')}: no result to read")
-    lines = lines_of(github.log(host, job))
+                                       f"{job.get('conclusion')}: no result to read"
+                                       + (" (and this host keeps no build-fleet log for that run)"
+                                          if job.get("conclusion") == "cancelled" else ""))
+    lines = lines_of(fleet) if fleet is not None else lines_of(github.log(host, job))
+    if fleet is not None:
+        # A log read off this host, not off GitHub: its receipt must name this run, whatever head it tested.
+        receipt = next((text for text in reversed(lines) if text.startswith("FAST_CHECKS_RECEIPT=")), "")
+        try:
+            receipt = json.loads(receipt.split("=", 1)[1]) if receipt else {}
+        except ValueError:
+            receipt = {}
+        if not (isinstance(receipt, dict) and str(receipt.get("run_id")) == link[1]
+                and receipt.get("ran_on") == "build-fleet"):
+            raise Refused(f"{where}: the build-fleet log kept for run {link[1]} has no FAST_CHECKS_RECEIPT naming "
+                          "that run")
     at = next((n for n in range(len(lines) - 1, -1, -1) if lines[n].startswith("WS_CHECK_RESULT=")), None)
     try:
         result = json.loads(lines[at].split("=", 1)[1]) if at is not None else None
@@ -7486,16 +7717,23 @@ def compile_base_evidence(repo: str, run: dict, found: dict, github, run_reads: 
     return compile_errors(test_reds.lines_of(text) if view is UNPLACED else list(lines_of(view_text(view))), found)
 
 
+class BaseUnplaced(Refused):
+    """base_evidence's refusal of a red base job whose log step_owners does not place (BASE_UNPLACED_WHY)."""
+
+
 def base_evidence(repo: str, base: str, name: str, run: dict, found: dict, github, run_reads: dict) -> tuple:
     """(RUN, the failed_view of red base job FOUND's log, its signature, its step_errors), the window entry
     compare_window reads: the one reader of a compared base job's raw log. A base log failed_view does not place is
-    never base evidence: Refused."""
+    never base evidence: BaseUnplaced, which judge() answers with a whole-log comparison. Its words say the base was
+    unread, never the head's red, for every caller it reaches (journey, the merge-base step check; review F1 on
+    cmux#46811)."""
     text = github.log(repo, found)
     view = failed_view(found, text, step_names=job_step_names(repo, found, github, run_reads, path=run.get("path")),
                        base=True)
     if view is UNPLACED:
-        raise Refused(f"'{name}': {base} run {run['id']}'s log does not map one to one onto its steps "
-                      "(step_owners), so no base line can be told to a failed step; nothing is compared")
+        raise BaseUnplaced(f"'{name}': {base} run {run['id']}'s log does not map one to one onto its steps "
+                           "(step_owners), so no base line can be told to a failed step; nothing is compared: "
+                           f"unread, not this PR's own red: retry once a {base} verdict of it is placed")
     return run, view, signature(view), step_errors(view)
 
 
@@ -8172,7 +8410,36 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         # BASE_WINDOW_HOURS of it, read only while a head failure is on none so far. A green verdict ends it.
         def red(run: dict, found: dict) -> tuple:
             return base_evidence(repo, base, name, run, found, github, run_reads)
-        window, newest, read = [red(base_run, base_job)], created(base_run), 1
+        try:
+            window, newest, read = [red(base_run, base_job)], created(base_run), 1
+        except BaseUnplaced as unplaced:
+            # The newest red base verdict's log is not placed (hq#13746): this head is compared whole with it, as an
+            # unplaced head is (unplaced_verdict, only within it), then per step; never refused as the head's own.
+            mine = unplaced_head_evidence(repo, job, github)
+            theirs = unplaced_base_evidence(repo, base_job, github)
+            if aside is not None:
+                mine, theirs = unplaced_without_ffi_pin(mine), unplaced_without_ffi_pin(theirs)
+            try:
+                # Only by failing tests named: a passing base step can print the head's error line (an expected-failure
+                # check), which a whole base log cannot tell from a failure (#40542's fourth Codex BLOCK, F2). The tests
+                # are the placed head's own failed steps' (HEAD), never a passing step's line in its whole log (review
+                # F1 on #46811 at 5d7cb257).
+                if not head[1]:
+                    raise Refused(f"'{name}': {BASE_UNPLACED_WHY}, and this head's failed steps name no failing test, "
+                                  "so its error lines are not compared with a whole base log")
+                audit.append(unplaced_verdict(repo, name, base, mine, theirs, base_run, why=BASE_UNPLACED_WHY)
+                             + (f"; {aside}" if aside is not None else ""))
+                continue
+            except Final:
+                raise
+            except Refused as whole:
+                try:
+                    audit.append(by_step())
+                    continue
+                except Final:
+                    raise
+                except Refused as step_why:
+                    raise Refused(f"{whole}; per step: {step_why}; {unplaced}") from None
         while True:
             try:
                 audit.append(compare_window(repo, base, name, head, view, window, chromium_without_diagnostics,
@@ -8200,7 +8467,10 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                     except Refused as step_why:
                         raise Refused(f"{why}; per step: {step_why}") from None
                 read += 1
-                window.append(red(run, found))
+                try:
+                    window.append(red(run, found))
+                except BaseUnplaced:
+                    pass  # an older verdict not placed adds nothing to compare; the window reads on
     # A status judged by its job (status_job) is named too, the way merge_hold reads the head's reds: by the
     # status's own context. Every job above was excused or ignored, or judge() raised.
     for job in jobs:

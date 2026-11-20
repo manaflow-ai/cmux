@@ -123,6 +123,18 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "browser.toolbar.togglePin",
+        group: GROUP,
+        title: t("BrowserToolbarActions", "action.browser.toolbar.togglePin", "Pin or Unpin Browser Toolbar Button…"),
+        keywords: &["browser", "toolbar", "button", "pin", "unpin", "show in toolbar", "hide", "more"],
+        category: "browser",
+        symbol: "pin",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::BROWSER_TOOLBAR_BUTTON],
+        cli_name: "action browser-toolbar-toggle-pin",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "browser.profile.choose",
         group: GROUP,
         title: t("BrowserToolbarActions", "action.browser.profile.choose", "Choose Browser Profile…"),

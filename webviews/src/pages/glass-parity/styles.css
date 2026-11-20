@@ -1,0 +1,61 @@
+/* The Liquid Glass Parity page (main.tsx): nothing but the surfaces, at the boxes the App sends,
+   over no background of its own, so every pixel outside a surface is the App's backdrop. */
+/* The native theme bootstrap paints `html{background:var(--cmux-surface-background) !important}` (the
+   theme's page surface, opaque in an opaque theme): this page shows the App's backdrop instead. */
+:root[data-cmux-page="glass-parity"] {
+  --cmux-surface-background: transparent !important;
+}
+html,
+body {
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+}
+#root {
+  position: fixed;
+  inset: 0;
+}
+.glass-parity-surface.glass-parity-surface {
+  position: absolute;
+  box-sizing: border-box;
+  inset: auto;
+  margin: 0;
+  max-width: none;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-ui, -apple-system, system-ui);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  /* The App's native column draws the same text in the same ink (GlassParityNativeCell). */
+  color: var(--cmux-text, CanvasText);
+}
+/* The two lines at fixed boxes, as the App's native cell lays them (GlassParityTextView): whatever padding,
+   gap or flex the surface's own class gives its content, the text sits at the same pixels in every renderer. */
+.glass-parity-title,
+.glass-parity-detail {
+  position: absolute;
+  left: var(--ds-space-3);
+  right: var(--ds-space-3);
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  line-height: var(--text-body--line-height);
+}
+.glass-parity-title {
+  top: var(--ds-space-2);
+}
+.glass-parity-detail {
+  top: calc(var(--ds-space-2) + var(--text-body--line-height));
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 62%, transparent));
+}
+/* The menu's row at the native row's box (GlassParityPlayground.menuRow), under the text: its fill is the
+   web menu's own highlighted (and pressed) row (ui.css, popupSurface.css), nothing of this page's. */
+.glass-parity-surface.glass-parity-surface .glass-parity-row.glass-parity-row {
+  position: absolute;
+  box-sizing: border-box;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  box-shadow: none;
+}

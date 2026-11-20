@@ -785,7 +785,10 @@ if [[ "$mode" == handoff ]]; then
     account="$CMUX_FLEET_SIGNIN_EMAIL"
     client="$(python3 -I -c 'import uuid,sys; print(uuid.uuid5(uuid.NAMESPACE_URL, "cmux-ios-dogfood-client:%s:%s" % (sys.argv[1], sys.argv[2])))' "$bundle_id" "$udid")"
     receipt="$work/readiness.json"
-    simctl io "$udid" recordVideo --codec h264 --force "$out/recording.mp4" >"$work/recording.log" 2>&1 &
+    # xcrun itself in the background, never the simctl() wrapper: `wrapper &` is a subshell, which
+    # ignores SIGINT (an async command in a non-interactive shell) and waits on its xcrun, so the
+    # SIGINT below never reached the recorder and the step hung until its 6 h timeout (2026-11-18).
+    xcrun simctl --set "$sims" io "$udid" recordVideo --codec h264 --force "$out/recording.mp4" >"$work/recording.log" 2>&1 &
     rec_pid=$!
     sleep 1  # the recorder's first frame; a bounded start, it has no ready signal
     for leg in auto_login restored; do
@@ -822,7 +825,8 @@ if [[ "$mode" == handoff ]]; then
       note "- simulator $leg: $verdict (screens/signed-in-$leg.png)"
     done
     cmux_fleet_signin_forget
-    if [[ -n "$rec_pid" ]]; then kill -INT "$rec_pid" 2>/dev/null || true; wait "$rec_pid" 2>/dev/null || true; fi
+    # recordVideo finishes the file on SIGINT; one that has not stopped in 30 s is ended (bounded).
+    if [[ -n "$rec_pid" ]]; then kill -INT "$rec_pid" 2>/dev/null || true; for _ in $(seq 1 30); do kill -0 "$rec_pid" 2>/dev/null || break; sleep 1; done; ! kill -0 "$rec_pid" 2>/dev/null || kill -TERM "$rec_pid" 2>/dev/null || true; wait "$rec_pid" 2>/dev/null || true; fi
     simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
     [[ -z "$handoff_sim_reason" ]]
   }
@@ -1519,10 +1523,19 @@ if [[ "$mode" == pair-e2e ]]; then
     ./scripts/download-prebuilt-ghosttykit.sh >"$work/ghosttykit.log" 2>&1 ||
       { tail -20 "$work/ghosttykit.log"; echo "error: could not download GhosttyKit.xcframework" >&2; exit 1; }
   fi
+  # ghostty-vt-sys (ghostty-next) needs the fleet's pinned Zig 0.17 (the worker's tools, as
+  # its probe reports); PATH can name /usr/local's 0.16, which it refuses ("Your Zig version
+  # v0.16.0 does not meet the required build version of v0.17.0", steps
+  # e00987962032845838c55ef5 and b9658de920bf40d484a998ac). Only ZIG, which ghostty-vt-sys
+  # reads first: the classic Ghostty CLI helper reads CMUX_ZIG and needs its own 0.16, as
+  # scripts/measure/projection.sh sets it.
+  fleet_zig=/Users/Shared/cmux-build-fleet/tools/bin/zig
+  vt_zig="${ZIG:-}"
+  [[ -z "$vt_zig" && -x "$fleet_zig" ]] && vt_zig="$fleet_zig"
   # A fleet build (CMUX_FLEET_BUILD_TAG) builds acpmux, optchat-chief and
   # cmux-mobile-host on a cache miss and requires them in the bundle.
   set +e
-  CMUX_FLEET_BUILD_TAG="$mac_tag" ./scripts/reload.sh --tag "$mac_tag" --derived-data "$mac_dd" \
+  ZIG="$vt_zig" CMUX_FLEET_BUILD_TAG="$mac_tag" ./scripts/reload.sh --tag "$mac_tag" --derived-data "$mac_dd" \
     --no-global-cli-links >"$work/mac-build.log" 2>&1
   status=$?
   set -e
