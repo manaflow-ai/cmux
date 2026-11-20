@@ -9,6 +9,9 @@
   }
  },
  "deny": {
+  "acpmux-sim-sweep.yml": {
+   "sweep": "matrix: a job-level skip cannot see one leg's receipt"
+  },
   "agent-brands.yml": {
    "drift": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for",
    "swift-test": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
@@ -50,6 +53,9 @@
   "billing.yml": {
    "billing": "its outputs feed later jobs; a skipped run leaves them empty; needed by ios-billing: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.before), not only the tree",
    "ios-billing": "below break-even: 3 runs, 5 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves"
+  },
+  "chief-evals.yml": {
+   "evals": "writes to GitHub (a write permission): a side effect, not a verdict on the tree"
   },
   "ci-artifact-transport.yml": {
    "transport": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
@@ -117,6 +123,11 @@
   "cmux-cloud-cli.yml": {
    "test": "reads pull request metadata or the base (github.event.pull_request.head.sha), not only the tree"
   },
+  "cmux-mobile-ffi.yml": {
+   "rust": "checks out ${{ inputs.ref || github.sha }}, not the run's commit",
+   "apple": "checks out ${{ inputs.ref || github.sha }}, not the run's commit",
+   "android": "checks out ${{ inputs.ref || github.sha }}, not the run's commit"
+  },
   "cmux-next-batch.yml": {
    "debounce": "writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.action, github.event.pull_request.head.ref, github.event.pull_request.number), not only the tree; checks out feat-cmux-next, not the run's commit",
    "batch": "reads secrets; writes to GitHub (a write permission): a side effect, not a verdict on the tree",
@@ -154,7 +165,8 @@
    "own-change-checks": "needed by pr-red-checks: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.before), not only the tree",
    "pr-red-checks": "calls a reusable workflow: no step here can record its pass; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.pull_request.base.ref), not only the tree; judges other jobs (if: always() or failure())",
    "hot-route": "its outputs feed later jobs; a skipped run leaves them empty; needed by tooling-tests: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.labels), not only the tree",
-   "tooling-tests": "reads pull request metadata or the base (github.event.pull_request.labels), not only the tree"
+   "tooling-tests": "reads pull request metadata or the base (github.event.pull_request.labels), not only the tree",
+   "release-notary": "publish, release, deploy, live or cloud work (by its name)"
   },
   "cmux-next-hot-verify.yml": {
    "plan": "its outputs feed later jobs; a skipped run leaves them empty; needed by hand-off: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.action, github.event.pull_request.base.ref, github.event.pull_request.draft), not only the tree; checks out ${{ github.event.pull_request.base.ref }}, not the run's commit",
@@ -163,7 +175,6 @@
    "web": "writes to GitHub (a write permission): a side effect, not a verdict on the tree",
    "rust": "its outputs feed later jobs; a skipped run leaves them empty; needed by request: a skip would skip them or read as no verdict; checks out ${{ needs.target.outputs.head }}, not the run's commit",
    "request": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for",
-   "again": "writes to GitHub (a write permission): a side effect, not a verdict on the tree",
    "publish": "reads secrets; writes to GitHub (a write permission): a side effect, not a verdict on the tree; publish, release, deploy, live or cloud work (by its name)"
   },
   "cmux-next-ios-kit.yml": {
@@ -217,6 +228,11 @@
    "frames": "needed by verdict: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.draft, github.event.pull_request.head.sha, github.event.pull_request.number), not only the tree",
    "verdict": "reads pull request metadata or the base (github.event.pull_request.draft, github.event.pull_request.number), not only the tree; judges other jobs (if: always() or failure())"
   },
+  "cmux-next-terminal.yml": {
+   "rust-terminal-linux": "new on feat-cmux-next after this map's 52-PR replay: no runs measured yet, so a receipt write is not shown to pay; wire it in a later slice once its pull-request minutes are known",
+   "swift-terminal-linux": "new on feat-cmux-next after this map's 52-PR replay: no runs measured yet, so a receipt write is not shown to pay; wire it in a later slice once its pull-request minutes are known",
+   "rust-terminal": "new on feat-cmux-next after this map's 52-PR replay: no runs measured yet, so a receipt write is not shown to pay; wire it in a later slice once its pull-request minutes are known"
+  },
   "cmux-next.yml": {
    "pr-quiet-period": "needed by macos-placement: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.labels), not only the tree",
    "push-head-preflight": "its outputs feed later jobs; a skipped run leaves them empty; needed by app-compile-fleet, app-compile-placement, cmux-scheme-compile, compile-status, daemon-test, dev-daily-place, fast-tier, fast-tier-cargo, fast-tier-fleet, fast-tier-rerun-placement, generated-files, macos-placement, release-compile, release-compile-fast, same-tree-cmux-tui, swift-canary, swift-canary-fleet, swift-test: a skip would skip them or read as no verdict; writes to GitHub (a write permission): a side effect, not a verdict on the tree",
@@ -258,6 +274,11 @@
    "release-compile-revert": "reads secrets; checks out feat-cmux-next, not the run's commit; publish, release, deploy, live or cloud work (by its name); judges other jobs (if: always() or failure())",
    "compile-status": "its outputs feed later jobs; a skipped run leaves them empty; needed by compile-status-handoff: a skip would skip them or read as no verdict; reads secrets; reads pull request metadata or the base (github.event.pull_request.head.sha, github.event.pull_request.labels, github.event.pull_request.number), not only the tree; publish, release, deploy, live or cloud work (by its name)",
    "compile-status-handoff": "reads secrets; reads pull request metadata or the base (github.event.pull_request.head.sha), not only the tree; publish, release, deploy, live or cloud work (by its name); judges other jobs (if: always() or failure())"
+  },
+  "cmux-rd-windows.yml": {
+   "host": "reads pull request metadata or the base (github.event.pull_request.head.sha), not only the tree",
+   "live-windows-host": "writes to GitHub (a write permission): a side effect, not a verdict on the tree",
+   "live-macos-viewer": "writes to GitHub (a write permission): a side effect, not a verdict on the tree"
   },
   "cmux-skill-contract.yml": {
    "browser-skill": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
@@ -333,6 +354,18 @@
    "deploy-dev": "needed by deploy-prod: a skip would skip them or read as no verdict; reads secrets; publish, release, deploy, live or cloud work (by its name)",
    "deploy-prod": "reads secrets; publish, release, deploy, live or cloud work (by its name)"
   },
+  "docs-only-fallback.yml": {
+   "gate": "its outputs feed later jobs; a skipped run leaves them empty",
+   "ci": "calls a reusable workflow: no step here can record its pass",
+   "cmux-next-guards": "calls a reusable workflow: no step here can record its pass",
+   "cmux-next-hot-verify": "calls a reusable workflow: no step here can record its pass",
+   "cmux-next-pr-autofix": "calls a reusable workflow: no step here can record its pass",
+   "cmux-next-size-budget": "calls a reusable workflow: no step here can record its pass",
+   "cmux-next-tab-switch": "calls a reusable workflow: no step here can record its pass",
+   "pr-checks": "calls a reusable workflow: no step here can record its pass",
+   "rust-workspaces": "calls a reusable workflow: no step here can record its pass",
+   "web-validation": "calls a reusable workflow: no step here can record its pass"
+  },
   "fleet-artifact-cdn.yml": {
    "test": "needed by deploy: a skip would skip them or read as no verdict",
    "deploy": "reads secrets; publish, release, deploy, live or cloud work (by its name)"
@@ -388,6 +421,9 @@
   "language-boundaries.yml": {
    "language-boundaries": "pull_request_target only: runs the base's workflow with write access, not the tree under test; reads pull request metadata or the base (github.event.pull_request.base.sha, github.event.pull_request.head.sha, github.event.pull_request.labels), not only the tree; checks out ${{ github.event.pull_request.base.sha }}, not the run's commit"
   },
+  "measure-swift-typecheck.yml": {
+   "typecheck": "new on feat-cmux-next after this map's 52-PR replay: no runs measured yet, so a receipt write is not shown to pay; wire it in a later slice once its pull-request minutes are known"
+  },
   "merge-freeze.yml": {
    "check": "pull_request_target only: runs the base's workflow with write access, not the tree under test; reads pull request metadata or the base (github.event.action, github.event.label, github.event.pull_request.base.ref), not only the tree; checks out main, not the run's commit",
    "expire": "pull_request_target only: runs the base's workflow with write access, not the tree under test; writes to GitHub (a write permission): a side effect, not a verdict on the tree"
@@ -420,7 +456,6 @@
    "body": "reads pull request metadata or the base (github.event.action, github.event.label, github.event.pull_request.base.ref), not only the tree; checks out ${{ github.event.pull_request.base.ref }}, not the run's commit; publish, release, deploy, live or cloud work (by its name)"
   },
   "pr-checks.yml": {
-   "portable-placement": "its outputs feed later jobs; a skipped run leaves them empty; needed by size, split, ui-review: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.base.sha), not only the tree; checks out ${{ github.event.pull_request.base.sha || github.sha }}, not the run's commit",
    "base-only": "its outputs feed later jobs; a skipped run leaves them empty; needed by link, split, swift-logic, ui-review: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.action, github.event.before, github.event.pull_request.base.ref), not only the tree",
    "link": "writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.action, github.event.pull_request.base.ref, github.event.pull_request.draft), not only the tree; checks out ${{ github.event.pull_request.base.ref }}, not the run's commit",
    "swift-logic": "writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.action, github.event.pull_request.base.ref, github.event.pull_request.base.sha), not only the tree; checks out ${{ github.event.pull_request.base.sha }}, not the run's commit",
@@ -494,7 +529,6 @@
    "complexity": "reads pull request metadata or the base (github.event.before, github.event.pull_request.base.sha), not only the tree"
   },
   "web-validation.yml": {
-   "portable-placement": "its outputs feed later jobs; a skipped run leaves them empty; needed by web-validation: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.base.sha), not only the tree; checks out ${{ github.event.pull_request.base.sha || github.sha }}, not the run's commit",
    "changes": "its outputs feed later jobs; a skipped run leaves them empty; needed by build, database, tests, web-validation: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.before, github.event.pull_request.base.sha), not only the tree",
    "build": "needed by web-validation: a skip would skip them or read as no verdict",
    "tests": "needed by web-validation: a skip would skip them or read as no verdict",
