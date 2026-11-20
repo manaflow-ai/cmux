@@ -48,9 +48,14 @@ EVERYTHING = re.compile(
 # an alias, run Vite or a browser (which load the app themselves), or spawn a process. App code
 # under src/ names things like readFile as data, so there it counts only by the import it needs.
 UNTRACKED = re.compile(
-    r"[\"'](node:)?fs(/promises)?[\"']|Bun\.Glob|new Glob|import\.meta\.glob|globSync|Bun\.file\("
-    r"|import\(\s*(?![\"'`])|import\(\s*`[^`]*\$\{|(from\s+|import\(\s*)[\"']cmux:|[\"']vite[\"']"
-    r"|[\"'](playwright|child_process|node:child_process)[\"']|Bun\.spawn")
+    r"(?:from\s+|import\s*(?:\(\s*)?|require\(\s*)[\"']"
+    r"(?:(?:node:)?fs(?:/promises)?|vite|playwright|(?:node:)?child_process)[\"']"
+    r"|Bun\.Glob|new Glob|import\.meta\.glob|globSync|Bun\.file\("
+    # Look ahead BEFORE consuming spaces: otherwise regex backtracking treats the
+    # space in import( './module' ) as a computed expression. An empty import()
+    # example in prose is not an expression either.
+    r"|import\((?!\s*[\"'`])\s*(?=[\w$({\[/])|import\(\s*`[^`]*\$\{"
+    r"|(from\s+|import\(\s*)[\"']cmux:|Bun\.spawn")
 UNTRACKED_OUTSIDE_SRC = re.compile(r"readFile|readdir|createServer\(|requireBrowserLane|spawnSync|execSync|execFile")
 TEMPLATE_IMPORT = re.compile(r"import\(\s*`(\.{1,2}/[^`$?]+)")
 # An asset imported with a query (`./fixture.md?raw`, `./clip.webp?url`): an edge to the asset itself.

@@ -142,6 +142,26 @@ class SelectTest(unittest.TestCase):
     def test_strings_naming_file_reads_in_app_code_do_not_mark_a_test(self) -> None:
         self.assertEqual(self.change("webviews/src/tools.ts"), with_always("webviews/test/tools.test.ts"))
 
+    def test_package_names_and_empty_import_examples_are_not_dynamic_inputs(self) -> None:
+        (self.root / "webviews/src/tools.ts").write_text(
+            'export const tools = ["vite", "playwright", "child_process"];\n'
+            '// A static import is synchronous; import() yields.\n')
+        self.assertEqual(self.change("webviews/src/leaf.ts"), with_always("webviews/test/leaf.test.ts"))
+
+    def test_spaced_static_imports_stay_in_the_import_graph(self) -> None:
+        (self.root / "webviews/src/tools.ts").write_text('export const load = () => import( "./other" );\n')
+        self.assertEqual(self.change("webviews/src/leaf.ts"), with_always("webviews/test/leaf.test.ts"))
+        self.assertEqual(self.change("webviews/src/other.ts"),
+                         with_always("webviews/test/other.test.ts", "webviews/test/tools.test.ts"))
+
+    def test_computed_imports_and_package_loads_still_run(self) -> None:
+        for expression in ('import(name)', 'import( name )', 'import(/* runtime */ name)',
+                           'import("vite")', 'require("child_process")'):
+            with self.subTest(expression=expression):
+                (self.root / "webviews/src/tools.ts").write_text(f'export const load = () => {expression};\n')
+                selected, _ = wa.Selector(self.root).select(["webviews/src/leaf.ts"])
+                self.assertIn("webviews/test/tools.test.ts", selected)
+
     def test_a_deleted_source_and_the_preloads_imports_run_everything(self) -> None:
         self.assertIsNone(self.change("webviews/src/dead.ts", delete=True))
         self.assertIsNone(self.change("webviews/src/preloaded.ts"))
