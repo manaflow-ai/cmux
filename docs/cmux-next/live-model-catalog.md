@@ -47,12 +47,16 @@ versions; the scout's next run publishes the current projection again).
 ## The model scout (automation `models-scout`)
 
 `scripts/models/scout.ts`, run every 6 h by the cmux automation `models-scout`
-(`scripts/models/run-scout.sh`). It runs where no Mac must be awake: on a team Cloud machine, from a
-checkout the runner moves to the newest `feat-cmux-next` before each run:
+(`scripts/models/run-scout.sh`). It runs where no Mac must be awake: on the team Cloud machine
+"Cloud Machine 2" (since 2026-11-20; the Mac's launchd copy is deleted, so one copy runs), from a
+checkout the runner moves to the newest `feat-cmux-next` before each run. The first run on a machine
+clones the repo (about 1.1 GB, several minutes) detached from the start step, so it fits in the run's
+timeout; later runs only fetch:
 
 ```sh
 cmux automation create models-scout --command 'bash scripts/models/run-scout.sh' \
-  --repo manaflow-ai/cmux --ref feat-cmux-next --every 6h --timeout 20m --catch-up latest --target cloud
+  --repo manaflow-ai/cmux --ref feat-cmux-next --every 6h --timeout 20m --catch-up latest \
+  --target cloud --machine 'Cloud Machine 2'   # --machine: needed when the team has 2+ machines (a CLI with 1603df5c)
 # each secret from a hidden prompt or stdin, never an argument:
 cmux automation secret set models-scout MODELS_CATALOG_TOKEN_STAGING --target cloud
 ```

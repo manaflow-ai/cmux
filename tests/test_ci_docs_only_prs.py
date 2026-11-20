@@ -80,6 +80,7 @@ SCOPED: dict[str, str] = {
     "app-platform.yml": "cmux-tui/crates/cmux-app-host/** and examples/extensions/**",
     "auth-refresh-tests.yml": "the auth runtime package and the vendored Stack Auth SDK",
     "backend.yml": "backend/** and libs/**",
+    "chief-evals.yml": "Native/OptChat/optchat-chief/evals/person.md, the eval cases' default profile (#47445)",
     "billing.yml": "docs/billing/** by name, the billing spec beside its package",
     "ci-artifact-transport.yml": "workers/ci-artifacts/**",
     "cloudflare-relay.yml": "cmux-tui/relays/cloudflare-do/**",

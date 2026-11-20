@@ -2,7 +2,7 @@
 //! past its bound disconnected with a typed reason, and replies counted like every other line.
 
 use super::Message;
-use super::outbound::{OVERRUNS, start_bounded};
+use super::outbound::{OVERRUNS, TOTAL_HELD, start_bounded, start_limited};
 use serde_json::{Value, json};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -163,6 +163,39 @@ async fn the_queue_gauge_counts_the_bytes_a_slow_reader_has_not_read() {
     .await
     .expect("what the reader took leaves the gauge");
     assert_eq!(after.lines, 2);
+}
+
+/// huge-blue, 2026-11-20: every connection under its own bound, 16.5 GB together. Past the
+/// daemon-wide bound, a reader over its fair share is disconnected; a small one is still served.
+#[tokio::test]
+async fn past_the_daemon_wide_bound_a_reader_over_its_fair_share_is_disconnected() {
+    const FAIR: usize = 8 << 10;
+    const OWN: usize = 1 << 20;
+    let scope = cmux_scope::Scope::new("outbound-test");
+    // Other tests' queues count too: the bound is what they hold now and 32 KiB more.
+    let total = TOTAL_HELD.load(Ordering::Relaxed) + (32 << 10);
+    let (t1, _rx1) = mpsc::channel(1);
+    let (t2, _rx2) = mpsc::channel(1);
+    let (t3, _rx3) = mpsc::channel(1);
+    let (big, _) = start_limited(&scope, None, t1, OWN, total, FAIR);
+    let (other, _) = start_limited(&scope, None, t2, OWN, total, FAIR);
+    let (small, _) = start_limited(&scope, None, t3, OWN, total, FAIR);
+    let mut queued = 0;
+    while big.push(note(queued)) {
+        queued += 1;
+        assert!(queued * 200 < OWN, "the daemon-wide bound never tripped");
+    }
+    assert!(big.is_closed(), "the reader over its share is disconnected");
+    // Another reader holding the rest of the bound, then one under its share: still served.
+    let mut n = 0;
+    while other.push(note(n)) {
+        n += 1;
+        assert!(n * 200 < OWN, "the daemon-wide bound never tripped");
+    }
+    for i in 0..5 {
+        assert!(small.push(note(i)), "a reader under its fair share is served");
+    }
+    assert!(!small.is_closed());
 }
 
 mod flood_bulk;
