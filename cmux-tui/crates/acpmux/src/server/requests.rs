@@ -3178,6 +3178,17 @@ async fn dispatch_request_with_identity(
                 text_of("threadId").ok_or_else(|| RpcError::invalid_params("threadId is required"))
             };
             match m {
+                method::MUX_INBOX_THREADS if params.get("search").is_some() => {
+                    let query = text_of("search")
+                        .ok_or_else(|| RpcError::invalid_params("search needs text"))?;
+                    let needle = crate::chats::search::Needle::parse(query)
+                        .map_err(RpcError::invalid_params)?;
+                    let before = params.get("before").and_then(Value::as_u64);
+                    let hub = Arc::clone(hub);
+                    tokio::task::spawn_blocking(move || hub.search_held_inbox(&s, &needle, before))
+                        .await
+                        .map_err(|e| RpcError::internal(format!("inbox search stopped: {e}")))?
+                }
                 method::MUX_INBOX_THREADS => Ok(hub.inbox_threads(&s)),
                 method::MUX_INBOX_THREAD => {
                     let mark = params.get("markRead").and_then(Value::as_bool).unwrap_or(false);

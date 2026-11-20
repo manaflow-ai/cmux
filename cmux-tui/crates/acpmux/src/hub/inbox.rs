@@ -904,7 +904,16 @@ fn body(text: &str) -> &str {
 
 /// Whether `item` may wake the idle chat of `meta`.
 fn wakes(meta: &SessionMeta, item: &Item) -> bool {
-    wakes_as(meta, item.class, item.report, item.from_session.as_deref())
+    fire_notice(item.tool_notice.as_ref())
+        || wakes_as(meta, item.class, item.report, item.from_session.as_deref())
+}
+
+fn fire_notice(notice: Option<&Value>) -> bool {
+    notice.and_then(|n| n.get("severity")).and_then(Value::as_str) == Some("fire")
+}
+
+fn ordinary_fyi(item: &Item) -> bool {
+    item.class == PromptClass::Fyi && !fire_notice(item.tool_notice.as_ref())
 }
 
 /// [`wakes`] for a message of `class` from session `from` (a report or not) not in the inbox yet.
@@ -950,7 +959,7 @@ fn would_strand(session: &Session, inbox: &Inbox, meta: &SessionMeta, class: Pro
 fn fyis_alone_wait(inbox: &Inbox, class: PromptClass) -> bool {
     class == PromptClass::Fyi
         && !inbox.due_now
-        && inbox.items.iter().filter(|i| !i.noticed).all(|i| i.class == PromptClass::Fyi)
+        && inbox.items.iter().filter(|i| !i.noticed).all(ordinary_fyi)
 }
 
 /// The refusal of a waiting send whose message the receiver's inbox would hold without waking it
@@ -1240,8 +1249,8 @@ impl Hub {
         let sender_session = sender_session(provenance);
         // Read before the inbox's lock, as `inbox_review` reads them.
         let meta_now = session.meta();
-        let wakes_now =
-            wakes_as(&meta_now, class, is_report(provenance), sender_session.as_deref());
+        let wakes_now = fire_notice(provenance.and_then(|p| p.get("notice")))
+            || wakes_as(&meta_now, class, is_report(provenance), sender_session.as_deref());
         let continuing = self.continuation_pending(session);
         // It would sit in an idle chat's inbox until a flush: said in its acceptance, and a
         // sender that waits for it is refused at once (`not_woken`).
@@ -1555,7 +1564,7 @@ impl Hub {
                 let oldest = new.iter().map(|i| i.at).min().unwrap_or(now);
                 // Nothing new but FYIs: they go with the next notice, or once the oldest is
                 // `FLUSH_MS` old (module docs).
-                let fyi_only = new.iter().all(|i| i.class == PromptClass::Fyi);
+                let fyi_only = new.iter().all(|i| ordinary_fyi(i));
                 if new.is_empty()
                     || inbox.in_flight.is_some()
                     || meta.status == SessionStatus::Closed

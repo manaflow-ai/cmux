@@ -30,14 +30,12 @@ fn eligible(opts: &PromptOptions, blocks: &[Value]) -> Option<String> {
         || opts.steer_only
         || opts.control == Control::Web
         || crate::author::of_provenance(provenance).is_some()
-        || provenance
-            .and_then(|p| p.pointer("/notice/severity"))
-            .and_then(Value::as_str)
-            .is_some_and(|s| s.eq_ignore_ascii_case("fire"))
+        || fire_notice(provenance.and_then(|p| p.get("notice")))
         || !blocks.iter().all(|b| b.get("type").and_then(Value::as_str) == Some("text"))
         || crate::prompt_uploads::any(blocks)
         || super::super::forum::slash_command(blocks).is_some()
-        || is_notice(provenance)
+        // The receiver's own batch must reach it. External tool notices have kind "notice".
+        || provenance.and_then(|p| p["kind"].as_str()) == Some(super::NOTICE_KIND)
     {
         return None;
     }
@@ -45,6 +43,34 @@ fn eligible(opts: &PromptOptions, blocks: &[Value]) -> Option<String> {
 }
 
 impl Hub {
+    /// Page the original records, including ones older than the live inbox projection.
+    pub(crate) fn search_held_inbox(
+        &self,
+        session: &Session,
+        needle: &crate::chats::search::Needle,
+        before: Option<u64>,
+    ) -> Result<Value, RpcError> {
+        const PAGE: usize = 50;
+        let mut hits = std::collections::VecDeque::with_capacity(PAGE);
+        let mut more = false;
+        self.scan_for_rebuild(session, &["inbox"], &mut |record| {
+            if before.is_some_and(|end| record.seq >= end) { return false; }
+            let msg = &record.msg;
+            if msg["surgeHeld"].as_bool() == Some(true) {
+                let searchable = ["text","from","threadId","promptId"].map(|key| msg[key].as_str().unwrap_or_default()).join("\n");
+                if needle.find(&searchable).is_some() {
+                    if hits.len() == PAGE { hits.pop_front(); more = true; }
+                    hits.push_back(json!({"seq":record.seq,"at":record.at,"promptId":msg["promptId"],
+                        "from":msg["from"], "threadId":msg["threadId"], "text":msg["text"],"sender":msg["sender"]}));
+                }
+            }
+            true
+        }).map_err(|e| RpcError::internal(format!("read held inbox: {e}")))?;
+        let next = more.then(|| hits.front().and_then(|v| v["seq"].as_u64())).flatten();
+        let hits: Vec<_> = hits.into_iter().rev().collect();
+        Ok(json!({"sessionId":session.id,"hits":hits,"next":next}))
+    }
+
     /// A surge receipt means the receiver journal already holds the entire original prompt.
     /// No turn, steer, ordinary inbox notice, or caller waiting on a nonexistent turn is created.
     pub(in crate::hub) fn hold_surge_message(
@@ -154,6 +180,12 @@ mod tests {
             assert!(eligible(&opts, &blocks).is_none());
         }
         opts.class = Some(PromptClass::Fyi);
+        opts.agent = None;
+        opts.provenance = Some(crate::prompt_provenance::notice(
+            &json!({"sender":"watcher","severity":"warn"}),
+            "receiver",
+        ));
+        assert_eq!(eligible(&opts, &blocks).as_deref(), Some("watcher"));
         opts.provenance = Some(crate::prompt_provenance::notice(
             &json!({"sender":"watcher","severity":"fire"}),
             "receiver",
