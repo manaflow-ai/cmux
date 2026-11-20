@@ -117,28 +117,31 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
             return minutes(now.timeIntervalSince(start)).map(text) ?? ""
         case .reported, .stopped:
             guard let end = row.peerEnded[checked: index] ?? nil else { return "" }
-            return text(max(1, minutes(end.timeIntervalSince(start)) ?? 1))
+            return text(minutes(end.timeIntervalSince(start)) ?? 60)
         }
     }
 
     /// Whether `row` has an agent at work, so its pills' times move with the clock (``nextChange(_:now:)``).
     static func ticks(_ row: HomeAgentMessageRow) -> Bool {
-        row.peerStates.indices.contains { row.peerStates[$0] == .told && (row.peerStarted[checked: $0] ?? nil) != nil }
+        working(row).contains { _ in true }
+    }
+
+    /// When each agent at work on `row` was told its task.
+    private static func working(_ row: HomeAgentMessageRow) -> some Sequence<Date> {
+        zip(row.peerStates, row.peerStarted).lazy.compactMap { state, start in state == .told ? start : nil }
     }
 
     /// Seconds from `now` until a working agent's time on `row` next changes (its next whole minute); nil when none works.
     static func nextChange(_ row: HomeAgentMessageRow, now: Date) -> TimeInterval? {
-        row.peerStates.indices.compactMap { index -> TimeInterval? in
-            guard row.peerStates[index] == .told, let start = row.peerStarted[checked: index] ?? nil else { return nil }
-            let elapsed = max(0, now.timeIntervalSince(start))
-            return 60 - elapsed.truncatingRemainder(dividingBy: 60)
+        working(row).map { start in
+            60 - max(0, now.timeIntervalSince(start)).truncatingRemainder(dividingBy: 60)
         }.min()
     }
 
-    /// Whole minutes in `interval`; nil under one.
-    private static func minutes(_ interval: TimeInterval) -> Int? {
+    /// `interval` down to its whole minutes; nil under one.
+    private static func minutes(_ interval: TimeInterval) -> TimeInterval? {
         guard interval.isFinite, interval >= 60 else { return nil }
-        return Int(interval / 60)
+        return interval - interval.truncatingRemainder(dividingBy: 60)
     }
 
     private static let durationFormatter: DateComponentsFormatter = {
@@ -150,8 +153,8 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
     }()
 
     /// "12m", "1h 4m": the system's abbreviated units, in the person's language.
-    private static func text(_ minutes: Int) -> String {
-        durationFormatter.string(from: TimeInterval(minutes * 60)) ?? "\(minutes)m"
+    private static func text(_ wholeMinutes: TimeInterval) -> String {
+        durationFormatter.string(from: wholeMinutes) ?? ""
     }
 
     /// The caption part for a Feed row (``HomeFeedRow``): its source and title on one muted line with
