@@ -48,28 +48,79 @@ fn quantile(sorted: &[Duration], q: f64) -> f64 {
     sorted.get(at).copied().unwrap_or_default().as_secs_f64() * 1000.0
 }
 
-/// One home: the cheap request's latencies while [`READERS`] whole-log reads run, and one line.
-async fn measure(shape: Shape) -> f64 {
+/// A home of `shape` in its own folder, and one history read of its big chat timed alone (the
+/// page cache then holds the log).
+struct Bench {
+    _dir: tempfile::TempDir,
+    shape: Shape,
+    hub: Arc<crate::hub::Hub>,
+    id: String,
+    bytes: u64,
+    alone: Duration,
+}
+
+async fn open(shape: Shape) -> Bench {
     let dir = tempfile::tempdir().unwrap();
     let (hub, id, bytes) = home(dir.path(), &shape);
-    let history = json!({"sessionId": id});
-    // One read first, alone: the page cache holds the log, and its time is printed.
-    let alone = Client::on(&hub, Origin::Local).await;
+    let client = Client::on(&hub, Origin::Local).await;
     let started = Instant::now();
-    let (reply, _) = alone.call(method::MUX_HISTORY, history.clone()).await;
+    let (reply, _) = client.call(method::MUX_HISTORY, json!({"sessionId": id})).await;
     assert!(reply.get("error").is_none(), "{reply}");
-    let read_ms = started.elapsed().as_secs_f64() * 1000.0;
-    let probe = Client::on(&hub, Origin::Local).await;
+    let alone = started.elapsed();
+    Bench { _dir: dir, shape, hub, id, bytes, alone }
+}
+
+/// What each reader keeps in flight while the cheap request is measured.
+#[derive(Clone, Copy)]
+enum Load {
+    /// `_acpmux/history` of the big chat on its own connection, as a client asks it.
+    Wire,
+    /// The same `Hub::history` on the blocking pool, awaited: no worker hands its core off.
+    Pool,
+    /// `qos::off_worker` of a sleep this long: the handoff alone, no log read and no lock.
+    Sleep(Duration),
+}
+
+/// What [`run`] saw: the cheap request's latencies (sorted), the reads done and the window.
+struct Seen {
+    latencies: Vec<Duration>,
+    reads: usize,
+    window: f64,
+}
+
+/// The cheap request's latencies on `bench`'s hub while `readers` readers keep `load` going.
+async fn run(bench: &Bench, load: Load, readers: usize) -> Seen {
+    let probe = Client::on(&bench.hub, Origin::Local).await;
     let reading = Arc::new(AtomicBool::new(true));
     let reads = Arc::new(AtomicUsize::new(0));
-    let mut readers = Vec::new();
-    for _ in 0..READERS {
-        let client = Client::on(&hub, Origin::Local).await;
-        let (reading, reads, history) = (reading.clone(), reads.clone(), history.clone());
-        readers.push(tokio::spawn(async move {
+    let mut tasks = Vec::new();
+    for _ in 0..readers {
+        let (reading, reads) = (reading.clone(), reads.clone());
+        let (hub, id) = (bench.hub.clone(), bench.id.clone());
+        let client = match load {
+            Load::Wire => Some(Client::on(&hub, Origin::Local).await),
+            _ => None,
+        };
+        tasks.push(tokio::spawn(async move {
             while reading.load(Ordering::SeqCst) {
-                let (reply, _) = client.call(method::MUX_HISTORY, history.clone()).await;
-                assert!(reply.get("error").is_none(), "{reply}");
+                match load {
+                    Load::Wire => {
+                        let history = json!({"sessionId": id});
+                        let client = client.as_ref().unwrap();
+                        let (reply, _) = client.call(method::MUX_HISTORY, history).await;
+                        assert!(reply.get("error").is_none(), "{reply}");
+                    }
+                    Load::Pool => {
+                        let (hub, id) = (hub.clone(), id.clone());
+                        tokio::task::spawn_blocking(move || {
+                            let s = hub.resolve(&id).unwrap();
+                            hub.history(&s, 20)
+                        })
+                        .await
+                        .unwrap();
+                    }
+                    Load::Sleep(d) => crate::qos::off_worker(|| std::thread::sleep(d)),
+                }
                 reads.fetch_add(1, Ordering::SeqCst);
             }
         }));
@@ -87,29 +138,62 @@ async fn measure(shape: Shape) -> f64 {
     }
     let window = measured.elapsed().as_secs_f64();
     reading.store(false, Ordering::SeqCst);
-    for reader in readers {
-        reader.await.unwrap();
+    for task in tasks {
+        task.await.unwrap();
     }
     latencies.sort_unstable();
-    let p95 = quantile(&latencies, 0.95);
+    Seen { latencies, reads: reads.load(Ordering::SeqCst), window }
+}
+
+/// One home: the cheap request's latencies while [`READERS`] whole-log reads run, and one line.
+async fn measure(bench: &Bench) -> f64 {
+    let seen = run(bench, Load::Wire, READERS).await;
+    let p95 = quantile(&seen.latencies, 0.95);
     println!(
-        "LOG-READ-ACK home={} workers={WORKERS} readers={READERS} log_bytes={bytes} \
-         messages={} history_alone_ms={read_ms:.0} reads={} window_s={window:.1} p50={:.2} \
+        "LOG-READ-ACK home={} workers={WORKERS} readers={READERS} log_bytes={} \
+         messages={} history_alone_ms={:.0} reads={} window_s={:.1} p50={:.2} \
          p95={p95:.2} max={:.2} n={}",
-        shape.name,
-        shape.god_messages,
-        reads.load(Ordering::SeqCst),
-        quantile(&latencies, 0.5),
-        quantile(&latencies, 1.0),
-        latencies.len(),
+        bench.shape.name,
+        bench.bytes,
+        bench.shape.god_messages,
+        bench.alone.as_secs_f64() * 1000.0,
+        seen.reads,
+        seen.window,
+        quantile(&seen.latencies, 0.5),
+        quantile(&seen.latencies, 1.0),
+        seen.latencies.len(),
     );
     p95
+}
+
+/// A control row: what the cheap request waits for on `bench` under `load` from `readers`.
+async fn control(row: &str, bench: &Bench, load: Load, readers: usize) {
+    let seen = run(bench, load, readers).await;
+    println!(
+        "LOG-READ-ACK-CTRL row={row} home={} readers={readers} reads={} window_s={:.1} \
+         p50={:.2} p95={:.2} max={:.2} n={}",
+        bench.shape.name,
+        seen.reads,
+        seen.window,
+        quantile(&seen.latencies, 0.5),
+        quantile(&seen.latencies, 0.95),
+        quantile(&seen.latencies, 1.0),
+        seen.latencies.len(),
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "bench: run with --ignored --nocapture"]
 async fn log_read_ack_bench() {
-    let small = measure(Shape::small()).await;
-    let god = measure(Shape::god_from_env()).await;
-    println!("LOG-READ-ACK god_p95/small_p95={:.2}", god / small.max(0.001));
+    let small = open(Shape::small()).await;
+    let god = open(Shape::god_from_env()).await;
+    let small_p95 = measure(&small).await;
+    let god_p95 = measure(&god).await;
+    println!("LOG-READ-ACK god_p95/small_p95={:.2}", god_p95 / small_p95.max(0.001));
+    // What the god rows wait for: the worker handoff alone (as long as one god read, on the small
+    // home), the reads with no handoff (the blocking pool), and the reads by 1 and 8 readers.
+    control("small-handoff-sleep", &small, Load::Sleep(god.alone), READERS).await;
+    control("god-blocking-pool", &god, Load::Pool, READERS).await;
+    control("god-wire-1", &god, Load::Wire, 1).await;
+    control("god-wire-8", &god, Load::Wire, 8).await;
 }
