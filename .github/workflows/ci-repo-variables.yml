@@ -56,8 +56,11 @@ jobs:
           CMUX_CI_XCODE_APP_PR: ${{ vars.CMUX_CI_XCODE_APP_PR }}
           # Present while the cloud overflow switch has Blacksmith overflow off.
           CI_CLOUD_OVERFLOW_SAVED: ${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
+          # Every fromJSON(vars.RUNNER_POOLS).<pool> reads it; a hosted label here strands jobs (2026-11-18).
+          RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
           CMUX_CI_RUNNER_VARIABLES: |
             CI_AWS_SIDE_RUNNER=${{ vars.CI_AWS_SIDE_RUNNER }}
+            CI_CONTROL_RUNNER=${{ vars.CI_CONTROL_RUNNER }}
             CI_DEV_COMPILE_RUNNER=${{ vars.CI_DEV_COMPILE_RUNNER }}
             CI_FAST_LANE_RUNNER=${{ vars.CI_FAST_LANE_RUNNER }}
             CI_IOS_INTERNAL_RUNNER=${{ vars.CI_IOS_INTERNAL_RUNNER }}

@@ -52,7 +52,7 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
                                               (cmux-web-layer-fork.yml): it runs that fork's code in your cmux
                                               (`library off NAME` puts back what was under any of them)
   cmux customize profiles                     The saved profiles
-  cmux customize recipes [--open]             Ten ready-made changes to try with `use` (--open: the guide, in cmux)
+  cmux customize recipes [--open]             Ready-made changes to try with `use` (--open: the guide, in cmux)
   cmux customize library [VERB]               Everything you applied, kept as layers: list|status|on|off|order|export|import|remove
   cmux customize doctor                       What changes your customization unexpectedly: stale layers, broken,
                                               shadowed, leftover or misplaced files, unknown keys, values off their default; `fix ID ...`, `recover`

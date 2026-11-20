@@ -51,6 +51,16 @@ const num = (value: unknown) => (typeof value === "number" && Number.isFinite(va
 const record = (value: unknown) =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 
+/// A new read's items, each one the previous read's object when nothing in it changed, so a read
+/// that changes one item draws that row alone (acpmux sends every item on each read).
+export function keptItems(previous: readonly QueueItem[], next: readonly QueueItem[]): QueueItem[] {
+  const byId = new Map(previous.map((item) => [item.id, item]));
+  return next.map((item) => {
+    const old = byId.get(item.id);
+    return old && JSON.stringify(old) === JSON.stringify(item) ? old : item;
+  });
+}
+
 /// Reads acpmux's answer; an item missing what it needs to be shown is dropped, never drawn half.
 export function readQueue(value: unknown, fallbackNow = Date.now()): QueueReply {
   const body = record(value);
