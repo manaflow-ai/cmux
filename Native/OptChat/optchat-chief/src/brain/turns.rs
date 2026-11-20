@@ -422,6 +422,11 @@ impl Brain {
             .filter(|_| self.prewarm_ours != Some(false));
         let mut answers = self.state.carry_answers.clone();
         add_answers(&mut answers, self.answers_of(&items));
+        // A new turn: what it saw and posted starts empty (landed_told.rs),
+        // before its items are logged.
+        self.turn_landed.clear();
+        self.turn_posts.clear();
+        self.landed_refused = false;
         let done = self.log_items(&items, move |next, done| {
             next.carry_answers.clear();
             let first = done.ids.first().copied().unwrap_or(first_id);
@@ -565,6 +570,7 @@ impl Brain {
         // never before a cache mark: the subagents at work now (the reference
         // client's line). Never logged.
         let at_work = self.at_work_line();
+        let open_items = self.open_items_block();
         // The person's clock (weekday, time, zone): day words and sleep
         // seconds count from it. After the delta, so it never breaks a cache
         // mark.
@@ -578,6 +584,7 @@ impl Brain {
             .iter()
             .chain(memory.iter())
             .chain(at_work.iter())
+            .chain(open_items.iter())
             .chain(home.iter())
             .chain(resumes.iter())
             .cloned()
@@ -903,6 +910,9 @@ impl Brain {
                 for item in items {
                     if let Source::Spawn(r) = &item.source {
                         self.trace_report_logged(r, &item.text);
+                        if !r.quiet {
+                            self.saw_report(r, &item.text);
+                        }
                     }
                 }
                 Some(done)
