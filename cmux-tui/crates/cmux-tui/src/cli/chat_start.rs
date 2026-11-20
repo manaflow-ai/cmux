@@ -161,10 +161,13 @@ Starts an agent chat, right here unless --on names another target:
                      new empty folder on the VM
   --no-folder        A Cloud chat with no folder, as the composer's No folder: a new
                      folder of its own on the VM (~/chats/<chat>), nothing copied;
-                     not with --cwd, --from-folder or --repo  --repo URL         A chat here in a clone of URL: OWNER/NAME on GitHub or any https
-                     git URL (GitLab's too), @REF for a branch, tag or commit. Cloned
-                     with your git into ~/cmux/repos/HOST/OWNER/NAME, or --cwd DIR;
-                     a clone of it already there is used as it is
+                     not with --cwd, --from-folder or --repo
+  --repo URL         A chat in a clone of URL: OWNER/NAME on GitHub or any https
+                     git URL (GitLab's too), @REF for a branch, tag or commit. Here:
+                     cloned with your git into ~/cmux/repos/HOST/OWNER/NAME, or --cwd
+                     DIR; a clone of it already there is used as it is. With --on
+                     cloud or --on vm:new: a new VM clones it into ~/work/NAME and the
+                     chat starts there once the clone is done (not with --cwd)
   --name NAME        The chat's name (a chat here)
   --prompt TEXT      A first prompt (`-` reads it from stdin); a Cloud chat needs one
   --allow-large      Copy --from-folder even past 20 GB or 500,000 files (a Cloud chat)
@@ -181,6 +184,7 @@ EXAMPLES
   cmux chat --on studio-mac 'Run the tests'
   cmux chat --on vm:new --prompt 'Summarize README.md' --wait --json
   cmux chat --on vm:new --from-folder . --prompt 'Run the tests' --wait
+  cmux chat --on cloud --repo https://gitlab.com/group/project -p 'Run the tests' -w
   cmux chat --on cloud --environment staging-db --prompt 'Run the migrations' --wait
   cmux chat --on cloud --no-folder --harness codex --effort high --prompt 'What is 1+1?' -w
   cmux chat --on cloud --from-folder . --model claude-sonnet-5-5 --effort max -p 'Run the tests'
@@ -891,10 +895,6 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
         cloud_machines: || cloud_start_chat::app_machines(global),
         peers: || super::agents::chat::chat_peers(global),
     };
-    // Refused before any target is read, so a signed-out or ambiguous Cloud target says this.
-    if start.repo.is_some() && start.on.as_deref().is_some_and(names_cloud) {
-        return usage_failure(&UsageError::new(REPO_HERE_ONLY), global.output);
-    }
     let sources = joined::Sources { hub: joined::hub_peers, rows: || joined::account_rows(global) };
     let route = match route_or_joined(start.on.as_deref(), || route_start(&start, reads), sources) {
         Ok(route) => route,
@@ -913,6 +913,7 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
     if matches!(route, Route::Cloud(_))
         && start.from_folder.is_none()
         && start.cwd.is_none()
+        && start.repo.is_none()
         && !start.no_folder
         && global.output == OutputMode::Human
     {
@@ -936,8 +937,13 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
                 return super::wire::print_local_error(&error, global.output, 1);
             }
         },
-        Route::Cloud(_) if start.repo.is_some() => {
-            return usage_failure(&UsageError::new(REPO_HERE_ONLY), global.output);
+        // `--on cloud` or `--on vm:new`: a new machine clones it (`cloud start-chat --repo`). A VM that exists
+        // keeps its folders: its chat goes to the repository with `cmux chat cd` once it runs.
+        Route::Cloud(Machine::Named(_) | Machine::Target(_)) if start.repo.is_some() => {
+            return usage_failure(
+                &UsageError::new(cloud_start_chat::REPO_WITH_TARGET),
+                global.output,
+            );
         }
         Route::Cloud(_) | Route::Peer(_) => start,
         // A joined machine runs the chat in its own folders: no clone or copy from here.
@@ -986,11 +992,6 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
     }
 }
 
-/// Whether target `on` is a Cloud selector (`cloud`, `vm`, `vm:…`), never a chat here.
-pub(super) fn names_cloud(on: &str) -> bool {
-    on == "cloud" || on == "vm" || on.starts_with("vm:")
-}
-
 /// Why [`in_repo`] started nothing.
 enum Failure {
     Usage(UsageError),
@@ -1015,9 +1016,6 @@ const EMPTY_CLOUD_FOLDER: &str = "cmux: the Cloud chat starts in a new empty fol
 const JOINED_OWN_FOLDERS: &str = "--repo, --from-folder and --attach carry this Mac's files to a \
      chat here or in Cloud; a chat on a joined machine starts in that machine's folders \
      (--cwd DIR there)";
-
-const REPO_HERE_ONLY: &str = "--repo starts a chat here in a clone; a Cloud chat goes to a \
-     repository with cmux chat cd SESSION --repo REPO once it has started";
 
 /// `start` with `--repo`'s clone made (or found) and its folder as the chat's `--cwd`; without
 /// `--repo`, `start` as it is. `--cwd` with `--repo` names where the clone goes.
@@ -1061,7 +1059,9 @@ where
     L: FnOnce() -> Result<Value, Value>,
     P: FnOnce() -> Result<Value, String>,
 {
-    if start.environment.is_some() && start.on.as_deref() == Some("cloud") {
+    // `--repo` with `--on cloud` makes its machine too: one that clones the repository.
+    let makes = start.environment.is_some() || start.repo.is_some();
+    if makes && start.on.as_deref() == Some("cloud") {
         if let Err(refusal) = cmux::resolve_chat_target("cloud", &Value::Null, (reads.signed_in)())
         {
             return Err(refused(&refusal));
@@ -1277,6 +1277,9 @@ pub(super) fn cloud_words(start: &Start, machine: &Machine) -> Result<Vec<String
         if let Some(value) = value {
             words.extend([flag.to_owned(), value.clone()]);
         }
+    }
+    if let Some(repo) = &start.repo {
+        words.extend(["--repo".to_owned(), repo.spec()]);
     }
     if start.wait {
         words.push("--wait".to_owned());

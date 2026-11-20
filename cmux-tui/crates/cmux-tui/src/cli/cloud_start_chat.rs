@@ -1,5 +1,5 @@
 //! `cmux cloud start-chat [--prompt TEXT] [--agent claude] [--cwd DIR | --from-folder PATH]
-//! [--environment E] [--name MACHINE | --target machine:ID] [--wait] [--timeout SECONDS]`: one command takes a
+//! [--repo REPO] [--environment E] [--name MACHINE | --target machine:ID] [--wait] [--timeout SECONDS]`: one command takes a
 //! Cloud chat from nothing to a reply, for a person, a script or the Chief (Leo, 2026-11-02: "we need to improve
 //! the docs/instructions/commands and guidance and whatnot to make this all smoother faster more
 //! efficient more exposed / cuz chief will be using this kind of flow").
@@ -11,6 +11,11 @@
 //!    loaded yet (just launched) is read again until it is, for at most `LIST_LOAD_WAIT` and `--timeout`
 //!    (`cmux_cloud_start_core::list_wait`, which the app's own start asks too).
 //!    With `--environment`, `cloud new-machine --environment E` first makes the chat's machine in it.
+//!    With `--repo` (`OWNER/NAME` on GitHub, or any https git URL: GitLab's, a company server's), `cloud
+//!    new-machine --repo REPO` first makes a machine whose bootstrap clones it into `~/work/NAME`; the chat
+//!    waits for that clone (clone_wait.rs) and starts in it. One command, where it took `new-machine --repo`
+//!    and then `start-chat --target --cwd ~/work/NAME` typed by hand (Leo, 2026-11-20: "PLUS ALL THE
+//!    FUCKIGN COMMANDS ABOUT FUCKING CLOUD").
 //! 2. `cloud start-session (--name N | --target T) --agent A [--cwd D | --from-folder P]`: takes
 //!    the machine (or creates it) and opens the chat's tab in the machine's workspace, a real chat in the app.
 //!    With `--from-folder` (an existing folder on this Mac) the app copies that folder to the machine the
@@ -39,6 +44,7 @@ use std::io::Read as _;
 use std::time::{Duration, Instant};
 
 use cmux_cloud_start_core::list_wait::{ListWait, list_wait};
+use cmux_cloud_start_core::machine_repo;
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
@@ -86,6 +92,7 @@ const TAKES_VALUE: &[&str] = &[
     "--cwd",
     "--from-folder",
     "--environment",
+    "--repo",
     "--account",
     "--name",
     "--target",
@@ -125,6 +132,9 @@ pub(super) struct Request {
     /// `--environment ID|NAME`: the Cloud environment (`env_…`, or its name) a new machine boots in
     /// (`cloud new-machine --environment`).
     pub environment: Option<String>,
+    /// `--repo REPO`: the repository a new machine clones (`cloud new-machine --repo`, its spec as
+    /// `machine_repo::Repo::spec` writes it); the chat starts in the clone, `cwd` ([`repo_folder`]).
+    pub repo: Option<String>,
     /// `--account user:ID|team:ID` (or `user:ID|personal`, `cmux_cloud_api::sandbox::account_scope`):
     /// nothing starts unless the app is signed in to that account, and the prompt goes only to a
     /// machine that account's list shows. The daemon's sandboxed Runs pass the Run's own.
@@ -239,6 +249,7 @@ pub(super) fn send_existing(
         cwd: None,
         from_folder: None,
         environment: None,
+        repo: None,
         account: None,
         machine: Machine::Target(machine_id.to_owned()),
         wait,
@@ -343,6 +354,7 @@ pub(super) fn wait_on(
         cwd: None,
         from_folder: None,
         environment: None,
+        repo: None,
         machine: Machine::Target(machine_id.to_owned()),
         wait: true,
         timeout: timeout.min(MAX_TIMEOUT),
@@ -485,6 +497,7 @@ pub(super) fn parse(
     let mut cwd = None;
     let mut from_folder = None;
     let mut environment = None;
+    let mut repo = None;
     let mut account = None;
     let mut name = None;
     let mut target = None;
@@ -524,6 +537,8 @@ pub(super) fn parse(
             "--cwd" => cwd = Some(value()?),
             "--from-folder" => from_folder = Some(value()?),
             "--environment" => environment = Some(value()?),
+            "--repo" if repo.is_some() => return Err(UsageError::new("give --repo once")),
+            "--repo" => repo = Some(value()?),
             "--account" => account = Some(value()?),
             "--name" => name = Some(value()?),
             "--target" => target = Some(value()?),
@@ -586,9 +601,22 @@ pub(super) fn parse(
     }
     // `--no-folder`: the composer's No folder, said outright: a fresh folder of the chat's own on
     // the machine (`~/chats/<chat>`), nothing copied. It is also what neither folder flag means.
-    if no_folder && (cwd.is_some() || from_folder.is_some()) {
+    if no_folder && (cwd.is_some() || from_folder.is_some() || repo.is_some()) {
         return Err(UsageError::new(NO_FOLDER_WITH_FOLDER));
     }
+    let repo = repo.map(|spec| cloud_repo(&spec)).transpose()?;
+    if repo.is_some() && (cwd.is_some() || from_folder.is_some()) {
+        return Err(UsageError::new(REPO_WITH_FOLDER));
+    }
+    if repo.is_some() && target.is_some() {
+        return Err(UsageError::new(REPO_WITH_TARGET));
+    }
+    // The chat's folder is the clone's: `~/work/NAME` for every host and group depth.
+    let cwd = match &repo {
+        Some(repo) => Some(repo_folder(repo)),
+        None => cwd,
+    };
+    let repo = repo.map(|repo| repo.spec());
     let from_folder = from_folder.map(|dir| local_folder(&dir, cwd.is_some())).transpose()?;
     let environment = match environment.map(|word| word.trim().to_owned()) {
         Some(word) if word.is_empty() => return Err(UsageError::new("--environment is empty")),
@@ -626,6 +654,7 @@ pub(super) fn parse(
         cwd,
         from_folder,
         environment,
+        repo,
         account,
         machine,
         wait,
@@ -638,8 +667,44 @@ pub(super) fn parse(
 }
 
 /// Refused: `--no-folder` with a folder.
-pub(super) const NO_FOLDER_WITH_FOLDER: &str = "--no-folder starts the chat in a fresh folder of its own on the machine; not with --cwd or \
-     --from-folder";
+pub(super) const NO_FOLDER_WITH_FOLDER: &str = "--no-folder starts the chat in a fresh folder of its own on the machine; not with --cwd, \
+     --from-folder or --repo";
+
+/// Refused: `--repo` with another folder.
+const REPO_WITH_FOLDER: &str = "--repo starts the chat in the new machine's clone (~/work/NAME); not with \
+     --cwd or --from-folder";
+
+/// Refused: `--repo` on a machine that exists.
+pub(super) const REPO_WITH_TARGET: &str = "--repo makes a new machine that clones the repository; a chat on \
+     a machine that exists goes to a repository with cmux chat cd SESSION --repo REPO once it has started";
+
+/// The repository `spec` names, for a Cloud machine to clone, or why it names none.
+fn cloud_repo(spec: &str) -> Result<machine_repo::Repo, UsageError> {
+    let spec = spec.trim();
+    machine_repo::parse(spec).map_err(|invalid| {
+        UsageError::new(match invalid {
+            machine_repo::Invalid::Unrecognized => format!(
+                "--repo {spec}: give OWNER/NAME on GitHub or an https git URL (https://HOST/GROUP/NAME)"
+            ),
+            machine_repo::Invalid::CredentialsInUrl => format!(
+                "--repo {spec}: the URL holds a login or token; give it without one (the machine \
+                 clones with the access your cmux account connected)"
+            ),
+            machine_repo::Invalid::InvalidRef => {
+                format!("--repo {spec}: the @REF is not a branch, tag or commit")
+            }
+        })
+    })
+}
+
+/// The machine user's home (`machine_bootstrap::DIRECTORY` is under it).
+const GUEST_HOME: &str = "/home/cmux";
+
+/// The machine's clone of `repo`, absolute: `Repo::directory` is relative to the machine user's home
+/// (`machine_bootstrap::Run::Finished`'s `repo_path`, `/home/cmux/work/NAME`).
+pub(super) fn repo_folder(repo: &machine_repo::Repo) -> String {
+    format!("{GUEST_HOME}/{}", repo.directory())
+}
 
 /// `--effort`'s or `--mode`'s word: 1 to 64 letters, digits, `.`, `_` or `-`, not starting with
 /// `-` (the ids harnesses give their efforts and modes: `high`, `xhigh`, `acceptEdits`, `plan`).
@@ -930,6 +995,11 @@ pub(super) fn again_command(request: &Request, machine: &Machine) -> String {
     {
         words.push(format!("--environment {}", shell_quote(environment)));
     }
+    // A machine not made yet is made again with the repository; one made has the clone, its `--cwd`.
+    let repo = request.repo.as_ref().filter(|_| !matches!(machine, Machine::Target(_)));
+    if let Some(repo) = repo {
+        words.push(format!("--repo {}", shell_quote(repo)));
+    }
     if request.agent != "claude" {
         words.push(format!("--agent {}", request.agent));
     }
@@ -942,7 +1012,7 @@ pub(super) fn again_command(request: &Request, machine: &Machine) -> String {
     if let Some(mode) = &request.mode {
         words.push(format!("--mode {}", shell_quote(mode)));
     }
-    if let Some(cwd) = &request.cwd {
+    if let Some(cwd) = request.cwd.as_ref().filter(|_| repo.is_none()) {
         words.push(format!("--cwd {}", shell_quote(cwd)));
     }
     if let Some(folder) = &request.from_folder {
@@ -1182,8 +1252,11 @@ impl Progress {
     /// The request to ask again: once the app took this run's create, that machine has its environment. A create
     /// with no answer keeps it: a rerun of the name then finds the create, or makes it in the environment.
     fn rerun(&self, request: &Request) -> Request {
-        let environment = if self.created.is_some() { None } else { request.environment.clone() };
-        Request { environment, ..request.clone() }
+        // So has its repository: the rerun goes to its clone (`--cwd`), never a second machine.
+        if self.created.is_none() {
+            return request.clone();
+        }
+        Request { environment: None, repo: None, ..request.clone() }
     }
 
     /// The deadline passed during a step: that phase's timeout, whatever the step answered. Before the prompt may
@@ -1564,9 +1637,9 @@ fn steps(
     // `--environment` always makes a new machine (in_environment refuses an existing name first), so it has
     // no folder of an earlier bootstrap to wait for. A `--name` still being made is waited on until it is
     // listed, then checked like any machine.
-    if request.environment.is_none()
-        && let Some(cwd) = &request.cwd
-    {
+    // `--repo` makes its machine too: its clone is waited on once that machine exists, below.
+    let makes = request.environment.is_some() || request.repo.is_some();
+    if !makes && let Some(cwd) = &request.cwd {
         let machine = match (existing, &request.machine) {
             (Some(id), _) => Some(id),
             (None, Machine::Named(name)) => {
@@ -1588,11 +1661,11 @@ fn steps(
         }
     }
     let mut wanted = request.machine.clone();
-    if request.environment.is_some() && deadline.passed(runner) {
+    if makes && deadline.passed(runner) {
         return out_of_time(request, &request.machine, Value::Null);
     }
-    if let Some(environment) = &request.environment {
-        match in_environment(runner, request, environment, &listed, deadline, progress) {
+    if makes {
+        match in_environment(runner, request, &listed, deadline, progress) {
             Ok(id) => {
                 progress.made = Some(id.clone());
                 progress.machine = Some(Machine::Target(id.clone()));
@@ -1601,9 +1674,16 @@ fn steps(
             Err(outcome) => return outcome,
         }
     }
+    // The new machine's bootstrap clones `--repo` after `new-machine` answers: the chat starts once the clone is
+    // there (clone_wait.rs), or says why it is not.
+    if let (Some(_), Some(cwd), Machine::Target(id)) = (&request.repo, &request.cwd, &wanted)
+        && let Some(outcome) = clone_wait::wait(runner, request, id, cwd, deadline, &listed, began)
+    {
+        return outcome;
+    }
     // A name whose create is still on its way (a rerun of a pending create): `start-session --name` does not
     // see it, so it would make a second machine.
-    if let (None, Machine::Named(name)) = (&request.environment, &wanted)
+    if let (false, Machine::Named(name)) = (makes, &wanted)
         && let Err(outcome) = in_flight(&listed, name)
     {
         return outcome;
@@ -2588,26 +2668,32 @@ fn await_created(
     }
 }
 
-/// `--environment`: the chat's machine, made first in that environment (`--name`'s name when no machine
-/// has it yet); its id. A machine that exists already has its environment, so that is a usage error. The
-/// name is made only on a list the app loaded (`loaded: false` lists no machines, which says nothing) with no
-/// create of it on its way: one in flight answers pending, one that failed (it waits in cmux for Retry) is
-/// refused, so a rerun or a second start never makes a second machine of that name.
+/// `--environment` or `--repo`: the chat's machine, made first in that environment and cloning that repository
+/// (`--name`'s name when no machine has it yet); its id. A machine that exists already has its environment and
+/// its folders, so that is a usage error. The name is made only on a list the app loaded (`loaded: false` lists
+/// no machines, which says nothing) with no create of it on its way: one in flight answers pending, one that
+/// failed (it waits in cmux for Retry) is refused, so a rerun or a second start never makes a second machine of
+/// that name.
 fn in_environment(
     runner: &mut dyn Runner,
     request: &Request,
-    environment: &str,
     listed: &Value,
     deadline: Deadline,
     progress: &mut Progress,
 ) -> Result<String, Outcome> {
     let machine = &request.machine;
+    let flag = if request.environment.is_some() { "--environment" } else { "--repo" };
     if let Machine::Named(name) = machine {
         if at(listed, "loaded").as_bool() == Some(false) {
+            let made = if request.environment.is_some() {
+                "in the environment"
+            } else {
+                "for the repository"
+            };
             return Err(list_unread(
                 runner,
                 format!(
-                    "the app has not loaded its Cloud machines yet, so no machine was made in the environment: \
+                    "the app has not loaded its Cloud machines yet, so no machine was made {made}: \
                      one named {name} may exist already. Run this command again in a moment"
                 ),
                 json!({"machine_name": name, "list": "cmux cloud list-machines --json"}),
@@ -2619,8 +2705,8 @@ fn in_environment(
             return Err(failed(
                 "usage.invalid",
                 format!(
-                    "--environment makes a new machine, and {name} exists already: give a new --name, \
-                     or leave out --environment"
+                    "{flag} makes a new machine, and {name} exists already: give a new --name, \
+                     or leave out {flag}"
                 ),
                 json!({"machine_name": name}),
                 2,
@@ -2631,7 +2717,8 @@ fn in_environment(
         Machine::Named(name) => Some(name.as_str()),
         _ => None,
     };
-    new_machine(runner, request, listed, name, Some(environment), deadline, progress)
+    let environment = request.environment.as_deref();
+    new_machine(runner, request, listed, name, environment, deadline, progress)
 }
 
 /// A create of `name` still on its way (`list-machines`' `creating` rows) answers pending, and one that failed (it
@@ -2691,6 +2778,10 @@ fn new_machine(
     args.push(name.clone());
     if let Some(environment) = environment {
         args.extend(["--environment".to_owned(), environment.to_owned()]);
+    }
+    // Its bootstrap clones the repository into `~/work/NAME` (cmux_cloud_start_core::machine_repo).
+    if let Some(repo) = &request.repo {
+        args.extend(["--repo".to_owned(), repo.clone()]);
     }
     if request.no_focus {
         args.push("--no-focus".to_owned());
