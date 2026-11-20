@@ -202,6 +202,8 @@ await requireBrowserLane("agent-chat-stream-no-shift-browser.test.ts", async () 
     moves: { label: string; dy: number; frame: number }[];
     composer: number;
     fromEnd: number;
+    /// The sent prompt's top against the transcript's top after the step.
+    prompt: number | null;
   };
   const reports: Record<string, StepReport[]> = {};
 
@@ -232,6 +234,17 @@ await requireBrowserLane("agent-chat-stream-no-shift-browser.test.ts", async () 
 
   const composerTop = (page: Page) =>
     page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-composer-box")!.getBoundingClientRect().bottom);
+  /// The sent prompt's row: its top against the transcript's top (null when it is not drawn).
+  const promptTop = (page: Page, text: string) =>
+    page.evaluate((text) => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const row = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")].find((each) =>
+        each.textContent?.includes(text),
+      );
+      return row
+        ? Math.round((row.getBoundingClientRect().top - scroller.getBoundingClientRect().top) * 10) / 10
+        : null;
+    }, text);
 
   for (const [engine] of engines)
     describe(engine, () => {
@@ -271,6 +284,7 @@ await requireBrowserLane("agent-chat-stream-no-shift-browser.test.ts", async () 
                 moves: rows.slice(0, 8).map(({ label, dy, frame }) => ({ label, dy, frame })),
                 composer: Math.round(Math.abs((await composerTop(page)) - composerBefore) * 10) / 10,
                 fromEnd: await fromEnd(page),
+                prompt: await promptTop(page, `Find the retry loops (${turn})`),
               };
               report.push(entry);
               const short = (arm.at === "latest" ? entry.stray : entry.moves)
@@ -278,7 +292,7 @@ await requireBrowserLane("agent-chat-stream-no-shift-browser.test.ts", async () 
                 .map((move) => `${move.label.replace(/^.*\[row /, "").replace(/\]$/, "")} ${move.dy}px`)
                 .join("; ");
               console.log(
-                `stream-shift ${engine} ${arm.name} #${index} ${step}: stray ${entry.worst}px moved ${entry.moved}px composer ${entry.composer}px end ${entry.fromEnd}px ${short}`.slice(
+                `stream-shift ${engine} ${arm.name} #${index} ${step}: stray ${entry.worst}px moved ${entry.moved}px composer ${entry.composer}px end ${entry.fromEnd}px prompt ${entry.prompt}px ${short}`.slice(
                   0,
                   380,
                 ),
@@ -294,9 +308,23 @@ await requireBrowserLane("agent-chat-stream-no-shift-browser.test.ts", async () 
             }
             reports[`${engine} ${arm.name}`] = report;
             if (arm.at === "latest") {
-              // The view stays at the latest row after every step.
+              // Send to top: the sent prompt lands at the top of the view (under the thread's top padding)
+              // and holds that pixel through the whole turn, while the turn fills the room under it and
+              // then grows on below the view.
+              const sent = report[0]!.prompt;
+              expect(sent).not.toBeNull();
+              expect(sent!).toBeLessThanOrEqual(40);
               expect(
-                report.filter((entry) => entry.fromEnd > 1).map((entry) => `${entry.step}: ${entry.fromEnd}`),
+                report
+                  .filter((entry) => entry.prompt === null || Math.abs(entry.prompt - sent!) > 1)
+                  .map((entry) => `${entry.step}: prompt at ${entry.prompt}px, sent at ${sent}px`),
+              ).toEqual([]);
+              // Nothing in view moves after the send, at any step: no row rides a follow.
+              expect(
+                report
+                  .slice(1)
+                  .filter((entry) => entry.moved > 1)
+                  .map((entry) => `${entry.step}: ${entry.moved}px ${entry.moves[0]?.label}`),
               ).toEqual([]);
               // No row strays from the follow, at any step.
               expect(
