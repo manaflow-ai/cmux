@@ -69,7 +69,7 @@
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-session-info-usage__action:hover:not(:disabled) {
-  background: var(--ds-color-hover);
+  background: var(--ds-surface-hover);
   color: var(--agent-text);
 }
 .acpmux-session-info-usage__action:disabled {
