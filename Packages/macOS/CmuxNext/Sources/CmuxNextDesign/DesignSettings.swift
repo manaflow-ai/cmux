@@ -140,6 +140,12 @@ public final class DesignSettings {
             NotificationCenter.default.post(name: WindowMaterialView.inactiveDimDidChange, object: nil)
         }
     }
+    /// `appearance.agentGlow`: the backdrop answers the agents (``BackdropAgentGlow``). Off by
+    /// default: it changes the default look. The App's ``agentGlow`` reader starts and stops with it.
+    public var agentGlowEnabled = false
+    /// What every window's backdrop shows of the agents now; ``BackdropAgentGlow/calm`` while
+    /// ``agentGlowEnabled`` is off. Each window backdrop observes it (``BackdropAgentGlowView``).
+    public var agentGlow = BackdropAgentGlow.calm
     /// `appearance.wallpaperTint`: where the desktop shows through the window, its tint takes the
     /// desktop picture's hue (``WallpaperTint``), as macOS tints its own windows. Off until the
     /// setting reaches it (``SettingsApplier``).

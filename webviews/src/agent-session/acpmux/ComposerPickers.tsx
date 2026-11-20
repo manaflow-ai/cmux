@@ -39,6 +39,7 @@ import {
   type HarnessSetup,
 } from "./harnessSetup";
 import { INSTALL_COMMANDS } from "./harnesses/harnessRows";
+import { installProgress, plainInstallFailure } from "./harnesses/installRetry";
 import { postNative } from "./native";
 import { rememberPick } from "./lastPick";
 import { defaultModel } from "./harnessSwitch";
@@ -1029,11 +1030,22 @@ export function ComposerPickers({
   // A harness whose chats report no permission modes (Pi: its ACP modes only copy its thinking
   // levels, permissionModes.ts) has no Mode chip to hold a place for, and none appears later: its
   // own session reports none (Lawrence 2026-11-19: "pi should not have a "mode""). acpmux's harness
-  // list says so (`reported`), else this pane's last session of it; unknown keeps the place.
+  // list says so (`reported`), else this pane's last session of it. A listed harness nothing says
+  // has modes holds no place either: a first New Tab on Pi on a Mac that never ran it, before Pi's
+  // startup probe answers or after it failed, has no `reported` row. Something says so when its
+  // chats or probe reported modes, its last session here had some, its family has its own menu
+  // (Claude Code, Codex) or acpmux names the mode a new chat on it starts in. Before acpmux lists
+  // its harnesses the place is held (#24517).
+  const profileModes = harnessProfiles.get(chipHarness);
+  const someModes =
+    chipCatalogEntry?.reportsModes === true ||
+    (profileModes?.modes?.availableModes.length ?? 0) > 0 ||
+    harnessFamilyMenu(chipFamily, chipHarness) !== undefined ||
+    !!startAnswer?.modeId;
   const modeless =
     awaiting &&
     modes.length === 0 &&
-    (harnessProfiles.get(chipHarness)?.modeless ?? chipCatalogEntry?.modeless) === true;
+    ((profileModes?.modeless ?? chipCatalogEntry?.modeless) === true || (chipCatalogEntry !== undefined && !someModes));
   const startMode: KeptStartMode | undefined =
     (cloudStart ? { modeId: cloudStart.id, name: cloudStart.name } : undefined) ??
     (modeless
@@ -1899,6 +1911,9 @@ export function ContextRing({
         onPointerEnter={hover.card.onPointerEnter}
         onPointerLeave={hover.card.onPointerLeave}
       >
+        {/* Known usage shows this card in place of the ring's tooltip, so the card names the key
+            (Show Context Usage) where the tooltip would: top right, in the secondary ink. */}
+        {ringShortcut && <span className="ui-tooltip-hint acpmux-context-card-hint">{ringShortcut}</span>}
         {planShown && (
           <div onFocusCapture={hover.card.onFocusCapture} onBlurCapture={hover.card.onBlurCapture}>
             <PlanUsageCardBody limits={plan?.limits} family={plan?.family} now={now} />
@@ -2361,7 +2376,12 @@ function setupView(setup: HarnessSetup, t: ReturnType<typeof useT>): { strip: Qu
     case "installing": {
       const text = t("picker.setup.installing", { harness });
       return {
-        strip: { text, ...(phase.line ? { detail: phase.line } : {}), busy: true, actions: [cancel] },
+        strip: {
+          text,
+          ...(phase.line ? { detail: installProgress(phase.line, t) } : {}),
+          busy: true,
+          actions: [cancel],
+        },
         chip: text,
       };
     }
@@ -2392,7 +2412,10 @@ function setupView(setup: HarnessSetup, t: ReturnType<typeof useT>): { strip: Qu
       return {
         strip: {
           text,
-          detail: phase.reason ?? t(phase.reasonKey ?? "harnesses.commandFailed"),
+          // Plain words for a dropped network or a terminal-only hint ("--force"): first-run finding 6.
+          detail: phase.reason
+            ? (plainInstallFailure(phase.reason, t) ?? phase.reason)
+            : t(phase.reasonKey ?? "harnesses.commandFailed"),
           busy: false,
           actions: [
             { label: t("picker.tryAgain"), run: retryHarnessSetup },

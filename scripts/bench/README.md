@@ -127,3 +127,16 @@ Tool output updates carry the accumulated output at each reply tick, matching th
 tool-update format. This deliberately stresses growing frontend payloads; it does not
 model native provider transport. Cross-document epoch receipts require wall-clock
 agreement within 2 ms or invalidate the run.
+
+## Native typing under load
+
+`typing-native` (`benches/typing_native.py`) is the native Mac counterpart: it runs
+`scripts/cmux-next/typing-frame-bench.py` in the real app through `scripts/measure/split-spring.sh
+--suite=typing-frame` on a fleet Mac and ingests `artifacts/split-spring/report.json`. It covers the
+shared L0-L5 load modes (`webviews/bench/load-modes.json`, L4 = every core saturated) and records
+key-to-frame and dispatch-to-after-frame p50/p95/p99/max only for runs the harness proved complete:
+
+```sh
+scripts/bench/cmux-bench typing-native --build SHA [--arg modes=L0,L4] [--arg surfaces=agentpane] [--arg samples=200]
+scripts/bench/cmux-bench typing-native --import report.json   # a saved typing-frame report
+```
