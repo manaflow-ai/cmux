@@ -515,6 +515,32 @@ fn hub_with_chat(id: &str) -> (Arc<Hub>, Arc<Session>) {
 }
 
 #[tokio::test]
+async fn surge_first_upgrade_uses_a_completed_reply_before_any_held_receipt() {
+    let (hub, session) = hub_with_chat("upgrading");
+    let start_at = now_ms() - 60_000;
+    let (start, _) = hub.append_at(
+        &session,
+        "mux",
+        "turn_started",
+        json!({"turnId":"previous"}),
+        None,
+        Some(start_at),
+    );
+    let result = json!({"turnId":"previous","turnSeq":start.seq,"status":"completed"});
+    let end_at = start_at + 30_000;
+    hub.append_at(&session, "mux", "turn_result", result.clone(), None, Some(end_at));
+    session.meta.lock().unwrap().last_turn =
+        Some(super::super::turns::last_turn_of(&result, end_at));
+    *session.time_breakdown.lock().unwrap() = Default::default();
+    let blocks = [json!({"type":"text","text":"Runner is busy"})];
+    let opts = PromptOptions { agent: Some("runner".into()), ..Default::default() };
+    assert!(hub.hold_surge_message(&session, "a", "cli", &blocks, &opts).unwrap().is_none());
+    assert_eq!(session.cold_reply_period.get(), Some(&Some(30_000)));
+    let second = hub.hold_surge_message(&session, "b", "cli", &blocks, &opts).unwrap().unwrap();
+    assert_eq!(second["surgeHeld"], true);
+}
+
+#[tokio::test]
 async fn surge_cold_headless_burst_uses_the_last_held_measurement() {
     let (hub, session) = hub_with_chat("reopening");
     let blocks = [json!({"type":"text","text":"Runner is still busy"})];

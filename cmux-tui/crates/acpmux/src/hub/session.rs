@@ -77,6 +77,8 @@ pub struct Session {
     pub(super) append_lock: StdMutex<()>,
     /// Incremental per-chat wall-time and token attribution, seeded lazily from the journal.
     pub(super) time_breakdown: StdMutex<super::time_breakdown::State>,
+    /// A completed reply from before the upgrade, used only until the timing fold is ready.
+    pub(super) cold_reply_period: std::sync::OnceLock<Option<u64>>,
     /// The one writer of its metadata (`meta_save.rs`): versioned changes, committed to
     /// `session.json` in version order (fuzz row g finding g2).
     pub(super) meta_writer: super::meta_save::MetaWriter,

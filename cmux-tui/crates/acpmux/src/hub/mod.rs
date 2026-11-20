@@ -2013,6 +2013,7 @@ impl Hub {
             idle_refusal_logged: AtomicU64::new(0),
             append_lock: StdMutex::new(()),
             time_breakdown: StdMutex::new(Default::default()),
+            cold_reply_period: Default::default(),
             meta_writer: Default::default(),
             message_ids: StdMutex::new(None),
             log_deferral: StdMutex::new(Default::default()),

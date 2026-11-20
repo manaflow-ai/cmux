@@ -134,6 +134,34 @@ fn pull_request_number(url: &str) -> Option<u64> {
 }
 
 impl Hub {
+    /// On the first upgrade there are no held receipts yet. The last completed turn's metadata
+    /// points directly to its start in the same journal, so a cold receiver needs one page.
+    fn cold_reply_period(&self, session: &Session) -> Option<u64> {
+        *session.cold_reply_period.get_or_init(|| {
+            let (seq, id, end) = session.read_meta(|meta| {
+                let last = meta.last_turn.as_ref()?;
+                let seq = last.get("turnSeq")?.as_u64()?;
+                if last["status"] != "completed"
+                    || last["stopReason"] == "cancelled"
+                    || seq <= meta.fork_seq.unwrap_or(0)
+                    || seq == u64::MAX
+                {
+                    return None;
+                }
+                Some((
+                    seq,
+                    last.get("turnId")?.as_str()?.to_owned(),
+                    last.get("endedAt")?.as_u64()?,
+                ))
+            })?;
+            let start = self.record_at(session, seq)?;
+            if start.kind != "turn_started" || start.msg["turnId"].as_str() != Some(id.as_str()) {
+                return None;
+            }
+            end.checked_sub(start.at).filter(|ms| *ms > 0)
+        })
+    }
+
     /// Store a triage pass together with its current number of actionable topics.
     pub(crate) fn persist_surge_triage(
         &self,
@@ -216,18 +244,16 @@ impl Hub {
         self.start_time_breakdown_backfill(session);
         let measured =
             session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner()).reply_period_ms(now);
-        let elapsed = session.turn().map(|turn| now.saturating_sub(turn.started_at));
-        let period = {
-            let mut inbox = session.inbox();
-            let rate = &mut inbox.surge_rate;
-            // The previous hold records this receiver's measured service time. Reuse it while
-            // the full timing reducer loads, even before a headless session starts another turn.
-            let period = measured.or(rate.restored_period_ms).or(elapsed);
-            if !rate.arrival(now, period) {
-                return Ok(None);
-            }
-            period
-        };
+        let period = measured.or_else(|| {
+            let restored = session.inbox().surge_rate.restored_period_ms;
+            restored.or_else(|| self.cold_reply_period(session)).or_else(|| {
+                let turn = session.turn.lock().unwrap_or_else(|e| e.into_inner());
+                turn.as_ref().map(|turn| now.saturating_sub(turn.started_at))
+            })
+        });
+        if !session.inbox().surge_rate.arrival(now, period) {
+            return Ok(None);
+        }
         if super::super::queue::closing(session) {
             return Err(super::super::queue::closing_error());
         }
