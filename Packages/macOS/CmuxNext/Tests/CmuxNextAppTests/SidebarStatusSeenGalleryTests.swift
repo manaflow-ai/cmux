@@ -21,7 +21,7 @@ import Testing
     static func sections() -> [SidebarSection] {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let rows = states.map { name, activity, unread in
-            SidebarWorkspace(id: WorkspaceID("seen-(name)"), title: name.capitalized, unread: unread, activity: activity)
+            SidebarWorkspace(id: WorkspaceID("seen-\(name)"), title: name.capitalized, unread: unread, activity: activity)
         }
         return [SidebarSection(kind: .machine(machine), nodes: rows.map(SidebarNode.workspace))]
     }
@@ -55,7 +55,7 @@ import Testing
         try? FileManager.default.removeItem(at: out)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         for (name, width) in [("full", CGFloat(320)), ("narrow", CGFloat(196))] {
-            try AAGroupHeaderDensityGalleryTests.write(Self.render(width: width), to: out.appending(path: "(name).png"))
+            try AAGroupHeaderDensityGalleryTests.write(Self.render(width: width), to: out.appending(path: "\(name).png"))
         }
         let tar = Process(); tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar"); tar.currentDirectoryURL = root
         tar.arguments = ["cf", "sidebar-status-seen-gallery.tar", "sidebar-status-seen-gallery"]
