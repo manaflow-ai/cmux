@@ -31,7 +31,7 @@ public final class ObservationWakes: Sendable {
 
     /// A counter at zero for a test of what a change callback itself does: `atWake` runs inside the callback of each
     /// tracking that woke, after its wake is counted (a write there is a change inside a change).
-    public init(atWake: @escaping @Sendable () -> Void) { self.atWake = atWake }
+    package init(atWake: @escaping @Sendable () -> Void) { self.atWake = atWake }
 
     /// The wakes counted so far.
     public var count: Int { wakes.withLock { $0.values.reduce(0, +) } }

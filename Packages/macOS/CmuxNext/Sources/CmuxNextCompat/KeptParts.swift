@@ -86,7 +86,8 @@ public final class KeptParts<Owner: AnyObject, Model: AnyObject, Part> {
     /// - Parameters:
     ///   - owner: What the models belong to (a workspace).
     ///   - models: The owner's models, in order (its tabs).
-    ///   - make: One model's part. It runs under the part's own observation.
+    ///   - make: One model's part. It runs under the part's own observation, and it writes nothing that it reads:
+    ///     that observation starts when `make` returns.
     public func parts(of owner: Owner, _ models: [Model], make: (Model) -> Part) -> [Part] {
         parts(of: owner, models, input: { _ in NoInput() }, make: { model, _ in make(model) })
     }
@@ -97,7 +98,8 @@ public final class KeptParts<Owner: AnyObject, Model: AnyObject, Part> {
     ///   - owner: What the models belong to (a workspace).
     ///   - models: The owner's models, in order (its tabs).
     ///   - input: One model's input, read at each call for each model, outside the part's observation.
-    ///   - make: One model's part from its input. It runs under the part's own observation.
+    ///   - make: One model's part from its input. It runs under the part's own observation, and it writes nothing
+    ///     that it reads: that observation starts when `make` returns.
     public func parts<Input: Equatable>(of owner: Owner, _ models: [Model], input: (Model) -> Input,
                                         make: (Model, Input) -> Part) -> [Part] {
         let store = held(for: owner)
@@ -181,6 +183,11 @@ public final class KeptParts<Owner: AnyObject, Model: AnyObject, Part> {
     private func empty(_ store: Store) {
         for entry in store.entries.values { entry.mark.drop() }
         store.entries = [:]
+    }
+
+    /// The marks of the parts kept for `owner`, for a test of what stays of a part when its holder ends.
+    func marks(of owner: Owner) -> [KeptPartMark] {
+        stores[ObjectIdentifier(owner)].map { $0.entries.values.map(\.mark) } ?? []
     }
 }
 

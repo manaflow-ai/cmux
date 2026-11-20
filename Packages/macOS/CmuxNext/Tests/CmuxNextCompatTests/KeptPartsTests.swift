@@ -1,4 +1,4 @@
-import CmuxNextCompat
+@testable import CmuxNextCompat
 import Observation
 import Testing
 
@@ -193,6 +193,70 @@ import Testing
         _ = kept.parts(of: live[63], live[63].tabs) { _ in Token() }
         let wentAtTheLimit = part == nil
         #expect(wentAtTheLimit, "the parts of an owner that is gone stayed when owner 65 came")
+    }
+
+    /// The limit after a sweep is 2 times the owners that the sweep left, and 64 at least: the parts of an owner that
+    /// went after the sweep at 64 owners stay until the holder has 128, and go when the next owner comes.
+    @Test func afterASweepThePartsOfAnOwnerThatIsGoneStayUntilTheOwnersDoubled() {
+        let kept = KeptParts<Workspace, Tab, Token>(step: "KeptPartsTests.tokens")
+        // Each live owner is made before the owner that goes: none of them has its address.
+        let live = (0 ..< 128).map { Workspace([Tab("live \($0)")]) }
+        func take(_ owners: ArraySlice<Workspace>) {
+            for owner in owners { _ = kept.parts(of: owner, owner.tabs) { _ in Token() } }
+        }
+        // Owner 65 comes at 64 owners: the sweep finds none that is gone, and the next limit is 128.
+        take(live[..<65])
+        weak var part: Token?
+        weak var goneOwner: Workspace?
+        do {
+            let gone = Workspace([Tab("gone")])
+            goneOwner = gone
+            part = kept.parts(of: gone, gone.tabs) { _ in Token() }.first
+        }
+        let (ownerIsGone, keptAtFirst) = (goneOwner == nil, part != nil)
+        #expect(ownerIsGone, "setup: the owner is not gone")
+        #expect(keptAtFirst, "setup: the holder does not keep the part")
+
+        // The holder has 66 owners. A limit that stayed at 64 sweeps when the next owner comes.
+        take(live[65 ..< 66])
+        let keptAfterTheFirstLimit = part != nil
+        #expect(keptAfterTheFirstLimit, "the parts of an owner that is gone went at owner 67: the limit after a sweep at 64 owners is not 128")
+
+        // With these the holder has 128 owners: the one that is gone and 127 live ones.
+        take(live[66 ..< 127])
+        let keptBelowTheLimit = part != nil
+        #expect(keptBelowTheLimit, "the parts of an owner that is gone went before the holder had 128 owners")
+
+        take(live[127...])
+        let wentAtTheLimit = part == nil
+        #expect(wentAtTheLimit, "the parts of an owner that is gone stayed when owner 129 came")
+    }
+
+    /// What stays of a kept part when its holder ends (a window or a feed closes). Each removal of a part ends its
+    /// observation, and the end of a holder removes no part. The part's mark is read through a weak reference at 2
+    /// times: when the holder is gone and the model lives, and when the model is gone too.
+    @Test func theMarkOfAKeptPartGoesWhenItsHolderIsGone() {
+        let workspace = Workspace([Tab("a")])
+        weak var mark: KeptPartMark?
+        weak var holder: KeptParts<Workspace, Tab, String>?
+        var hadAMark = false
+        do {
+            let kept = KeptParts<Workspace, Tab, String>(step: "KeptPartsTests.parts")
+            _ = kept.parts(of: workspace, workspace.tabs) { $0.title }
+            mark = kept.marks(of: workspace).first
+            hadAMark = mark != nil
+            holder = kept
+        }
+        let (holderIsGone, staysWithTheModel) = (holder == nil, mark != nil)
+        weak var model: Tab?
+        model = workspace.tabs.first
+        workspace.tabs = []
+        let (modelIsGone, staysWithNoModel) = (model == nil, mark != nil)
+        #expect(hadAMark, "setup: the holder has no mark for its part")
+        #expect(holderIsGone, "setup: the holder is not gone")
+        #expect(modelIsGone, "setup: the model is not gone")
+        #expect(!staysWithTheModel, "the mark of a kept part stays when its holder is gone and its model lives")
+        #expect(!staysWithNoModel, "the mark of a kept part stays when its holder and its model are gone")
     }
 
     @Test func withNoHolderEachPartIsMadeFromItsInput() {
