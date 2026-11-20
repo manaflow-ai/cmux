@@ -40,6 +40,40 @@ export function MobilePairingPage({ store, strings }: { store: MobilePairingStor
         <>
           <Steps status={status} strings={strings} />
           <Content status={status} store={store} strings={strings} />
+          {status.localPhones && (
+            <section className="pairing-local-phones" aria-label={strings.t("mobilePairing.page.revoke.title")}>
+              <h2 className="pairing-section-title">{strings.t("mobilePairing.page.revoke.title")}</h2>
+              <p className="pairing-muted pairing-row-subtitle">{strings.t("mobilePairing.page.revoke.help")}</p>
+              {status.localPhones.length === 0 && (
+                <p className="pairing-muted">{strings.t("mobilePairing.page.revoke.empty")}</p>
+              )}
+              <ul className="pairing-phone-list">
+                {status.localPhones.map((phone) => (
+                  <li
+                    key={phone.id}
+                    className={`pairing-local-phone${phone.connected ? " is-connected" : ""}`}
+                    data-phone={phone.id}
+                  >
+                    <div className="pairing-phone">
+                      <span className="pairing-row-title">{phone.title}</span>
+                      <span className="pairing-muted pairing-row-subtitle">{phone.subtitle}</span>
+                      {snapshot.revokeFailed === phone.id && (
+                        <p role="alert">{strings.t("mobilePairing.page.revoke.failed")}</p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className="pairing-button is-destructive"
+                      disabled={Boolean(snapshot.revoking)}
+                      onClick={() => void store.revokePhone(phone.id)}
+                    >
+                      {strings.t("mobilePairing.page.revoke.action")}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
           {snapshot.failed && <p className="pairing-message">{strings.t("mobilePairing.page.loadFailed")}</p>}
         </>
       )}
@@ -177,7 +211,7 @@ function Footer({ status, store, strings }: Props) {
       {status.host && <Requests host={status.host} store={store} />}
       <p className="pairing-muted">{strings.format("mobilePairing.page.macName", status.macName)}</p>
       {status.host?.status && <p className="pairing-muted pairing-host-status">{status.host.status}</p>}
-      {status.host && <Phones host={status.host} />}
+      {status.host && !status.localPhones && <Phones host={status.host} />}
       <div className="pairing-actions">
         <button
           type="button"

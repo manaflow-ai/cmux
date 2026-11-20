@@ -875,3 +875,5 @@ or the relay. States here are from the live run in this batch's proof report. Ri
 | Phone tab: rotate, appearance, software keyboard, volume, app switcher | — | blocked (#13742) | The simulator stream takes `button` home and lock only (`cmux-mobile-host/src/surface.rs` `BUTTONS`; the Mac's `SimulatorSurfaceServer` maps only those). Each needs a new stream input in the mobile host and the Mac's surface server. The phone's own keyboard toggle (typing into the simulator) is already in the accessory bar. |
 
 | Pre-claim spare login receipt from the Mac Keychain (`CloudSpareWarm`, Rust `spare_warm`) | — | — | not from a phone | Reuses the Mac-owned credential transfer; the phone cannot read the Mac Keychain or initiate local credential-copy commands (SECURITY.md, Remote CLI relay). No new phone operation. |
+
+| Local iPhone revocation (Labs, off by default) | Mobile Pairing lists this Mac’s local approvals and invokes the existing targeted revoke path. | Mac-only consent management: a phone cannot approve or revoke this Mac’s phone approvals (`SECURITY.md`). Existing signed pairing and reconnect approval apply unchanged. |

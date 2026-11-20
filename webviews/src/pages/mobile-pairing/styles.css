@@ -201,3 +201,21 @@ output.pairing-body {
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
 }
+
+.pairing-local-phone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+  border-bottom: 1px solid var(--page-separator);
+}
+
+.pairing-local-phone .pairing-phone {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pairing-button.is-destructive {
+  color: var(--ds-color-danger);
+  flex-shrink: 0;
+}

@@ -7,6 +7,8 @@ import { ACTION_RUN, MobilePairingOps, PairingActions, type MobilePairingStatus 
 export interface MobilePairingSnapshot {
   status?: MobilePairingStatus;
   loading: boolean;
+  revoking?: string;
+  revokeFailed?: string;
   /** The status did not load; the page says so in its own words. */
   failed?: { message?: string };
   /** The page has no host to ask; the page says so in its own words. */
@@ -57,7 +59,7 @@ export class MobilePairingStore {
     this.set({ ...this.snapshot, loading: true });
     try {
       const status = await this.client.call<MobilePairingStatus>(MobilePairingOps.status, {});
-      if (id === this.request) this.set({ status, loading: false });
+      if (id === this.request) this.set({ ...this.snapshot, status, loading: false, failed: undefined });
     } catch {
       if (id === this.request) this.set({ status: this.snapshot.status, loading: false, failed: {} });
     }
@@ -91,6 +93,18 @@ export class MobilePairingStore {
       return;
     }
     await this.refresh();
+  }
+
+  async revokePhone(id: string): Promise<void> {
+    if (!this.client || this.snapshot.revoking) return;
+    this.set({ ...this.snapshot, revoking: id, revokeFailed: undefined });
+    try {
+      await this.client.call(MobilePairingOps.revokePhone, { id });
+      await this.refresh();
+      this.set({ ...this.snapshot, revoking: undefined });
+    } catch {
+      this.set({ ...this.snapshot, revoking: undefined, revokeFailed: id });
+    }
   }
 
   signIn(): Promise<void> {

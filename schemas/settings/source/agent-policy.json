@@ -461,7 +461,8 @@
     {
       "agent": "settable",
       "keys": [
-        "labs.previewFeatures"
+        "labs.previewFeatures",
+        "labs.mobileDeviceRevoke"
       ]
     },
     {
