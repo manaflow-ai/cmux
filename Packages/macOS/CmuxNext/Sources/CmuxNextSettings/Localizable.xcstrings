@@ -57,6 +57,78 @@
             "state": "translated",
             "value": "アーカイブセクション内"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U odjeljku Arhiva"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I sektionen Arkiv"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nella sezione Archivio"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ក្នុងផ្នែកបណ្ណសារ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I Arkiv-delen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "W sekcji Archiwum"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na seção Arquivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В разделе «Архив»"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У розділі «Архів»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ในส่วนเก็บถาวร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arşiv bölümünde"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trong mục Lưu trữ"
+          }
         }
       }
     },
@@ -115,6 +187,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "グループ内"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unutar njihovih grupa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I deres grupper"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nei rispettivi gruppi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ក្នុងក្រុមរបស់ពួកវា"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I gruppene sine"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "W ich grupach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dentro dos seus grupos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В своих группах"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У своїх групах"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ภายในกลุ่มเดิม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kendi gruplarında"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trong nhóm của chúng"
           }
         }
       }
@@ -175,6 +319,78 @@
             "state": "translated",
             "value": "アーカイブ済みワークスペースの表示"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži arhivirane radne prostore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis arkiverede arbejdsområder"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra gli spazi di lavoro archiviati"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញកន្លែងធ្វើការដែលបានទុកក្នុងបណ្ណសារ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis arkiverte arbeidsområder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż zarchiwizowane obszary robocze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar espaços de trabalho arquivados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать архивные рабочие пространства"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати архівні робочі простори"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงพื้นที่ทำงานที่เก็บถาวร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arşivlenmiş çalışma alanlarını göster"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiển thị không gian làm việc đã lưu trữ"
+          }
         }
       }
     },
@@ -233,6 +449,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "アーカイブ済みのワークスペースをグループ内に折りたたむか、アーカイブにまとめます。グループに属さないものは常にアーカイブに表示されます。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zadržite arhivirane radne prostore sklopljene unutar njihovih grupa ili ih objedinite u Arhivi. Radni prostori bez grupe uvijek koriste Arhivu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Behold arkiverede arbejdsområder sammenfoldet i deres grupper, eller saml dem i Arkiv. Arbejdsområder uden gruppe bruger altid Arkiv."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantieni gli spazi di lavoro archiviati compressi nei rispettivi gruppi oppure raccoglili in Archivio. Gli spazi di lavoro senza gruppo usano sempre Archivio."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រក្សាកន្លែងធ្វើការដែលបានទុកក្នុងបណ្ណសារឱ្យបត់នៅក្នុងក្រុមរបស់ពួកវា ឬប្រមូលពួកវាក្នុងបណ្ណសារ។ កន្លែងធ្វើការដែលគ្មានក្រុមតែងតែប្រើបណ្ណសារ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Behold arkiverte arbeidsområder sammenfoldet i gruppene sine, eller samle dem i Arkiv. Arbeidsområder uten gruppe bruker alltid Arkiv."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zachowaj zarchiwizowane obszary robocze zwinięte w ich grupach lub zbierz je w Archiwum. Obszary robocze bez grupy zawsze trafiają do Archiwum."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantenha os espaços de trabalho arquivados recolhidos dentro dos seus grupos ou reúna-os no Arquivo. Espaços de trabalho sem grupo sempre usam o Arquivo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оставляйте архивные рабочие пространства свёрнутыми в своих группах или собирайте их в Архиве. Рабочие пространства без группы всегда находятся в Архиве."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Залишайте архівні робочі простори згорнутими у своїх групах або збирайте їх в Архіві. Робочі простори без групи завжди розміщуються в Архіві."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เก็บพื้นที่ทำงานที่เก็บถาวรไว้แบบยุบภายในกลุ่มเดิม หรือรวมไว้ในส่วนเก็บถาวร พื้นที่ทำงานที่ไม่มีกลุ่มจะอยู่ในส่วนเก็บถาวรเสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arşivlenmiş çalışma alanlarını kendi gruplarında daraltılmış olarak tutun veya Arşiv bölümünde toplayın. Grubu olmayan çalışma alanları her zaman Arşiv bölümünü kullanır."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giữ các không gian làm việc đã lưu trữ thu gọn trong nhóm của chúng hoặc tập hợp vào mục Lưu trữ. Không gian làm việc không thuộc nhóm luôn nằm trong mục Lưu trữ."
           }
         }
       }
