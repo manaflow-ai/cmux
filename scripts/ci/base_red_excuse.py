@@ -3471,9 +3471,13 @@ def validate_guard_routes(repo: str, sha: str, guard: dict, children: list[dict]
         raise Refused(f"'{name}': no routed failure report to compare with its children")
 
 
-def validate_run_rollup(name: str, children: list[dict], repo: str = HOME_REPO) -> None:
+def validate_run_rollup(name: str, children: list[dict], repo: str = HOME_REPO, rollup: dict | None = None) -> None:
     """Run rollup NAME (ci-status), red, needs a failed job under it (its needs, ROLLUPS_FILE): a red run whose only
     failed jobs are outside them did not turn it red, so its own verdict did, and nothing here can compare that."""
+    if rollup is not None and refused_at_setup(rollup):
+        # A runner that refused the rollup itself (a pool job hook, run 44690650796) is not "no failed job under its
+        # needs": that sent readers hunting for a missing child (claude-sr2-coord, 2026-11-20).
+        raise Refused(f"'{name}' was refused at setup: re-run")
     under = rollups(repo)["run"][name]["under"]
     if not any(child.get("conclusion") == "failure" and any(matches(m, child.get("name", "")) for m in under.values())
                for child in children):
@@ -4579,7 +4583,7 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                 raise Refused(f"run {run}: its aggregate check failed with no failed job to compare with the base")
             validate_guard_routes(repo, sha, guard, children, github)
         for rollup in run_rollups:
-            validate_run_rollup(rollup["name"], children, repo)
+            validate_run_rollup(rollup["name"], children, repo, rollup)
     if checks:
         latest = latest_checks(repo, sha, github)
         aggregate_jobs = []
@@ -4610,7 +4614,7 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                 if job.get("conclusion") != "failure":
                     raise Refused(f"'{name}': exact aggregate job is {job.get('conclusion')}, not failure")
                 if name in rollups(repo)["run"]:
-                    aggregate_runs.append((name, job["run_id"]))
+                    aggregate_runs.append((name, job))
                     continue
                 aggregate_jobs.append(job)
             else:
@@ -4633,11 +4637,14 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                         continue
                     job = job_for(repo, newer, sha, github)
                 jobs[job["id"]] = job
-        for name, run in aggregate_runs:
+        for name, rollup in aggregate_runs:
+            if refused_at_setup(rollup):
+                raise Refused(f"'{name}' was refused at setup: re-run")
+            run = rollup["run_id"]
             found = head_jobs(repo, sha, [run], [], github, ignored=ignored, seen=seen)
             if not found:
                 raise Refused(f"run {run}: its aggregate check failed with no failed job to compare with the base")
-            validate_run_rollup(name, found, repo)
+            validate_run_rollup(name, found, repo, rollup)
             jobs.update((job["id"], job) for job in found)
         for guard in aggregate_jobs:
             found = head_jobs(repo, sha, [guard["run_id"]], [], github, ignored=ignored, seen=seen)
@@ -4971,6 +4978,8 @@ GUARD_WORKFLOWS = {
         "portable-placement": _PLACE,
         "hot-route": _PLACE,
         "ci-guard-group": "judged step by step against the base by its own rule (GUARD_GROUP_JOB)",
+        "release-notary": "skipped on a pull request (its `if:`): it judges a push to the branch on its own "
+                          "(guards_new_reds.py --tip), so no pull request's red is its",
         "rust-notices-tree": _PRODUCT,
         "pr-red-checks": _PUBLISH,
     },
@@ -5080,6 +5089,12 @@ PACKAGE_JOBS = {
                   "cmux-tui/crates/cmux-transport/", "cmux-tui/crates/cmux-wg/",
                   # cmux-mobile-link-ffi depends on cmux-window-rules (#43111)
                   "cmux-tui/crates/cmux-window-rules/", "schemas/remote-tab/",
+                  # cmux-mobile-link and cmux-mobile-host send the dev build's space (cmux-build-space, #43648),
+                  # which reads the bundle rule from cmux-agent-pane-policy; its `testing` feature adds cmux-scope
+                  "cmux-tui/crates/cmux-build-space/", "cmux-tui/crates/cmux-agent-pane-policy/",
+                  "cmux-tui/crates/cmux-scope/", "cmux-tui/crates/cmux-unix-socket/",
+                  # cmux-agent-pane-policy's bundle rule tests read the shared build-identity vectors
+                  "schemas/build-identity/",
                   # cmux-wg's smoltcp is the vendored copy ([patch.crates-io] in cmux-next-ios/rust)
                   "cmux-tui/vendor/smoltcp/",
                   # cmux-mobile-host's tests read the Mac's lane policy to keep the two in step

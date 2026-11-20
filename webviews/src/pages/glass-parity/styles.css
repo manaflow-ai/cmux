@@ -67,3 +67,15 @@ body {
   padding: 0;
   box-shadow: none;
 }
+
+/* The text axis (GlassParityPlayground.TextRendering): `flat` and `smooth` pin the page's text smoothing
+   (off, on) whatever appearance.fontSmoothing gives the page (the theme's rule on every element, !important),
+   against native text drawn the same way; `standard` keeps what the app ships. */
+:root[data-parity-text="flat"] .glass-parity-surface,
+:root[data-parity-text="flat"] .glass-parity-surface * {
+  -webkit-font-smoothing: antialiased !important;
+}
+:root[data-parity-text="smooth"] .glass-parity-surface,
+:root[data-parity-text="smooth"] .glass-parity-surface * {
+  -webkit-font-smoothing: subpixel-antialiased !important;
+}
