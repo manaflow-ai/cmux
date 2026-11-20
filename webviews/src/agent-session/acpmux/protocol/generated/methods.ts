@@ -185,6 +185,7 @@ export interface AcpmuxRequests {
   "_acpmux/tasks": { params: unknown; result: unknown };
   "_acpmux/resolve": { params: ResolveParams; result: unknown };
   "_acpmux/who_else": { params: unknown; result: unknown };
+  "_acpmux/send_fanout": { params: unknown; result: unknown };
   "_acpmux/media_open": { params: unknown; result: unknown };
   "_acpmux/media_range": { params: unknown; result: unknown };
   "_acpmux/permission_respond": { params: PermissionRespondParams; result: PermissionRespondResult };
@@ -199,8 +200,9 @@ export interface AcpmuxRequests {
   "_acpmux/inbox_thread": { params: InboxThreadParams; result: unknown };
   "_acpmux/inbox_reply": { params: unknown; result: unknown };
   "_acpmux/person_enroll": { params: unknown; result: unknown };
-  "_acpmux/computer_use_enroll": { params: unknown; result: unknown };
-  "_acpmux/computer_use_endpoint": { params: unknown; result: unknown };
+  "_acpmux/computer_use_call": { params: unknown; result: unknown };
+  "_acpmux/computer_use_machines": { params: unknown; result: unknown };
+  "_acpmux/computer_use_state": { params: unknown; result: unknown };
   "_acpmux/person_prove": { params: unknown; result: unknown };
   "_acpmux/person_holds": { params: unknown; result: unknown };
   "_acpmux/approvers": { params: unknown; result: unknown };
@@ -568,6 +570,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/tasks", kind: "request", acp: false, typed: false },
   { name: "_acpmux/resolve", kind: "request", acp: false, typed: true },
   { name: "_acpmux/who_else", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/send_fanout", kind: "request", acp: false, typed: false },
   { name: "_acpmux/media_open", kind: "request", acp: false, typed: false },
   { name: "_acpmux/media_range", kind: "request", acp: false, typed: false },
   { name: "_acpmux/permission_respond", kind: "request", acp: false, typed: true },
@@ -582,8 +585,9 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/inbox_thread", kind: "request", acp: false, typed: true },
   { name: "_acpmux/inbox_reply", kind: "request", acp: false, typed: false },
   { name: "_acpmux/person_enroll", kind: "request", acp: false, typed: false },
-  { name: "_acpmux/computer_use_enroll", kind: "request", acp: false, typed: false },
-  { name: "_acpmux/computer_use_endpoint", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/computer_use_call", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/computer_use_machines", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/computer_use_state", kind: "request", acp: false, typed: false },
   { name: "_acpmux/person_prove", kind: "request", acp: false, typed: false },
   { name: "_acpmux/person_holds", kind: "request", acp: false, typed: false },
   { name: "_acpmux/approvers", kind: "request", acp: false, typed: false },

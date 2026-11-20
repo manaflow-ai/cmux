@@ -20,6 +20,7 @@ import type { TenantPolicy } from "./policy.ts";
 import type { VmImages } from "./proofs/vm-image.ts";
 import type { Entitlements } from "./proofs/tenant-may-create.ts";
 import type { UpstreamClient } from "./upstream/client.ts";
+import { withUpstreamTiming } from "./upstream/timing.ts";
 import { snapshotsHandlers } from "./handlers/snapshots.ts";
 import { terminalsHandlers } from "./handlers/terminals.ts";
 import { apiKeysHandlers } from "./handlers/api-keys.ts";
@@ -120,7 +121,7 @@ export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHand
   const perRequest = options.perRequest;
   const web = HttpApiBuilder.toWebHandler(
     Layer.mergeAll(api, HttpServer.layerContext),
-    perRequest === undefined ? {} : { middleware: (app) => perRequest(app) },
+    { middleware: (app) => withUpstreamTiming(perRequest === undefined ? app : perRequest(app)) },
   );
   const runtime = ManagedRuntime.make(services);
   const perWebhook = options.perWebhook ?? (<A, E, R>(effect: Effect.Effect<A, E, R>) => effect);

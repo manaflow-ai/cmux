@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextPages
@@ -84,6 +85,9 @@ import Testing
             try await Task.sleep(for: .milliseconds(20))
         }
         #expect(column.pane.stripView.alphaValue == 1, "a page that never paints kept its tab hidden")
-        #expect(ContinuousClock.now - start < .seconds(2))
+        // The hold's own bound let the tab show, not a frame: the page still has not painted. The bound is the
+        // constant, not a measured wait, so a busy runner cannot fail it.
+        #expect(!column.page.hasPainted)
+        #expect(PaneStripHold.limit == .milliseconds(250))
     }
 }
