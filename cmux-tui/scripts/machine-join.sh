@@ -334,8 +334,20 @@ install_cmux_rd() {
     # Each step checked: under `set -e` a read-only or full ~/.local would end the join here.
     # A symlink to a directory would take the new file inside it, so it goes first.
     if ! { mkdir -p "$bin_dir" &&
-      install -m 755 "$tmp/cmux-rd" "$bin_dir/.cmux-rd.new" &&
-      { [ ! -L "$rd" ] || rm -f "$rd"; } &&
+      install -m 755 "$tmp/cmux-rd" "$bin_dir/.cmux-rd.new"; } 2>/dev/null; then
+      rm -f "$bin_dir/.cmux-rd.new" 2>/dev/null || true
+      rd_failed "cannot write it to $bin_dir"
+      return 0
+    fi
+    # The file that is moved into place is the one checked: the copy in bin, not only the
+    # download (another writer of bin, a short write).
+    got="$(sha256 "$bin_dir/.cmux-rd.new" 2>/dev/null || true)"
+    [ "$got" = "$rd_want" ] || {
+      rm -f "$bin_dir/.cmux-rd.new" 2>/dev/null || true
+      rd_failed "checksum verification failed for the copy in $bin_dir ($got, the channel says $rd_want)"
+      return 0
+    }
+    if ! { { [ ! -L "$rd" ] || rm -f "$rd"; } &&
       mv -f "$bin_dir/.cmux-rd.new" "$rd"; } 2>/dev/null; then
       rm -f "$bin_dir/.cmux-rd.new" 2>/dev/null || true
       rd_failed "cannot write it to $bin_dir"
