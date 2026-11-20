@@ -736,15 +736,15 @@ fn the_enables_output_says_how_it_went() {
 }
 
 /// A stand-in cmux-rd: writes its arguments and `ACPMUX_HOME` beside itself, then runs `body`.
+/// Written by `test_exec::write_executable`, so a sibling test's fork never holds it open for
+/// writing when it runs (ETXTBSY).
 fn fake_cmux_rd(dir: &Path, body: &str) -> std::path::PathBuf {
-    use std::os::unix::fs::PermissionsExt;
     let rd = dir.join("cmux-rd");
     let script = format!(
         "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{0}/args'\nprintf '%s\\n' \"$ACPMUX_HOME\" > '{0}/home'\n{body}\n",
         dir.display()
     );
-    std::fs::write(&rd, script).unwrap();
-    std::fs::set_permissions(&rd, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::test_exec::write_executable(&rd, script);
     rd
 }
 
