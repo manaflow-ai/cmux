@@ -1,8 +1,9 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDesign
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
-import CmuxNextSettings
+@testable import CmuxNextSettings
 import CmuxNextSidebar
 @testable import CmuxNextUpdater
 import Foundation
@@ -131,6 +132,40 @@ import CmuxNextTestSupport
         invocation.keyContext = registry.context.union(.browserFocused)
         #expect(registry.perform("browser.goToHistoryEntry", invocation: invocation))
         #expect(tab.commands.contains(.goToEntry(-2)))
+
+        // A typed offset past Int's range from a nonzero current page is no entry: refused, not an overflow trap.
+        for typed in [String(Int.max), String(Int.min)] {
+            var huge = invocation
+            huge.arguments = ["entry": .string(typed)]
+            #expect(!registry.perform("browser.goToHistoryEntry", invocation: huge), "entry \(typed) was not refused")
+        }
+    }
+
+    /// Two quick Pin or Unpin Tab Bar Button… runs both reach the file: the second starts from the first's list,
+    /// not from the file the first write has not reached yet (which dropped the first pin).
+    @Test func twoQuickTabBarPinsBothLand() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "menu-rows-pins-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "cmux.json")
+        try Data("{}".utf8).write(to: url)
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        await settings.reload()
+        let registry = Self.registry()
+        PaneToolbar.bindTogglePin(into: registry, settings: { settings })
+
+        let start = PaneToolbarButtonsSetting.current(settings).pinned
+        let added = Array(PaneToolbarButtonsSetting.values.filter { !start.contains($0) }.prefix(2))
+        try #require(added.count == 2)
+        for id in added {
+            #expect(registry.perform(PaneToolbar.togglePin, invocation: ActionInvocation(arguments: ["button": .string(id)], origin: .user)))
+        }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while PaneToolbarButtonsSetting.current(settings).pinned != start + added, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(PaneToolbarButtonsSetting.current(settings).pinned == start + added, "a quick second pin dropped the first")
     }
 
     // MARK: Developer Tools

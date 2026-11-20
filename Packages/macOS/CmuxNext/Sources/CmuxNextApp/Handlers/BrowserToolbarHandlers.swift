@@ -263,8 +263,10 @@ extension BrowserToolbarHandlers {
         }
         registry.bindEffect("browser.goToHistoryEntry", effect: { invocation in
             guard let tab = listing(invocation), let list = tab.navigationList() else { return .refused(MiscHandlerStrings.noBrowser) }
+            // The offset is typed text: an addition that overflows (Int.max past a nonzero current) is no entry, not a trap.
             guard let offset = invocation["entry"]?.stringValue.flatMap({ Int($0) }), offset != 0,
-                  list.entries.indices.contains(list.current + offset) else {
+                  case let (index, overflow) = list.current.addingReportingOverflow(offset), !overflow,
+                  list.entries.indices.contains(index) else {
                 return .refused(BrowserHitStrings.historyNoEntry)
             }
             tab.goToEntry(offset: offset)
