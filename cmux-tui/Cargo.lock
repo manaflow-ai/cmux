@@ -34,6 +34,7 @@ dependencies = [
  "cmux-computer-use",
  "cmux-config",
  "cmux-device-kind",
+ "cmux-embed",
  "cmux-file-lock",
  "cmux-git",
  "cmux-host",
@@ -1314,6 +1315,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "chrono-tz",
+ "cmux-embed",
  "cmux-json",
  "libc",
  "rquickjs",
@@ -1325,6 +1327,7 @@ dependencies = [
 name = "cmux-app-manifest"
 version = "0.1.0"
 dependencies = [
+ "cmux-embed",
  "hex",
  "jsonschema",
  "regex",
@@ -1371,6 +1374,7 @@ version = "1.0.0"
 dependencies = [
  "base64",
  "chacha20poly1305",
+ "cmux-embed",
  "cmux-json",
  "cmux-process",
  "getrandom 0.3.4",
@@ -1646,6 +1650,7 @@ name = "cmux-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-embed",
  "cmux-json",
  "cmux-theme-tokens",
  "core-foundation 0.10.1",
@@ -1749,6 +1754,21 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-embed"
+version = "0.1.0"
+dependencies = [
+ "cmux-embed-macros",
+ "zstd",
+]
+
+[[package]]
+name = "cmux-embed-macros"
+version = "0.1.0"
+dependencies = [
+ "zstd",
 ]
 
 [[package]]
@@ -2093,7 +2113,9 @@ dependencies = [
 name = "cmux-panic-log"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "libc",
+ "rustc-demangle",
  "serde_json",
 ]
 
@@ -2488,6 +2510,9 @@ dependencies = [
 [[package]]
 name = "cmux-theme-tokens"
 version = "0.1.0"
+dependencies = [
+ "cmux-embed",
+]
 
 [[package]]
 name = "cmux-transport"
@@ -2666,6 +2691,7 @@ dependencies = [
  "cmux-config",
  "cmux-conversation",
  "cmux-device-kind",
+ "cmux-embed",
  "cmux-feed-core",
  "cmux-file-lock",
  "cmux-flow-trace",
@@ -2680,6 +2706,7 @@ dependencies = [
  "cmux-local-auth",
  "cmux-local-url",
  "cmux-palette-ranker",
+ "cmux-panic-log",
  "cmux-process",
  "cmux-projection",
  "cmux-pty",
