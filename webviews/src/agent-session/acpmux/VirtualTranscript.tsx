@@ -1955,7 +1955,9 @@ function TranscriptView({
   const scrollLeadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /// The frame guard (conversation/frameGuard.ts, `armFrameGuard` below) and the offset it last read and
   /// the one it handled. Made in the first render (one guard for the transcript's life), before the rows'
-  /// observer (`observer` below), so its read runs first in a frame's ResizeObserver callbacks.
+  /// observer (`observer` below), so its read runs first in a frame's ResizeObserver callbacks. Its read,
+  /// frame and node, which read refs, are given as the transcript mounts (`connect`, below): until then
+  /// they did nothing (`transcriptMounted`).
   const guardRead = useRef<() => void>(() => {});
   const frameGuard = useRef<{ seen: number | undefined; handled: number | undefined }>({
     seen: undefined,
@@ -1964,12 +1966,8 @@ function TranscriptView({
   const [guard] = useState(
     () =>
       new FrameGuard({
-        read: () => guardRead.current(),
-        // An offset handled a frame ago has had its scroll event by now (or never gets one).
-        frame: () => {
-          frameGuard.current.handled = undefined;
-        },
-        node: () => (transcriptMounted.current ? ref.current : null),
+        read: () => {},
+        node: () => null,
         idleMs: SCROLL_GUARD_IDLE_MS,
         observer: (callback) => (typeof ResizeObserver === "function" ? new ResizeObserver(callback) : undefined),
       }),
@@ -2179,6 +2177,14 @@ function TranscriptView({
   }, [rows]);
   useEffect(() => {
     transcriptMounted.current = true;
+    guard.connect({
+      read: () => guardRead.current(),
+      // An offset handled a frame ago has had its scroll event by now (or never gets one).
+      frame: () => {
+        frameGuard.current.handled = undefined;
+      },
+      node: () => (transcriptMounted.current ? ref.current : null),
+    });
     // The flicker detector's remount count (flickerLog.ts): a second mount on one page is a remount.
     noteTranscriptMount();
     return () => {
@@ -6199,10 +6205,6 @@ function TranscriptView({
     }
     state.seen = node.scrollTop;
   };
-  guardRead.current = () => {
-    const node = ref.current;
-    if (node && transcriptMounted.current) guardOffset(node);
-  };
   const armFrameGuard = () => guard.arm();
   const handleScroll = (node: HTMLDivElement, immediate = false) => {
     armFrameGuard();
@@ -6355,6 +6357,12 @@ function TranscriptView({
   };
   const motionScroll = useRef(handleScroll);
   motionScroll.current = handleScroll;
+  useLayoutEffect(() => {
+    guardRead.current = () => {
+      const node = ref.current;
+      if (node && transcriptMounted.current) guardOffset(node);
+    };
+  });
   useLayoutEffect(() => {
     const node = ref.current;
     if (!node) return;
