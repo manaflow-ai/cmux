@@ -53,6 +53,9 @@ EXCEPTIONS: dict[tuple[str, str], str] = {
         "publish-nightly", "publish-nightly-next-github", "keep-published-dsyms", "sentry-dsyms-nightly",
         "republish-nightly-deltas", "sign-release-notes", "publish-release-notes", "publish-nightly-reel")},
     ("nightly-tag-permission-probe.yml", "probe"): _NIGHTLY_HOSTED,
+    # .github/language-boundaries.toml: a PR that changes this workflow fails the check unless Leo labels it
+    # (the boundaries are his call), so its fallback label moves only in a PR he approves.
+    ("language-boundaries.yml", "language-boundaries"): "language-boundaries.yml is Leo's to change",
     # The Linux nightly jobs that hold signing secrets (2e164b5e610c): rule 7 of
     # tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py needs an ephemeral runner, and the hosted
     # route is pinned by tests/test_ci_self_hosted_guard.sh's signer-route exceptions.
