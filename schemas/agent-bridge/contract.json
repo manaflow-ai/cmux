@@ -136,6 +136,7 @@
     "git.worktree.remove": "git.worktree.remove",
     "git.worktree.setup": "git.worktree.setup",
     "github.connect": "github.connect",
+    "github.repos.checkout": "github.repos.checkout",
     "github.repos.list": "github.repos.list",
     "github.status": "github.status",
     "handshake": "ready",
@@ -238,6 +239,7 @@
     "uiPointer.report": "uiPointer.report",
     "video.frames": "video.frames",
     "video.info": "video.info",
+    "video.probes": "video.probes",
     "video.quickLook": "video.quickLook",
     "video.transcript": "video.transcript",
     "workspace.chooseFolder": "workspace.chooseFolder",
@@ -314,6 +316,9 @@
       "times"
     ],
     "video.info": [
+      "src"
+    ],
+    "video.probes": [
       "src"
     ],
     "video.quickLook": [

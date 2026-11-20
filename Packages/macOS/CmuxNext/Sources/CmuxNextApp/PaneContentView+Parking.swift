@@ -22,8 +22,8 @@ extension AgentPaneView: PaneParkableContent, PaneTabRowSharing, PaneCommitMotio
 /// An internal page (Markdown, a file viewer, Settings) is a WKWebView too: taking it out of the window
 /// and back on every switch re-attached its web process the same way (tab-switch-fast). Its view
 /// lives as long as its tab (`InternalPageTabStore.close` removes it), so parking costs no memory. Its
-/// page's tools share the tab row (the docked Home's Chief tools, `HomeDockSwitchView+TabRow`).
-extension InternalPageView: PaneParkableContent, PaneTabRowForwarding { var tabRowSharer: PaneTabRowSharing? { content as? PaneTabRowSharing } }
+/// page's tools share the tab row (the docked Home's Chief tools, `HomeDockSwitchView+TabRow`). Each internal page is a page's picture too, Home with them: its pane rides a move, and its host holds it.
+extension InternalPageView: PaneParkableContent, PaneTabRowForwarding, PaneCommitMotionPicture { var tabRowSharer: PaneTabRowSharing? { content as? PaneTabRowSharing } }
 /// Its page's rows in the pane's more menu (the docked Home's Chief Actions, `ChiefPaneTools`).
 extension InternalPageView: PaneMoreMenuContributing {
     func paneMoreMenuItems() -> [NSMenuItem] { (content as? PaneMoreMenuContributing)?.paneMoreMenuItems() ?? [] }
