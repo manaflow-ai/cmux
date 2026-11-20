@@ -9,8 +9,28 @@ extension DaemonService {
         }
         let pins = members.compactMap { $0 }
         guard pins.count == members.count else { return ActionWorkFailure(RefusalStrings.noWorkspaceToActOn) }
+        let membership = RoomMembership(follows: store.personal.follows, pins: store.personal.pinnedRooms)
+        let restoredRooms = pins.map { membership.pinned($0) }
         return await failure("pin-workspace") { connection in
-            for pin in pins { try await connection.pinWorkspace(session: pin.session, key: WorkspaceKey(rawValue: pin.key), to: room) }
+            var completed: [Int] = []
+            do {
+                for (index, pin) in pins.enumerated() {
+                    try await connection.pinWorkspace(session: pin.session, key: WorkspaceKey(rawValue: pin.key), to: room)
+                    completed.append(index)
+                }
+            } catch {
+                // A later pin can fail after earlier requests succeeded. Restore each completed
+                // member to its original pin, or remove the new pin when it was previously loose.
+                for index in completed.reversed() {
+                    let pin = pins[index]
+                    if let previous = restoredRooms[index] {
+                        try? await connection.pinWorkspace(session: pin.session, key: WorkspaceKey(rawValue: pin.key), to: previous)
+                    } else {
+                        try? await connection.unpinWorkspace(session: pin.session, key: WorkspaceKey(rawValue: pin.key))
+                    }
+                }
+                throw error
+            }
         }
     }
 }

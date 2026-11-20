@@ -42,12 +42,12 @@ extension SidebarBridge {
         guard let source, source != room else { return finish() }
         let personal = home.store.personal.group(item: group.rawValue), previous = document?.groupRoom(group.rawValue)
         let pins = personal == nil ? members.map { WindowProfiles.qualified($0, machines: services.machines) } : []
-        services.registry.track(Task {
+        services.registry.trackOrReport(Task {
             if let failed = await home.moveGroupToSpace(personal?.id, members: pins, to: room) { return failed }
             document?.moveGroup(group.rawValue, toSpace: room.rawValue, from: previous)
             finish()
             return nil
-        })
+        }, as: "workspaceGroup.moveToWindow")
     }
 
     /// Puts `ids` at `position` of this window's `sections` (taken before
