@@ -627,6 +627,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # TypeScript is pinned exactly in agent-chat's devDependencies, so this
       # check uses the locked local compiler instead of fetching one at runtime.
@@ -764,6 +765,10 @@ jobs:
       - name: Check that path-filtered workflows start for their tests' inputs
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_paths_cover_inputs.py
+
+      - name: Check that a docs-only pull request starts only the allowed workflows
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_docs_only_prs.py
 
       - name: Check that a cmux-rd-host change runs its macOS clippy and tests
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1106,7 +1111,8 @@ jobs:
 
       - name: Validate runner label policy
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_runner_label_policy.py
+        # check_runs_on_pools: same-repo Linux jobs read fromJSON(vars.RUNNER_POOLS), never a literal label.
+        run: python3 tests/test_runner_label_policy.py && python3 scripts/ci/tests/test_check_runs_on_pools.py
 
       - name: Validate side-lane runs-on reads the capability label array
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1176,6 +1182,10 @@ jobs:
       - name: Validate label events skip CI for labels it does not read
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_label_events_skip_full_ci.py
+
+      - name: Validate edits and comments start no runner
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_edit_events_start_no_runner.py
 
       - name: Validate required checks have no paths filters
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1854,6 +1864,10 @@ jobs:
       - name: Validate the nightly publishes no red webview tree and no known-bad commit
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_publish_guard.py
+
+      - name: Validate lint-class webview checks are fixed forward on the nightly
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_lint_fix_forward.py
 
       - name: Validate the published feed read-back and the shipped app's channels
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

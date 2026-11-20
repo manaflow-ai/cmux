@@ -134,7 +134,6 @@ import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { setScrollToBottomOnSend, useComposerSettings } from "./composerSettings";
 import { useComposerLook } from "./composerLook";
-import { LookSwitch } from "./LookSwitch";
 import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory, usePromptRecalled } from "./composer/promptHistory";
 import {
@@ -2771,9 +2770,6 @@ function ComposerFrame({
   );
   // Why a failed turn paused the queue: the paused note names it (queuePause.ts).
   const pauseReason = snapshot.summary?.queuePaused === true ? queuePauseReason(snapshot.rows) : undefined;
-  // The queue does not read the prompt: with one handler that keeps its identity, a key leaves it be
-  // (`MemoComposerQueue`). It drew once a key.
-  const leaveQueue = useCallback(() => field.current?.focus(), []);
   return (
     <form
       ref={form}
@@ -2786,7 +2782,7 @@ function ComposerFrame({
       // but its own events changes its nodes (devkit/perfBudgets.ts `still-surface`).
       data-perf-still="composer"
       data-shell={shell ? "" : undefined}
-      // Codex's look (composerLook.ts, composerLocation.css); none is Claude's, the default.
+      // Gallery previews can stage the former Codex layout.
       data-composer-look={look === "codex" ? "codex" : undefined}
       // The box inside draws the compact grid in both looks (ComposerBox.tsx, composerLocation.css).
       data-composer-grid=""
@@ -2830,7 +2826,7 @@ function ComposerFrame({
           findingFiles,
         )}
       {/* The bottom stack's queue slot (bottomStack.css): above the strip, in the layout flow. */}
-      <MemoComposerQueue
+      <ComposerQueue
         // One per chat: a chat's long queue keeps its fold, open or closed, as you switch chats.
         key={snapshot.summary?.sessionId || sessionId}
         chat={snapshot.summary?.sessionId || sessionId}
@@ -3120,15 +3116,12 @@ function ComposerFrame({
         accessory={accessory}
         trailing={quietActions ? undefined : sendControl}
         chromeItems={chrome.all}
-        // The look dots in the bottom area, on hover (LookSwitch.tsx); the Quick Composer has none.
-        {...(onOpenInWindow ? {} : { bottom: <LookSwitch onDone={focusPrompt} /> })}
       />
     </form>
   );
 }
 
 const MemoComposer = React.memo(ComposerFrame);
-const MemoComposerQueue = React.memo(ComposerQueue);
 
 /// One attachment above the prompt. An image draws a thumbnail in its own shape and opens in the chat's image
 /// viewer on a click; one the pane cannot draw falls back to its name, never an empty square.
