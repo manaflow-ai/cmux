@@ -352,6 +352,8 @@ JOBLESS_EVENTS = frozenset({"pull_request", "pull_request_target", "push", "work
 # Candidates looked at a sweep, oldest first: one job listing (when the sweep did not list it) and one listing of
 # its workflow's runs on its branch each, plus at most one holder's jobs.
 JOBLESS_LOOKUPS = 10
+# The page GitHub.branch_runs() reads: a full page may leave older runs (a holder) unread (find_jobless()).
+BRANCH_RUNS_PAGE = 20
 DEFAULT_MAX_JOBLESS_CANCELS = 5
 MAX_JOBLESS_CANCELS_LIMIT = 10
 # A re-run GitHub refuses this many times gives up with an ::error:: annotation instead of waiting for the TTL.
@@ -3772,7 +3774,8 @@ def find_jobless(
             jobs = jobs_by_run[run["id"]] if run["id"] in jobs_by_run else github.jobs(run["id"])
             if jobs:
                 continue
-            ahead = runs_ahead(run, [*github.branch_runs(run), *runs])
+            listed = github.branch_runs(run)
+            ahead = runs_ahead(run, [*listed, *runs])
             # A same-head run ahead may be what holds the group: then no superseded run is the holder.
             same_head = [other for other in ahead if other.get("head_sha") == run.get("head_sha")]
             others = [] if same_head else [other for other in ahead if other.get("head_sha") != run.get("head_sha")]
@@ -3797,6 +3800,11 @@ def find_jobless(
                 blocker = (same_head or ahead)[0]
                 notes.append(f"run {run['id']} ({run.get('name')}, {run.get('status')} {age} with no jobs): waits "
                              f"behind run {blocker['id']} ({blocker.get('status')}), left alone")
+            continue
+        if len(listed) >= BRANCH_RUNS_PAGE:
+            # Review of #47915 (F1): the page is full, so an older holder may be past it. Unknown, never jobless.
+            notes.append(f"run {run['id']} ({run.get('name')}, {run.get('status')} {age} with no jobs): its branch "
+                         f"listing is a full page of {len(listed)}, so a run ahead may be unread; left alone")
             continue
         jobless.append(Orphan(run, f"{run.get('status')} {age} with no jobs and no run of its workflow ahead of it "
                                    f"on {run.get('head_branch')}", None, created, 0))
@@ -4754,7 +4762,7 @@ class GitHub:
     def branch_runs(self, run: Mapping[str, Any]) -> list[dict[str, Any]]:
         """One page of the newest runs of `run`'s workflow on its branch (skip_superseded_delivery())."""
         workflow = str(run.get("path") or "").rsplit("/", 1)[-1]
-        query = urllib.parse.urlencode({"branch": run.get("head_branch") or "", "per_page": 20})
+        query = urllib.parse.urlencode({"branch": run.get("head_branch") or "", "per_page": BRANCH_RUNS_PAGE})
         payload = self.request("GET", f"/repos/{self.repo}/actions/workflows/{urllib.parse.quote(workflow)}/runs?{query}")
         return [other for other in payload.get("workflow_runs") or [] if isinstance(other, Mapping)]
 
