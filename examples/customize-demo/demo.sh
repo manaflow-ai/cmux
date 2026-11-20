@@ -44,7 +44,19 @@ title() {
 }
 
 reset() {
-  "$cli" customize discard >/dev/null 2>&1 || true
+  "$cli" customize discard
+}
+
+finish() {
+  local status=$?
+  trap - EXIT
+  if reset; then
+    printf '\nYour setup is back.\n'
+  else
+    printf '\ndemo.sh: reset failed; run cmux customize discard to restore your setup.\n' >&2
+    [[ $status -ne 0 ]] || status=1
+  fi
+  exit "$status"
 }
 
 auto=""
@@ -58,7 +70,9 @@ case "${1:-}" in
   *) sed -n '2,12p' "${BASH_SOURCE[0]}"; exit 2 ;;
 esac
 
-trap 'reset; echo; echo "Your setup is back."' EXIT INT TERM
+trap finish EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # A while-read loop, not mapfile: macOS's /bin/bash is 3.2.
 list=()
@@ -76,6 +90,8 @@ for file in "${list[@]}"; do
   n=$((n + 1))
   printf '\n[%d/%d] %s  (%s)\n' "$n" "${#list[@]}" "$(title "$file")" "$file"
   "$cli" customize use "$here/$file"
+  # An already open page belongs to the previous profile. Show this one's page.
+  "$cli" action run newTab.default
   if [[ -n "$auto" ]]; then
     sleep "$auto"
   elif [[ $n -lt ${#list[@]} ]]; then
