@@ -401,6 +401,8 @@ input[type="range"] {
    only an attribute name to the filter, and the transcript sits under `role="feed"`, so a role's
    selectors also name `.selectable`: outside selectable text nothing resets the cursor, so
    inheritance alone gives what `inherit` would, apart from the user agent's arrow on a label.
+   Every selector here has zero specificity, the label one too (jsdom scores a rule by its most
+   specific selector, so a bare `label` would let this rule beat a field's `cursor: text`).
    Never a rule whose subject is `*` under ancestors Chromium cannot look up by class, id, tag or
    attribute (`:where(button, a[href], ...) *`, a list, or `:disabled *`): every element styled anywhere then
    walks all its ancestors trying each one, about 230 ms of style recalc for 24 older pages of a long
@@ -416,7 +418,7 @@ input[type="range"] {
 :where(.selectable) :where([role]:is([role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"])) *,
 :where([role]:is([role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"])) :where(.selectable),
 :where([role]:is([role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"])) :where(.selectable) *,
-:where([role]:is([role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"])) label {
+:where([role]:is([role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]) label) {
   cursor: inherit;
 }
 :where(
