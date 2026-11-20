@@ -5,7 +5,6 @@ import type {
   AccountsCmux,
   AccountsRow,
   AccountsState,
-  CloudEnvironmentsState,
   HarnessesState,
   HostLists,
   ProviderAccount,
@@ -15,6 +14,8 @@ import { minutesAgo } from "../../gallery/clock";
 import { categories, categoryOf, defaultCategory, isCategory } from "./categories";
 import { PERSONALIZATION_KEYS } from "./personalizationParts";
 import { MockTeams } from "./mockTeams";
+import { mockDefaultEnvironment, mockTeamEnvironment } from "./mockCloudEnvironments";
+import type { CloudEnvironment } from "../cloud/environmentModel";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
 import { mockDevicesState } from "./mockProvider";
@@ -198,22 +199,10 @@ const rowShapeMachines: HostLists["machines"] = [
     vm_host: { on: true, busy: false, error: null },
   },
 ];
-const rowShapeEnvironments: CloudEnvironmentsState = {
-  available: true,
-  loading: false,
-  error: null,
-  environments: [
-    {
-      id: "env-row-shape",
-      name: "Research environment",
-      repo: "manaflow-ai/cmux@feat-cmux-next",
-      setup_script: "bun install",
-      status: "failed",
-      error: "setup exited 3",
-      log_tail: "lockfile mismatch",
-    },
-  ],
-};
+const rowShapeEnvironments: CloudEnvironment[] = [
+  mockDefaultEnvironment,
+  { ...mockTeamEnvironment, id: "env_0000000000000000000000f3", name: "Research environment for the long-running eval jobs" },
+];
 const click = (selector: string): PageFixtureStep => ({ selector, action: "click" });
 const input = (selector: string, value: string): PageFixtureStep => ({ selector, action: "input", value });
 const wait = (selector: string): PageFixtureStep => ({ selector, action: "wait" });
@@ -900,7 +889,7 @@ Object.assign(variants, {
   }),
   "cloud-environments-row-shape": variant("cloud", {
     environments: rowShapeEnvironments,
-    note: "One failed Cloud Environment row with status, repository, error log and actions.",
+    note: "Cloud Environments: the Default, marked, above a team environment with a long name, each with Edit.",
     play: async (ctx) => {
       const card = ctx.find({ selector: '[data-card="cloudEnvironments"]' });
       card.setAttribute("data-gallery-capture", "");

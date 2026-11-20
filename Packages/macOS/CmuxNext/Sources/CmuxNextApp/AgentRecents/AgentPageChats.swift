@@ -164,12 +164,7 @@ final class AgentPageChats {
         }
         tabs.pageChats.cloudEnvironment = { [weak services] request in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
-            return await request.run(
-                allowed: !services.registry.disabledFeatures.contains(.cloud) && services.cloud.mayCallCloud,
-                connection: services.machines.local.connection, platform: services.cloud.configuration.artifactsAPIBaseURL()) {
-                    let team = try await services.cloud.auth.accessTokenTeam(requested: nil)
-                    return (try await services.cloud.installIdentity.accessToken(team: team)).accessToken
-                }
+            return await services.runCloudEnvironment(request)
         }
         notices.start()
         let handoffs = HandoffNotices(services: services)

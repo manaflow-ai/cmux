@@ -38,9 +38,10 @@ final class SettingsPageProvider: PageProvider {
     /// watch that keeps its history current while a page shows it; nil in
     /// tests without an app.
     var devicesState: (@MainActor () -> JSONValue)?
-    /// Settings > Accounts > Cloud Environments (``CloudEnvironmentsSettings``).
-    var environmentsState: (@MainActor () -> JSONValue)?
-    var environmentsRun: (@MainActor (JSONValue) async throws -> JSONValue)?
+    /// Settings > Cloud > Cloud Environments: one Cloud environment editor request, the composer's
+    /// (``AppServices/runCloudEnvironment(_:)``); its reply is the page's `{ok, value}` or `{ok: false, error}`.
+    /// Nil for a method the editor does not take (`cloud.environment.list/get/update/create/derive`).
+    var cloudEnvironment: (@MainActor (_ method: String, _ params: [String: Any]) async -> [String: Any]?)?
     var devicesRun: (@MainActor (JSONValue) async throws -> JSONValue)?
     /// Settings > Privacy > Shared Links (``SettingsSharedLinks``): this Mac's chat shares, and Revoke.
     var sharesList: (@MainActor () async throws -> JSONValue)?
@@ -146,6 +147,34 @@ final class SettingsPageProvider: PageProvider {
         }
     }
 
+    /// `cmux.settings.cloud_environment` `{method, params}`: Settings > Cloud Environments' list, read, edit,
+    /// create and derive of the account's Cloud environments (the Default among them), forwarded as the
+    /// composer forwards them. A write (`update`, `create`) takes only the person's own click or key in this
+    /// page, as the composer's does: nothing a script drives the page with saves an environment.
+    private func cloudEnvironmentCall(_ params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+        let run = try Self.host(cloudEnvironment, "cloud environments")
+        guard let method = params["method"]?.stringValue,
+              let fields = (params["params"] ?? .object([:])).foundationObject as? [String: Any]
+        else { throw PageError.invalidParams("method and params are required") }
+        if Self.cloudEnvironmentWrites.contains(method) {
+            guard context.page == PageDescriptor.settings.id, context.userGesture else {
+                throw PageError(code: "cmux.settings.user_only", message: "only you can change your Cloud environments")
+            }
+        }
+        guard let reply = await run(method, fields) else { throw PageError.invalidParams("unknown cloud environment method \(method)") }
+        return try Self.cloudEnvironmentValue(reply)
+    }
+
+    static let cloudEnvironmentWrites: Set<String> = ["cloud.environment.update", "cloud.environment.create"]
+
+    /// The editor's reply as the page's answer: its value, or its failure as a ``PageError`` with the same code.
+    static func cloudEnvironmentValue(_ reply: [String: Any]) throws -> JSONValue {
+        if reply["ok"] as? Bool == true { return JSONValue(foundation: reply["value"] ?? NSNull()) ?? .null }
+        let error = reply["error"] as? [String: Any]
+        throw PageError(code: error?["code"] as? String ?? "cloud_environment.failed",
+                        message: error?["userMessage"] as? String ?? "cloud_environment.failed")
+    }
+
     /// A host the App wires in (nil in tests without an app), or the page's `cmux.page.unavailable`.
     private static func host<Host>(_ host: Host?, _ name: String) throws -> Host {
         guard let host else { throw PageError(code: "cmux.page.unavailable", message: "no \(name)") }
@@ -219,8 +248,7 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.harnesses.state": return try Self.host(harnessesState, "harnesses")()
         case "cmux.settings.harnesses.run": return try await Self.host(harnessesRun, "harnesses")(params, context)
         case "cmux.settings.models.state", "cmux.settings.models.run": return try await Self.host(models, "models").call(op, params: params, context: context)
-        case "cmux.settings.environments.state": return try Self.host(environmentsState, "environments")()
-        case "cmux.settings.environments.run": return try await Self.host(environmentsRun, "environments")(params)
+        case "cmux.settings.cloud_environment": return try await cloudEnvironmentCall(params, context: context)
         case "cmux.settings.devices.state": return try Self.host(devicesState, "devices")()
         case "cmux.settings.shares.list": return try await Self.host(sharesList, "shares")()
         case "cmux.settings.shares.revoke":

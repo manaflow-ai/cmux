@@ -10,7 +10,9 @@ public nonisolated struct AgentPaneCloudEnvironmentRequest: Equatable, Sendable 
     public let action: String
     public let params: JSONValue
 
-    init?(method: String, params: [String: Any]?) {
+    /// Nil for a method outside ``methods`` or params that are not JSON. Also Settings > Cloud Environments'
+    /// request (`cmux.settings.cloud_environment`), which forwards the same envelope.
+    public init?(method: String, params: [String: Any]?) {
         guard Self.methods.contains(method), let action = method.split(separator: ".").last,
               let data = try? JSONSerialization.data(withJSONObject: params ?? [:]),
               let params = try? JSONDecoder().decode(JSONValue.self, from: data) else { return nil }
