@@ -19,6 +19,25 @@ struct AgentPaneGitHubRequestTests {
         #expect(AgentPaneRequest(body: ["method": "github.nope"]) == .unsupported("github.nope"))
     }
 
+    /// `github.repos.checkout`: an `owner/name`, a key, and only absolute folders the page knows for it.
+    @Test func decodesCheckoutAndRefusesAnythingButARepositoryAndFolders() {
+        let checkout = { (params: [String: Any]) in AgentPaneRequest(body: ["method": "github.repos.checkout", "params": params]) }
+        #expect(checkout(["repo": "acme/api", "idempotency_key": "k1"]) == .gitHub(.checkout(repo: "acme/api", candidates: [], key: "k1")))
+        #expect(checkout(["repo": "acme/api", "candidates": ["/Users/me/api"], "idempotency_key": "k1"])
+            == .gitHub(.checkout(repo: "acme/api", candidates: ["/Users/me/api"], key: "k1")))
+        for bad: [String: Any] in [
+            ["repo": "acme/api"],
+            ["repo": "https://github.com/acme/api", "idempotency_key": "k1"],
+            ["repo": "../api", "idempotency_key": "k1"],
+            ["repo": "acme/api", "candidates": ["relative/api"], "idempotency_key": "k1"],
+            ["repo": "acme/api", "candidates": "/Users/me/api", "idempotency_key": "k1"],
+        ] {
+            #expect(checkout(bad) == .unsupported("github.repos.checkout"), "\(bad)")
+        }
+        #expect(AgentPaneRequest.gitHub(.checkout(repo: "acme/api", candidates: ["/Users/me/secret"], key: "k1")).description
+            == "github.repos.checkout")
+    }
+
     @Test func thePageHostServesThem() {
         for method in AgentPaneGitHubRequest.methods {
             #expect(AgentPageOps.method(for: AgentPageOps.namespace + method) == method)
