@@ -1148,6 +1148,12 @@ class BenchApp:
         status = reply.get("in_tree") if isinstance(reply, dict) else None
         self.in_tree = status
         note("BENCH-LAUNCH-IN-TREE " + json.dumps({"tag": self.tag, "asked": asked, "in_tree": status}))
+        wrong = ((asked in ("1", "true", "on") and status not in ("on", "pending"))
+                 or (asked in ("0", "false", "off") and status not in ("off", None)))
+        if wrong:
+            # The refused app is this launch's own: quit it, or it holds the tag and every later launch of the run fails
+            # tag-in-use (step 0dac4158: one mismatch left pid 56958, and each part after it failed to start).
+            self.stop()
         if asked in ("1", "true", "on") and status not in ("on", "pending"):
             self._fail("in-tree-mismatch", {"tag": self.tag, **host_facts(), "asked": asked, "in_tree": status,
                                             "detail": f"launched with CMUX_IN_TREE_PAGES={asked}, the app reports "
