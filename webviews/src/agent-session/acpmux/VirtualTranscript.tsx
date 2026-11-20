@@ -6008,7 +6008,6 @@ function TranscriptView({
       sentBeforeOpen.current = true;
       // A tail that fits is at its latest row: the composer's prompt becomes the sent message
       // (conversation/sendMorph.ts). A chat that drew no row yet has none: its prompt fades in place.
-      console.warn(`SENDMORPH-DEBUG notOpened drew=${drewRowsBefore.current}`);
       noteSendFromLatest(drewRowsBefore.current, node);
       // A tail that fit and overflows with this send opens at the latest row on the send's glide
       // (placement pass), and the reply's rows that land next rise on it too (`sendRows`).
@@ -6026,9 +6025,6 @@ function TranscriptView({
     const fromLatest = followingRef.current && jumpTarget.current === undefined;
     // Only then does the composer's prompt become the sent message in place; scrolled up, it fades in
     // where it lands (conversation/sendMorph.ts, Leo 2026-11-08: "if you're at the bottom").
-    console.warn(
-      `SENDMORPH-DEBUG opened following=${followingRef.current} jump=${jumpTarget.current} top=${node.scrollTop} sh=${node.scrollHeight} ch=${node.clientHeight} sendTopEnd=${sendTopEndRef.current}`,
-    );
     noteSendFromLatest(fromLatest, node);
     if (fromLatest) {
       wheelGlide.current?.stop();

@@ -211,9 +211,6 @@ function sendMs(node: Element): number {
 /// prompt, held there until the sent row mounts. Runs in the send's commit, before it paints.
 export function noteSendFromLatest(fromLatest: boolean, scroller: HTMLElement, now = performance.now()): void {
   const origin = pending;
-  console.warn(
-    `SENDMORPH-DEBUG fromLatest=${fromLatest} origin=${!!origin} age=${origin ? Math.round(now - origin.at) : -1} style=${scroller.closest("[data-send-morph]")?.getAttribute("data-send-morph")} ms=${sendMs(scroller)} words=${!!origin?.words} chips=${origin?.chips.size}`,
-  );
   pending = undefined;
   if (!fromLatest || !origin || now - origin.at > ORIGIN_MS || typeof scroller.animate !== "function") return;
   const style = (scroller.closest("[data-send-morph]")?.getAttribute("data-send-morph") ?? PRODUCT) as SendMorphStyle;

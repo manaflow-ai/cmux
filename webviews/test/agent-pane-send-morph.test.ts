@@ -214,7 +214,6 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
     "at the bottom, the composer's words and screenshot become the sent message on the send motion (%s arm)",
     async (arm) => {
       const page = await browser!.newPage({ viewport: { width: 900, height: 620 } });
-      page.on("console", (message) => message.text().includes("SENDMORPH-DEBUG") && console.log(message.text()));
       try {
         await openChat(page, undefined, arm);
         await galleryClock(page);
