@@ -219,8 +219,9 @@ type SourceFind =
 type SourcePart = { at: number; finds: readonly SourceFind[] };
 
 /// The links in `text`, in order.
-function linkFinds(text: string): SourceFind[] {
-  const finds: SourceFind[] = [];
+/// Appends to `finds` rather than returning a list to spread: one tool output can hold more links than
+/// a call takes arguments (`push(...list)` throws RangeError past the engine's argument limit).
+function linkFinds(text: string, finds: SourceFind[] = []): SourceFind[] {
   for (const match of text.matchAll(/https?:\/\/[^\s"'<>)]+/g)) {
     const url = match[0]!.replace(/[.,;:!?]+$/, "");
     const normalizedUrl = url.split(/[?#]/, 1)[0]!;
@@ -267,7 +268,7 @@ function toolSourceFinds(item: Tool): readonly SourceFind[] {
     // --body/--body-file payloads that the command sanitizer intentionally removed.
     const inputText = inputCommand ? "" : (item.inputSummary ?? "");
     const text = `${title} ${command} ${inputText} ${item.output ?? ""}`;
-    finds.push(...linkFinds(text));
+    linkFinds(text, finds);
     if (item.kind === "fetch" && !/https?:\/\//.test(text)) finds.push({ source: { label: item.title } });
     if (item.kind === "read")
       for (const path of editedPaths(item)) finds.push({ source: { label: path, kind: "file" } });

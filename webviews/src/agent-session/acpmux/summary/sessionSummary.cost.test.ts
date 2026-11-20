@@ -101,3 +101,22 @@ test("a page of older rows read in front keeps each row's finds and the transcri
   expect(paged.sources).toEqual(again.sources);
   expect(paged.sources[0]?.url).toBe("https://example.com/n/0");
 });
+
+test("one call's output with more links than a call takes arguments still lists its Source", () => {
+  // `push(...links)` threw RangeError (Maximum call stack size exceeded) here, and Session Info failed to open.
+  const output = "https://example.com/same ".repeat(1_200_000);
+  const row = {
+    id: "many-links",
+    version: 1,
+    at: 1,
+    kind: "activity",
+    items: [
+      {
+        kind: "tool",
+        tool: { id: "many", kind: "execute", title: "cat", status: "completed", command: "cat", output },
+      },
+    ],
+  } as unknown as AcpmuxRow;
+  const summary = sessionSummary([row], "o/r", "/w");
+  expect(summary.sources.map((source) => source.url)).toContain("https://example.com/same");
+});
