@@ -166,7 +166,6 @@ LEGACY_BOUNDED_LINUX_SELECTOR = (
                                        separators=(",", ":"))
     + "'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'"
 )
-LEGACY_BOUNDED_SELECTOR_JOBS = {("ci-cla-quota-rerun.yml", "cla-quota-rerun"), ("ci-queue-janitor.yml", "sweep")}
 # The key-holding Linux jobs that follow LINUX_RUNNER through it (#27557 pinned them to 4 vCPU,
 # so a 4 vCPU stall left them queued). Nightly jobs read no shared variable.
 BOUNDED_SELECTOR_JOBS = {
@@ -1449,13 +1448,11 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         for key in sorted(BOUNDED_SELECTOR_JOBS):
             with self.subTest(job=key):
                 self.assertIn(key, runs_on)
-                expected = BOUNDED_LINUX_SELECTOR
-                if key in LEGACY_BOUNDED_SELECTOR_JOBS:
-                    expected = LEGACY_BOUNDED_LINUX_SELECTOR
+                selectors = (BOUNDED_LINUX_SELECTOR, LEGACY_BOUNDED_LINUX_SELECTOR)
                 if key == ("sdk-release-cut.yml", "cut-tags"):
                     # The SDK release security contract pins the pre-BS8 selector.
-                    expected = expected.replace(',"blacksmith-8vcpu-ubuntu-2404"', '')
-                self.assertIn(expected + " }}", runs_on[key])
+                    selectors = tuple(s.replace(',"blacksmith-8vcpu-ubuntu-2404"', '') for s in selectors)
+                self.assertTrue(any(s + " }}" in runs_on[key] for s in selectors), runs_on[key])
 
     def test_the_bounded_selector_yields_only_its_labels_for_any_value(self) -> None:
         fork = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "

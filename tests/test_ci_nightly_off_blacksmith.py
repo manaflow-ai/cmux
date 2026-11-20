@@ -241,15 +241,17 @@ class NightlyPooledRoutingTests(unittest.TestCase):
 
         2026-10-28: every Blacksmith Linux size stopped starting jobs for over an
         hour while Blacksmith macOS served; these light jobs had nowhere else to go.
-        Unset, they take the owned fleet's one-job Linux VM, not Blacksmith.
+        Unset, the feed watch takes the owned fleet's one-job Linux VM. The tick keeps Blacksmith 2 vCPU:
+        a workflow_run trigger reaches it, and no line an outsider can trigger moves to an owned VM.
         """
-        for name, job in (("nightly-next-tick.yml", "request"), ("nightly-next-feed-watch.yml", "watch")):
+        for name, job, default in (("nightly-next-tick.yml", "request", "blacksmith-2vcpu-ubuntu-2404"),
+                                   ("nightly-next-feed-watch.yml", "watch", "cmux-fleet-linux-x64")):
             text = (WORKFLOWS / name).read_text(encoding="utf-8")
             body = text[text.index(f"\n  {job}:\n"):]
             runs_on = re.search(r"^    runs-on: (.+)$", body, re.MULTILINE).group(1)
             with self.subTest(workflow=name):
                 self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-                                          "vars.CI_CONTROL_RUNNER || 'cmux-fleet-linux-x64' }}")
+                                          f"vars.CI_CONTROL_RUNNER || '{default}' }}}}")
 
     def test_the_tick_hashes_without_gnu_coreutils(self) -> None:
         """The tick may run on macOS (CI_CONTROL_RUNNER), where sha256sum is not guaranteed."""
