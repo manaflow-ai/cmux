@@ -475,7 +475,7 @@ pub(crate) async fn scoped_output(
     }
     if archived {
         out.push_str(&super::ls_archived::render(&sessions, now));
-        return Ok(out);
+        return Ok((out, scope));
     }
     let status = match (status_read, peers) {
         (Some(read), _) => read,
