@@ -98,3 +98,37 @@ fn the_installed_ranker_filters_the_same_way() {
         assert_eq!(answer, sorted(rows(rank_request(&request(query, true)))), "{query}");
     }
 }
+
+#[test]
+fn the_c_abi_answers_the_filter_operation() {
+    use cmux_palette_ranker::ffi::{
+        OK, cmux_palette_ranker_free, cmux_palette_ranker_new, cmux_palette_ranker_rank,
+    };
+    let request = serde_json::to_vec(&json!({
+        "operation": "filter",
+        "query": "-in:history deploy in:tab",
+        "sectionNames": names(),
+    }))
+    .expect("request");
+    let ranker = cmux_palette_ranker_new();
+    let mut response: *const u8 = std::ptr::null();
+    let mut response_len = 0usize;
+    // SAFETY: a live handle, a readable request and writable out pointers.
+    let code = unsafe {
+        cmux_palette_ranker_rank(
+            ranker,
+            request.as_ptr(),
+            request.len(),
+            &mut response,
+            &mut response_len,
+        )
+    };
+    // SAFETY: on OK the response holds `response_len` bytes until the next call on the handle.
+    let body: Value =
+        serde_json::from_slice(unsafe { std::slice::from_raw_parts(response, response_len) })
+            .expect("filter JSON");
+    // SAFETY: the handle from cmux_palette_ranker_new, freed once.
+    unsafe { cmux_palette_ranker_free(ranker) };
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"rest": "deploy", "include": [1], "exclude": [2], "applied": true}));
+}
