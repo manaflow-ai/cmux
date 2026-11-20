@@ -71,7 +71,11 @@ sections, panels and pages.
 Settings > Appearance lists public look repos by name, each shown on the golden sample, with an
 Install button. Installing one is the same `cmux setup install` with its card; the gallery itself
 changes nothing. The list is `cmux-tui/crates/cmux-customize/src/setup/looks.json`, built into
-cmux and changed only by a reviewed PR: Studio, Paper, Cards New Tab and Threads New Tab for now.
+cmux and changed only by a reviewed PR: Studio, Paper, Cards New Tab and Threads New Tab, then the
+ten look packs in `examples/looks` (Tachyon, Kerf, Prism, Hush, Basalt, Linen, Docket, Ember,
+Folio, Tandem). A catalog look names its repo as `HOST/OWNER/REPO[/PATH][@BRANCH]`: the packs are
+folders of cmux on `feat-cmux-next`, which carries them, so they name that branch. A catalog look
+never names a commit; the card shows the commit the branch is at now, and Install pins that commit.
 
 ```sh
 cmux --json setup gallery

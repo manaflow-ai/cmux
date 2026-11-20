@@ -32,20 +32,52 @@ fn repo(text: &str) -> SetupSource {
 }
 
 #[test]
-fn the_compiled_catalog_reads_and_lists_the_four_looks() {
+fn the_compiled_catalog_reads_and_lists_the_looks() {
     let catalog = catalog().unwrap();
     let ids: Vec<&str> = catalog.looks.iter().map(|look| look.id.as_str()).collect();
-    assert_eq!(
-        ids,
-        [
-            "manaflow-ai/studio-look",
-            "manaflow-ai/paper-look",
-            "manaflow-ai/newtab-cards-look",
-            "manaflow-ai/newtab-threads-look",
-        ]
-    );
+    let packs = [
+        "tachyon", "kerf", "prism", "hush", "basalt", "linen", "docket", "ember", "folio", "tandem",
+    ];
+    let mut want = vec![
+        "manaflow-ai/studio-look".to_owned(),
+        "manaflow-ai/paper-look".to_owned(),
+        "manaflow-ai/newtab-cards-look".to_owned(),
+        "manaflow-ai/newtab-threads-look".to_owned(),
+    ];
+    want.extend(packs.iter().map(|pack| format!("manaflow-ai/{pack}-look")));
+    assert_eq!(ids, want);
     assert!(catalog.looks.iter().all(|look| !look.tagline.is_empty()));
     assert_eq!(catalog.looks[0].repo, "github.com/manaflow-ai/cmux-studio-look");
+    // The look packs are folders of cmux itself, on the branch that carries
+    // them, each pictured by its own screenshots.
+    for (look, pack) in catalog.looks[4..].iter().zip(packs) {
+        let reference = look.reference().unwrap();
+        assert_eq!(reference.key(), format!("github.com/manaflow-ai/cmux/examples/looks/{pack}"));
+        assert_eq!(reference.git_ref.as_deref(), Some("feat-cmux-next"));
+        assert_eq!(
+            look.previews.dark.as_deref(),
+            Some(format!("screenshots/{pack}-dark.png").as_str())
+        );
+    }
+}
+
+/// Every look the catalog lists from this repo is a setup folder here whose
+/// manifest names the same id and whose preview files exist.
+#[test]
+fn the_catalog_looks_from_this_repo_are_its_examples() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+    for look in catalog().unwrap().looks {
+        let reference = look.reference().unwrap();
+        if reference.owner != "manaflow-ai" || reference.repo != "cmux" {
+            continue;
+        }
+        let folder = root.join(&reference.path);
+        let manifest = std::fs::read_to_string(folder.join("cmux-setup.json")).unwrap();
+        assert!(manifest.contains(&format!("\"id\": \"{}\"", look.id)), "{}", look.id);
+        for file in [&look.previews.light, &look.previews.dark].into_iter().flatten() {
+            assert!(folder.join(file).is_file(), "{}: {file}", look.id);
+        }
+    }
 }
 
 #[test]
@@ -53,13 +85,15 @@ fn a_catalog_that_breaks_a_rule_is_refused() {
     let look = |id: &str, repo: &str| json!({"id": id, "name": "N", "repo": repo});
     let text = |looks: serde_json::Value| json!({"cmuxLooks": 1, "looks": looks}).to_string();
     assert!(parse_catalog(&text(json!([look("a/x", "github.com/a/cmux-x")]))).is_ok());
+    // A branch: a look in a folder of a repo whose default branch lacks it.
+    assert!(parse_catalog(&text(json!([look("a/x", "github.com/a/mono/looks/x@next")]))).is_ok());
     for bad in [
         json!({"cmuxLooks": 2, "looks": []}).to_string(),
         "not json".to_owned(),
         // The id is not one its repo's owner may publish.
         text(json!([look("b/x", "github.com/a/cmux-x")])),
-        // A ref: the gallery pins the commit its card shows.
-        text(json!([look("a/x", "github.com/a/cmux-x@main")])),
+        // A commit: the gallery pins the commit its card shows, from the branch.
+        text(json!([look("a/x", &format!("github.com/a/cmux-x@{}", "a".repeat(40)))])),
         text(json!([look("a/x", "not a repo")])),
         // The same id, or the same repo, twice.
         text(json!([look("a/x", "github.com/a/one"), look("a/x", "github.com/a/two")])),
@@ -158,6 +192,14 @@ fn a_preview_resolves_through_the_receipts_then_the_catalog_then_any_repo() {
         let target = resolve_preview(&catalog, &receipts, which).unwrap();
         assert_eq!(target.id, "manaflow-ai/studio-look");
         assert!(matches!(target.source, PreviewSource::Repo { git_ref: None, .. }));
+    }
+    // Listed at a branch: that branch, and the reference itself names none.
+    for which in ["manaflow-ai/tachyon-look", "github.com/manaflow-ai/cmux/examples/looks/tachyon"]
+    {
+        let target = resolve_preview(&catalog, &receipts, which).unwrap();
+        assert_eq!(target.id, "manaflow-ai/tachyon-look");
+        let PreviewSource::Repo { reference, git_ref } = target.source else { panic!() };
+        assert_eq!((reference.git_ref, git_ref.as_deref()), (None, Some("feat-cmux-next")));
     }
     // Any other repo, at the ref it names.
     let other = resolve_preview(&catalog, &[], "github.com/a/b@v2").unwrap();

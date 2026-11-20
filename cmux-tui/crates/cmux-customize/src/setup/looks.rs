@@ -50,7 +50,10 @@ pub struct Look {
     pub name: String,
     #[serde(default)]
     pub tagline: String,
-    /// The repo it installs from, `HOST/OWNER/REPO[/PATH]` (no ref).
+    /// The repo it installs from, `HOST/OWNER/REPO[/PATH][@BRANCH]`. A branch
+    /// is for a look in a folder of a repo whose default branch does not carry
+    /// it (cmux's own `examples/looks` live on feat-cmux-next); the card still
+    /// resolves it to one commit, and Install pins that commit.
     pub repo: String,
     #[serde(default)]
     pub tags: Vec<String>,
@@ -104,8 +107,11 @@ pub fn parse_catalog(text: &str) -> Result<Catalog, Error> {
     let mut keys = Vec::new();
     for look in &catalog.looks {
         let reference = Reference::parse(&look.repo)?;
-        if reference.git_ref.is_some() {
-            return Err(Error::Setup(format!("look {}: its repo names a ref", look.id)));
+        if reference.git_ref.as_deref().is_some_and(is_commit) {
+            return Err(Error::Setup(format!(
+                "look {}: its repo names a commit; name a branch, the card pins the commit",
+                look.id
+            )));
         }
         check_id(&look.id, &reference.owner)?;
         if look.name.trim().is_empty() {
@@ -127,6 +133,12 @@ pub fn parse_catalog(text: &str) -> Result<Catalog, Error> {
         }
     }
     Ok(catalog)
+}
+
+/// A full commit hash. A catalog look names a branch, never a commit, so the
+/// gallery shows what that branch holds now.
+fn is_commit(git_ref: &str) -> bool {
+    git_ref.len() == 40 && git_ref.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 /// A relative path inside a repo: no leading `/`, no `.` or `..` part, no
@@ -287,7 +299,7 @@ pub struct PreviewTarget {
 
 /// The look `which` names (an id, or a repo in any form): the installed
 /// setup first (at the commit it is installed at), then the catalog (at the
-/// repo's default branch), then any repo reference.
+/// branch it names, else the repo's default branch), then any repo reference.
 pub fn resolve_preview(
     catalog: &Catalog,
     receipts: &[Receipt],
@@ -310,7 +322,9 @@ pub fn resolve_preview(
         named(&look.id, &reference.key()).then(|| (look.id.clone(), reference))
     });
     if let Some((id, reference)) = listed {
-        return Ok(PreviewTarget { id, source: PreviewSource::Repo { reference, git_ref: None } });
+        let git_ref = reference.git_ref.clone();
+        let source = PreviewSource::Repo { reference: reference.at(None), git_ref };
+        return Ok(PreviewTarget { id, source });
     }
     match key {
         Some(reference) => {
