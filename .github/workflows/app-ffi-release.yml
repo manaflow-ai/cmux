@@ -882,7 +882,7 @@ jobs:
       # commit whose release is not published (SOURCE_SHA or SHA256SUMS is a
       # 404: its build was cancelled or is still running) is skipped, not
       # waited for, and the base's FFI sources may be ahead of the pin:
-      # merge_hold accepts such a pin once the app compiles against it
+      # land-judge accepts such a pin once the app compiles against it
       # (scripts/ci/base_red_excuse.py, the published base pin). The script
       # checks the release's SOURCE_SHA and SHA256SUMS. The commit goes through
       # GitHub's contents API, so it is written by the release App and signed
