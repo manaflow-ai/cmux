@@ -113,6 +113,18 @@ describe("cmux-next docs", () => {
     expect(missing).toEqual([]);
   });
 
+  // One prompt, not copies that drift: the Cloud page's "Paste this into your agent" block is
+  // the cloud_session prompt of `cmux setup` (cmux-tui/.../cli/setup.rs), as generated into
+  // docs/chief-setup-prompts.md.
+  test("the Cloud page's agent prompt is cmux setup's cloud_session prompt", () => {
+    const generated = readFileSync(join(repo, "docs/chief-setup-prompts.md"), "utf8");
+    const section = generated.split("\n## ").find((part) => part.startsWith("Work in cmux Cloud"));
+    const prompt = section?.match(/```text\n([^\n]+)\n```/)?.[1]?.replace("--agent AGENT", "--agent claude");
+    const blocks = nextDocPage("cloud")!.body.flatMap((block) => ("code" in block && block.lang === "text" ? [block.code] : []));
+    expect(prompt).toBeDefined();
+    expect(blocks).toEqual([prompt!]);
+  });
+
   test("every cmux command written in a hand-written page is a real CLI verb", () => {
     const verbs = new Set(buildCliReference(surfaces).nouns.flatMap((noun) => noun.verbs.map((verb) => verb.command)));
     // Commands of the Rust CLI itself, not app actions (cmux --help). `cmux harness` and
