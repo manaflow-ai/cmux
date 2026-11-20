@@ -8,18 +8,28 @@ clears it. Fresh creates another session with the completion handoff in its draf
 fences prepared turns and host startup, prevents a carried continuation, and retires the harness
 after the current turn. Startup does not adopt finished hosts.
 
-The per-daemon admission queue persists an operator pause and staggers outage recovery by
-priority. Four retry turns may run concurrently; admissions are one second apart. Other agent
-messages delayed by the pause release their slot before waiting for a reply. All final turn
-admissions check the pause independently of the optional inbox setting. This is a local fleet
-operator control, not a distributed broadcast or a machine-configuration change.
+The fleet admission authority is explicitly enrolled using the existing authenticated peer
+transport. Members pin its durable identity. Pause/resume from any member reaches the same
+switch, and local authority retries use the same queue as remote members: four outstanding
+retry reservations fleet-wide, with one-second spacing and shared priority order. No missing
+peer or changed identity falls back locally. Reservation records survive authority restart;
+disconnects and lost replies never free them on a timer. Uncertain work retains occupancy.
+Normal messages release their reservation before waiting on reciprocal replies.
+
+The existing stopgap must remain through deployed verification and enrollment of every intended
+member. An unbound daemon is not fleet protected. No live configuration or stopgap was changed.
+Recovery of uncertain reservations remains manual protocol reconciliation after proving the
+member's work has stopped; there is no automatic lease expiry or unsafe force-release command.
 
 Detector: `cmux-ci test -- cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux --lib finished`.
-It includes 100 fake sessions that fail once with 503: ten finish during the outage, ninety
-recover after release. Deterministic tests measure priority, spacing, width and cancellation;
-other tests reopen the on-disk metadata, fence already-prepared turns, test fresh handoffs and
-check local caller ownership through the server dispatcher. Execution receipt pending.
+It includes two real hubs connected through authenticated WebSocket peer transport and 100 fake
+503 sessions: ten finished and ten paused goals must never resume; eighty recover under the
+single cross-host admission bound. The single switch is exercised from the member. Additional
+tests cover durable reservations across restart, no lease expiry, changed/missing authority,
+priority, spacing, width, cancellation, finished metadata reload, fresh handoffs and RPC caller
+ownership. Execution receipt pending; the prior local-only run failed compilation and is not
+acceptance evidence.
 
-New lifecycle RPC: local proven caller or current terminal CLI only; an agent finishes only its own session. No peer
-or Web allowlist addition. Local callers can deliberately reopen with a reason, or create a
-fresh handoff session under the existing new-session permission inheritance rules.
+The session lifecycle operations require a local proven caller or current terminal CLI, and an
+agent finishes only itself. The fleet protocol branch requires authenticated peer-daemon proof;
+Web, paired-device and unauthenticated peer origins do not gain fleet control.

@@ -161,6 +161,12 @@ mod tests {
             assert!(reply.get("error").is_some(), "{reply}");
             assert!(hub.resolve(target).unwrap().meta().finished.is_none());
         }
+        for origin in [Origin::Local, Origin::Web, Origin::Peer] {
+            for op in ["fleet_status", "fleet_acquire", "fleet_release", "fleet_resume"] {
+                let reply = request(&hub, origin, Some("self"), op, "self").await;
+                assert!(reply.get("error").is_some(), "unauthenticated fleet RPC: {reply}");
+            }
+        }
         let reply = request(&hub, Origin::Local, Some("self"), "finish", "self").await;
         assert!(reply.get("error").is_none(), "{reply}");
         assert!(hub.resolve("self").unwrap().meta().finished.is_some());

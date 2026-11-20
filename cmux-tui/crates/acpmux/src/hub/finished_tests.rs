@@ -288,3 +288,17 @@ async fn finished_shared_admission_recovers_100_fake_503_sessions_across_two_dae
         started_at.last().unwrap() - started_at.first().unwrap()
     );
 }
+
+#[tokio::test]
+async fn finished_shared_member_never_falls_back_when_authority_is_missing() {
+    let hub = memory_hub();
+    hub.resume_admission
+        .bind(super::resume_admission::Binding::Member {
+            peer: "missing-authority".into(),
+            id: "pinned".into(),
+        })
+        .unwrap();
+    assert!(hub.admit_resume(0).await.is_err());
+    assert!(hub.fleet_call("fleet_resume", json!({"reason": "try"})).await.is_err());
+    assert!(hub.bind_fleet("local").await.is_err());
+}

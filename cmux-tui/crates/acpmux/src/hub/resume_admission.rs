@@ -62,6 +62,8 @@ impl Admission {
             })
             .unwrap_or_default();
         let active = durable.reservations.len();
+        let next =
+            Instant::now() + if durable.binding.is_some() { SPACING } else { Duration::ZERO };
         Self {
             path,
             state: StdMutex::new(State {
@@ -69,7 +71,7 @@ impl Admission {
                 sequence: 0,
                 waiting: BTreeMap::new(),
                 active,
-                next: Instant::now(),
+                next,
             }),
         }
     }
@@ -298,6 +300,36 @@ pub(super) fn priority(opts: &PromptOptions, session: &Session) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn finished_shared_reservations_survive_crash_and_never_expire_into_free_slots() {
+        let dir = tempfile::tempdir().unwrap();
+        let authority = Admission::open(Some(dir.path()));
+        let binding = Binding::Authority { id: "pinned-authority".into() };
+        authority.bind(binding.clone()).unwrap();
+        authority.pause(None).unwrap();
+        let mut tickets = Vec::new();
+        for _ in 0..WIDTH {
+            let ticket = uuid::Uuid::now_v7().to_string();
+            authority.reserve(&ticket, 0).await.unwrap();
+            tickets.push(ticket);
+        }
+        drop(authority); // No member-completion receipt reached the authority.
+        let restored = Admission::open(Some(dir.path()));
+        assert_eq!(restored.binding(), Some(binding));
+        assert_eq!(restored.state.lock().unwrap().active, WIDTH);
+        let extra = uuid::Uuid::now_v7().to_string();
+        assert!(restored.reserve(&extra, 0).await.is_err()); // One-hour bound, no lease expiry.
+        assert_eq!(restored.state.lock().unwrap().active, WIDTH);
+        restored.pause(Some("outage")).unwrap();
+        restored.release(&tickets[0]).unwrap();
+        assert!(restored.reserve(&extra, 0).await.is_err()); // Free room is still paused.
+        restored.pause(None).unwrap();
+        restored.reserve(&extra, 0).await.unwrap();
+        assert!(restored.authority_status(Some("different-authority")).is_err());
+        assert!(restored.bind(Binding::Authority { id: "replacement".into() }).is_err());
+        assert_eq!(Admission::open(Some(dir.path())).state.lock().unwrap().active, WIDTH);
+    }
 
     #[tokio::test(start_paused = true)]
     async fn finished_admission_limits_100_retries_and_admits_priority_first() {
