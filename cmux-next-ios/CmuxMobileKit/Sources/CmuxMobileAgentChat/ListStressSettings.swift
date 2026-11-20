@@ -96,7 +96,8 @@ public struct ListStressSettings: Equatable, Sendable {
         holdX = environment["CMUX_MOBILE_LIST_HOLD_X"].flatMap(Double.init)
         holdY = environment["CMUX_MOBILE_LIST_HOLD_Y"].flatMap(Double.init)
         plainCards = Set((environment["CMUX_MOBILE_LIST_PLAIN_CARDS"] ?? "").split(separator: ",").map(String.init))
-        noCardPictures = environment["CMUX_MOBILE_LIST_NO_CARD_PICTURES"] == "1"
+        // Scratch A/B (never lands): the tabs case never draws agent cards into pictures.
+        noCardPictures = environment["CMUX_MOBILE_LIST_NO_CARD_PICTURES"] == "1" || environment["CMUX_MOBILE_LIST_SCREEN"] == "tabs"
         giant = environment["CMUX_MOBILE_LIST_GIANT"] == "1"
         refreshSeconds = environment["CMUX_MOBILE_LIST_REFRESH_SECONDS"].flatMap(Double.init)
         pullTrace = environment["CMUX_MOBILE_LIST_PULL_TRACE"] == "1"
