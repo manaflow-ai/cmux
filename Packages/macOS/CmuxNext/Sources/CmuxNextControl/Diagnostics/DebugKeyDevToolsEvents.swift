@@ -44,7 +44,32 @@ public struct DebugKeyDevToolsEvents: Sendable, Equatable {
     ///   - name: A `debug.key` key name or the character typed.
     ///   - modifiers: `cmd`, `shift`, `option`, `control` (also `command`, `alt`, `opt`, `ctrl`).
     public init(name: String, modifiers: [String]) {
-        events = []
+        let held = Set(modifiers.map { $0.lowercased() })
+        let mask = (held.isDisjoint(with: ["option", "opt", "alt"]) ? 0 : 1) | (held.isDisjoint(with: ["control", "ctrl"]) ? 0 : 2)
+            | (held.isDisjoint(with: ["cmd", "command", "meta"]) ? 0 : 4) | (held.contains("shift") ? 8 : 0)
+        let dom = keyNames[name.lowercased()] ?? name
+        let press = BrowserPressKey(dom)
+        var key = press.key, code = press.code, keyCode = press.keyCode
+        // A letter or digit: its own key, `KeyA` / `Digit1` code and upper-case key code (BrowserPressKey names punctuation only).
+        if let scalar = dom.unicodeScalars.first, dom.unicodeScalars.count == 1, scalar.isASCII,
+           scalar.properties.isAlphabetic || (48...57).contains(scalar.value) {
+            let upper = dom.uppercased()
+            key = dom
+            code = scalar.properties.isAlphabetic ? "Key" + upper : "Digit" + dom
+            keyCode = BrowserPressKey(upper).keyCode
+        }
+        let typed: String? = mask & (2 | 4) != 0 ? nil : key == "Enter" ? "\r" : key.count == 1 ? key : nil
+        events = [
+            Event(type: typed == nil ? "rawKeyDown" : "keyDown", key: key, code: code, keyCode: keyCode, text: typed, modifiers: mask),
+            Event(type: "keyUp", key: key, code: code, keyCode: keyCode, text: nil, modifiers: mask),
+        ]
     }
 }
+
+/// `debug.key`'s key names (DebugKey's table) as the DOM key names ``BrowserPressKey`` reads.
+private let keyNames: [String: String] = [
+    "escape": "Escape", "return": "Enter", "enter": "Enter", "tab": "Tab", "space": " ", "delete": "Backspace",
+    "forwarddelete": "Delete", "left": "ArrowLeft", "right": "ArrowRight", "up": "ArrowUp", "down": "ArrowDown",
+    "pageup": "PageUp", "pagedown": "PageDown", "home": "Home", "end": "End",
+]
 #endif

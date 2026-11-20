@@ -366,7 +366,7 @@ final class AppControl {
             .mainActor("debug.key") { [weak services, player = keySequencePlayer] call in
                 guard let services else { return .value(.null) }
                 if call.params["sequence"] != nil { return .value(DebugKey.sendSequence(call.params, services: services, player: player)) }
-                return .value(DebugKey.send(call.params, services: services))
+                return DebugKey.reply(call.params, services: services)
             }.injectingInput(),
             // The app's resign and become-active path without activating it (DebugAppActivation).
             .mainActor("debug.app_activation") { call in
