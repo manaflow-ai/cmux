@@ -33,7 +33,7 @@ import { codeRefOf } from "./code-check.ts"
 import { chiefJobGate, isChiefJobCreate } from "./chief-job-gate.ts"
 import type { CodeStorageError } from "./code-storage.ts"
 import { isProvider, providers, scopesToRequest } from "./integrations/providers.ts"
-import { signState, verifyState, type ConnectState } from "./integrations/state.ts"
+import { integrationCallbackUrl, signState, verifyState, type ConnectState } from "./integrations/state.ts"
 import { configureAfterLink, githubConnectUrl, type GithubConnectTarget } from "./integrations/github-connect.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
 import type { RedeemResult } from "./user-do.ts"
@@ -146,7 +146,7 @@ const submitTo = (owner: string, principalIn: Principal, frame: { op: string; pa
     catch: unreachable
   }))
 
-const callbackUrl = () => `${(env.DASHBOARD_ORIGIN ?? "").replace(/\/$/, "")}/integrations/callback`
+const callbackUrl = () => integrationCallbackUrl(env)
 
 /** integration.complete and provider ops: verified state (complete), then the ConnectionDO's external path. */
 const externalOp = (principalIn: Principal, frameIn: { op: string; params: unknown; idempotency_key: string }) =>
@@ -322,6 +322,11 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         if (payload.op === "sso.connection.set_secret" || payload.op === "sso.connection.activate") {
           const p = yield* principalFor("cloud:TeamDO", principal)
           return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).ssoOp(p.team!, p, frame)), catch: unreachable })
+        }
+        // Per-automation secrets (automation-secrets.ts): the value travels only in this request, sealed in SchedulerDO.
+        if (payload.op === "automation.secret.set" || payload.op === "automation.secret.remove") {
+          const p = yield* principalFor("cloud:SchedulerDO", principal)
+          return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.SCHEDULER_DO.get(env.SCHEDULER_DO.idFromName(p.team!)).secretOp(p.team!, p, frame)), catch: unreachable })
         }
         // Team shared agent keys (team-agent-keys.ts): the key travels only in this request, sealed in TeamDO.
         if (payload.op === "team.agent_key.set" || payload.op === "team.agent_key.remove") {
