@@ -365,6 +365,11 @@ public final class DaemonStore: StateResourceQueries {
         tab(id: id).flatMap { pane(containing: $0.surface) }.flatMap { workspace(containing: $0.handle) }
     }
 
+    /// Every tab of the workspace that holds tab `id`, in screen and pane order; nil when no workspace lists it.
+    public func tabs(inWorkspaceHolding id: String) -> [TabModel]? {
+        workspace(holdingTab: id)?.allTabs
+    }
+
     // MARK: Snapshot
 
     /// Replaces the confirmed tree, reusing records by durable identity,
