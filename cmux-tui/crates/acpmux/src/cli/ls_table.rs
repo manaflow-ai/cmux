@@ -65,6 +65,8 @@ pub const HELP: &str = "Examples:
   acpmux --json ls --fields name,state,peer   for scripts: the daemon's rows, unchanged
   acpmux ls 'review-27*' --fields name,turn.activity   name globs (host/glob: one peer's); dotted fields
 
+ls lists every machine's sessions, and says so on stderr when its rows span machines; a script
+after this machine's own sessions passes --machine local.
 STUCK is why a lane needs someone: permission, capacity, harness down, failed turn, stalled 12m,
 harness sandbox (its harness refuses every command).
 A peer that cannot be reached reads UNKNOWN, or PAUSED when fleet-registry.json means it to be
@@ -204,6 +206,12 @@ fn stuck(row: &Value, now: u64, pauses: &BTreeMap<String, String>) -> String {
         "capacity" => return "capacity".into(),
         "harness_unavailable" => return "harness down".into(),
         other => return other.replace('_', " "),
+    }
+    // A registered desktop chat the daemon cannot reach (`hub/bridge.rs` `UNREACHABLE_TAG`):
+    // its state, before the command that ends it (`--json` and `session info` show it whole).
+    let unreachable = row.pointer("/tags/bridge.unreachable").and_then(Value::as_str);
+    if let Some(state) = unreachable.and_then(|t| t.split(':').next()).filter(|s| !s.is_empty()) {
+        return state.to_owned();
     }
     let lane = &row["lane"];
     if let Some(since) = lane["stalledSince"].as_u64() {
