@@ -54,6 +54,14 @@ UNWIRED: set[str] = {
     # lane = "manual" in tests/test-execution.d/ci.toml (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). It checks that every pool job in rust-workspaces, cmux-next-guards and the cloud VM image bake/roll removes a reused workspace left sparse or broken before checkout; it runs that step on fixture repos and reads the workflows as data. Run it by hand
     # when those workflows change. Exit: as below.
     "tests/test_ci_reused_sparse_checkout.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). Policy tests of
+    # scripts/ci/shed_superseded_runs.py over fixture runs (#47662); it reads ci-shed-superseded-runs.yml only as data.
+    # Run it by hand when the script or that workflow changes. Exit: as below.
+    "tests/test_ci_shed_superseded_runs.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). It checks that a feat-cmux-next
+    # push's Linux control jobs start on the JIT nightly label (#47764, #47905); it reads the workflows as data. Run it
+    # by hand when those runs-on lines change. Exit: as below.
+    "tests/test_cmux_next_push_roots_on_nightly_jit.py",
     # lane = "manual" (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). It runs scripts/cmux-next/cargo-locks.py in a throwaway
     # repository and reads rust-workspaces.yml only as data (that the workflow calls the script). Run it by hand
     # when the script or that workflow changes. Exit: as below.
