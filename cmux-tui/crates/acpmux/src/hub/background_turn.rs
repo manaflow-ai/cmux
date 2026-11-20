@@ -17,7 +17,8 @@
 //!   `task_notification` turn's `cause` names the task that ended and whether that is worth a
 //!   response (`background_cause.rs`: `{kind, status, weight, origin?, summary?}`);
 //! - `{"state": "ended", "id", "trigger", "quiet", "reason"}`, at its `result` (`reason:
-//!   "result"`), when a prompt starts an acpmux turn while it runs (`"prompt"`: the rest is that
+//!   "result"`; for Codex, which runs its own turns toward an active goal and sends no `result`,
+//!   when its thread goes idle: `_meta.codex.threadStatus.type: "idle"`), when a prompt starts an acpmux turn while it runs (`"prompt"`: the rest is that
 //!   turn's), or when the agent exits (`"exit"`).
 //!
 //! Such a turn never pings: it never marks the chat unread, never ends an acpmux turn (so
@@ -117,9 +118,19 @@ impl BackgroundTurns {
     }
 
     /// An own update of the chat (not a subagent's), before it is logged. Returns the
-    /// `started` record to log first, when it is the first sign of a pending turn.
+    /// `started` record to log first, when it is the first sign of a pending turn, or the
+    /// `ended` record of the running one when Codex's thread went idle.
     fn on_update(&mut self, update: &Value, acpmux_turn: bool, seq: u64) -> Option<Value> {
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
+        // Codex sends no `result`: its thread going idle ends its own turn (one toward an active
+        // `_session/goal`, `stop_condition.rs`).
+        if !acpmux_turn
+            && kind == "session_info_update"
+            && update.pointer("/_meta/codex/threadStatus/type").and_then(Value::as_str)
+                == Some("idle")
+        {
+            return self.end("result");
+        }
         let mut started = None;
         if acpmux_turn {
             self.pending = None;
@@ -265,9 +276,9 @@ impl Hub {
         let seq = session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_seq + 1;
         let mut state = session.background_turns.lock().unwrap_or_else(|e| e.into_inner());
         let acpmux_turn = acpmux_turn || state.adopted_turn;
-        let started = state.on_update(update, acpmux_turn, seq);
+        let record = state.on_update(update, acpmux_turn, seq);
         drop(state);
-        if let Some(msg) = started {
+        if let Some(msg) = record {
             self.append(session, "mux", RECORD_KIND, msg);
         }
     }
@@ -275,11 +286,15 @@ impl Hub {
     /// While an agent host is adopted (`hosts.rs` `adopt_held`): its replay comes before
     /// adoption rebuilds the open turn from the complete log (`recover_work`), so until the
     /// returned hold drops, model work counts as the turn the chat's log has open, when it has
-    /// one ([`Hub::log_turn_open`]). Before, the replayed words of the person's own streaming turn
-    /// opened a `background_turn` bracket, which the pane folds into one muted line: after a
-    /// restart the reply streamed on hidden until the turn ended (manaflow-ai/cmuxterm-hq#6338).
-    pub(super) fn hold_adopted_turn<'a>(&self, session: &'a Session) -> AdoptedTurn<'a> {
-        let open = self.log_turn_open(session);
+    /// one (`open`, [`Hub::log_turn_open`]'s read, made off the executor). Before, the replayed
+    /// words of the person's own streaming turn opened a `background_turn` bracket, which the pane
+    /// folds into one muted line: after a restart the reply streamed on hidden until the turn
+    /// ended (manaflow-ai/cmuxterm-hq#6338).
+    pub(super) fn hold_adopted_turn<'a>(
+        &self,
+        session: &'a Session,
+        open: bool,
+    ) -> AdoptedTurn<'a> {
         session.background_turns.lock().unwrap_or_else(|e| e.into_inner()).adopted_turn = open;
         AdoptedTurn(session)
     }
@@ -287,7 +302,7 @@ impl Hub {
     /// Whether the chat's log ends inside an acpmux turn: its last turn marker is a
     /// `turn_started`, or a `turn_result` that carried into the next turn (`carried_turn.rs`).
     /// Read from the end, as `open_work` finds the last turn.
-    fn log_turn_open(&self, session: &Session) -> bool {
+    pub(super) fn log_turn_open(&self, session: &Session) -> bool {
         let mut open = false;
         let _ = self.store.scan_back(
             &session.id,
@@ -387,6 +402,31 @@ mod tests {
         let ended = b.on_line("claude.result.success", &json!({}), false, 9);
         assert_eq!(ended[0]["trigger"], "system");
         assert_eq!(ended[0]["quiet"], false);
+    }
+
+    /// Codex (codex-acp) runs turns acpmux never prompted too: the next turn toward an active goal
+    /// (`_session/goal`). It sends no Claude `result`; its thread going idle
+    /// (`_meta.codex.threadStatus.type: "idle"`) ends the turn, so the bracket closes there
+    /// (measured on codex-acp 1.10.0: the goal's turn stayed "started" forever).
+    #[test]
+    fn a_codex_turn_ends_when_its_thread_goes_idle() {
+        let mut b = BackgroundTurns::default();
+        let status = |t: &str| {
+            json!({"sessionUpdate": "session_info_update",
+                   "_meta": {"codex": {"threadStatus": {"type": t}}}})
+        };
+        assert_eq!(b.on_update(&status("active"), false, 3), None);
+        let started = b.on_update(&chunk("m1", "REPORTED work-done"), false, 4);
+        assert_eq!(started, Some(json!({"state": "started", "id": "bg-4", "trigger": "system"})));
+        assert_eq!(
+            b.on_update(&status("idle"), false, 9),
+            Some(json!({"state": "ended", "id": "bg-4", "trigger": "system",
+                        "quiet": true, "reason": "result"}))
+        );
+        // Idle with none running, or while acpmux's own turn runs, ends nothing.
+        assert_eq!(b.on_update(&status("idle"), false, 10), None);
+        b.on_update(&chunk("m2", "more"), false, 11);
+        assert_eq!(b.on_update(&status("idle"), true, 12), None);
     }
 
     #[test]

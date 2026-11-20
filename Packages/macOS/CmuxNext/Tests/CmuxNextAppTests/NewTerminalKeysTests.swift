@@ -50,8 +50,8 @@ import Testing
         keys.map { key in
             switch key {
             case .run: "run"
-            case .type(let events, let lane): "type \(events.count) into \(lane.tab)"
-            case .command(_, let lane): "command in \(lane.tab)"
+            case .type(let events, let lane, _): "type \(events.count) into \(lane.tab)"
+            case .command(_, let lane, _): "command in \(lane.tab)"
             }
         }
     }

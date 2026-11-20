@@ -1806,3 +1806,98 @@ fn hub_carrier_a_joined_daemon_with_no_websocket_config_runs_it_on_loopback_and_
     assert!(line.contains("hub carrier: on"), "the carrier is off: {line}");
     assert!(line.contains("127.0.0.1:"), "the carrier is not on the loopback listener: {line}");
 }
+
+/// How long A takes from adding peer `b` to its link being connected, with `url` as b's
+/// configured URL and the hub carrier's relay as the other path; the relay is fresh each run.
+async fn time_to_connected(url: &str) -> Duration {
+    let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_address = relay_listener.local_addr().unwrap();
+    let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
+        allow_open: true,
+        ..cmux_relay::RelayConfig::default()
+    })
+    .unwrap();
+    let (relay_listener, router) = relay.server_parts(relay_listener);
+    tokio::spawn(async move {
+        let _ = axum::serve(relay_listener, router).await;
+    });
+    let route = format!("relay+ws://{relay_address}");
+    let home = tempfile::tempdir().unwrap();
+    let auth = PeerAuth::create(home.path()).unwrap();
+    let peer_token =
+        std::fs::read_to_string(acpmux::server::peer_auth::token_path(home.path())).unwrap();
+    let b = hub();
+    let l = bind_ws("127.0.0.1:0").await.unwrap();
+    let b_ws = l.local_addr().unwrap();
+    let ws_auth = WsAuth { local_app: None, peer: Some(Arc::new(auth)) };
+    tokio::spawn(serve_ws_with(b.clone(), l, "tok".into(), ws_auth));
+    let (key_a, key_b) = (random_key(), random_key());
+    let fast = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        ..Timings::default()
+    };
+    let tickets_b = Arc::new(FixedTickets {
+        relay: route.clone(),
+        peers: vec![public(&key_a)],
+        asked: AtomicU64::new(0),
+    });
+    let carrier_b = HubCarrier::new(tickets_b, key_b, fast);
+    let _serving = carrier_b.serve(b_ws);
+    // B's slot is registered before A dials, as for a machine that has been up a while.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let a = hub();
+    let tickets_a = Arc::new(FixedTickets {
+        relay: route.clone(),
+        peers: vec![public(&key_b)],
+        asked: AtomicU64::new(0),
+    });
+    let carrier_a = HubCarrier::new(tickets_a, key_a, fast);
+    carrier_a.set_route("b", &public(&key_b));
+    a.hub_carrier.set(carrier_a);
+    let started = tokio::time::Instant::now();
+    a.add_peer("b", url, Some("tok".into()), Some(peer_token), false).await.unwrap();
+    while state_of(&a).await != "connected" {
+        assert!(started.elapsed() < Duration::from_secs(30), "peer b never connected over {url}");
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    let took = started.elapsed();
+    let _ = a.remove_peer("b").await;
+    took
+}
+
+/// Relay first: a peer with a hub route dials the relay at once, beside its configured path,
+/// so a black-holed direct endpoint (TCP accepted, nothing answers: a punch that failed, a
+/// WireGuard endpoint behind a firewall that drops) costs no more first-byte time than the
+/// relay open itself. Before, the relay was dialed one stagger (250 ms) after the dead path.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_black_holed_direct_path_costs_no_more_than_the_relay_open() {
+    let _ = HERMETIC;
+    // Accepts nothing: a connect lands in the backlog and the WebSocket upgrade never answers.
+    let hole = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let holed = format!("ws://{}", hole.local_addr().unwrap());
+    // Refuses at once: the relay is the only path from the first moment.
+    let refused = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let refused = format!("ws://{refused}");
+    let mut relay_only = Vec::new();
+    let mut black_holed = Vec::new();
+    for _ in 0..3 {
+        relay_only.push(time_to_connected(&refused).await);
+        black_holed.push(time_to_connected(&holed).await);
+    }
+    relay_only.sort();
+    black_holed.sort();
+    let (relay_only, black_holed) = (relay_only[1], black_holed[1]);
+    eprintln!(
+        "relay first: median time to connected {} ms relay only (direct refused), {} ms with \
+         a black-holed direct path",
+        relay_only.as_millis(),
+        black_holed.as_millis()
+    );
+    // Before relay first the black hole added the 250 ms stagger; within noise of nothing now.
+    assert!(
+        black_holed < relay_only + Duration::from_millis(150),
+        "a black-holed direct path delayed the relay: {black_holed:?} vs {relay_only:?}"
+    );
+    drop(hole);
+}

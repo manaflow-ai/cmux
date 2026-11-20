@@ -253,6 +253,19 @@ class BaseTests(unittest.TestCase):
         code, out = self.fx.run("--base", "HEAD")
         self.assertEqual(code, 0, out)
 
+    def test_table_missing_from_a_sparse_checkout_exits_2_and_keeps_the_list(self):
+        self.fx.strings({"demo.status.running": LONG})
+        self.fx.run("--seed-allowlist")
+        self.fx.commit("base")
+        before = self.fx.allowlist()
+        (self.fx.root / TABLE).unlink()
+        self.fx.git("update-index", "--skip-worktree", TABLE)  # what a sparse checkout leaves
+        for args in ((), ("--write-allowlist",)):
+            code, out = self.fx.run(*args)
+            self.assertEqual(code, 2, out)
+            self.assertIn(f"{TABLE} is tracked but not checked out", out)
+        self.assertEqual(self.fx.allowlist(), before)
+
     def test_unresolvable_base_exits_2(self):
         self.fx.strings({})
         self.fx.commit("base")

@@ -120,7 +120,7 @@ How text draws in cmux's own controls (tab titles, the sidebar, the command pale
 
 `"system"`, the earlier name, still reads as `"auto"`.
 
-Web pages change at once. Native controls change after cmux restarts: macOS fixes an app's text weight when the app first draws text. Terminal text is not changed; it keeps Ghostty's `font-thicken`. Change it in **Settings > Appearance > Density and Motion** or with `cmux settings set appearance.fontSmoothing subpixel`.
+Web pages, tab titles and the sidebar change at once. Other native controls change after cmux restarts: macOS fixes an app's text weight when the app first draws text. Terminal text is not changed; it keeps Ghostty's `font-thicken`. Change it in **Settings > Appearance > Density and Motion** or with `cmux settings set appearance.fontSmoothing subpixel`.
 
 ## `app.windowTitleTemplate`
 
@@ -945,8 +945,9 @@ cmux also posts a notification when a workspace's status first reaches done, and
 
 ## `mcp.enabled` and agent sessions
 
-Agent sessions that cmux starts through acpmux get the `cmux-cua` Computer Use MCP server
-and, for Claude Code, the skills `cmux:cmux-browser` and `cmux:cmux-cua`. With
+Agent sessions that cmux starts through acpmux get the cmux Computer Use MCP server
+(`cmux-computer-use`, [docs/computer-use/README.md](computer-use/README.md)) and, for Claude
+Code, the skills `cmux:cmux-browser` and `cmux:cmux-cua`. With
 `"mcp": {"enabled": true}` they also get the `cmux` MCP server with the browser REPL tools.
 To turn all of these off, set the environment variable `ACPMUX_AGENT_TOOLS=0` for the acpmux
 daemon (or in one acpmux profile's `env`). A Claude profile that passes

@@ -281,7 +281,7 @@ fn query_escape(text: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use std::io::{Read, Write};
     use std::net::TcpListener;
@@ -290,22 +290,22 @@ mod tests {
 
     /// One request the stub received.
     #[derive(Debug, Clone)]
-    struct Seen {
-        method: String,
-        path: String,
-        headers: Vec<(String, String)>,
-        body: String,
+    pub(crate) struct Seen {
+        pub(crate) method: String,
+        pub(crate) path: String,
+        pub(crate) headers: Vec<(String, String)>,
+        pub(crate) body: String,
     }
 
     impl Seen {
-        fn header(&self, name: &str) -> Option<&str> {
+        pub(crate) fn header(&self, name: &str) -> Option<&str> {
             self.headers.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
         }
     }
 
     /// A loopback HTTP server answering each request with `route(origin, request)`; the
     /// origin and every request it saw.
-    fn stub(
+    pub(crate) fn stub(
         route: impl Fn(&str, &Seen) -> (u16, Value) + Send + 'static,
     ) -> (String, Arc<Mutex<Vec<Seen>>>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();

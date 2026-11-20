@@ -126,6 +126,43 @@ struct HomeLaunchRevealTests {
         #expect(second.alphaValue == 1, "the replacing Home stayed clear past its own deadline")
     }
 
+    /// Leo's NIGHTLY wrote no `launch-times.jsonl` line across six quit/relaunch rounds: his windows
+    /// restore other workspaces, so Home is never held, its reveal never comes, and the record waited
+    /// for it alone. A launch that never shows Home still records its times, once, after the wait.
+    @Test func aLaunchThatNeverShowsHomeStillRecordsItsTimes() async throws {
+        let clock = ManualClock()
+        let reveal = LaunchReveal(clock: clock, deadline: .milliseconds(1500))
+        let firstFrame = FirstFrameGate()
+        var writes = 0
+        // As AppDelegate wires the launch-times record.
+        firstFrame.whenOpen { reveal.whenReady(.home, orAfter: .seconds(10)) { writes += 1 } }
+        firstFrame.open()
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(10))
+        await Self.yield(until: { writes > 0 })
+        #expect(writes == 1, "a relaunch into another workspace wrote no launch-times record")
+        reveal.markReady(.home)
+        #expect(writes == 1, "Home showing later wrote the launch a second time")
+    }
+
+    /// A launch that shows Home records at its reveal, after the first frame, and the wait adds no second line.
+    @Test func aLaunchThatShowsHomeRecordsOnceAtItsReveal() async throws {
+        let clock = ManualClock()
+        let reveal = LaunchReveal(clock: clock, deadline: .milliseconds(1500))
+        let firstFrame = FirstFrameGate()
+        var writes = 0
+        // As AppDelegate wires the launch-times record.
+        firstFrame.whenOpen { reveal.whenReady(.home, orAfter: .seconds(10)) { writes += 1 } }
+        firstFrame.open()
+        try await clock.waitForSleeper()
+        #expect(writes == 0, "the record was written before Home's reveal or the wait")
+        reveal.markReady(.home)
+        #expect(writes == 1, "Home showed after the first frame and nothing was recorded")
+        clock.advance(by: .seconds(10))
+        await Self.yield(until: { false })
+        #expect(writes == 1)
+    }
+
     // MARK: Fixtures
 
     /// Lets a timer that fired run its main-actor work.

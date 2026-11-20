@@ -7,12 +7,12 @@ import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey
 import { ensureBenchCommand, ensureBenchMarkdown, parseEnsureBench } from "./cloud-journey";
 import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, markRanOnGuest, EXEC_PROBE_NONCES, type ExecProbeRun } from "./cloud-journey";
 import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
-import { claudeLoginPrograms, loginBearer, loginPrograms, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 
 describe("cloud journey", () => {
@@ -88,6 +88,10 @@ describe("cloud journey", () => {
       post_bind_login: "receipt",
       first_chat_ms: null,
       first_reply_ms: null,
+      warm_team_matches_claim: null,
+      warm_named: true,
+      warm_reason: null,
+      spare_ready_by: null,
       refill_to_ready_ms: null, refill_to_ready_unavailable: "not recorded", refill_image: null, refill_image_unavailable: "not recorded",
       post_bind_login_ms: null, post_bind_login_ms_unavailable: "not recorded", claim_to_first_text_ms: null, claim_to_first_text_unavailable: "not recorded",
       staging_sha: null, staging_sha_unavailable: "platform: not read; api: not read",
@@ -107,7 +111,7 @@ describe("cloud journey", () => {
     const sleeps: number[] = [];
     const out = await waitForReadySpare(async () => ({ spare: answers.shift() ?? null }), 120_000, { pollMs: 15_000, now: () => t, sleep: async (ms) => { sleeps.push(ms); t += ms; } });
     expect(out.prepared.spare).toBe("vm_spare");
-    expect(out.wait).toEqual({ waited_ms: 30_000, attempts: 3, cold_after_wait: false });
+    expect(out.wait).toEqual({ waited_ms: 30_000, attempts: 3, cold_after_wait: false, ready_by: "warm" });
     expect(sleeps).toEqual([15_000, 15_000]);
   });
 
@@ -116,12 +120,55 @@ describe("cloud journey", () => {
     let calls = 0;
     const out = await waitForReadySpare(async () => { calls++; return { spare: null }; }, 40_000, { pollMs: 15_000, now: () => t, sleep: async (ms) => { t += ms; } });
     expect(out.prepared.spare).toBeNull();
-    expect(out.wait).toEqual({ waited_ms: 30_000, attempts: 3, cold_after_wait: true });
+    expect(out.wait).toEqual({ waited_ms: 30_000, attempts: 3, cold_after_wait: true, ready_by: null });
     expect(calls).toBe(3);
     calls = 0;
     const once = await waitForReadySpare(async () => { calls++; return { spare: null }; }, 0);
     expect(once.wait).toBeNull();
     expect(calls).toBe(1);
+  });
+
+  test("the wait ends when the claim path reports a ready spare the warm did not name, and says so", async () => {
+    // Burst 43951741299: the warm named no spare for 300 s before 9 of 9 claims, and 7 of those claims took a ready spare.
+    let t = 0;
+    const listened: number[] = [];
+    const seen = [null, "vm_Ready0123456789"];
+    const out = await waitForReadySpare(async () => ({ spare: null }), 120_000, {
+      pollMs: 15_000, now: () => t, sleep: async () => { throw new Error("a claim-path probe replaces the sleep"); },
+      ready: async (ms) => { listened.push(ms); t += ms; return seen.shift() ?? null; },
+    });
+    expect(out.prepared.spare).toBeNull();
+    expect(out.wait).toEqual({ waited_ms: 30_000, attempts: 2, cold_after_wait: false, ready_by: "claim_path" });
+    expect(listened).toEqual([15_000, 15_000]);
+  });
+
+  test("a hit is read from the claim answer: a claim object and no fallback, whatever the warm named", () => {
+    expect(claimTookSpare({ machine: { id: "vm_x" }, claim: { behind: false } })).toBe(true);
+    expect(claimTookSpare({ machine: { id: "vm_x" }, claim: { behind: true }, spare_skips: { image: 1 } })).toBe(true);
+    expect(claimTookSpare({ machine: { id: "vm_x" }, spare_fallback: "no_spare", spare_skips: {} })).toBe(false);
+    expect(claimTookSpare({ machine: { id: "vm_x" }, claim: { behind: false }, spare_fallback: "all_skipped" })).toBe(false);
+    expect(claimTookSpare({ machine: { id: "vm_x" } })).toBeNull();
+    const taken = preclaimClaimRecord({ claim: 0, machine: "vm_x", answer: { claim: { behind: false } }, warmNamed: false, warmReason: "spare.none", spareWait: { waited_ms: 15_000, attempts: 2, cold_after_wait: false, ready_by: "claim_path" } });
+    expect(taken).toMatchObject({ lease_hit: true, warm_named: false, warm_reason: "spare.none", spare_ready_by: "claim_path" });
+    const named = preclaimClaimRecord({ claim: 1, machine: "vm_y", spare: "vm_y", answer: { claim: { behind: false } }, spareWait: { waited_ms: 0, attempts: 1, cold_after_wait: false, ready_by: "warm" } });
+    expect(named).toMatchObject({ lease_hit: true, warm_named: true, warm_reason: null, spare_ready_by: "warm" });
+    const cold = preclaimClaimRecord({ claim: 2, machine: "vm_z", answer: { spare_fallback: "no_spare" }, warmNamed: false, warmReason: "vm_private id" });
+    expect(cold).toMatchObject({ lease_hit: false, warm_named: false, warm_reason: null });
+    expect(preclaimSummary([taken, named, cold])).toMatchObject({ lease_hits: 2, lease_misses: 1, claim_taken: 2, warm_named: 1, warm_missed_hits: 1 });
+    const md = preclaimSummaryMarkdown([taken, named, cold]);
+    expect(md).toContain("- claim took a spare (from the claim answer): 2");
+    expect(md).toContain("- warm named a spare: 1");
+    expect(md).toContain("- hits the warm did not name (no login attached in advance): 1");
+    expect(md).toContain("| warm named |");
+  });
+
+  test("the claim path's ready spare: a cloud.spare.ready frame or a snapshot's spares_needing_login on the team's stream", () => {
+    const team = "team_0123456789abcdef0123";
+    expect(anyCloudSpareReady({ t: "ephemeral", stream: `cloud:${team}`, event: "cloud.spare.ready", data: { machine: "vm_A1234567", team } }, team)).toBe("vm_A1234567");
+    expect(anyCloudSpareReady({ t: "snapshot", stream: `cloud:${team}`, spares_needing_login: ["vm_B1234567"] }, team)).toBe("vm_B1234567");
+    expect(anyCloudSpareReady({ t: "snapshot", stream: `cloud:${team}`, spares_needing_login: [] }, team)).toBeNull();
+    expect(anyCloudSpareReady({ t: "ephemeral", stream: "cloud:team_other0123456789", event: "cloud.spare.ready", data: { machine: "vm_C1234567" } }, team)).toBeNull();
+    expect(anyCloudSpareReady({ t: "ephemeral", stream: `cloud:${team}`, event: "cloud.machine.updated", data: { machine: "vm_D1234567" } }, team)).toBeNull();
   });
 
   test("cold creates after a ready spare was reported count apart from claims made after the wait ran out", () => {
@@ -302,7 +349,7 @@ describe("cloud journey", () => {
     expect(programs.preflight.startsWith("set -eu\n")).toBe(true);
     expect(programs.preflight).toContain("/etc/cmux/vm-kind");
     const install = programs.install("/home/cmux/.cmux/credential-transfer/A.json");
-    expect(install).toContain("python3 - 'claude' '/home/cmux/.cmux/credential-transfer/A.json' owner <<'CMUX_CREDENTIAL_INSTALL'\nimport fcntl, hashlib, json, os");
+    expect(install).toContain("python3 - 'claude' '/home/cmux/.cmux/credential-transfer/A.json' owner <<'CMUX_CREDENTIAL_INSTALL'\nimport json, os");
     expect(install).toContain("env['CLAUDE_CODE_OAUTH_TOKEN'] = value");
     expect(install.endsWith("\nCMUX_CREDENTIAL_INSTALL")).toBe(true);
   });
@@ -315,6 +362,18 @@ describe("cloud journey", () => {
     expect(ok).toEqual({ probe: "cloud-chat-replies-production", at: "2026-11-04T11:00:00Z", runner: "github-actions", run: "https://x/runs/1", outcome: "ok", ms: 5000 });
     const bad = probeRow("p", [{ step: "create machine", status: "fail", ms: 5, detail: "HTTP 503" }], undefined, at);
     expect(bad).toMatchObject({ outcome: "fail", error: "create machine: HTTP 503" });
+  });
+  test("create machine to agent running is the sum of its steps, only when each passed", () => {
+    const at = new Date("2026-11-04T11:00:00Z");
+    const st = (step: string, ms: number, status: "pass" | "fail" | "skip" = "pass") => ({ step, status, ms, detail: "" });
+    const steps = [st("health", 9), st("create machine", 16500), st("running (status)", 2700), st("first exec", 3000), st("pass Claude login", 10900), st("start agent (claude)", 3700), st("send chat", 800), st("reply", 4200)];
+    expect(readyMs(steps)).toBe(36800);
+    expect(probeRow("p", steps, undefined, at)).toMatchObject({ outcome: "ok", ms: 5000, ready_ms: 36800 });
+    expect(summaryMarkdown(resolveBackend("staging"), steps).split("\n")[0]).toContain("; create machine to agent running 36.8 s");
+    // A skipped login copy (no login given) or a failed step is not a comparable total.
+    expect(readyMs(steps.map((s) => (s.step === "pass Claude login" ? { ...s, status: "skip" as const } : s)))).toBeNull();
+    expect(readyMs(steps.filter((s) => s.step !== "first exec"))).toBeNull();
+    expect(probeRow("p", [st("create machine", 5, "fail")], undefined, at)).not.toHaveProperty("ready_ms");
   });
   test("the journey's stub script is valid for the shared model stub and its reply repeats the tool output", () => {
     expect(readFileSync(MODEL_STUB_PY, "utf8")).toContain("--ready-file");
@@ -380,6 +439,25 @@ describe("cloud journey", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("cloud journey: Claude login route (cmux#40159)", () => {
+  const base = { modelStub: false, provider: "claude", login: "sk-ant-oat01-x", gatewayAny: false, startVia: "acp" };
+  test("a real-model Claude chat runs on the launch credential, as the app sends it, never a copied login", () => {
+    // Production machines hold no login and have no model route of their own (acpmux cloud_model_plane where_resolves):
+    // a copied login is a path no person's chat takes since cmux#40159, so the matrix's subscription row must not use it.
+    expect(startsOnLaunchCredential(base)).toBe(true);
+    expect(startsOnLaunchCredential({ ...base, modelStub: true })).toBe(true);
+  });
+  test("Codex, a gateway run, an app-driven start and a run with no login keep their own routes", () => {
+    expect(startsOnLaunchCredential({ ...base, provider: "codex" })).toBe(false);
+    expect(startsOnLaunchCredential({ ...base, gatewayAny: true })).toBe(false);
+    expect(startsOnLaunchCredential({ ...base, startVia: "app" })).toBe(false);
+    expect(startsOnLaunchCredential({ ...base, login: "" })).toBe(false);
+    // A --preclaim-login run measures the spare.ready copy itself.
+    expect(startsOnLaunchCredential({ ...base, preclaimLogin: true })).toBe(false);
+    expect(startsOnLaunchCredential({ ...base, modelStub: true, preclaimLogin: true })).toBe(true);
   });
 });
 
@@ -2696,6 +2774,114 @@ describe("preclaim MET table fields", () => {
   });
 });
 
+describe("preclaim burst: the claim answer says the hit, the warm's naming is its own field", () => {
+  test("a warm that names no spare while the claim path reports one ready: the wait ends, the claim's take is a hit, the warm miss is kept", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "preclaim-claim-hit-test-"));
+    const team = "team_0123456789abcdef0123";
+    const taken = "vm_Taken0123456789";
+    const frame = { t: "ephemeral", stream: `cloud:${team}`, event: "cloud.spare.ready", data: { machine: taken, team, at: 4_000 } };
+    class FakeWire {
+      private on: Record<string, Array<(e: unknown) => void>> = {};
+      constructor() { setTimeout(() => this.emit("open", {}), 0); }
+      addEventListener(type: string, fn: (e: unknown) => void) { (this.on[type] ??= []).push(fn); }
+      send() { setTimeout(() => this.emit("message", { data: JSON.stringify(frame) }), 0); }
+      close() {}
+      private emit(type: string, e: unknown) { for (const fn of this.on[type] ?? []) fn(e); }
+    }
+    const realWebSocket = (globalThis as any).WebSocket;
+    (globalThis as any).WebSocket = FakeWire;
+    try {
+      const cmux = join(dir, "cmux");
+      const warms = join(dir, "warms");
+      writeFileSync(cmux, `#!/bin/sh\ncat >/dev/null\ncase "$*" in\n  *loginReceipt*) echo '{"installed":false}' ;;\n  *) echo x >> '${warms}'; echo '{"ok":true,"machine":null,"fresh":false,"reason":"spare.none"}' ;;\nesac\n`, { mode: 0o755 });
+      const guest = (command: string) => command.includes("acp wait") ? "@@wait 0\nThe measured reply." : command.includes("acp ensure") || command.includes("acp send") ? "@@exit 0" : command.includes("own-login") ? "own-login" : "";
+      let claims = 0;
+      const api: any = {
+        origin: "https://cloud-api-staging.cmux.dev",
+        bearer: "session-token",
+        team,
+        raw: async (_method: string, route: string, body: any) => route === "/v1/client-config" ? { status: 200, body: { platform_origin: "https://platform.example" } }
+          : route === "/v1/health" ? { status: 200, body: { ok: true, environment: "staging", version: "0.1.0" } }
+          : route.endsWith("/client-session") ? { status: 501, body: { ok: false, error: { code: "cloud.provider.unsupported" } } }
+          : route.endsWith("/exec") ? { status: 200, body: { value: { exitCode: 0, stdout: guest(String(body?.command ?? "")) } } }
+          : { status: 200, body: { ok: true } },
+        read: async (op: string) => op === "cloud.plan.get" ? { usage: { active: 0, saved: 0, vm_hours_used: 4 } } : { status: "running", host: "host-1", created_at: 1_000, running_since: 9_000 },
+        // Claim 0 takes the ready spare; claim 1 finds none and falls back to a create.
+        op: async () => claims++ === 0 ? { machine: { id: taken, status: "running" }, claim: { behind: false } } : { machine: { id: "vm_Cold0123456789", status: "running" }, spare_fallback: "no_spare", spare_skips: {} },
+        deleteMachine: async () => undefined,
+      };
+      const fetchJson = async () => ({ status: 200, body: { ok: true, commit: "aaaaaaa1111aaaa" } });
+      const rowsPath = join(dir, "rows.json");
+      const journey = new Journey(resolveBackend("staging"), dir, {}, true);
+      await runPreclaimBurst({
+        backend: resolveBackend("staging"), api, cmux, install: { id: "install-1", token: "install-token" }, account: `user-1/${team}`,
+        login: `sk-ant-oat01-journeystub-${"a".repeat(48)}`, claims: 2, tag: "t", journey, outDir: dir, privateRowsPath: rowsPath, team, user: {}, fetchJson: fetchJson as never,
+        spareWaitMs: 60_000,
+      });
+      const written = JSON.parse(readFileSync(rowsPath, "utf8"));
+      expect(written.failures).toEqual([]);
+      const [hit, cold] = written.rows;
+      expect(hit).toMatchObject({ lease_hit: true, warm_named: false, warm_reason: "spare.none", spare_ready_by: "claim_path", cold_after_wait: false, post_bind_login: "post-bind" });
+      expect(cold).toMatchObject({ lease_hit: false, warm_named: false, spare_ready_by: "claim_path" });
+      // One warm per claim: the claim path's ready frame ended each wait at its first probe.
+      expect(readFileSync(warms, "utf8").trim().split("\n")).toHaveLength(2);
+      expect(written.header.summary).toMatchObject({ lease_hits: 1, claim_taken: 1, warm_named: 0, warm_missed_hits: 1, cold_creates: 1 });
+      const summary = readFileSync(join(dir, "summary.md"), "utf8");
+      expect(summary).toContain("- hits the warm did not name (no login attached in advance): 1");
+      for (const id of [taken, team, "install-1", "host-1", "platform.example"]) expect(summary).not.toContain(id);
+    } finally {
+      (globalThis as any).WebSocket = realWebSocket;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("preclaim burst: the warm and the claim ask one team", () => {
+  const token = (claims: Record<string, unknown>) => `eyJhbGciOiJFUzI1NiJ9.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.sig`;
+
+  test("the install token's team claim is the team the Rust warm warms in", () => {
+    expect(installTokenTeam(token({ sub: "user_a", team: "team_shared0123456789ab" }))).toBe("team_shared0123456789ab");
+    expect(installTokenTeam(token({ sub: "user_a" }))).toBeNull();
+    expect(installTokenTeam("not-a-jwt")).toBeNull();
+  });
+
+  test("a shared-team install warms that team's pool, so the claim is sent in that team too, and the row says they differed", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "preclaim-team-test-"));
+    const shared = "team_shared0123456789ab", personal = "team_personal0123456789";
+    try {
+      const cmux = join(dir, "cmux");
+      writeFileSync(cmux, `#!/bin/sh\ncat >/dev/null\necho '{"ok":true,"machine":null,"fresh":false,"reason":"spare.none"}'\n`, { mode: 0o755 });
+      const guest = (command: string) => command.includes("acp wait") ? "@@wait 0\nThe measured reply." : command.includes("acp ensure") || command.includes("acp send") ? "@@exit 0" : command.includes("own-login") ? "own-login" : "";
+      const claimTeams: Array<string | undefined> = [];
+      const api: any = {
+        origin: "https://cloud-api-staging.cmux.dev",
+        bearer: "session-token",
+        raw: async (_method: string, route: string, body: any) => route === "/v1/client-config" ? { status: 200, body: { platform_origin: "https://platform.example" } }
+          : route.endsWith("/client-session") ? { status: 501, body: { ok: false, error: { code: "cloud.provider.unsupported" } } }
+          : route.endsWith("/exec") ? { status: 200, body: { value: { exitCode: 0, stdout: guest(String(body?.command ?? "")) } } }
+          : { status: 200, body: { ok: true } },
+        read: async () => ({ status: "running", host: "host-1" }),
+        op: async function (this: any) { claimTeams.push(this.team); return { machine: { id: "vm_Taken0123456789", status: "running" }, claim: { behind: false } }; },
+        deleteMachine: async () => undefined,
+      };
+      const rowsPath = join(dir, "rows.json");
+      const journey = new Journey(resolveBackend("staging"), dir, {}, true);
+      await runPreclaimBurst({
+        backend: resolveBackend("staging"), api, cmux, install: { id: "install-1", token: token({ sub: "user-1", team: shared }) }, account: `user-1/${personal}`,
+        login: `sk-ant-oat01-journeystub-${"a".repeat(48)}`, claims: 1, tag: "t", journey, outDir: dir, privateRowsPath: rowsPath, user: { personal_team: personal },
+        fetchJson: (async () => ({ status: 200, body: { ok: true } })) as never,
+      });
+      const written = JSON.parse(readFileSync(rowsPath, "utf8"));
+      expect(written.failures).toEqual([]);
+      expect(claimTeams).toEqual([shared]);
+      expect(written.rows[0]).toMatchObject({ warm_team_matches_claim: false, lease_hit: true });
+      expect(readFileSync(join(dir, "summary.md"), "utf8")).toContain("- warm's team was the claim's default team: no (claims sent in the warm's team)");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("--ensure-bench times acp ensure on a fresh machine", () => {
   // Claim 4 of run 43873927808: "agent start refused" after ~2 min on a 2-core machine at load 3.9. The bench measures
   // ensure right after boot, once boot settles, and with both cores loaded, so a slow start is timed instead of cut off.
@@ -2849,5 +3035,85 @@ describe("a request whose socket drops (run 43927514723: connect_info ECONNRESET
     expect(socketDropped(Object.assign(new TypeError("ECONNRESET: The socket connection was closed unexpectedly."), { code: "ECONNRESET" }))).toBe(true);
     expect(socketDropped(new TypeError("fetch failed", { cause: Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" }) }))).toBe(true);
     expect(socketDropped(new DOMException("The operation timed out.", "TimeoutError"))).toBe(false);
+  });
+});
+
+describe("the agent's launch credential (cmux#40159)", () => {
+  // A fake acpmux on $HOME/.cmux/acpmux/acpmux.sock: answers initialize and session/new, and records what it was sent.
+  const FAKE_ACPMUX = `import json, os, socket, sys
+path, out = sys.argv[1], sys.argv[2]
+s = socket.socket(socket.AF_UNIX); s.bind(path); s.listen(1)
+c, _ = s.accept(); f = c.makefile('r'); seen = []
+for line in f:
+    m = json.loads(line); seen.append(m)
+    c.sendall((json.dumps({'jsonrpc': '2.0', 'id': m['id'], 'result': {'sessionId': 's-1'} if m['method'] == 'session/new' else {}}) + '\\n').encode())
+    if m['method'] == 'session/new':
+        break
+open(out, 'w').write(json.dumps(seen))
+`;
+  test("the start sends session/new with the login as _meta.acpmux.credentials, never on a command line", { timeout: 30_000 }, () => {
+    // A unix socket path has a 108-byte limit: a short folder, not a long TMPDIR.
+    const home = mkdtempSync("/tmp/jl-");
+    try {
+      mkdirSync(join(home, ".cmux/acpmux"), { recursive: true });
+      writeFileSync(join(home, "fake.py"), FAKE_ACPMUX);
+      const token = "sk-ant-oat01-journeystub-abc123";
+      const program = launchCredentialStartProgram("journey-jr-1", "claude/claude-sonnet-5-5", "CLAUDE_CODE_OAUTH_TOKEN", token);
+      expect(program.split("\n")[0]).not.toContain(token);
+      const sock = join(home, ".cmux/acpmux/acpmux.sock");
+      const script = `python3 -I fake.py ${sock} seen.json & for i in $(seq 50); do [ -S ${sock} ] && break; sleep 0.1; done\n${program}\nwait`;
+      const r = spawnSync("bash", ["-c", script], { cwd: home, env: { PATH: process.env.PATH, HOME: home }, encoding: "utf8", timeout: 20_000 });
+      expect(r.stdout).toContain("@@session s-1");
+      const seen = JSON.parse(readFileSync(join(home, "seen.json"), "utf8"));
+      expect(seen.map((m: any) => m.method)).toEqual(["initialize", "session/new"]);
+      expect(seen[1].params).toEqual({
+        mcpServers: [],
+        cwd: home,
+        _meta: { acpmux: { name: "journey-jr-1", harness: "claude", model: "claude-sonnet-5-5", credentials: { env: { CLAUDE_CODE_OAUTH_TOKEN: token } } } },
+      });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+  test("no acpmux socket is a failed start that names the paths it tried", () => {
+    const home = mkdtempSync(join(tmpdir(), "journey-launch-"));
+    try {
+      const r = spawnSync("bash", ["-c", launchCredentialStartProgram("s", "claude", "CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-x")], { env: { PATH: process.env.PATH, HOME: home }, encoding: "utf8" });
+      expect(r.status).toBe(1);
+      expect(r.stdout).toContain("@@nostart no acpmux socket at");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+  test("a red names which credential each model request carried", () => {
+    const { createHash } = require("node:crypto") as typeof import("node:crypto");
+    const sha = (s: string) => createHash("sha256").update(s).digest("hex");
+    const want = sha("sk-ant-oat01-mine");
+    const rows = [{ cred_sha256: sha(MODEL_PLANE_PLACEHOLDER) }, { cred_sha256: sha(MODEL_PLANE_PLACEHOLDER) }, { cred_sha256: want }, { cred_sha256: "" }, { cred_sha256: sha("other") }];
+    const rowsShaped = rows.map((r, i) => ({ ...r, path: "/v1/messages", model: i === 0 ? "claude-haiku" : "stub-model", stream: i !== 0, tools: i === 0 ? [] : ["Bash"], step: 0 }));
+    expect(credentialSeen(rowsShaped, want)).toBe("2 with the model-route placeholder, 1 with the login, 1 with no credential, 1 with another credential; not the login: /v1/messages model=claude-haiku stream=false tools=0 step=0; /v1/messages model=stub-model stream=true tools=1 step=0; /v1/messages model=stub-model stream=true tools=1 step=0; /v1/messages model=stub-model stream=true tools=1 step=0");
+    expect(credentialSeen([{ cred_sha256: want }], want)).toBe("1 with the login");
+  });
+});
+
+describe("the stub step's credential rule (cmux#40159)", () => {
+  const { createHash } = require("node:crypto") as typeof import("node:crypto");
+  const sha = (s: string) => createHash("sha256").update(s).digest("hex");
+  const want = sha("sk-ant-oat01-mine");
+  const turn = (cred: string, step = 0) => ({ cred_sha256: cred, tools: ["Bash", "Read"], step });
+  // PR run 44092630546: three chat turns on the launch credential, and one title request (haiku, no tools) from
+  // acpmux's own `claude -p`, on the machine's model route.
+  const title = { cred_sha256: sha(MODEL_PLANE_PLACEHOLDER), tools: [], side: true, step: -1 };
+  test("with the launch credential, chat turns must carry it and a title request may use the model route", () => {
+    expect(judgeStubCredentials([turn(want), turn(want, 1), turn(want, 1), title], want, true)).toEqual({
+      detail: "4 model requests: 3 chat turns, each with the launch credential (SHA-256 match); 1 side requests, 1 of them on the machine's model route",
+    });
+    expect(judgeStubCredentials([turn(want), turn(sha(MODEL_PLANE_PLACEHOLDER), 1)], want, true).error).toBe("a chat turn did not carry the login the journey passed");
+    expect(judgeStubCredentials([turn(want), { ...title, cred_sha256: sha("someone-else") }], want, true).error).toBe("a side request carried neither the login nor the machine's model route");
+    expect(judgeStubCredentials([title], want, true).error).toBe("no chat turn offered tools");
+  });
+  test("with a login on the machine, every request must carry it", () => {
+    expect(judgeStubCredentials([turn(want), title], want, false).error).toBe("a model request did not carry the login the journey passed");
+    expect(judgeStubCredentials([turn(want), { ...title, cred_sha256: want }], want, false)).toEqual({ detail: "2 model requests, each with the forwarded login (SHA-256 match)" });
   });
 });

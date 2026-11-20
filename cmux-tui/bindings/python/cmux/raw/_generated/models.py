@@ -1333,6 +1333,13 @@ class ReattachViewResult:
 
 
 @dataclass(frozen=True)
+class RemoteHostAppPermissions:
+    __cmux_schema_path__: ClassVar[str] = 'types/RemoteHostAppPermissions'
+    accessibility: Union[bool, None, MissingType] = field(default=MISSING)
+    screen_recording: Union[bool, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class RemoteHostAppResult:
     __cmux_schema_path__: ClassVar[str] = 'types/RemoteHostAppResult'
     host_pid: int
@@ -3176,6 +3183,27 @@ class CloudSessionStatusRequest:
 
 
 @dataclass(frozen=True)
+class ComputerUseApprovalsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/computer-use-approvals/request'
+    action: str
+    answer: Union[str, None, MissingType] = field(default=MISSING)
+    app_id: Union[str, None, MissingType] = field(default=MISSING)
+    id: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ComputerUseConfigRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/computer-use-config/request'
+    config: Union[JsonValue, None]
+
+
+@dataclass(frozen=True)
+class ComputerUseEndpointRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/computer-use-endpoint/request'
+    pass
+
+
+@dataclass(frozen=True)
 class ConversationAgentTokenRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-agent-token/request'
     participant: str
@@ -3825,6 +3853,18 @@ class FeedLocalListRequest:
 class FeedLocalReadRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-read/request'
     items: List[str]
+
+
+@dataclass(frozen=True)
+class FloatPaneRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/float-pane/request'
+    pane: Id
+    h: Union[float, None, MissingType] = field(default=MISSING)
+    mode: Union[str, None, MissingType] = field(default=MISSING)
+    transaction: Union[int, None, MissingType] = field(default=MISSING)
+    w: Union[float, None, MissingType] = field(default=MISSING)
+    x: Union[float, None, MissingType] = field(default=MISSING)
+    y: Union[float, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4579,6 +4619,17 @@ class PutSessionRequest:
 
 
 @dataclass(frozen=True)
+class QuickTerminalRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/quick-terminal/request'
+    screen: Id
+    h: Union[float, None, MissingType] = field(default=MISSING)
+    mode: Union[str, None, MissingType] = field(default=MISSING)
+    w: Union[float, None, MissingType] = field(default=MISSING)
+    x: Union[float, None, MissingType] = field(default=MISSING)
+    y: Union[float, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ReadScreenRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/read-screen/request'
     surface: Id
@@ -4653,6 +4704,7 @@ class RemoteHostCallRequest:
 @dataclass(frozen=True)
 class RemoteHostConfigRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/remote-host-config/request'
+    app_permissions: Union[RemoteHostAppPermissions, None, MissingType] = field(default=MISSING)
     computer_use: Union[bool, None, MissingType] = field(default=MISSING)
     headless: Union[bool, None, MissingType] = field(default=MISSING)
     screen_sharing: Union[bool, None, MissingType] = field(default=MISSING)
@@ -6759,6 +6811,7 @@ __all__ = [
     'ReadScreenResult',
     'ReadScrollbackResult',
     'ReattachViewResult',
+    'RemoteHostAppPermissions',
     'RemoteHostAppResult',
     'RenderCursor',
     'RenderGraphicImage',
@@ -6951,6 +7004,9 @@ __all__ = [
     'CloudSessionClearRequest',
     'CloudSessionSetRequest',
     'CloudSessionStatusRequest',
+    'ComputerUseApprovalsRequest',
+    'ComputerUseConfigRequest',
+    'ComputerUseEndpointRequest',
     'ConversationAgentTokenRequest',
     'ConversationAgentTokenResult',
     'ConversationAttachmentLinkRequest',
@@ -7026,6 +7082,7 @@ __all__ = [
     'FeedLocalHandoffDoneRequest',
     'FeedLocalListRequest',
     'FeedLocalReadRequest',
+    'FloatPaneRequest',
     'FocusDirectionRequest',
     'FocusPaneRequest',
     'ForgetSessionRequest',
@@ -7112,6 +7169,7 @@ __all__ = [
     'PutBlobRequest',
     'PutFrontendProjectionRequest',
     'PutSessionRequest',
+    'QuickTerminalRequest',
     'ReadScreenRequest',
     'ReadScrollbackRequest',
     'ReattachViewRequest',

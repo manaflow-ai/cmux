@@ -81,6 +81,8 @@ const SECRET_NAMES: &[&str] = &[
     "credentials",
     "credentials.json",
     "credentials.toml",
+    ".credentials.json",
+    ".claude.json",
     "id_rsa",
     "id_dsa",
     "id_ecdsa",
@@ -102,12 +104,25 @@ const SECRET_SUFFIXES: &[&str] = &[
     ".tfstate",
     ".tfvars",
 ];
+/// Paths (ending a relative path, ASCII case folded) of agent and tool sign-ins that never go: a
+/// project's own `.claude` or `.config` files do.
+const SECRET_PATHS: &[&str] = &[
+    ".codex/auth.json",
+    ".claude/.credentials.json",
+    ".config/gh/hosts.yml",
+    ".config/cmux/auth.json",
+    ".docker/config.json",
+];
 /// Folders whose files never go from a shared folder.
 const SECRET_FOLDERS: &[&str] =
     &[".ssh", ".aws", ".gnupg", ".kube", ".docker", ".azure", "gcloud", ".gem", ".cargo"];
 
 /// Whether the file at `relative` (in a shared folder) is a secret file.
-fn is_secret(relative: &str) -> bool {
+pub(super) fn is_secret(relative: &str) -> bool {
+    let folded = relative.to_ascii_lowercase();
+    if SECRET_PATHS.iter().any(|path| folded == *path || folded.ends_with(&format!("/{path}"))) {
+        return true;
+    }
     let mut names = relative.split('/').peekable();
     while let Some(name) = names.next() {
         let lower = name.to_ascii_lowercase();

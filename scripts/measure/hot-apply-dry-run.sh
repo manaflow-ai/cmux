@@ -13,7 +13,7 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/hot-apply-dry-run.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 status=0
 for sha in "$@"; do
-  git cat-file -e "$sha^^{commit}" 2>/dev/null || git fetch -q origin "$sha" || true
+  git cat-file -e "$sha^^{commit}" 2>/dev/null || git fetch -q origin "$sha" 2>/dev/null || git fetch -q https://github.com/manaflow-ai/cmux.git "$sha" || true
   base="$(git rev-parse --verify --quiet "$sha^")" || { echo "HAD $sha no-parent"; status=1; continue; }
   export CMUX_HOT_APPLY_STATE_DIR="$work/${sha:0:12}"
   for run in cold warm; do
