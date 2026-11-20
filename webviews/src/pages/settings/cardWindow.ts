@@ -214,11 +214,17 @@ export function cardBusy(busy: boolean, rows: ReactNode) {
 }
 
 function CardBusy({ busy, children }: { busy: boolean; children?: ReactNode }) {
-  const fieldset = useRef<HTMLFieldSetElement>(null);
+  // The fieldset as state, not a ref object: the compiler reads a ref object handed in createElement's
+  // props as a ref read during render. Its first commit draws CardBusy once more, with the same rows.
+  const [fieldset, setFieldset] = useState<HTMLFieldSetElement | null>(null);
   // The rows are new elements on every render of the list (a scroll step mounts rows), so a row that
   // mounts while the change waits is marked too.
   useWaitingControls(fieldset, "button", busy, children);
-  return createElement("fieldset", { className: "card-busy", role: "none", disabled: busy, ref: fieldset }, children);
+  return createElement(
+    "fieldset",
+    { className: "card-busy", role: "none", disabled: busy, ref: setFieldset },
+    children,
+  );
 }
 
 /** While `busy`, marks every control under `root` matching `selector` (the ones a disabled fieldset
@@ -229,7 +235,8 @@ function CardBusy({ busy, children }: { busy: boolean; children?: ReactNode }) {
  * itself refreshes it, as `disabled` on each control did. Runs again when `mounted` changes, so a
  * control mounted while busy is marked; one that already says aria-disabled (React's) is left alone. */
 export function useWaitingControls(
-  root: RefObject<HTMLElement | null>,
+  /** The element, or a ref to it. */
+  root: RefObject<HTMLElement | null> | HTMLElement | null,
   selector: string,
   busy: boolean,
   mounted: unknown,
@@ -241,7 +248,8 @@ export function useWaitingControls(
       marked.current = [];
       return;
     }
-    for (const control of root.current?.querySelectorAll<HTMLElement>(selector) ?? []) {
+    const node = root !== null && "current" in root ? root.current : root;
+    for (const control of node?.querySelectorAll<HTMLElement>(selector) ?? []) {
       if (control.hasAttribute("aria-disabled")) continue;
       control.setAttribute("aria-disabled", "true");
       marked.current.push(control);
