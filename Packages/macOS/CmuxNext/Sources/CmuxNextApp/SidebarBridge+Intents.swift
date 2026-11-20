@@ -87,10 +87,8 @@ extension SidebarBridge {
             let daemon = plan == .onMachine ? named : plan == .onWindow ? own : plan == .cloudChat ? services.machines.local : nil // cloudChat: here (cmux#46021)
             let slot = group.map { NewWorkspacePlacements.rule(for: state.id, in: services.windows).slot(inGroup: $0, members: model.group($0)?.workspaces.map(\.id.rawValue) ?? []) }
             services.windows.newWorkspace(in: state, on: daemon, at: slot, picksCloud: plan == .cloudChat)
-        case .viewScreen, .shareScreen:
-            SidebarScreenIntentActions(perform: { _ = self.services.registry.perform($0, invocation: $1) }).handle(intent, sections: model.sections) {
-                services.openMacScreen(for: $0, in: services.windows.controller(for: state.id)?.focusedPane)
-            }
+        case .viewScreen, .shareScreen: // the header's screen button and its menu's View Screen (SidebarScreenIntentActions.bindViewScreen)
+            SidebarScreenIntentActions(perform: { _ = self.services.registry.perform($0, invocation: $1) }).handle(intent, sections: model.sections) { services.openMacScreen(for: $0, in: services.windows.controller(for: state.id)?.focusedPane) }
         case .setColor(let ids, let color):
             model.apply(intent)
             for (daemon, key) in keys(ids) {

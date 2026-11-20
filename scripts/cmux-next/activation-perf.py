@@ -149,6 +149,23 @@ def background(app, seconds=10):
     return False
 
 
+def main_thread_sample(path, limit=2500):
+    """The main thread's call graph from a `sample` file, its first `limit` lines (heaviest first): the report
+    carries it, since a fleet step uploads only its report.json."""
+    lines, keep = [], False
+    with open(path, errors="replace") as f:
+        for line in f:
+            if "com.apple.main-thread" in line:
+                keep = True
+            elif keep and line.strip().startswith(("Thread_", "Total number in stack")):
+                break
+            if keep:
+                lines.append(line.rstrip("\n"))
+                if len(lines) >= limit:
+                    break
+    return lines
+
+
 def cycles(app, count, pid=None, sample_out=None, settle=0.4, window_notices=True):
     """`count` resign/become pairs; per become: observers_ms, drain_ms, round trip and resyncs."""
     background(app)
@@ -288,7 +305,9 @@ def run(app, opts, pid=None):
     sample_out = os.path.join(opts.out, "activation-sample.txt") if opts.sample and pid else None
     heavy_rows, heavy_hangs = cycles(app, opts.cycles, pid=pid, sample_out=sample_out)
     heavy = summarize(heavy_rows, heavy_hangs)
-    print(f"activation-perf: heavy {json.dumps(heavy)}", flush=True)
+    if sample_out and os.path.exists(sample_out):
+        heavy["main_thread_sample"] = main_thread_sample(sample_out)
+    print(f"activation-perf: heavy {json.dumps({k: v for k, v in heavy.items() if k != 'main_thread_sample'})}", flush=True)
     failures = []
     for name, part in (("light", light), ("heavy_app_only", heavy_app), ("heavy", heavy)):
         if part["observers_ms"]["p50"] is None:
