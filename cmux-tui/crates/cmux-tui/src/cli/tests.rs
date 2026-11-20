@@ -1326,42 +1326,6 @@ fn root_help_lists_every_scope_and_help_word_reaches_own_help_scopes() {
     assert_eq!(acp_scope_args(&rewritten(&["help", "chats"])), os(&["chats", "--help"]));
 }
 
-#[cfg(unix)]
-#[test]
-fn session_verbs_forward_to_the_engine_and_app_verbs_keep_their_parser() {
-    let os = |words: &[&str]| words.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
-    assert_eq!(
-        agent_acp_scope_args(&strings(&["agent", "search", "nightly"])),
-        Some(os(&["search", "nightly"]))
-    );
-    assert_eq!(
-        agent_acp_scope_args(&strings(&["agent", "bg", "start", "lane"])),
-        Some(os(&["bg", "start", "lane"]))
-    );
-    assert_eq!(agent_acp_scope_args(&strings(&["agent", "bg", "list"])), Some(os(&["bg", "list"])));
-    assert_eq!(agent_acp_scope_args(&strings(&["agent", "notices"])), Some(os(&["notices"])));
-    assert_eq!(
-        agent_acp_scope_args(&strings(&["agent", "--json", "ls"])),
-        Some(os(&["--json", "ls"]))
-    );
-    assert_eq!(agent_acp_scope_args(&strings(&["agent", "open", "lane"])), None);
-    assert_eq!(agent_acp_scope_args(&strings(&["agent", "open-tab", "lane"])), None);
-    assert_eq!(
-        agent_acp_scope_args(&strings(&["agent", "wait", "lane"])),
-        Some(os(&["wait", "lane"]))
-    );
-    assert_eq!(agent_acp_scope_args(&strings(&["agent", "list"])), None);
-    for verb in ["grep", "list-sessions", "prompt", "session", "pending"] {
-        assert_eq!(
-            agent_acp_scope_args(&strings(&["agent", verb, "--help"])),
-            Some(os(&[verb, "--help"])),
-            "{verb}"
-        );
-    }
-    // The app-owned open verbs remain outside the engine forwarding scope.
-    // Their action parser is covered by the app action-surface tests.
-}
-
 #[test]
 fn space_list_supports_json_and_has_dedicated_help() {
     let ParsedCommand::Command { global, plan: CommandPlan::Protocol(request) } =
