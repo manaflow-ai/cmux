@@ -65,6 +65,28 @@ private final class PlainHost: UpdateActionDelegate {
         })
     }
 
+    @Test func disablingIdleInstallRejectsALateReleaseAndCanResume() {
+        let host = DeferringHost()
+        let driver = makeDriver(host)
+        let reply = ChoiceBox()
+        stage(driver, into: reply)
+        let stale = host.ready
+        driver.installsWhenIdle = false
+        driver.idlePolicyChanged()
+        #expect(host.ended == 1)
+        stale?()
+        #expect(reply.choice == nil)
+        #expect(driver.stagedInstall != nil)
+
+        driver.installsWhenIdle = true
+        driver.idlePolicyChanged()
+        #expect(host.asked == 2)
+        stale?()
+        #expect(reply.choice == nil)
+        host.ready?()
+        #expect(reply.choice == .install)
+    }
+
     @Test func aHostThatHoldsNothingInstallsAtOnce() {
         let host = PlainHost()
         let driver = makeDriver(host)

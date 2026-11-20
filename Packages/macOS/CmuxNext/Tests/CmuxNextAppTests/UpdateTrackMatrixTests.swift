@@ -1,4 +1,5 @@
 import CmuxNextTestSupport
+import CmuxNextSettings
 @testable import CmuxNextUpdater
 import CmuxUpdater
 import Foundation
@@ -129,6 +130,24 @@ import Testing
         next.applyManagedPolicy(channel: "dev", minimumVersion: nil)
         #expect(next.managedChannel == nil)
         #expect(next.channelSwitchUnavailableReason == nil)
+    }
+
+    /// Every signed channel wires the same default-on idle gate, and its explicit opt-out.
+    @Test(arguments: rows.filter { $0.track != "development" })
+    func everySignedChannelInstallsWhenIdleUnlessDisabled(row: Row) {
+        let updater = Self.updater(row)
+        let settings = UpdatesSettings()
+        updater.idleInstallGate = { .notIdle }
+        updater.configure(checkAutomatically: settings.checkAutomatically, checkInterval: settings.checkIntervalSeconds,
+                          downloadAutomatically: updater.identity.track.downloadsAutomaticallyByDefault,
+                          installWhenIdleMinutes: settings.installWhenIdle ? settings.installWhenIdleMinutes : nil)
+        #expect(updater.automaticUpdates, "\(row.name): complete automatic update flow is enabled")
+        #expect(updater.relaunchMomentHold.idleGate != nil)
+        updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: true,
+                          installWhenIdleMinutes: nil)
+        #expect(!updater.automaticUpdates)
+        #expect(updater.relaunchMomentHold.idleGate == nil)
+        #expect(updater.downloadsFoundUpdates)
     }
 
     /// The new track is only a new value: the existing ones keep their wire names.

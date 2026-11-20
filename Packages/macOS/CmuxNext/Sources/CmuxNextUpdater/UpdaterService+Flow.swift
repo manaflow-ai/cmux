@@ -41,11 +41,10 @@ extension UpdaterService {
     }
 
     /// The answer to the update-found step (the notice card's Update, the sidebar footer's Update
-    /// Available, the sheet's Update): download only. The update then waits on the Update Ready
-    /// card, which asks before relaunching (Leo 2026-10-27: "ask before the download + install
-    /// step, and likewise for the reboot"). With the opt-in too (a download deferred on a metered
-    /// link): the opt-in skips the first ask, never the relaunch's. With `updates.oneClickInstall`
-    /// this press is the relaunch's ask too: the update installs and cmux relaunches once it is
+    /// Available, the sheet's Update): download only. The staged update follows the person's
+    /// idle-install preference: it installs once the idle gate clears, or waits on the Update Ready
+    /// card for Restart to Update when automatic installation is off. With `updates.oneClickInstall`
+    /// this press requests a relaunch too: the update installs and cmux relaunches once it is
     /// staged (``UpdateFlow``). Only the update-found step takes it, so a repeated or late press
     /// (the download already running, or staged) does nothing.
     public func downloadClicked() {
@@ -267,32 +266,33 @@ extension UpdaterService {
 extension UpdaterService {
     /// Applies `updates.checkAutomatically`, `checkIntervalSeconds`,
     /// `downloadAutomatically`, `meteredNetwork` and, when given, `channel`
-    /// (``follow(ring:)``) to Sparkle, and when given the idle install's wait cap and quiet window
-    /// (`idleInstallMaxWaitSeconds`, `idleInstallQuietSeconds`). The ring is kept without a driver
-    /// too (the probe reads it).
+    /// (``follow(ring:)``) to Sparkle, and when given the automatic install's wait cap and quiet
+    /// window (`idleInstallMaxWaitSeconds`, `idleInstallQuietSeconds`). The ring is kept without a
+    /// driver too (the probe reads it).
+    /// - Parameter installWhenIdleMinutes: the configured idle interval, when present.
     public func configure(checkAutomatically: Bool, checkInterval: TimeInterval, downloadAutomatically: Bool,
                           metered: UpdateMeteredMode = .deferLowData, ring: String? = nil,
-                          idleInstall: (maxWait: TimeInterval, quiet: TimeInterval)? = nil) {
+                          idleInstall: (maxWait: TimeInterval, quiet: TimeInterval)? = nil,
+                          installWhenIdleMinutes: TimeInterval? = nil) {
         if let ring { follow(ring: ring) }
+        installWhenIdle = installWhenIdleMinutes.map { .seconds($0 * 60) }
         if let idleInstall {
             idleInstallQuiet = .seconds(idleInstall.quiet)
             controller?.idleInstallWaitCap = .seconds(idleInstall.maxWait)
-            // The longest an automatic install waits silently on a modal, sheet, menu or composition.
-            relaunchMomentHold.surfaceAfter = .seconds(idleInstall.maxWait)
+            // The longest an automatic install waits silently on a modal, sheet, menu or composition;
+            // with Update When Idle, never before its idle time could have passed.
+            relaunchMomentHold.surfaceAfter = max(.seconds(idleInstall.maxWait), installWhenIdle ?? .zero)
         }
+        // Download and install preferences are independent; an explicit download opt-out is respected.
         downloadSetting = (downloadAutomatically, metered)
         settingsApplied = true
-        // `updates.downloadAutomatically` downloads found updates and stages them; it never installs
-        // them. The app restarts only on the person's click (Restart to Update), so the idle install
-        // stays off whatever the download setting says (nightly restart policy, 2026-10-27).
-        if let controller, controller.installsUpdatesWhenIdle { controller.installsUpdatesWhenIdle = false }
         stagedRefresh.reschedule(automatic: checkAutomatically, interval: checkInterval, updater: self)
         tipCheck.reschedule(automatic: checkAutomatically, updater: self)
         refreshReleasePush()
-        if automaticUpdates != downloadAutomatically { automaticUpdates = downloadAutomatically }
-        guard let controller else { return }
-        controller.setSchedule(automaticChecks: checkAutomatically, interval: checkInterval)
-        followNetwork()
+        let automatic = downloadAutomatically && installWhenIdle != nil
+        if automaticUpdates != automatic { automaticUpdates = automatic }
+        controller?.setSchedule(automaticChecks: checkAutomatically, interval: checkInterval)
+        if controller != nil { followNetwork() }
         applyDownloadPolicy()
     }
 
@@ -315,7 +315,7 @@ extension UpdaterService {
         checkForUpdates()
     }
 
-    /// Recomputes whether found updates download by themselves: the user's
+    /// Recomputes whether found updates download and install by themselves: the user's
     /// `updates.downloadAutomatically` (a managed configuration can force it)
     /// on the user's metered-network choice, except that an update the
     /// organization requires (`MinimumVersion`) always downloads, and an app
@@ -336,6 +336,12 @@ extension UpdaterService {
         }
         let resumed = downloads && !downloadsFoundUpdates
         downloadsFoundUpdates = downloads
+        let installsWhenIdle = installWhenIdle != nil && idleInstallGate != nil && !isOffManagedChannel && !policy.disablesUpdates
+        relaunchMomentHold.idleGate = installsWhenIdle ? idleInstallGate : nil
+        if let controller, controller.installsUpdatesWhenIdle != installsWhenIdle {
+            controller.installsUpdatesWhenIdle = installsWhenIdle
+            log.append("automatic installs \(installsWhenIdle ? "on" : "off")")
+        }
         if let controller, controller.downloadsUpdatesInBackground != downloads {
             controller.downloadsUpdatesInBackground = downloads
             log.append("automatic downloads \(downloads ? "on" : "deferred") (setting \(downloadSetting.enabled), required \(required), off managed channel \(isOffManagedChannel), constrained \(network.constrained), expensive \(network.expensive), link pending \(networkPending))")

@@ -3,7 +3,7 @@ public import Foundation
 
 /// UPDATE-CARD: the staged update card's content, its release notes
 /// (fetched once when the update is staged, never on hover) and its
-/// Automatic Updates checkbox (`updates.downloadAutomatically`, written by
+/// Automatic Updates checkbox (`updates.downloadAutomatically` and `updates.installWhenIdle`, written by
 /// the App's settings path).
 extension UpdaterService {
     /// The card while an update is staged or installing; nil otherwise and,

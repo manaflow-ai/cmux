@@ -39,21 +39,14 @@ nonisolated public enum UpdateTrack: String, Sendable, CaseIterable, Codable {
         return false
     }
 
-    /// `updates.downloadAutomatically` for an install that never set it. On cmux NEXT's nightly ring
-    /// (NEXT, the tip app) it is on: a new nightly downloads, is verified and is unpacked in the
-    /// background, and the Update Ready card's Restart to Update is the one click left (Leo
-    /// 2026-11-08: "did we do the thing where the update, like, auto downloads, auto installs in the
-    /// background and all that stuff, and then it's just you click the button and that just simply
-    /// restarts the app really quickly?"; 2026-11-10: "the nightly automatically downloads and
-    /// installs/unpacks and you simply click and it restarts with the new version"). The relaunch
-    /// still waits for that click (the nightly restart policy keeps the idle install off).
-    /// Elsewhere it stays off, so a found update asks before it downloads: stable and RC (claude-sr2
-    /// 2026-10-26, relaying Leo: "maybe better as an opt in for normal users"), classic NIGHTLY and
-    /// tagged DEV builds (Leo 2026-10-27: "ask before the download + install step").
+    /// `updates.downloadAutomatically` for an install that never set it. Every signed release
+    /// track downloads, verifies and unpacks a newer build in the background. The automatic
+    /// installer then waits for a quiet relaunch moment; DEV and staging builds never run Sparkle
+    /// against a public feed, so their setting remains off and has no effect.
     public var downloadsAutomaticallyByDefault: Bool {
         switch self {
-        case .nightlyNext: true
-        case .stable, .rc, .nightly, .development: false
+        case .stable, .rc, .nightly, .nightlyNext: true
+        case .development: false
         }
     }
 }

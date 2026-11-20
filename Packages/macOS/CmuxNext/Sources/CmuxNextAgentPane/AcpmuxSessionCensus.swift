@@ -14,6 +14,14 @@ public nonisolated struct AcpmuxSessionCensus: Sendable, Equatable {
     /// A Home Chief session is in a turn. Chief sessions are never counted
     /// above (and never ended by a quit).
     public var chiefInTurn: Bool
+    /// Sessions whose composer holds unsent text (acpmux's `hasDraft`), the Chief's included: Update
+    /// When Idle waits for them.
+    public var drafts = 0
+    /// Sessions with no turn open whose background work runs (acpmux's `workingBelow`): a background subagent,
+    /// a harness background process or a sub-session at work. Update When Idle counts them as working.
+    public var workingBelow = 0
+    /// Every row reported draft and background-work state; lock-only fallback is unknown.
+    public var updateActivityKnown = false
 
     /// The tag key on every Home Chief turn and compactor session (value:
     /// the home id), agreed with the chief lane. Untagged Chief sessions are
@@ -32,11 +40,18 @@ public nonisolated struct AcpmuxSessionCensus: Sendable, Equatable {
     /// The census of one `_acpmux/sessions` result.
     public static func parse(_ result: [String: Any]) -> AcpmuxSessionCensus {
         var census = AcpmuxSessionCensus()
+        census.updateActivityKnown = result["sessions"] is [[String: Any]]
         var busy: [(startedAt: Double, name: String)] = []
         for summary in summaries(result) {
             let status = summary["status"] as? String ?? ""
+            if summary["hasDraft"] as? Bool == nil || summary["workingBelow"] as? Bool == nil || status.isEmpty {
+                census.updateActivityKnown = false
+            }
             let live = ["ready", "running", "waiting"].contains(status)
             let working = status == "running" || status == "waiting"
+            if summary["hasDraft"] as? Bool == true { census.drafts += 1 }
+            // Background subagents, background processes or sub-sessions at work with no turn open.
+            if summary["workingBelow"] as? Bool == true, !working { census.workingBelow += 1 }
             if isChief(summary) {
                 if working { census.chiefInTurn = true }
                 continue

@@ -170,6 +170,19 @@ pub struct SessionSummary {
     /// One sidebar line; null before the first prompt.
     pub last_message: Option<LastMessage>,
     pub queued: u64,
+    /// Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update
+    /// that installs when idle (`updates.installWhenIdle`) waits for it. Always sent, including false,
+    /// so the app can distinguish an older daemon with unknown draft state.
+    #[serde(default)]
+    #[schemars(default)]
+    pub has_draft: bool,
+    /// Work runs below it with no turn open: a background subagent, a harness background process,
+    /// or a sub-session at work (what keeps the idle pass from ending it, `hub/idle.rs`). An app
+    /// update that installs when idle waits for it. Always sent, including false, so older daemons
+    /// with unknown background activity never authorize an automatic relaunch.
+    #[serde(default)]
+    #[schemars(default)]
+    pub working_below: bool,
     /// A turn failed: the prompts behind it wait for a client to resume them.
     pub queue_paused: bool,
     /// A daemon start holds what this chat queued until a person opens it: its folder is guarded

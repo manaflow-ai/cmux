@@ -3,14 +3,8 @@ import Foundation
 @testable import CmuxNextUpdater
 import Testing
 
-/// Leo 2026-10-27: "and the whole check for updates thing, we can do it more properly to ask
-/// before the download + install step, and likewise for the reboot... to make it more like how
-/// it'd be in prod". On every channel (stable, NIGHTLY, the tip app, DEV) a found update asks
-/// before it downloads (the update-found step: Update / Release Notes / Hide), and the downloaded
-/// update asks before the relaunch (the Update Ready card: Restart to Update / Hide). Hide, or no
-/// answer, never relaunches; a quit installs it only with `updates.installOnQuit` on (the nightly
-/// restart policy keeps it off by default). The automatic-download opt-in
-/// (`updates.downloadAutomatically`) only skips the first ask.
+/// Manual update flow with automatic installation explicitly off. Driver staging and automatic
+/// relaunches are exercised by AutomaticInstallDeferralTests and the update-idle end-to-end harness.
 @MainActor @Suite(.serialized) struct UpdateAsksBeforeInstallTests {
     nonisolated static let stable = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app", shortVersion: "0.70.0", build: "100",
                                                         minimumSystemVersion: nil, infoFeedURL: TipAppTrackTests.stableFeed, hasPublicKey: true)
@@ -28,9 +22,8 @@ import Testing
         var cancels = 0
     }
 
-    /// An updater for `identity` with the given `updates.downloadAutomatically` (off by default:
-    /// these tests are about the asks, which the nightly ring's default skips) or the channel's
-    /// default (`optIn` nil); downloads, installs and cancels are counted.
+    /// An updater for `identity` with the given `updates.downloadAutomatically` or the signed
+    /// channel's default (`optIn` nil); downloads, installs and cancels are counted.
     static func make(_ identity: UpdateBuildIdentity, optIn: Bool? = false) -> (UpdaterService, Effects) {
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false },
                                      defaults: UserDefaults(testSuiteName: "UpdateAsksBeforeInstallTests.\(UUID().uuidString)")!,
@@ -49,26 +42,23 @@ import Testing
         return (updater, effects)
     }
 
-    /// Leo 2026-11-10: "the nightly automatically downloads and installs/unpacks and you simply
-    /// click and it restarts with the new version". cmux NEXT's nightly ring (NEXT and the tip app)
-    /// downloads found updates by default; stable, RC, classic NIGHTLY and DEV still ask. No channel
-    /// relaunches by itself: Restart to Update stays the one click.
-    @Test func onlyTheNightlyRingDownloadsByDefault() {
+    /// Every signed release track downloads and installs in the background. DEV remains off because
+    /// it has no public Sparkle feed.
+    @Test func everySignedTrackDownloadsByDefault() {
         for track in UpdateTrack.allCases {
-            #expect(track.downloadsAutomaticallyByDefault == (track == .nightlyNext),
+            #expect(track.downloadsAutomaticallyByDefault == (track != .development),
                     "\(track) downloadsAutomaticallyByDefault is \(track.downloadsAutomaticallyByDefault)")
         }
         for identity in Self.channels {
             let (updater, _) = Self.make(identity, optIn: nil)
-            let nightlyRing = identity.track == .nightlyNext
-            #expect(updater.automaticUpdates == nightlyRing && updater.downloadsFoundUpdates == nightlyRing,
+            let signed = identity.track != .development
+            #expect(!updater.automaticUpdates && updater.downloadsFoundUpdates == signed,
                     "\(identity.track) (tip \(identity.isTipBuild)) downloads found updates by default: \(updater.downloadsFoundUpdates)")
         }
     }
 
-    /// On the nightly ring's default a found update stages with no click, and nothing relaunches
-    /// until Restart to Update, the one click.
-    @Test func aNightlyStagesByItselfAndRestartToUpdateIsTheOneClick() async throws {
+    /// Automatic downloads with idle installation off stage until Restart to Update.
+    @Test func aNightlyWithIdleInstallOffWaitsForRestartToUpdate() async throws {
         let (updater, effects) = Self.make(Self.nightly, optIn: nil)
         #expect(updater.identity.track == .nightlyNext)
         updater.debugIndicatorPhase = .checking
@@ -157,9 +147,9 @@ import Testing
     /// download by themselves, a click on one whose download was deferred (a metered link) only
     /// downloads it, and the staged update still waits for Restart to Update.
     @Test(arguments: UpdateAsksBeforeInstallTests.channels)
-    func theOptInDownloadsButStillAsksBeforeTheRelaunch(identity: UpdateBuildIdentity) async throws {
+    func automaticDownloadsWithIdleInstallOffWaitForTheRelaunchClick(identity: UpdateBuildIdentity) async throws {
         let (updater, effects) = Self.make(identity, optIn: true)
-        #expect(updater.downloadsFoundUpdates && updater.automaticUpdates, "\(identity.track): the opt-in does not download by itself")
+        #expect(updater.downloadsFoundUpdates && !updater.automaticUpdates, "\(identity.track): the opt-in does not download by itself")
         updater.debugIndicatorPhase = .available(version: "2.0.0")
         updater.downloadClicked()
         #expect(!updater.flow.installRequested, "\(identity.track): a click on a deferred download skipped the relaunch's ask")

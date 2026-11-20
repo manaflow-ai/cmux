@@ -32,7 +32,7 @@ extension UpdaterService {
         updaterWillInstallUpdate(build: build)
         log.append("relaunching behind: quitting for the install, then open -g")
         // The relaunch hooks (the record, keep sessions) run only once the helper runs, and only
-        // if the user did not come into the app meanwhile; then Sparkle relaunches it, activating.
+        // if the user did not come into the app meanwhile; otherwise the update stays staged.
         relaunchBehind({ [weak self] in
             // The quit ends every sheet (QuitCoordinator): it waits while a modal, sheet, menu or
             // composition is up (``UpdateRelaunchMomentHold``), the helper waiting with it.
@@ -45,14 +45,15 @@ extension UpdaterService {
             // A click took the install over (before the wait began, or as it ended): Sparkle
             // installs and relaunches it now, so the helper must not quit the app as well.
             guard self.controller?.waitsToQuitForInstall ?? true else { return false }
-            guard self.staysBehindNow else { return false }
+            guard self.installWhenIdle != nil, !self.policy.disablesUpdates, !self.isOffManagedChannel,
+                  self.staysBehindNow else { return false }
             // In the same main-actor turn as the checks above: no click lands in between.
             self.controller?.commitQuitInstall()
             self.updaterWillRelaunchApplication()
             return true
         }, { [weak self] in self?.quitForInstallDeclined() }, { [weak self] in
-            self?.log.append("relaunching behind: the user came into the app; Sparkle relaunches it")
-            self?.controller?.relaunchHeldInstallThroughSparkle()
+            self?.log.append("relaunching behind: the quit was no longer safe; leaving the update staged")
+            self?.quitForInstallDeclined()
         })
         return true
     }

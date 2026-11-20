@@ -13,11 +13,10 @@ import Observation
 ///
 /// One per process, owned by the App. Action handlers call ``checkForUpdates()``,
 /// ``installAvailableUpdate()`` and ``switchChannel(to:)``. No Sparkle window opens; Sparkle's
-/// user-driver steps are the sidebar's cards. Without the automatic-install opt-in
-/// (`updates.downloadAutomatically`, off by default on every channel) a found update is the
-/// update-found step (the notice card after Check for Updates, else the titlebar's Update
-/// Available) and a downloaded one is the Update Ready card, which asks before relaunching; with
-/// it, updates download by themselves and the Update Ready card still asks before the relaunch.
+/// user-driver steps are the sidebar's cards. Signed release tracks download and install updates
+/// in the background; the automatic install waits for a quiet relaunch moment and keeps drafts,
+/// terminals and agents intact. The Automatic Updates card switch turns both downloads and idle installation off,
+/// returning to cards that ask before each step. Settings can control those steps independently.
 /// A check's progress and result show on the notice card (``card``). The update sheet
 /// (``UpdateSheetModel``) opens only for a failure's details.
 @MainActor
@@ -159,6 +158,7 @@ public final class UpdaterService {
     public internal(set) var automaticUpdates = true
     /// Writes a setting the updater's cards change (set by the App).
     @ObservationIgnored public var writeSetting: ((UpdaterSetting, Bool) -> Void)?
+    @ObservationIgnored var settingsWriteTask: Task<Void, Never>?
     /// BOTTOM-LEFT-CARDS K1: today's "Did you know" tip (nil: none, or
     /// `sidebar.cards.tips` off) and what the tips remember on this Mac.
     public internal(set) var tip: Tip?
@@ -257,6 +257,15 @@ public final class UpdaterService {
     @ObservationIgnored let relaunchMomentHold: UpdateRelaunchMomentHold
     /// How long input must be quiet before a nightly installs by itself (`updates.idleInstallQuietSeconds`).
     @ObservationIgnored public internal(set) var idleInstallQuiet: Duration = UpdateRelaunchBlockers.quietInputPeriod
+    /// Update When Idle's idle time (`updates.installWhenIdleMinutes`), nil while `updates.installWhenIdle` is off.
+    @ObservationIgnored public internal(set) var installWhenIdle: Duration?
+    /// Why Update When Idle holds a staged install now, nil when nothing does (set by the App: it reads the
+    /// input time, agent turns and drafts and asks cmux-window-rules `update_idle`). Without it the
+    /// setting installs nothing by itself.
+    @ObservationIgnored public var idleInstallGate: (@MainActor () -> UpdateRelaunchMoment.Interruption?)?
+    /// Stands in for the Mac's last input for Update When Idle (`debug.updater {action: "input"}` in DEV and bench
+    /// builds; the update-idle harness: a fleet Mac has no person). Nil reads the real input time.
+    @ObservationIgnored public var debugLastInput: Date?
     /// The install in flight started by itself (the idle policy): a failure opens nothing.
     @ObservationIgnored var automaticInstallInFlight = false
     /// The build Sparkle said it installs (`updaterWillInstallUpdate`): the relaunch's focus record names it.
@@ -347,9 +356,9 @@ public final class UpdaterService {
             // A found update is offered at once, deltas listed or not: no check holds a build back
             // for deltas that come minutes later (a later check uses them for the next build).
             // Until the settings load (``configure``), a launch check's update waits: nothing
-            // downloads or installs by itself, whichever way `updates.downloadAutomatically` is set.
-            // Once it is on, a downloaded update installs by itself once staged; the daemon preserves
-            // agents, commands and turns while the app relaunches.
+            // downloads or installs by itself. Once automatic downloads are enabled, a staged
+            // update installs at a quiet moment; the daemon preserves agents, commands and turns
+            // while the app relaunches.
             controller.installsUpdatesWhenIdle = false
             controller.downloadsUpdatesInBackground = false
             self.controller = controller
