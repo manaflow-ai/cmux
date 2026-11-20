@@ -30,8 +30,8 @@ import Testing
         }
         func half(_ value: Double) -> Double { (value * 2).rounded() / 2 }
         #expect(derived(.rowHeight) == preset.tokens.tokens["browserRowHeight"])
-        // Compact's tuned 1 pt (`compactTuned`) and Default's own 5 (`defaultStripPadding`); the rest scale Default's 3.
-        let rowGap: Double = preset == .compact ? 1 : preset.scaleFactor >= 1 ? half(DensityPreset.defaultStripPadding * preset.scaleFactor) : half(3 * preset.scaleFactor)
+        // Default's own 5 (`defaultStripPadding`) times the factor from Default up; below Default, Default's 3 times it.
+        let rowGap: Double = preset.scaleFactor >= 1 ? half(DensityPreset.defaultStripPadding * preset.scaleFactor) : half(3 * preset.scaleFactor)
         #expect(derived(.rowGap) == rowGap)
         #expect(derived(.closeSize) == half(15 * preset.scaleFactor))
         #expect(derived(.closeCorner) == half(4.5 * preset.scaleFactor))
