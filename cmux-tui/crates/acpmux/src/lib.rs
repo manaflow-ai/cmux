@@ -156,6 +156,7 @@ pub mod login_env;
 pub mod lossy_lines;
 #[cfg(test)]
 mod lost_home_race_tests;
+pub mod mac_lock;
 #[path = "cli/machine_consent.rs"]
 pub(crate) mod machine_consent;
 pub(crate) mod machine_info;

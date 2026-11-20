@@ -67,6 +67,30 @@
           ]
         },
         {
+          "key": "sessions.keepAwakeWhenLocked",
+          "name": "keepAwakeWhenLocked",
+          "note": "Off by default. On: while this Mac's screen is locked and an agent turn runs, acpmux holds idle sleep off too, also on battery, so the turn keeps running (hub/lock_bridge.rs, design/lock-bridge.md). At most 2 hours per locked stretch, and 10 minutes after the last running turn while one waits for the person. Keep Mac Awake set to Off turns it off. A closed lid on battery and low battery still sleep the Mac. Computer use and permission prompts wait while the screen is locked, on or off.",
+          "title": {
+            "key": "settings.sessions.keepAwakeWhenLocked",
+            "text": "Keep Agents Running While Locked"
+          },
+          "help": {
+            "key": "settings.sessions.keepAwakeWhenLocked.help",
+            "text": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "lock",
+            "locked",
+            "sleep",
+            "awake",
+            "battery",
+            "agents",
+            "acpmux"
+          ]
+        },
+        {
           "key": "sessions.keepAwakeForCommands",
           "name": "keepAwakeForCommands",
           "note": "On: a terminal command on this Mac that has run a minute and printed in the last ten minutes also keeps the Mac awake, under the same Off, While Plugged In or Always choice as sessions.keepAwake (KeepAwakeService; the rule is Rust keep_awake_plan). Off by default: Leo has not said whether it should be on.",

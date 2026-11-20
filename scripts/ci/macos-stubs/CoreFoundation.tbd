@@ -17,6 +17,8 @@ exports:
                        '_CFArrayGetValueAtIndex',
                        '_CFArrayInsertValueAtIndex',
                        '_CFArrayRemoveValueAtIndex',
+                       '_CFBooleanGetTypeID',
+                       '_CFBooleanGetValue',
                        '_CFDataCreate',
                        '_CFDataGetBytePtr',
                        '_CFDataGetLength',
