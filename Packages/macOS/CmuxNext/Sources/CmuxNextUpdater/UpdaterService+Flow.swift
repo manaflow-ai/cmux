@@ -41,11 +41,10 @@ extension UpdaterService {
     }
 
     /// The answer to the update-found step (the notice card's Update, the sidebar footer's Update
-    /// Available, the sheet's Update): download only. The update then waits on the Update Ready
-    /// card, which asks before relaunching (Leo 2026-10-27: "ask before the download + install
-    /// step, and likewise for the reboot"). With the opt-in too (a download deferred on a metered
-    /// link): the opt-in skips the first ask, never the relaunch's. With `updates.oneClickInstall`
-    /// this press is the relaunch's ask too: the update installs and cmux relaunches once it is
+    /// Available, the sheet's Update): download only. The staged update follows the person's
+    /// idle-install preference: it installs once the idle gate clears, or waits on the Update Ready
+    /// card for Restart to Update when automatic installation is off. With `updates.oneClickInstall`
+    /// this press requests a relaunch too: the update installs and cmux relaunches once it is
     /// staged (``UpdateFlow``). Only the update-found step takes it, so a repeated or late press
     /// (the download already running, or staged) does nothing.
     public func downloadClicked() {
