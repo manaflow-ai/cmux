@@ -155,10 +155,20 @@ fn page_filters() -> Vec<(&'static str, EventFilter)> {
 
 /// Every page of `hub` over many `before`s, limits, byte bounds and filters is the old way's.
 fn same_pages(state: &str, hub: &Hub, old: &OldWay, last: u64) {
+    same_pages_of(state, hub, old, last, &page_filters());
+}
+
+/// [`same_pages`] for `filters`.
+fn same_pages_of(
+    state: &str,
+    hub: &Hub,
+    old: &OldWay,
+    last: u64,
+    filters: &[(&'static str, EventFilter)],
+) {
     let mut befores = vec![None, Some(last + 5), Some(2), Some(1)];
     befores.extend((1..=13).map(|n| Some(last * n / 14 + 1)));
-    let filters = page_filters();
-    for (name, filter) in &filters {
+    for (name, filter) in filters {
         for before in &befores {
             for limit in [1usize, 6, 400] {
                 for max_bytes in [Some(1500usize), Some(32 << 10), None] {
@@ -583,14 +593,19 @@ fn pane_filter() -> EventFilter {
 /// 100 records: a reply, a tool call update of 2 KB, a preset card every 1,000, and 14 KB load
 /// replays and raw harness lines for the rest (about a long Codex chat's split). `cargo test -p
 /// acpmux --release -- --ignored --nocapture older_page_synthetic_perf`; `SYNTH_PAGE_MB` sets the
-/// log's size (default 1024).
+/// log's size (default 1024). `SYNTH_TOOL_HEAVY=1` makes 60 of each 100 records snapshots of a
+/// running command (`tool_call_update`s of 6 KB that carry its output so far; three calls at a
+/// time, new ones every 5,000 records): a chat of long tool calls.
 #[test]
 #[ignore = "a measurement, not a check"]
 fn older_page_synthetic_perf() {
     let mb: u64 = std::env::var("SYNTH_PAGE_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(1024);
     let root = temp_root("transcript-index-synthetic");
     let payload = "x".repeat(14 << 10);
-    let records = mb * (1 << 20) / (14 << 10);
+    let heavy = std::env::var_os("SYNTH_TOOL_HEAVY").is_some_and(|v| v == "1");
+    let mix = if heavy { "tool-heavy" } else { "real-shaped" };
+    let records = mb * (1 << 20) / if heavy { 9 << 10 } else { 14 << 10 };
+    let output = "s".repeat(6 << 10);
     let write = |sessions: &Path, indexed: bool| {
         let writer = LocalStore::new(sessions.to_path_buf(), 8 << 20).unwrap();
         let writer = if indexed { writer } else { writer.without_transcript_index() };
@@ -611,6 +626,11 @@ fn older_page_synthetic_perf() {
                     "tool_call_update",
                     json!({"sessionUpdate": "tool_call_update", "toolCallId": format!("t{seq}"), "status": "completed", "content": [{"type": "content", "content": {"type": "text", "text": "o".repeat(2000)}}]}),
                 ),
+                n @ 2..=61 if heavy => agent(
+                    0,
+                    "tool_call_update",
+                    json!({"sessionUpdate": "tool_call_update", "toolCallId": format!("h{}-{}", seq / 5000, n % 3), "status": "in_progress", "content": [{"type": "content", "content": {"type": "text", "text": format!("{seq} {output}")}}], "_meta": {"terminal_output_delta": {"data": "d"}}}),
+                ),
                 n if n % 2 == 0 => raw("codex.response", payload.len()),
                 _ => agent(
                     0,
@@ -630,7 +650,7 @@ fn older_page_synthetic_perf() {
     let log_bytes: u64 =
         segment_files(&legacy).iter().map(|p| std::fs::metadata(p).unwrap().len()).sum();
     println!(
-        "synthetic log: {records} records, {:.0} MB in {} segments",
+        "synthetic log ({mix}): {records} records, {:.0} MB in {} segments",
         log_bytes as f64 / 1e6,
         segment_files(&legacy).len()
     );
@@ -649,7 +669,7 @@ fn older_page_synthetic_perf() {
         let own: u64 =
             page.events.iter().map(|r| serde_json::to_vec(r).unwrap().len() as u64).sum();
         println!(
-            "SYNTH {label} {} depth {depth}: {ms:.1} ms, {} records ({:.2} MB, more {}), read {:.1} MB, parsed {:.2} MB",
+            "SYNTH {mix} {label} {} depth {depth}: {ms:.1} ms, {} records ({:.2} MB, more {}), read {:.1} MB, parsed {:.2} MB",
             if cold { "cold" } else { "warm" },
             page.events.len(),
             own as f64 / 1e6,
@@ -672,6 +692,201 @@ fn older_page_synthetic_perf() {
             assert_eq!(read(&hub, &legacy, "next read", depth, cold), want);
             let got = read(&indexed_hub, &written, "indexed as written", depth, cold);
             assert_eq!(got, want);
+        }
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A `tool_call_update` of call `id` that carries nothing but its output so far (`bytes` of it)
+/// and its increment: an update the superseded fold may leave out whole.
+fn snapshot(id: &str, n: usize, bytes: usize) -> EventRecord {
+    let text = format!("{n:06} {}", "s".repeat(bytes));
+    agent(
+        0,
+        "tool_call_update",
+        json!({"sessionUpdate": "tool_call_update", "toolCallId": id, "status": "in_progress", "content": [{"type": "content", "content": {"type": "text", "text": text}}], "_meta": {"terminal_output_delta": {"data": "d"}}}),
+    )
+}
+
+/// A chat of long tool calls, as a long Codex chat logs them: per prompt a few calls, their
+/// snapshots interleaved (some with no content, some with no status), a subagent's call of the
+/// same id, raw harness lines and replies between, and each call's end; ids used again in later
+/// prompts; the last prompt's calls still running.
+fn snapshot_chat(prompts: usize, steps: usize, bytes: usize) -> Vec<EventRecord> {
+    let mut out = Vec::new();
+    for prompt in 0..prompts {
+        out.push(mux("user_message", json!({"text": format!("prompt {prompt}")})));
+        let calls = ["a", "b", "c"];
+        for id in calls {
+            out.push(agent(0, "tool_call", json!({"sessionUpdate": "tool_call", "toolCallId": id, "title": "cargo test", "kind": "execute", "status": "in_progress"})));
+        }
+        for step in 0..steps {
+            let id = calls[step % calls.len()];
+            let mut rec = snapshot(id, step, bytes + (step * 37) % 900);
+            match step % 13 {
+                3 => {
+                    rec.msg["params"]["update"].as_object_mut().unwrap().remove("content");
+                }
+                5 => {
+                    rec.msg["params"]["update"].as_object_mut().unwrap().remove("status");
+                }
+                7 => rec.msg["params"]["_meta"] = json!({"acpmux": {"subagent": "sub"}}),
+                9 => out.push(raw("codex.response", 2500)),
+                11 => out.push(agent(0, "agent_message_chunk", json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": format!("note {step}")}}))),
+                _ => {}
+            }
+            out.push(rec);
+            if step % 17 == 16 {
+                out.push(mux("turn_started", json!({})));
+            }
+        }
+        if prompt + 1 == prompts {
+            break;
+        }
+        for id in calls {
+            out.push(agent(0, "tool_call_update", json!({"sessionUpdate": "tool_call_update", "toolCallId": id, "status": "completed", "rawOutput": {"exit_code": 0}, "content": [{"type": "content", "content": {"type": "text", "text": "done"}}]})));
+        }
+        out.push(agent(0, "agent_message_chunk", json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": format!("answer {prompt}")}})));
+    }
+    out
+}
+
+/// The FNV-1a hash an index entry's check folds (`store/kind_index.rs` `fnv`).
+fn entry_check(bytes: &[u8]) -> u32 {
+    let h = bytes
+        .iter()
+        .fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(*b)).wrapping_mul(0x100_0000_01b3));
+    (h ^ (h >> 32)) as u32
+}
+
+/// The entries of `path` (an index: a 96-byte header, then 48-byte entries).
+fn entries_of(path: &Path) -> Vec<Vec<u8>> {
+    let bytes = std::fs::read(path).unwrap();
+    bytes.get(96..).unwrap_or_default().chunks_exact(48).map(<[u8]>::to_vec).collect()
+}
+
+/// How many entries of `sessions`' indexes hold an update's facts (flag 2).
+fn snapshot_entries(sessions: &Path) -> usize {
+    index_files(sessions)
+        .iter()
+        .flat_map(|p| entries_of(p))
+        .filter(|e| u32::from_le_bytes(e[20..24].try_into().unwrap()) & 2 != 0)
+        .count()
+}
+
+/// Every entry of `sessions`' indexes as an index written before this change left it: its flags
+/// but the line's, and bytes 24..44, 0.
+fn zero_snapshot_fields(sessions: &Path) {
+    for path in index_files(sessions) {
+        let mut bytes = std::fs::read(&path).unwrap();
+        for entry in bytes[96..].chunks_exact_mut(48) {
+            let flags = u32::from_le_bytes(entry[20..24].try_into().unwrap()) & 1;
+            entry[20..24].copy_from_slice(&flags.to_le_bytes());
+            entry[24..44].fill(0);
+            let check = entry_check(&entry[..44]);
+            entry[44..48].copy_from_slice(&check.to_le_bytes());
+        }
+        std::fs::write(&path, bytes).unwrap();
+    }
+}
+
+/// The filters a page that leaves superseded updates out may read with, and with every record
+/// read: the pane's, the app's, and with records stubbed or tool output cut.
+fn snapshot_filters() -> Vec<(&'static str, EventFilter)> {
+    let mut filters = page_filters();
+    filters.push(("the pane's", pane_filter()));
+    filters.push(("stubbed past 1.5 KB", transcript(true).stubbing_over(Some(1500))));
+    filters.push(("tool output cut past 1 KB", transcript(true).cutting_tool_output(Some(1000))));
+    filters.push((
+        "only cards",
+        EventFilter::parse(Some(&json!(["preset_approval_request", "preset_approval_decision"])))
+            .unwrap()
+            .omitting_superseded(true),
+    ));
+    filters
+}
+
+/// Leo, 2026-11-16: "how about speeding up the scrolling up of chats?" A page that leaves
+/// superseded tool call updates out leaves them unread, and is still the log's page exactly: over
+/// prompts that split calls, interleaved calls, a subagent's call of the same id, calls whose
+/// snapshots straddle segments and pages, an index written before (its facts all 0), a mix of
+/// both, and the index's other states.
+#[test]
+fn pages_that_leave_snapshots_unread_are_the_logs() {
+    let root = temp_root("snapshot-skip-parity");
+    let sessions = root.join("sessions");
+    let mut log = snapshot_chat(4, 70, 600);
+    log.extend(varied_chat());
+    log.extend(snapshot_chat(2, 40, 2500));
+    write_chat(&sessions, &mut log, 64 << 10);
+    let last = log.last().unwrap().seq;
+    assert!(segment_files(&sessions).len() > 8, "a log of many segments");
+    let snapshots = snapshot_entries(&sessions);
+    assert!(snapshots > 200, "{snapshots} entries hold an update's facts");
+    let old = OldWay::of(&sessions, &root, 64 << 10);
+    let hub = deferred_hub(&sessions, 64 << 10);
+    let filters = snapshot_filters();
+    same_pages_of("as written", &hub, &old, last, &filters);
+    // Half the segments' indexes as written before, half as now.
+    let files = index_files(&sessions);
+    let saved: Vec<Vec<u8>> = files.iter().map(|p| std::fs::read(p).unwrap()).collect();
+    zero_snapshot_fields(&sessions);
+    assert_eq!(snapshot_entries(&sessions), 0);
+    same_pages_of("indexes written before", &hub, &old, last, &filters);
+    for (n, (path, bytes)) in files.iter().zip(&saved).enumerate() {
+        if n % 2 == 0 {
+            std::fs::write(path, bytes).unwrap();
+        }
+    }
+    same_pages_of("a mix", &hub, &old, last, &filters);
+    // An index cut short, and one with an entry that names no line.
+    for path in index_files(&sessions).iter().step_by(3) {
+        let len = std::fs::metadata(path).unwrap().len();
+        std::fs::OpenOptions::new().write(true).open(path).unwrap().set_len(len * 2 / 3).unwrap();
+    }
+    same_pages_of("cut short", &hub, &old, last, &filters);
+    let fresh = deferred_hub(&sessions, 64 << 10);
+    same_pages_of("a fresh daemon", &fresh, &old, last, &filters);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// An older page of a chat with many long tool calls (hundreds of snapshots of a few calls, each
+/// large) reads only the snapshots it keeps, about each call's newest, and its other records:
+/// about twice the page's own bytes, beside the index (and a line head per snapshot). Before, it
+/// read every snapshot back to its start.
+#[test]
+fn a_page_reads_each_calls_newest_snapshot_not_every_one() {
+    let root = temp_root("snapshot-skip-bytes");
+    let sessions = root.join("sessions");
+    let mut log = snapshot_chat(3, 300, 12 << 10);
+    let log_bytes = write_chat(&sessions, &mut log, 8 << 20);
+    let last = log.last().unwrap().seq;
+    let old = OldWay::of(&sessions, &root, 8 << 20);
+    let hub = deferred_hub(&sessions, 8 << 20);
+    let filter = pane_filter();
+    let snapshots = snapshot_entries(&sessions) as u64;
+    let index_bytes: u64 =
+        index_files(&sessions).iter().map(|p| std::fs::metadata(p).unwrap().len()).sum();
+    for before in [None, Some(last * 2 / 3), Some(last / 3)] {
+        let args = PageArgs { before, limit: 2_000, max_bytes: Some(1 << 20), filter: &filter };
+        let r0 = read_bytes();
+        let page = args.read(&hub);
+        let read = read_bytes() - r0;
+        assert_eq!(page, old.page(&args), "before {before:?}");
+        let page_bytes: u64 =
+            page.0.iter().map(|r| serde_json::to_vec(r).unwrap().len() as u64).sum();
+        println!(
+            "before {before:?}: read {read} for a page of {page_bytes} (index {index_bytes}, log {log_bytes})"
+        );
+        if cfg!(target_os = "linux") {
+            // The page's own records (each call's newest snapshot whole, the snapshots it keeps
+            // with their content left out read without it), and a line head per snapshot left
+            // unread.
+            let heads = snapshots * 130;
+            assert!(
+                read <= 64 * 1024 + 2 * page_bytes + index_bytes + heads,
+                "before {before:?}: the page read {read} bytes for its {page_bytes} (index {index_bytes}, {snapshots} snapshots, log {log_bytes})"
+            );
         }
     }
     let _ = std::fs::remove_dir_all(&root);
