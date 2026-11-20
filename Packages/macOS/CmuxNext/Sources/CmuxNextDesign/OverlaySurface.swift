@@ -52,6 +52,18 @@ public final class OverlaySurfaceView: NSView {
         didSet { if cornerRadius != oldValue { applyShape() } }
     }
 
+    /// The shadow the surface casts along its own shape, on every material (the tooltip's,
+    /// ``Glass/makeTooltipGlass(cornerRadius:interactive:)``); nil casts none, as the overlays whose
+    /// window or owner draws it.
+    public var castShadow: Elevation? {
+        didSet { if castShadow != oldValue { applyShadow() } }
+    }
+
+    public override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        if castShadow != nil { applyShadow() }
+    }
+
     /// The vibrancy fallback blurs what is behind the window instead of the window's own
     /// content: set it for a surface that is the whole content of a clear window of its own
     /// (a hover card), where a blur within the window has nothing under it. Liquid Glass and
@@ -250,7 +262,23 @@ public final class OverlaySurfaceView: NSView {
         rimView = rim
     }
 
+    private func applyShadow() {
+        guard let layer else { return }
+        guard let shadow = castShadow else {
+            layer.shadowOpacity = 0
+            layer.shadowPath = nil
+            return
+        }
+        layer.masksToBounds = false
+        layer.shadowColor = NSColor.black.cgColor
+        layer.shadowOpacity = Float(shadow.alpha)
+        layer.shadowRadius = shadow.layerRadius
+        layer.shadowOffset = shadow.layerOffset(flipped: isFlipped)
+        layer.shadowPath = CGPath(roundedRect: bounds, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
+    }
+
     private func applyShape() {
+        if castShadow != nil { applyShadow() }
         rimView?.cornerRadius = cornerRadius
         // The content takes the surface's shape on every material. The blur and the solid
         // surface clip it already (their layer masks to bounds), but `NSGlassEffectView` never
