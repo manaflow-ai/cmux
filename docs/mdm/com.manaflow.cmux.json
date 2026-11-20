@@ -654,6 +654,12 @@
       "title" : "Download Announcements",
       "type" : "boolean"
     },
+    "app.captureScreenshotGlobalHotKey" : {
+      "default" : false,
+      "description" : "Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts.",
+      "title" : "Capture Screenshot to Chat from Any App",
+      "type" : "boolean"
+    },
     "app.confirmQuit" : {
       "default" : true,
       "description" : "Ask before Cmd-Q ends agents or terminals.",
@@ -737,6 +743,12 @@
       ],
       "title" : "Accent",
       "type" : "string"
+    },
+    "appearance.agentGlow" : {
+      "default" : false,
+      "description" : "Calm while agents are idle; a soft glow in the machine's color when an agent needs you.",
+      "title" : "React to Agents",
+      "type" : "boolean"
     },
     "appearance.appTheme" : {
       "default" : "followTerminal",
@@ -4139,6 +4151,16 @@
       "description" : "notifications.attention.flashOnTyping",
       "title" : "Flash When Typing Reads It",
       "type" : "boolean"
+    },
+    "notifications.attention.mark" : {
+      "default" : "badge",
+      "description" : "How a tab and a sidebar row that wait for you show it: the badge, or a gentle glow until you look at them.",
+      "enum" : [
+        "badge",
+        "glow"
+      ],
+      "title" : "Needs You Look",
+      "type" : "string"
     },
     "notifications.attention.moveToTop" : {
       "default" : true,

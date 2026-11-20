@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 632,
+  "count": 635,
   "sections": [
     {
       "id": "general",
@@ -495,6 +495,14 @@
           "kind": "toggle",
           "default": true,
           "group": "Announcements"
+        },
+        {
+          "key": "app.captureScreenshotGlobalHotKey",
+          "title": "Capture Screenshot to Chat from Any App",
+          "help": "Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Window"
         },
         {
           "key": "app.confirmQuit",
@@ -2246,6 +2254,14 @@
             "magenta",
             "cyan"
           ]
+        },
+        {
+          "key": "appearance.agentGlow",
+          "title": "React to Agents",
+          "help": "Calm while agents are idle; a soft glow in the machine's color when an agent needs you.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Window Background"
         },
         {
           "key": "appearance.appTheme",
@@ -6380,6 +6396,18 @@
           "kind": "toggle",
           "default": true,
           "group": "Attention Ring"
+        },
+        {
+          "key": "notifications.attention.mark",
+          "title": "Needs You Look",
+          "help": "How a tab and a sidebar row that wait for you show it: the badge, or a gentle glow until you look at them.",
+          "kind": "choice",
+          "default": "badge",
+          "group": "Attention Ring",
+          "values": [
+            "badge",
+            "glow"
+          ]
         },
         {
           "key": "notifications.attention.moveToTop",
