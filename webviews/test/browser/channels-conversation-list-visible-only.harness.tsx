@@ -13,7 +13,7 @@ import "../../src/pages/shared/pageBase.css";
 import "../../src/ui/ui.css";
 import "../../src/pages/home-channels/styles.css";
 import "../../src/pages/home-channels/ledger.css";
-import { useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { createRoot } from "react-dom/client";
 import { ConversationList } from "../../src/pages/home-channels/ConversationList";
 import table from "../../src/pages/home-channels/generated/strings.json";
@@ -74,12 +74,16 @@ function Bench() {
   );
   const [selected, setSelected] = useState<string | undefined>(undefined);
   const [, setTick] = useState(0);
-  window.benchChangeOne = (index) =>
-    setConversations((old) => {
-      const id = `c${index}`;
-      return new Map(old).set(id, change(old.get(id)!));
-    });
-  window.benchTick = () => setTick((tick) => tick + 1);
+  // The bench's handles, set once mounted (the setters are stable); ready only once they are.
+  useEffect(() => {
+    window.benchChangeOne = (index) =>
+      setConversations((old) => {
+        const id = `c${index}`;
+        return new Map(old).set(id, change(old.get(id)!));
+      });
+    window.benchTick = () => setTick((tick) => tick + 1);
+    window.benchReady = true;
+  }, []);
   return (
     // The list takes a third of the page, so a narrower window narrows its rows.
     <div className="lg-page" style={{ height: "100vh", "--lg-list": "33%" } as CSSProperties}>
@@ -112,4 +116,3 @@ createRoot(root).render(
   </UiProvider>,
 );
 window.benchRowRenders = mountedRowRenders(() => document.querySelectorAll(".lg-list-group > li"));
-window.benchReady = true;

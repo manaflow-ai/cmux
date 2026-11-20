@@ -18,6 +18,7 @@ import { HomeIcon } from "./icons";
 import {
   activityAt,
   channelIds,
+  chiefNamer,
   chiefState,
   chronological,
   conversationName,
@@ -31,8 +32,6 @@ import {
   threadSummaries,
   threadOf,
   timelineRows,
-  withChiefNames,
-  type RenamedCache,
   withDraft,
 } from "./model";
 import type { PaletteItem } from "./Palette";
@@ -135,12 +134,12 @@ export function HomeChannelsPage({
   const me = snap.me?.id;
   const channels = useMemo(() => channelIds(snap.conversations.values(), me), [snap.conversations, me]);
   // The renamed conversations of the last pass, kept while their input and name hold (model.ts).
-  const renamed = useRef<RenamedCache>(new Map());
+  const [renameChiefs] = useState(chiefNamer);
   // A Chief's direct message shows the Chief's current name (its record), not the name its
   // conversation was made with ("Chief" for every brain's own DM).
   const conversations = useMemo(
-    () => withChiefNames(snap.conversations, channels, me, sheetState.chiefs, renamed.current),
-    [snap.conversations, channels, me, sheetState.chiefs],
+    () => renameChiefs(snap.conversations, channels, me, sheetState.chiefs),
+    [renameChiefs, snap.conversations, channels, me, sheetState.chiefs],
   );
   const open = snap.selected ? conversations.get(snap.selected) : undefined;
   const pendingByKey = useMemo(() => new Map(snap.pending.map((entry) => [entry.key, entry])), [snap.pending]);

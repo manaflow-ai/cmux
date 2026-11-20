@@ -110,6 +110,7 @@ export function ConversationList({
   // The first mounted item of each kind sizes every one not yet mounted, so the rows a scroll brings
   // in measure as estimated: TanStack places all N items again whenever a measure differs.
   const sizes = useRef(new Map<SizeKind, number>());
+  // react-doctor-disable-next-line react-hooks-js/incompatible-library -- TanStack Virtual returns functions the React Compiler cannot memoize safely, so the list stays uncompiled on purpose; this list keeps its own range (the Pinned label, the selected row and the focused row stay mounted), keys items by conversation id and learns each row kind's height from its first measured item, where VirtualList keys by index, keeps one active row and takes one estimate, so ui/VirtualList does not fit.
   const virtualizer = useVirtualizer({
     count: list.items.length,
     getScrollElement: () => scroller.current,
