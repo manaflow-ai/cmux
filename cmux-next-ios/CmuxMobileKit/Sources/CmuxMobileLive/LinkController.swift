@@ -366,6 +366,9 @@ public final class LinkController {
             probeTask?.cancel()
             probeTask = nil
             probe(generation: generation, timeout: Self.parkedResumeProbeTimeout)
+            // Resumed in the background for a hold (a call, a notification
+            // action): the link stays watched until the hold parks it again.
+            if machine.isBackgrounded { startHeartbeat(generation: generation) }
         }
     }
 

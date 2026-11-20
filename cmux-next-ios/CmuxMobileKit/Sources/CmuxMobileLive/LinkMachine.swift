@@ -153,18 +153,28 @@ public struct LinkMachine: Sendable {
         case .background:
             let wasBackgrounded = isBackgrounded
             isBackgrounded = true
-            // Park only a live link, once per stay in the background.
-            guard !wasBackgrounded, phase.isConnected, !isParked else { return [] }
+            // Park only a live link nothing holds awake, once per stay in the
+            // background (a hold's release parks it later).
+            guard !wasBackgrounded, awakeHolds == 0, phase.isConnected, !isParked else { return [] }
             return [.park(generation: generation)]
         case .parked(let gen):
             guard gen == generation, isBackgrounded, phase.isConnected else { return [] }
+            // A hold came while the park was being asked for: take it back.
+            guard awakeHolds == 0 else { return [.resumeParked(generation: gen)] }
             parkedGeneration = gen
             return []
         case .parkLapsed:
             parkedGeneration = nil
             return []
-        case .holdAwake, .releaseAwake:
-            return []
+        case .holdAwake:
+            awakeHolds += 1
+            guard isParked, phase.isConnected else { return [] }
+            parkedGeneration = nil
+            return [.resumeParked(generation: generation)]
+        case .releaseAwake:
+            awakeHolds = max(awakeHolds - 1, 0)
+            guard awakeHolds == 0, isBackgrounded, phase.isConnected, !isParked else { return [] }
+            return [.park(generation: generation)]
         case .resume:
             let wasBackgrounded = isBackgrounded
             isBackgrounded = false
@@ -173,7 +183,9 @@ public struct LinkMachine: Sendable {
                 parkedGeneration = nil
                 return [.resumeParked(generation: generation)]
             }
-            if wasBackgrounded, isActive {
+            // A link held awake was never suspended (a call kept the app
+            // running): probe it as on any foreground, no redial.
+            if wasBackgrounded, isActive, awakeHolds == 0 {
                 return dial(attempt: 1, closing: true)
             }
             return handle(.foreground)
