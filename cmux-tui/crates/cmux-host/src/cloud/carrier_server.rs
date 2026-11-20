@@ -463,13 +463,6 @@ impl<H: Http + Send + 'static> Fetcher<H> {
     /// `generation`, the one its job was picked in: when a bind or resume
     /// came since, its reply is dropped. Nothing is asked once the role stops.
     fn start(&mut self, task: Task, generation: u64) {
-        // A bind or resume can replace this job after the fetch thread picks it
-        // but before it starts the request. Recheck the generation before
-        // taking a client so a stale wanted ticket is never minted or handed
-        // out; the current generation will schedule its own request.
-        if self.shared.lock().generation != generation {
-            return;
-        }
         let Some(mut client) = self.hands.take(CloudClient::fresh) else {
             return;
         };
