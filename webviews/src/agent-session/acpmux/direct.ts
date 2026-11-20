@@ -1,3 +1,5 @@
+import { experimentArm } from "../../experiments/experiment";
+import { askLedger } from "./askLedger/askLedger.experiment";
 import { pageAttention } from "./attention";
 import { sentFrom, type SentFrom } from "./conversation/sentFromHarness";
 import { stuckAttention } from "./loopEpisode";
@@ -12204,6 +12206,7 @@ export class AcpmuxDirectClient {
                 acpmux: {
                   promptId,
                   ...(steer ? { steer: true } : {}),
+                  ...(experimentArm(askLedger) === "capture" ? { askLedger: true } : {}),
                   ...(suggestionTaken ? { promptSuggestion: "taken" } : {}),
                   ...(context ? { context } : {}),
                   ...(fileDisplay.length ? { inlineParts: fileDisplay } : {}),
@@ -13177,7 +13180,10 @@ export class AcpmuxDirectClient {
         sessionId,
         prompt: promptBlocks(text, carried),
         _meta: {
-          acpmux: { promptId: gesture?.promptId ?? crypto.randomUUID() },
+          acpmux: {
+            promptId: gesture?.promptId ?? crypto.randomUUID(),
+            ...(experimentArm(askLedger) === "capture" ? { askLedger: true } : {}),
+          },
           ...(ticket ? { cmuxGesture: ticket } : {}),
         },
       }),
@@ -15166,6 +15172,9 @@ export class AcpmuxDirectClient {
   }
   /// This machine's agent spend for History > Costs (`_acpmux/ledger`, ledger/ledgerModel.ts): read
   /// from acpmux's ledger index, never a log scan. An older acpmux answers method not found.
+  async askLedger(): Promise<unknown> {
+    return this.request("_acpmux/ask_ledger", {}, 15_000);
+  }
   async ledger(params: Record<string, unknown>): Promise<unknown> {
     return this.request("_acpmux/ledger", params, 15_000);
   }

@@ -443103,6 +443103,532 @@
           }
         }
       }
+    },
+  "askLedger.scope": {
+    "comment": "Agent pane: experimental recent ask ledger scope or read error",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Recent asks from this daemon run. Up to 200 prompts; long prompts show a preview."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "このデーモンの起動中に受け付けた最近の依頼です。最大200件まで表示し、長いプロンプトはプレビューを表示します。"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Letzte Anfragen seit diesem Daemon-Start. Bis zu 200 Prompts; lange Prompts werden gekürzt angezeigt."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Demandes récentes depuis le démarrage de ce démon. Jusqu’à 200 messages ; les longs messages sont abrégés."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Solicitudes recientes de esta ejecución del demonio. Hasta 200 mensajes; los largos muestran una vista previa."
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "الطلبات الأخيرة منذ تشغيل هذه الخدمة. حتى 200 رسالة؛ تُعرض معاينة للرسائل الطويلة."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "本次守护进程运行期间的最近请求。最多显示200条提示；长提示仅显示预览。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "本次守護程序執行期間的最近請求。最多顯示200則提示；長提示僅顯示預覽。"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "현재 데몬 실행 중 받은 최근 요청입니다. 최대 200개까지 표시하며 긴 프롬프트는 미리보기로 표시합니다."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Nedavni zahtjevi od pokretanja ovog demona. Do 200 poruka; duge poruke prikazuju pregled."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Seneste anmodninger fra denne dæmonkørsel. Op til 200 beskeder; lange beskeder vises som forhåndsvisning."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Richieste recenti da questo avvio del demone. Fino a 200 messaggi; quelli lunghi mostrano un’anteprima."
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "សំណើថ្មីៗពីការដំណើរការសេវានេះ។ រហូតដល់ 200 សារ; សារវែងបង្ហាញជាការមើលជាមុន។"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Nylige forespørsler fra denne daemonkjøringen. Opptil 200 meldinger; lange meldinger vises som forhåndsvisning."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Ostatnie prośby z bieżącego uruchomienia demona. Do 200 wiadomości; długie wiadomości mają podgląd."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Pedidos recentes desta execução do daemon. Até 200 mensagens; mensagens longas mostram uma prévia."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Недавние запросы с момента запуска этого демона. До 200 сообщений; длинные сообщения показаны в сокращённом виде."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Нещодавні запити з моменту запуску цього демона. До 200 повідомлень; довгі повідомлення показано скорочено."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "คำขอล่าสุดจากการทำงานของเดมอนครั้งนี้ สูงสุด 200 ข้อความ โดยข้อความยาวจะแสดงตัวอย่าง"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Bu arka plan hizmeti çalışmasındaki son istekler. En fazla 200 ileti; uzun iletilerin önizlemesi gösterilir."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Yêu cầu gần đây trong lần chạy dịch vụ này. Tối đa 200 tin nhắn; tin nhắn dài hiển thị bản xem trước."
+        }
+      }
+    }
+  },
+  "askLedger.failed": {
+    "comment": "Agent pane: experimental recent ask ledger scope or read error",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Could not read your asks."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "依頼を読み込めませんでした。"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Deine Anfragen konnten nicht gelesen werden."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Impossible de lire vos demandes."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "No se pudieron leer tus solicitudes."
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "تعذّرت قراءة طلباتك."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "无法读取你的请求。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "無法讀取你的請求。"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "요청을 읽을 수 없습니다."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Vaši zahtjevi se ne mogu učitati."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Dine anmodninger kunne ikke læses."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Impossibile leggere le tue richieste."
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "មិនអាចអានសំណើរបស់អ្នកបានទេ។"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Kunne ikke lese forespørslene dine."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Nie udało się odczytać Twoich próśb."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Não foi possível ler seus pedidos."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Не удалось прочитать ваши запросы."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Не вдалося прочитати ваші запити."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ไม่สามารถอ่านคำขอของคุณได้"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "İstekleriniz okunamadı."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Không thể đọc yêu cầu của bạn."
+        }
+      }
+    }
+  },
+    "askLedger.title": {
+      "comment": "Agent pane: History tab and page title listing locally captured human asks",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلباتك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tvoji zahtjevi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dine anmodninger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Anfragen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your asks"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus solicitudes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos demandes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le tue richieste"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたの依頼"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សំណើរបស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 요청"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dine forespørsler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twoje prośby"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seus pedidos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваши запросы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำขอของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İsteklerin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваші запити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yêu cầu của bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的请求"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的請求"
+          }
+        }
+      }
+    },
+    "askLedger.empty": {
+      "comment": "Agent pane: Your asks page when the local experimental ledger has no captured asks",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد طلبات محفوظة بعد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Još nema sačuvanih zahtjeva."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen anmodninger er gemt endnu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Anfragen gespeichert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No asks saved yet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no hay solicitudes guardadas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune demande enregistrée pour le moment."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna richiesta salvata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存された依頼はまだありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនទាន់មានសំណើដែលបានរក្សាទុកទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장된 요청이 아직 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen forespørsler er lagret ennå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie zapisano jeszcze żadnych próśb."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum pedido salvo ainda."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохранённых запросов пока нет."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังไม่มีคำขอที่บันทึกไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Henüz kaydedilmiş istek yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Збережених запитів ще немає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chưa có yêu cầu nào được lưu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有保存的请求。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有儲存的請求。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

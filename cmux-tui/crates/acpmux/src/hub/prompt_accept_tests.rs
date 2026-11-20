@@ -13,6 +13,38 @@ async fn chat() -> (Arc<Hub>, Arc<Session>) {
     chat_with_store(None).await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ask_ledger_captures_acceptance_once_and_off_leaves_no_copy() {
+    let (hub, session) = chat().await;
+    let blocks = || vec![json!({"type": "text", "text": "keep this ask"})];
+    let off = PromptOptions { prompt_id: Some("off".into()), ..Default::default() };
+    hub.prompt_with(&session, blocks(), "test", false, off).await.unwrap();
+    assert_eq!(hub.ask_ledger.page()["entries"], json!([]));
+    for _ in 0..2 {
+        let opts = PromptOptions {
+            prompt_id: Some("captured".into()),
+            on_accepted: hub.capture_ask_on_accept(&session, "keep this ask", None),
+            ..Default::default()
+        };
+        hub.prompt_with(&session, blocks(), "test", false, opts).await.unwrap();
+    }
+    let page = hub.ask_ledger.page();
+    let entries = page["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0]["messageId"], "captured");
+    assert_eq!(entries[0]["sessionId"], session.id);
+    assert_eq!(entries[0]["text"], "keep this ask");
+    assert_eq!(entries[0]["harness"], "fake");
+    for key in ["duplicate", "withdrawn", "resent"] {
+        let callback = hub.capture_ask_on_accept(&session, "ignored", None).unwrap();
+        let mut receipt = json!({"promptId": key});
+        receipt[key] = json!(true);
+        callback(receipt);
+    }
+    assert_eq!(hub.ask_ledger.page()["entries"].as_array().unwrap().len(), 1);
+    hub.shutdown_all().await;
+}
+
 async fn chat_with_store(store: Option<Box<dyn crate::store::Store>>) -> (Arc<Hub>, Arc<Session>) {
     use crate::config::{Config, StoreMode};
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");

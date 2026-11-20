@@ -24,7 +24,7 @@ nonisolated extension AcpmuxPaneMethods {
         // validates them against those blocks and keeps them out of the agent's request.
         // `promptSuggestion: "taken"`: the person sent the suggested next prompt (direct.ts, #34496);
         // acpmux only counts it taken for the suggestion gate (suggestion_gate.rs marked_taken).
-        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt", "context", "surface", "inlineParts", "promptSuggestion"]),
+        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt", "context", "surface", "inlineParts", "promptSuggestion", "askLedger"]),
         "session/set_model": (["sessionId", "modelId"], []),
         "session/cancel": (["sessionId"], []),
         // `limit`: the newest page of the session list, the rest by `_acpmux/sessions` `cursor` (cx-2lv1k).
@@ -160,6 +160,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/memory_resolve": (["sessionId", "offerId", "file", "accept", "dismiss"], []),
         "_acpmux/context": (["sessionId"], []),
         "_acpmux/ledger": (["since", "until", "limit", "groupBy"], []),
+        "_acpmux/ask_ledger": ([], []),
         "_acpmux/team_audit": (["since", "until", "groupBy", "format"], []),
         "_acpmux/review_queue": (["localOnly", "limit"], []),
         "_acpmux/review_verdict": (["prUrl", "sessionId", "verdict", "comment"], []),
