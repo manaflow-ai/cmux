@@ -39,6 +39,17 @@ enum OmnibarStyle {
         let snapped = (row * pixel).rounded() / pixel
         return snapped.isFinite ? max(gap, snapped) : gap
     }
+    /// The omnibar row's gap above the bar, from the tab pills over it: the density's `tabToOmnibarGap` when it sets one
+    /// (Compact's 1 pt over its strip padding, Lucas 2026-11-20: "give compact 1 more px of bottom padding below the tab"),
+    /// never less than ``chromeGap(scale:)``, else ``rowGap(scale:underStrip:)``. Only under a strip right above, as the
+    /// row gap; on `scale`'s pixel grid.
+    static func rowTopGap(scale: CGFloat, underStrip: Bool) -> CGFloat {
+        let row = rowGap(scale: scale, underStrip: underStrip)
+        guard underStrip, DesignSettings.shared.paneChrome.padding == nil, let top = token("tabToOmnibarGap") else { return row }
+        let pixel = max(scale, 1)
+        let snapped = (top * pixel).rounded() / pixel
+        return snapped.isFinite ? max(chromeGap(scale: scale), snapped) : row
+    }
     /// Space the toolbar leaves above the omnibar. The tab strip above
     /// already ends `chromeGap` below its pills (`PaneChromeMetrics`), so
     /// the omnibar starts what ``rowGap(scale:underStrip:)`` adds to that below the
@@ -49,7 +60,7 @@ enum OmnibarStyle {
     /// (Lawrence 2026-10-19: the space above the omnibar row equals the
     /// space below it). With no strip right above (`underStrip` false) the row is as it was before Default's Chrome gap.
     static func toolbarTopPadding(scale: CGFloat, underStrip: Bool = false) -> CGFloat {
-        let row = rowGap(scale: scale, underStrip: underStrip)
+        let row = rowTopGap(scale: scale, underStrip: underStrip)
         guard Metrics.paneBorder == .subtle else { return row - chromeGap(scale: scale) }
         return (Metrics.paneBorderWidth ?? 1 / max(scale, 1)) + row
     }
