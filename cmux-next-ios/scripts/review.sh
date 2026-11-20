@@ -135,7 +135,7 @@ NO_PHONE=0
 REPORT_MAC="not built"
 REPORT_SIM="not run"
 MAC_JOB="" SIM_STEP="" SHA=""
-STATE="" TAG_STATE="" MAC_APP="" MAC_SOCKET="" MAC_DEVICE_ID=""
+STATE="" TAG_STATE="" MAC_APP="" MAC_SOCKET="" MAC_DEVICE_ID="" MAC_BUILD_SPACE=""
 # The phones that passed, as " udid udid " (a string, so an empty set needs no array expansion,
 # which aborts under set -u on macOS's bash 3.2).
 PASSED_PHONES=" "
@@ -219,9 +219,18 @@ fleet_submit_mac() {
       return 0
     fi
   fi
-  local out
+  local out builder=()
+  # A head whose app FFI sources are ahead of app-ffi-pin.json (the normal state for up to an hour
+  # after every FFI commit, until app-ffi-release.yml re-pins) builds only on a Mac: `--builder auto`
+  # sends it to the Linux pool, which cannot build the FFI from source and fails ("stale FFI", job
+  # 9fa436759cd7bb0f72e3e928 at 0e6e7019af, 2026-11-19). The check is a git diff, no build.
+  if ! "${CNX_REVIEW_FFI_PIN_CHECK:-$REPO_ROOT/scripts/cmux-next/check-app-ffi-pin.sh}" >/dev/null 2>&1; then
+    echo "==> Mac build: the app FFI pin is behind its sources at ${SHA:0:12}, so it builds on a Mac (--builder mac)"
+    builder=(--builder mac --reason "review.sh: the app FFI pin is behind its sources; the Linux pool cannot build the FFI")
+  fi
   # cmux-next needs no shared dev backend (AGENTS.md): the tag's own local mode.
-  out="$(cmux_ci build cmux --ref "$SHA" --tag "$SLUG" --workspace "$WORKSPACE" --backend-mode local)" || { REPORT_MAC="BLOCKED: cmux-ci build cmux was refused"; return 1; }
+  out="$(cmux_ci build cmux --ref "$SHA" --tag "$SLUG" --workspace "$WORKSPACE" --backend-mode local ${builder[@]+"${builder[@]}"})" ||
+    { REPORT_MAC="BLOCKED: cmux-ci build cmux was refused"; return 1; }
   MAC_JOB="$(printf '%s' "$out" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')" ||
     { REPORT_MAC="BLOCKED: cmux-ci build cmux printed no job id"; return 1; }
   printf '%s\n' "$MAC_JOB" >"$STATE/cmux-job"
@@ -468,6 +477,12 @@ mac_start() {
     mac_py wait-socket "$MAC_SOCKET" --timeout 120 ||
       { REPORT_MAC="$REPORT_MAC; BLOCKED: the tagged Mac app never answered on its control socket"; return 1; }
   fi
+  # The cloud data space the tagged Mac's requests and hostd carry: every phone receipt must name it, or
+  # the phone lists none of this Mac's devices (and another space's Macs instead).
+  MAC_BUILD_SPACE="$(mac_py space "$MAC_APP")" ||
+    { REPORT_MAC="$REPORT_MAC; BLOCKED: could not read the tagged Mac app's build space"; return 1; }
+  [[ "$MAC_BUILD_SPACE" == dev:* ]] ||
+    { REPORT_MAC="$REPORT_MAC; BLOCKED: the tagged Mac app has no build space of its own (${MAC_BUILD_SPACE:-the default space})"; return 1; }
   local account
   account="$(mac_py account "$MAC_SOCKET" --timeout 120)" ||
     { REPORT_MAC="$REPORT_MAC; BLOCKED: the tagged Mac app is not signed in (it signs in from ~/.secrets/cmuxterm-dev.env as ~/.config/cmux/dev-account)"; return 1; }
@@ -538,7 +553,8 @@ phone_launch_and_check() {
       rc=0
       verdict="$(/usr/bin/python3 -I "$SCRIPT_DIR/handoff_receipt.py" check "$receipt" --nonce "$nonce" \
         --client-id "$client" --bundle-id "$BUNDLE_ID" --account "$PERSONAL_ACCOUNT" --session "$session" \
-        --mac-id "$mac_id" --git-sha "$SHA" --dev-tag "$SLUG" --cloud-backend "${BACKEND_URL:-default}")" || rc=$?
+        --mac-id "$mac_id" --git-sha "$SHA" --dev-tag "$SLUG" --cloud-backend "${BACKEND_URL:-default}" \
+        ${MAC_BUILD_SPACE:+--build-space "$MAC_BUILD_SPACE"})" || rc=$?
       [[ $rc -eq 1 ]] || break
     else
       rc=1 verdict="no readiness receipt yet"
