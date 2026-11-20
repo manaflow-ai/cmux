@@ -779,7 +779,8 @@ fn on_a_machine_of_ones_own_only_the_owners_connections_use_file_ops() {
     use cmux_link::token::VmKind;
     let kinds = [None, Some(None), Some(Some(VmKind::Team)), Some(Some(VmKind::Owner))];
     for kind in kinds {
-        let owner = matches!(kind, None | Some(Some(VmKind::Owner)));
+        // Unstamped (`None`) is refused too: a bridge may open the socket for a remote member.
+        let owner = kind == Some(Some(VmKind::Owner));
         assert_eq!(transport_allows_fs_in(true, ClientTransport::Unix, kind), owner, "{kind:?}");
         assert_eq!(
             transport_allows_fs_in(true, ClientTransport::Remote, kind),

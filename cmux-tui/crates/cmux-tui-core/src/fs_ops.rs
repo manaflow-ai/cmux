@@ -86,20 +86,28 @@ pub fn install(service: FsService) -> bool {
 }
 
 /// Installs the daemon's file owner for `scope` (once per process; a second
-/// call is ignored and returns false).
+/// call is ignored and returns false). The scope is published before the
+/// service: a request that overlaps daemon start finds no scope (refused) or
+/// the final one, never a service under a looser policy than its own.
 pub fn install_scoped(service: FsService, scope: Scope) -> bool {
-    if SERVICE.set(service).is_err() {
+    if SCOPE.set(scope).is_err() || SERVICE.set(service).is_err() {
         return false;
     }
-    let _ = SCOPE.set(scope);
     true
 }
 
-/// True when the installed file owner serves the machine owner's connections only
-/// ([`Scope::Owner`]).
+/// The installed file owner's scope; `None` before (or without) one.
+#[must_use]
+pub fn scope() -> Option<Scope> {
+    SCOPE.get().copied()
+}
+
+/// True unless a Cloud host's file owner is installed: before a scope is
+/// published, and on a machine of one's own ([`Scope::Owner`]), only the
+/// machine owner's connections pass (fail closed).
 #[must_use]
 pub fn owner_only() -> bool {
-    SCOPE.get() == Some(&Scope::Owner)
+    scope() != Some(Scope::Cloud)
 }
 
 /// The installed owner, when this daemon serves `fs-v1`.

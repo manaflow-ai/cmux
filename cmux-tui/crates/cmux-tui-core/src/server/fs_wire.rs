@@ -146,8 +146,12 @@ pub(super) fn try_handle(
 /// True for a trusted local or a remote-entry connection. A poisoned
 /// registry lock refuses (fail closed).
 pub(super) fn transport_allows_fs(mux: &Mux, client: u64) -> bool {
-    let owner_only = crate::fs_ops::owner_only();
-    if !owner_only {
+    // No scope yet: no file owner is serving, so nothing may use one (fail closed). The scope is
+    // published before the service and never changes, so this check and the dispatch agree.
+    let Some(scope) = crate::fs_ops::scope() else {
+        return false;
+    };
+    if scope == crate::fs_ops::Scope::Cloud {
         // A Cloud host: the transport alone, from the published facts.
         return mux
             .control_clients
@@ -162,8 +166,10 @@ pub(super) fn transport_allows_fs(mux: &Mux, client: u64) -> bool {
 }
 
 /// The local socket and the link's remote entry may use file ops. On a machine of the person's own
-/// ([`crate::fs_ops::owner_only`]) only the owner's connections may: the local socket unstamped
-/// (same user) or stamped owner by the carrier, and a remote dial signed for the owner.
+/// ([`crate::fs_ops::owner_only`]) only the owner's connections may: the local socket stamped
+/// owner by the carrier, and a remote dial signed for the owner. An unstamped local connection is
+/// refused there: a bridge (a trusted-network WebSocket's `mux-control`) may open the socket for
+/// a remote member with no owner grant and no stamp.
 pub(super) fn transport_allows_fs_in(
     owner_only: bool,
     transport: ClientTransport,
@@ -171,7 +177,7 @@ pub(super) fn transport_allows_fs_in(
 ) -> bool {
     use cmux_link::token::VmKind;
     match transport {
-        ClientTransport::Unix => !owner_only || matches!(vm_kind, None | Some(Some(VmKind::Owner))),
+        ClientTransport::Unix => !owner_only || vm_kind == Some(Some(VmKind::Owner)),
         ClientTransport::Remote => !owner_only || vm_kind == Some(Some(VmKind::Owner)),
         _ => false,
     }

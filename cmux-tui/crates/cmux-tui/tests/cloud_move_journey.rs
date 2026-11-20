@@ -298,6 +298,8 @@ fn a_fresh_image_vm_serves_fs_v1_from_the_baked_env_and_the_bound_id() {
     let mac = Machine::start(&root, "mac", Vec::new());
     let vm = Machine::start(&root, "vm", seam);
     assert!(advertises(&vm, "fs-v1"), "a fresh image VM does not serve fs-v1");
+    // Owner scope also serves fs-v1: the bound VM must be a Cloud host.
+    assert!(advertises(&vm, "access-request-v1"), "a bound VM is a Cloud host");
     assert!(
         !vm.home().join(".config/cmux/model-plane.env").exists(),
         "the daemon must not write a per-home model-plane.env (it would shadow the image's)"
