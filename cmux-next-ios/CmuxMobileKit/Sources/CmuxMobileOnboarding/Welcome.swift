@@ -204,28 +204,17 @@ public struct WelcomeView: View {
                     .opacity(controls)
                     .accessibilityAddTraits(.isHeader)
             }
-        case .lockup:
-            WelcomeHeroLockup(t: heroT) { markSlot(size: WelcomeHeroLockup<EmptyView>.markSize) }
-                .opacity(fade)
-        case .prompt:
-            WelcomeHeroPrompt(t: heroT, blinks: cursorBlinks) { markSlot(size: WelcomeHeroPrompt<EmptyView>.markSize) }
-                .opacity(fade)
-        case .cells:
-            WelcomeHeroCells(t: heroT).opacity(fade)
-        case .banner:
-            WelcomeHeroBanner(t: heroT).opacity(fade)
-        case .poster:
-            WelcomeHeroPoster(t: heroT).opacity(fade)
+        case .raster:
+            WelcomeHeroRaster(t: heroT).opacity(fade)
+        case .draft:
+            WelcomeHeroDraft(t: heroT).opacity(fade)
+        case .keys:
+            WelcomeHeroKeys(t: heroT).opacity(fade)
+        case .circuit:
+            WelcomeHeroCircuit(t: heroT).opacity(fade)
+        case .tube:
+            WelcomeHeroTube(t: heroT).opacity(fade)
         }
-    }
-
-    /// The Prompt direction's cursor blinks, except under Reduce Motion and
-    /// in a frozen (verification) capture.
-    private var cursorBlinks: Bool {
-        #if DEBUG
-        if WelcomeIntroClock.debugFreeze != nil { return false }
-        #endif
-        return !reduceMotion
     }
 
     // MARK: Lockup

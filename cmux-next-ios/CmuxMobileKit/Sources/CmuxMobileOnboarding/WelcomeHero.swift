@@ -1,61 +1,63 @@
 #if os(iOS)
 import CmuxMobileDesign
+import CoreText
 import SwiftUI
+import UIKit
 
 private let theme = CmuxMobileTheme.standard
 
-/// Prototype, round 2: directions for the welcome's top section, after
-/// Conductor's sign-in (one wordmark in the middle, one gray line under it,
-/// nothing at the top). The sign-in rows and the legal line are the same in
-/// every variant. `now` is the shipped design: Release shows it until a
-/// direction is picked; then the picked one replaces it and the rest of this
-/// file, the picker and the enum go (prototype skill, phase 6).
+/// Prototype, round 3: directions for the welcome's top section. Each draws
+/// its own "cmux" wordmark (no stock font set as is), leads with the app
+/// icon's chevron in its gradient (the only colour on the page) and has its
+/// own reveal; one gray line under it, nothing at the top. The sign-in rows
+/// and the legal line are the same in every variant. `now` is the shipped
+/// design: Release shows it until a direction is picked; then the picked one
+/// replaces it and the rest of this file, the picker and the enum go
+/// (prototype skill, phase 6).
 enum WelcomeHeroVariant: Int, CaseIterable, Identifiable, Sendable {
     /// Today: lockup at the top, Mac and phone line art, one line.
     case now
-    /// The cmux lockup, large, alone in the middle.
-    case lockup
-    /// A shell prompt: the chevron, "cmux" in SF Mono, a block cursor.
-    case prompt
-    /// "cmux" drawn in terminal cells, the chevron leading in its gradient.
-    case cells
-    /// A figlet-style terminal banner (block letters with a line shadow).
-    case banner
-    /// Type only: "cmux" in SF Pro Expanded Black, edge to edge.
-    case poster
+    /// Heavy type cut into scan lines that thicken toward the baseline,
+    /// painted line by line.
+    case raster
+    /// A geometric monoline drawn over its own construction (guides,
+    /// circles, the chevron's triangle), pen stroke by pen stroke.
+    case draft
+    /// Five keycaps: c, m, u, x are typed, then the chevron key lights.
+    case keys
+    /// Circuit traces with 45° corners and pads; the current runs letter by letter.
+    case circuit
+    /// One hollow tube, lit like a sign: the letters flicker on in turn.
+    case tube
 
     var id: Int { rawValue }
 
     var name: String {
         switch self {
         case .now: "Now"
-        case .lockup: "Lockup"
-        case .prompt: "Prompt"
-        case .cells: "Cells"
-        case .banner: "Banner"
-        case .poster: "Poster"
+        case .raster: "Raster"
+        case .draft: "Draft"
+        case .keys: "Keys"
+        case .circuit: "Circuit"
+        case .tube: "Tube"
         }
     }
 
     /// The variants the picker offers (today's design is in the report, not the pill).
-    static let directions: [WelcomeHeroVariant] = [.lockup, .prompt, .cells, .banner, .poster]
+    static let directions: [WelcomeHeroVariant] = [.raster, .draft, .keys, .circuit, .tube]
 
     /// The launch screen's chevron glides into this variant's own chevron;
-    /// otherwise it dissolves in place while the wordmark comes in.
-    var carriesMark: Bool {
-        switch self {
-        case .now, .lockup, .prompt: true
-        case .cells, .banner, .poster: false
-        }
-    }
+    /// otherwise it dissolves in place while the wordmark comes in. Every
+    /// direction draws its chevron as part of the mark.
+    var carriesMark: Bool { self == .now }
 
     /// How long the variant's entrance runs (the welcome's timeline stays awake that long).
     var entranceDuration: Double {
         switch self {
         case .now: WelcomeArt.introDuration + 0.1
-        case .lockup, .poster: 0.9
-        case .prompt: 1.2
-        case .cells, .banner: 1.0
+        case .raster: 1.0
+        case .circuit: 1.2
+        case .draft, .keys, .tube: 1.3
         }
     }
 
@@ -76,7 +78,7 @@ enum WelcomeHeroVariant: Int, CaseIterable, Identifiable, Sendable {
         #endif
     }
 
-    static let storeKey = "cmuxMobile.prototype.welcomeHero.v2"
+    static let storeKey = "cmuxMobile.prototype.welcomeHero.v3"
 }
 
 /// The tagline every direction shares, so the comparison is about the mark.
@@ -102,6 +104,164 @@ private enum ChevronGradient {
                      green: start.green + (end.green - start.green) * x,
                      blue: start.blue + (end.blue - start.blue) * x)
     }
+
+    /// The gradient from `a` (cyan) to `b` (indigo), for a Canvas.
+    static func shading(from a: CGPoint, to b: CGPoint) -> GraphicsContext.Shading {
+        .linearGradient(Gradient(colors: [color(at: 0), color(at: 1)]), startPoint: a, endPoint: b)
+    }
+}
+
+/// The app icon's chevron, filled: `height` tall, 0.72 × `height` wide.
+private enum Chevron {
+    static let aspect: CGFloat = 0.72
+
+    static func path(x: CGFloat, y: CGFloat, height h: CGFloat) -> Path {
+        let corners: [(CGFloat, CGFloat)] = [(0, 0), (0.72, 0.5), (0, 1), (0, 0.76), (0.38, 0.5), (0, 0.24)]
+        var path = Path()
+        path.addLines(corners.map { CGPoint(x: x + $0.0 * h, y: y + $0.1 * h) })
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// An sRGB colour from `0xRRGGBB`.
+private func rgb(_ hex: UInt32, _ alpha: Double = 1) -> Color {
+    Color(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255,
+          blue: Double(hex & 0xFF) / 255, opacity: alpha)
+}
+
+private extension Path {
+    /// An arc sampled as short lines, angles in degrees with y down (90 is
+    /// straight down), so its direction never hangs on what `clockwise`
+    /// means in flipped coordinates.
+    mutating func addSampledArc(center: CGPoint, radius: CGFloat, from a: Double, to b: Double) {
+        let steps = max(8, Int(abs(b - a) / 3))
+        for i in 0...steps {
+            let angle = (a + (b - a) * Double(i) / Double(steps)) * .pi / 180
+            let point = CGPoint(x: center.x + radius * CGFloat(cos(angle)), y: center.y + radius * CGFloat(sin(angle)))
+            if let current = currentPoint {
+                if i > 0 || hypot(current.x - point.x, current.y - point.y) > 0.0001 { addLine(to: point) }
+            } else {
+                move(to: point)
+            }
+        }
+    }
+}
+
+/// Text as outlines in the system font (CoreText), so a mark built from it
+/// clips and animates as paths. Baseline at y = 0, y down.
+private struct GlyphOutline: Sendable {
+    var path: Path
+    var xHeight: CGFloat
+
+    static func make(_ text: String, size: CGFloat, weight: UIFont.Weight, tracking: CGFloat = 0) -> GlyphOutline {
+        let font = UIFont.systemFont(ofSize: size, weight: weight) as CTFont
+        let characters = Array(text.utf16)
+        var glyphs = [CGGlyph](repeating: 0, count: characters.count)
+        _ = CTFontGetGlyphsForCharacters(font, characters, &glyphs, characters.count)
+        var advances = [CGSize](repeating: .zero, count: glyphs.count)
+        _ = CTFontGetAdvancesForGlyphs(font, .horizontal, glyphs, &advances, glyphs.count)
+        var path = Path()
+        var x: CGFloat = 0
+        for (glyph, advance) in zip(glyphs, advances) {
+            if let outline = CTFontCreatePathForGlyph(font, glyph, nil) {
+                path.addPath(Path(outline), transform: CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: x, ty: 0))
+            }
+            x += advance.width + tracking
+        }
+        return GlyphOutline(path: path, xHeight: CTFontGetXHeight(font))
+    }
+}
+
+/// A geometric monoline "cmux" (lowercase, x-height only) on its centerline,
+/// in units of the x-height: y 0 is the x-height line, 1 the baseline. `w` is
+/// the stroke width. Butt-capped stems run to the guide lines (the x is cut
+/// flat there); round caps stop half a stroke short so the caps land on them.
+private struct Monoline: Sendable {
+    struct Glyph: Sendable {
+        var path: Path
+        var width: CGFloat
+        /// Its construction (Draft): the circles behind bowls and arches, the x's diagonal.
+        var guides: Path
+        /// Its diagonals run past the guide lines: draw it clipped to the band.
+        var clipsToBand = false
+    }
+
+    var glyphs: [Glyph]
+
+    init(stroke w: CGFloat, roundCaps: Bool) {
+        let h = w / 2
+        let inset = roundCaps ? h : 0
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x, y: y) }
+        func circle(_ c: CGPoint, _ r: CGFloat) -> Path { Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)) }
+
+        // c: a circle open on the right, its ends 50° off the horizontal.
+        let r = 0.5 - h
+        var c = Path()
+        c.addSampledArc(center: p(0.5, 0.5), radius: r, from: -50, to: -310)
+        let cWidth = 0.5 + r * CGFloat(cos(50 * Double.pi / 180)) + h
+
+        // m: two half-circle arches on three stems.
+        let mWidth: CGFloat = 1.22
+        let x0 = h, x2 = mWidth - h, ra = (x2 - x0) / 4, x1 = x0 + 2 * ra, archY = h + ra
+        var m = Path()
+        m.move(to: p(x0, 1 - inset))
+        m.addLine(to: p(x0, archY))
+        m.addSampledArc(center: p(x0 + ra, archY), radius: ra, from: 180, to: 360)
+        m.addLine(to: p(x1, 1 - inset))
+        m.move(to: p(x1, archY))
+        m.addSampledArc(center: p(x1 + ra, archY), radius: ra, from: 180, to: 360)
+        m.addLine(to: p(x2, 1 - inset))
+        var mGuides = circle(p(x0 + ra, archY), ra)
+        mGuides.addPath(circle(p(x1 + ra, archY), ra))
+
+        // u: a half-circle bowl; the right stem runs on to the baseline.
+        let uWidth: CGFloat = 0.74
+        let u0 = h, u1 = uWidth - h, ru = (u1 - u0) / 2, bowlY = 1 - h - ru
+        var u = Path()
+        u.move(to: p(u0, inset))
+        u.addLine(to: p(u0, bowlY))
+        u.addSampledArc(center: p(u0 + ru, bowlY), radius: ru, from: 180, to: 0)
+        u.addLine(to: p(u1, inset))
+        u.move(to: p(u1, bowlY))
+        u.addLine(to: p(u1, 1 - inset))
+
+        // x: two diagonals.
+        let xWidth: CGFloat = 0.78
+        var x = Path()
+        var xGuides = Path()
+        if roundCaps {
+            x.move(to: p(h, h)); x.addLine(to: p(xWidth - h, 1 - h))
+            x.move(to: p(xWidth - h, h)); x.addLine(to: p(h, 1 - h))
+        } else {
+            // The centerline meets the guides `a` in from the sides, and runs
+            // `over` past them, to be cut flat by the band.
+            let a = h * 1.15, run = xWidth - 2 * a, over: CGFloat = 0.2
+            x.move(to: p(a - run * over, -over)); x.addLine(to: p(xWidth - a + run * over, 1 + over))
+            x.move(to: p(xWidth - a + run * over, -over)); x.addLine(to: p(a - run * over, 1 + over))
+            xGuides.move(to: p(a - run * 0.36, -0.36)); xGuides.addLine(to: p(xWidth - a + run * 0.36, 1.36))
+        }
+
+        glyphs = [
+            Glyph(path: c, width: cWidth, guides: circle(p(0.5, 0.5), r)),
+            Glyph(path: m, width: mWidth, guides: mGuides),
+            Glyph(path: u, width: uWidth, guides: circle(p(u0 + ru, bowlY), ru)),
+            Glyph(path: x, width: xWidth, guides: xGuides, clipsToBand: !roundCaps),
+        ]
+    }
+
+    /// Each glyph's left edge, `gap` apart.
+    func offsets(gap: CGFloat) -> [CGFloat] {
+        var x: CGFloat = 0
+        return glyphs.map { glyph in
+            defer { x += glyph.width + gap }
+            return x
+        }
+    }
+
+    func width(gap: CGFloat) -> CGFloat {
+        glyphs.reduce(0) { $0 + $1.width } + gap * CGFloat(glyphs.count - 1)
+    }
 }
 
 /// A direction's wordmark and the tagline under it, with the shared entrance:
@@ -126,259 +286,423 @@ private struct HeroStack<Mark: View>: View {
     }
 }
 
-// MARK: Lockup
+// MARK: Raster
 
-/// The cmux lockup, large and alone: the launch chevron glides into `slot`,
-/// the wordmark slides in beside it.
-struct WelcomeHeroLockup<Slot: View>: View {
-    var t: Double
-    @ViewBuilder var slot: () -> Slot
-
-    static var markSize: CGFloat { 46 }
-
-    var body: some View {
-        let word = IntroEase.outQuint(IntroEase.seg(t, 0.2, 0.6))
-        HeroStack(t: t, taglineAt: 0.35, spacing: 16, name: WelcomeHeroVariant.lockup.name) {
-            HStack(spacing: 12) {
-                slot()
-                Text(verbatim: "cmux")
-                    .font(.system(size: 56, weight: .bold))
-                    .tracking(-1.6)
-                    .foregroundStyle(theme.colors.label)
-                    .opacity(word)
-                    .offset(x: -10 * (1 - word))
-            }
-            // The chevron's glow sits left of the slot: center the letters, not the box.
-            .offset(x: -4)
-        }
-    }
-}
-
-// MARK: Prompt
-
-/// A shell prompt: the chevron (the launch mark glides into `slot`), "cmux"
-/// typed one letter at a time in SF Mono, and a block cursor that then blinks.
-struct WelcomeHeroPrompt<Slot: View>: View {
-    var t: Double
-    /// The cursor blinks after typing (not under Reduce Motion or a frozen capture).
-    var blinks: Bool
-    @ViewBuilder var slot: () -> Slot
-
-    static var markSize: CGFloat { 38 }
-    // Computed: a generic type cannot hold static stored properties.
-    private static var word: [Character] { Array("cmux") }
-    private static var typeStart: Double { 0.45 }
-    private static var typeStep: Double { 0.075 }
-    private static var cursor: Color { Color(red: 0.18, green: 0.56, blue: 1.0) }
-
-    var body: some View {
-        let typed = Self.word.indices.filter { t >= Self.typeStart + Double($0) * Self.typeStep }.count
-        HeroStack(t: t, taglineAt: 0.8, spacing: 18, name: WelcomeHeroVariant.prompt.name) {
-            HStack(spacing: 14) {
-                slot()
-                HStack(spacing: 0) {
-                    ForEach(Array(0...Self.word.count), id: \.self) { i in
-                        // One fixed cell per letter plus one for the resting
-                        // cursor, so typing never moves anything. The cursor is
-                        // an overlay so it takes the letter cell's size (a bare
-                        // shape in the stack would take all the space offered).
-                        Text(verbatim: i < Self.word.count ? String(Self.word[i]) : "x")
-                            .opacity(i < typed ? 1 : 0)
-                            .overlay {
-                                if i == typed { cursorBlock(typing: typed < Self.word.count) }
-                            }
-                    }
-                }
-                .font(.system(size: 46, weight: .semibold, design: .monospaced))
-                .foregroundStyle(theme.colors.label)
-            }
-            // Optical center: the empty cursor cell is weightless.
-            .offset(x: 10)
-        }
-    }
-
-    @ViewBuilder
-    private func cursorBlock(typing: Bool) -> some View {
-        if blinks && !typing {
-            TimelineView(.periodic(from: .now, by: 0.53)) { context in
-                let on = Int(context.date.timeIntervalSinceReferenceDate / 0.53).isMultiple(of: 2)
-                block.opacity(on ? 1 : 0)
-            }
-        } else {
-            block.opacity(t >= Self.typeStart - 0.15 ? 1 : 0)
-        }
-    }
-
-    private var block: some View {
-        RoundedRectangle(cornerRadius: 2, style: .continuous)
-            .fill(Self.cursor)
-            .padding(.vertical, 6)
-            .padding(.horizontal, 1)
-    }
-}
-
-// MARK: Cells
-
-/// "cmux" set in terminal cells on a 5-row grid (lowercase, x-height only),
-/// the chevron leading in the icon's gradient. The columns light left to right.
-struct WelcomeHeroCells: View {
+/// "cmux" in SF Pro Black after the chevron, both cut into eight scan lines
+/// across the x-height that thicken toward the baseline. The lines paint left
+/// to right, top to bottom.
+struct WelcomeHeroRaster: View {
     var t: Double
 
-    /// One column per entry; nil is an empty spacer column.
-    private static let columns: [(glyph: Character, bits: [Bool])?] = {
-        let glyphs: [Character: [String]] = [
-            ">": ["#..", ".#.", "..#", ".#.", "#.."],
-            "c": [".###", "#...", "#...", "#...", ".###"],
-            "m": ["####.", "#.#.#", "#.#.#", "#.#.#", "#.#.#"],
-            "u": ["#..#", "#..#", "#..#", "#..#", ".###"],
-            "x": ["#...#", ".#.#.", "..#..", ".#.#.", "#...#"],
-        ]
-        var out: [(glyph: Character, bits: [Bool])?] = []
-        for (n, ch) in Array(">cmux").enumerated() {
-            if n == 1 { out += [nil, nil] } else if n > 1 { out.append(nil) }
-            let rows = glyphs[ch] ?? []
-            for c in 0..<(rows.first?.count ?? 0) {
-                out.append((ch, rows.map { Array($0)[c] == "#" }))
-            }
-        }
-        return out
-    }()
+    private static let word = GlyphOutline.make("cmux", size: 100, weight: .black, tracking: -2)
+    private static var lines: Int { 8 }
 
     var body: some View {
-        let columns = Self.columns
-        HeroStack(t: t, taglineAt: 0.6, spacing: 20, name: WelcomeHeroVariant.cells.name) {
+        let word = Self.word
+        let lines = Self.lines
+        let xHeight = word.xHeight
+        let ink = word.path.boundingRect
+        let chevronWidth = xHeight * Chevron.aspect
+        let gap = xHeight * 0.32
+        let width = chevronWidth + gap + ink.width
+        HeroStack(t: t, taglineAt: 0.7, spacing: 22, name: WelcomeHeroVariant.raster.name) {
             Canvas { context, size in
-                let pitch = size.width / CGFloat(columns.count)
-                let cell = pitch * 0.84
-                let label = context.resolve(GraphicsContext.Shading.color(theme.colors.label.color))
-                for (x, column) in columns.enumerated() {
-                    guard let column else { continue }
-                    let lit = IntroEase.out(IntroEase.seg(t, 0.1 + Double(x) * 0.016, 0.24 + Double(x) * 0.016))
-                    guard lit > 0 else { continue }
-                    let shading: GraphicsContext.Shading = column.glyph == ">" ? .color(ChevronGradient.color(at: Double(x) / 2)) : label
-                    for (y, on) in column.bits.enumerated() where on {
-                        let rect = CGRect(x: CGFloat(x) * pitch, y: CGFloat(y) * pitch, width: cell, height: cell)
-                        context.opacity = lit
-                        context.fill(Path(roundedRect: rect, cornerRadius: pitch * 0.16, style: .continuous), with: shading)
-                    }
+                typealias E = IntroEase
+                let scale = size.width / width
+                let pitch = size.height / CGFloat(lines)
+                var scan = Path()
+                for i in 0..<lines {
+                    let start = 0.08 + 0.045 * Double(i)
+                    let painted = E.outQuint(E.seg(t, start, start + 0.42))
+                    guard painted > 0 else { continue }
+                    let thickness = pitch * (0.34 + 0.5 * CGFloat(i) / CGFloat(lines - 1))
+                    scan.addRect(CGRect(x: 0, y: CGFloat(i + 1) * pitch - thickness, width: size.width * painted, height: thickness))
                 }
+                guard !scan.isEmpty else { return }
+                context.clip(to: scan)
+                let chevron = Chevron.path(x: 0, y: 0, height: size.height)
+                context.fill(chevron, with: ChevronGradient.shading(from: .zero, to: CGPoint(x: size.height * Chevron.aspect, y: 0)))
+                let place = CGAffineTransform(scaleX: scale, y: scale).translatedBy(x: chevronWidth + gap - ink.minX, y: xHeight)
+                context.fill(word.path.applying(place), with: .color(theme.colors.label.color))
             }
-            .aspectRatio(CGFloat(columns.count) / 5, contentMode: .fit)
-            .frame(maxWidth: 300)
+            .aspectRatio(width / xHeight, contentMode: .fit)
+            .frame(maxWidth: 296)
             .padding(.horizontal, 40)
         }
     }
 }
 
-// MARK: Banner
+// MARK: Draft
 
-/// A terminal banner (figlet "ANSI Shadow"): block letters with a double-line
-/// shadow, drawn cell by cell (no font fallback can misalign it). Rows print
-/// top to bottom.
-struct WelcomeHeroBanner: View {
+/// A geometric monoline "cmux" drawn over its construction: the x-height,
+/// middle and baseline guides run edge to edge with ticks at each glyph's
+/// sides, circles sit behind the bowls and arches, the chevron shows its
+/// triangle and angle. Guides grow first, then each letter is drawn in pen
+/// order.
+struct WelcomeHeroDraft: View {
     var t: Double
 
-    private static let rows: [[Character]] = [
-        " ██████╗███╗   ███╗██╗   ██╗██╗  ██╗",
-        "██╔════╝████╗ ████║██║   ██║╚██╗██╔╝",
-        "██║     ██╔████╔██║██║   ██║ ╚███╔╝ ",
-        "██║     ██║╚██╔╝██║██║   ██║ ██╔██╗ ",
-        "╚██████╗██║ ╚═╝ ██║╚██████╔╝██╔╝ ██╗",
-        " ╚═════╝╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═╝",
-    ].map(Array.init)
+    private static var weight: CGFloat { 0.24 }
+    private static let mono = Monoline(stroke: 0.24, roundCaps: false)
 
     var body: some View {
-        let rows = Self.rows
-        let columns = rows.map(\.count).max() ?? 1
-        HeroStack(t: t, taglineAt: 0.55, spacing: 22, name: WelcomeHeroVariant.banner.name) {
+        let mono = Self.mono
+        let weight = Self.weight
+        HeroStack(t: t, taglineAt: 0.95, spacing: 8, name: WelcomeHeroVariant.draft.name) {
             Canvas { context, size in
-                let w = size.width / CGFloat(columns)
-                let h = size.height / CGFloat(rows.count)
-                let gap = w * 0.2
-                let stroke = StrokeStyle(lineWidth: max(1, w * 0.13), lineCap: .square)
-                let fill = context.resolve(GraphicsContext.Shading.color(theme.colors.label.color))
-                let shadow = context.resolve(GraphicsContext.Shading.color(theme.colors.label3.color))
-                // The shadow colour is translucent, so separate strokes would
-                // darken wherever their caps overlap at a cell edge: rows that
-                // have fully appeared share one stroke and one fill, and only
-                // rows still fading in are drawn on their own.
-                var settledBlocks = Path()
-                var settledShade = Path()
-                for (r, row) in rows.enumerated() {
-                    let shown = IntroEase.out(IntroEase.seg(t, 0.1 + Double(r) * 0.06, 0.2 + Double(r) * 0.06))
-                    guard shown > 0 else { continue }
-                    var blocks = Path()
-                    var shade = Path()
-                    func line(_ a: CGPoint, _ b: CGPoint) { shade.move(to: a); shade.addLine(to: b) }
-                    for (c, ch) in row.enumerated() {
-                        let x = CGFloat(c) * w, y = CGFloat(r) * h
-                        let cx = x + w / 2, cy = y + h / 2
-                        switch ch {
-                        case "█":
-                            // A hair larger so neighbouring blocks join with no seam.
-                            blocks.addRect(CGRect(x: x, y: y, width: w + 0.4, height: h + 0.4))
-                        case "═":
-                            line(CGPoint(x: x, y: cy - gap), CGPoint(x: x + w, y: cy - gap))
-                            line(CGPoint(x: x, y: cy + gap), CGPoint(x: x + w, y: cy + gap))
-                        case "║":
-                            line(CGPoint(x: cx - gap, y: y), CGPoint(x: cx - gap, y: y + h))
-                            line(CGPoint(x: cx + gap, y: y), CGPoint(x: cx + gap, y: y + h))
-                        case "╗":
-                            line(CGPoint(x: x, y: cy - gap), CGPoint(x: cx + gap, y: cy - gap)); line(CGPoint(x: cx + gap, y: cy - gap), CGPoint(x: cx + gap, y: y + h))
-                            line(CGPoint(x: x, y: cy + gap), CGPoint(x: cx - gap, y: cy + gap)); line(CGPoint(x: cx - gap, y: cy + gap), CGPoint(x: cx - gap, y: y + h))
-                        case "╔":
-                            line(CGPoint(x: x + w, y: cy - gap), CGPoint(x: cx - gap, y: cy - gap)); line(CGPoint(x: cx - gap, y: cy - gap), CGPoint(x: cx - gap, y: y + h))
-                            line(CGPoint(x: x + w, y: cy + gap), CGPoint(x: cx + gap, y: cy + gap)); line(CGPoint(x: cx + gap, y: cy + gap), CGPoint(x: cx + gap, y: y + h))
-                        case "╝":
-                            line(CGPoint(x: x, y: cy + gap), CGPoint(x: cx + gap, y: cy + gap)); line(CGPoint(x: cx + gap, y: cy + gap), CGPoint(x: cx + gap, y: y))
-                            line(CGPoint(x: x, y: cy - gap), CGPoint(x: cx - gap, y: cy - gap)); line(CGPoint(x: cx - gap, y: cy - gap), CGPoint(x: cx - gap, y: y))
-                        case "╚":
-                            line(CGPoint(x: x + w, y: cy + gap), CGPoint(x: cx - gap, y: cy + gap)); line(CGPoint(x: cx - gap, y: cy + gap), CGPoint(x: cx - gap, y: y))
-                            line(CGPoint(x: x + w, y: cy - gap), CGPoint(x: cx + gap, y: cy - gap)); line(CGPoint(x: cx + gap, y: cy - gap), CGPoint(x: cx + gap, y: y))
-                        default:
-                            break
-                        }
+                typealias E = IntroEase
+                let lead = Chevron.aspect + 0.3
+                let gap: CGFloat = 0.2
+                let offsets = mono.offsets(gap: gap).map { lead + $0 }
+                let total = lead + mono.width(gap: gap)
+                let u = min(62, (size.width - 56) / total, size.height / 1.9)
+                let ox = ((size.width - total * u) / 2).rounded()
+                let oy = ((size.height - u) / 2).rounded()
+                func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: ox + x * u, y: oy + y * u) }
+                func place(_ dx: CGFloat) -> CGAffineTransform { CGAffineTransform(a: u, b: 0, c: 0, d: u, tx: ox + dx * u, ty: oy) }
+                let guide = GraphicsContext.Shading.color(theme.colors.label3.color)
+                let hairline = StrokeStyle(lineWidth: 0.75)
+
+                // 1. The x-height, middle and baseline guides grow from the middle out.
+                let grow = E.outQuint(E.seg(t, 0, 0.45))
+                if grow > 0 {
+                    let mid = size.width / 2
+                    for (y, dashed) in [(CGFloat(0), false), (0.5, true), (1, false)] {
+                        var line = Path()
+                        line.move(to: CGPoint(x: mid * (1 - grow), y: oy + y * u))
+                        line.addLine(to: CGPoint(x: mid * (1 + grow), y: oy + y * u))
+                        context.stroke(line, with: guide, style: dashed ? StrokeStyle(lineWidth: 0.75, dash: [3, 4]) : hairline)
                     }
-                    if shown >= 1 {
-                        settledShade.addPath(shade)
-                        settledBlocks.addPath(blocks)
-                    } else {
-                        context.opacity = shown
-                        context.stroke(shade, with: shadow, style: stroke)
-                        context.fill(blocks, with: fill)
+                    var ticks = Path()
+                    // Ticks at the glyphs' sides, inside the mark (the labels sit at the ends).
+                    let sides: [CGFloat] = zip(offsets, mono.glyphs).flatMap { x, glyph in [x, x + glyph.width] }
+                    let edges: [CGFloat] = [Chevron.aspect] + sides.dropLast()
+                    for x in edges {
+                        ticks.move(to: p(x, -0.16)); ticks.addLine(to: p(x, 0))
+                        ticks.move(to: p(x, 1)); ticks.addLine(to: p(x, 1.16))
+                    }
+                    var faded = context
+                    faded.opacity = grow
+                    faded.stroke(ticks, with: guide, style: hairline)
+                    faded.draw(draftLabel("x-height"), at: CGPoint(x: 10, y: oy - 3), anchor: .bottomLeading)
+                    faded.draw(draftLabel("baseline"), at: CGPoint(x: 10, y: oy + u + 3), anchor: .topLeading)
+                }
+
+                // 2. The construction: circles, the x's diagonal, the chevron's triangle and angle.
+                let construct = E.out(E.seg(t, 0.15, 0.65))
+                if construct > 0 {
+                    var shapes = zip(offsets, mono.glyphs).map { $1.guides.applying(place($0)) }
+                    var triangle = Path()
+                    triangle.addLines([p(0, 0), p(Chevron.aspect, 0.5), p(0, 1)])
+                    triangle.closeSubpath()
+                    shapes.append(triangle)
+                    var angle = Path()
+                    angle.addSampledArc(center: p(Chevron.aspect, 0.5), radius: 0.27 * u, from: 145.2, to: 214.8)
+                    shapes.append(angle)
+                    for shape in shapes where !shape.isEmpty {
+                        context.stroke(shape.trimmedPath(from: 0, to: construct), with: guide, style: hairline)
                     }
                 }
-                context.opacity = 1
-                context.stroke(settledShade, with: shadow, style: stroke)
-                context.fill(settledBlocks, with: fill)
+
+                // 3. The chevron settles in, in its gradient.
+                let chevron = E.out(E.seg(t, 0.3, 0.55))
+                if chevron > 0 {
+                    var c = context
+                    c.opacity = chevron
+                    c.fill(Chevron.path(x: ox - 6 * (1 - chevron), y: oy, height: u),
+                           with: ChevronGradient.shading(from: p(0, 0), to: p(Chevron.aspect, 0)))
+                }
+
+                // 4. The letters, one after another, each in pen order.
+                let pen = StrokeStyle(lineWidth: weight * u, lineCap: .butt, lineJoin: .round)
+                for (i, (x, glyph)) in zip(offsets, mono.glyphs).enumerated() {
+                    let start = 0.4 + 0.11 * Double(i)
+                    let drawn = E.inOut(E.seg(t, start, start + 0.4))
+                    guard drawn > 0 else { continue }
+                    let stroke = glyph.path.applying(place(x)).trimmedPath(from: 0, to: drawn)
+                    var letter = context
+                    if glyph.clipsToBand {
+                        letter.clip(to: Path(CGRect(x: ox + (x - 0.5) * u, y: oy, width: (glyph.width + 1) * u, height: u)))
+                    }
+                    letter.stroke(stroke, with: .color(theme.colors.label.color), style: pen)
+                }
             }
-            // Terminal cells are twice as tall as wide.
-            .aspectRatio(CGFloat(columns) / (CGFloat(rows.count) * 2), contentMode: .fit)
-            .frame(maxWidth: 316)
-            .padding(.horizontal, 36)
+            .frame(height: 118)
         }
     }
 }
 
-// MARK: Poster
+/// Draft's guide labels: 9 pt SF Mono in the guides' gray.
+private func draftLabel(_ text: String) -> Text {
+    Text(verbatim: text)
+        .font(.system(size: 9, design: .monospaced))
+        .foregroundStyle(theme.colors.label3.color)
+}
 
-/// Type only: "cmux" in SF Pro Expanded Black, as wide as the screen allows.
-struct WelcomeHeroPoster: View {
+// MARK: Keys
+
+/// Five keycaps: the chevron key, then c, m, u, x. The caps rise in, the four
+/// letters are typed in order, then the chevron key is pressed and lights up
+/// in the gradient.
+struct WelcomeHeroKeys: View {
     var t: Double
+    @Environment(\.colorScheme) private var colorScheme
+
+    private static let legends = ["c", "m", "u", "x"].map { GlyphOutline.make($0, size: 27, weight: .medium) }
 
     var body: some View {
-        let p = IntroEase.outQuint(IntroEase.seg(t, 0.1, 0.6))
-        HeroStack(t: t, taglineAt: 0.4, spacing: 10, name: WelcomeHeroVariant.poster.name) {
-            Text(verbatim: "cmux")
-                .font(.system(size: 132, weight: .black).width(.expanded))
-                .tracking(-5)
-                .foregroundStyle(theme.colors.label)
-                .lineLimit(1)
-                .minimumScaleFactor(0.4)
-                .padding(.horizontal, 24)
-                .opacity(p)
-                .offset(y: 14 * (1 - p))
+        let dark = colorScheme == .dark
+        let legends = Self.legends
+        let design = KeyCap.canvas
+        HeroStack(t: t, taglineAt: 1.0, spacing: 14, name: WelcomeHeroVariant.keys.name) {
+            Canvas { context, size in
+                typealias E = IntroEase
+                let scale = size.width / design.width
+                context.scaleBy(x: scale, y: scale)
+                let top = dark ? [rgb(0x3D3D40), rgb(0x2F2F32)] : [rgb(0xFFFFFF), rgb(0xF4F4F6)]
+                let side = dark ? rgb(0x161618) : rgb(0xC9C9CE)
+                let accentSide = dark ? rgb(0x2C2A8F) : rgb(0x3B39C9)
+                let edge = dark ? Color.white.opacity(0.07) : Color.black.opacity(0.08)
+                let legend = dark ? rgb(0xF5F5F7) : rgb(0x1A1A1A)
+                let lit = E.out(E.seg(t, 0.92, 1.12))
+                for i in 0..<5 {
+                    let shown = E.out(E.seg(t, 0.04 * Double(i), 0.04 * Double(i) + 0.28))
+                    guard shown > 0 else { continue }
+                    let struck = i == 0 ? 0.88 : 0.34 + 0.11 * Double(i - 1)
+                    let depth = KeyCap.lip * 0.9 * KeyCap.press(t - struck)
+                    let x = 12 + CGFloat(i) * (KeyCap.key + KeyCap.gap)
+                    let y = 6 + 6 * CGFloat(1 - shown)
+                    let base = Path(roundedRect: CGRect(x: x, y: y + KeyCap.lip, width: KeyCap.key, height: KeyCap.key),
+                                    cornerRadius: KeyCap.radius, style: .continuous)
+                    let capRect = CGRect(x: x, y: y + depth, width: KeyCap.key, height: KeyCap.key)
+                    let cap = Path(roundedRect: capRect, cornerRadius: KeyCap.radius, style: .continuous)
+                    let accent = i == 0 ? lit : 0
+
+                    var keycap = context
+                    keycap.opacity = shown
+                    keycap.addFilter(.shadow(color: .black.opacity(dark ? 0.5 : 0.12), radius: 6, x: 0, y: 6))
+                    keycap.drawLayer { k in
+                        k.fill(base, with: .color(side))
+                        k.fill(cap, with: .linearGradient(Gradient(colors: top),
+                                                          startPoint: CGPoint(x: capRect.midX, y: capRect.minY),
+                                                          endPoint: CGPoint(x: capRect.midX, y: capRect.maxY)))
+                        if accent > 0 {
+                            k.opacity = accent
+                            k.fill(base, with: .color(accentSide))
+                            k.fill(cap, with: ChevronGradient.shading(from: capRect.origin, to: CGPoint(x: capRect.maxX, y: capRect.maxY)))
+                            k.opacity = 1
+                        }
+                        let rim = Path(roundedRect: capRect.insetBy(dx: 0.5, dy: 0.5), cornerRadius: KeyCap.radius - 0.5, style: .continuous)
+                        k.stroke(rim, with: .color(accent > 0.5 ? Color.white.opacity(0.18) : edge), lineWidth: 1)
+                    }
+
+                    var mark = context
+                    mark.opacity = shown
+                    if i == 0 {
+                        let chevron = Chevron.path(x: capRect.midX - 0.36 * 20, y: capRect.midY - 10, height: 20)
+                        mark.fill(chevron, with: .color(legend.opacity(1 - accent)))
+                        if accent > 0 { mark.fill(chevron, with: .color(.white.opacity(accent))) }
+                    } else {
+                        let glyph = legends[i - 1]
+                        let ink = glyph.path.boundingRect
+                        let at = CGAffineTransform(translationX: capRect.midX - ink.midX, y: capRect.midY + glyph.xHeight / 2)
+                        mark.fill(glyph.path.applying(at), with: .color(legend))
+                    }
+                }
+            }
+            .aspectRatio(design.width / design.height, contentMode: .fit)
+            .frame(maxWidth: design.width)
+            .padding(.horizontal, 20)
         }
+    }
+}
+
+/// Keys' metrics, in points at the design size, and how a key moves.
+private enum KeyCap {
+    static let key: CGFloat = 58
+    static let gap: CGFloat = 9
+    static let lip: CGFloat = 5
+    static let radius: CGFloat = 13
+    static let canvas = CGSize(width: 5 * key + 4 * gap + 24, height: key + lip + 24)
+
+    /// How far a key is down (0 at rest, 1 bottomed out) `u` seconds after it
+    /// is struck: down in 50 ms, then back up on a light spring.
+    static func press(_ u: Double) -> CGFloat {
+        guard u > 0 else { return 0 }
+        if u < 0.05 { return CGFloat(IntroEase.out(u / 0.05)) }
+        let back = u - 0.05
+        guard back < 0.32 else { return 0 }
+        return CGFloat(1 - IntroEase.spring(back, duration: 0.32, bounce: 0.25))
+    }
+}
+
+// MARK: Circuit
+
+/// "cmux" as circuit traces: 45° corners, hollow pads at the ends, a via
+/// where the x crosses, the chevron's trace in the gradient. Each letter's
+/// traces run from their first pad to the last, left to right.
+struct WelcomeHeroCircuit: View {
+    var t: Double
+
+    private struct Trace: Sendable {
+        var points: [CGPoint]
+        var startPad = true
+        var endPad = true
+    }
+
+    private struct Glyph: Sendable {
+        var x: CGFloat
+        var traces: [Trace]
+        var via: CGPoint?
+    }
+
+    private static let glyphs: [Glyph] = {
+        let k: CGFloat = 0.24
+        func trace(_ points: [(CGFloat, CGFloat)], startPad: Bool = true) -> Trace {
+            Trace(points: points.map { CGPoint(x: $0.0, y: $0.1) }, startPad: startPad)
+        }
+        return [
+            Glyph(x: 0, traces: [trace([(0, 0), (0.62, 0.5), (0, 1)])]),
+            Glyph(x: 1.04, traces: [trace([(0.7, 0), (k, 0), (0, k), (0, 1 - k), (k, 1), (0.7, 1)])]),
+            Glyph(x: 2.04, traces: [
+                trace([(0, 1), (0, k), (k, 0), (0.56 - k, 0), (0.56, k), (0.56, 1)]),
+                trace([(0.56, k), (0.56 + k, 0), (1.12 - k, 0), (1.12, k), (1.12, 1)], startPad: false),
+            ]),
+            Glyph(x: 3.46, traces: [trace([(0, 0), (0, 1 - k), (k, 1), (0.7 - k, 1), (0.7, 1 - k), (0.7, 0)])]),
+            Glyph(x: 4.46, traces: [trace([(0, 0), (0.74, 1)]), trace([(0.74, 0), (0, 1)])], via: CGPoint(x: 0.37, y: 0.5)),
+        ]
+    }()
+    private static var width: CGFloat { 5.2 }
+    private static var margin: CGFloat { 0.12 }
+
+    var body: some View {
+        let glyphs = Self.glyphs
+        let width = Self.width + 2 * Self.margin
+        let height = 1 + 2 * Self.margin
+        let margin = Self.margin
+        HeroStack(t: t, taglineAt: 0.75, spacing: 20, name: WelcomeHeroVariant.circuit.name) {
+            Canvas { context, size in
+                typealias E = IntroEase
+                let u = size.width / width
+                let o = margin * u
+                let line = 0.085 * u
+                let ink = GraphicsContext.Shading.color(theme.colors.label.color)
+                let board = GraphicsContext.Shading.color(theme.colors.bg.color)
+                let accent = ChevronGradient.shading(from: CGPoint(x: o, y: 0), to: CGPoint(x: o + 0.62 * u, y: 0))
+                var pads: [(center: CGPoint, scale: Double, shading: GraphicsContext.Shading)] = []
+                var vias: [(center: CGPoint, scale: Double)] = []
+                for (g, glyph) in glyphs.enumerated() {
+                    let start = 0.08 + 0.12 * Double(g)
+                    let drawn = E.out(E.seg(t, start, start + 0.36))
+                    guard drawn > 0 else { continue }
+                    let shading = g == 0 ? accent : ink
+                    func point(_ q: CGPoint) -> CGPoint { CGPoint(x: o + (glyph.x + q.x) * u, y: o + q.y * u) }
+                    for trace in glyph.traces {
+                        var path = Path()
+                        path.addLines(trace.points.map(point))
+                        context.stroke(path.trimmedPath(from: 0, to: drawn), with: shading,
+                                       style: StrokeStyle(lineWidth: line, lineCap: .butt, lineJoin: .miter))
+                        if trace.startPad, let first = trace.points.first {
+                            pads.append((point(first), E.outBack(E.seg(t, start, start + 0.16)), shading))
+                        }
+                        if trace.endPad, let last = trace.points.last {
+                            pads.append((point(last), E.outBack(E.seg(t, start + 0.3, start + 0.46)), shading))
+                        }
+                    }
+                    if let via = glyph.via { vias.append((point(via), E.outBack(E.seg(t, start + 0.18, start + 0.34)))) }
+                }
+                for pad in pads where pad.scale > 0 {
+                    let r = 0.075 * u * pad.scale
+                    let ring = Path(ellipseIn: CGRect(x: pad.center.x - r, y: pad.center.y - r, width: 2 * r, height: 2 * r))
+                    context.fill(ring, with: board)
+                    context.stroke(ring, with: pad.shading, lineWidth: line * 0.8 * pad.scale)
+                }
+                for via in vias where via.scale > 0 {
+                    let r = 0.094 * u * via.scale, hole = 0.034 * u * via.scale
+                    context.fill(Path(ellipseIn: CGRect(x: via.center.x - r, y: via.center.y - r, width: 2 * r, height: 2 * r)), with: ink)
+                    context.fill(Path(ellipseIn: CGRect(x: via.center.x - hole, y: via.center.y - hole, width: 2 * hole, height: 2 * hole)), with: board)
+                }
+            }
+            .aspectRatio(width / height, contentMode: .fit)
+            .frame(maxWidth: 326)
+            .padding(.horizontal, 32)
+        }
+    }
+}
+
+// MARK: Tube
+
+/// The monoline drawn as one hollow tube: the chevron in the gradient, the
+/// letters in the label colour, lit in dark mode with a soft glow. The
+/// letters switch on in turn with one flicker each, like a sign.
+struct WelcomeHeroTube: View {
+    var t: Double
+    @Environment(\.colorScheme) private var colorScheme
+
+    private static var outer: CGFloat { 0.17 }
+    private static var inner: CGFloat { 0.07 }
+    private static let mono = Monoline(stroke: 0.17, roundCaps: true)
+    private static var padding: CGFloat { 0.3 }
+
+    var body: some View {
+        let dark = colorScheme == .dark
+        let outer = Self.outer, inner = Self.inner, padding = Self.padding
+        var prompt = Path()
+        prompt.addLines([CGPoint(x: outer / 2, y: outer / 2), CGPoint(x: 0.62 - outer / 2, y: 0.5), CGPoint(x: outer / 2, y: 1 - outer / 2)])
+        let lead: CGFloat = 0.62 + 0.36
+        let letters = Self.mono.offsets(gap: 0.24).map { lead + $0 }
+        let pieces = [(prompt, CGFloat(0))] + zip(Self.mono.glyphs, letters).map { ($0.path, $1) }
+        let total = lead + Self.mono.width(gap: 0.24)
+        let width = total + 2 * padding
+        let height = 1 + 2 * padding
+        return HeroStack(t: t, taglineAt: 0.8, spacing: 8, name: WelcomeHeroVariant.tube.name) {
+            Canvas { context, size in
+                typealias E = IntroEase
+                let u = size.width / width
+                let ox = padding * u, oy = padding * u
+                let ink = GraphicsContext.Shading.color(theme.colors.label.color)
+                let accent = ChevronGradient.shading(from: CGPoint(x: ox, y: 0), to: CGPoint(x: ox + 0.62 * u, y: 0))
+                let wall = StrokeStyle(lineWidth: outer * u, lineCap: .round, lineJoin: .round)
+                let bore = StrokeStyle(lineWidth: inner * u, lineCap: .round, lineJoin: .round)
+                for (g, piece) in pieces.enumerated() {
+                    let local = t - (0.12 + 0.13 * Double(g))
+                    let on = TubeLight.ignite(local)
+                    guard on > 0 else { continue }
+                    let path = piece.0.applying(CGAffineTransform(a: u, b: 0, c: 0, d: u, tx: ox + piece.1 * u, ty: oy))
+                    let shading = g == 0 ? accent : ink
+                    if dark {
+                        let warm = on * E.out(E.seg(local, 0.11, 0.6))
+                        if warm > 0 {
+                            var glow = context
+                            glow.opacity = 0.7 * warm
+                            glow.addFilter(.blur(radius: 0.14 * u))
+                            glow.stroke(path, with: shading, style: StrokeStyle(lineWidth: outer * u * 1.1, lineCap: .round, lineJoin: .round))
+                        }
+                    }
+                    var tube = context
+                    tube.opacity = on
+                    tube.drawLayer { layer in
+                        layer.stroke(path, with: shading, style: wall)
+                        layer.blendMode = .destinationOut
+                        layer.stroke(path, with: .color(.black), style: bore)
+                    }
+                }
+            }
+            .aspectRatio(width / height, contentMode: .fit)
+            .frame(maxWidth: 344)
+            .padding(.horizontal, 22)
+        }
+    }
+}
+
+/// How Tube's letters switch on.
+private enum TubeLight {
+    /// A letter's brightness `u` seconds after it switches on: on, a dip, on.
+    static func ignite(_ u: Double) -> Double {
+        if u < 0 { return 0 }
+        if u < 0.05 { return 0.85 }
+        if u < 0.11 { return 0.2 }
+        return 0.55 + 0.45 * IntroEase.out(IntroEase.seg(u, 0.11, 0.24))
     }
 }
 

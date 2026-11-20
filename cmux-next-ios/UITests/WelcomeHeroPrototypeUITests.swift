@@ -1,11 +1,11 @@
 import XCTest
 
 /// Prototype picker for the welcome's top section (`WelcomeHero.swift`,
-/// round 2): every direction is reachable from the picker, draws its own
+/// round 3): every direction is reachable from the picker, draws its own
 /// wordmark, and leaves the sign-in rows in place; a pinned launch hides the
 /// picker. Goes away with the prototype once a direction is picked.
 final class WelcomeHeroPrototypeUITests: XCTestCase {
-    private let directions = ["lockup", "prompt", "cells", "banner", "poster"]
+    private let directions = ["raster", "draft", "keys", "circuit", "tube"]
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -29,22 +29,22 @@ final class WelcomeHeroPrototypeUITests: XCTestCase {
         }
         // Replay re-mounts the current direction; it stays on screen.
         app.buttons["Replay"].tap()
-        XCTAssertTrue(element(app, id: "welcome.wordmark.poster").waitForExistence(timeout: 5))
+        XCTAssertTrue(element(app, id: "welcome.wordmark.tube").waitForExistence(timeout: 5))
     }
 
     @MainActor
     func testPinnedDirectionHidesThePicker() throws {
-        let app = launch(arguments: ["-cmux-mobile-welcome-hero", "banner"])
+        let app = launch(arguments: ["-cmux-mobile-welcome-hero", "circuit"])
         defer { app.terminate() }
-        XCTAssertTrue(element(app, id: "welcome.wordmark.banner").waitForExistence(timeout: 20))
-        XCTAssertFalse(app.buttons["welcome.hero.lockup"].exists, "a pinned launch must not show the picker")
+        XCTAssertTrue(element(app, id: "welcome.wordmark.circuit").waitForExistence(timeout: 20))
+        XCTAssertFalse(app.buttons["welcome.hero.raster"].exists, "a pinned launch must not show the picker")
         XCTAssertTrue(app.buttons["Continue with Google"].exists)
     }
 
     private func launch(arguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-cmux-mobile-no-restore",
-                                "-cmuxMobile.prototype.welcomeHero.v2", "1"]
+                                "-cmuxMobile.prototype.welcomeHero.v3", "1"]
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchEnvironment["CMUX_MOBILE_CLEAR_AUTH"] = "1"
         app.launchArguments += arguments
