@@ -296,6 +296,9 @@ SCANNERS = (
      ["python3", "-I", "{s}/check-focus-routes.py", "{root}"], (PKG + "/", "webviews/src/", "scripts/cmux-next/focus-routes-baseline.tsv")),
     ("No raw file locks (cmux_file_lock::FileLock, lane c-agenthost lock audit)",
      ["python3", "-I", "{s}/check-no-raw-flock.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/raw-flock-baseline.tsv")),
+    # #38898's convention; cmuxterm-hq goals/next-code-shrinks.md: inline test blocks count as source, and grew back.
+    ("No new inline test modules (a unit test module is its own _tests.rs file, #38898)",
+     ["python3", "-I", "{s}/check-no-inline-tests.py", "{root}"], ("cmux-tui/",)),
     ("No app id special cases (zero first-party privilege, docs/app-store-platonic-ideal.md 5)",
      ["python3", "-I", "{s}/check-app-id-special-cases.py", "{root}"],
      (PKG + "/", "cmux-tui/", "first-party-apps/", "scripts/cmux-next/app-id-special-cases-baseline.tsv")),
