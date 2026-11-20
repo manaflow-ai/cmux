@@ -28,6 +28,7 @@ function StreamingTextGallery({ cadence }: { cadence: Cadence }) {
   const [dock, setDock] = useState<HTMLElement | null>(null);
   const timers = useRef<number[]>([]);
   useEffect(() => () => timers.current.forEach((timer) => window.clearTimeout(timer)), []);
+  // gallery-capture: runs only from the Stream button, which each arm's play clicks and then waits for "Stream settled".
   const start = () => {
     timers.current.forEach((timer) => window.clearTimeout(timer));
     timers.current = [];
