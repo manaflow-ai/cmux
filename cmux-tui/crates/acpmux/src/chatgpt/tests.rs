@@ -228,7 +228,17 @@ fn query(url: &str) -> HashMap<String, String> {
 /// Begins a sign-in, then calls its callback with `extra` (and the right state unless `extra`
 /// names one), and waits for the attempt.
 async fn sign_in(s: &Setup, extra: &[(&str, &str)]) -> (Status, HashMap<String, String>) {
-    let begun = s.service.begin(s.places.clone(), None, |_| {}).await.expect("begin");
+    sign_in_again(s, None, extra).await
+}
+
+/// [`sign_in`] that signs in again on the route `reauth`.
+async fn sign_in_again(
+    s: &Setup,
+    reauth: Option<&str>,
+    extra: &[(&str, &str)],
+) -> (Status, HashMap<String, String>) {
+    let begun =
+        s.service.begin(s.places.clone(), reauth.map(str::to_owned), |_| {}).await.expect("begin");
     let params = query(&begun.url);
     s.fake.state.lock().unwrap().nonce = params["nonce"].clone();
     let mut pairs: Vec<(&str, &str)> = extra.to_vec();
@@ -582,4 +592,48 @@ async fn a_machine_credential_is_refreshed_to_ten_minutes_left() {
         .unwrap();
     assert_eq!(token, "access-r1");
     assert!(expires_at - now() >= super::CREDENTIAL_MARGIN_SECS);
+}
+
+/// A `chatgpt-plan` route this acpmux home holds no sign-in for (the route folder is shared by every
+/// cmux on the Mac; another build, or the retired token-sharing client, wrote it): the row reads
+/// signed out, and its Sign In signs in on that same route instead of failing `not_found` (cmux#45774).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn signing_in_again_on_a_route_with_no_sign_in_here_takes_that_route() {
+    let s = setup().await;
+    let dir = s.places.routes.as_deref();
+    let mut stale = crate::routes::RouteFile {
+        name: Some("ChatGPT plan (alex@example.com)".into()),
+        kind: RouteKind::ChatgptPlan,
+        families: vec!["codex".into()],
+        anthropic_base_url: None,
+        openai_base_url: Some("https://api.openai.com/v1".into()),
+        auth: None,
+        secret: None,
+        headers: Default::default(),
+        health_url: None,
+        fallback: vec![],
+        auto_fallback: false,
+        notes: None,
+        account_home: None,
+        shadow_of: None,
+        disabled: false,
+        provider: Some("openai".into()),
+    };
+    routes::add(dir, "chatgpt", &stale, true).expect("route");
+
+    let (status, _) = sign_in_again(&s, Some("chatgpt"), &[("code", "c1")]).await;
+    assert_eq!(status, Status::Done("chatgpt".into()), "the same route, not a second one");
+    let record = store::read(&s.places.home, "chatgpt").unwrap().expect("record");
+    assert!(record.signed_in());
+    let route = routes::find(dir, "chatgpt").expect("route");
+    assert_eq!(route.file.openai_base_url.as_deref(), Some(super::CODEX_BACKEND));
+    assert!(routes::find(dir, "chatgpt-2").is_err(), "no duplicate connection");
+
+    // A route that is not a ChatGPT sign-in, or none at all, is still not one to sign in again.
+    stale.kind = RouteKind::DirectSubscription;
+    routes::add(dir, "other", &stale, true).expect("route");
+    for id in ["other", "nope"] {
+        let failure = s.service.begin(s.places.clone(), Some(id.into()), |_| {}).await.err();
+        assert_eq!(failure.map(|f| f.code), Some("not_found".into()), "{id}");
+    }
 }

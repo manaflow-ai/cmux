@@ -138,11 +138,16 @@ public final class UpdaterService {
     public internal(set) var stagedVersion: String?
     public internal(set) var stagedNotes: ReleaseNotes?
     @ObservationIgnored var stagedNotesTask: (build: String, task: Task<Void, Never>)?
-    /// The staged build whose first launch was pre-warmed (``prewarmStagedUpdate()``, once per build).
-    @ObservationIgnored var prewarmedBuild: String?
-    /// The last skipped pre-warm's build and reason (``prewarmStagedUpdate()``), logged once.
+    /// The staged build's pre-warm, running or ended (``prewarmStagedUpdate(trigger:)``, once per build).
+    @ObservationIgnored var prewarmRun: StagedPrewarmRun?
+    /// The install click waiting for that pre-warm (``installAfterPrewarm(_:)``), and the bound of its wait.
+    @ObservationIgnored var prewarmWaitingInstall: PrewarmWaitingInstall?
+    @ObservationIgnored let prewarmWaitTimer: DemandTimer
+    /// ``prewarmInstallBound``; tests shorten or lengthen it.
+    @ObservationIgnored var prewarmInstallWait: Duration = UpdaterService.prewarmInstallBound
+    /// The last skipped pre-warm's build and reason (``prewarmStagedUpdate(trigger:)``), logged once.
     @ObservationIgnored var prewarmSkipLogged: String?
-    /// Replaces a staged build's pre-warm (``StagedUpdatePrewarm/perform(work:processes:timeout:marker:progress:)``) in tests; returns its log line.
+    /// Replaces a staged build's pre-warm (``StagedUpdatePrewarm/perform(work:processes:timeout:marker:urgency:progress:)``) in tests; returns its log line.
     @ObservationIgnored var prewarmRunner: (@Sendable (StagedUpdatePrewarm) async -> String)?
     /// This build's own verified notes, read once when the Updated card has
     /// no change list of its record (``loadCurrentBuildNotesIfNeeded()``).
@@ -302,6 +307,7 @@ public final class UpdaterService {
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
         installTimer = DemandTimer(owner: "UpdaterService.install", clock: clock)
         snoozeTimer = DemandTimer(owner: "UpdaterService.snooze", clock: clock)
+        prewarmWaitTimer = DemandTimer(owner: "UpdaterService.prewarmWait", clock: clock)
         stagedRefresh = StagedUpdateRefresh(clock: clock)
         tipCheck = TipUpdateCheck(clock: clock)
         releasePushRetry = DemandTimer(owner: "UpdaterService.releasePush", clock: clock)
@@ -323,7 +329,7 @@ public final class UpdaterService {
         // person's app: with the lines before the quit, the file says what relaunched cmux.
         log.append("launch \(identity.shortVersion) build \(identity.build) (\(identity.track)), pid \(ProcessInfo.processInfo.processIdentifier)"
             + (CommandLine.arguments.contains(UpdateRelaunchFocus.reopenArgument) ? ", reopened behind by an automatic install" : ""))
-        relaunchMomentHold = UpdateRelaunchMomentHold(clock: clock, log: { [log] in log.append($0) })
+        relaunchMomentHold = UpdateRelaunchMomentHold(clock: clock, now: now, log: { [log] in log.append($0) })
         releasePush = ReleasePushListener(runningBuild: identity.build, clock: clock, log: { [log] in log.append($0) })
         // The managed policy is re-read by the driver on every start and check,
         // so it is not a reason to skip building it.
@@ -640,7 +646,8 @@ public final class UpdaterService {
             ring: ring,
             card: card,
             cardPresentation: cardPresentation,
-            badge: footerPill?.title
+            badge: footerPill?.title,
+            relaunchHold: relaunchHold
         )
     }
 
