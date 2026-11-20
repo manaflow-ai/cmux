@@ -72,7 +72,7 @@ import { NewTabWidgets } from "./NewTabWidgets";
 import { type NowPlayingCommand } from "./nowPlayingPlayerModel";
 import { ArrowUpIcon } from "../ComposerPickers";
 import { Spinner } from "../conversation/icons";
-import { newTabStart, useNewTabChipModel } from "./chipDefaults";
+import { useNewTabChipModel, useNewTabStart } from "./chipDefaults";
 import { useLastPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
 import { listingWanted, omnibarFolders } from "./launchRows";
@@ -386,6 +386,16 @@ function withDictationEnded(ended: { current: boolean }, send: () => void): void
   }
 }
 
+/// The host's chips, drawn again only when their props change: the screen renders on every key, and the chips (the
+/// agent and model pickers, the folder and machine chips, each with its menus) rendered with it, about 2 ms of page
+/// work a key on cmux21 (typing lag, Lawrence 2026-11-19).
+const ChipsSlot = React.memo(function ChipsSlot({
+  chips: Chips,
+  ...chipProps
+}: React.ComponentProps<NewTabChips> & { chips: NewTabChips }) {
+  return <Chips {...chipProps} />;
+});
+
 /// How long the folder chip holds its place for a daemon that has not listed the chats yet.
 const RESERVE_MS = 2_000;
 const NO_DEVICE_CHATS: ReturnType<typeof useDeviceChats> = [];
@@ -643,10 +653,13 @@ export function NewTabScreen(props: Props) {
   /// continuation, and a failed start's Retry: whatever began the start (Return, New chat, an Ask
   /// row), Retry asks the agent again, never re-routing the draft to a page or a no-op.
   const continueAfterSetup = useRef<(harness: string, model?: string, empty?: boolean) => void>(() => {});
-  const openSetup = (empty = false) => {
-    if (props.onSetup) props.onSetup((agent) => continueAfterSetup.current(agent, undefined, empty === true));
+  // One function for the screen's life: the chips take it (Add harness), and a new one each render rendered them
+  // again on each key. `onSetup` is read when it runs.
+  const onSetup = useRef(props.onSetup);
+  const openSetup = useCallback((empty = false) => {
+    if (onSetup.current) onSetup.current((agent) => continueAfterSetup.current(agent, undefined, empty === true));
     else openHarnessesPage();
-  };
+  }, []);
   const wholeSelection = useRef(false);
   const composing = useRef(false);
   const inputReported = useRef(false);
@@ -881,7 +894,7 @@ export function NewTabScreen(props: Props) {
   const chipFolder = newProject ? undefined : chatFolder;
   const remembered = useLastPick(chatFolder);
   const harnessesListed = useHarnessesListed();
-  const { harness, snapshot: chipSnapshot } = newTabStart(
+  const { harness, snapshot: chipSnapshot } = useNewTabStart(
     snapshot,
     agents,
     lastAgent,
@@ -2120,7 +2133,12 @@ export function NewTabScreen(props: Props) {
         {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
         switch is the one Enter reuses. */}
         {!split && Chips && (
-          <Chips snapshot={chipSnapshot} {...(chipFolder ? { cwd: chipFolder } : {})} onAddAgent={openSetup} />
+          <ChipsSlot
+            chips={Chips}
+            snapshot={chipSnapshot}
+            {...(chipFolder ? { cwd: chipFolder } : {})}
+            onAddAgent={openSetup}
+          />
         )}
         <span className="acpmux-composer-actions">
           {props.accessory}
@@ -2445,7 +2463,12 @@ export function NewTabScreen(props: Props) {
         {split && Chips && (
           <div className="nt-foot" onPointerDownCapture={touch}>
             <ComposerFoot ref={foot} plain={plainFooter}>
-              <Chips snapshot={chipSnapshot} {...(chipFolder ? { cwd: chipFolder } : {})} onAddAgent={openSetup} />
+              <ChipsSlot
+                chips={Chips}
+                snapshot={chipSnapshot}
+                {...(chipFolder ? { cwd: chipFolder } : {})}
+                onAddAgent={openSetup}
+              />
             </ComposerFoot>
           </div>
         )}
@@ -2614,6 +2637,7 @@ export function NewTabScreen(props: Props) {
     submitNow.current = submit;
     askNow.current = askTyped;
     continueAfterSetup.current = continueAfterSetupNow;
+    onSetup.current = props.onSetup;
     typeAnywhere.current = typeAnywhereNow;
     leaving.current = {
       text,
