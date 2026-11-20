@@ -13,4 +13,19 @@ import Testing
         let switches = CEFSwitches.current(forkAPIVersion: 30, bundleIdentifier: bundle, environment: [:])
         #expect(switches.arguments.contains("disable-features=MacAppCodeSignClone"))
     }
+
+    @Test func aStagedUpdateKeepsChromiumsCodeSignClone() {
+        let switches = CEFSwitches.current(forkAPIVersion: 30, bundleIdentifier: "com.cmuxterm.app.next",
+                                            environment: [:], keepsCodeSignClone: true)
+        #expect(!switches.arguments.contains("disable-features=MacAppCodeSignClone"))
+    }
+
+    @Test @MainActor func updaterStagedStateReenablesTheClone() {
+        let runtime = CEFRuntime.shared
+        runtime.keepsCodeSignClone = false
+        NotificationCenter.default.post(name: Notification.Name("com.cmux.updater.staged-update"), object: nil,
+                                        userInfo: ["staged": true])
+        #expect(runtime.keepsCodeSignClone)
+        runtime.keepsCodeSignClone = false
+    }
 }

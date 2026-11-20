@@ -132,6 +132,11 @@ extension UpdaterService {
         followCardExpiry()
     }
 
+    private func publishStagedUpdateState() {
+        NotificationCenter.default.post(name: Notification.Name("com.cmux.updater.staged-update"), object: nil,
+                                         userInfo: ["staged": indicatorPhase.isReady])
+    }
+
     private func perform(_ effect: UpdateFlowEffect) {
         switch effect {
         case .install:
@@ -211,6 +216,7 @@ extension UpdaterService {
         let clickedInstall = flow.installRequested
         let previous = flow.phase
         send(.sparkle(phase))
+        publishStagedUpdateState()
         followCancelledDownload(phase)
         carryInstallClick(phase)
         followNewestFetch(phase, previous: previous)

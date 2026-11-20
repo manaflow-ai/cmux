@@ -24,6 +24,10 @@ final class CEFRuntime {
     }
 
     var state: State = .idle
+    /// Whether CEF starts while Sparkle has a newer bundle staged. The app sets this before CEF initializes so
+    /// Chromium keeps its code-sign clone only for the update window that needs helper executables pinned to the
+    /// running bundle.
+    var keepsCodeSignClone = false
     private(set) var shim: CEFShimLibrary?
     /// Whether first-party pages serve the live web loop (``setLivePages(_:)``), kept until the shim loads.
     var livePages = false
@@ -232,6 +236,11 @@ final class CEFRuntime {
     private init() {
         libraryLoader = { CEFRuntime.loadLibrary($0) }
         clock = ContinuousClock()
+        NotificationCenter.default.addObserver(forName: Notification.Name("com.cmux.updater.staged-update"),
+                                                object: nil, queue: .main) { [weak self] note in
+            guard let staged = note.userInfo?["staged"] as? Bool else { return }
+            self?.keepsCodeSignClone = staged
+        }
     }
 
     /// An idle runtime whose framework load is `libraryLoader`, its profiles under `storage` (tests).
@@ -616,6 +625,7 @@ final class CEFRuntime {
             bundleIdentifier: Bundle.main.bundleIdentifier,
             environment: environment,
             builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled,
+            keepsCodeSignClone: keepsCodeSignClone,
             // Debug Settings (DEV and NIGHTLY), read when Chromium starts: on the first page, well after
             // the override file loaded; Release keeps the default.
             asyncLiveResize: true,

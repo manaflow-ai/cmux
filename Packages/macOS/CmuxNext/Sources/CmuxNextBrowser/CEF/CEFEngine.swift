@@ -26,6 +26,12 @@ public final class CEFEngine: BrowserEngine {
     public let stores: BrowserSharedStores
     /// The App's sign-in tabs (the sign-in windows register theirs here).
     public let signInCallbacks: CEFSignInCallbacks
+    /// Set by the app while a newer Sparkle bundle is staged, before CEF starts.
+    /// Ordinary launches leave Chromium's code-sign clone disabled for relaunch speed.
+    public var keepsCodeSignClone: Bool {
+        get { CEFRuntime.shared.keepsCodeSignClone }
+        set { CEFRuntime.shared.keepsCodeSignClone = newValue }
+    }
     let lifecycleTrace: BrowserLifecycleTrace
     let contextMenus: BrowserContextMenuBuilder
     /// The framework load ``beginEarlyLoad(_:)`` begins, from any thread; the runtime takes it with the stores (`adoptStores`).

@@ -419,6 +419,8 @@ public final class UpdaterService {
     public func start() {
         guard !started else { return }
         started = true
+        NotificationCenter.default.post(name: Notification.Name("com.cmux.updater.staged-update"), object: nil,
+                                        userInfo: ["staged": indicatorPhase.isReady])
         if presentUpdateUI != nil { startKillSwitchReader() }
         observeFlowPhase()
         refreshAnnouncements()
