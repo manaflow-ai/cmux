@@ -114,17 +114,84 @@ test("a surge keeps one inbox row and the transcript still displays each protect
   console.log("synthetic pane replay: arrivals=378 held=373 chatRows=" + count);
 }, 30_000);
 
-// Supply a redacted *post-replay* session journal, with the expected held count and protected
-// message excerpts from the independent source trace. An admission-only report is insufficient.
+// Keep the source trace independent of the journal from the replayed coordinator. A journal
+// with a missing delivery or an unclassified backlog cannot qualify by rendering fewer rows.
+type SourceArrival = {
+  promptId: string;
+  senderId: string;
+  class: string;
+  person: boolean;
+  provenance: { notice?: { severity?: string } } | null;
+};
+
+function checkDelivery(
+  arrivals: SourceArrival[],
+  protectedIds: string[],
+  events: EventRecord[],
+  excerpts: Record<string, string>,
+) {
+  const source = new Set(arrivals.map((item) => item.promptId));
+  expect(arrivals.length).toBe(378);
+  expect(source.size).toBe(378);
+  expect(new Set(arrivals.map((item) => item.senderId)).size).toBe(86);
+  const protectedSet = new Set(protectedIds);
+  for (const item of arrivals) {
+    if (
+      item.person ||
+      item.class === "question" ||
+      item.class === "block" ||
+      item.provenance?.notice?.severity === "fire"
+    ) {
+      expect(protectedSet.has(item.promptId)).toBe(true);
+    }
+  }
+  const held = new Set<string>();
+  const visible = new Set<string>();
+  const classified = new Set<string>();
+  for (const event of events) {
+    const msg = event.msg;
+    if (event.kind === "inbox" && msg.surgeHeld === true) {
+      expect(source.has(msg.promptId)).toBe(true);
+      expect(held.has(msg.promptId)).toBe(false);
+      held.add(msg.promptId);
+    }
+    if (event.kind === "bridge_delivered" || event.kind === "user_message") visible.add(msg.promptId);
+    if (event.kind === "inbox_triaged") {
+      for (const item of msg.items ?? []) classified.add(item.promptId);
+    }
+  }
+  for (const id of source) {
+    expect(held.has(id) || visible.has(id)).toBe(true);
+    if (held.has(id)) {
+      expect(visible.has(id)).toBe(false);
+      expect(classified.has(id)).toBe(true);
+    }
+  }
+  for (const id of protectedSet) {
+    expect(source.has(id) && visible.has(id) && !held.has(id)).toBe(true);
+    expect(typeof excerpts[id] === "string" && excerpts[id].trim().length > 0).toBe(true);
+  }
+  return { held: held.size, visible: Array.from(protectedSet, (id) => excerpts[id]!) };
+}
+
 const path = process.env.ACPMUX_SURGE_PANE_TRACE;
 test.skipIf(!path)(
   "coordinator flood replay fits in ten actual chat rows",
   async () => {
-    const { sessionId, events, held, protectedExcerpts } = await Bun.file(path!).json();
-    expect(Number.isSafeInteger(held) && held > 0).toBe(true);
-    expect(Array.isArray(protectedExcerpts) && protectedExcerpts.length > 0).toBe(true);
-    const chatRows = await replay(sessionId, events, held, protectedExcerpts);
-    console.log("coordinator pane replay: held=" + held + " chatRows=" + chatRows);
+    const sourcePath = process.env.ACPMUX_SURGE_TRACE;
+    if (!sourcePath) throw new Error("Supply the owner-exported source trace alongside the replay journal");
+    const { arrivals, protectedIds } = await Bun.file(sourcePath).json();
+    const { sessionId, events, protectedExcerpts } = await Bun.file(path!).json();
+    const { held, visible } = checkDelivery(arrivals, protectedIds, events, protectedExcerpts);
+    const chatRows = await replay(sessionId, events, held, visible);
+    console.log(
+      "coordinator pane replay: arrivals=378 senders=86 held=" +
+        held +
+        " protected=" +
+        visible.length +
+        " chatRows=" +
+        chatRows,
+    );
   },
   30_000,
 );
