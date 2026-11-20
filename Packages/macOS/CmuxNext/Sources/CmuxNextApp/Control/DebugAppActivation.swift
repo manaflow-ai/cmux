@@ -36,28 +36,21 @@ enum DebugAppActivation {
         let window = windowNotices ? (app.mainWindow ?? app.windows.first { $0.isVisible && $0.canBecomeMain }) : nil
         let clock = ContinuousClock()
         let start = clock.now
-        func elapsedMS() -> JSONValue { .number(Double((clock.now - start) / .microseconds(1)) / 1000) }
+        func elapsedMS(since: ContinuousClock.Instant = start) -> JSONValue { .number(Double((clock.now - since) / .microseconds(1)) / 1000) }
+        var parts: [String: JSONValue] = [:]  // each notice's own main-thread time: a slow activation names its notice
+        func timed(_ name: Notification.Name, _ object: Any?) { let at = clock.now; center.post(name: name, object: object); parts[name.rawValue] = elapsedMS(since: at) }
         if active {
-            center.post(name: NSApplication.willBecomeActiveNotification, object: app)
-            let hidden = hiddenPanels
+            timed(NSApplication.willBecomeActiveNotification, app)
+            let hidden = hiddenPanels.compactMap { entry in entry.panel.map { ($0, entry.parent) } }
             hiddenPanels.removeAll()
-            var shown = 0
-            for entry in hidden {
-                guard let panel = entry.panel else { continue }
-                shown += 1
-                if let parent = entry.parent, parent.isVisible {
-                    parent.addChildWindow(panel, ordered: .above)
-                } else {
-                    panel.orderFront(nil)
-                }
+            for (panel, parent) in hidden {
+                if let parent, parent.isVisible { parent.addChildWindow(panel, ordered: .above) } else { panel.orderFront(nil) }
             }
-            center.post(name: NSApplication.didBecomeActiveNotification, object: app)
-            if let window {
-                center.post(name: NSWindow.didBecomeMainNotification, object: window)
-                center.post(name: NSWindow.didBecomeKeyNotification, object: window)
-            }
+            let shown = hidden.count
+            timed(NSApplication.didBecomeActiveNotification, app)
+            if let window { for name in [NSWindow.didBecomeMainNotification, NSWindow.didBecomeKeyNotification] { timed(name, window) } }
             return .object(["active": .bool(true), "shown_panels": .number(Double(shown)), "synthetic": .bool(true),
-                            "observers_ms": elapsedMS()])
+                            "observers_ms": elapsedMS(), "parts_ms": .object(parts)])
         }
         center.post(name: NSApplication.willResignActiveNotification, object: app)
         if let window {
