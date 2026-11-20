@@ -102,7 +102,7 @@ Draws windows in the plain theme color.
 - `false` (default): windows draw the background you chose (`appearance.background`, a workspace's or a pane's own picture) and the window material (`appearance.backgroundOpacity`, `appearance.backgroundBlur`).
 - `true`: no painting, shuffled painting, desktop or system wallpaper, and no glass, frost or see-through window: every window is opaque in its theme's background color, as with macOS Reduce Transparency. This also overrides Ghostty's own `background-opacity` and `background-blur` while on.
 
-It changes only what is drawn. Your `appearance.*` values and workspace and pane pictures stay as they are, and turning it off brings them back. Change it in **Settings > Appearance > Window Background** or with `cmux settings set ui.reducedBackgrounds true`.
+It changes only what is drawn. Your `appearance.*` values and workspace and pane pictures stay as they are, and turning it off brings them back. Change it in **Settings > Interface > Window Background** or with `cmux settings set ui.reducedBackgrounds true`.
 
 ## `appearance.fontSmoothing`
 
@@ -120,7 +120,7 @@ How text draws in cmux's own controls (tab titles, the sidebar, the command pale
 
 `"system"`, the earlier name, still reads as `"auto"`.
 
-Web pages, tab titles and the sidebar change at once. Other native controls change after cmux restarts: macOS fixes an app's text weight when the app first draws text. Terminal text is not changed; it keeps Ghostty's `font-thicken`. Change it in **Settings > Appearance > Density and Motion** or with `cmux settings set appearance.fontSmoothing subpixel`.
+Web pages, tab titles and the sidebar change at once. Other native controls change after cmux restarts: macOS fixes an app's text weight when the app first draws text. Terminal text is not changed; it keeps Ghostty's `font-thicken`. Change it in **Settings > Interface > Density and Motion** or with `cmux settings set appearance.fontSmoothing subpixel`.
 
 ## `app.windowTitleTemplate`
 
