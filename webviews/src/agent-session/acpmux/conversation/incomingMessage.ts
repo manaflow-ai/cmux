@@ -852,7 +852,7 @@ const KNOWN_KINDS = new Set([
 /// acpmux's own prompts with words for the agent and no sender of their own (hub/turn_cap.rs
 /// `NOTICE_KIND`, hub/inbox_digest.rs `KIND`). Its other own prompts draw nothing: a continuation
 /// (subagents/retryState.ts) and the cache timer's `/compact` (cacheCompaction.ts).
-const ACPMUX_MESSAGE_KINDS = new Set(["turn_cap", "inbox_digest"]);
+const ACPMUX_MESSAGE_KINDS = new Set(["turn_cap", "inbox_digest", "surge_digest"]);
 /// The name acpmux's own messages draw under.
 const ACPMUX_SENDER = "acpmux";
 
