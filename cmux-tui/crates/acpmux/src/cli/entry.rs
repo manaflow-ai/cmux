@@ -552,6 +552,12 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     }
 }
 
+/// A command the session engine accepts, including compatibility spellings.
+/// The cmux CLI uses the same grammar when sharing its `agent` scope.
+pub fn is_command(word: &str) -> bool {
+    matches!(word, "stop" | "--skill" | "--guide") || Cli::command().find_subcommand(word).is_some()
+}
+
 /// Index of the first argument after the program name that is not a global
 /// flag (`--json`, `--suppress-reads`); `argv.len()` when there is none.
 fn command_index(argv: &[OsString]) -> usize {

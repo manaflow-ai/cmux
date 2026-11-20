@@ -14,6 +14,52 @@ fn strings(values: &[&str]) -> Vec<String> {
 
 #[cfg(unix)]
 #[test]
+fn agent_session_commands_share_engine_arguments_and_preserve_app_commands() {
+    for verb in [
+        "ls",
+        "list-sessions",
+        "send",
+        "prompt",
+        "history",
+        "resolve",
+        "find",
+        "register",
+        "session",
+        "new",
+        "guide",
+        "stop",
+    ] {
+        let args = strings(&["agent", "--json", verb, "--", "--literal"]);
+        assert!(agent_engine_requested(&args), "{verb}");
+        assert_eq!(
+            acp_scope_args(&args),
+            args[1..].iter().map(std::ffi::OsString::from).collect::<Vec<_>>()
+        );
+    }
+    for verb in [
+        "list",
+        "message",
+        "inbox",
+        "start",
+        "resume",
+        "open",
+        "open-tab",
+        "view",
+        "toggle-session-info",
+        "report",
+        "hook",
+        "plugin",
+        "--help",
+        "not-a-command",
+    ] {
+        assert!(!agent_engine_requested(&strings(&["agent", verb])), "{verb}");
+    }
+    assert!(!agent_engine_requested(&strings(&["agent"])));
+    assert!(!agent_engine_requested(&strings(&["agent", "agent_abc", "focus"])));
+}
+
+#[cfg(unix)]
+#[test]
 fn settings_separator_keeps_literal_confirm_with_daemon() {
     let literal = strings(&["settings", "set", "--", "custom.label", "--confirm"]);
     assert!(daemon_settings_scope(&literal));
@@ -1478,6 +1524,7 @@ fn a_leading_json_lands_where_each_first_word_scope_reads_it() {
         strings(&["harness", "run", "aider", "--tab", "--json"])
     );
     assert_eq!(hoisted(&["--json", "chats", "list"]), strings(&["chats", "--json", "list"]));
+    assert_eq!(hoisted(&["--json", "agent", "ls"]), strings(&["agent", "--json", "ls"]));
     // `acp gh`'s trailing words are gh's: `--json` stays acpmux's.
     assert_eq!(
         hoisted(&["--json", "acp", "gh", "pr", "list"]),

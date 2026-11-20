@@ -621,7 +621,7 @@ pub(crate) fn early_usage_error(args: &[String], message: &str) -> i32 {
 /// Scopes `main` routes by their first word, before the cmux global options
 /// are read, whose own parser takes `--json` right after the scope word:
 /// acpmux's (`--json` is a global clap option there).
-const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats"];
+const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats", "agent"];
 
 /// `cmux --json <scope> …` for a scope `main` routes by its first word: the
 /// leading `--json` moves to just after the scope word (to the end for `host`
@@ -668,11 +668,46 @@ fn harness_tab_run(words: &[String]) -> bool {
         && words.iter().take_while(|w| *w != "--").any(|w| w == "--tab")
 }
 
-/// The acpmux argv of `cmux acp …` (the words after `acp`) and of its
+/// Existing terminal agent commands and app actions keep their own dispatch.
+/// Other session commands, including aliases, come from the engine's grammar.
+#[cfg(unix)]
+pub(crate) fn agent_engine_requested(args: &[String]) -> bool {
+    let [scope, rest @ ..] = args else { return false };
+    if scope != "agent" {
+        return false;
+    }
+    let Some(verb) =
+        rest.iter().find(|word| !matches!(word.as_str(), "--json" | "--suppress-reads"))
+    else {
+        return false;
+    };
+    if matches!(
+        verb.as_str(),
+        "list"
+            | "message"
+            | "inbox"
+            | "start"
+            | "resume"
+            | "report"
+            | "hook"
+            | "plugin"
+            | "open"
+            | "open-tab"
+            | "help"
+    ) || !acpmux::cli::entry::is_command(verb)
+    {
+        return false;
+    }
+    let action = format!("agent {verb}");
+    !action_hint::offered_app_action(&action) && action_hint::non_verb_action(&action).is_none()
+}
+
+/// The acpmux argv of `cmux agent …` and `cmux acp …` (the words after the scope) and of its
 /// `harness`/`chats` aliases (the whole command line, alias first).
 #[cfg_attr(not(unix), allow(dead_code))]
 pub(crate) fn acp_scope_args(raw_args: &[String]) -> Vec<std::ffi::OsString> {
-    let skip = usize::from(raw_args.first().is_some_and(|head| head == "acp"));
+    let skip =
+        usize::from(raw_args.first().is_some_and(|head| matches!(head.as_str(), "acp" | "agent")));
     raw_args.iter().skip(skip).map(std::ffi::OsString::from).collect()
 }
 
@@ -1679,7 +1714,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   browser       Navigate and attach to browsers
   notification  List and create notifications
   attention     Mark tabs where the person must act; find the next one
-  agent         List and report agent state
+  agent         Manage agent sessions and terminal agents
   room          Organize workspaces into rooms
   space         List and organize spaces
   closed        List and reopen closed tabs, screens, workspaces
@@ -1771,6 +1806,14 @@ USAGE
                   [--split right|down|left|up] [--cwd DIR] [--no-focus]
                   [--timeout 90s] [--no-wait] [-- ARGS...]
   cmux agent resume NAME [the same options]
+  cmux agent ls [--json]
+  cmux agent send SESSION [TEXT...]
+  cmux agent history SESSION
+  cmux agent search QUERY...
+  cmux agent resolve SESSION
+  cmux agent register NAME
+  cmux agent bg start|list [ARGS...]
+  cmux agent notices [ARGS...]
   cmux agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--placement top] [--focus]
   cmux agent open-tab <session id> [--target PANE_OR_TAB] [--host HOST] [--focus]
   cmux agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
