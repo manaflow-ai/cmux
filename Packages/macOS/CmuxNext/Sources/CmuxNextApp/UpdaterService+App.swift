@@ -24,10 +24,7 @@ extension UpdaterService {
             behind.start(willQuit: willQuit, declined: declined, inFront: inFront)
         }
         let activity = UpdateAgentActivity(environment: QuitAgents.environment(services))
-        WebUpdates.shared.daemonUpdates.quiet = { [weak services] in
-            guard let daemon = services?.machines.local else { return false }
-            return await activity.quietForDaemonUpdate(daemon)
-        }
+        WebUpdates.shared.daemonUpdates.quiet = { await activity.quietForDaemonUpdate() }
         relaunchBlockers = { [weak self, weak services, activity] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
         // Before the settings apply (`apply(_:)`): Update When Idle installs nothing without its gate (UpdateIdleGate).
         let idle = UpdateIdleGate(activity: activity, daemon: services.machines.local) { [weak services] in services?.agentTabs.unsentDrafts.count }

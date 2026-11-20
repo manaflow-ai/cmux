@@ -58,11 +58,9 @@ public final class UpdateAgentActivity {
         return result
     }
 
-    public func quietForDaemonUpdate(_ daemon: DaemonService) async -> Bool {
-        guard let agents = await AcpmuxQuit.census(environment, idleFacts: true),
-              agents.idleFactsKnown, agents.inTurn == 0, !agents.chiefInTurn, agents.workingBelow == 0
-        else { return false }
-        return daemon.currentRelaunchBlockers(quietInput: .seconds(30)).isEmpty
+    public func quietForDaemonUpdate() async -> Bool {
+        guard let agents = await AcpmuxQuit.census(environment) else { return false }
+        return agents.inTurn == 0 && !agents.chiefInTurn
     }
 
     /// Takes one read's answer (nil: it failed), stamped when it arrived.

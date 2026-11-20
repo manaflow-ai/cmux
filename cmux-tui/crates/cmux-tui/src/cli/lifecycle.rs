@@ -10,18 +10,40 @@ use cmux_json::JsonSet as _;
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 
-/// Verify the owner itself after a NIGHTLY daemon handoff, on this build's socket.
-pub(super) fn owner_reports_commit(socket: &std::path::Path, pid: i32, commit: &str) -> bool {
-    let Ok(stream) = cmux_tui_core::server::connect_session_socket(socket, true) else {
-        return false;
-    };
+/// Read one reply from a derived, same-user daemon socket.
+fn update_probe(socket: &std::path::Path, cmd: &str) -> Option<Value> {
+    let stream = cmux_tui_core::server::connect_session_socket(socket, true).ok()?;
     let deadline = Instant::now() + Duration::from_secs(3);
-    let Ok(reply) =
-        exchange(&mut BufReader::new(stream), json!({"id": 1, "cmd": "identify"}), deadline)
-    else {
+    exchange(&mut BufReader::new(stream), json!({"id": 1, "cmd": cmd}), deadline).ok()
+}
+
+pub(super) fn owner_reports_commit(socket: &std::path::Path, pid: i32, commit: &str) -> bool {
+    update_probe(socket, "identify").is_some_and(|reply| {
+        reply["pid"].as_i64() == Some(i64::from(pid))
+            && reply["build_commit"].as_str() == Some(commit)
+    })
+}
+
+/// The activity subscription returns a snapshot before its first event. Dropping
+/// the connection releases the subscription. Waiting agents are included in live_agents.
+pub(super) fn session_quiet_for_update(socket: &std::path::Path) -> bool {
+    let Some(reply) = update_probe(socket, "subscribe-activity") else { return false };
+    let Some(activity) = reply.get("activity") else { return false };
+    let Ok(elapsed) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) else {
         return false;
     };
-    reply["pid"].as_i64() == Some(i64::from(pid)) && reply["build_commit"].as_str() == Some(commit)
+    activity_is_quiet(activity, elapsed.as_millis())
+}
+
+fn activity_is_quiet(activity: &Value, now_ms: u128) -> bool {
+    activity["live_agents"].as_u64() == Some(0)
+        && match activity.get("last_user_input_at_ms") {
+            Some(Value::Null) => true,
+            Some(input) => {
+                input.as_u64().is_some_and(|at| now_ms.saturating_sub(u128::from(at)) >= 30_000)
+            }
+            None => false,
+        }
 }
 
 #[derive(Clone, Debug)]
@@ -1409,6 +1431,17 @@ fn print_success(value: Value, output: OutputMode) -> i32 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn automatic_update_needs_idle_agents_and_thirty_seconds_without_terminal_input() {
+        let quiet = |activity| super::activity_is_quiet(&activity, 80_000);
+        assert!(quiet(serde_json::json!({"live_agents":0, "last_user_input_at_ms":50_000})));
+        assert!(quiet(serde_json::json!({"live_agents":0, "last_user_input_at_ms":null})));
+        assert!(!quiet(serde_json::json!({"live_agents":1, "last_user_input_at_ms":null})));
+        assert!(!quiet(serde_json::json!({"live_agents":0, "last_user_input_at_ms":50_001})));
+        assert!(!quiet(serde_json::json!({"live_agents":0})));
+        assert!(!quiet(serde_json::json!({"last_user_input_at_ms":null})));
+    }
+
     use std::io::{self, Cursor, Read, Write};
     use std::net::Shutdown;
     use std::sync::{Arc, Mutex};

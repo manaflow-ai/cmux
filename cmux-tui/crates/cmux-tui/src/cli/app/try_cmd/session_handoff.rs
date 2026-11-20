@@ -29,6 +29,10 @@ pub(super) fn discover(main: &AppDaemon) -> Result<Vec<Session>, String> {
 }
 
 impl Session {
+    pub(super) fn quiet(&self) -> bool {
+        self.daemon.socket.as_deref().is_some_and(crate::cli::lifecycle::session_quiet_for_update)
+    }
+
     fn restart(&self, pid: i32, commit: Option<&str>) -> Result<Value, String> {
         let socket = self.daemon.socket.as_deref().ok_or("missing session socket")?;
         let current = self.daemon.owner()?;

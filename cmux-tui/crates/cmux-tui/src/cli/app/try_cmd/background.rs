@@ -149,7 +149,11 @@ impl Follower {
                 return Err("this channel update was already attempted".into());
             }
             let sessions = super::session_handoff::discover(&daemon)?;
-            if pointer.expires_at <= now() || readiness(global, app, true)? != (true, true) {
+            if pointer.expires_at <= now()
+                || !sessions.iter().all(|s| s.quiet())
+                || !crate::cli::lifecycle::session_quiet_for_update(socket)
+                || readiness(global, app, true)? != (true, true)
+            {
                 return Err("the quiet point ended while probing session daemons".into());
             }
             store.record_watermark(ATTEMPT, pointer.committed_at, &pointer.commit)?;
