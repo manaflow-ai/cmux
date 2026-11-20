@@ -40,7 +40,7 @@ import { runComposerLoad } from "./composer-load";
 import { composerTypingRows } from "./composerTypingRows";
 import { perfRow } from "./perfRow";
 import { requireProductionReact, installReactWatch } from "./support/benchPage";
-import type { Page } from "playwright";
+import type { CDPSession, Page } from "playwright";
 import { parseArms, runArms, servePane } from "./composer-arms";
 import { reportTrace, traceWindow } from "./styleInvalidationTrace";
 import { sourceMapper } from "./sourceMapper";
@@ -231,7 +231,8 @@ async function measure(
     }
     await page.addInitScript(longTaskProbe);
     const rows = await openChat(page, port, Math.max(1, Math.round(length / 3)));
-    const cdp = engine === "webkit" ? undefined : await page.context().newCDPSession(page);
+    // WebKit returned above (runComposerLoad), so only Chromium reaches here and its CDP session always exists.
+    const cdp: CDPSession | undefined = await page.context().newCDPSession(page);
     await cdp?.send("Performance.enable");
     const metrics = async (): Promise<Record<string, number>> => {
       if (!cdp) return {};

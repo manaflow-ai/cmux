@@ -5,6 +5,7 @@
 // transcript measures read the chat's.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { teardownDom } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -18,11 +19,12 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
-  for (const key of ["window", "document"] as const)
-    if (saved[key]) scope[key] = saved.values[key];
-    else delete scope[key];
-});
+afterAll(() =>
+  teardownDom(
+    (["window", "document"] as const).map((key) => [key, saved[key], saved.values[key]] as const),
+    { scope },
+  ),
+);
 
 /// Writes the host's two scales as its scale script does, then tells the page.
 const hostScales = (density: string, chat: string) => {
