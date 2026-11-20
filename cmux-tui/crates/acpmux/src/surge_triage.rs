@@ -340,7 +340,7 @@ pub fn triaged_record(batch: &Batch, decided: &[Decision], digest: Option<&str>)
                 "from": m.map(|m| cut(&m.from, 64)).unwrap_or_default(),
                 "label": m.map(|m| preview(&m.text)).unwrap_or_default(),
                 "class": m.map(|m| m.class.as_str()).unwrap_or_default(),
-                "fingerprint": m.map(fingerprint).unwrap_or_default(),
+                "fingerprint": m.map(|m| fingerprint(m)).unwrap_or_default(),
             });
             if let Some(o) = &d.owner {
                 v["owner"] = json!(o);
