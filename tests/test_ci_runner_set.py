@@ -45,24 +45,24 @@ def runs_on_text(job: dict, where: str) -> str:
 
 
 class RunnerSetTests(unittest.TestCase):
-    def test_secret_bearing_changes_takes_ephemeral_hosted_then_measured_retry(self) -> None:
-        # The router runs before any picker can, so it is a declared hosted light job
-        # (.github/runners.json hosted_light_jobs). Its credentialed body takes a live
-        # verified fleet Linux placement when available, then hosted/paid overflow.
+    def test_secret_bearing_changes_takes_live_placement_then_ephemeral_blacksmith(self) -> None:
+        # Its credentialed body takes a live verified fleet Linux placement when available, then
+        # ephemeral Blacksmith on every attempt: GitHub-hosted Ubuntu left it queued for hours on
+        # 2026-11-18 (cmux#45735), so no attempt takes hosted Ubuntu.
         job = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]["changes"]
         runs_on = runs_on_text(job, "ci.yml#changes")
         self.assertIn("needs.portable-placement.outputs.linux_runner", runs_on)
         self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)", runs_on)
-        self.assertIn("github.run_attempt == 1 && 'ubuntu-24.04'", runs_on)
+        self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", runs_on)
         self.assertTrue(runs_on.rstrip().endswith(
             "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"), runs_on)
         self.assertEqual(job["needs"], ["portable-placement"])
         self.assertEqual(yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]["portable-placement"]["steps"][-1]["env"]["LINUX_ONLY"], "changes")
 
-    def test_light_report_jobs_take_hosted_ubuntu_first(self) -> None:
-        # Declared light jobs (.github/runners.json hosted_light_jobs): a few seconds of report or
-        # routing work each, which on 2026-11-02 waited up to a minute behind the saturated
-        # blacksmith-4vcpu-ubuntu-2404 queue. Hosted Ubuntu on attempt 1, then a declared retry.
+    def test_light_report_jobs_run_on_blacksmith_every_attempt(self) -> None:
+        # A few seconds of report or routing work each. They took hosted Ubuntu on attempt 1 until
+        # 2026-11-18, when GitHub-hosted runners left them queued for hours (cmux#45735); Blacksmith
+        # is the rule for all CI, so every attempt reads the declared pool.
         import json
 
         declared = json.loads((ROOT / ".github" / "runners.json").read_text())["hosted_light_jobs"]
@@ -79,42 +79,28 @@ class RunnerSetTests(unittest.TestCase):
         }
         for (workflow, name), tail in cases.items():
             with self.subTest(job=f"{workflow}#{name}"):
-                self.assertIn(f"{workflow}#{name}", declared)
+                self.assertNotIn(f"{workflow}#{name}", declared)
                 runs_on = runs_on_text(yaml.safe_load((WORKFLOWS / workflow).read_text())["jobs"][name], f"{workflow}#{name}")
                 # A fork's run keeps the label it had; every other run reads the pool.
                 runs_on = re.sub(r"\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name"
                                  r" != github\.repository && 'blacksmith-\d+vcpu-ubuntu-2404' \|\| (fromJSON\(vars\.RUNNER_POOLS\)\.[a-z0-9_]+)\)", r"\1", runs_on)
-                self.assertIn(hosted, runs_on)
+                self.assertNotIn(hosted, runs_on)
                 self.assertTrue(runs_on.rstrip().endswith(tail), runs_on)
                 self.assertNotIn("cmux-fleet-linux-x64", runs_on)
 
-    def test_every_hosted_first_light_job_yields_when_hosted_is_saturated(self) -> None:
-        # The hosted-first release valve (scripts/ci/linux_pool_spill.py valve_choice()). On 2026-11-18 01:40-02:10Z
-        # jobs that finished on GitHub-hosted had waited a median 10,768 s, so every pull request's `changes`
-        # router sat there and its required checks never started. Each attempt-1 hosted branch is preceded by the
-        # valve, which reads the smallest live Linux pool while RUNNER_POOLS marks hosted saturated; the reusable
-        # resolver, which must not fromJSON a variable, guards its hosted branch instead and takes its trusted retry.
-        # Coordinator, 2026-11-18: "Yes to your release valve, behind its saturation check: ship and land it now."
-        hosted = "github.run_attempt == 1 && 'ubuntu-24.04'"
-        valve = ("github.run_attempt == 1 && fromJSON(vars.RUNNER_POOLS).hosted_saturated && "
-                 "fromJSON(vars.RUNNER_POOLS).linux_2 || " + hosted)
-        guarded = "github.run_attempt == 1 && !contains(vars.RUNNER_POOLS, '\"hosted_saturated\"') && 'ubuntu-24.04'"
-        sites = 0
+    def test_no_light_job_takes_hosted_ubuntu_on_attempt_one(self) -> None:
+        # On 2026-11-18 jobs that finished on GitHub-hosted had waited a median 10,768 s, so every pull request's
+        # `changes` router sat there and its required checks never started. #45861 first added a release valve
+        # (hosted_saturated in RUNNER_POOLS); the hosted attempt-1 branch is now gone from every non-nightly
+        # workflow (Blacksmith for all CI, cmux#45898) and the valve is gone. Nightlies keep their own routes.
+        hosted = re.compile(r"github\.run_attempt == 1 && [^|]*'ubuntu-24\.04'")
         for path in sorted(WORKFLOWS.glob("*.y*ml")):
             if path.name == "nightly.yml":  # nightlies never run on Blacksmith; their hosted routes stay
                 continue
             for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-                if hosted not in line and guarded not in line:
-                    continue
-                sites += 1
                 with self.subTest(site=f"{path.name}:{number}"):
-                    if guarded in line:
-                        self.assertEqual(path.name, "resolve-runners.yml")
-                        self.assertNotIn(hosted, line)
-                    else:
-                        self.assertEqual(line.count(hosted), 1, line)
-                        self.assertIn(valve, line)
-        self.assertGreaterEqual(sites, 19)
+                    self.assertIsNone(hosted.search(line), line)
+                    self.assertNotIn("hosted_saturated", line)
 
     def test_stalled_paths_use_the_live_linux_pool(self) -> None:
         for workflow, names in TARGETS.items():
@@ -129,9 +115,7 @@ class RunnerSetTests(unittest.TestCase):
                     self.assertNotIn("outputs.map", runs_on)
                     # Past the fork branches, no Blacksmith size is written down.
                     self.assertNotIn("'blacksmith-", runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1])
-                    self.assertNotRegex(runs_on.replace(
-                        "fromJSON(vars.RUNNER_POOLS).hosted_saturated && fromJSON(vars.RUNNER_POOLS).linux_2", ""),
-                        r"RUNNER_POOLS\)\.linux_\d")
+                    self.assertNotRegex(runs_on, r"RUNNER_POOLS\)\.linux_\d")
 
     def test_gallery_health_reads_the_live_16_vcpu_pool(self) -> None:
         # A CPU-bound render (ask-378f0fa70e: 4 vCPU 30.5 s, 16 vCPU 13.4 s for the same cases): the 16 vCPU
