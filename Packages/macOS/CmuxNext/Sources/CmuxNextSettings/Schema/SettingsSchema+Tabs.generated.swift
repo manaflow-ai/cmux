@@ -15,6 +15,11 @@ extension NativeNewTabPageSetting {
     public nonisolated static let fallback = false
 }
 
+extension NewTabAppSetting {
+    /// `tabs.newTabApp`: A whole New Tab page drawn by an extension (cmux.newtab/1), by app id. Unset (the default) draws cmux's own page; a missing, hidden, disabled or failing app draws it too. Read by the web page only.
+    public nonisolated static let configPath = ["tabs", "newTabApp"]
+}
+
 extension NewTabPosition {
     /// `tabs.newTabPosition`: Where Cmd-T (tabs.newTabPosition) and the strip's + (tabs.newTabButtonPosition) put a new tab (cx-d0d.58). Cmd-T: right after the current tab by default (Lawrence 2026-10-20); the +: at the end, after the last tab, by default (Lucas 2026-11-07). New Tab After Current Tab, New Tab at Start and New Tab at End (and the tab menu's New Tab to the Right) ignore both settings.
     public nonisolated static let configPath = ["tabs", "newTabPosition"]
@@ -43,7 +48,7 @@ extension ChromePlacementSetting {
 }
 
 extension PaneToolbarButtonsSetting {
-    /// `tabs.toolbarButtons`: The actions pinned as buttons at a pane's tab bar trailing end, in tab bar order (catalog action ids).
+    /// `tabs.toolbarButtons`: The actions pinned as buttons next to a pane's tab bar "...", in tab bar order (catalog action ids).
     public nonisolated static let configPath = ["tabs", "toolbarButtons"]
     public nonisolated static let fallback: [String] = []
     public nonisolated static let values = ["splitRight", "splitDown", "openDiffViewer", "file.open", "agentPane.searchChats", "toggleSplitZoom"]

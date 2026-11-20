@@ -9,7 +9,9 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import {
+  GroupHoverLookContext,
   MessageGroupHover,
+  type GroupHoverList,
   hoverMessages,
   inboxHover,
 } from "../src/agent-session/acpmux/conversation/MessageGroupHover";
@@ -55,6 +57,13 @@ async function render(node: ReactNode): Promise<HTMLElement> {
   return container;
 }
 
+/// The digest look (the default before 2026-11-14, now a gallery version).
+const digest = (list: GroupHoverList) => (
+  <GroupHoverLookContext.Provider value="digest">
+    <MessageGroupHover list={list} />
+  </GroupHoverLookContext.Provider>
+);
+
 const one = (name: string, text: string, extra: Partial<IncomingMessage> = {}): IncomingMessage => ({
   name,
   text,
@@ -83,7 +92,7 @@ test("the hover shows the newest message whole, then each other sender once with
     one("vm-1/lane-a", "a three"),
     one("vm-1/lane-d", REPORT),
   ]);
-  const container = await render(<MessageGroupHover list={list} />);
+  const container = await render(digest(list));
   const newest = container.querySelector(".cv-group-hover__newest");
   expect(newest?.querySelector(".cv-group-hover__name")?.textContent).toBe("lane-d");
   // The whole message, every line, its Markdown marks out: never cut to its first two lines.
@@ -110,7 +119,7 @@ test("the hover shows the newest message whole, then each other sender once with
 
 test("the newest sender's earlier messages count under their own name", async () => {
   const list = hoverMessages([one("vm-1/lane-a", "first"), one("vm-1/lane-b", "b"), one("vm-1/lane-a", "newest")]);
-  const container = await render(<MessageGroupHover list={list} />);
+  const container = await render(digest(list));
   expect(container.querySelector(".cv-group-hover__body")?.textContent).toBe("newest");
   const senders = [...container.querySelectorAll(".cv-group-hover__sender")];
   // Newest first: lane-b wrote after lane-a's first.
@@ -118,7 +127,7 @@ test("the newest sender's earlier messages count under their own name", async ()
 });
 
 test("one message alone: the message, no list under it", async () => {
-  const container = await render(<MessageGroupHover list={hoverMessages([one("vm-1/lane-a", "only")])} />);
+  const container = await render(digest(hoverMessages([one("vm-1/lane-a", "only")])));
   expect(container.querySelector(".cv-group-hover__body")?.textContent).toBe("only");
   expect(container.querySelector(".cv-group-hover__senders")).toBeNull();
 });
@@ -132,7 +141,7 @@ test("past four other senders, the rest is one +N more that counts their message
     one("vm/s6", "again"),
     one("vm/s0", "newest"),
   ]);
-  const container = await render(<MessageGroupHover list={list} />);
+  const container = await render(digest(list));
   const senders = [...container.querySelectorAll(".cv-group-hover__sender")];
   expect(senders).toHaveLength(4);
   // s6 (newest of the others, 3 messages), then s5, s4, s3: the rest is s2 and s1, two messages.
@@ -163,7 +172,7 @@ test("an inbox thread that held only its preview counts its whole thread under i
     },
   ]);
   expect(list.total).toBe(5);
-  const container = await render(<MessageGroupHover list={list} />);
+  const container = await render(digest(list));
   expect(container.querySelector(".cv-group-hover__body")?.textContent).toBe("timed from a");
   const senders = [...container.querySelectorAll(".cv-group-hover__sender")];
   expect(senders.map((s) => s.textContent)).toEqual(["lane-b4"]);
@@ -185,11 +194,50 @@ test("names read short and plain, and the broker's label never shows", async () 
       }),
     ),
   );
-  const container = await render(<MessageGroupHover list={list} />);
+  const container = await render(digest(list));
   const text = container.textContent ?? "";
   expect(text).not.toContain("self-declared");
   expect(text).not.toContain("[message");
   expect(text).not.toContain("gcp-agent-lane-3/");
   expect(container.querySelector(".cv-group-hover__body")?.textContent).toBe("chat-targets report\nsecond line");
   expect(container.querySelectorAll(".cv-unverified").length).toBe(4);
+});
+
+// Leo, 2026-11-14, on the digest with a second sender's name and no way to read it: "this has no
+// transparency at all + is not scrollable". The default look is each sender's newest message whole.
+test("the default hover shows each sender once, newest first, with its count and its newest message whole", async () => {
+  const list = hoverMessages([
+    one("vm-1/lane-a", "a one"),
+    one("vm-1/lane-b", "b one"),
+    one("vm-1/lane-a", "a two"),
+    one("vm-1/lane-c", "c one", { unverified: true }),
+    one("vm-1/lane-d", REPORT),
+  ]);
+  const container = await render(<MessageGroupHover list={list} />);
+  expect(container.querySelector(".cv-group-hover")?.getAttribute("data-look")).toBe("threads");
+  const threads = [...container.querySelectorAll(".cv-group-hover__thread")];
+  expect(threads.map((t) => t.querySelector(".cv-group-hover__name")?.textContent)).toEqual([
+    "lane-d",
+    "lane-c",
+    "lane-a",
+    "lane-b",
+  ]);
+  expect(threads.map((t) => t.querySelector(".cv-group-hover__count")?.textContent ?? "")).toEqual(["", "", "2", ""]);
+  expect(threads.map((t) => t.querySelector(".cv-group-hover__body")?.textContent)).toEqual([
+    expect.stringContaining("Landing it pinned once the base-only reds are confirmed."),
+    "c one",
+    "a two",
+    "b one",
+  ]);
+  expect(threads[1]?.querySelector(".cv-unverified")).not.toBeNull();
+  expect(container.textContent).not.toContain("a one");
+  expect(container.querySelector(".cv-group-hover__more")).toBeNull();
+});
+
+test("the default hover lists five senders, then +N more counting the rest's messages", async () => {
+  const names = ["s1", "s2", "s3", "s4", "s5", "s6"];
+  const list = hoverMessages([...names.map((name) => one(`vm/${name}`, name)), one("vm/s0", "newest")]);
+  const container = await render(<MessageGroupHover list={list} />);
+  expect(container.querySelectorAll(".cv-group-hover__thread")).toHaveLength(5);
+  expect(container.querySelector(".cv-group-hover__more")?.textContent).toBe("+2 more");
 });

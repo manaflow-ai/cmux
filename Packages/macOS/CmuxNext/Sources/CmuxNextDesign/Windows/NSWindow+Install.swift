@@ -64,4 +64,16 @@ extension NSWindow {
     /// The ``ActiveLookScope`` this window's backdrop was given, for a child window (DevTools, page
     /// info) to pass to its own `install`; nil when the window paints no window-kit backdrop.
     public var backdropActiveLook: ActiveLookScope? { (contentView as? any WindowSurfacePainting)?.backdropView.activeLook }
+
+    /// The ``ActiveLookScope`` the glass in this window takes: its backdrop's, else its owner's up
+    /// the parent chain (a menu over an app window, a submenu over that menu). Nil when no window
+    /// up the chain has one: that glass follows the key state.
+    public var inheritedActiveLook: ActiveLookScope? {
+        var window: NSWindow? = self
+        while let current = window {
+            if let scope = current.backdropActiveLook { return scope }
+            window = current.parent
+        }
+        return nil
+    }
 }

@@ -6,6 +6,7 @@ use crate::config::{Config, StoreMode};
 use crate::hub::Hub;
 use crate::rpc::{Message, method};
 use crate::server::{Origin, serve_connection_with};
+use acpmux_book::gate_rounds::{self, best_p95};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -301,11 +302,6 @@ async fn status_reads_the_live_sessions_and_says_the_same() {
     assert_eq!(stuck, [older_stuck]);
 }
 
-fn p95(values: &mut [u128]) -> u128 {
-    values.sort_unstable();
-    values[((values.len() * 95).div_ceil(100)).saturating_sub(1)]
-}
-
 /// A hub with a hundred live chats, and `closed` closed ones beside them: the hundred's keys.
 fn batch_hub(closed: usize) -> (Arc<Hub>, Vec<String>) {
     let hub = memory_hub();
@@ -339,10 +335,8 @@ async fn batch_round(hub: &Arc<Hub>, keys: &[String]) -> (Vec<u128>, Vec<u128>) 
 }
 
 fn emit(name: &str, small: &[Vec<u128>], god: &[Vec<u128>], unit: &str) -> (u128, u128) {
-    let best = |rounds: &[Vec<u128>]| {
-        rounds.iter().map(|round| p95(&mut round.clone())).min().unwrap_or(0)
-    };
-    let (small_p95, god_p95) = (best(small), best(god));
+    gate_rounds::report(name, &[("small", small), ("god", god)]);
+    let (small_p95, god_p95) = (best_p95(small), best_p95(god));
     let line =
         json!({"name": name, "small_p95": small_p95, "god_p95": god_p95, "unit": unit}).to_string();
     eprintln!("{line}");
@@ -407,7 +401,7 @@ async fn status_cost_beside_closed_rows() {
         }
         rounds.push(round);
     }
-    let best = rounds.iter_mut().map(|round| p95(round)).min().unwrap_or(0);
+    let best = best_p95(&rounds);
     let line = json!({"name": "status.beside_closed_wall", "p95": best, "unit": "ns"}).to_string();
     eprintln!("{line}");
     if let Some(path) = std::env::var_os("V2_GATE_OUT") {

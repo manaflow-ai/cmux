@@ -17,7 +17,7 @@
           },
           "help": {
             "key": "settings.ui.calm.help",
-            "text": "Calm: nothing slides, springs or spins, hover cards stay closed and the pointer leaves no highlight on tabs, rows and buttons. Still: Calm, and every animation is instant. Your other motion and hover card settings come back when it is off."
+            "text": "Calm stops sliding, spinning and hover highlights; Still also makes animations instant."
           },
           "kind": "choice",
           "swift_owner": "CalmModeSetting",
@@ -76,7 +76,7 @@
           },
           "help": {
             "key": "settings.ui.animations.enabled.help",
-            "text": "Off turns every animation in cmux off: rows, tabs, panes, menus, cards, the agent cursor, spinners and cmux web pages change at once. On, the switches below choose area by area."
+            "text": "Off turns every animation off. On, the switches below pick by area."
           },
           "kind": "toggle",
           "swift_owner": {
@@ -103,7 +103,7 @@
           },
           "help": {
             "key": "settings.ui.animations.sidebar.help",
-            "text": "Rows and groups slide when they reorder, open, close, pin or move to the top, and the sidebar slides when it shows or hides. Off: they change at once."
+            "text": "Rows, groups and the sidebar itself slide as they change."
           },
           "kind": "toggle",
           "swift_owner": {
@@ -131,7 +131,7 @@
           },
           "help": {
             "key": "settings.ui.animations.tabs.help",
-            "text": "Tabs grow, shrink and slide when they open, close, reorder or collapse into a group. Off: the tab bar changes at once."
+            "text": "Tabs grow, shrink and slide as they open, close and move."
           },
           "kind": "toggle",
           "swift_owner": {
@@ -157,7 +157,7 @@
           },
           "help": {
             "key": "settings.ui.animations.panes.help",
-            "text": "Splits, closes, zooms, dividers, focus rings, drop zones and windows open, close and move with motion. Off: they change at once."
+            "text": "Splits, closes, zooms, dividers and windows move with motion."
           },
           "kind": "toggle",
           "swift_owner": {
@@ -185,7 +185,7 @@
           },
           "help": {
             "key": "settings.ui.animations.overlays.help",
-            "text": "Menus, popovers, the command palette, sheets, toasts, notices, find bars and cards fade and slide in and out. Off: they show and hide at once."
+            "text": "Menus, popovers, the palette, sheets, toasts and cards fade and slide."
           },
           "kind": "toggle",
           "swift_owner": {
@@ -239,7 +239,7 @@
           },
           "help": {
             "key": "settings.ui.animations.home.help",
-            "text": "The Chief chat, its bubbles, the composer and the Home list move and fade. Off: they change at once."
+            "text": "The Chief chat, its bubbles, the composer and the Home list move and fade."
           },
           "kind": "toggle",
           "swift_owner": {
@@ -266,7 +266,7 @@
           },
           "help": {
             "key": "settings.ui.animations.cursor.help",
-            "text": "The agent cursor glides between points and shows click ripples. Off: it jumps and shows no ripple."
+            "text": "The agent cursor glides and shows click ripples."
           },
           "kind": "toggle",
           "swift_owner": {
@@ -292,7 +292,7 @@
           },
           "help": {
             "key": "settings.ui.animations.indicators.help",
-            "text": "Spinners turn, status dots pulse and attention flashes blink. Off: they show a still glyph."
+            "text": "Spinners turn, status dots pulse and attention flashes blink."
           },
           "kind": "toggle",
           "swift_owner": {
@@ -320,7 +320,7 @@
           },
           "help": {
             "key": "settings.ui.animations.feedback.help",
-            "text": "Hover and press highlights, focus fades and theme color changes ease in. Off: they change at once."
+            "text": "Hover, press, focus and theme color changes ease in."
           },
           "kind": "toggle",
           "swift_owner": {
@@ -348,7 +348,7 @@
           },
           "help": {
             "key": "settings.ui.animations.web.help",
-            "text": "Transitions and animations in cmux's own pages, such as agent chats, New Tab and Markdown. Off: they end at once. Websites are not changed."
+            "text": "Animations in cmux's own pages, such as chats and New Tab. Websites are unchanged."
           },
           "kind": "toggle",
           "swift_owner": {

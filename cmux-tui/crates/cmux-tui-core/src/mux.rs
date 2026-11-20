@@ -257,8 +257,8 @@ mod layout_types;
 mod layout_undo;
 mod lifecycle;
 pub use layout_types::{
-    AppliedLayout, AppliedPane, Direction, LayoutLeafSpec, LayoutSpec, LayoutUndoError,
-    LayoutUndoResult, ViewportWidthError, ZoomMode, ZoomState,
+    AppliedLayout, AppliedPane, Direction, FloatPaneError, FloatPaneOutcome, LayoutLeafSpec,
+    LayoutSpec, LayoutUndoError, LayoutUndoResult, ViewportWidthError, ZoomMode, ZoomState,
 };
 mod layout_undo_commit;
 pub use events::{
@@ -324,6 +324,8 @@ pub(crate) use time::now_ms;
 pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
 pub(crate) use tab_strip::StripRequest;
 pub(crate) mod creating_input;
+#[cfg(unix)]
+mod holder_late;
 mod loss_causes;
 mod orphan_hosts;
 mod pending_terminals;
@@ -348,9 +350,11 @@ mod terminal_live;
 pub(crate) use terminal_live::TerminalProgressFollower;
 mod terminal_move;
 mod terminal_move_topology;
+mod terminal_port_watch;
 mod terminal_progress;
 mod terminal_publisher;
 mod terminal_reap;
+pub(crate) use terminal_port_watch::PortMark;
 mod terminal_tail_pins;
 pub(crate) use terminal_tail_pins::RESERVED_TAIL_KEY_PREFIX;
 #[cfg(unix)]
@@ -751,7 +755,9 @@ pub struct Mux {
     /// The terminals whose live facts changed (`mux/terminal_live.rs`).
     terminal_live: terminal_live::TerminalLiveLog,
     /// Pinned terminals' last lines and their publisher (`terminal-tail-pin-v1`).
-    terminal_tail_pins: terminal_tail_pins::TerminalTailPins,
+    terminal_tail_pins: Arc<terminal_tail_pins::TerminalTailPins>,
+    /// The terminals that printed, for their workspaces' `ports` entries.
+    terminal_port_watch: Arc<terminal_port_watch::TerminalPortWatch>,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     /// Per-client read marks. The shared unread marker above answers "does this terminal need
     /// attention on the shared console"; this map answers "has this client install seen this
@@ -770,8 +776,8 @@ pub struct Mux {
     /// Shared presentation metadata (workspace groups and workspace
     /// presentation fields), replaced after each registry commit.
     presentation: Mutex<Arc<crate::workspace_registry::PresentationSnapshot>>,
-    /// Git HEAD lookups keyed by directory, with the time they were read.
-    git_heads: Mutex<HashMap<String, (Instant, Option<presentation::GitHead>)>>,
+    /// Git HEAD lookups keyed by directory, with their background refresh.
+    git_heads: Arc<presentation::GitHeadCache>,
     /// One revision of everything `list-workspaces` shows (mux/tree_revision.rs).
     tree_revision: tree_revision::TreeRevision,
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
@@ -864,6 +870,12 @@ pub struct Mux {
     /// Lets a start's adoption threads go before the owner says ready: a
     /// creation the crash interrupted waits on its host's adoption.
     startup_adoptions_released: AtomicBool,
+    /// Terminals the start kept, by host id: for a terminal holder that was
+    /// late (mux/holder_late.rs), until the late thread re-attached or ended
+    /// them, or for the next start (the holder runs the shell and the
+    /// re-attach failed), for the life of this owner. A creation that waits
+    /// on one of them does not hold the start back. A leaf lock.
+    late_holder_terminals: Mutex<HashSet<String>>,
     /// The laps of this owner's open (registry, restore, adoption), until the owner's start
     /// takes them, and the start line with the laps after ready (mux/startup_record.rs).
     startup_timings: startup_record::StartupLaps,

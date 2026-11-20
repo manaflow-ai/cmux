@@ -23,18 +23,18 @@ def rows(frames):
 
 class NullCounts(unittest.TestCase):
     def test_null_frames_give_null_fps_and_keep_kbps(self):
-        kbps, fps, _, _ = phase_numbers(rows(None), PHASES)
+        kbps, fps, _, _, _ = phase_numbers(rows(None), PHASES)
         self.assertEqual(fps, {"idle": None, "typing": None, "scroll": None})
         self.assertEqual(kbps, {"idle": 8.0, "typing": 8.0, "scroll": 8.0})
 
     def test_counted_frames_unchanged(self):
-        kbps, fps, _, _ = phase_numbers(rows(30), PHASES)
+        kbps, fps, _, _, _ = phase_numbers(rows(30), PHASES)
         self.assertEqual(fps["typing"], 30.0)
         self.assertEqual(kbps["scroll"], 8.0)
 
     def test_null_bytes_give_null_kbps(self):
         series = [{**r, "bytes": None} for r in rows(30)]
-        kbps, fps, _, _ = phase_numbers(series, PHASES)
+        kbps, fps, _, _, _ = phase_numbers(series, PHASES)
         self.assertIsNone(kbps["idle"])
         self.assertEqual(fps["idle"], 30.0)
 

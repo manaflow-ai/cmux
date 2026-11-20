@@ -8,8 +8,14 @@
 
 use serde::{Deserialize, Serialize};
 
+#[path = "tabs_approval.rs"]
+pub mod approval;
+#[path = "tabs_draft.rs"]
+pub mod draft;
 #[path = "tabs_panes.rs"]
 pub mod panes;
+#[path = "tabs_place.rs"]
+pub mod place;
 
 // MARK: New tab kind
 
@@ -356,6 +362,11 @@ pub struct ToggleFacts {
     pub hand_off_open: bool,
     /// Now, in seconds since 1970 (`hand_off`'s clock).
     pub now: f64,
+    /// A chat: the device asking cannot start a terminal for its session (the phone, which has
+    /// no `acpmux resume-here`; a Mac whose chat runs on another machine's acpmux). With no
+    /// terminal running the session, such a chat is only a chat and offers no toggle (Leo,
+    /// 2026-11-17: "just... stop showijg the toggle on gui").
+    pub cannot_start_terminal: bool,
 }
 
 /// A chat's session handed to a new terminal (its acpmux run stopped, the
@@ -395,6 +406,25 @@ pub enum TerminalChatToggle {
     /// Not returned since the mid-turn hand-off: a chat mid-turn resumes in a terminal too.
     /// Kept so an app built against the older route still decodes every answer.
     Busy,
+    /// A chat no terminal runs, on a device that cannot start one (`cannot_start_terminal`):
+    /// only a chat, so no toggle shows, never a dead end a person can tap into.
+    NoTerminal,
+}
+
+impl TerminalChatToggle {
+    /// Whether the tab shows the toggle (the Mac's tab right-click row, the phone's Show Chat /
+    /// Show Terminal row): only on half of a live pair, a terminal running its session or a
+    /// chat a terminal runs (or one an earlier Toggle is handing to a terminal). A chat no
+    /// terminal runs is a GUI chat and shows none (Leo, 2026-11-17: "just... stop showing the
+    /// toggle on gui"); Toggle's key and palette entry still resume it in a terminal.
+    pub fn shows_toggle(&self) -> bool {
+        matches!(
+            self,
+            TerminalChatToggle::ToChat { .. }
+                | TerminalChatToggle::ToTerminal { .. }
+                | TerminalChatToggle::HandingOff { .. }
+        )
+    }
 }
 
 pub fn terminal_chat_toggle(facts: &ToggleFacts) -> TerminalChatToggle {
@@ -430,6 +460,10 @@ pub fn terminal_chat_toggle(facts: &ToggleFacts) -> TerminalChatToggle {
         if lasts {
             return TerminalChatToggle::HandingOff { tab: hand_off.tab.clone() };
         }
+    }
+    // Nothing here can start the terminal: the chat is only a chat.
+    if facts.cannot_start_terminal {
+        return TerminalChatToggle::NoTerminal;
     }
     // Mid-turn too: the new terminal waits for the turn instead of cutting it off.
     TerminalChatToggle::ResumeInTerminal { harness, session }

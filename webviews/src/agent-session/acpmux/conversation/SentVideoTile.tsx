@@ -17,11 +17,13 @@
 // the row: its tile reads them from the file (`video.info`, as the composer's chip does), at the size
 // the row gave it, so nothing moves when they land; where the host cannot read it, the tile stays the
 // square with its play glyph (Leo, 2026-11-06: "how come this didn't give a preview and only has
-// file name?").
+// file name?"). Its length is one line in the tile's bottom-right corner, or not drawn where a narrow
+// bubble leaves it no room clear of the play glyph (composer/videoLengthFit.ts).
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { callChipHost, tryChipHost } from "../chips/host";
 import { lengthOf } from "../composer/videoPrompt";
+import { useVideoLengthFit } from "../composer/videoLengthFit";
 import { parseVideoInfo, type VideoInfo } from "../composer/videoAttachments";
 import { MediaPlayer, VideoViewer } from "../chips/ReplyMedia";
 import { loadPlayableMedia } from "../chips/replyMediaModel";
@@ -63,6 +65,11 @@ function SentVideoTilePreview({ video: sent, width, height }: SentVideoTileProps
   /// Nothing could play it: the pane's player was refused it and Quick Look too.
   const [unplayable, setUnplayable] = useState(false);
   const asked = useRef(0);
+  const tile = useRef<HTMLButtonElement>(null);
+  useVideoLengthFit(
+    tile,
+    video.length ? `${video.length}${unplayable ? " unplayable" : ""}${shown ? " shown" : ""}` : undefined,
+  );
   const quickLook = (ask: number) =>
     void tryChipHost("video.quickLook", { src: video.path }).then((played) => {
       if (ask === asked.current) setUnplayable(!played);
@@ -105,6 +112,7 @@ function SentVideoTilePreview({ video: sent, width, height }: SentVideoTileProps
   return (
     <>
       <button
+        ref={tile}
         type="button"
         className="cv-user__video"
         // A send from the latest row lands its chip's copy here (sendMorph.ts).
@@ -123,14 +131,16 @@ function SentVideoTilePreview({ video: sent, width, height }: SentVideoTileProps
           <span className="cv-user__image-placeholder" aria-hidden="true" style={{ width, height, flexBasis: width }} />
         )}
         {unplayable ? (
-          <output className="cv-user__video-unplayable">{t("media.cantPlayHere")}</output>
+          <output className="cv-user__video-unplayable" data-video-glyph="">
+            {t("media.cantPlayHere")}
+          </output>
         ) : (
-          <span className="ui-glass cv-user__video-play" aria-hidden="true">
+          <span className="ui-glass cv-user__video-play" data-video-glyph="" aria-hidden="true">
             <PlayTriangle size={16} style={{ color: "inherit" }} />
           </span>
         )}
         {video.length && (
-          <span className="cv-user__video-length" aria-hidden="true">
+          <span className="cv-user__video-length" data-video-length="" aria-hidden="true">
             {video.length}
           </span>
         )}

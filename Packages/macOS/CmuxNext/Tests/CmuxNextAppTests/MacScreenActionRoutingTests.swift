@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextDaemon
 import CmuxNextDaemonService
+import CmuxNextDevices
 @testable import CmuxNextApp
 import CmuxNextWakeups
 @testable import CmuxNextMacScreen
@@ -54,6 +55,66 @@ struct MacScreenActionRoutingTests {
             }
         }
         #expect(pages.pendingScopes.isEmpty)
+    }
+
+    private let other = "5d1e0f2a-6b7c-4d8e-9f01-23456789abcd"
+    private let third = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
+
+    private func failure(_ body: () throws -> Void) -> String? {
+        do { try body(); return nil } catch let failure as ActionFailure { return failure.message } catch { return "\(error)" }
+    }
+
+    /// `cmux action run macScreen.open --device mac-mini`: a hub device's name (the Mac's Computer Name) resolves at
+    /// the action boundary, without case and, failing that, without punctuation or spacing (a `cmux device list` name).
+    @Test func aUniqueDeviceNameResolvesToItsHubID() throws {
+        let pages = pages()
+        let devices = [HubDevice(id: device, name: "Mac Mini"), HubDevice(id: other, name: "Leo’s Mac Studio")]
+        for name in ["Mac Mini", "mac mini", "  MAC MINI ", "mac-mini"] {
+            let record = try MacScreenActions.record(ActionInvocation(arguments: ["device": .string(name)], origin: .cli), pages: pages, devices: devices)
+            #expect(record.deviceID == device, "\(name)")
+        }
+        #expect(try MacScreenActions.deviceID(named: "leo-s-mac-studio", among: devices) == other)
+        #expect(try MacScreenActions.deviceID(named: device.uppercased(), among: []) == device)
+        // A non-person invocation opens the tab at Connect: it asks for no scope.
+        #expect(pages.pendingScopes.isEmpty)
+    }
+
+    @Test func anAmbiguousNameFailsListingTheDevicesItCouldMean() {
+        let devices = [HubDevice(id: device, name: "Studio"), HubDevice(id: other, name: "studio"), HubDevice(id: third, name: "Mac Mini")]
+        let message = failure { _ = try MacScreenActions.deviceID(named: "STUDIO", among: devices) }
+        #expect(message?.contains("Studio (\(device))") == true)
+        #expect(message?.contains("studio (\(other))") == true)
+        #expect(message?.contains(third) == false)
+        // An exact-case-insensitive match wins over a looser one: "mac-mini" is unique among slugs too.
+        let looser = [HubDevice(id: device, name: "mac-mini"), HubDevice(id: other, name: "Mac Mini")]
+        #expect((try? MacScreenActions.deviceID(named: "Mac-Mini", among: looser)) == device)
+        #expect(failure { _ = try MacScreenActions.deviceID(named: "mac mini!", among: looser) }?.contains(other) == true)
+    }
+
+    @Test func anUnknownNameFailsListingEveryDeviceAsNameAndID() {
+        let pages = pages()
+        let devices = [HubDevice(id: device, name: "Mac Mini"), HubDevice(id: other, name: "Studio")]
+        let message = failure {
+            _ = try MacScreenActions.record(ActionInvocation(arguments: ["device": .string("office-imac")]), pages: pages, devices: devices)
+        }
+        #expect(message?.contains("office-imac") == true)
+        #expect(message?.contains("Mac Mini (\(device))") == true)
+        #expect(message?.contains("Studio (\(other))") == true)
+        #expect(message?.contains("Choose a device from Screen Sharing") == false)
+        let none = failure { _ = try MacScreenActions.deviceID(named: "office-imac", among: []) }
+        #expect(none?.contains("sign in to cmux") == true)
+        for value: ActionValue in [.string(""), .string("   "), .int(1)] {
+            let missing = failure {
+                _ = try MacScreenActions.record(ActionInvocation(arguments: ["device": value]), pages: pages, devices: devices)
+            }
+            #expect(missing?.contains("Mac Mini (\(device))") == true, "\(value)")
+        }
+        #expect(pages.pendingScopes.isEmpty)
+    }
+
+    @Test func noDeviceStillOpensTheHomePage() throws {
+        let record = try MacScreenActions.record(ActionInvocation(), pages: pages(), devices: [HubDevice(id: device, name: "Mac Mini")])
+        #expect(record.isHome)
     }
 
     private func screenTree() -> DaemonTree {

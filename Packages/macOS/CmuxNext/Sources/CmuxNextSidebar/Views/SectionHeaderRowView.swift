@@ -18,12 +18,14 @@ final class SectionHeaderRowView: SidebarRowView {
     private let badge = SidebarRowView.label(font: SidebarStyle.headerFont)
     private(set) var badgeText: String?
     private let chevron = DecorativeImageView()
-    let addButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.smallIconSize - Metrics.space1 }, label: Strings.newWorkspace)
+    let addButton = SidebarIconButton(plus: Strings.newWorkspace)
     /// Screen Sharing from the machine header (Leo: "if theres no easy path to use it then theres no point"):
     /// Share on This Mac, View screen on a Cloud machine; no button on SSH and server machines.
     let screenButton = SidebarIconButton(icon: .remoteDisplay, pointSize: { Metrics.smallIconSize - Metrics.space1 }, label: Strings.viewScreen)
     /// What the screen button sends, nil when it does not show.
     private(set) var screenAction: SidebarIntent?
+    /// This Mac shares its screen now: the button shows at rest, in the accent (the sharing badge).
+    private(set) var screenShared = false
     /// The machine status dot's color, resolved in `updateLayer`; `working` draws the spinner.
     enum StatusTone { case success, attention, quiet, danger, working }
     private(set) var statusTone: StatusTone?
@@ -79,6 +81,18 @@ final class SectionHeaderRowView: SidebarRowView {
         case .paused: .quiet
         case .attention: .attention
         }
+    }
+
+    /// The machine as its header draws it: a link that has been coming up, dropped or out of reach for
+    /// less than the grace (`holdsStatusLabel`, `SidebarPlaceholderGrace.holdingConnectingLabels`)
+    /// keeps the connected look, with no spinner and no "Reconnecting…", since it redials on its own
+    /// (Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up"). The tooltip and
+    /// VoiceOver still read the real state.
+    static func drawn(_ machine: SidebarMachine) -> SidebarMachine {
+        guard machine.holdsStatusLabel else { return machine }
+        var held = machine
+        held.status = .connected
+        return held
     }
 
     /// A machine's state in words, for the header's label and the dot's tooltip.
@@ -154,6 +168,9 @@ final class SectionHeaderRowView: SidebarRowView {
         statusTip = nil
         cost = nil
         screenAction = nil
+        screenShared = false
+        screenButton.isHidden = true
+        screenButton.isEnabled = true
         collapsed = row.isCollapsed
         isEmpty = content.isEmpty
         let symbol: IconName
@@ -181,9 +198,10 @@ final class SectionHeaderRowView: SidebarRowView {
             }
             title = machine.name
             ownIcon = machine.icon
-            statusTone = Self.tone(machine, hostGroup: section.isHostGroup)
+            let drawn = Self.drawn(machine)
+            statusTone = Self.tone(drawn, hostGroup: section.isHostGroup)
             let words = Self.statusWords(machine.status)
-            badgeText = Self.statusText(machine.status, hostGroup: section.isHostGroup)
+            badgeText = Self.statusText(drawn.status, hostGroup: section.isHostGroup)
             // A connected Cloud machine draws no dot (Leo 2026-10-30), yet its tooltip still says it is connected.
             statusTip = Self.statusToolTip(words: words, detail: machine.detail, bareDot: badgeText == nil
                 && (statusTone != nil || machine.status == .updateAvailable || machine.kind == .cloud))
@@ -192,9 +210,20 @@ final class SectionHeaderRowView: SidebarRowView {
             setAccessibilityLabel(machine.name + ", " + words)
             setAccessibilityHelp(cost == nil ? machine.detail : themedToolTip)
             screenAction = Self.screenAction(machine)
-            let share = machine.kind == .local
-            screenButton.icon = share ? .actionShare : .remoteDisplay
-            screenButton.label = share ? Strings.shareScreen : Strings.viewScreen
+            screenShared = machine.kind == .local && machine.screenShared
+            // Share and View both draw a screen, never the generic share arrow (Leo 2026-11-16).
+            screenButton.icon = .remoteDisplay
+            screenButton.tintOverride = screenShared ? Palette.accent : nil
+            switch machine.kind {
+            case .local:
+                screenButton.label = screenShared ? Strings.sharingScreen : Strings.shareScreen
+            case .cloud:
+                screenButton.label = Strings.viewScreen
+            case .ssh, .server:
+                screenButton.label = Strings.viewScreen
+                screenButton.isEnabled = machine.screenAvailable
+                if !machine.screenAvailable { screenButton.label += " — " + Strings.statusOffline }
+            }
         }
         // The only machine needs no name or status: the header heads the
         // workspace list, apart from the destinations above it.
@@ -228,20 +257,20 @@ final class SectionHeaderRowView: SidebarRowView {
         addButton.setAccessibilityIdentifier("cmux.sidebar.section.\(sectionID).newWorkspace")
         screenButton.setAccessibilityIdentifier("cmux.sidebar.section.\(sectionID).screen")
         addButton.isHidden = true
-        screenButton.isHidden = screenAction == nil
+        screenButton.isHidden = screenAction == nil || !(isHovered || screenShared)
         needsLayout = true
         needsDisplay = true
     }
 
     var allowsAdd = true
 
-    /// The header's screen button: Share on This Mac, View screen on a Cloud machine, none on an
-    /// SSH or server machine (their screen path needs the daemon's screen identity, not here yet).
+    /// Share on This Mac; View screen on Cloud machines and authenticated Mac devices.
+    /// SSH and server rows need the daemon's screen identity before offering View screen.
     static func screenAction(_ machine: SidebarMachine) -> SidebarIntent? {
         switch machine.kind {
         case .local: .shareScreen(machine.id)
         case .cloud: .viewScreen(machine.id)
-        case .ssh, .server: nil
+        case .ssh, .server: machine.screenDeviceID == nil ? nil : .viewScreen(machine.id)
         }
     }
 
@@ -298,11 +327,13 @@ final class SectionHeaderRowView: SidebarRowView {
         addButton.isHidden = !allowsAdd
         let control = SidebarStyle.controlSize
         if allowsAdd {
-            addButton.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY, side: control)
+            addButton.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY, side: control, slot: 0)
         }
-        // From the trailing edge: +, the screen button, the chevron, each on its own pitch, at rest too.
+        // From the trailing edge: +, the screen button, the chevron, each on its own pitch, at rest too. The screen
+        // button keeps its slot but draws only on hover, or at rest as the sharing badge (Leo 2026-11-16: nothing on
+        // every row at rest); VoiceOver reaches it through the header's custom action.
         let hasScreen = screenAction != nil
-        screenButton.isHidden = !hasScreen
+        screenButton.isHidden = !(hasScreen && (isHovered || screenShared))
         let screenSlot = allowsAdd ? 1 : 0
         if hasScreen {
             screenButton.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY, side: control, slot: screenSlot)
@@ -352,10 +383,27 @@ final class SectionHeaderRowView: SidebarRowView {
     /// Whether the machine's own icon shows before the name (tests).
     var showsMachineIcon: Bool { !machineIcon.isHidden }
 
-    /// Whether the header shows its screen button (tests).
+    /// Whether the header has a first-class screen action, drawn or not (tests and native gallery capture).
+    var hasScreenAction: Bool { screenAction != nil }
+
+    /// Whether the screen button draws now: on hover, or as the sharing badge (tests and native gallery capture).
     var showsScreenButton: Bool { !screenButton.isHidden }
 
-    /// The fold chevron's frame (tests).
+    /// The screen button while it hides at rest: VoiceOver's way to Share or View.
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        guard screenAction != nil, screenButton.isEnabled else { return super.accessibilityCustomActions() }
+        let action = NSAccessibilityCustomAction(name: screenButton.label) { [weak self] in
+            guard let self, self.screenAction != nil, self.screenButton.isEnabled else { return false }
+            self.screenButton.onPress?()
+            return true
+        }
+        return (super.accessibilityCustomActions() ?? []) + [action]
+    }
+
+    /// The screen action's frame (tests and native gallery geometry capture).
+    var screenButtonFrame: NSRect { screenButton.frame }
+
+    /// The disclosure's frame (tests and native gallery geometry capture).
     var chevronFrame: NSRect { chevron.frame }
 }
 

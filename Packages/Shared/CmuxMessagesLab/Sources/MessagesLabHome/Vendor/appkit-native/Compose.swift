@@ -292,6 +292,9 @@ final class FieldTextView: NSTextView {
     override func becomeFirstResponder() -> Bool {
         let ok = super.becomeFirstResponder()
         if ok { PaletteScope.claimProcess(PaletteScope.palette(of: self)) } // cmux: the chat typed in gives the process palette
+        if ok, let home = sequence(first: superview, next: { $0?.superview }).lazy.compactMap({ $0 as? MessagesLabHomeView }).first {
+            home.onComposerFocused?(self) // cmux: the host's "window takes keys" launch mark
+        }
         DispatchQueue.main.async { [weak self] in self?.updateCaret() }
         return ok
     }
@@ -788,9 +791,11 @@ final class ComposeView: UIView {
     private(set) var fieldHeight: CGFloat = ComposeMetrics.oneLine
     private(set) var chips: [Attachment] = []
     private(set) var text = ""
-    /// The field is empty because of a send (no character typed and no attachment since): Messages
-    /// keeps it at `ComposeMetrics.emptyAfterSend` (30 pt), not the one-line height.
-    private(set) var emptyAfterSend = false
+    // cmux: no `emptyAfterSend` state. Messages on macOS 27 keeps the field emptied by a send at
+    // `ComposeMetrics.emptyAfterSend` (30 pt) and grows it to the 31 pt one-line height on the
+    // first character; Home keeps every empty field at the one-line height (user, 2026-11-16:
+    // "when imessage chat text input is empty, then i type into, and height of the input
+    // increases by just slightly"; HomeComposerEmptyHeightTests).
     private var placeholder = Strings.placeholder
     var captureMode = false {
         didSet {
@@ -884,7 +889,10 @@ final class ComposeView: UIView {
         // Its one line (a space) does not depend on the width: a live resize's every width
         // typeset it again (cx-3cb resize-drops).
         if text.isEmpty, let e = emptyLinesMemo, e.0 == w || (e.1 == 1 && w >= ComposeView.emptyLineMinWidth) { return e.1 }
-        if let m = linesMemo, m.text == text, m.width == w { return m.count }
+        // cmux: the memo's draft against this one by their UTF-8 bytes (the drafts are native,
+        // String+NativeCopy.swift): an append keeps the earlier lines when the old draft's code units
+        // start the new one, the offsets `starts` holds; Swift's `hasPrefix` compared normalized text.
+        if let m = linesMemo, m.width == w, m.text.utf8.count == text.utf8.count, m.text.utf8.elementsEqual(text.utf8) { return m.count }
         if text.isEmpty {
             let n = TextLayout.make(" ", runs: [], maxWidth: w, font: ComposeView.font).lines.count
             emptyLinesMemo = (w, n)
@@ -895,7 +903,7 @@ final class ComposeView: UIView {
         // cost follows the change, not the draft (perf-lead.md issue 5, typing-frame-bench.py).
         let u = text as NSString
         var keep = 0, from = 0
-        if let m = linesMemo, m.width == w, u.length > (m.text as NSString).length, text.hasPrefix(m.text),
+        if let m = linesMemo, m.width == w, text.utf8.count > m.text.utf8.count, text.utf8.starts(with: m.text.utf8),
            let second = m.starts.dropLast().last {
             keep = m.starts.count - 2
             from = second
@@ -913,7 +921,6 @@ final class ComposeView: UIView {
     static let maxHeight: CGFloat = 295.5
     /// The field's height for the draft in a window WIDTH pt wide (the attachment row on top).
     private func height(for text: String, width: CGFloat) -> CGFloat {
-        if emptyAfterSend && text.isEmpty && chips.isEmpty { return ComposeMetrics.emptyAfterSend }
         // cmux: attachments in the text: the lines that hold them are as tall as their thumbnails.
         if !chips.isEmpty, let storage = textView.view.textStorage, storage.string == text {
             let extra = ComposeInlineText.extraHeight(storage, width: ComposeView.fieldWidth(width) - 24 - trailingReserve)
@@ -1280,11 +1287,13 @@ final class ComposeView: UIView {
     /// transaction (catalyst's `ComposeView.update`).
     func update(state: AppState, send: Bool, begin: CFTimeInterval) {
         let d = state.ui.draft
-        let hadDraft = !text.isEmpty || !chips.isEmpty
         let tv = textView.view
         // cmux: attachments are in the text (Draft+InlineMarks.swift): a new or changed attachment
         // builds the field's text again too.
-        if tv.string != d.text || d.attachments != chips {
+        // cmux: the field's text (the text storage's NSString) against the draft compares UTF-16
+        // code units first: Swift's `!=` on a bridged string walks it grapheme by grapheme, normalized,
+        // every key (String+NativeCopy.swift). It decides only when the code units differ.
+        if (!(tv.string as NSString).isEqual(to: d.text) && tv.string != d.text) || d.attachments != chips {
             // Never replace text that holds marked (IME) text: the input
             // method owns it until it commits.
             if !tv.hasMarkedText() {
@@ -1306,9 +1315,6 @@ final class ComposeView: UIView {
         let attachmentsChanged = d.attachments != chips
         if attachmentsChanged { chips = d.attachments; renderChips(); onAttachmentsChanged?() }
         text = d.text
-        // Only a send that took a draft (a rejected send is not committed: Store.apply).
-        if send && hadDraft { emptyAfterSend = d.text.isEmpty && d.attachments.isEmpty }
-        else if !d.text.isEmpty || !d.attachments.isEmpty { emptyAfterSend = false }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         // With an attachment Messages shows neither the placeholder nor the audio glyph
         // (compose-attach-image stills).

@@ -24,6 +24,16 @@ it is not running. Each `daemon` command's `--help` lists every flag and ends wi
 | Protocol capability ids this build serves (no daemon needed) | `acpmux capabilities` |
 | Serve the local CodeRouter | `acpmux router serve` |
 
+`config --set` checks the whole resulting config the way a daemon start does and refuses a
+value the daemon would refuse, leaving `config.json` as it was. For example,
+`transport.wireguard=true` is refused until `transport.wireguardStatic` is in `config.json`.
+`daemon reload` keeps the running config when the file fails the same check, and `daemon status`
+names the reason when no daemon runs.
+
+The hub carrier (`cmux remote exec|cp|connect --via-machine`) needs no WireGuard setting. A
+joined machine (`acpmux machine join`) runs it on its node key unless the cmux link holds that
+key.
+
 `ACPMUX_SOCKET` takes precedence over `ACPMUX_HOME`. To look at an isolated home from a shell that
 may be inside another agent: `env -u ACPMUX_SOCKET ACPMUX_HOME=/tmp/example acpmux daemon status`.
 

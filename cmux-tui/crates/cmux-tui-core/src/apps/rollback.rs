@@ -379,10 +379,9 @@ impl Supervisor {
         };
         self.emit(outs);
         // Reload it as a save: its prints entry is dropped so it reads as changed.
-        let mut prints =
-            self.inner.lock().unwrap_or_else(PoisonError::into_inner).local_prints.clone();
-        prints.remove(&p.app);
-        self.reload_local_apps(&prints);
+        self.reload_local_apps_now_with(|prints| {
+            prints.remove(&p.app);
+        });
         Ok(json!({ "app": p.app, "version": good.version, "restored": true }))
     }
 }

@@ -6,6 +6,7 @@
 // listed whole here (Leo, 2026-11-01: "our + button results are still really bad"): at most a few
 // recent ones, then one "Commands and skills…" row that opens the slash list, which searches them
 // all (composerPlusRegistry.ts, recentCommands.ts).
+import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
 import { Picker, PlusIcon, type Section } from "./ComposerPickers";
 import { runComposerPlusAction, type ComposerPlusEntry } from "./composerPlusRegistry";
 import type { SlashCommand } from "./slashCommands";
@@ -15,6 +16,8 @@ import { experimentArm } from "../../experiments/experiment";
 import { composerPlusCommands } from "./composerPlusCommands.experiment";
 import { composerPlusMenuSections } from "./composerPlusMenuModel";
 import { acpmuxPerf } from "./perf";
+import { useStableHandlers } from "./stableHandlers";
+import { memo } from "react";
 
 export type ComposerPlusMenuProps = {
   /** The rows, from composerPlusRegistry, already narrowed to what this composer can run. */
@@ -33,7 +36,15 @@ export type ComposerPlusMenuProps = {
   onOpen?(): void;
 };
 
-export function ComposerPlusMenu({
+/// The + menu draws again only when its rows or Plan change, never on a keystroke in the composer
+/// (CMUX-571; Leo, 2026-11-12: "even if a chat is long, there should be no percievable difference").
+/// The composer builds its handlers inline on each render, so each `on*` prop is one stable function
+/// that calls the latest (useStableHandlers), and the composer memoizes `entries`.
+export function ComposerPlusMenu(props: ComposerPlusMenuProps) {
+  return <MemoPlusMenu {...useStableHandlers(props)} />;
+}
+
+const MemoPlusMenu = memo(function PlusMenu({
   entries,
   className,
   planning = false,
@@ -44,6 +55,7 @@ export function ComposerPlusMenu({
 }: ComposerPlusMenuProps) {
   acpmuxPerf.render("composer:plus");
   const t = useT();
+  const addShortcut = useShortcut(SHORTCUT_ACTIONS.composerAddMenu);
   // Untitled groups: a hairline splits them (styles.css), with no header band between.
   const sections: Section[] = composerPlusMenuSections(entries, planning, experimentArm(composerPlusCommands)).map(
     (group) => ({
@@ -65,6 +77,7 @@ export function ComposerPlusMenu({
       label={t("composer.add")}
       // Codex's short tooltip (Leo, 2026-10-21): "Add files and more", not the menu's list.
       tooltip={t("composer.addTooltip")}
+      shortcut={addShortcut}
       className={className ? `acpmux-composer-plus ${className}` : "acpmux-composer-plus"}
       button={<PlusIcon />}
       align="start"
@@ -72,4 +85,4 @@ export function ComposerPlusMenu({
       {...(onOpen ? { onOpen } : {})}
     />
   );
-}
+});

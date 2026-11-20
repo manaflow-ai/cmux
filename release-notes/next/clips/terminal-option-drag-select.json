@@ -75,7 +75,8 @@
         "method": "debug.mouse",
         "params": {
           "action": "drag",
-          "pane": "focused",
+          "x": 290,
+          "y": 380,
           "by_x": 320,
           "by_y": 0,
           "steps": 24
@@ -90,7 +91,8 @@
         "method": "debug.mouse",
         "params": {
           "action": "drag",
-          "pane": "focused",
+          "x": 290,
+          "y": 380,
           "by_x": 320,
           "by_y": 0,
           "steps": 24,

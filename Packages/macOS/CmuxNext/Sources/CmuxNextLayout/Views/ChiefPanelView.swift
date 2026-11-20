@@ -270,13 +270,25 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
     }
 
     /// Takes `view` (the Chief's) into the panel, out of wherever it was; nothing when it is here already.
-    public func hold(_ view: NSView) {
-        guard view.superview !== body else { return }
+    ///
+    /// A different view than the one held lets that one go (``release()``) instead of covering it:
+    /// a covered Chief that had the keys kept them, so typing went into a box no one could see
+    /// (plans/cmux-next/focus-loss-AUDIT.md). The keys it had go to the new Chief's message box.
+    ///
+    /// - Returns: The view it let go, for Home's pane to take back; nil when it held none or the same.
+    @discardableResult
+    public func hold(_ view: NSView) -> NSView? {
+        guard view.superview !== body else { return nil }
+        let previous = chief === view ? nil : chief
+        let hadKeys = previous.map { old in (window?.firstResponder as? NSView)?.isDescendant(of: old) == true } ?? false
+        let released = previous == nil ? nil : release()
         chief = view
         view.removeFromSuperview()
         view.autoresizingMask = []
         body.addSubview(view)
         applyShape()
+        if hadKeys { focusChief() }
+        return released
     }
 
     /// Lets the held view go, for Home's pane to take back; the view it held, nil when none.

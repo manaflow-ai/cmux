@@ -132,7 +132,7 @@ MAX_OTHER_WINDOWS = 4
 MIN_OTHER_WINDOW = (40, 24)
 # All of a step's other-window shots share this many seconds.
 OTHER_WINDOWS_BUDGET = 20.0
-TOUR_KEYS = {"title", "steps", "settings", "env", "customize", "launch_args"}
+TOUR_KEYS = {"title", "steps", "settings", "env", "customize", "launch_args", "harnessFixture"}
 # A directional focus right after a pane close (focus_after_close).
 DIRECTIONAL_FOCUS = {"focusLeft", "focusRight", "focusUp", "focusDown"}
 # Focus moves that open no pane, so they never undo a close (ActionCatalog+Focus.swift).
@@ -161,6 +161,9 @@ HELPER_CANDIDATES = (Path.home() / "Applications/CuaSshScreenCapture.app",
                      Path("/Applications/CuaSshScreenCapture.app"))
 # A long tour would make a GIF past the inline limit; split it instead.
 MAX_STEPS = 30
+# The CMUX_* knobs (not CMUX_NEXT_*) a tour's `env` may set: they reach the app's terminals too, so a
+# tour's own store is the one its shells and the app's pages read.
+FIXTURE_ENV = frozenset({"CMUX_AUTOMATIONS_DIR"})
 READ_ONLY_POSTCONDITION_METHODS = {
     "debug.layers", "debug.surfaces", "debug.focus", "debug.window_list", "debug.windows",
     "debug.pane_chrome", "debug.notifications", "debug.themes", "debug.dialog",
@@ -235,11 +238,17 @@ def load_tour(path: Path) -> dict[str, Any]:
     if "settings" in data and not isinstance(data["settings"], dict):
         raise TourError(f"{path}: `settings` must be an object (the cmux-next.json the app launches with)")
     env = data.get("env", {})
-    if (not isinstance(env, dict) or not all(isinstance(key, str) and key.startswith("CMUX_NEXT_") and isinstance(value, str)
-                                             for key, value in env.items())):
-        raise TourError(f"{path}: `env` maps CMUX_NEXT_* names to strings ({{repo}} is the checkout)")
+    if (not isinstance(env, dict) or not all(isinstance(key, str) and (key.startswith("CMUX_NEXT_") or key in FIXTURE_ENV)
+                                             and isinstance(value, str) for key, value in env.items())):
+        raise TourError(f"{path}: `env` maps CMUX_NEXT_* names (or {', '.join(sorted(FIXTURE_ENV))}) to strings "
+                        "({repo} is the checkout, {workdir} a private folder of the run)")
     if "customize" in data and not isinstance(data["customize"], bool):
         raise TourError(f"{path}: `customize` must be true or false")
+    # The acpmux harness catalog the tour's daemon starts with (ACPMUX_HARNESS_FIXTURE, acpmux harness_fixture.rs).
+    harness_fixture = data.get("harnessFixture")
+    if harness_fixture is not None and (not isinstance(harness_fixture, dict)
+                                        or not isinstance(harness_fixture.get("harnesses", {}), dict)):
+        raise TourError(f"{path}: `harnessFixture` is an acpmux harness fixture object ({{\"harnesses\": {{...}}}})")
     launch_args = data.get("launch_args", [])
     if not isinstance(launch_args, list) or not all(isinstance(arg, str) for arg in launch_args):
         raise TourError(f"{path}: `launch_args` must be a list of strings (arguments the app launches with)")
@@ -325,8 +334,12 @@ def load_tour(path: Path) -> dict[str, Any]:
     for number, step in enumerate(steps, 1):
         if step.get("cmux"):
             step["cmux"] = fill_repo(step["cmux"], repo, f"{path}: step {number}")
+    # {repo} in the fixture's strings too, so a harness can run a checkout file (acpmux's fake_agent.py).
+    if harness_fixture is not None:
+        harness_fixture = json.loads(json.dumps(harness_fixture).replace("{repo}", json.dumps(repo)[1:-1]))
     return {"name": slug(path.stem), "title": data["title"].strip(), "steps": steps, "settings": data.get("settings"),
-            "env": launch_env, "customize": data.get("customize", False), "launch_args": launch_args}
+            "env": launch_env, "customize": data.get("customize", False), "launch_args": launch_args,
+            "harness_fixture": harness_fixture}
 
 
 def _action(step: dict[str, Any]) -> str | None:
@@ -1237,6 +1250,12 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
     frames = session.shareable(directory / "frames")
     workdir = Path(tempfile.mkdtemp(prefix="cmux-tour.", dir="/tmp"))
     launch_env = dict(tour.get("env") or {})
+    # `{workdir}` in an `env` value is a folder of this run the app's user can write, so state the app
+    # and its terminals keep through a CMUX_* knob (CMUX_AUTOMATIONS_DIR) starts empty and is never
+    # the runner's own.
+    if any("{workdir}" in value for value in launch_env.values()):
+        state = str(session.shareable(workdir / "env"))
+        launch_env = {key: value.replace("{workdir}", state) for key, value in launch_env.items()}
     # Every tour gets its own customize folder, named or not: with no CMUX_CUSTOMIZE_DIR the daemon
     # falls back to the runner's own ~/.config/cmux/customize, so one personal extension there would
     # draw itself into every tour's shots. The daemon reads CMUX_* from the app's environment
@@ -1247,6 +1266,12 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
     # creates it, so the launch sees an empty customize folder either way.
     launch_env["CMUX_CUSTOMIZE_DIR"] = str(session.shareable(customize) if tour.get("customize")
                                            else customize)
+    if tour.get("harness_fixture") is not None:
+        # In a folder the app's user can read when that user is someone else (session.shareable).
+        fixture = session.shareable(workdir / "harness") / "fixture.json"
+        fixture.write_text(json.dumps(tour["harness_fixture"]), encoding="utf-8")
+        fixture.chmod(0o644)
+        launch_env["ACPMUX_HARNESS_FIXTURE"] = str(fixture)
     app = App(app_path, session, workdir, fresh_state=fresh_state, settings=tour.get("settings"),
               launch_env=launch_env, launch_args=tour.get("launch_args"))
     screen = Screen(session, session.shareable(workdir / "raw"), app)

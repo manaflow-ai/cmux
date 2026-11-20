@@ -77,8 +77,6 @@ impl WorkspaceRegistry {
         result: &Value,
         project_resource: bool,
     ) -> anyhow::Result<WorkspaceCommitIntent> {
-        // A late indeterminate commit must land before the topology read.
-        self.connection.drain_unsettled()?;
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
         let stated_workspaces = if project_resource { self.stated_workspaces() } else { None };
@@ -156,26 +154,6 @@ impl WorkspaceCommitIntent {
     pub(crate) fn with_extra_rows(mut self, extra: OwnedTransactionWrite) -> Self {
         self.extra = Some(ExtraRows(extra));
         self
-    }
-
-    /// Resident size for the writer's durable batch byte cap.
-    pub(crate) fn estimated_bytes(&self) -> usize {
-        self.fingerprint
-            .len()
-            .saturating_add(self.result_json.len().saturating_mul(2))
-            .saturating_add(self.workspaces.len().saturating_mul(512))
-            .saturating_add(
-                self.previous_topology
-                    .as_ref()
-                    .map_or(0, |topology| topology.active_screens.len().saturating_mul(128)),
-            )
-            // The fold's copy of every stated workspace value, one per workspace (#32408).
-            .saturating_add(
-                self.stated_workspaces
-                    .as_ref()
-                    .map_or(0, |(_, stated)| stated.len().saturating_mul(512)),
-            )
-            .saturating_add(1024)
     }
 
     /// The body of a workspace registry commit inside the caller's

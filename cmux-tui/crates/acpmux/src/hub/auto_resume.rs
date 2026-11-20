@@ -113,6 +113,9 @@ mod first_send;
 /// A chat past its context window: `/compact`, then the continuation.
 mod compact_first;
 
+/// A dead agent's unread steers go into its continuation.
+mod unread_steers;
+
 /// The loop as Settings > Agents > Retry After Errors sets it (`agents.autoRetry.*`).
 mod settings;
 pub(in crate::hub) use settings::effective_delays;
@@ -437,6 +440,7 @@ impl TurnInfo {
             notice: false,
             persons: false,
             accepted: true,
+            device: None,
         }
         .shown_as(&super::prompt_line::prompt_line(text, client, None))
     }
@@ -1263,7 +1267,13 @@ impl Hub {
             ..PromptOptions::default()
         };
         let reason = super::turn_errors::resume_cause(cut.error, cut.error).unwrap_or("transport");
-        let blocks = vec![json!({"type": "text", "text": continue_text(cut.error, reason)})];
+        let mut text = continue_text(cut.error, reason);
+        // A dead agent took the steers it had not read with it (`unread_steers.rs`). A live one
+        // still holds them and runs them itself (`carried_turn.rs`).
+        if reason == "agent_exited" {
+            text = unread_steers::with_unread(text, &self.unread_steers(&session.id, cut_turn));
+        }
+        let blocks = vec![json!({"type": "text", "text": text})];
         let result = self.prompt_with(session, blocks, "acpmux", false, opts).await;
         self.finish_auto_resume(
             session,

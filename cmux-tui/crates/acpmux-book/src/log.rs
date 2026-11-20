@@ -464,6 +464,11 @@ pub struct Log {
     stats: Stats,
     #[cfg(test)]
     fail_after: Option<usize>,
+    /// Every segment read, as its segment and offset, once a test arms it
+    /// (`take_segment_reads`), so it can say which records a read touched; `stats.reads` only
+    /// counts them. None until then, so the gates, also test builds, hold nothing.
+    #[cfg(test)]
+    segment_reads: Option<Vec<(u32, u64)>>,
 }
 
 fn segment_path(rows_dir: &Path, seg: u32) -> PathBuf {
@@ -891,6 +896,8 @@ impl Log {
             stats,
             #[cfg(test)]
             fail_after: None,
+            #[cfg(test)]
+            segment_reads: None,
         };
         Ok((log, recovered))
     }
@@ -1576,11 +1583,22 @@ impl Log {
         })
     }
 
+    /// The segment reads since the last call, oldest first; the first call arms the record and
+    /// answers none.
+    #[cfg(test)]
+    pub(crate) fn take_segment_reads(&mut self) -> Vec<(u32, u64)> {
+        self.segment_reads.replace(Vec::new()).unwrap_or_default()
+    }
+
     /// Reads segment `seg` at `offset` into `buf`, until `buf` is full or the segment ends; the
     /// bytes read.
     fn read_segment(&mut self, seg: u32, offset: u64, buf: &mut [u8]) -> Result<usize, Error> {
         if self.broken {
             return Err(Error::Stopped);
+        }
+        #[cfg(test)]
+        if let Some(reads) = &mut self.segment_reads {
+            reads.push((seg, offset));
         }
         let read = if seg == self.tail.seg {
             fsio::read_at(&self.tail.file, buf, offset)?

@@ -69,6 +69,11 @@ pub(super) fn call(attachment: &Attachment, params: Params) -> Result<Value, Ref
     else {
         return Err(Refusal::Refused);
     };
+    // Remembered before the tag: a side chat is the owner's alone, so no teammate, team member
+    // or link guest attaches to it and the team list leaves it out (agent_session_side_known.rs).
+    if let Some(mux) = attachment.mux.upgrade() {
+        mux.control_clients.agent_sessions.sides.remember(&side);
+    }
     let take_back = || {
         let purge = json!({"sessionId": side, "purge": true, "cancelFork": true});
         let _ = link.send_ignoring_reply("_acpmux/kill", attachment.stamp(purge));
@@ -94,7 +99,9 @@ pub(super) fn call(attachment: &Attachment, params: Params) -> Result<Value, Ref
     let blocks = vec![json!({"type": "text", "text": text})];
     Ok(match submit_prompt(attachment, &side, blocks, id) {
         Ok(_) => json!({"sessionId": side, "prompted": true}),
-        Err(refusal) => json!({"sessionId": side, "prompted": false, "notSent": refusal.code()}),
+        Err(refused) => {
+            json!({"sessionId": side, "prompted": false, "notSent": refused.refusal.code()})
+        }
     })
 }
 
