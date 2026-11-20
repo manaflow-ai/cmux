@@ -475,3 +475,50 @@ fn a_message_during_a_long_tool_call_moves_the_call_to_the_background_and_the_tu
     assert!(inner.withdrawn.is_empty(), "nothing was taken back");
     assert_eq!(inner.prompts.len(), 1, "no second turn");
 }
+
+#[test]
+fn a_background_task_claude_code_answers_on_its_own_after_the_turn_posts_its_reply_once() {
+    let mut h = harness(default_script());
+    h.connect();
+    h.say(
+        "user_local",
+        "start the build in the background and tell me when it ends",
+    );
+    h.settle_posts();
+    // The turn ended with its session kept; then the build ended and Claude
+    // Code answered it in a turn of its own.
+    h.agents.append_events(
+        "s1",
+        vec![
+            serde_json::json!({"dir": "mux", "kind": "background_turn", "msg": {"state": "started", "id": "b1", "trigger": "task_notification"}}),
+            update(
+                "agent_message_chunk",
+                serde_json::json!({"content": {"type": "text", "text": "The build finished: 0 errors."}}),
+            ),
+            serde_json::json!({"dir": "mux", "kind": "background_turn", "msg": {"state": "ended", "id": "b1", "trigger": "task_notification", "quiet": false, "reason": "result"}}),
+        ],
+    );
+    let ended = || {
+        Input::from(optchat_chief::acpmux::AgentEvent::BackgroundTurn {
+            session_id: "s1".into(),
+            state: "ended".into(),
+        })
+    };
+    h.brain.step(ended());
+    // acpmux may say it twice (a reconnect): one post.
+    h.brain.step(ended());
+    h.settle_posts();
+    assert_eq!(
+        posted(&h, "The build finished: 0 errors."),
+        1,
+        "the background report reaches the person once"
+    );
+    // The next turn does not post it again.
+    h.say("user_local", "thanks");
+    h.settle_posts();
+    assert_eq!(posted(&h, "The build finished: 0 errors."), 1);
+    assert_eq!(
+        h.agents.inner.lock().unwrap().prompt_sessions,
+        vec!["s1", "s1"]
+    );
+}

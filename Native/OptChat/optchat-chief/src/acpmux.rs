@@ -245,6 +245,13 @@ pub enum AgentEvent {
         permission_id: String,
         request: Value,
     },
+    /// A turn Claude Code ran on its own (acpmux `background_turn`: a
+    /// background task ended, a wakeup, a hook) in a session no turn of this
+    /// host runs now: `state` is `started` or `ended`.
+    BackgroundTurn {
+        session_id: String,
+        state: String,
+    },
 }
 
 /// The wait for a steer's answer (`AgentPort::start_steer`).
@@ -953,6 +960,21 @@ fn route(turns: &Mutex<HashMap<String, TurnRoute>>, sink: &Sink, n: Notification
             let mut turns = turns
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if kind == "background_turn" && !turns.contains_key(session) {
+                let state = n
+                    .params
+                    .pointer("/msg/state")
+                    .or_else(|| n.params.pointer("/event/msg/state"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned();
+                drop(turns);
+                sink(AgentEvent::BackgroundTurn {
+                    session_id: session.to_owned(),
+                    state,
+                });
+                return;
+            }
             if let Some(turn) = turns.get_mut(session) {
                 // Chunks are noise but for the first one, which says the
                 // response started (the compactor's single-flight waits for it).

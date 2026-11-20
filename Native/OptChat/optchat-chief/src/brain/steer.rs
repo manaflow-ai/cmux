@@ -174,6 +174,8 @@ impl Brain {
             Ok(()) if steer.logged => {}
             Ok(()) => {
                 if current {
+                    // Read: a later message may move the next long call too.
+                    self.backgrounded = None;
                     self.log_delivered(&steer.items);
                 } else {
                     // The turn read them and ended before this arrived.

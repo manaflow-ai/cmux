@@ -183,6 +183,11 @@ impl PlacedPort {
                 permission_id,
                 request,
             }],
+            AgentEvent::BackgroundTurn { session_id, state }
+                if self.placed.contains(&session_id) =>
+            {
+                vec![AgentEvent::BackgroundTurn { session_id, state }]
+            }
             _ => Vec::new(),
         }
     }
