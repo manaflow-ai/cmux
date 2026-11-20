@@ -63,6 +63,15 @@ fn answer(request: &Value) -> Value {
         "automation.run" => {
             json!({"ok": true, "value": {"id": "run_bbbbbbbbbbbbbbbbbbbb", "state": "queued"}})
         }
+        "automation.secret.set" => {
+            json!({"ok": true, "value": {"name": p["params"]["name"], "hint": null,
+            "generation": 1, "updated_at": 1, "updated_by": "user_1"}})
+        }
+        "automation.secret.list" => {
+            json!({"ok": true, "value": {"automation": p["params"]["automation"], "secrets": [
+                {"name": "GH_TOKEN", "hint": "wxyz", "generation": 1, "updated_at": 1, "updated_by": "user_1"}
+            ]}})
+        }
         other => {
             json!({"ok": false, "error": {"code": "automation.op_not_allowed", "message": other}})
         }
@@ -345,5 +354,69 @@ fn cloud_create_list_run_and_the_plan_refusal() {
             .filter(|p| p["op"] == "chief.list" || p["op"] == "automation.list")
             .all(|p| p.get("idempotency_key").is_none())
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `automation secret set` reads the value from stdin (never argv) and sends it once, keyed;
+/// `list` prints names and hints only; a value given as an argument is refused before any call.
+#[test]
+fn cloud_secret_set_reads_stdin_and_list_shows_no_value() {
+    let dir = temp_dir("autosecret");
+    let socket = dir.join("app.sock");
+    let done = Arc::new(AtomicBool::new(false));
+    let app = fake_app(&socket, done.clone());
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        .arg("--app-socket")
+        .arg(&socket)
+        .args(["automation", "secret", "set", "Morning brief", "GH_TOKEN", "--target", "cloud"])
+        .env("LC_ALL", "C")
+        .env("HOME", &dir)
+        .env("CMUX_AUTOMATIONS_DIR", dir.join("store"))
+        .env_remove("CMUX_SOCKET_PATH")
+        .env_remove("CMUX_TUI_SOCKET")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(b"ghp_secret value\n").unwrap();
+    let set = child.wait_with_output().unwrap();
+    assert!(set.status.success(), "{}{}", text(&set.stdout), text(&set.stderr));
+    assert!(!text(&set.stdout).contains("ghp_secret"), "{}", text(&set.stdout));
+
+    let list = cmux(
+        &dir,
+        &socket,
+        &["automation", "secret", "list", "Morning brief", "--target", "cloud"],
+    );
+    assert!(list.status.success(), "{}", text(&list.stderr));
+    assert!(text(&list.stdout).contains("GH_TOKEN"), "{}", text(&list.stdout));
+
+    let in_argv = cmux(
+        &dir,
+        &socket,
+        &[
+            "automation",
+            "secret",
+            "set",
+            "Morning brief",
+            "GH_TOKEN",
+            "ghp_in_argv",
+            "--target",
+            "cloud",
+        ],
+    );
+    assert_eq!(in_argv.status.code(), Some(2), "{}", text(&in_argv.stderr));
+    assert!(!text(&in_argv.stderr).contains("ghp_in_argv"));
+
+    done.store(true, Ordering::Relaxed);
+    let received = app.join().unwrap();
+    let sets: Vec<&Value> =
+        received.iter().filter(|r| r["params"]["op"] == "automation.secret.set").collect();
+    assert_eq!(sets.len(), 1, "{received:?}");
+    assert_eq!(sets[0]["params"]["params"]["value"], "ghp_secret value");
+    assert_eq!(sets[0]["params"]["params"]["automation"], "auto_aaaaaaaaaaaaaaaaaaaa");
+    assert!(sets[0]["params"]["idempotency_key"].as_str().is_some_and(|k| !k.is_empty()));
     let _ = std::fs::remove_dir_all(&dir);
 }
