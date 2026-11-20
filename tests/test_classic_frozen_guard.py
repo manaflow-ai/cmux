@@ -104,7 +104,9 @@ class ClassicFrozenGuardTests(unittest.TestCase):
         self.assertIn("pull_request_target:", text)
         self.assertNotIn("\n  pull_request:", text)
         self.assertIn("branches: [main, feat-cmux-next]", text)
-        self.assertIn("name: classic-frozen-guard", text)
+        # The check's name on every event but a title or body edit, whose skipped run is named apart
+        # (tests/test_ci_pr_runs_cancel_superseded.py, pattern pr-edit-fans-out-ci).
+        self.assertIn("|| 'classic-frozen-guard' }}\n", text)
 
 
 if __name__ == "__main__":

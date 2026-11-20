@@ -202,7 +202,7 @@ pub async fn host_resolves(host: String) -> bool {
     }
 }
 
-/// Own mode for one codex launch (module docs): the provider override right after the program, and
+/// Own mode for one codex launch (module docs): the provider override right after the subcommand, and
 /// the model-plane OpenAI pair out of the profile env and the inherited env (`routes::UNSET_KEY`).
 /// A value the person set (any other base URL or key) stays.
 pub fn apply(
@@ -212,8 +212,10 @@ pub fn apply(
     cmux_config: bool,
 ) {
     if cmux_config && !argv.iter().any(|a| a.starts_with("model_provider=")) && !argv.is_empty() {
+        // After the subcommand: codex drops an override before it (`codex_config_index`).
+        let at = crate::agent_credentials::codex_config_index(argv);
         for (i, a) in OWN_PROVIDER_ARGS.iter().enumerate() {
-            argv.insert(1 + i, (*a).to_owned());
+            argv.insert(at + i, (*a).to_owned());
         }
     }
     let origin = var("CMUX_CODEROUTER_URL").map(|o| o.trim_end_matches('/').to_owned());
@@ -420,7 +422,7 @@ mod tests {
         apply(&mut argv, &mut env, &var, true);
         assert_eq!(
             argv,
-            ["/opt/cmux/current/bin/codex", "-c", "model_provider=\"openai\"", "app-server"]
+            ["/opt/cmux/current/bin/codex", "app-server", "-c", "model_provider=\"openai\""]
         );
         // Still the app-server launch the bridge recognizes.
         assert!(crate::codex_app_server::is_profile_launch(&argv));
@@ -487,7 +489,7 @@ mod tests {
                 ("OPENAI_BASE_URL".to_owned(), "https://coderouter.cmux.internal/v1".to_owned()),
             ]);
             apply(&mut argv, &mut env, &var, inputs.cmux_config());
-            assert_eq!(argv[1..3], ["-c", "model_provider=\"openai\""]);
+            assert_eq!(argv[2..4], ["-c", "model_provider=\"openai\""]);
             assert!(!env.contains_key("OPENAI_API_KEY"), "{env:?}");
             assert!(!env.contains_key("OPENAI_BASE_URL"), "{env:?}");
             assert_eq!(env[crate::routes::UNSET_KEY], "OPENAI_BASE_URL,OPENAI_API_KEY");

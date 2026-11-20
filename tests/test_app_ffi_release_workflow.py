@@ -418,6 +418,13 @@ if Path(sys.argv[0]).name == "git":
         if state.get("pin_age_min") is None: sys.exit(128)
         import time
         print(int(time.time()) - 60 * state["pin_age_min"]); sys.exit(0)
+    if args[0] == "log" and "--format=%ct" in args:
+        # `git log --format=%ct PIN..RELEASE -- INPUTS`: the times of the FFI commits the base's pin lacks, newest
+        # first; the test gives the oldest one's age, else the read fails.
+        if state.get("unpinned_age_min") is None: sys.exit(128)
+        import time
+        print(int(time.time()) - 60 * min(5, state["unpinned_age_min"]))
+        print(int(time.time()) - 60 * state["unpinned_age_min"]); sys.exit(0)
     if args[0] == "show":
         # `git show REV:PATH`: the files of the re-pin branch's head (the test's pr_files), nothing else.
         rev, _, file = args[-1].partition(":")
@@ -458,7 +465,7 @@ if Path(sys.argv[0]).name == "git":
     else: raise AssertionError(args)
 elif args[:2] == ["pr", "list"]: print("1")  # deliberately stale
 elif args[:2] == ["pr", "edit"]:
-    if state["close_on_edit"]: state["prs"][args[2]] = "closed"; save()
+    raise AssertionError("gh pr edit reads Projects (classic) fields GitHub refuses; edit through REST")
 elif args[:2] == ["pr", "close"]:
     state["prs"][args[2]] = "closed"; state.setdefault("closes", []).append(args[2]); save()
 elif args[:2] == ["workflow", "run"]:
@@ -468,7 +475,12 @@ elif args[:2] == ["pr", "create"]:
     print("https://github.com/manaflow-ai/cmux/pull/2")
 elif args[0] == "api":
     endpoint = next(a for a in args if a.startswith("repos/"))
-    if "contents/" in endpoint:
+    if "PATCH" in args and "/pulls/" in endpoint:
+        # The re-pin's title and body edit (REST, not `gh pr edit`: run 44655157417).
+        state.setdefault("edits", []).append(endpoint.rsplit("/", 1)[1])
+        if state["close_on_edit"]: state["prs"][endpoint.rsplit("/", 1)[1]] = "closed"
+        save(); emit({"number": int(endpoint.rsplit("/", 1)[1])})
+    elif "contents/" in endpoint:
         if "PUT" in args:
             payload = json.loads(Path(args[args.index("--input") + 1]).read_text())
             state["writes"] += 1
@@ -564,7 +576,7 @@ class RePinPublication(unittest.TestCase):
                   runs=(), ancestry=(), runs_read="ok", jobs=None, same_inputs=False,
                   workflow=WORKFLOW, pr_files=None, current_pin=None, diff_exit=None,
                   jobs_read="ok", base_result="newer", base_enabled="true", pin_age_min=None,
-                  staged_on=None, base_checks=(), base_checks_read="ok", checks_read="ok"):
+                  unpinned_age_min=None, staged_on=None, base_checks=(), base_checks_read="ok", checks_read="ok"):
         step = pin_step(yaml.safe_load(workflow.read_text())["jobs"]["repin"])
         with tempfile.TemporaryDirectory() as temp:
             work = Path(temp)
@@ -615,7 +627,7 @@ class RePinPublication(unittest.TestCase):
                 "status_read": status_read, "runs": list(runs), "ancestry": [list(pair) for pair in ancestry],
                 "runs_read": runs_read, "jobs": jobs or {}, "same_inputs": same_inputs,
                 "pr_files": pr_files or {}, "diff_exit": diff_exit, "jobs_read": jobs_read,
-                "pin_age_min": pin_age_min, "staged_on": staged_on, "base_checks": list(base_checks),
+                "pin_age_min": pin_age_min, "unpinned_age_min": unpinned_age_min, "staged_on": staged_on, "base_checks": list(base_checks),
                 "base_checks_read": base_checks_read, "checks_read": checks_read}))
             env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STATE=str(state_path),
                        GH_TOKEN="pr-token", APP_TOKEN="contents-token", READ_TOKEN="read-token", TAG=TAG, CHECKSUM="f" * 64,
@@ -809,7 +821,7 @@ class RePinPublication(unittest.TestCase):
         release = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["repin"]
         self.assertNotIn("needs", job)
         self.assertEqual(workflow_jobs.resolve(job).environment, {"name": "ffi-release"})
-        self.assertEqual(job["concurrency"], {"group": "app-ffi-repin", "cancel-in-progress": False})
+        self.assertEqual(job["concurrency"], {"group": "app-ffi-repin-v2", "cancel-in-progress": False})
         self.assertEqual(job["permissions"], {"actions": "write", "contents": "read", "checks": "read", "statuses": "read"})
         self.assertEqual(release["permissions"], job["permissions"])
         self.assertEqual(pin_step(job)["env"]["READ_TOKEN"], "${{ github.token }}")
@@ -1100,6 +1112,22 @@ class RePinPublication(unittest.TestCase):
                 if not holds:
                     self.assertIn("no newer run holds its re-pin", result.stderr)
 
+    def test_a_young_release_does_not_hold_once_the_oldest_unpinned_ffi_commit_is_past_the_bound(self):
+        # 2026-11-18: four FFI pushes 07:56Z to 09:46Z, each 25 to 45 min apart. Every release run held its re-pin for
+        # the next one (44262749842 for 44269219861, then 44272641346, then 44279092668): each release's own commit was
+        # young, so the bound never ended a hold, and the pin trailed the base's oldest unpinned FFI commit past the
+        # 120 min grace. The bound reads that oldest commit's age; this release's commit alone is not enough.
+        newer = "7" * 40
+        for unpinned, holds in ((90, False), (10, True), (None, True)):
+            with self.subTest(unpinned=unpinned):
+                result, state = self.run_repin(runs=[{"id": 9, "status": "in_progress", "head_sha": newer}],
+                                               ancestry=[(self.NEWEST, newer)], jobs={"9": []}, pin_age_min=5,
+                                               unpinned_age_min=unpinned)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual("Re-pin held" in result.stdout, holds, result.stdout + result.stderr)
+                if not holds:
+                    self.assertIn("no newer run holds its re-pin", result.stderr)
+
     def test_a_run_waiting_for_hours_does_not_hold(self):
         # A run stuck waiting for a runner or an approval would hold every re-pin until it ends, maybe for days.
         newer = "7" * 40
@@ -1308,7 +1336,7 @@ class BuildSpeedAndSupersede(unittest.TestCase):
         self.assertEqual(publish["group"], "app-ffi-release-publish-${{ github.sha }}")
         self.assertIs(publish["cancel-in-progress"], False)
         repin = self.jobs["repin"]["concurrency"]
-        self.assertEqual(repin["group"], "app-ffi-repin")
+        self.assertEqual(repin["group"], "app-ffi-repin-v2")
         self.assertIs(repin["cancel-in-progress"], False)
 
     def test_the_re_pin_hold_ends_inside_the_pin_grace(self):

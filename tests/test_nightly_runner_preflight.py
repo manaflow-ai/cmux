@@ -217,13 +217,14 @@ class Wiring(unittest.TestCase):
         self.assertEqual(self.JOBS["decide"]["needs"], "runner-preflight")
         self.assertEqual(job["if"], self.JOBS["decide"]["if"], "the preflight runs exactly when decide would")
         runs_on = workflow_jobs.single_runs_on(job)
-        # The dedicated nightly-only pool, never vars.CI_NIGHTLY_MINI (the label whose death it exists to catch), and
-        # never GitHub-hosted: the org-wide hosted queue held it 1h25m+ on 2026-11-18 (run 44207617943).
-        self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-                                  f"vars.CI_NIGHTLY_ONLY_RUNNER || '{preflight.DEDICATED}' }}}}")
-        self.assertNotIn("CI_NIGHTLY_MINI", runs_on)
+        # decide's own route, never GitHub-hosted: the org-wide hosted queue held it 1h25m+ on 2026-11-18 (run
+        # 44207617943). In one-mini mode it stays on vars.CI_NIGHTLY_MINI with the rest of the run
+        # (tests/test_nightly_one_mini.py), so it never waits longer than decide would.
+        self.assertEqual(runs_on, workflow_jobs.single_runs_on(self.JOBS["decide"]))
         self.assertEqual(job["permissions"], {"issues": "write"})  # the failure incident only
-        self.assertLessEqual(job["timeout-minutes"], 5)
+        # 3 minutes with the one-mini mode off; on, glaeda's capacity wait gets 120 more
+        # (tests/test_nightly_mini_gate_timeouts.py).
+        self.assertEqual(job["timeout-minutes"], "${{ vars.CI_NIGHTLY_MINI != '' && 123 || 3 }}")
         text = json.dumps(job)
         self.assertNotIn("secrets.", text)
         self.assertNotRegex(text, r"cancel|gh run|actions/runs")
