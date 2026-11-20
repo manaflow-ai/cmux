@@ -667,3 +667,68 @@ fn turn_tools_send_marked_long_posts_on_the_first_try() {
     let posted = wait_send(&mut h, "item item");
     assert_eq!(posted.len(), 1, "{posted:?}");
 }
+
+/// A follow-up the Chief set for a loop fires on time as a wake run; the run
+/// posts (its default turn reply), so a loop that says `Closes when:
+/// follow-up sent` closes by code, and the run is recorded with outcome send.
+#[test]
+fn turn_tools_an_on_time_follow_up_closes_its_loop_when_its_run_posts() {
+    let mut h = Harness::new(endless_first_turn());
+    let files = Arc::new(
+        optchat_chief::memory_files::MemoryFiles::open_in(&h.dir.path().join("optchat")).unwrap(),
+    );
+    h.brain.set_memory_files(files.clone());
+    files
+        .write(
+            "loops/renew-domain.md",
+            "renew cmux.dev before Fri",
+            "Left: tell the person it is due\nCloses when: follow-up sent",
+            optchat_chief::memory_files::Trust::Person,
+            "t",
+        )
+        .unwrap();
+    running(&mut h, "remind me tomorrow to renew the domain");
+    let sp = spawner(&h);
+    run(&mut h, move || sp.send(send("I'll remind you."))).expect("send answers");
+    let sp = spawner(&h);
+    let set = run(&mut h, move || {
+        sp.wake_tool(optchat_chief::tools::WakeCall::FollowUp {
+            note: "tell the person the domain renewal is due".into(),
+            at: None,
+            within: Some("2h".into()),
+            loop_path: Some("loops/renew-domain.md".into()),
+            for_person: true,
+        })
+    })
+    .expect("follow_up answers");
+    assert!(set.starts_with("outcome: done. follow-up fu_"), "{set}");
+    let sp = spawner(&h);
+    run(&mut h, move || sp.stop_turn()).expect("stop answers");
+    h.agents.hold(false);
+    h.settle_posts();
+    let wakes = h.brain.pending_wakes();
+    assert_eq!(wakes.len(), 1, "{wakes:?}");
+    assert_eq!(wakes[0].loop_path.as_deref(), Some("loops/renew-domain.md"));
+    // On time: no "late" text after the loop.
+    h.brain.fire_wakes_at(wakes[0].at_ms);
+    h.settle_posts();
+    let last =
+        serde_json::to_string(h.agents.inner.lock().unwrap().prompts.last().unwrap()).unwrap();
+    assert!(last.contains("[follow-up loops/renew-domain.md]"), "{last}");
+    let runs = files.wake_runs(5).unwrap();
+    let posts = sends(&h).len();
+    assert!(
+        files.get("loops/renew-domain.md").unwrap().is_none(),
+        "the loop closed when its follow-up's run posted: runs {runs:?}, posts {posts}"
+    );
+    assert_eq!(runs.len(), 1, "{runs:?}");
+    assert_eq!(runs[0].outcome, "send", "{runs:?}");
+    // The spec's fields: the wake's planned time, and what the send posted.
+    assert_eq!(
+        runs[0].scheduled_at,
+        Some(wakes[0].at_ms as i64),
+        "{runs:?}"
+    );
+    assert!(!runs[0].result.is_empty(), "{runs:?}");
+    assert!(runs[0].outcome_text.is_empty(), "{runs:?}");
+}
