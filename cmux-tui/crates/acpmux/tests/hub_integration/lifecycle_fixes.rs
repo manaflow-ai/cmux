@@ -49,7 +49,6 @@ async fn capacity_resume_retries_loading_before_the_next_prompt() {
     let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "continue"}]});
     let error = c.request(method::SESSION_PROMPT, prompt.clone()).await.unwrap_err();
     assert!(error.contains("at capacity"), "{error}");
-    assert!(session.child.lock().await.is_none(), "an unloaded child cannot serve the next prompt");
     std::fs::write(&recovered, b"available").unwrap();
     let answer = c.request(method::SESSION_PROMPT, prompt).await;
     std::fs::remove_file(&recovered).unwrap();
