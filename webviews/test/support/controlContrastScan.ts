@@ -150,6 +150,8 @@ export function markControls(): Control[] {
  * in (frozen inline before `color` goes): a `currentColor` border or a 7% `currentColor` wash is the
  * control's shape, not its ink, and WCAG does not hold a button's edge to 3:1 when its label names
  * it. A mask icon or an empty mark (a tick, a dot) still hides, so it is read as the icon it is.
+ * An agent's brand mark in its owner's colors (`svg.agent-mark`, the "brand" logo style) is a logo,
+ * which WCAG exempts: it stays drawn, so only a mark tinted in the control's ink is read.
  */
 export function hideInk(hidden: boolean): void {
   const id = "contrast-audit-hide-ink";
@@ -189,7 +191,7 @@ export function hideInk(hidden: boolean): void {
       text-decoration-color: transparent !important;
       caret-color: transparent !important;
     }
-    svg { visibility: hidden !important; }`;
+    svg:not(.agent-mark) { visibility: hidden !important; }`;
   document.head.append(style);
 }
 

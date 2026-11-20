@@ -1,0 +1,3 @@
+# Known native control contrast failures (NativeControlContrastAuditTests), one key per line:
+#   <control> | <enabled|disabled> | <theme> | <ground>   # owner and why it waits
+# A line no reading reports any more is printed by the suite: drop it then.

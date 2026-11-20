@@ -160,6 +160,10 @@ body {
   --ds-color-surface: var(--cmux-surface-solid, var(--cmux-app-content, Canvas)); /* the page and pane surface, opaque */
   --ds-color-elevated: var(--cmux-elevated-background, var(--cmux-app-elevated, Canvas)); /* menus, popovers and sheets under Reduce Transparency */
   --ds-color-fg: var(--cmux-text, var(--cmux-app-text, CanvasText)); /* primary text */
+  /* A disabled control's opacity: it reads as off yet its label holds the legible floor of 2.5:1 when it is
+     drawn in the secondary ink (4.5:1): 0.7 over a light ground, 0.6 over a dark one. At the old 0.4 a
+     disabled tab or menu row read 1.8 to 2.2:1 (test/control-contrast-N.test.ts). */
+  --ds-disabled-opacity: 0.7;
   --ds-color-muted: var(--cmux-text-secondary, var(--cmux-app-text-secondary, color-mix(in srgb, CanvasText 62%, transparent))); /* secondary text */
   --ds-color-faint: var(--cmux-text-tertiary, var(--cmux-app-icon, color-mix(in srgb, CanvasText 45%, transparent))); /* tertiary text, placeholders and quiet glyphs */
   --ds-color-hover: var(--cmux-hover, var(--cmux-app-hover, color-mix(in srgb, CanvasText 6%, transparent))); /* a control under the pointer */
@@ -197,11 +201,13 @@ body {
   :root:not([data-theme="light"]) {
     --elevation-1: 0 1px 2px color-mix(in srgb, black 12%, transparent);
     --elevation-2: 0 2px 6px color-mix(in srgb, black 16%, transparent);
+    --ds-disabled-opacity: 0.6;
   }
 }
 :root[data-theme="dark"] {
   --elevation-1: 0 1px 2px color-mix(in srgb, black 12%, transparent);
   --elevation-2: 0 2px 6px color-mix(in srgb, black 16%, transparent);
+  --ds-disabled-opacity: 0.6;
 }
 @media (prefers-reduced-transparency: reduce) {
   :root {
