@@ -19,6 +19,7 @@ import Testing
                                         paths: SSHPaths(root: URL(fileURLWithPath: "/private/tmp/ssh-connecting-rows-tests")),
                                         environment: { [:] }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         session.linkStatus = .connecting
+        session.personConnectPending = true // a person asked for it; an automatic reconnect lists no row
         return session
     }
 
@@ -77,6 +78,14 @@ import Testing
         let rows = SSHConnectingRows.adding(machines, to: [], window: "window-1", windows: ConnectingRowWindows(open: ["window-1"], incognito: { _ in false }, making: "window-1"))
         #expect(rows.isEmpty, "an automatic reconnect drew \(Self.rowTitles(rows))")
         #expect(SSHConnectingRows.adding(machines, to: [], window: nil, windows: ConnectingRowWindows(open: ["window-1"], incognito: { _ in false }, making: nil)).isEmpty)
+    }
+
+    /// A person's connect lists its row until the person disconnects (or its daemon connects or gives up).
+    @Test func aDisconnectEndsAPersonsConnectRow() throws {
+        let session = try Self.connectingSession("leo@studio")
+        #expect(session.personConnectPending)
+        session.disconnect()
+        #expect(!session.personConnectPending, "a disconnect ends it")
     }
 
     @Test func theOwnerIsTheAskingWindowWhileOpenElseTheOldest() {
