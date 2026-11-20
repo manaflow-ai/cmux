@@ -14,6 +14,7 @@ before you keep it.
 | [`tiling`](tiling.json) | A scrolling tiling window manager. New terminals and browsers split into panes of their own, side-by-side panes scroll sideways instead of shrinking, and columns keep no extra rows. New columns are half the window wide. Focus follows the mouse, links open in a new column, and panes sit on cards in the Blocks window style. The sidebar is a rail: point at it to see the numbered rows and the status bar. | Numbered workspace rows (1 to 9, like a tiling desktop's tags) and a status bar at the bottom of the sidebar: panes, tabs, agents at work, the time |
 | [`right-handed`](right-handed.json) | The window, mirrored. The sidebar is on the right with the window buttons over the tab bar, and the spaces sit on top. The prompt rail and Session Info chip move to the chat's right, and a docked Chief goes to the left. | A shorter, right-aligned hover card: what waits on you, the agent, the branch, the PR |
 | [`focus`](focus.json) | One thing at a time. The chat reads as messages, with no minimap, running tray or Session Info chip. The sidebar is a rail whose bands hide until you point at it. There are no hover cards, pane borders or column rows, and nothing moves (`ui.calm: still`). | A New Tab page with one question, what you are working on, and a timed session with buttons for a chat or a terminal. It remembers the task and today's count once `storage:local` is on |
+| [`collection`](collection.json) | A set of small things for a demo, in an arcade theme carried as a theme file (night purple, magenta accents). Every New Tab is the collection's page, and the sidebar's sections draw as cards. | Three cards, in a sidebar section and on the New Tab page: the time and the weather; the usage left this week on every Claude and Codex account the Usage app reads, with the pace and extra spend, counting up when it changes; and a chief gacha whose reel spins, slows and lands with a glow (rarer chiefs glow brighter), keeping the chiefs you have pulled |
 | [`ide`](ide.json) | An editor's shape. Tabs sit vertically beside the panes, every new terminal is a split, and links and files open beside the code. Projects are grouped by folder and the window is compact. Chats open their tool output and show the full minimap. | An Explorer section: the workspace you are in, each pane as a group with its tabs, and New Terminal, Browser, Split Right and Split Down |
 
 ## Try one
@@ -41,7 +42,7 @@ runs, and `discard` brings it back.
 
 Each folder holds the source: `profile.json` (the name, the description and the settings) and
 the files the setup writes under `~/.config/cmux` (`customize/cmux-app.json`,
-`customize/main.js`). Edit them, then rebuild the bundles:
+`customize/main.js`, and `themes/<name>.json` for a setup with a look of its own). Edit them, then rebuild the bundles:
 
 ```sh
 python3 examples/customize-showcase/bundle.py

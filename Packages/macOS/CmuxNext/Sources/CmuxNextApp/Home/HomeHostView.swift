@@ -25,7 +25,7 @@ import ImageIO
 /// home-mac.md) over the shared `HomeStore` of the local conversation owner,
 /// or why it cannot show (the local daemon does not serve conversations).
 @MainActor
-final class HomeHostView: NSView {
+final class HomeHostView: NSView, PaneCommitMotionPicture {
     let transcript: HomeNativeTranscriptView
     private let message = HomeUnavailableLabel.make(HomeStrings.unavailable)
     private var availability: Task<Void, Never>?
@@ -355,7 +355,7 @@ final class HomeHostView: NSView {
         // with history never flashes it (at once when the page is cached).
         transcript.holdsFirstRun = true
         let binding = transcript.binding
-        let reveal = services.launchReveal
+        let reveal = services.launchReveal, spareWait = services.newTabSpares.shownChats // the launch's New Tab spare waits for this page
         // task-owner: lives as long as this view; ends when the first page is in
         firstPage = Task { [weak self] in
             await binding.firstDrawable() // the first page, or an owner-named empty conversation: nothing to read for
@@ -364,7 +364,7 @@ final class HomeHostView: NSView {
             guard let self, !Task.isCancelled else { return }
             transcript.holdsFirstRun = false
             // A launch holds a Home still being made until here (WorkspaceContentController).
-            reveal.markReady(.home); DebugTimings.markLaunch("home.first_page")
+            reveal.markReady(.home); DebugTimings.markLaunch("home.first_page"); spareWait.homePageDrew()
         }
         wantsLayer = true
         clipsToBounds = true

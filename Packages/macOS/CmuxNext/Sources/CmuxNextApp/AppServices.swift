@@ -14,7 +14,7 @@ import CmuxNextChromiumWarmup
 import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextCompat
-public import CmuxNextComputerUse
+import CmuxNextComputerUsePreview
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
@@ -38,6 +38,7 @@ import CmuxNextAppCore
 import CmuxNextPages
 import CmuxNextPopups
 import CmuxNextBrowserImport
+import CmuxNextImportCards
 import CmuxNextPhone
 import CmuxNextPhoneAccess
 import CmuxNextServer
@@ -93,6 +94,8 @@ final class AppServices {
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry
+    /// The browser import's reader: `browser_import.read` on the local daemon.
+    var browserDataReader: BrowserDataReader { .daemon { @MainActor [machines] in await machines.local.connectionOnceStarted() } }
     /// The names sidebar rows keep while their front tab's is briefly unknown (`WorkspaceAutoNameWiring`).
     let autoNameHold = WorkspaceAutoNameHold(), cloudStartTitles = AgentCloudStartTitles() // and the titles of Cloud chat starts
     /// The machine of the action being run, while its handler runs (`ActionRouting`); `activeDaemon` prefers it.
@@ -286,10 +289,6 @@ final class AppServices {
     private(set) lazy var fileExplorers = FileExplorerService(services: self)
     /// `cmux://agent-activity`: the computer use sessions page.
     private(set) lazy var agentActivityPage = AgentActivityPageService(services: self)
-    /// The live preview card of computer use in agent chats (`computerUse.livePreview`); its live
-    /// view runs only while the person can see the chat's page.
-    private(set) lazy var computerUsePreview = ComputerUseLivePreview(
-        host: self, sight: ComputerUsePreviewViewSight { [weak self] in self?.agentTabs.views[AgentTabKey(relaunchStorageKey: $0)] })
     /// `cmux://screenshots`: the Screenshots pane (its detection, thumbnail cache and pages).
     private(set) lazy var screenshotsPage = ScreenshotsPageService(services: self)
     private(set) lazy var remoteViewPages = RemoteViewPageService()
@@ -301,6 +300,23 @@ final class AppServices {
     private(set) lazy var deviceHub = AppServices.makeDeviceHub(self)
     /// cmux Remote: the daemon's signed host for Computer Use and Screen Sharing (docs/cmux-remote.md).
     private(set) lazy var cmuxRemote = CmuxRemoteService(daemon: daemon)
+    /// Computer Use's live preview in the agent's own chat or terminal pane.
+    private(set) lazy var computerUsePreviews: ComputerUsePreviewRouter = makeComputerUsePreviews()
+
+    private func makeComputerUsePreviews() -> ComputerUsePreviewRouter {
+        let router = ComputerUsePreviewRouter(chat: { [weak self] chat in
+            guard let tabs = self?.agentTabs else { return nil }
+            return tabs.views.entries.first { tabs.session(of: $0.key.key, machine: $0.key.machine) == chat }?.value
+        }, terminal: { [weak self] id in
+            guard let self, let tab = daemon.store.tab(terminalResource: ResourceID(rawValue: id)) ?? daemon.store.tab(terminal: TerminalID(rawValue: id)),
+                  let host = cache.existingTerminal(tab.id)?.session.view else { return nil }
+            return (tab.id, host)
+        })
+        // A chat's page made after its agent started using an app gets the card then.
+        agentTabs.onTabSession = { [weak router] in router?.replayChats() }
+        return router
+    }
+
     /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
     private(set) lazy var bookmarks = BookmarkService(services: self)
     /// The user's keybindings.json, owned by the home daemon, as the binding table's user layer.
@@ -355,9 +371,11 @@ final class AppServices {
         overlay: SleepyOverlayWindows(workingAgents: { [weak self] in self?.menuBarAgentsWorking ?? 0 },
                                       lockMac: { SleepyMacLock().lock() })
     )
-    /// Share Screen with Chief (docs/chief-screen-share.md), read by the Computer Use helper; journal in `optchat/screen`.
+    /// Share Screen with Chief (docs/chief-screen-share.md); journal in `optchat/screen`. Its capture
+    /// host went with the cmux Computer Use helper: until cmux Remote serves screen stills, the
+    /// share reports itself unavailable (``ChiefScreenStillsUnavailable``).
     lazy var chiefScreenShare = ChiefScreenShare(
-        capture: ChiefScreenHelperCapture(host: ComputerUseScreenStills(helper: .shared)),
+        capture: ChiefScreenHelperCapture(host: ChiefScreenStillsUnavailable()),
         journal: ChiefScreenJournal(directory: ChiefHome.resolve(tag: environment.tag).muxHome.appending(path: "optchat/screen", directoryHint: .isDirectory)))
     /// Native input for `browser.page.mouse|wheel|insert_text|key` (`BrowserNativeInputs`).
     let browserNativeInputs = BrowserNativeInputs()
@@ -384,7 +402,7 @@ final class AppServices {
     /// One prewarmed new tab page per window (instant open).
     private(set) lazy var newTabSpares = NewTabSparePool(services: self, memoryPressure: memoryPressure)
     /// The New Tab bar's palette actions, read as background work after the page shows (``NewTabPage/fillPaletteActions(_:)``).
-    private(set) lazy var newTabActions = AgentPaneNewTabActions(on: mainWork, measure: { BenchSpans.measure("newTab.paletteActions", $0) }) { [palette = self.palette] in palette.commandListing() }
+    private(set) lazy var newTabActions = AgentPaneNewTabActions(on: mainWork, registry: registry, measure: { BenchSpans.measure("newTab.paletteActions", $0) }) { [palette = self.palette] in palette.commandListing() }
     /// The spare React page hosts for Settings, History and Cloud; its spare uses Settings' options, whatever the default engine.
     private(set) lazy var pageHostPool = PageHostPool(memoryPressure: memoryPressure, options: PageFactory.settingsEngineOptions)
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
@@ -461,7 +479,8 @@ final class AppServices {
             && self.settings?.snapshot.hideDockIconWithoutWindows ?? CmuxConfigSnapshot.hideDockIconWithoutWindowsDefault
     }, menuBarItemShown: { [weak self] in self?.menuBarExtra.isShown ?? false })
     /// The cmux menu bar item (`app.showMenuBarIcon`): account, agents, help, community, updates, logs, Quit.
-    private(set) lazy var menuBarExtra = MenuBarExtra(registry: registry, icon: MenuBarIcon().image(), host: self)
+    private(set) lazy var menuBarExtra = MenuBarExtra(registry: registry, icon: MenuBarIcon().image(), badgedIcon: MenuBarIcon().image(badged: true),
+                                                      host: self)
     /// First-run onboarding, browser import and default-app claims.
     private(set) lazy var onboarding = OnboardingService(services: self)
     /// Agent permission requests (`permissions.request`): the card, the store and the TCC reads.
@@ -937,5 +956,3 @@ extension AppServices {
         if PaidPlanOnboarding(defaults: .standard).hasPending { await cloud.refresh() }
     }
 }
-
-nonisolated extension ComputerUseScreenStills: ChiefScreenCaptureHost {}

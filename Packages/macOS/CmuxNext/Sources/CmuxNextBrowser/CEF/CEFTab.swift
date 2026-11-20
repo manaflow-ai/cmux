@@ -35,6 +35,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored public private(set) var browserID: Int32?
     /// Set once by `markAgentDriven`; saved passwords do not fill in this tab.
     @ObservationIgnored public internal(set) var isAgentDriven = false
+    /// An extension's popup window shown over a pane (`CEFPaneHost+PopupWindows`): its host holds the window.
+    public var isExtensionWindow: Bool { host.popupWindow != nil }
     @ObservationIgnored var passwordFill = PasswordFillState()
     /// The current omnibox edit's texts and matches, sent to the predictor (CEFTab+OmniboxPreload).
     @ObservationIgnored var omniboxRegistrations: [OmniboxPendingLearns.Registration] = []
@@ -124,6 +126,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var isGrantingFocus = false
     /// The app's key window (``CEFKeyWindows``): a grant reads it and may move it.
     @ObservationIgnored var keyWindows = CEFKeyWindows.appKit
+    /// The page window a grant of this page left with the keys (``grantFocus(_:)``); nil once the page lost the focus.
+    @ObservationIgnored weak var keyedPageWindow: NSWindow?
     /// Navigation state to restore once the browser exists (created with
     /// an empty URL so its history starts empty).
     @ObservationIgnored var pendingRestore: String?
@@ -663,6 +667,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // Never activate a hidden page's window (see `attach`): a hidden page keeps the ask until it shows.
         let canTake = shown && pageWindowHostHasArea && !appearedThisTurn
         pendingFocus = focused && (!canTake || browserID == nil)
+        if !focused { keyedPageWindow = nil }
         guard !focused || canTake, let browserID else { return }
         if focused { grantFocus(browserID) } else { runtime.shim?.setFocus(browserID, 0) }
     }

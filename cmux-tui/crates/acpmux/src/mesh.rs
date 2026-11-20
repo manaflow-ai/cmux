@@ -355,9 +355,10 @@ pub struct HubError {
 }
 
 impl HubError {
-    /// Whether no retry can help this daemon's loops: a refused credential (401, 403: a Cloud VM
-    /// token, a token without a team) or a refusal from no answer at all (no token command).
-    /// Any other refusal (a request the hub took issue with) is tried again with backoff.
+    /// Whether the hub refused this daemon's credential: a 401 or 403 (a Cloud VM token, a token
+    /// without a team, a revoked machine) or a refusal from no answer at all (no token command).
+    /// The relay's loops pause on one and try again every `refused_retry`, since a refusal can
+    /// pass; any other refusal (a request the hub took issue with) is tried again with backoff.
     pub fn ends_relay(&self) -> bool {
         self.refused && self.status.is_none_or(|s| s == 401 || s == 403)
     }

@@ -31,6 +31,8 @@ export function composerPlusMenuSections(
   entries: readonly ComposerPlusEntry[],
   planning = false,
   arm: ComposerPlusCommandsArm = composerPlusCommands.defaultArm,
+  /// Toggle Plan Mode's keycaps, shown on the Plan/Build row (unset: no key bound).
+  planShortcut?: string,
 ): { section: ComposerPlusSection; entries: ComposerPlusEntry[]; choices: Choice[] }[] {
   return [...composerPlusSections(entries)].flatMap(([section, all]) => {
     const rows = section === "commands" ? arrangeCommands(all, arm) : all;
@@ -50,6 +52,7 @@ export function composerPlusMenuSections(
               icon: rowIcon(entry, planning),
               ...(entry.id === "add.mention" ? { hint: "@" } : {}),
               ...(entry.id === "add.commands" ? { hint: "/" } : {}),
+              ...(planShortcut && entry.id.startsWith("add.mode.") ? { hint: planShortcut } : {}),
             })),
           },
         ]
