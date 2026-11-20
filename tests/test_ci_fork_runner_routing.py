@@ -149,7 +149,9 @@ TRUSTED_RUNNER_JOBS = (
     ("backend-migrations.yml", "apply-staging"),
     ("backend-migrations.yml", "apply-production"),
     ("backend-migrations.yml", "gate"),
-    ("web-complexity-trusted.yml", "complexity"),
+    # web-complexity-trusted.yml's complexity job is not here: it reads untrusted pull request source, and
+    # the persistent Linux pool registers every Blacksmith Linux label, so it runs on GitHub-hosted
+    # ubuntu-24.04 (run 44801662760 landed on a pool VM). It is not a required check on main.
 )
 
 # A job that holds a GitHub App private key (a `create-github-app-token` step or a
