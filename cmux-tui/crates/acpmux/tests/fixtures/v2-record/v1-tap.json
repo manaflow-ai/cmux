@@ -1,0 +1,1024 @@
+{
+  "format": "v2-record-capture/v1-tap-1",
+  "base_sha": "0dbb667c8d15279086b671c7523bb47fd426419b",
+  "command": "cargo build --locked -p acpmux --bin acpmux; CARGO_BIN_EXE_acpmux=<same-head binary> V2_RECORD_CAPTURE_BASE_SHA=<sha> cargo test --locked -p acpmux --lib v2_record_capture_fixture_run -- --ignored --nocapture",
+  "run_id": "43873830773",
+  "entries": [
+    {
+      "harness": 0,
+      "direction": "out",
+      "message": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "method": "initialize",
+        "params": {
+          "protocolVersion": 1
+        }
+      },
+      "host_seq": 1,
+      "context": {
+        "status": "ready",
+        "hibernate": false,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [
+        {
+          "seq": 1,
+          "at": 1794835272272,
+          "dir": "out",
+          "kind": "initialize",
+          "msg": {
+            "id": 1,
+            "jsonrpc": "2.0",
+            "method": "initialize",
+            "params": {
+              "protocolVersion": 1
+            }
+          },
+          "hostSeq": 1
+        }
+      ],
+      "table_record": 0
+    },
+    {
+      "harness": 0,
+      "direction": "in",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "claude.system.init",
+        "params": {
+          "model": "fixture",
+          "subtype": "init",
+          "tools": [
+            "Read"
+          ],
+          "type": "system"
+        }
+      },
+      "host_seq": 2,
+      "context": {
+        "status": "ready",
+        "hibernate": false,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [
+        {
+          "seq": 2,
+          "at": 1794835272283,
+          "dir": "in",
+          "kind": "claude.system.init",
+          "msg": {
+            "model": "fixture",
+            "subtype": "init",
+            "tools": [
+              "Read"
+            ],
+            "type": "system"
+          },
+          "hostSeq": 2
+        }
+      ],
+      "table_record": 0
+    },
+    {
+      "harness": 0,
+      "direction": "in",
+      "message": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "result": {
+          "protocolVersion": 1
+        }
+      },
+      "host_seq": 3,
+      "context": {
+        "status": "ready",
+        "hibernate": false,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [
+        {
+          "seq": 3,
+          "at": 1794835272283,
+          "dir": "in",
+          "kind": "response",
+          "msg": {
+            "id": 1,
+            "jsonrpc": "2.0",
+            "result": {
+              "protocolVersion": 1
+            }
+          },
+          "hostSeq": 3
+        }
+      ],
+      "table_record": 0
+    },
+    {
+      "harness": 0,
+      "direction": "out",
+      "message": {
+        "id": 2,
+        "jsonrpc": "2.0",
+        "method": "session/prompt",
+        "params": {
+          "prompt": [
+            {
+              "text": "answer",
+              "type": "text"
+            }
+          ],
+          "sessionId": "fixture"
+        }
+      },
+      "host_seq": 4,
+      "context": {
+        "status": "running",
+        "hibernate": false,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [
+        {
+          "seq": 4,
+          "at": 1794835272283,
+          "dir": "out",
+          "kind": "session/prompt",
+          "msg": {
+            "id": 2,
+            "jsonrpc": "2.0",
+            "method": "session/prompt",
+            "params": {
+              "prompt": [
+                {
+                  "text": "answer",
+                  "type": "text"
+                }
+              ],
+              "sessionId": "fixture"
+            }
+          },
+          "hostSeq": 4
+        }
+      ],
+      "table_record": 0
+    },
+    {
+      "harness": 0,
+      "direction": "in",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "claude.stream_event",
+        "params": {
+          "event": {
+            "type": "message_start"
+          }
+        }
+      },
+      "host_seq": 5,
+      "context": {
+        "status": "running",
+        "hibernate": false,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [
+        {
+          "seq": 5,
+          "at": 1794835272283,
+          "dir": "in",
+          "kind": "claude.stream_event",
+          "msg": {
+            "event": {
+              "type": "message_start"
+            }
+          },
+          "hostSeq": 5
+        }
+      ],
+      "table_record": 0
+    },
+    {
+      "harness": 0,
+      "direction": "in",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "claude.stream_event",
+        "params": {
+          "event": {
+            "delta": {
+              "text": "answer"
+            },
+            "type": "content_block_delta"
+          }
+        }
+      },
+      "host_seq": 6,
+      "context": {
+        "status": "running",
+        "hibernate": false,
+        "loading": false,
+        "awaiting_first_delta": true
+      },
+      "records": [
+        {
+          "seq": 6,
+          "at": 1794835272283,
+          "dir": "in",
+          "kind": "claude.stream_event",
+          "msg": {
+            "event": {
+              "delta": {
+                "text": "answer"
+              },
+              "type": "content_block_delta"
+            }
+          },
+          "hostSeq": 6
+        }
+      ],
+      "table_record": 0
+    },
+    {
+      "harness": 0,
+      "direction": "in",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "claude.stream_event",
+        "params": {
+          "event": {
+            "delta": {
+              "text": "not retained"
+            },
+            "type": "content_block_delta"
+          }
+        }
+      },
+      "host_seq": 7,
+      "context": {
+        "status": "running",
+        "hibernate": false,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [],
+      "table_record": null
+    },
+    {
+      "harness": 0,
+      "direction": "in",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "claude.control_response",
+        "params": {
+          "response": {
+            "request_id": "ctx-fixture"
+          }
+        }
+      },
+      "host_seq": 8,
+      "context": {
+        "status": "running",
+        "hibernate": false,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [],
+      "table_record": null
+    },
+    {
+      "harness": 0,
+      "direction": "in",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "claude.assistant",
+        "params": {
+          "message": {
+            "content": [
+              {
+                "text": "answer",
+                "type": "text"
+              }
+            ],
+            "id": "fixture-message"
+          },
+          "type": "assistant"
+        }
+      },
+      "host_seq": 9,
+      "context": {
+        "status": "running",
+        "hibernate": false,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [
+        {
+          "seq": 7,
+          "at": 1794835272283,
+          "dir": "in",
+          "kind": "claude.assistant",
+          "msg": {
+            "_acpmux": {
+              "bodiesLeftOut": 12
+            },
+            "message": {
+              "content": [
+                {
+                  "type": "text"
+                }
+              ],
+              "id": "fixture-message"
+            },
+            "type": "assistant"
+          },
+          "hostSeq": 9
+        }
+      ],
+      "table_record": 0
+    },
+    {
+      "harness": 0,
+      "direction": "in",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "claude.result",
+        "params": {
+          "is_error": false,
+          "result": "answer",
+          "type": "result"
+        }
+      },
+      "host_seq": 10,
+      "context": {
+        "status": "running",
+        "hibernate": false,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [
+        {
+          "seq": 8,
+          "at": 1794835272283,
+          "dir": "in",
+          "kind": "claude.result",
+          "msg": {
+            "is_error": false,
+            "result": "answer",
+            "type": "result"
+          },
+          "hostSeq": 10
+        }
+      ],
+      "table_record": 0
+    },
+    {
+      "harness": 0,
+      "direction": "in",
+      "message": {
+        "id": 2,
+        "jsonrpc": "2.0",
+        "result": {
+          "stopReason": "end_turn"
+        }
+      },
+      "host_seq": 11,
+      "context": {
+        "status": "running",
+        "hibernate": false,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [
+        {
+          "seq": 9,
+          "at": 1794835272283,
+          "dir": "in",
+          "kind": "response",
+          "msg": {
+            "id": 2,
+            "jsonrpc": "2.0",
+            "result": {
+              "stopReason": "end_turn"
+            }
+          },
+          "hostSeq": 11
+        }
+      ],
+      "table_record": 0
+    },
+    {
+      "harness": 0,
+      "direction": "out",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "fixture/exit",
+        "params": {
+          "code": 17
+        }
+      },
+      "host_seq": 12,
+      "context": {
+        "status": "ready",
+        "hibernate": false,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [
+        {
+          "seq": 10,
+          "at": 1794835272284,
+          "dir": "out",
+          "kind": "fixture/exit",
+          "msg": {
+            "jsonrpc": "2.0",
+            "method": "fixture/exit",
+            "params": {
+              "code": 17
+            }
+          },
+          "hostSeq": 12
+        }
+      ],
+      "table_record": 0
+    },
+    {
+      "harness": 0,
+      "direction": "in",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "_acpmux/host_exit",
+        "params": {
+          "code": 17
+        }
+      },
+      "host_seq": 13,
+      "context": {
+        "status": "ready",
+        "hibernate": false,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [
+        {
+          "seq": 11,
+          "at": 1794835272286,
+          "dir": "mux",
+          "kind": "exited",
+          "msg": {
+            "code": 17
+          },
+          "hostSeq": 13
+        }
+      ],
+      "table_record": 0
+    },
+    {
+      "harness": 1,
+      "direction": "out",
+      "message": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "method": "initialize",
+        "params": {
+          "protocolVersion": 1
+        }
+      },
+      "host_seq": 1,
+      "context": {
+        "status": "ready",
+        "hibernate": false,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [
+        {
+          "seq": 12,
+          "at": 1794835272303,
+          "dir": "out",
+          "kind": "initialize",
+          "msg": {
+            "id": 1,
+            "jsonrpc": "2.0",
+            "method": "initialize",
+            "params": {
+              "protocolVersion": 1
+            }
+          },
+          "hostSeq": 1
+        }
+      ],
+      "table_record": 0
+    },
+    {
+      "harness": 1,
+      "direction": "in",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "claude.system.init",
+        "params": {
+          "model": "fixture",
+          "subtype": "init",
+          "tools": [
+            "Read"
+          ],
+          "type": "system"
+        }
+      },
+      "host_seq": 2,
+      "context": {
+        "status": "ready",
+        "hibernate": false,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [
+        {
+          "seq": 13,
+          "at": 1794835272311,
+          "dir": "in",
+          "kind": "claude.system.init",
+          "msg": {
+            "_acpmux": {
+              "sameAsLastInit": [
+                "tools"
+              ]
+            },
+            "model": "fixture",
+            "subtype": "init",
+            "type": "system"
+          },
+          "hostSeq": 2
+        }
+      ],
+      "table_record": 0
+    },
+    {
+      "harness": 1,
+      "direction": "in",
+      "message": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "result": {
+          "protocolVersion": 1
+        }
+      },
+      "host_seq": 3,
+      "context": {
+        "status": "ready",
+        "hibernate": false,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [
+        {
+          "seq": 14,
+          "at": 1794835272312,
+          "dir": "in",
+          "kind": "response",
+          "msg": {
+            "id": 1,
+            "jsonrpc": "2.0",
+            "result": {
+              "protocolVersion": 1
+            }
+          },
+          "hostSeq": 3
+        }
+      ],
+      "table_record": 0
+    },
+    {
+      "harness": 1,
+      "direction": "out",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "fixture/exit",
+        "params": {
+          "code": 17
+        }
+      },
+      "host_seq": 4,
+      "context": {
+        "status": "running",
+        "hibernate": false,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [
+        {
+          "seq": 15,
+          "at": 1794835272312,
+          "dir": "out",
+          "kind": "fixture/exit",
+          "msg": {
+            "jsonrpc": "2.0",
+            "method": "fixture/exit",
+            "params": {
+              "code": 17
+            }
+          },
+          "hostSeq": 4
+        }
+      ],
+      "table_record": 0
+    },
+    {
+      "harness": 1,
+      "direction": "in",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "_acpmux/host_exit",
+        "params": {
+          "code": 17
+        }
+      },
+      "host_seq": 5,
+      "context": {
+        "status": "running",
+        "hibernate": false,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [
+        {
+          "seq": 16,
+          "at": 1794835272314,
+          "dir": "mux",
+          "kind": "exited",
+          "msg": {
+            "code": 17
+          },
+          "hostSeq": 5
+        }
+      ],
+      "table_record": 0
+    },
+    {
+      "harness": 2,
+      "direction": "out",
+      "message": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "method": "initialize",
+        "params": {
+          "protocolVersion": 1
+        }
+      },
+      "host_seq": 1,
+      "context": {
+        "status": "ready",
+        "hibernate": false,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [
+        {
+          "seq": 17,
+          "at": 1794835272331,
+          "dir": "out",
+          "kind": "initialize",
+          "msg": {
+            "id": 1,
+            "jsonrpc": "2.0",
+            "method": "initialize",
+            "params": {
+              "protocolVersion": 1
+            }
+          },
+          "hostSeq": 1
+        }
+      ],
+      "table_record": 0
+    },
+    {
+      "harness": 2,
+      "direction": "in",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "claude.system.init",
+        "params": {
+          "model": "fixture",
+          "subtype": "init",
+          "tools": [
+            "Read"
+          ],
+          "type": "system"
+        }
+      },
+      "host_seq": 2,
+      "context": {
+        "status": "ready",
+        "hibernate": false,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [
+        {
+          "seq": 18,
+          "at": 1794835272339,
+          "dir": "in",
+          "kind": "claude.system.init",
+          "msg": {
+            "_acpmux": {
+              "sameAsLastInit": [
+                "tools"
+              ]
+            },
+            "model": "fixture",
+            "subtype": "init",
+            "type": "system"
+          },
+          "hostSeq": 2
+        }
+      ],
+      "table_record": 0
+    },
+    {
+      "harness": 2,
+      "direction": "in",
+      "message": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "result": {
+          "protocolVersion": 1
+        }
+      },
+      "host_seq": 3,
+      "context": {
+        "status": "ready",
+        "hibernate": false,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [
+        {
+          "seq": 19,
+          "at": 1794835272340,
+          "dir": "in",
+          "kind": "response",
+          "msg": {
+            "id": 1,
+            "jsonrpc": "2.0",
+            "result": {
+              "protocolVersion": 1
+            }
+          },
+          "hostSeq": 3
+        }
+      ],
+      "table_record": 0
+    },
+    {
+      "harness": 2,
+      "direction": "out",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "fixture/exit",
+        "params": {
+          "code": 17
+        }
+      },
+      "host_seq": 4,
+      "context": {
+        "status": "idle",
+        "hibernate": false,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [
+        {
+          "seq": 20,
+          "at": 1794835272340,
+          "dir": "out",
+          "kind": "fixture/exit",
+          "msg": {
+            "jsonrpc": "2.0",
+            "method": "fixture/exit",
+            "params": {
+              "code": 17
+            }
+          },
+          "hostSeq": 4
+        }
+      ],
+      "table_record": 0
+    },
+    {
+      "harness": 2,
+      "direction": "in",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "_acpmux/host_exit",
+        "params": {
+          "code": 17
+        }
+      },
+      "host_seq": 5,
+      "context": {
+        "status": "idle",
+        "hibernate": false,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [
+        {
+          "seq": 21,
+          "at": 1794835272342,
+          "dir": "mux",
+          "kind": "stopped",
+          "msg": {
+            "code": 17
+          },
+          "hostSeq": 5
+        }
+      ],
+      "table_record": 0
+    },
+    {
+      "harness": 3,
+      "direction": "out",
+      "message": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "method": "initialize",
+        "params": {
+          "protocolVersion": 1
+        }
+      },
+      "host_seq": 1,
+      "context": {
+        "status": "ready",
+        "hibernate": false,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [
+        {
+          "seq": 22,
+          "at": 1794835272360,
+          "dir": "out",
+          "kind": "initialize",
+          "msg": {
+            "id": 1,
+            "jsonrpc": "2.0",
+            "method": "initialize",
+            "params": {
+              "protocolVersion": 1
+            }
+          },
+          "hostSeq": 1
+        }
+      ],
+      "table_record": 0
+    },
+    {
+      "harness": 3,
+      "direction": "in",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "claude.system.init",
+        "params": {
+          "model": "fixture",
+          "subtype": "init",
+          "tools": [
+            "Read"
+          ],
+          "type": "system"
+        }
+      },
+      "host_seq": 2,
+      "context": {
+        "status": "ready",
+        "hibernate": false,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [
+        {
+          "seq": 23,
+          "at": 1794835272369,
+          "dir": "in",
+          "kind": "claude.system.init",
+          "msg": {
+            "_acpmux": {
+              "sameAsLastInit": [
+                "tools"
+              ]
+            },
+            "model": "fixture",
+            "subtype": "init",
+            "type": "system"
+          },
+          "hostSeq": 2
+        }
+      ],
+      "table_record": 0
+    },
+    {
+      "harness": 3,
+      "direction": "in",
+      "message": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "result": {
+          "protocolVersion": 1
+        }
+      },
+      "host_seq": 3,
+      "context": {
+        "status": "ready",
+        "hibernate": false,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [
+        {
+          "seq": 24,
+          "at": 1794835272369,
+          "dir": "in",
+          "kind": "response",
+          "msg": {
+            "id": 1,
+            "jsonrpc": "2.0",
+            "result": {
+              "protocolVersion": 1
+            }
+          },
+          "hostSeq": 3
+        }
+      ],
+      "table_record": 0
+    },
+    {
+      "harness": 3,
+      "direction": "out",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "fixture/exit",
+        "params": {
+          "code": 17
+        }
+      },
+      "host_seq": 4,
+      "context": {
+        "status": "idle",
+        "hibernate": true,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [
+        {
+          "seq": 25,
+          "at": 1794835272370,
+          "dir": "out",
+          "kind": "fixture/exit",
+          "msg": {
+            "jsonrpc": "2.0",
+            "method": "fixture/exit",
+            "params": {
+              "code": 17
+            }
+          },
+          "hostSeq": 4
+        }
+      ],
+      "table_record": 0
+    },
+    {
+      "harness": 3,
+      "direction": "in",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "_acpmux/host_exit",
+        "params": {
+          "code": 17
+        }
+      },
+      "host_seq": 5,
+      "context": {
+        "status": "idle",
+        "hibernate": true,
+        "loading": false,
+        "awaiting_first_delta": false
+      },
+      "records": [
+        {
+          "seq": 26,
+          "at": 1794835272372,
+          "dir": "mux",
+          "kind": "stopped",
+          "msg": {
+            "code": 17,
+            "hibernated": true
+          },
+          "hostSeq": 5
+        }
+      ],
+      "table_record": 0
+    }
+  ]
+}

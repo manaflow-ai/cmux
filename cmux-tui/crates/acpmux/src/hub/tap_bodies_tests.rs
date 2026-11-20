@@ -98,6 +98,312 @@ fn bytes(records: &[EventRecord]) -> usize {
     records.iter().map(|r| serde_json::to_string(r).unwrap().len() + 1).sum()
 }
 
+// Pure-table parity only. Stateful update normalization (plans, subagents, suggestions,
+// reply stamps and output files) has its own stage and is deliberately not claimed here.
+#[cfg(test)]
+mod pure_table {
+    use super::*;
+    use acpmux_core::chat::record::{self, Context, Entry};
+
+    fn entry(dir: Direction, msg: &Message) -> Entry<'_> {
+        let direction = match dir {
+            Direction::In => record::Direction::In,
+            Direction::Out => record::Direction::Out,
+        };
+        match msg {
+            Message::Notification { method, params } if method == crate::agent::HOST_STDERR => {
+                Entry::Stderr {
+                    text: params
+                        .as_ref()
+                        .and_then(|p| p.get("text"))
+                        .cloned()
+                        .unwrap_or(Value::Null),
+                }
+            }
+            Message::Notification { method, params } if method == crate::agent::HOST_EXIT => {
+                Entry::Exit {
+                    code: params
+                        .as_ref()
+                        .and_then(|p| p.get("code"))
+                        .cloned()
+                        .unwrap_or(Value::Null),
+                }
+            }
+            Message::Notification { method, .. } => {
+                Entry::Notification { direction, method, value: msg.to_value() }
+            }
+            Message::Request { method, .. } => {
+                Entry::Request { direction, method, value: msg.to_value() }
+            }
+            Message::Response { .. } => Entry::Response { direction, value: msg.to_value() },
+        }
+    }
+
+    fn compare(
+        hub: &Arc<Hub>,
+        s: &Arc<Session>,
+        tap: &crate::agent::Tap,
+        context: &mut Context,
+        direction: Direction,
+        msg: Message,
+        eligible_update: bool,
+    ) {
+        let before = hub.store.events(&s.id, 0, usize::MAX).unwrap();
+        let mut prepared = record::record_of(entry(direction, &msg), context);
+        if prepared.as_mut().is_some_and(|r| !r.trim_live_update(context, eligible_update)) {
+            prepared = None;
+        }
+        assert!(tap(direction, &msg, Some(71)));
+        let after = hub.store.events(&s.id, 0, usize::MAX).unwrap();
+        // Hub side effects can append separate records without this host number.
+        // This test compares the pure table's record, not those stateful effects.
+        let added: Vec<_> =
+            after[before.len()..].iter().filter(|r| r.host_seq == Some(71)).collect();
+        if let Some(prepared) = prepared {
+            assert_eq!(added.len(), 1, "{}", msg.to_value());
+            let actual = added[0];
+            assert_eq!(
+                serde_json::to_vec(&prepared.event(actual.seq, actual.at, Some(71))).unwrap(),
+                serde_json::to_vec(actual).unwrap(),
+                "{}",
+                msg.to_value()
+            );
+            prepared.note_logged(context);
+        } else {
+            assert!(added.is_empty(), "{}", msg.to_value());
+        }
+    }
+
+    #[test]
+    fn v2_record_pure_table_matches_v1_tap_bytes_and_skips() {
+        let hub = hub();
+        let s = claude_chat(&hub, "pure-table");
+        let tap = hub.session_tap(&s);
+        let mut context = Context::default();
+        let long = "long prompt ".repeat(300);
+        // The scrubber identifies the PNG mark without decoding the image payload.
+        use base64::Engine;
+        let mut png = vec![0_u8; 72];
+        png[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        png[37..41].copy_from_slice(b"tEXt");
+        let mark = record::model_copy::MARK;
+        png[41..41 + mark.len()].copy_from_slice(mark);
+        let model_copy = base64::engine::general_purpose::STANDARD.encode(png);
+        let messages = vec![
+            (
+                Direction::In,
+                json!({"id":10,"method":"custom/request","params":{"image":model_copy}}),
+            ),
+            (Direction::Out, json!({"method":"custom/notification","params":{"image":model_copy}})),
+            (
+                Direction::In,
+                json!({"method":"claude.control_response","params":{"response":{"request_id":"ctx-1"}}}),
+            ),
+            (
+                Direction::In,
+                json!({"method":"claude.stream_event","params":{"event":{"type":"content_block_delta"}}}),
+            ),
+            (
+                Direction::In,
+                json!({"method":"claude.stream_event","params":{"event":{"type":"message_start"}}}),
+            ),
+            (
+                Direction::In,
+                json!({"method":"claude.stream_event","params":{"parent_tool_use_id":"child","event":{"type":"content_block_delta"}}}),
+            ),
+            (
+                Direction::In,
+                json!({"method":"claude.stream_event","params":{"event":{"type":"content_block_delta"}}}),
+            ),
+            (
+                Direction::In,
+                json!({"method":"claude.stream_event","params":{"event":{"type":"content_block_delta"}}}),
+            ),
+            (
+                Direction::In,
+                json!({"method":"claude.system.init","params":{"tools":["Read"],"model":"model"}}),
+            ),
+            (
+                Direction::In,
+                json!({"method":"claude.system.init","params":{"tools":["Read"],"model":"model"}}),
+            ),
+            (
+                Direction::In,
+                json!({"method":"claude.control_response","params":{"response":{"request_id":"init-1","response":{"commands":["help"]}}}}),
+            ),
+            (
+                Direction::In,
+                json!({"method":"claude.control_response","params":{"response":{"request_id":"init-2","response":{"commands":["help"]}}}}),
+            ),
+            (
+                Direction::In,
+                json!({"method":"claude.assistant","params":{"message":{"id":"m1","content":[{"type":"text","text":"body"}]}}}),
+            ),
+            (
+                Direction::Out,
+                json!({"method":"claude.stdin","params":{"type":"user","message":{"content":long}}}),
+            ),
+            (
+                Direction::Out,
+                json!({"id":1,"method":"session/prompt","params":{"prompt":[{"type":"text","text":long}]}}),
+            ),
+            (
+                Direction::In,
+                json!({"id":2,"method":"session/request_permission","params":{"toolCall":{"title":"ask","_meta":{"acpmux":{"display":"untrusted"}}}}}),
+            ),
+            (Direction::In, json!({"id":3,"result":{"_meta":{"claude":{"commands":["help"]}}}})),
+            (Direction::In, json!({"id":4,"result":{"_meta":{"claude":{"commands":["help"]}}}})),
+            (Direction::Out, json!({"id":5,"result":{"ok":true}})),
+            (
+                Direction::Out,
+                json!({"method":"session/update","params":{"update":{"sessionUpdate":"outgoing"}}}),
+            ),
+            (Direction::In, json!({"method":"claude.unknown"})),
+            (Direction::In, json!({"method":crate::agent::HOST_STDERR,"params":{"text":"stderr"}})),
+        ];
+        for (direction, value) in messages {
+            compare(
+                &hub,
+                &s,
+                &tap,
+                &mut context,
+                direction,
+                Message::from_value(value).unwrap(),
+                false,
+            );
+        }
+        for loading in [false, false, true] {
+            context.loading = loading;
+            s.loading.store(loading, Ordering::SeqCst);
+            compare(
+                &hub,
+                &s,
+                &tap,
+                &mut context,
+                Direction::In,
+                update(
+                    json!({"sessionUpdate":"available_commands_update","availableCommands":[{"name":"help"}]}),
+                ),
+                true,
+            );
+        }
+    }
+
+    #[test]
+    fn v2_record_method_and_logged_kind_collisions_match_v1() {
+        let hub = hub();
+        let s = claude_chat(&hub, "method-collisions");
+        let tap = hub.session_tap(&s);
+        let mut context = Context::default();
+        for kind in
+            ["session/request_permission", "response", "claude.stdin", "claude.control_response"]
+        {
+            for _ in 0..2 {
+                compare(
+                    &hub,
+                    &s,
+                    &tap,
+                    &mut context,
+                    Direction::In,
+                    update(json!({"sessionUpdate":kind,
+                        "toolCall":{"_meta":{"acpmux":{"display":"preserved"}}},
+                        "result":{"_meta":{"claude":{"commands":["help"]}}}})),
+                    true,
+                );
+            }
+        }
+        // Loading only adds .replay to notifications in v1. Requests keep their method kind.
+        context.loading = true;
+        s.loading.store(true, Ordering::SeqCst);
+        compare(&hub, &s, &tap, &mut context, Direction::In,
+            Message::from_value(json!({"id":88,"method":"session/update","params":{"update":{
+                "sessionUpdate":"available_commands_update","availableCommands":[{"name":"help"}]}}})).unwrap(), true);
+    }
+
+    #[test]
+    fn v2_record_exit_table_matches_v1_including_reconstructed_context() {
+        for status in [
+            SessionStatus::Ready,
+            SessionStatus::Running,
+            SessionStatus::Waiting,
+            SessionStatus::Disconnected,
+            SessionStatus::Idle,
+            SessionStatus::Closed,
+        ] {
+            for hibernate in [false, true] {
+                let hub = hub();
+                let s = claude_chat(&hub, "exit-table");
+                s.meta.lock().unwrap().status = status;
+                s.hibernated_at.store(u64::from(hibernate), Ordering::SeqCst);
+                let tap = hub.session_tap(&s);
+                // The exit reads status, independently of whether a turn is open.
+                let mut context = Context {
+                    idle: status == SessionStatus::Idle,
+                    closed: status == SessionStatus::Closed,
+                    hibernate,
+                    ..Context::default()
+                };
+                compare(
+                    &hub,
+                    &s,
+                    &tap,
+                    &mut context,
+                    Direction::In,
+                    Message::notification(crate::agent::HOST_EXIT, json!({"code": 7})),
+                    false,
+                );
+                let records = hub.store.events(&s.id, 0, usize::MAX).unwrap();
+                let exit = records.iter().find(|record| record.host_seq == Some(71)).unwrap();
+                let marked = hibernate && status != SessionStatus::Closed;
+                let expected =
+                    if marked || matches!(status, SessionStatus::Idle | SessionStatus::Closed) {
+                        "stopped"
+                    } else {
+                        "exited"
+                    };
+                assert_eq!(exit.kind, expected, "status={status}, hibernate={hibernate}");
+                assert_eq!(exit.msg.get("hibernated"), marked.then_some(&Value::Bool(true)));
+
+                // A persisted hibernation mark restored before redelivered Exit must retain
+                // the same classification; neither the turn nor a live child is required.
+                let mut restored = Context {
+                    idle: context.idle,
+                    closed: context.closed,
+                    hibernate: context.hibernate,
+                    ..Context::default()
+                };
+                let replay =
+                    record::record_of(Entry::Exit { code: json!(7) }, &mut restored).unwrap();
+                assert_eq!(replay.kind, exit.kind);
+                assert_eq!(replay.msg, exit.msg);
+            }
+        }
+    }
+
+    #[test]
+    fn v2_record_failed_append_keeps_repeat_state_and_harness_restart_resets_timing() {
+        let mut context = Context::default();
+        let msg = Message::notification("claude.system.init", json!({"tools":["Read"]}));
+        let failed = record::record_of(entry(Direction::In, &msg), &mut context).unwrap();
+        let bytes = serde_json::to_vec(&failed.event(1, 2, Some(3))).unwrap();
+        drop(failed);
+        let retry = record::record_of(entry(Direction::In, &msg), &mut context).unwrap();
+        assert_eq!(bytes, serde_json::to_vec(&retry.event(1, 2, Some(3))).unwrap());
+        retry.note_logged(&mut context);
+        let repeated = record::record_of(entry(Direction::In, &msg), &mut context).unwrap();
+        assert!(repeated.msg.get("tools").is_none());
+        let start =
+            Message::notification("claude.stream_event", json!({"event":{"type":"message_start"}}));
+        assert!(record::record_of(entry(Direction::In, &start), &mut context).is_some());
+        context.harness_started();
+        let delta = Message::notification(
+            "claude.stream_event",
+            json!({"event":{"type":"content_block_delta"}}),
+        );
+        assert!(record::record_of(entry(Direction::In, &delta), &mut context).is_none());
+    }
+}
+
 /// Leo, 2026-10-29: "as in i want ours to load fast too". A Claude turn's raw lines are logged
 /// without the bodies its translated records carry: a block keeps what it is and its ids, the
 /// line every field its readers take (optchat-chief's `fold.rs`: the message's id, model and

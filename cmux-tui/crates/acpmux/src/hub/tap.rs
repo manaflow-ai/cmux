@@ -115,6 +115,11 @@ impl Hub {
         // This tap's number: once a Stop ended its agent, nothing it logs is a sign of work.
         let tap_number = session.taps.fetch_add(1, Ordering::SeqCst) + 1;
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
+            #[cfg(all(test, unix))]
+            record_capture_tests::before(
+                &tap_session.id,
+                awaiting_first_delta.load(Ordering::SeqCst),
+            );
             let muted = tap_number <= tap_session.muted_taps.load(Ordering::SeqCst);
             // The sign of work is published before a tool call's end can bring the stalled
             // deadline nearer and wake the reaper (`stalled_turn.rs`).
@@ -510,23 +515,12 @@ impl Hub {
     }
 }
 
-/// Whether a raw `stream_event` line is one a request's timing reads: a `message_start`, or the
-/// first `content_block_delta` after one. Only the main agent's requests are timed; a subagent's
-/// lines (`parent_tool_use_id`) stream alongside them and are never kept.
-fn times_request(params: &Value, awaiting_first_delta: &AtomicBool) -> bool {
-    if params.get("parent_tool_use_id").is_some_and(|p| !p.is_null()) {
-        return false;
-    }
-    match params.pointer("/event/type").and_then(Value::as_str) {
-        Some("message_start") => {
-            awaiting_first_delta.store(true, Ordering::Relaxed);
-            true
-        }
-        Some("content_block_delta") => awaiting_first_delta.swap(false, Ordering::Relaxed),
-        _ => false,
-    }
-}
+use acpmux_core::chat::record::times_request;
 
 #[cfg(test)]
 #[path = "tap_bodies_tests.rs"]
 mod bodies_tests;
+
+#[cfg(all(test, unix))]
+#[path = "tap_record_capture_tests.rs"]
+mod record_capture_tests;

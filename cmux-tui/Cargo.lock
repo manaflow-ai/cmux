@@ -160,6 +160,7 @@ dependencies = [
  "acpmux-book",
  "acpmux-client",
  "arc-swap",
+ "base64",
  "cmux-scope",
  "libc",
  "serde",
