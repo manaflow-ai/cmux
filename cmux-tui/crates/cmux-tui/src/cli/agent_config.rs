@@ -158,7 +158,7 @@ fn parse(rest: &[String]) -> Result<Parsed, String> {
             "--header" | "-H" => parsed.headers.push(pair(&value()?, "--header")?),
             other if other.starts_with('-') => return Err(format!("unknown flag {other}")),
             name if parsed.name.is_none() && parsed.verb != "list" => {
-                parsed.name = Some(name.to_owned())
+                parsed.name = Some(name.to_owned());
             }
             extra => return Err(format!("unexpected {extra:?}")),
         }
