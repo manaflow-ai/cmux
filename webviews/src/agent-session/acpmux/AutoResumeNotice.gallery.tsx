@@ -28,6 +28,23 @@ export default componentEntry<Props>({
     "connection-wait": {
       props: { state: { retry: { attempt: 2, of: 4, reason: "transport" }, attempt: 1 } },
     },
+    "rate-limited": {
+      note: "acpmux holds the chat on its account's rate limit until 14:05 UTC: the notice says until when.",
+      props: { state: { rateLimitedUntil: Date.UTC(2026, 10, 17, 14, 5) } },
+    },
+    "rate-limited-retry": {
+      note: "A held chat whose failed turn also waits to retry: the hold's time reads, not the retry's count.",
+      props: {
+        state: {
+          retry: { attempt: 1, of: 4, reason: "rate_limit" },
+          rateLimitedUntil: Date.UTC(2026, 10, 17, 14, 5),
+        },
+      },
+    },
+    "rate-limit-retry": {
+      note: "A retry after a rate limit with no hold.",
+      props: { state: { retry: { attempt: 2, of: 4, reason: "rate_limit" } } },
+    },
     cleared: { props: { state: undefined } },
   },
 });

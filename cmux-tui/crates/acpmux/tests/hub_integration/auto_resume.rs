@@ -12,6 +12,9 @@ mod capacity;
 #[path = "auto_resume_context.rs"]
 mod context;
 
+#[path = "auto_resume_rate_hold.rs"]
+mod rate_hold;
+
 #[path = "auto_resume_limits.rs"]
 mod limits;
 

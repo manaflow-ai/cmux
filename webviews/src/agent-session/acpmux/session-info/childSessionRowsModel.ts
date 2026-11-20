@@ -1,5 +1,5 @@
 import { type StringKey, type Translate } from "../i18n";
-import { retryLabel, sessionRetry } from "../subagents/retryState";
+import { heldLabel, retryLabel, sessionRetry } from "../subagents/retryState";
 import type { StartedSession, StartedState } from "../started/startedSessions";
 import type { SubagentStatus } from "../summary/subagentStatusListModel";
 
@@ -31,6 +31,8 @@ export const sessionStatus = (child: StartedSession): SubagentStatus =>
 /// A started chat's state in words ("Running", "Done", "Retrying (2/4) after a capacity error"), as
 /// its row says it, and whether it works (the turning ring) while acpmux retries it.
 export function sessionStateText(t: Translate, child: StartedSession): { text: string; working: boolean } {
+  const held = heldLabel(t, child);
+  if (held) return { text: held, working: false };
   const retry = retryOf(child);
   return retry ? { text: retryLabel(t, retry), working: true } : { text: t(stateOf(child).word), working: false };
 }

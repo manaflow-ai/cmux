@@ -195,7 +195,8 @@ pub(crate) fn continuation_error<'a>(raw: Option<&'a str>, shown: &'a str) -> &'
 /// compacted first, and only where its harness can compact, `auto_resume/compact_first.rs`).
 /// `raw` is the
 /// agent's own error, `shown` the turn's error as recorded (with the dead process's last stderr
-/// line, or the sign-in explanation). Usage limits retry as capacity on the same profile. A sign-in failure (including an expired credential unless the
+/// line, or the sign-in explanation). An account's usage or rate limit (HTTP 429,
+/// [`is_usage_limit_error`]) is `rate_limit`: the chat holds until its reset. A sign-in failure (including an expired credential unless the
 /// provider was unreachable) is never continued. Nor is a
 /// refused request ([`is_refused_request`]) in either: an agent that died of one would be
 /// refused the same way again.
@@ -214,10 +215,11 @@ pub fn resume_cause(raw: &str, shown: &str) -> Option<&'static str> {
     if is_refused_request(raw) || is_refused_request(shown) {
         return None;
     }
-    // Limits are account capacity, not sign-in failures. Retry this same conversation when the
-    // reset permits it; do not switch accounts.
+    // Limits are the account's: not sign-in failures, and not the provider's capacity. The chat
+    // holds every turn until the reset, then goes on in this same conversation
+    // (`hub/rate_hold.rs`); it does not switch accounts.
     if is_usage_limit_error(raw) || is_usage_limit_error(shown) {
-        return Some("capacity");
+        return Some("rate_limit");
     }
     if raw.starts_with("agent process closed") {
         return transient_cause(shown).or(Some("agent_exited"));
@@ -261,10 +263,12 @@ mod tests {
             "Claude AI usage limit reached|1760000000",
             "You have hit your usage limit for Opus.",
             "API Error: 429 rate_limit_error",
+            // claude-sr2-coord-old, 2026-11-16: 207 of 400 turns failed with this one.
+            "API Error: Request rejected (429) · This request would exceed your account's rate limit",
         ] {
             assert!(is_limit_error(m), "{m}");
             assert!(!is_transport_error(m), "{m}");
-            assert_eq!(resume_cause(m, m), Some("capacity"), "{m}");
+            assert_eq!(resume_cause(m, m), Some("rate_limit"), "{m}");
         }
         assert!(!is_limit_error("agent process closed"));
         assert!(!is_limit_error("You've hit the end of the file"));
@@ -280,7 +284,7 @@ mod tests {
         );
         assert_eq!(
             resume_cause(raw, "agent process closed (claude): You've hit your limit"),
-            Some("capacity")
+            Some("rate_limit")
         );
         // An expired credential is a sign-in failure too (`recovery::auth_kind`: auth.expired).
         assert_eq!(resume_cause(raw, "agent process closed (claude): credential expired"), None);
@@ -405,7 +409,7 @@ mod tests {
             assert_eq!(
                 resume_cause(m, m),
                 if is_usage_limit_error(m) && !is_refused_request(m) {
-                    Some("capacity")
+                    Some("rate_limit")
                 } else {
                     None
                 },
@@ -428,7 +432,7 @@ mod tests {
             assert_eq!(
                 resume_cause(m, m),
                 if is_usage_limit_error(m) && !is_refused_request(m) {
-                    Some("capacity")
+                    Some("rate_limit")
                 } else {
                     None
                 },

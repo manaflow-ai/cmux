@@ -63,6 +63,8 @@ export type StartedSession = {
   doingTool?: string;
   /// acpmux's retry of its failed turn while one waits (retryState.ts ``sessionRetry``).
   retry?: RetryState;
+  /// acpmux holds it on its account's rate limit until this time (Unix ms, retryState.ts ``heldLabel``).
+  rateLimitedUntil?: number;
   /// The harness it runs (`claude`, `codex`, a profile), whose mark its rows draw.
   harness?: string;
   /// The chat's agent started it with its `start_session` tool (acpmux `startedBy`, hub/subsessions.rs):
@@ -179,6 +181,7 @@ export function startedSessions(
         ...(doing && entry.doing ? { doing: entry.doing } : {}),
         ...(doing && entry.doing && entry.doingTool ? { doingTool: entry.doingTool } : {}),
         ...(entry.retry ? { retry: entry.retry } : {}),
+        ...(entry.rateLimitedUntil !== undefined ? { rateLimitedUntil: entry.rateLimitedUntil } : {}),
         ...(entry.harness ? { harness: entry.harness } : {}),
         ...(entry.startedBy === chatId ? { subsession: true } : {}),
         ...(state === "idle" && entry.startedBy === chatId && entry.stoppedAt !== undefined

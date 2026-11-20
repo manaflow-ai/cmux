@@ -5,7 +5,11 @@ import { sessionEntry } from "../sessionList";
 import { SubagentFold } from "./subagentFold";
 import { subsessionInfo } from "./subsessions";
 import { sessionStateText, sessionStatus } from "../session-info/childSessionRowsModel";
+import { autoResumeStatus } from "../autoResumeStatus";
 import {
+  heldLabel,
+  rateLimitedLabel,
+  readRateLimitedUntil,
   SUBAGENT_RETRY,
   sessionRetry,
   subagentRetry,
@@ -70,6 +74,39 @@ describe("the adapter reads acpmux's retry", () => {
       "Retrying (3/3) after the agent exited",
     );
     expect(retryLabel(translate, { attempt: 1, of: 3, reason: "something_new" })).toBe("Retrying (1/3)");
+    expect(retryLabel(translate, { attempt: 1, of: 4, reason: "rate_limit" })).toBe(
+      "Retrying (1/4) after a rate limit",
+    );
+  });
+
+  test("a chat held on its rate limit reads until when, in UTC, as `acpmux ls` does", () => {
+    const until = Date.UTC(2026, 10, 17, 14, 5, 59);
+    expect(rateLimitedLabel(translate, until)).toBe("rate-limited until 14:05Z");
+    expect(rateLimitedLabel(translate, Date.UTC(2026, 10, 18, 0, 0))).toBe("rate-limited until 00:00Z");
+    // Read off the session list only while acpmux holds it; anything else is no hold.
+    expect(sessionEntry({ sessionId: "s", rateLimitedUntil: until }).rateLimitedUntil).toBe(until);
+    for (const raw of [undefined, null, 0, -1, "14:05", Number.NaN, Number.POSITIVE_INFINITY, 9e15])
+      expect(readRateLimitedUntil(raw)).toBeUndefined();
+    // Every row reads it before its retry or state: a held chat that failed on the 429 and waits to
+    // retry says until when; one not held reads as before.
+    const failed = { sessionId: "s", startedBy: "chat", lane: { state: "failed" }, retry: FIXTURE.sessionRetry };
+    const held = sessionEntry({ ...failed, rateLimitedUntil: until });
+    expect(heldLabel(translate, subsessionInfo(held))).toBe("rate-limited until 14:05Z");
+    expect(heldLabel(translate, subsessionInfo(sessionEntry(failed)))).toBeUndefined();
+    const child = { sessionId: "s", title: "Lane", state: "failed" as const, retry: FIXTURE.sessionRetry };
+    expect(sessionStateText(translate, { ...child, rateLimitedUntil: until })).toEqual({
+      text: "rate-limited until 14:05Z",
+      working: false,
+    });
+    expect(sessionStateText(translate, child).text).toBe("Retrying (1/4) after a connection error");
+  });
+
+  test("the chat's own notice carries the hold", () => {
+    const until = Date.UTC(2026, 10, 17, 14, 5);
+    expect(autoResumeStatus(null, undefined, until)).toEqual({ rateLimitedUntil: until });
+    expect(autoResumeStatus(FIXTURE.sessionRetry, 2, until)).toMatchObject({ attempt: 2, rateLimitedUntil: until });
+    expect(autoResumeStatus(null, undefined, undefined)).toBeUndefined();
+    expect(autoResumeStatus(null, 3)).toEqual({ attempt: 3 });
   });
 
   test("the session list's row carries it", () => {
