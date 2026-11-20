@@ -81,9 +81,39 @@ struct WriterState {
     kept: u64,
     /// The target of the newest copy saved durable.
     synced: u64,
-    /// The last successful save, or the value read from the store before startup repairs.
-    /// Versions count commits, so alone they miss direct changes such as log catch-up.
-    saved: Option<SessionMeta>,
+    /// The digest of the last successful save, or of the value read from the store before
+    /// startup repairs. Versions count commits, so alone they miss direct changes such as log
+    /// catch-up. A digest, not a copy: a whole second copy of every chat's metadata was 12.8 MB
+    /// of acpmux's heap at 1,000 chats (infinite items, 2026-11-19), held only for this compare.
+    saved: Option<MetaDigest>,
+}
+
+/// SHA-256 of a chat's metadata as the store writes it whole: every stored field. The fields
+/// kept for this daemon run only are not stored, so a change to them alone needs no save.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct MetaDigest([u8; 32]);
+
+impl MetaDigest {
+    pub(crate) fn of(meta: &SessionMeta) -> Self {
+        use sha2::Digest as _;
+        struct Hashing(sha2::Sha256);
+        impl std::io::Write for Hashing {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.update(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut hashing = Hashing(sha2::Sha256::new());
+        // Plain data does not fail to serialize; were it to, this digest matches no saved one,
+        // so the chat is saved again, never skipped.
+        if serde_json::to_writer(&mut hashing, meta).is_err() {
+            hashing.0.update(b"\0unserializable");
+        }
+        Self(hashing.0.finalize().into())
+    }
 }
 
 /// Whether a commit waits for its version to be durable.
@@ -94,8 +124,8 @@ pub(super) enum Wait {
 }
 
 impl MetaWriter {
-    pub(super) fn note_saved(&self, meta: SessionMeta) {
-        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).saved = Some(meta);
+    pub(super) fn note_saved(&self, saved: MetaDigest) {
+        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).saved = Some(saved);
     }
 
     /// A writer in flight must get a later version even if memory matches the last save:
@@ -105,7 +135,7 @@ impl MetaWriter {
         let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.writing
             || state.requested > state.durable
-            || !state.saved.as_ref().is_some_and(|saved| session.read_meta(|meta| meta == saved))
+            || !state.saved.is_some_and(|saved| session.read_meta(MetaDigest::of) == saved)
     }
 
     /// Takes the next version for the change the caller just made, and commits it: as the
@@ -385,7 +415,7 @@ impl Hub {
             ShowAfter::Written => self.store.save_kept(&meta),
         };
         if saved.is_ok() {
-            session.meta_writer.note_saved(meta);
+            session.meta_writer.note_saved(MetaDigest::of(&meta));
         }
         // The purge ran between the check and the save: delete it again.
         if session.purged.load(Ordering::SeqCst)

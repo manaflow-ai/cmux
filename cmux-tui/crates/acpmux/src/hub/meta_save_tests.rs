@@ -580,8 +580,12 @@ fn a_failed_metadata_save_stays_dirty_until_a_successful_save() {
     std::fs::rename(&backup, &path).unwrap();
     assert!(saved.is_err(), "a file could not replace a directory");
     assert!(session.meta_writer.needs_flush(&session));
-    assert!(
-        session.meta_writer.state.lock().unwrap().saved.as_ref().unwrap().composer_draft.is_none()
+    // The writer still holds the digest of the last save, the chat without its draft.
+    let mut before_draft = session.meta();
+    before_draft.composer_draft = None;
+    assert_eq!(
+        session.meta_writer.state.lock().unwrap().saved,
+        Some(super::MetaDigest::of(&before_draft))
     );
     hub.flush();
     assert_eq!(saves.load(Ordering::Relaxed), 2, "one failed attempt and one retry");
@@ -655,4 +659,20 @@ fn shutdown_flush_syncs_a_successful_kept_save_without_another_metadata_commit()
     assert_eq!(on_disk(home.path(), &session.id)["composerDraft"], "kept draft");
     let crashed = journal.snapshot(Crash::Os);
     assert_eq!(after_crash(home.path(), &crashed, &session.id)["composerDraft"], "kept draft");
+}
+
+/// The writer keeps a digest of the last save, not a copy: a change to a stored field is dirty,
+/// one to a field kept for this daemon run only is not (the save would write the same bytes), and
+/// taking a change back is clean again.
+#[test]
+fn the_saved_digest_tells_stored_changes_from_run_only_ones() {
+    let (_home, hub, _saves) = loaded_closed_chats(1);
+    let session = hub.resolve_here("chat-0").unwrap();
+    assert!(!session.meta_writer.needs_flush(&session));
+    session.meta.lock().unwrap().title_asking = true;
+    assert!(!session.meta_writer.needs_flush(&session), "a run-only field is not stored");
+    session.meta.lock().unwrap().unread_turns += 1;
+    assert!(session.meta_writer.needs_flush(&session), "a stored field changed");
+    session.meta.lock().unwrap().unread_turns -= 1;
+    assert!(!session.meta_writer.needs_flush(&session), "the change was taken back");
 }
