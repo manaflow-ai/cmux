@@ -263,7 +263,8 @@ enum ControlTopologyMapper {
                                              panes: screen.panes.map { model in
                                                  var info = pane(from: model, selectedTab: selectedTab, pages: pages)
                                                  let handle = model.handle
-                                                 info.column = placed.isEmpty ? 0 : placed.firstIndex { $0.panes.contains(handle) }
+                                                 // A pane a split tree does not list yet is in its one column.
+                                                 info.column = placed.firstIndex { $0.panes.contains(handle) } ?? (screen.columns.isEmpty ? 0 : nil)
                                                  info.dock = placed.first { $0.panes.contains(handle) }?.dock
                                                  return info
                                              })
@@ -278,8 +279,13 @@ enum ControlTopologyMapper {
 
     /// `screen`'s columns as the window draws them, left to right: left
     /// docks, the scrolling strip, right docks. Top and bottom bands span the
-    /// screen and are no column. Empty for a screen stored as one split tree.
+    /// screen and are no column. Panes side by side in one split tree are as
+    /// many columns (``sideBySide(_:)``): a screen stored as one tree, and a
+    /// scrolling column that holds a split to the right. They were one
+    /// column, so on such a screen no pane was right of an agent's chat and
+    /// each tab opened beside it made one more pane.
     static func columns(of screen: ScreenModel) -> [(panes: Set<PaneID>, dock: String?)] {
+        guard !screen.columns.isEmpty else { return sideBySide(screen.layout).map { (panes: Set($0), dock: nil) } }
         let order: (ColumnSnapshot) -> Int? = { column in
             switch column.dock?.edge {
             case .left: 0
@@ -290,7 +296,21 @@ enum ControlTopologyMapper {
         }
         let placed = screen.columns.compactMap { column in order(column).map { (rank: $0, column: column) } }
         return placed.enumerated().sorted { ($0.element.rank, $0.offset) < ($1.element.rank, $1.offset) }
-            .map { (panes: Set($0.element.column.layout.paneIDs), dock: $0.element.column.dock?.edge.rawValue) }
+            .flatMap { entry -> [(panes: Set<PaneID>, dock: String?)] in
+                let column = entry.element.column
+                // A dock is one column whatever it holds: a tab opened beside a chat never goes into one.
+                guard column.dock == nil else { return [(panes: Set(column.layout.paneIDs), dock: column.dock?.edge.rawValue)] }
+                return sideBySide(column.layout).map { (panes: Set($0), dock: nil) }
+            }
+    }
+
+    /// `node`'s panes in the columns its splits to the right draw, left to
+    /// right. Only splits at the top of the tree divide it: what a split
+    /// down, a stack or one pane holds is one column, so a pane below
+    /// another is never "right of" it.
+    static func sideBySide(_ node: LayoutNode) -> [[PaneID]] {
+        if case .split(_, _, .right, _, let a, let b) = node { return sideBySide(a) + sideBySide(b) }
+        return [node.paneIDs]
     }
 
     static func pane(from model: PaneModel, selectedTab: (PaneModel) -> String?,
