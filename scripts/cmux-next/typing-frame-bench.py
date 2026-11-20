@@ -45,6 +45,7 @@ frames). Exit 1 with --gate-p95-ms when any measured surface's p95 is over it.
   typing-frame-bench.py --app APP --tag TAG --out DIR [--json FILE] [--surfaces terminal,home,dock,omnibar,agentpane]
       [--phases idle,load | --modes L0,L1,L2,L4,L5|all] [--samples 80] [--busy 20] [--chats 2] [--cpu-burners N]
       [--sample] [--chat-agent mock|real] [--gate-p95-ms 8] [--backdrops opaque,opacity85,picture]
+      [--ab browserPage.drawKeysAtOnce]
 
 Fleet (an owned mini with a console; the step builds the app):
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh --ref SHA \\
@@ -139,6 +140,7 @@ parser.add_argument("--gate-p95-ms", type=float)
 parser.add_argument("--chat-agent", choices=("mock", "real"), default="mock",
                     help="mock: in-page debug stream; real: ACP fake agent through AgentPaneTransport")
 parser.add_argument("--stream", default="6 10 24", help="real agent stream: SECONDS CHUNK_MS CHARS")
+parser.add_argument("--ab", help="a tunable key (debug.tunables) to measure off against on: every round runs its surfaces twice, once with the key false and once true, the order alternating per round so drift does not land on one arm. Each run row carries `ab`, and an agent chat row carries the frames the engine drew for its keys (`draw_on_input`), so an arm that reads on but changes nothing is visible as an inert toggle instead of a win")
 parser.add_argument("--backdrops", default="default",
                     help="comma list of window backdrops, one launch each: default (the bench's config), opaque "
                          "(Opacity 1), opacity85 (Opacity 0.85, no picture), picture (van-gogh-starry-night at Opacity "
@@ -163,6 +165,8 @@ results = {"tag": TAG, "host": os.uname().nodename, "opts": vars(opts), "log": [
 app = None
 SESSION = "light"
 ROUND = 0
+# The --ab arm being measured (None without --ab): False (the key off) or True (on).
+ARM = None
 # The mode being measured, when --modes is given: its id, its `native` knobs and what it cannot express here.
 MODE = None
 
@@ -170,6 +174,33 @@ MODE = None
 # What make_load builds: --busy/--chats by default, a mode's `native` knobs with --modes.
 LOADSPEC = {"busy": opts.busy, "chats": opts.chats, "cpu": False}
 BURNERS = []
+
+
+def set_arm(arm):
+    """Sets --ab's key for one arm. Returns why it could not, else None. The store is off in a bench build until
+    asked (debug-settings.md), and `browserPage.drawKeysAtOnce` is read per key, so this reaches the open chats."""
+    rpc("debug.tunables", {"action": "activate"})
+    row = rpc("debug.tunables", {"action": "set", "key": opts.ab, "value": arm}, timeout=10) or {}
+    if row.get("value") is not arm:
+        return f"debug.tunables set {opts.ab}={arm} answered {json.dumps(row)[:200]}"
+    time.sleep(0.5)  # the arm starts at rest: the switch reaches the open pages before the first key
+    return None
+
+
+def reset_arm():
+    """--ab's key back to the build's default, so a later launch or surface measures the build as it is."""
+    if opts.ab:
+        rpc("debug.tunables", {"action": "set", "key": opts.ab, "value": None}, timeout=10)
+
+
+def draw_on_input_frames():
+    """`debug.cef.draw_on_input`: frames the engine drew for keys, per browser. Absent (None here) when the engine has
+    no such counter, which is not the same as zero frames: an engine below fork API 35 takes no draw-on-input call at
+    all, so an arm that reads on measures the off path (cmux#45709 shipped against a pin at API 33)."""
+    report = rpc("debug.cef", timeout=20)
+    if not isinstance(report, dict) or "draw_on_input" not in report:
+        return None
+    return {str(k): v for k, v in (report.get("draw_on_input") or {}).items()}
 
 
 def start_burners():
@@ -547,6 +578,7 @@ def measure_agentpane(phase, pid, pane, streams=()):
     target = {"pane": pane}
     if LOAD.get("agentpane_engine") == "cef":
         target["target"] = "page"
+    frames_before = draw_on_input_frames()
     stats_before = rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=10) or {}
     before_keys = stats_before.get("keys", 0) if isinstance(stats_before, dict) else 0
     clear_select = rpc("debug.key", dict(target, key="a", modifiers=["command"]), timeout=10)
@@ -595,12 +627,19 @@ def measure_agentpane(phase, pid, pane, streams=()):
             main_profile = digest_sample(open(sampler[1], errors="replace").read())
         except OSError:
             main_profile = {"error": "sample output unavailable", "file": os.path.basename(sampler[1])}
+    frames_after = draw_on_input_frames()
     verdict = agent_typing_verdict(typing, expected, dispatch)
     frame_report = frame_metrics(frames)
     entry.update({"keys": len(expected), "measured": verdict["observed_keys"], "expected_text": expected,
                   "clear": {"select": clear_select, "delete": clear_delete, "delete_key": "delete",
                             "verified": bool(cleared), "reset": reset},
                   "typing": typing, "dispatch": dispatch, "key_rpc_ms": pct(trips), **verdict,
+                  # `counter: false`: this engine has no draw-on-input counter, so the mode cannot be live here
+                  # whatever a setting reads, and `drew: 0` with a counter means the mode was off or opted this page out.
+                  "draw_on_input": {"counter": frames_after is not None,
+                                    "before": frames_before, "after": frames_after,
+                                    "drew": None if frames_after is None else
+                                            sum(max(0, v - (frames_before or {}).get(k, 0)) for k, v in frames_after.items())},
                   "driver_p95_late_ms": pct([item["late_ms"] for item in dispatch]).get("p95"),
                   "driver_p99_rpc_ms": pct(trips).get("p99"),
                   "frames": frames, "frame_metrics": frame_report, "frames_over_16ms": frame_report.get("frames_over_16ms"),
@@ -1045,18 +1084,35 @@ def run_session(session, phases=None, backdrop="default"):
             LOAD["terminal_ws"] = build_stress()
             time.sleep(5)  # the grid settles
         surfaces = opts.surfaces.split(",")
-        global ROUND
+        global ROUND, ARM
         # Every idle round before the first load round: the load (busy terminals, chats) runs until the app quits,
         # so an idle round after a load round would measure under load.
         for phase in (phases or opts.phases.split(",")):
             for ROUND in range(opts.rounds):
-                for surface in surfaces:
-                    if surface == "dock" and phase != "idle" and not opts.dock_load:
-                        continue
-                    try:
-                        SURFACES[surface](phase, app.pid)
-                    except Exception as error:  # one surface failing must not hide the others
-                        note(f"{session} {surface}.{phase}: failed: {error!r}")
+                # With --ab, both arms in the same round, the order alternating: a drift over the launch (thermals, a
+                # warming cache) then falls on both arms, not on whichever one ran second.
+                arms = [None] if not opts.ab else ([False, True] if ROUND % 2 == 0 else [True, False])
+                for ARM in arms:
+                    if ARM is not None:
+                        problem = set_arm(ARM)
+                        if problem:
+                            note(f"{session} round {ROUND} arm {opts.ab}={ARM}: {problem}")
+                            results.setdefault("ab_problems", []).append(
+                                {"session": session, "phase": phase, "round": ROUND, "arm": ARM, "problem": problem})
+                            continue
+                    for surface in surfaces:
+                        if surface == "dock" and phase != "idle" and not opts.dock_load:
+                            continue
+                        first = len(results["runs"])
+                        try:
+                            SURFACES[surface](phase, app.pid)
+                        except Exception as error:  # one surface failing must not hide the others
+                            note(f"{session} {surface}.{phase}: failed: {error!r}")
+                        if opts.ab:
+                            for row in results["runs"][first:]:
+                                row["ab"] = {"key": opts.ab, "arm": ARM, "round": ROUND}
+                ARM = None
+        reset_arm()
     finally:
         bench.stop()
         stop_burners()
