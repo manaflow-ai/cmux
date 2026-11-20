@@ -1,7 +1,7 @@
 use serde_json::json;
 
 use super::super::{AppCommand, parse};
-use super::human;
+use super::{human, timing, with_timing};
 
 fn english() -> &'static crate::localization::Catalog {
     crate::localization::catalog_for_locale("en_US.UTF-8")
@@ -331,4 +331,72 @@ fn app_chat_drive_unmeasured_summary_still_tells_the_typing() {
     cut["page"]["type_stopped"] = json!(null);
     let text = human(&cut, &english().app_control);
     assert!(text.contains("Typed 6 characters; they stay in the draft\n"), "{text}");
+}
+
+/// Five ticks of 16 ms: the app's per-tick record (what each WebKit wait took and whether WebKit
+/// answered or its bound ran out, the pause after the tick, the tick's own time before that pause).
+fn timed_wheel() -> serde_json::Value {
+    let tick = |took: f64, presentation: Option<(f64, &str)>, pending: (f64, &str), pause: f64| {
+        json!({
+            "took_ms": took,
+            "presentation_ms": presentation.map(|(ms, _)| ms),
+            "presentation": presentation.map(|(_, how)| how),
+            "pending_ms": pending.0,
+            "pending": pending.1,
+            "pause_ms": pause,
+        })
+    };
+    json!({
+        "ticks": 5, "delta": 100, "tick_ms": 16, "sent": 5,
+        "per_tick": [
+            tick(9.0, Some((4.0, "answered")), (3.0, "answered"), 7.0),
+            tick(12.0, Some((8.0, "answered")), (2.0, "answered"), 4.0),
+            tick(30.0, Some((25.0, "answered")), (3.0, "answered"), 0.0),
+            tick(510.0, Some((500.0, "bound")), (6.0, "answered"), 0.0),
+            // No time left before this tick's presentation wait: it was skipped, and counts in no wait.
+            tick(1.0, None, (0.5, "unknown"), 0.0),
+        ],
+    })
+}
+
+/// p50, p95 and max of each wait by nearest rank over the ticks that waited, how often a wait ran
+/// to its bound, and the ticks whose own time passed `tick_ms` (the cadence slipped by that much).
+#[test]
+fn app_chat_drive_wheel_timing_summarizes_each_ticks_waits() {
+    assert_eq!(
+        timing(&timed_wheel()),
+        Some(json!({
+            "ticks": 5,
+            "tick_ms": 16,
+            "took_ms": {"p50": 12.0, "p95": 510.0, "max": 510.0},
+            "presentation_ms": {"p50": 8.0, "p95": 500.0, "max": 500.0},
+            "pending_ms": {"p50": 3.0, "p95": 6.0, "max": 6.0},
+            "pause_ms": {"p50": 0.0, "p95": 7.0, "max": 7.0},
+            "bound": {"presentation": 1, "pending": 0},
+            "overran": 2,
+        }))
+    );
+    // An app from before the per-tick record, or a run that sent no tick, has nothing to sum.
+    assert_eq!(timing(&json!({"ticks": 3, "delta": 100, "tick_ms": 16, "sent": 3})), None);
+    assert_eq!(timing(&json!({"ticks": 3, "tick_ms": 16, "per_tick": []})), None);
+}
+
+/// `--json` carries the summary beside the per-tick record; the summary line says the same.
+#[test]
+fn app_chat_drive_reports_the_wheel_timing() {
+    let mut timed = report();
+    timed["wheel"] = timed_wheel();
+    let json = with_timing(timed.clone());
+    assert_eq!(json["wheel"]["timing"], timing(&timed_wheel()).unwrap());
+    assert_eq!(json["wheel"]["per_tick"], timed_wheel()["per_tick"]);
+    let text = human(&timed, &english().app_control);
+    assert!(
+        text.contains(
+            "Tick waits (p50/p95/max ms): presentation 8/500/500 (1 at its bound), mouse events 3/6/6 (0 at its bound), pause 0/7/7; 2 of 5 ticks took longer than 16 ms\n"
+        ),
+        "{text}"
+    );
+    // Nothing to sum, nothing added.
+    assert_eq!(with_timing(report()), report());
+    assert!(!human(&report(), &english().app_control).contains("Tick waits"));
 }
