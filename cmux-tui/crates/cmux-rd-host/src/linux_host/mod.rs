@@ -1964,4 +1964,37 @@ mod join_consent_tests {
         assert!(!LocalConsent::load(&d).unwrap().full);
         assert_eq!(grants, [false]);
     }
+
+    /// Review F1 of #45480, (A): the hub may raise the credential generation of the same
+    /// machine (recovery.rs). That is no choice made at this screen: view-only and a withdrawn
+    /// grant stay, and no portal grant is asked.
+    #[test]
+    fn a_new_credential_generation_for_the_same_machine_keeps_the_consent() {
+        let next = machine::Joined { credential_generation: 2, ..mark("m-a") };
+        let d = finished("generation-view-only", Some(LocalConsent { view: true, full: false }));
+        let mut grants = Vec::new();
+        let kept = join_consent(&d, Some(&next), &args(&[]), &mut |c| grants.push(c)).unwrap();
+        assert!(!kept.unwrap().full && !LocalConsent::load(&d).unwrap().full, "view-only stays");
+        assert!(grants.is_empty(), "no portal grant is asked: {grants:?}");
+        let d = finished("generation-withdrawn", None);
+        let kept = join_consent(&d, Some(&next), &args(&[]), &mut |c| grants.push(c)).unwrap();
+        assert!(kept.is_err() && LocalConsent::load(&d).is_err(), "a withdrawn grant stays");
+        assert!(grants.is_empty(), "no portal grant is asked: {grants:?}");
+    }
+
+    /// Review F1 of #45480, (B): a machine joined before consent-join.json existed has
+    /// joined.json for this machine and its consent.json, and no marker. Its first run after
+    /// the update keeps that consent, writes the marker, and asks for no grant.
+    #[test]
+    fn a_join_from_before_the_marker_keeps_its_consent() {
+        let d = dir("upgraded");
+        mark("m-a").save(&d).unwrap();
+        LocalConsent { view: true, full: false }.save(&d).unwrap();
+        let (kept, grants) = rerun(&d, "m-a", &[]);
+        assert!(!kept.unwrap().full && !LocalConsent::load(&d).unwrap().full, "view-only stays");
+        assert!(grants.is_empty(), "no portal grant is asked: {grants:?}");
+        assert!(d.join(CONSENT_JOIN_FILE).exists(), "the marker is written");
+        let (_, grants) = rerun(&d, "m-a", &[]);
+        assert!(grants.is_empty() && !LocalConsent::load(&d).unwrap().full, "and stays kept");
+    }
 }
