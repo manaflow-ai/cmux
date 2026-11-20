@@ -164,7 +164,9 @@ public nonisolated struct KeyBindingDefaults {
     /// Cmd-Shift-= (Cmd-+ on a US layout) is the markdown viewer's Zoom In too, as Cmd-= is: the
     /// key a person reads as "Command plus". The action needs `markdownFocused`, so a terminal or a
     /// browser page never loses the key to it.
-    public static let zoomAliases: [KeyBinding] = RustActionCatalog.shared.bindings["zoom_aliases"] ?? []
+    /// The diff viewer's Zoom In takes Cmd-Shift-= too (``DiffViewerZoomRows``); it is added here while the pinned
+    /// app FFI catalog does not carry its row yet.
+    public static let zoomAliases: [KeyBinding] = DiffViewerZoomRows.withAlias(RustActionCatalog.shared.bindings["zoom_aliases"] ?? [])
 
     /// Not in a web page, and not in the code editor, whose Cmd-[ / Cmd-] are outdent / indent.
     static let notWebPage = WhenClause.and([

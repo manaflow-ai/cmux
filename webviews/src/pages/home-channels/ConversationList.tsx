@@ -63,6 +63,9 @@ export interface ConversationListProps {
   actions: ListRowActions;
   /** The Chief records by id: a Chief's row names its engine when it is not the default. */
   chiefs?: ReadonlyMap<string, HomeChief>;
+  /** Why the last Cloud inbox read failed: the Cloud rows stay (the last good list) and this says
+   * so in the list's own note line while the page reads again. */
+  cloudError?: string;
 }
 
 export function ConversationList({
@@ -81,8 +84,9 @@ export function ConversationList({
   cloudEntry = "row",
   actions,
   chiefs,
+  cloudError,
 }: ConversationListProps) {
-  const { t } = strings;
+  const { t, format } = strings;
   const cloudRow = (look: CloudEntryLook) =>
     onNewCloudMachine &&
     cloudEntry === look && (
@@ -118,6 +122,7 @@ export function ConversationList({
   // The first mounted item of each kind sizes every one not yet mounted, so the rows a scroll brings
   // in measure as estimated: TanStack places all N items again whenever a measure differs.
   const sizes = useRef(new Map<SizeKind, number>());
+  // react-doctor-disable-next-line react-hooks-js/incompatible-library -- TanStack Virtual returns functions the React Compiler cannot memoize safely, so the list stays uncompiled on purpose; this list keeps its own range (the Pinned label, the selected row and the focused row stay mounted), keys items by conversation id and learns each row kind's height from its first measured item, where VirtualList keys by index, keeps one active row and takes one estimate, so ui/VirtualList does not fit.
   const virtualizer = useVirtualizer({
     count: list.items.length,
     getScrollElement: () => scroller.current,
@@ -281,6 +286,11 @@ export function ConversationList({
         <kbd>⌘K</kbd>
       </button>
       {cloudRow("row")}
+      {cloudError && (
+        <output className="lg-list-empty lg-cloud-error selectable" data-cloud-error="">
+          {format("cloud.unreachable", cloudError)}
+        </output>
+      )}
       {pinned.length + rest.length === 0 && <p className="lg-list-empty">{t("rail.empty")}</p>}
       <div ref={scroller} className="lg-list-rows" onFocus={onFocus}>
         <div className="lg-list-space" style={{ height: virtualizer.getTotalSize() }}>

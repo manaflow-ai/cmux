@@ -2,7 +2,7 @@
 // timeline, composer) on the other, with the thread sheet over the timeline. A view over the Home
 // owners (HomeChannelsStore); no business rules live here. View state only: the palette, the
 // create popover, the inline editor, the keyboard's current message and a short notice.
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
 import { useLasting } from "../../ui/lasting";
 import { AttachmentContext } from "./AttachmentViews";
@@ -18,6 +18,7 @@ import { HomeIcon } from "./icons";
 import {
   activityAt,
   channelIds,
+  chiefNamer,
   chiefState,
   chronological,
   conversationName,
@@ -31,19 +32,18 @@ import {
   threadSummaries,
   threadOf,
   timelineRows,
-  withChiefNames,
-  type RenamedCache,
   withDraft,
 } from "./model";
-import { Palette, type PaletteItem } from "./Palette";
+import type { PaletteItem } from "./Palette";
+import { lazySheets, preloadSheets } from "./lazySheets";
+
+const { ChiefRoutePage, ChiefWorkPane, Palette, RouteSheets, RunSheet } = lazySheets;
 import { backToList, conversationHash, setHash, useHashPane, useNarrow, type Pane } from "./panes";
 import { RunsContext, type RunsContextValue } from "./RunCard";
 import { useRunEntry } from "./runs";
-import { ChiefRoutePage, RouteSheets } from "./RouteSheets";
 import { LiveTyping } from "./LiveTyping";
 import { chiefPresence } from "../../agent-session/acpmux/multiplayer/chiefAdapter";
 import { PresenceStack } from "../../agent-session/acpmux/multiplayer/Faces";
-import { RunSheet } from "./RunSheet";
 import type { HomeChannelsStore } from "./store";
 import { lastLiveReplies, threadObject, type ThreadObject } from "./threads";
 import { ThreadSheet } from "./ThreadSheet";
@@ -53,7 +53,6 @@ import { useHomeKeys } from "./useHomeKeys";
 import { useWebSwapHold } from "../shared/useWebSwapHold";
 import { PresentationToggle, usePresentation } from "./presentation";
 import { sliceWhole } from "../../ui/wholeChars";
-import { ChiefWorkPane } from "./ChiefWorkPane";
 
 const NOTICE_MS = 1600;
 
@@ -78,6 +77,9 @@ export function HomeChannelsPage({
   cloudEntry?: CloudEntryLook;
 }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  // The sheets and the palette are not in the startup JS (lazySheets.tsx): fetch them once the
+  // first frame is in, so the first open finds them loaded.
+  useEffect(preloadSheets, []);
   const presentation = usePresentation(snap.selected);
   // WEB-SWAP: a web update's reload waits while a message lives only in this page: one on its way
   // to the owner, or a failed one with Retry (pages/shared/webSwap.ts).
@@ -132,12 +134,12 @@ export function HomeChannelsPage({
   const me = snap.me?.id;
   const channels = useMemo(() => channelIds(snap.conversations.values(), me), [snap.conversations, me]);
   // The renamed conversations of the last pass, kept while their input and name hold (model.ts).
-  const renamed = useRef<RenamedCache>(new Map());
+  const [renameChiefs] = useState(chiefNamer);
   // A Chief's direct message shows the Chief's current name (its record), not the name its
   // conversation was made with ("Chief" for every brain's own DM).
   const conversations = useMemo(
-    () => withChiefNames(snap.conversations, channels, me, sheetState.chiefs, renamed.current),
-    [snap.conversations, channels, me, sheetState.chiefs],
+    () => renameChiefs(snap.conversations, channels, me, sheetState.chiefs),
+    [renameChiefs, snap.conversations, channels, me, sheetState.chiefs],
   );
   const open = snap.selected ? conversations.get(snap.selected) : undefined;
   const pendingByKey = useMemo(() => new Map(snap.pending.map((entry) => [entry.key, entry])), [snap.pending]);
@@ -578,13 +580,16 @@ export function HomeChannelsPage({
                 cloudEntry={cloudEntry}
                 actions={rowActions}
                 chiefs={sheetState.chiefs}
+                cloudError={snap.cloudError}
               />
               <section
                 className={`lg-main${snap.thread && !chiefPage ? " with-sheet" : ""}`}
                 aria-label={chiefPage ? undefined : place || t("page.title")}
               >
                 {chiefPage ? (
-                  <ChiefRoutePage sheets={store.sheets} state={sheetState} strings={strings} />
+                  <Suspense fallback={null}>
+                    <ChiefRoutePage sheets={store.sheets} state={sheetState} strings={strings} />
+                  </Suspense>
                 ) : snap.loading ? null : empty || !open ? (
                   <EmptyState
                     strings={strings}
@@ -795,46 +800,56 @@ export function HomeChannelsPage({
                           />
                         )}
                         {runSheet && runSheet.run.conversation === snap.selected && (
-                          <RunSheet
-                            key={`${runSheet.run.author}:${runSheet.run.id}`}
-                            entry={runSheet}
-                            people={people}
-                            strings={strings}
-                            place={place}
-                            asked={askedLine(runSheet.run.answers[0], threadSource)}
-                            onClose={() => setOpenRun(undefined)}
-                            onLoad={runs.onLoad}
-                          />
+                          <Suspense fallback={null}>
+                            <RunSheet
+                              key={`${runSheet.run.author}:${runSheet.run.id}`}
+                              entry={runSheet}
+                              people={people}
+                              strings={strings}
+                              place={place}
+                              asked={askedLine(runSheet.run.answers[0], threadSource)}
+                              onClose={() => setOpenRun(undefined)}
+                              onLoad={runs.onLoad}
+                            />
+                          </Suspense>
                         )}
                         {workOpen && caps.chiefWork && openChief && open.owner === "local" && (
-                          <ChiefWorkPane
-                            key={openChief.id}
-                            book={store.chiefWork}
-                            chief={openChief.id}
-                            online={online}
-                            strings={strings}
-                            onClose={() => setWorkConversation(undefined)}
-                          />
+                          <Suspense fallback={null}>
+                            <ChiefWorkPane
+                              key={openChief.id}
+                              book={store.chiefWork}
+                              chief={openChief.id}
+                              online={online}
+                              strings={strings}
+                              onClose={() => setWorkConversation(undefined)}
+                            />
+                          </Suspense>
                         )}
                       </div>
                     </RunsContext.Provider>
                   </>
                 )}
               </section>
-              <RouteSheets
-                sheets={store.sheets}
-                state={sheetState}
-                strings={strings}
-                conversations={conversations}
-                me={me}
-              />
+              {sheetState.route && sheetState.ready && !chiefPage && (
+                <Suspense fallback={null}>
+                  <RouteSheets
+                    sheets={store.sheets}
+                    state={sheetState}
+                    strings={strings}
+                    conversations={conversations}
+                    me={me}
+                  />
+                </Suspense>
+              )}
               {palette && (
-                <Palette
-                  items={paletteItems}
-                  rank={store.rankPalette}
-                  strings={strings}
-                  onClose={() => setPalette(false)}
-                />
+                <Suspense fallback={null}>
+                  <Palette
+                    items={paletteItems}
+                    rank={store.rankPalette}
+                    strings={strings}
+                    onClose={() => setPalette(false)}
+                  />
+                </Suspense>
               )}
             </div>
           </div>

@@ -93,6 +93,18 @@ export function withChiefNames(
 /** withChiefNames' renamed conversations by id: the input it renamed, the name, and the result. */
 export type RenamedCache = Map<string, { input: HomeConversation; name: string; output: HomeConversation }>;
 
+/** withChiefNames over its own RenamedCache: each call keeps the renamed conversations of the last
+ * one while their input and name hold. One per page, so the cache lives with it and not in a ref. */
+export function chiefNamer(): (
+  conversations: ReadonlyMap<string, HomeConversation>,
+  channels: ReadonlySet<string>,
+  me: string | undefined,
+  chiefs: ReadonlyMap<string, { name: string }>,
+) => ReadonlyMap<string, HomeConversation> {
+  const cache: RenamedCache = new Map();
+  return (conversations, channels, me, chiefs) => withChiefNames(conversations, channels, me, chiefs, cache);
+}
+
 /**
  * A reply's conversations, each one that did not change kept as the object the page already holds:
  * the inbox re-sends the whole list, and a memoized row draws again only for the one that changed.

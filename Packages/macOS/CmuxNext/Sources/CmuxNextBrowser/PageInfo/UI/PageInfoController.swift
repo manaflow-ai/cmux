@@ -114,6 +114,7 @@ public final class PageInfoController {
             model.needsReload = false
             // A site read before opens on its last counts, not on Loading; this opening's read replaces them.
             model.siteData = siteDataMemory.last(for: site)
+            model.siteDataDeleteFailure = nil
             model.certificates = nil
             startObserving()
             loadAsyncData()
