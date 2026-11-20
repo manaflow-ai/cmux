@@ -121,7 +121,7 @@ usage: cmux chat [--on TARGET] [--environment ENV] [--harness HARNESS] [--model 
                  [--effort EFFORT] [--mode MODE]
                  [--cwd DIR | --from-folder DIR | --no-folder] [--repo URL] [--name NAME]
                  [--attach FILE]... [-w] [--timeout DURATION] [--json] [[--prompt] TEXT]
-       cmux chat new --machine TARGET --harness claude|codex [--model MODEL] [--fast] [--prompt-file FILE]
+       cmux chat new --machine TARGET --harness HARNESS [--model MODEL] [--fast] [--prompt-file FILE]
 
 Starts an agent chat, right here unless --on names another target:
 

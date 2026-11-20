@@ -22,12 +22,9 @@ impl AgentLink {
         host: Option<&str>,
         name: &str,
     ) -> Option<String> {
-        let harness =
-            record["family"].as_str().or(record["harness"].as_str()).or(record["agent"].as_str())?;
-        let harness = ["claude", "codex"]
-            .into_iter()
-            .find(|family| harness.starts_with(family))
-            .unwrap_or(harness);
+        // The resolver matches the complete family; a configured family can itself begin
+        // with `codex-` or `claude-`. Old peers put the same lookup key in `harness`.
+        let harness = Self::record_family(record)?;
         Self {
             harness: harness.to_owned(),
             session: record["agentSessionId"].as_str()?.to_owned(),
@@ -36,6 +33,10 @@ impl AgentLink {
             ..Default::default()
         }
         .web_url()
+    }
+
+    pub(crate) fn record_family(record: &serde_json::Value) -> Option<&str> {
+        record["family"].as_str().or(record["harness"].as_str()).or(record["agent"].as_str())
     }
 
     /// The web link, its query in the schema's `queryParams` order; None when the harness or

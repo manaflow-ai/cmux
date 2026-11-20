@@ -444,7 +444,7 @@ fn bare_name(summary: &Value) -> &str {
 /// The harness family a summary's link names: its family, else (an older peer's summary) its
 /// harness. `link_of` writes the same.
 fn family_of(summary: &Value) -> &str {
-    summary["family"].as_str().or(summary["harness"].as_str()).unwrap_or_default()
+    AgentLink::record_family(summary).unwrap_or_default()
 }
 
 /// The harness names an opaque id for a session of `family` may be minted under: the family
@@ -768,6 +768,19 @@ mod tests {
         ];
         let claude = link("https://cmux.com/deeplink/agent?harness=claude&session=a7");
         assert_eq!(ids(&by_link(&old, &claude, "big-red")), ["o2"]);
+    }
+
+    #[test]
+    fn each_start_link_finds_its_exact_harness_on_the_chosen_machine() {
+        for family in ["claude-team", "codex-team", "opencode", "gemini", "cursor", "grok", "muse"]
+        {
+            let rows = [
+                json!({"family": family, "harness": "work", "sessionId": "target", "agentSessionId": "s1", "peer": "lane"}),
+                json!({"family": "codex", "sessionId": "other", "agentSessionId": "s1", "peer": "lane"}),
+            ];
+            let url = AgentLink::from_start_record(&rows[0], Some("lane"), "benchmark").unwrap();
+            assert_eq!(ids(&by_link(&rows, &link(&url), "mac")), ["target"]);
+        }
     }
 
     /// A peer's connection reads a card's session text masked, as it reads a summary's.

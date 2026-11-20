@@ -171,6 +171,7 @@ fn new_answers_with_the_sessions_link() {
         "sessionId": "mac-mini/s-1",
         "name": "flaky-test-fix",
         "peer": "mac-mini",
+        "family": "claude",
         "harness": "claude-opus",
         "agentSessionId": "0f1e2d3c-0000-4000-8000-000000000001",
     });
