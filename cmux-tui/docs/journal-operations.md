@@ -21,7 +21,9 @@ request (SQLite syncs the WAL before each one) and flushes the drive cache
 once at close, so no request and no lock holder waits for the disk;
 `write_path.wal_commits` and `wal_synced_commits` show how many commits are
 known on disk, and `registry_wal_frame_bytes` how many bytes their WAL frames
-took (two reads around one change give that change's bytes). A PASSIVE
+took (two reads around one change give that change's bytes);
+`commits_by_writer` splits both by the writer of each commit, one row for each
+writer of a fixed table. A PASSIVE
 checkpoint never shrinks the WAL file, so each connection sets
 `journal_size_limit` to 64 MiB: the WAL restarts from its first frame, and the
 file shrinks to that size, at the first commit after a PASSIVE checkpoint

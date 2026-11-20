@@ -66,6 +66,7 @@ impl Mux {
                         )?;
                     return Err(error);
                 }
+                let _writer = crate::diagnostics::CommitWriter::AgentHookRetry.scope();
                 self.workspace_registry
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())

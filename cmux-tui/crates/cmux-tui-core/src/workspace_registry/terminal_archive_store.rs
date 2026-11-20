@@ -203,7 +203,7 @@ impl WorkspaceRegistry {
         if archives.is_empty() {
             return Ok(Vec::new());
         }
-        let db = self.connection.get();
+        let db = self.connection.get_as(crate::diagnostics::CommitWriter::TerminalArchive);
         let tx = db.unchecked_transaction()?;
         for archive in archives {
             let screen = archive

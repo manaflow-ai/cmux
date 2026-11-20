@@ -11,6 +11,7 @@ import java.util.Objects;
 
 
 public final class ServerStatsWritePath implements WireValue {
+    private final Field<List<ServerStatsWritePathWriter>> commitsByWriter;
     private final UInt64 effectIntentBatches;
     private final UInt64 effectIntentFailures;
     private final UInt64 effectIntents;
@@ -23,6 +24,7 @@ public final class ServerStatsWritePath implements WireValue {
     private final UInt64 writerRegistryLocks;
 
     private ServerStatsWritePath(Builder builder) {
+        this.commitsByWriter = builder.commitsByWriter.map(value -> List.copyOf(value));
         if (!builder.effectIntentBatchesSet) throw new IllegalArgumentException("effect_intent_batches is required");
         this.effectIntentBatches = Wire.nonNull(builder.effectIntentBatches, "effect_intent_batches");
         if (!builder.effectIntentFailuresSet) throw new IllegalArgumentException("effect_intent_failures is required");
@@ -42,6 +44,7 @@ public final class ServerStatsWritePath implements WireValue {
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<List<ServerStatsWritePathWriter>> commitsByWriter() { return commitsByWriter; }
     public UInt64 effectIntentBatches() { return effectIntentBatches; }
     public UInt64 effectIntentFailures() { return effectIntentFailures; }
     public UInt64 effectIntents() { return effectIntents; }
@@ -56,6 +59,10 @@ public final class ServerStatsWritePath implements WireValue {
     public static ServerStatsWritePath fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "ServerStatsWritePath");
         Builder builder = builder();
+        Object rawCommitsByWriter = Wire.optional(object, "commits_by_writer");
+        if (!Wire.isMissing(rawCommitsByWriter)) {
+            builder.commitsByWriter(Wire.array(rawCommitsByWriter, "ServerStatsWritePath.commits_by_writer", item -> ServerStatsWritePathWriter.fromWire(item)));
+        }
         Object rawEffectIntentBatches = Wire.required(object, "effect_intent_batches");
         builder.effectIntentBatches(Wire.uint64(rawEffectIntentBatches, "ServerStatsWritePath.effect_intent_batches"));
         Object rawEffectIntentFailures = Wire.required(object, "effect_intent_failures");
@@ -92,6 +99,7 @@ public final class ServerStatsWritePath implements WireValue {
     @Override
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
+        Wire.put(object, "commits_by_writer", commitsByWriter);
         Wire.put(object, "effect_intent_batches", effectIntentBatches);
         Wire.put(object, "effect_intent_failures", effectIntentFailures);
         Wire.put(object, "effect_intents", effectIntents);
@@ -108,16 +116,17 @@ public final class ServerStatsWritePath implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ServerStatsWritePath that)) return false;
-        return Objects.equals(effectIntentBatches, that.effectIntentBatches) && Objects.equals(effectIntentFailures, that.effectIntentFailures) && Objects.equals(effectIntents, that.effectIntents) && Objects.equals(registryWalFileBytes, that.registryWalFileBytes) && Objects.equals(registryWalFileHighWaterBytes, that.registryWalFileHighWaterBytes) && Objects.equals(registryWalFrameBytes, that.registryWalFrameBytes) && Objects.equals(requestEffectCommits, that.requestEffectCommits) && Objects.equals(walCommits, that.walCommits) && Objects.equals(walSyncedCommits, that.walSyncedCommits) && Objects.equals(writerRegistryLocks, that.writerRegistryLocks);
+        return Objects.equals(commitsByWriter, that.commitsByWriter) && Objects.equals(effectIntentBatches, that.effectIntentBatches) && Objects.equals(effectIntentFailures, that.effectIntentFailures) && Objects.equals(effectIntents, that.effectIntents) && Objects.equals(registryWalFileBytes, that.registryWalFileBytes) && Objects.equals(registryWalFileHighWaterBytes, that.registryWalFileHighWaterBytes) && Objects.equals(registryWalFrameBytes, that.registryWalFrameBytes) && Objects.equals(requestEffectCommits, that.requestEffectCommits) && Objects.equals(walCommits, that.walCommits) && Objects.equals(walSyncedCommits, that.walSyncedCommits) && Objects.equals(writerRegistryLocks, that.writerRegistryLocks);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(effectIntentBatches, effectIntentFailures, effectIntents, registryWalFileBytes, registryWalFileHighWaterBytes, registryWalFrameBytes, requestEffectCommits, walCommits, walSyncedCommits, writerRegistryLocks); }
+    public int hashCode() { return Objects.hash(commitsByWriter, effectIntentBatches, effectIntentFailures, effectIntents, registryWalFileBytes, registryWalFileHighWaterBytes, registryWalFrameBytes, requestEffectCommits, walCommits, walSyncedCommits, writerRegistryLocks); }
 
     @Override
     public String toString() { return "ServerStatsWritePath" + toWire(); }
 
     public static final class Builder {
+        private Field<List<ServerStatsWritePathWriter>> commitsByWriter = Field.omitted();
         private UInt64 effectIntentBatches;
         private boolean effectIntentBatchesSet;
         private UInt64 effectIntentFailures;
@@ -134,6 +143,10 @@ public final class ServerStatsWritePath implements WireValue {
         private UInt64 writerRegistryLocks;
         private boolean writerRegistryLocksSet;
 
+        public Builder commitsByWriter(List<ServerStatsWritePathWriter> value) {
+            this.commitsByWriter = Field.of(value);
+            return this;
+        }
         public Builder effectIntentBatches(UInt64 value) {
             this.effectIntentBatches = value;
             this.effectIntentBatchesSet = true;

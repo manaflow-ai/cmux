@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226. */
+/* cmux-tui mux protocol 12, IR d7ab276ddf0a2af64cd20a2254dc632116b5bf601aaca0665661d2ad2b8d6522. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1342,6 +1342,7 @@ export type ServerStatsResult = {
 };
 
 export type ServerStatsWritePath = {
+  "commits_by_writer"?: Array<ServerStatsWritePathWriter>;
   "effect_intent_batches": bigint;
   "effect_intent_failures": bigint;
   "effect_intents": bigint;
@@ -1352,6 +1353,12 @@ export type ServerStatsWritePath = {
   "wal_commits"?: bigint;
   "wal_synced_commits"?: bigint;
   "writer_registry_locks": bigint;
+};
+
+export type ServerStatsWritePathWriter = {
+  "commits": bigint;
+  "wal_frames": bigint;
+  "writer": string;
 };
 
 export type ServerStatsWriterPhase = "idle" | "waiting_lock" | "committing";

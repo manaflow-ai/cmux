@@ -280,6 +280,8 @@ impl Mux {
         worker.stale.store(false, Ordering::Release);
         worker.rebuilding.store(false, Ordering::Release);
         // A failed save keeps the stale mark: the next start rebuilds again.
+        // The save is a commit of `agent_roster_save`; the name ends with it.
+        let save = crate::diagnostics::CommitWriter::AgentRosterSave.scope();
         if let Err(error) = self.registry_connection.finish_journal_reducer_rebuild(
             AGENT_ROSTER_REDUCER_ID,
             AGENT_ROSTER_REDUCER_VERSION,
@@ -288,6 +290,7 @@ impl Mux {
         ) {
             eprintln!("cmux-tui: persisting the rebuilt agent roster failed: {error}");
         }
+        drop(save);
         drop(slot);
         drop(fold);
         eprintln!("cmux-tui: the agent roster rebuild finished at sequence {cursor}");

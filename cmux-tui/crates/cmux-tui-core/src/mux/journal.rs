@@ -316,9 +316,11 @@ impl Mux {
 
     pub fn write_path_stats(&self) -> crate::diagnostics::WritePathSnapshot {
         let mut snapshot = self.registry_connection.write_path_stats().snapshot();
-        (snapshot.wal_commits, snapshot.wal_synced_commits) =
-            self.registry_connection.durability_counts();
-        snapshot.registry_wal_frame_bytes = self.registry_connection.wal_frame_bytes();
+        let (commits, synced, frame_bytes, by_writer) =
+            self.registry_connection.write_path_commits();
+        (snapshot.wal_commits, snapshot.wal_synced_commits) = (commits, synced);
+        snapshot.registry_wal_frame_bytes = frame_bytes;
+        snapshot.commits_by_writer = crate::diagnostics::writer_commit_rows(&by_writer);
         (snapshot.registry_wal_file_bytes, snapshot.registry_wal_file_high_water_bytes) =
             self.registry_connection.wal_file_bytes();
         snapshot
@@ -685,6 +687,7 @@ impl Mux {
         // No writer (a start, a stop, an in-memory registry), or its batch
         // failed or timed out: delete here. The delete is idempotent, so one
         // that also commits later in a batch is harmless.
+        let _writer = crate::diagnostics::CommitWriter::AgentHookRetry.scope();
         self.workspace_registry
             .lock()
             .unwrap_or_else(PoisonError::into_inner)

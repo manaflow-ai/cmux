@@ -138,6 +138,7 @@ impl WorkspaceRegistry {
                 .into_workspace()?
                 .commit);
         };
+        let _writer = crate::diagnostics::CommitWriter::RegistryIntent.scope();
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
         let receipt = intent.apply(&tx, Some(extra))?;

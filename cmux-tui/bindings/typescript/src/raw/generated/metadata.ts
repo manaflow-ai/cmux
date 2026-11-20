@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226. */
+/* cmux-tui mux protocol 12, IR d7ab276ddf0a2af64cd20a2254dc632116b5bf601aaca0665661d2ad2b8d6522. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226" as const;
+export const SDK_IR_SHA256 = "d7ab276ddf0a2af64cd20a2254dc632116b5bf601aaca0665661d2ad2b8d6522" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -12770,9 +12770,21 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "constraints": [
       "Counters accumulate since daemon start.",
       "writer_registry_locks counts process-wide and is zero unless the journal writer took the workspace registry lock, a lock-order defect.",
-      "wal_commits counts registry commits written to the WAL and wal_synced_commits those the WAL syncer flushed to disk; registry_wal_frame_bytes counts the bytes of the WAL frames those commits appended (a 24-byte header and one page each); registry_wal_file_bytes is the registry's WAL file size now and registry_wal_file_high_water_bytes the largest size seen since daemon start. Each is absent from daemons older than its field."
+      "wal_commits counts registry commits written to the WAL and wal_synced_commits those the WAL syncer flushed to disk; registry_wal_frame_bytes counts the bytes of the WAL frames those commits appended (a 24-byte header and one page each); registry_wal_file_bytes is the registry's WAL file size now and registry_wal_file_high_water_bytes the largest size seen since daemon start. Each is absent from daemons older than its field.",
+      "commits_by_writer splits wal_commits and the frames of registry_wal_frame_bytes by the writer of each commit: one row for each writer of a fixed table, in the table's order, also for a writer with no commit. The commits of its rows sum to wal_commits. It is absent from daemons older than the field."
     ],
     "fields": {
+      "commits_by_writer": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsWritePathWriter"
+          },
+          "kind": "array"
+        }
+      },
       "effect_intent_batches": {
         "nullable": false,
         "presence": "required",
@@ -12851,6 +12863,40 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsWritePathWriter": {
+    "additional_properties": false,
+    "constraints": [
+      "writer names who made the commits: other (no site named the commit), journal_writer (the journal writer thread), agent_report, agent_roster_save, agent_hook_retry, effect_receipt, notification, resource_patch, frontend_projection, registry_intent, terminal_relaunch, state_mutation, feed, journal_maintenance, frontend_document or terminal_archive. A later daemon can add a name.",
+      "commits counts the registry commits that wrote a WAL frame under this name, and wal_frames the frames that those commits appended; one frame is a 24-byte header and one page."
+    ],
+    "fields": {
+      "commits": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "wal_frames": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "writer": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },

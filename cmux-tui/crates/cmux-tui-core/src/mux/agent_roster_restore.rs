@@ -186,6 +186,24 @@ impl RosterTarget for &Mutex<AgentRosterHost> {
     }
 }
 
+/// Save the live roster's snapshot row at `version` on the connection alone.
+/// Each save is a commit of `agent_roster_save` (`server-stats`
+/// `write_path.commits_by_writer`).
+pub(super) fn save_roster_row(
+    connection: &crate::workspace_registry::RegistryConnection,
+    version: u32,
+    cursor: u64,
+    snapshot: &str,
+) -> anyhow::Result<()> {
+    let _writer = crate::diagnostics::CommitWriter::AgentRosterSave.scope();
+    connection.put_journal_reducer_state(
+        crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+        version,
+        cursor,
+        snapshot,
+    )
+}
+
 /// Restore the roster from its persisted snapshot and fold the journal tail
 /// committed after the cursor, for at most `STARTUP_BUDGET`; what the
 /// budget leaves is returned as `replay`. A snapshot that does not parse, or
@@ -401,6 +419,7 @@ impl AgentRosterReplay {
                 && cursor != self.saved_at
             {
                 let snapshot = target.with(|host| host.roster.snapshot().to_string());
+                let _writer = crate::diagnostics::CommitWriter::AgentRosterSave.scope();
                 if journal.save(RosterSave::At(self.save_as), cursor, &snapshot).is_ok() {
                     self.saved_at = cursor;
                 }
@@ -475,6 +494,7 @@ impl AgentRosterReplay {
             } else {
                 RosterSave::At(self.save_as)
             };
+            let _writer = crate::diagnostics::CommitWriter::AgentRosterSave.scope();
             if journal.save(how, cursor, &snapshot).is_err() {
                 eprintln!("cmux-tui: persisting the restored agent roster failed");
                 self.problems.push("its snapshot was not saved".to_owned());
