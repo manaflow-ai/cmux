@@ -244,7 +244,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 eprintln!("{hint}");
             }
             let setup_name = launch.name.as_deref().unwrap_or("new");
-            let mut client = before_deadline(deadline, setup_name, connect(true)).await?;
+            let mut client = before_deadline(
+                deadline,
+                setup_name,
+                notice.waiting("a connection to the local daemon", connect(true)),
+            )
+            .await?;
             // A machine a person works at places command-line sessions on a fleet host
             // (`cli/place.rs` `new_target`); the app's chats never come through here.
             let requested = args.host.as_deref();
@@ -402,8 +407,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                                 || refused_before_create(&error)) =>
                     {
                         reconnects += 1;
-                        client =
-                            before_deadline(deadline, setup_name, reconnect_after_update()).await?;
+                        client = before_deadline(
+                            deadline,
+                            setup_name,
+                            notice.waiting(
+                                "the daemon to reconnect after an update",
+                                reconnect_after_update(),
+                            ),
+                        )
+                        .await?;
                     }
                     found => break found?,
                 }
