@@ -31,16 +31,15 @@ export function MentionMenu({
   // The list draws out of the box (backdropLayer.tsx): the box is what it stands beside.
   const box = useComposerListBox();
   const escape = useEscapingList("top", 6, undefined, box);
-  // Chats can list before a word is typed; the files' state still says what the search is doing.
-  const note = !state
-    ? undefined
-    : state.kind === "idle"
-      ? t("files.hint")
-      : state.kind === "failed"
-        ? t("files.failed")
-        : items.length === 0
-          ? t(state.kind === "searching" ? "files.searching" : "files.none")
-          : undefined;
+  // The file search speaks only when the menu has no row to show: under a plugin or a chat, its state
+  // ("Couldn't search files" in a chat with no folder) is noise (Lucas 2026-11-21). A failed search then
+  // reads as no files, never as an error under rows that work.
+  const note =
+    !state || items.length > 0
+      ? undefined
+      : state.kind === "idle"
+        ? t("files.hint")
+        : t(state.kind === "searching" ? "files.searching" : "files.none");
   return (
     <>
       <Listbox

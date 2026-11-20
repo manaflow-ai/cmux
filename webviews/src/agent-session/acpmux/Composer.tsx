@@ -69,6 +69,7 @@ import {
   mentionInsert,
   mentionItems,
   mentionSelection,
+  mentionWantsFiles,
   recentMentionScope,
   rememberMentionPath,
   type MentionItem,
@@ -1396,7 +1397,9 @@ function ComposerFrame({
   useEffect(() => {
     if (mentioning) wantAllSessions();
   }, [mentioning]);
-  const mentionSearch = useMentionSearch(searchFiles, mentionWord);
+  // Only a specific word asks for files (mentionItems.ts mentionWantsFiles): `@b` lists the plugins and chats.
+  const fileWord = mentionWord !== undefined && mentionWantsFiles(mentionWord) ? mentionWord : undefined;
+  const mentionSearch = useMentionSearch(searchFiles, fileWord);
   const mentionFiles = mentionResults(mentionSearch);
   // Recent @ picks belong to this chat's folder on its machine, and only where its files are searched.
   const recentScope = searchFiles
@@ -1422,7 +1425,7 @@ function ComposerFrame({
   const mentionAt = searchFiles || mentions.length > 0 ? mentionTyped : undefined;
   // The word's files are still on their way: asked, or about to be once typing settles.
   const mentionPending =
-    !!searchFiles && !!mentionWord?.trim() && (mentionSearch.kind === "idle" || mentionSearch.kind === "searching");
+    !!searchFiles && !!fileWord?.trim() && (mentionSearch.kind === "idle" || mentionSearch.kind === "searching");
   const mentionSelected = mentionSelection(mentions, mentionActive, mentionPending);
   useEffect(() => setMentionActive(undefined), [mentionWord]);
   // `:` and two letters at a word start list emoji by shortcode; a text emoticon (`:)`, `:DD`,
