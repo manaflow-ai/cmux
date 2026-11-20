@@ -35,7 +35,7 @@ webviews/src/agent-session/acpmux/composerLocation.css: :root[data-top-strip="tr
 webviews/src/agent-session/acpmux/composerLook.css: :where(:root:not([data-top-strip="plain"])) .acpmux-composer[data-composer-look="codex"] > .acpmux-c { border-radius: 14px 14px 0 0 }
 webviews/src/agent-session/acpmux/computerUse/computerUsePreview.css: .acpmux-cu-preview__close { border-radius: 50% }
 webviews/src/agent-session/acpmux/context/context.css: .acpmux-context-screen-close { border-radius: 6px }
-webviews/src/agent-session/acpmux/contextCard.css: .acpmux-context-card.ui-card { border-radius: var(--ui-popup-radius, 10px) }
+webviews/src/agent-session/acpmux/contextCard.css: .acpmux-context-card.ui-card { border-radius: var(--ui-popup-radius, 18px) }
 webviews/src/agent-session/acpmux/conversation/AgentMessageRow.css: .cv-agentmsg[data-look="card"] .cv-agentmsg__card, .cv-agentmsg[data-look="corner"] .cv-agentmsg__ca { border-radius: 8px }
 webviews/src/agent-session/acpmux/conversation/AgentMessageRow.css: :root[data-message-surfaces="bordered"] .cv-agentmsg__card { border-radius: 10px }
 webviews/src/agent-session/acpmux/conversation/AgentMessageRow.css: :root[data-message-surfaces="soft"] .cv-agentmsg__card { border-radius: 8px }
@@ -47,7 +47,7 @@ webviews/src/agent-session/acpmux/conversation/conversation.css: .cv-tool-error-
 webviews/src/agent-session/acpmux/harnessStatus.css: .acpmux-harness-status__close { border-radius: 6px }
 webviews/src/agent-session/acpmux/harnesses/harnesses.css: .acpmux-harnesses-close { border-radius: 6px }
 webviews/src/agent-session/acpmux/newtab/screen.css: .nt-card { border-radius: 16px }
-webviews/src/agent-session/acpmux/newtab/screen.css: .nt-cards[data-variant="list"] .nt-card { border-radius: var(--ds-radius-popup) }
+webviews/src/agent-session/acpmux/newtab/screen.css: .nt-cards[data-variant="list"] .nt-card { border-radius: var(--ds-radius-lg) }
 webviews/src/agent-session/acpmux/newtab/screen.css: .nt-hovercard { border-radius: var(--ds-radius-popup) }
 webviews/src/agent-session/acpmux/newtab/screen.css: .nt-row-action kbd { border-radius: 4px }
 webviews/src/agent-session/acpmux/newtab/screen.css: .nt-screen[data-template="cards"] .nt-card { border-radius: 14px }
@@ -98,7 +98,7 @@ webviews/src/pages/feed/styles.css: .feed-needs .feed-card { border-radius: var(
 webviews/src/pages/github/styles.css: .gh-md kbd { border-radius: 4px }
 webviews/src/pages/history/styles.css: .history-sheet { border-radius: 12px }
 webviews/src/pages/home-channels/chiefWork.css: .hc-chief-work__refresh, .hc-chief-work__close { border-radius: 6px }
-webviews/src/pages/home-channels/ledger.css: .lg-goal-strip { border-radius: var(--ds-radius-popup) }
+webviews/src/pages/home-channels/ledger.css: .lg-goal-strip { border-radius: var(--ds-radius-lg) }
 webviews/src/pages/home-channels/ledger.css: .lg-kbd { border-radius: 4px }
 webviews/src/pages/home-channels/ledger.css: .lg-palette.ui-dialog, .lg-palette { border-radius: 12px }
 webviews/src/pages/home-messages/list/list.css: .hm-draft-close { border-radius: 50% }

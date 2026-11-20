@@ -303,7 +303,7 @@
   flex-direction: column;
   gap: 1px;
   padding: 2px;
-  border-radius: var(--ds-radius-popup);
+  border-radius: var(--ds-radius-lg);
   background: var(--ds-surface-card);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border);
   counter-reset: acpmux-needs-you-option;
@@ -432,7 +432,7 @@
   width: auto;
   height: var(--ds-control-primary);
   padding: 0 var(--ds-space-3);
-  border-radius: var(--ds-radius-popup);
+  border-radius: var(--ds-radius-lg);
   color: var(--acpmux-needs-you-mark);
   font-family: var(--font-ui);
   font-size: var(--text-control);

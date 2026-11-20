@@ -228,7 +228,7 @@
 .acpmux-cloud-ask__code-row { display: flex; align-items: center; gap: 8px; }
 .acpmux-cloud-ask__code { font-family: var(--font-mono, ui-monospace); font-size: var(--text-body); letter-spacing: .08em; }
 /* `sheet`: a popover-level glass panel (glass.css `.ui-card.ui-glass`) inside the card. */
-.acpmux-cloud-ask[data-look="sheet"] { padding: 12px 16px; border-radius: var(--ds-radius-popup); }
+.acpmux-cloud-ask[data-look="sheet"] { padding: 12px 16px; border-radius: var(--ds-radius-lg); }
 /* `banner`: the title and the buttons on one line, the body under it. */
 .acpmux-cloud-ask__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .acpmux-cloud-ask[data-look="banner"] .acpmux-cloud-ask__actions { margin-top: 0; }

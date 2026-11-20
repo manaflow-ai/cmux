@@ -46,17 +46,17 @@ const buildStyles: Record<Exclude<BuildStyle, "split">, string> = {
     .acpmux-permission-ask .acpmux-plan-build-split { display: contents; }
     .acpmux-permission-ask .acpmux-permission-buttons .acpmux-plan-build-split button.acpmux-plan-build-chevron {
       order: -1; width: auto; gap: 4px; padding: 4px 10px 4px 12px; margin-inline-end: auto;
-      border-radius: var(--ds-radius-popup); background: none; color: var(--agent-muted);
+      border-radius: var(--ds-radius-lg); background: none; color: var(--agent-muted);
     }
     .acpmux-permission-ask .acpmux-plan-build-chevron::before { content: "Build elsewhere"; }
-    .acpmux-permission-ask .acpmux-plan-build-split > button.acpmux-permission-primary:first-child { border-radius: var(--ds-radius-popup); }
+    .acpmux-permission-ask .acpmux-plan-build-split > button.acpmux-permission-primary:first-child { border-radius: var(--ds-radius-lg); }
     .acpmux-permission-ask .acpmux-permission-allows > button { order: 1; }
   `,
   detached: `
     .acpmux-permission-ask .acpmux-plan-build-split { gap: 8px; background: none; flex-direction: row-reverse; }
-    .acpmux-permission-ask .acpmux-plan-build-split > button.acpmux-permission-primary:first-child { border-radius: var(--ds-radius-popup); }
+    .acpmux-permission-ask .acpmux-plan-build-split > button.acpmux-permission-primary:first-child { border-radius: var(--ds-radius-lg); }
     .acpmux-permission-ask .acpmux-permission-buttons .acpmux-plan-build-split button.acpmux-plan-build-chevron {
-      border-radius: var(--ds-radius-popup); background: color-mix(in srgb, var(--agent-text) 10%, transparent); color: var(--agent-text);
+      border-radius: var(--ds-radius-lg); background: color-mix(in srgb, var(--agent-text) 10%, transparent); color: var(--agent-text);
     }
   `,
 };

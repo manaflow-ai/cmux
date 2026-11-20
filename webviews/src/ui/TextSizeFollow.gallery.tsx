@@ -68,7 +68,7 @@ function Surface({
         maxWidth: look === "ships" ? "calc(100% - 16px)" : undefined,
         overflow: look === "ships" ? "hidden" : undefined,
         padding: frame(8, look, "inner"),
-        borderRadius: "var(--ui-popup-radius, 8px)",
+        borderRadius: "var(--ui-popup-radius, 18px)",
         background: "var(--tsf-surface)",
         boxShadow:
           "0 0 0 0.5px var(--tsf-edge), var(--elevation-2, 0 2px 6px color-mix(in srgb, black 11%, transparent))",

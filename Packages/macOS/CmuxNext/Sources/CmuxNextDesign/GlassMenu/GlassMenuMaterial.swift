@@ -20,8 +20,9 @@ public nonisolated struct GlassMenuMaterial {
     /// The theme surface laid on the glass, percent (design-scale.json glass `menu` `veil`).
     public static let veilPercent: Double = TransientMaterial.standard.hostVeil * 100
     /// The one popup radius when the person set no corner radius of their own (design-scale.json
-    /// namedRadii `popup`; the native default outer radius, `MetricTunables.densityPaneCornerRadius`).
-    public static let defaultCornerRadius: CGFloat = 8
+    /// namedRadii `popup`, `DesignTokens.radiusPopup`; the pane radius, `MetricTunables.densityPaneCornerRadius`,
+    /// stays 8: a popup is its own surface, not nested in a pane).
+    public static let defaultCornerRadius: CGFloat = 18
     /// A menu row (design-scale.json controls `row`, `DesignTokens.controlRow`).
     @MainActor public static let rowHeight: CGFloat = DesignTokens.controlRow
     /// The glass level every menu and popover is.
@@ -30,8 +31,8 @@ public nonisolated struct GlassMenuMaterial {
     /// The veil's share of the theme surface, 0...1.
     public static var veil: CGFloat { CGFloat(veilPercent / 100) }
 
-    /// The radius in effect: the one surface radius, concentric with the panes (Lawrence
-    /// 2026-11-04), which is ``defaultCornerRadius`` unless the person changed it.
+    /// The radius in effect: ``defaultCornerRadius``, or the Debug variant (``PopupCornerLook``), or the
+    /// corner radius the person set (`PopupStyle.cornerRadius(for:)`).
     @MainActor public static var cornerRadius: CGFloat { PopupStyle.standard.cornerRadius }
 }
 

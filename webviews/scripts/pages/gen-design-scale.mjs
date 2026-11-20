@@ -145,6 +145,8 @@ function cssBlock(data) {
     const note = radius.for ? ` /* ${radius.for} */` : "";
     out.push(`  --ds-radius-${radius.name}: ${radius.var ?? px(radius.px)};${note}`);
   }
+  // A dialog's padding (the host's Debug variant, else the scale's): its corner is the button corner plus it.
+  out.push(`  --ds-dialog-padding: var(--cmux-dialog-padding, ${px(data.dialog.padding)}); /* ${data.dialog.for} */`);
   for (const level of data.glass) {
     const { tint, blur, radius, artTint, veil } = glassVars(level);
     out.push(`  /* glass ${level.name} (${level.kind}): ${level.for} */`, `  ${tint[0]}: ${tint[1]};`);

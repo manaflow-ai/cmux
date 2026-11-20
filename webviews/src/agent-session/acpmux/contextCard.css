@@ -15,7 +15,7 @@
   box-sizing: border-box;
   padding: 0;
   border-width: 0;
-  border-radius: var(--ui-popup-radius, 10px);
+  border-radius: var(--ui-popup-radius, 18px);
   color: var(--agent-text);
   font-family: var(--font-ui);
   font-size: var(--text-body);
@@ -175,8 +175,8 @@
   padding: 0 var(--ds-space-2);
   border: 0;
   border-radius: 0;
-  border-end-start-radius: var(--ui-popup-radius, 10px);
-  border-end-end-radius: var(--ui-popup-radius, 10px);
+  border-end-start-radius: var(--ui-popup-radius, 18px);
+  border-end-end-radius: var(--ui-popup-radius, 18px);
   background: none;
   /* The hairline over the row is a shadow, not a border, so it takes no height and the label and
      the chevron centre on the row itself. */

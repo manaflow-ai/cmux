@@ -64,7 +64,7 @@ input {
   max-width: 280px;
   padding: var(--cmux-menu-highlight-inset);
   border: 0;
-  border-radius: var(--ui-popup-radius, 8px);
+  border-radius: var(--ui-popup-radius, 18px);
   outline: none;
 }
 

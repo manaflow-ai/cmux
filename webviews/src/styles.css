@@ -1233,7 +1233,7 @@ body[data-status-only="true"] #loading-layer {
   max-width: calc(100% - 24px);
   padding: 8px 12px;
   border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
-  border-radius: var(--ui-popup-radius, var(--ds-radius-lg));
+  border-radius: var(--ds-radius-lg);
   background: var(--cmux-diff-bg);
   font-family: var(--cmux-diff-ui-font-family);
   font-size: var(--text-body);

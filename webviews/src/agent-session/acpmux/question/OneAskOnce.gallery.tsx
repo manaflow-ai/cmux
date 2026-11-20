@@ -95,7 +95,7 @@ function OneAskOnce({ pinned, child = false, twice = false }: Props) {
       <div
         style={{
           minHeight: 44,
-          borderRadius: "var(--ds-radius-popup)",
+          borderRadius: "var(--ds-radius-lg)",
           border: "0.5px solid var(--agent-border)",
           background: "var(--agent-input-bg)",
           color: "var(--agent-muted)",

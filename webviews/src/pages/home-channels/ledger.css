@@ -758,7 +758,7 @@
   letter-spacing: var(--text-body--letter-spacing);
 }
 .lg-page .hc-composer {
-  border-radius: var(--ds-radius-popup);
+  border-radius: var(--ds-radius-lg);
   border: 1px solid var(--lg-line);
   background: var(--lg-fill);
   box-shadow: none;
@@ -1196,7 +1196,7 @@
   margin: var(--ds-space-2) var(--lg-pad) var(--ds-space-1);
   padding: var(--ds-space-2) var(--ds-space-3);
   border: 1px solid color-mix(in srgb, var(--page-text-3) 24%, transparent);
-  border-radius: var(--ds-radius-popup);
+  border-radius: var(--ds-radius-lg);
   background: color-mix(in srgb, var(--page-text-3) 8%, transparent);
   /* A state change (failed, stalled) recolours it over standard; it never moves, so no transform. */
   transition:
@@ -1578,7 +1578,7 @@
   padding: 0;
   overflow: hidden;
   border: 1px solid var(--lg-line);
-  border-radius: var(--ds-radius-popup);
+  border-radius: var(--ds-radius-lg);
   background: var(--lg-fill);
   aspect-ratio: 1;
   cursor: zoom-in;
@@ -1621,7 +1621,7 @@
   max-width: 100%;
   overflow: hidden;
   border: 1px solid var(--lg-line);
-  border-radius: var(--ds-radius-popup);
+  border-radius: var(--ds-radius-lg);
   background: var(--lg-fill);
 }
 .hc-att-video video {
@@ -1642,7 +1642,7 @@
 .hc-att-file {
   width: min(100%, 360px);
   border: 1px solid var(--lg-line);
-  border-radius: var(--ds-radius-popup);
+  border-radius: var(--ds-radius-lg);
   background: var(--lg-fill);
 }
 .hc-att-file-mark {
@@ -1750,14 +1750,14 @@
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  border-radius: var(--ds-radius-popup);
+  border-radius: var(--ds-radius-lg);
 }
 /* A video large: the agent chat's player (chips.css .cv-media__frame, its Play and length) in the
    page's own colors, as large as the stage lets it be. */
 .hc-lightbox {
   --cv-text: var(--page-text);
   --agent-accent-soft: var(--page-text-2);
-  --cv-media-radius: var(--ds-radius-popup);
+  --cv-media-radius: var(--ds-radius-lg);
 }
 .hc-lightbox-video {
   display: grid;
@@ -1773,7 +1773,7 @@
 }
 .hc-lightbox-video video {
   display: block;
-  border-radius: var(--ds-radius-popup);
+  border-radius: var(--ds-radius-lg);
   background: var(--lg-fill-strong);
 }
 /* A video before its link arrives, or whose link cannot be had: its poster, and then why. */
@@ -1829,7 +1829,7 @@
   padding: var(--ds-space-1) calc(var(--ds-control-icon) + 2 * var(--ds-space-1)) var(--ds-space-1) var(--ds-space-1);
   overflow: hidden;
   border: 1px solid var(--lg-line);
-  border-radius: var(--ds-radius-popup);
+  border-radius: var(--ds-radius-lg);
   background: var(--lg-fill);
 }
 .hc-att-meta.is-failed {
@@ -2241,7 +2241,7 @@
   padding: var(--ds-space-1) 0;
   list-style: none;
   border: 1px solid color-mix(in srgb, var(--page-text-3) 24%, transparent);
-  border-radius: var(--ds-radius-popup);
+  border-radius: var(--ds-radius-lg);
   background: color-mix(in srgb, var(--page-text-3) 8%, transparent);
 }
 .lg-task-hat.chips {
@@ -2272,7 +2272,7 @@
   flex: none;
   min-height: 24px;
   padding: 0 var(--ds-space-2);
-  border-radius: var(--ds-radius-popup);
+  border-radius: var(--ds-radius-lg);
   background: color-mix(in srgb, var(--page-text-3) 10%, transparent);
 }
 .lg-task-hat__title {
