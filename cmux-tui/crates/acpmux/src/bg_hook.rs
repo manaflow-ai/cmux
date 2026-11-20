@@ -644,7 +644,7 @@ pub fn start_main(args: &[std::ffi::OsString]) -> anyhow::Result<()> {
 }
 
 /// The longest [`start_main`] waits for the daemon to start a task.
-const START_BUDGET: std::time::Duration = std::time::Duration::from_secs(15);
+const START_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
 
 #[cfg(test)]
 mod tests {
