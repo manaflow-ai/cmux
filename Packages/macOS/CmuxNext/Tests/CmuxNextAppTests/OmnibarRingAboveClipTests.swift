@@ -158,7 +158,9 @@ import Testing
         // Compact's tabs sit 1 pt further from the bar than its strip padding (`tabToOmnibarGap`, Lucas 2026-11-20).
         let tokens = preset.tokens.tokens
         let extra = CGFloat(tokens["tabToOmnibarGap"].map { max(0, $0 - (tokens["browserRowGap"] ?? $0)) } ?? 0)
-        #expect(abs(between - extra - under) <= 0.5, "\(at): \(between) pt from the tab to the omnibar, \(under) pt from the omnibar to the page")
+        // One pixel: a 1x screen snaps Compact's 2.5 and 3.5 pt gaps to whole points.
+        let pixel = max(0.5, 1 / window.backingScaleFactor)
+        #expect(abs(between - extra - under) <= pixel, "\(at): \(between) pt from the tab to the omnibar, \(under) pt from the omnibar to the page")
         // Default is Chrome's: 5 pt above the tab, 6 pt from it to the omnibar and from the omnibar to the page; Comfortable
         // and Spacious are that times 1.1 and 1.2 on the half-point grid (Lucas 2026-11-20), Spacious a half point more
         // for its half-point bar (Lucas 2026-11-21).
@@ -167,7 +169,7 @@ import Testing
             #expect(abs(above - want.above) <= 0.5, "\(at): \(above) pt above the tab, want \(want.above)")
             #expect(abs(between - want.between) <= 0.5, "\(at): \(between) pt from the tab to the omnibar, want \(want.between)")
         } else {
-            #expect(abs(above + extra - between) <= 0.5, "\(at): \(above) pt above the tab, \(between) pt from the tab to the omnibar")
+            #expect(abs(above + extra - between) <= pixel, "\(at): \(above) pt above the tab, \(between) pt from the tab to the omnibar")
         }
     }
 }

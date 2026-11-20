@@ -221,7 +221,9 @@ import Testing
         // Default's own is Chrome's 6, Comfortable's 6.5 and Spacious's 7.5 (6 times their factor, Spacious a half point more); Ultra-compact, Compact and a
         // custom one whose strip padding is past its omnibar gap keep the strip padding.
         let chromeRow: [String: CGFloat] = [DensityPreset.cozy.rawValue: 6, DensityPreset.comfortable.rawValue: 6.5, DensityPreset.spacious.rawValue: 7.5]
-        let want: CGFloat = chromeRow[density.id] ?? row.gap
+        // On the screen's pixel grid, as `OmnibarStyle.rowGap` snaps it (a 1x screen draws 6.5 as 7).
+        let scale = max(NSScreen.main?.backingScaleFactor ?? 2, 1)
+        let want: CGFloat = chromeRow[density.id].map { ($0 * scale).rounded() / scale } ?? row.gap
         #expect(gap == want, "\(density.id): the omnibar row's gap is \(gap), want \(want)")
         // Compact's tabs sit 1 pt further from the bar than its strip padding (`tabToOmnibarGap`, Lucas 2026-11-20).
         let extra = CGFloat(density.tokens["tabToOmnibarGap"].map { max(0, $0 - Double(gap)) } ?? 0)
