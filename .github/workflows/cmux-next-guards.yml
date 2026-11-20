@@ -116,6 +116,7 @@ jobs:
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
       # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
         if: runner.os == 'Linux'
         shell: bash
         run: |
@@ -209,6 +210,7 @@ jobs:
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
       # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
         if: runner.os == 'Linux'
         shell: bash
         run: |
@@ -299,6 +301,7 @@ jobs:
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
       # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
         if: runner.os == 'Linux'
         shell: bash
         run: |
@@ -406,6 +409,7 @@ jobs:
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
       # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
         if: runner.os == 'Linux'
         shell: bash
         run: |
@@ -559,7 +563,7 @@ jobs:
           GUARDS_AT_TIP: ${{ steps.changes.outputs.tip }}
         run: |
           # The job ends at 25 minutes; the base pass gets what the head pass leaves of 23, so a slow base ends in a
-          # verdict (with unfinished base steps deferred to the merge gate) instead of a cancelled job that merge_hold waits on.
+          # verdict (with unfinished base steps deferred to the merge gate) instead of a cancelled job that land-judge waits on.
           # The head pass is bound too, to 15 minutes, so a slow head leaves 8 for the base's re-run and the verdict. Unbound,
           # a head pass still running 23 minutes into the step (442 steps, 4 workers) was cancelled by the job timeout with
           # no verdict. A cut head is red, never green: its unfinished steps have no result to compare.
@@ -643,6 +647,7 @@ jobs:
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
       # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
         if: runner.os == 'Linux'
         shell: bash
         run: |
@@ -751,6 +756,7 @@ jobs:
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
       # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
         if: runner.os == 'Linux'
         shell: bash
         run: |
@@ -845,6 +851,7 @@ jobs:
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
       # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
         if: runner.os == 'Linux'
         shell: bash
         run: |
@@ -1023,6 +1030,7 @@ jobs:
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
       # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
         if: runner.os == 'Linux'
         shell: bash
         run: |
@@ -1081,6 +1089,7 @@ jobs:
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
       # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
         if: runner.os == 'Linux'
         shell: bash
         run: |

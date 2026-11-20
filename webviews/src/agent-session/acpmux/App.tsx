@@ -108,6 +108,7 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
+  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -116,14 +117,13 @@ import {
   useSessionAdoption,
   type SessionAdoption,
   withHandshakeNewTab,
-  useLostSharedPart,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import {
   heldPick,
-  shownCloudStartPick,
-  withDraftFolder,
   withCloudStartFolder,
+  withDraftFolder,
+  shownCloudStartPick,
   withCloudStartPick,
 } from "./newtab/draftFolder";
 import {
@@ -139,7 +139,7 @@ import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { goalHatPlace } from "./goalHat.experiment";
-import { githubFolderRepo, githubFolder } from "./githubRepos";
+import { githubFolder, githubFolderRepo } from "./githubRepos";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "./newtab/templates";
@@ -586,6 +586,8 @@ import {
   cloudStartTeam,
   makeCloudSignInRetry,
   grantedCloudStart,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
@@ -594,8 +596,6 @@ import {
   heldPromptShown,
   cloudPickExtras,
   composerCloudStartFolder,
-  pickedChatCloudCall,
-  pickOnlyNewChat,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
@@ -848,11 +848,11 @@ import { holdWebSwap, pageEditHold, pageReleaseHold } from "../../pages/shared/w
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import {
   SandboxTab,
-  newTabRunModeRows,
   sandboxAgent,
   sandboxPageRefusal,
   sandboxRetryable,
   type RunMode,
+  newTabRunModeRows,
 } from "./sandboxRun";
 import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
@@ -11822,9 +11822,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     };
     for (const project of directProjects) byPath.set(project.cwd, project);
     for (const path of newTab?.projects ?? []) byPath.set(path, listed(path));
+    // Each folder once: a large profile lists thousands of chats in a few hundred folders.
+    const named = new Set<string>();
     for (const session of newTabFolderSessions) {
-      if (typeof session.cwd !== "string" || !session.cwd) continue;
+      if (typeof session.cwd !== "string" || !session.cwd || named.has(session.cwd)) continue;
       if (session.host && session.hostKind !== "local") continue;
+      named.add(session.cwd);
       byPath.set(session.cwd, listed(session.cwd));
     }
     if (newTab?.cwd) byPath.set(newTab.cwd, listed(newTab.cwd));
