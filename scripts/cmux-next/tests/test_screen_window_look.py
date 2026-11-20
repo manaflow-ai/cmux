@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """cmd-n-paint-e2e.py --screen --window-look: the take runs in the look that was asked, and its report says so.
 
-No app, no display, no fleet. The app is test_screen_active_app.py's function with 3 answers more: its settings
-(`settings.get`), the speed of its motion (`debug.motion`) and its first window's backdrop (`debug.themes`). So this
-proves what the tool writes into the launch's config files, what it reads from the app before it makes a session,
-what it says of both, and when it ends the run. It does not prove that an app on a Mac shows the look.
+No app, no display, no fleet. The app is test_screen_active_app.py's function with 4 answers more: its settings
+(`settings.get`), the speed of its motion (`debug.motion`), its first window's backdrop and ground (`debug.themes`)
+and the theme folder of its bundle (`debug.appearance`). So this proves what the tool writes into the launch's config
+files, what it reads from the app before it makes a session, what it says of both, and when it ends the run. It does
+not prove that an app on a Mac shows the look.
 
 The words of the option, the config keys and the reads of the app are scripts/cmux-next/window_look.py's (its own
-tests: scripts/measure/tests/window-look.test.py); each look of this file is made up for the tests.
+tests: scripts/measure/tests/window-look.test.py); each look of this file is made up for the tests. The look names a
+theme, so the module's check of the theme runs in the tool's path: the 2 theme answers of the app here have the
+form of that file's own app (`debug.themes` with no name of the theme, `debug.appearance` with the folder), and the
+theme files are real files in the test's own folder, because the tool gives the module no reader of its own.
 
     python3 -I scripts/cmux-next/tests/test_screen_window_look.py
 """
@@ -36,6 +40,8 @@ frames_of = new_surface_screen.frames_of
 WORDS = ("background=aurora,opacity=0.5,blur=frosted,ui.animationSpeed=fast,appearance.metrics.titlebarHeight=40,"
          "appearance.theme=Two+Words,terminal-opacity=0.9,name=mine")
 LOOK = looks.window_look(WORDS)
+GROUND = "#102030"  # the ground of the look's theme file, and the ground that an app with that theme says
+THEME_PROVED = "theme check: the window's ground = the ground of the theme's file in the app's bundle; 1 of the 1 theme files of the bundle has that ground"
 MODE = (*driver.NEEDED, "new_surface_screen.py", "new_surface_frames.py", "bench_page_engine.py", "new_surface_look.py", "window_look.py")
 
 
@@ -46,20 +52,30 @@ def tool():
 
 class App(active.App):
     """The active app's function with its settings. `held`: what the app holds of its settings file (None: the app
-    gives no answer). `speed`: the speed that its motion runs at. `backdrop`: what its first window shows."""
+    gives no answer). `speed`: the speed that its motion runs at. `backdrop`: what its first window shows. `ground`:
+    its first window's ground (None: the answer has no `window_background`). `themes`: the theme folder that the app
+    names in its bundle (None: it names none)."""
 
-    def __init__(self, folder, held=None, speed="fast", backdrop=None, **more):
+    def __init__(self, folder, held=None, speed="fast", backdrop=None, ground=None, themes=None, **more):
         super().__init__(folder, **more)
-        self.held, self.speed, self.backdrop = held, speed, backdrop
+        self.held, self.speed, self.backdrop, self.ground, self.themes = held, speed, backdrop, ground, themes
 
     def rpc(self, method, params=None, timeout=30):
-        if method not in ("settings.get", "debug.motion", "debug.themes"):
+        if method not in ("settings.get", "debug.motion", "debug.themes", "debug.appearance"):
             return super().rpc(method, params, timeout)
         self.names.append(method)
         if method == "debug.motion":
             return {"speed": self.speed} if self.speed else {}
+        if method == "debug.appearance":
+            return {"override": None, "effective": "dark", "terminal_background": GROUND, "themes": self.themes}
         if method == "debug.themes":
-            return {"windows": [{"backdrop": self.backdrop, "spec": "Two Words"}]} if self.backdrop else {}
+            if not self.backdrop:
+                return {}
+            # The shape that the app gives for a theme of the config: no name of the theme is in it.
+            window = {"spec": None, "effective_spec": None, "source": "config", "is_dark": True, "backdrop": self.backdrop}
+            if self.ground is not None:
+                window["window_background"] = self.ground
+            return {"windows": [window], "terminals": [], "ghostty_background": GROUND}
         if self.held is None:
             return {}
         path = (params or {}).get("path")
@@ -67,10 +83,22 @@ class App(active.App):
         return {"path": path.split(".") if path else [], "exists": value is not None, "value": value}
 
 
-def shown_app(folder, **changed):
-    """An app that holds the look of the tests and shows it."""
+def bundle_themes(folder, files=None):
+    """A theme folder as an app's bundle has it, made in the test's own `folder`: each of `files` is a theme file's
+    name with its text (with none: the one file of the look's theme, with the ground of the tests)."""
+    themes = Path(folder) / "bundle-themes"
+    themes.mkdir(exist_ok=True)
+    for name, text in ({"Two Words": f"background = {GROUND}\n"} if files is None else files).items():
+        (themes / name).write_text(text)
+    return str(themes)
+
+
+def shown_app(folder, files=None, **changed):
+    """An app that holds the look of the tests and shows it. `files`: the theme files of its bundle (`bundle_themes`)."""
     held = looks.look_config({"sidebar": {"side": "right"}}, LOOK)
-    return App(folder, **{**dict(held=held, backdrop={"picture": "aurora", "tint": "#10203080", "blending": "false"}), **changed})
+    shows = dict(held=held, backdrop={"picture": "aurora", "tint": "#10203080", "blending": "false"}, ground=GROUND,
+                 themes=bundle_themes(folder, files))
+    return App(folder, **{**shows, **changed})
 
 
 class WindowLookTests(unittest.TestCase):
@@ -153,11 +181,13 @@ class WindowLookTests(unittest.TestCase):
             "window look mine: appearance.theme: the launch wrote 'Two Words', the app answers 'Two Words'",
             "app setting, not of the look: sidebar.side = 'right'"])
         self.assertEqual(lines[7:9], ["each other setting: not in the app's settings (the app's default)", "the app's motion speed: 'fast'"])
-        self.assertEqual(lines[9], "the first window shows, by the app: the picture 'aurora', opacity 0.502, kind picture")
-        self.assertEqual(lines[10], 'the first window\'s theme, by the app: {"spec": "Two Words", "effective_spec": null, "source": null, '
-                                    '"window_background": null, "is_dark": null}')
-        self.assertEqual(lines[11], "the CLI: not asked (the driver did not launch this app)")
-        self.assertEqual(len(lines), 12)
+        self.assertEqual(lines[9], THEME_PROVED)  # the module's check of the look's theme, by the ground
+        self.assertEqual(lines[10], "the first window shows, by the app: the picture 'aurora', opacity 0.502, kind picture")
+        self.assertEqual(lines[11], 'the first window\'s theme, by the app: {"spec": null, "effective_spec": null, "source": "config", '
+                                    '"window_background": "#102030", "is_dark": true}')
+        self.assertEqual(lines[12], "the CLI: not asked (the driver did not launch this app)")
+        self.assertEqual(len(lines), 13)
+        self.assertEqual(app.names.count("debug.appearance"), 1)  # the bundle's theme folder is asked for one time
         # The lines are the first thing that the run prints, and the app is asked before the session's maker runs.
         self.assertTrue(said[0].startswith("NEW-SURFACE-SCREEN-SETTINGS "), said[0])
         self.assertEqual((len(self.made), report.get("stopped")), (1, None))
@@ -188,6 +218,21 @@ class WindowLookTests(unittest.TestCase):
         report, _ = self.run_mode(app)
         self.assertEqual(report.get("stopped"), "window look: the window shows the picture '', not 'aurora': no session made, no tab made, no case recorded")
         self.assertEqual((self.made, report["rows"]), ([], []))
+
+    def test_a_bundle_with_no_file_of_the_looks_theme_ends_the_run(self):
+        # The look names a theme and the bundle's theme folder has a file of another theme only: the module's check
+        # of the theme runs in this tool's path, and its own text ends the run.
+        other = {"Another": "background = #A0B0C0\n"}
+        app = shown_app(self.folder, files=other)
+        report, said = self.run_mode(app)
+        failed = "theme check: the app's bundle has no file of the look's theme: the theme is not proved"
+        self.assertEqual(report.get("stopped"), f"window look: {failed}: no session made, no tab made, no case recorded")
+        self.assertEqual((self.made, report["rows"], app.names.count("debug.appearance")), ([], [], 1))
+        self.assertIn(f"NEW-SURFACE-SCREEN-SETTINGS {failed}", said)
+        # The same app with the theme's file beside that file passes, so the file is what the run stopped for.
+        report, said = self.run_mode(shown_app(self.folder, files={**other, "Two Words": f"background = {GROUND}\n"}))
+        self.assertEqual((report.get("stopped"), len(report["rows"])), (None, 1))
+        self.assertIn("NEW-SURFACE-SCREEN-SETTINGS " + THEME_PROVED.replace("1 of the 1 theme files", "1 of the 2 theme files"), said)
 
     def test_an_app_that_gives_no_settings_answer_does_not_pass_for_the_look(self):
         report, said = self.run_mode(shown_app(self.folder, held=None))
