@@ -46,7 +46,7 @@ struct DriveRun {
             return try await hold(until: stop, watching: person, since: started, release: release)
         }
         await input.settle()
-        // timeout: only how long the run waits for a stalled page to say whether the hover took; it then holds without one
+        // timeout: only how long the run waits for a stalled page to say whether the hover took; the run then ends as an error that still asks for the report and releases the hover
         guard !view.pageIsFrozen, let state = try await AgentChatDriveControl.call(view, AgentChatDriveControl.stateScript, [:], timeout: .seconds(5)),
               state["hovered"] == true else {
             hover["reason"] = "not_hovered"
@@ -100,6 +100,7 @@ struct DriveRun {
     /// The transcript's scroll offset as the page reads it (`drive.state().scroll_top`), or nil.
     static func scrollTop(_ view: AgentPaneView) async throws -> Double? {
         guard !view.pageIsFrozen else { return nil }
+        // timeout: only how long the run waits for a stalled page's scroll offset; the run then ends as an error that still asks for the report and releases the hover
         return try await AgentChatDriveControl.call(view, AgentChatDriveControl.stateScript, [:], timeout: .seconds(5))?["scroll_top"]?.doubleValue
     }
 
