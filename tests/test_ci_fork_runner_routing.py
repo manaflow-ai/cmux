@@ -166,9 +166,17 @@ APP_KEY_MARKER = re.compile(r"create-github-app-token@|^\s*private-key:", re.MUL
 # So a 4 vCPU stall can move these jobs (the overflow switch or a person sets LINUX_RUNNER),
 # and no value reaches a reused machine. The bound is in the expression, not the variable.
 BOUNDED_LINUX_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404",
-                        "blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404")
+                        "blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404", "cmux-fleet-linux-x64")
 BOUNDED_LINUX_SELECTOR = (
     "contains(fromJSON('" + json.dumps(list(BOUNDED_LINUX_LABELS), separators=(",", ":"))
+    + "'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'cmux-fleet-linux-x64'"
+)
+# Jobs an outsider can trigger (workflow_run, pull_request_target, comments) and the CI_REPAIR_SKIP_FLEET
+# janitors keep the pre-fleet selector: no fork code may reach an owned VM, and the janitors' Blacksmith
+# default is their escape off the fleet when the switch is on.
+LEGACY_BOUNDED_LINUX_SELECTOR = (
+    "contains(fromJSON('" + json.dumps([label for label in BOUNDED_LINUX_LABELS if label != "cmux-fleet-linux-x64"],
+                                       separators=(",", ":"))
     + "'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'"
 )
 # The key-holding Linux jobs that follow LINUX_RUNNER through it (#27557 pinned them to 4 vCPU,
@@ -187,7 +195,8 @@ BOUNDED_SELECTOR_JOBS = {
 HOSTED_LITERAL_LABEL = re.compile(r"ubuntu-latest|ubuntu-\d{2}\.\d{2}(?:-arm)?|macos-\d+(?:-intel)?|windows-\d{4}")
 # Our own one-job Linux label: the fleet reconciler boots one cloud VM per queued job with a
 # JIT config, no service account, and deletes it after that job, so a key held there leaves with the VM as on a
-# Blacksmith one. Accepted only as a literal operand: no variable may name it, and no other owned label is.
+# Blacksmith one. Accepted as a literal operand and inside a bounded pick's list (ask-166ab1e98a moved the
+# same-repo Linux defaults onto it); no other owned label is.
 # The queue janitors take it first so they never queue on the hosted pools they drain (2026-11-19: about 28,700
 # queued jobs, the janitors among them).
 FLEET_EPHEMERAL_LABELS = frozenset({"cmux-fleet-linux-x64"})
@@ -357,7 +366,7 @@ def runner_label_errors(runs_on: str) -> list[str]:
                 == [("literal", "manaflow-ai"), ("ref", "github.repository_owner")]):
             continue
         picked = _bounded_pick(conditions, result) if label is None else []
-        if picked and all(blacksmith.fullmatch(item) for item in picked):
+        if picked and all(blacksmith.fullmatch(item) or item in FLEET_EPHEMERAL_LABELS for item in picked):
             continue
         errors.append(f"{runs_on!r}: operand {index + 1} can yield something other than a Blacksmith label it names")
     if not errors and _string(chain[-1]) is None:
@@ -1687,11 +1696,11 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         for key in sorted(BOUNDED_SELECTOR_JOBS):
             with self.subTest(job=key):
                 self.assertIn(key, runs_on)
-                expected = BOUNDED_LINUX_SELECTOR
+                selectors = (BOUNDED_LINUX_SELECTOR, LEGACY_BOUNDED_LINUX_SELECTOR)
                 if key == ("sdk-release-cut.yml", "cut-tags"):
                     # The SDK release security contract pins the pre-BS8 selector.
-                    expected = expected.replace(',"blacksmith-8vcpu-ubuntu-2404"', '')
-                self.assertIn(expected + " }}", runs_on[key])
+                    selectors = tuple(s.replace(',"blacksmith-8vcpu-ubuntu-2404"', '') for s in selectors)
+                self.assertTrue(any(s + " }}" in runs_on[key] for s in selectors), runs_on[key])
 
     def test_the_bounded_selector_yields_only_its_labels_for_any_value(self) -> None:
         fork = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
@@ -1706,7 +1715,7 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         self.assertEqual(seen, set(BOUNDED_LINUX_LABELS))
         self.assertEqual(evaluate_runs_on(tree, {"github.repository_owner": "manaflow-ai",
                                                  "vars.LINUX_RUNNER": "glaeda-std-xcode-26.6"}),
-                         "blacksmith-4vcpu-ubuntu-2404")
+                         "cmux-fleet-linux-x64")
         # Each is a declared Blacksmith Linux label: a linux pool member, or a literal listed for
         # actionlint (32 vCPU left the pool on 2026-11-01 but stays a size jobs may name).
         declared = (ROOT / ".github/runners.json").read_text(encoding="utf-8") + \

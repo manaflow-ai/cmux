@@ -1753,7 +1753,7 @@ selector = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
             "github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && github.run_attempt == 1 && "
             "(startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && "
             "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || "
-            "'blacksmith-2vcpu-ubuntu-2404' }}")
+            "'cmux-fleet-linux-x64' }}")
 # The classic one-mini switch (tests/test_classic_nightly_one_mini.py) may lead the same selector: a main push or
 # schedule then takes vars.CI_CLASSIC_NIGHTLY_MINI, which runner_label_policy.py holds to cmux15's nightly label.
 classic_mini = selector.replace(
