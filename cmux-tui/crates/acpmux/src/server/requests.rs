@@ -1352,7 +1352,7 @@ async fn dispatch_request_with_identity(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, crate::hub::release_to_watch::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::sender_token::FEATURE, crate::hub::register::AUTO_FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", crate::config::chief_builtins::BRAIN_PRESETS_FEATURE, "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, crate::hub::release_to_watch::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::sender_token::FEATURE, crate::hub::register::AUTO_FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE], "trustGate": true}}
             });
             // This link carries the v2 list stream (`link_v2.rs`): the one change `peers` makes
             // to what v1 sends a link.
@@ -3276,7 +3276,9 @@ async fn dispatch_request_with_identity(
             let settled_key = match settled {
                 Some((_, Some(view))) => {
                     let key = view.key.clone();
-                    if let Some(reply) = settled_attach::reply(hub, conn, &s, view)? {
+                    if let Some(reply) =
+                        crate::qos::off_worker(|| settled_attach::reply(hub, conn, &s, view))?
+                    {
                         return Ok(reply);
                     }
                     Some(key)
@@ -3314,8 +3316,14 @@ async fn dispatch_request_with_identity(
                     &page_filter,
                 )
             };
-            let page = if hidden { read() } else { crate::qos::on_screen(read) }
-                .map_err(|e| RpcError::internal(e.to_string()))?;
+            // The page and its turn's prompt (`turn_opener.rs`) read the log from disk: off the
+            // runtime's workers, so a hello never waits behind them (`qos::off_worker`).
+            let (page, opener) = crate::qos::off_worker(|| {
+                let page = if hidden { read() } else { crate::qos::on_screen(read) }?;
+                let opener = turn_opener::turn_opener(hub, &s.id, &page);
+                anyhow::Ok((page, opener))
+            })
+            .map_err(|e| RpcError::internal(e.to_string()))?;
             // The newest page holds to the log's end; a page of older records, or a forward one
             // with more to read, only to its own last record.
             let through = if before.is_none() && (after.is_none() || !page.has_more) {
@@ -3323,8 +3331,6 @@ async fn dispatch_request_with_identity(
             } else {
                 events::newest_seq(&page.events)
             };
-            // The prompt of the turn the page starts inside, read with it (`turn_opener.rs`).
-            let opener = turn_opener::turn_opener(hub, &s.id, &page);
             hub.lane_report_events_read(conn.caller(), &s.id, &page.events);
             let events: Vec<Value> = events::values(&s.id, page.events);
             // Who has the chat open now (`hub/presence.rs`), this attachment included.
@@ -3380,7 +3386,8 @@ async fn dispatch_request_with_identity(
         super::controls::METHOD => super::controls::handle(hub, conn, &params),
         method::MUX_WATCH => super::list_reply::watch(hub, conn, &params).await,
         method::MUX_EVENTS | method::MUX_ATTACHMENT => {
-            events::handle(hub, m, &params, conn.caller())
+            // A page reads the log from disk: off the runtime's workers (`qos::off_worker`).
+            crate::qos::off_worker(|| events::handle(hub, m, &params, conn.caller()))
         }
         // A read, for whoever may read the log, as `_acpmux/events` (`hub/queue_text.rs`).
         method::MUX_QUEUE_TEXT => Box::pin(queue_text(hub, &params)).await,

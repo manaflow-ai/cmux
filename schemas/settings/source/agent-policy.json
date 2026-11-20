@@ -224,7 +224,8 @@
       "agent": "settable",
       "why": "The theme file whose look applies (looks only)",
       "keys": [
-        "appearance.themeFile"
+        "appearance.themeFile",
+        "appearance.themeFileExceptions"
       ]
     },
     {
@@ -1529,6 +1530,13 @@
       "why": "On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on. cmux Remote: the person's call.",
       "keys": [
         "macScreen.systemShortcuts"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "It is the person's standing yes to Share This Mac; an agent that could set it would approve its own share request. cmux Remote: the person's call.",
+      "keys": [
+        "macScreen.shareWithoutAsking"
       ]
     },
     {
