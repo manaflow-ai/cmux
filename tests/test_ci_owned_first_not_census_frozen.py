@@ -51,6 +51,14 @@ NIGHTLY_PATH = (
     ("tree request", "'workflow_dispatch'", "'refs/heads/feat-cmux-next'"),
     ("nightly-next push", "'push'", "'refs/heads/nightly-next'"),
 )
+# The owned label each nightly-path case's tree preflight takes, which its daemon tests queue on with an empty census.
+PREFLIGHT_LABEL = {
+    "feat-cmux-next push": GCP_LANE_BUILD_LINUX,
+    "tree request": GCP_NIGHTLY_LINUX,
+    "nightly-next push": GCP_NIGHTLY_LINUX,
+}
+# The label a census that saw an idle fleet member writes for the daemon tests.
+FLEET_LINUX = "cmux-fleet-linux-x64"
 DAEMON_TESTS = "cmux_next_ daemon tests"
 
 
@@ -65,6 +73,16 @@ def labels_with_empty_census(expression: str, event: str, ref: str, attempt: int
     text = CENSUS_READS.sub("''", expression)
     text = text.replace("github.run_attempt", str(attempt)).replace("github.event_name", event)
     text = text.replace("github.workflow_ref", TREE_WORKFLOW_REF)
+    text = re.sub(r"\bgithub\.ref\b", ref, text)
+    return resolve_labels("${{ " + text + " }}", owner="manaflow-ai", silent=("needs", "inputs", "steps"),
+                          variables={"LINUX_RUNNER": [""], "CI_CLOUD_OVERFLOW_SAVED": ["", "1"]})
+
+
+def labels_with_idle_fleet(expression: str, event: str, ref: str, attempt: int) -> set:
+    """The labels `expression` can take when the census saw an idle fleet member and placed the daemon tests on it."""
+    text = expression.replace("needs.tree-preflight.outputs.linux_jobs", "' cmux-next-daemon-tests '")
+    text = text.replace("needs.tree-preflight.outputs.linux_runner", f"'{FLEET_LINUX}'")
+    text = text.replace("github.run_attempt", str(attempt)).replace("github.event_name", event)
     text = re.sub(r"\bgithub\.ref\b", ref, text)
     return resolve_labels("${{ " + text + " }}", owner="manaflow-ai", silent=("needs", "inputs", "steps"),
                           variables={"LINUX_RUNNER": [""], "CI_CLOUD_OVERFLOW_SAVED": ["", "1"]})
@@ -101,9 +119,8 @@ class OwnedFirstNotCensusFrozenTest(unittest.TestCase):
         runs_on = daemon_tests_runs_on()[3:-2]
         for case, event, ref in NIGHTLY_PATH:
             with self.subTest(case=case):
-                labels = labels_with_empty_census(runs_on, event, ref, 1)
-                self.assertTrue(labels)
-                self.assertLessEqual(labels, OWNED)
+                # Exactly the label the case's tree preflight takes, not any owned label.
+                self.assertEqual(labels_with_empty_census(runs_on, event, ref, 1), {PREFLIGHT_LABEL[case]})
 
     def test_the_daemon_tests_spill_on_attempt_two(self) -> None:
         # The bounded wait's way off a busy owned label: the spill janitor's re-run is attempt 2, which reads the
@@ -121,6 +138,21 @@ class OwnedFirstNotCensusFrozenTest(unittest.TestCase):
         # Lane pushes never crowd the owned runners the nightly path queues on.
         labels = labels_with_empty_census(daemon_tests_runs_on()[3:-2], "'push'", "'refs/heads/lane/x'", 1)
         self.assertFalse(labels & {GCP_LANE_BUILD_LINUX, GCP_NIGHTLY_LINUX})
+
+    def test_a_lane_push_reads_the_census_on_every_attempt(self) -> None:
+        # The attempt-1 gate on the census is the nightly path's spill alone: an opted-in lane push on attempt 2
+        # with an idle fleet member still takes it, as before, not Blacksmith.
+        runs_on = daemon_tests_runs_on()[3:-2]
+        for attempt in (1, 2):
+            with self.subTest(attempt=attempt):
+                self.assertEqual(labels_with_idle_fleet(runs_on, "'push'", "'refs/heads/lane/x'", attempt),
+                                 {FLEET_LINUX})
+        for case, event, ref in NIGHTLY_PATH:
+            with self.subTest(case=case):
+                self.assertEqual(labels_with_idle_fleet(runs_on, event, ref, 1), {FLEET_LINUX})
+                # Attempt 2 of the nightly path is the spill: the census is not read, the pool decides.
+                self.assertEqual(labels_with_idle_fleet(runs_on, event, ref, 2),
+                                 labels_with_empty_census(runs_on, event, ref, 2))
 
     def test_no_other_workflow_reads_the_tree_census(self) -> None:
         tree = re.compile(r"needs\.tree-preflight\.outputs\.(?:linux_runner|linux_build_runner|machine_build_runner"
