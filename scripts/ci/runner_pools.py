@@ -325,8 +325,9 @@ def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
             found.append(f"{where}: a hosted pool names why it cannot run on the set (hosted_why)")
         grows = grows_before_shrinking([member for member in listed if not owned_ephemeral(member)])
         if grows:
-            found.append(f"{where}: lists {grows} after a larger failover or out of size order; Blacksmith caps the org on vCPUs at "
-                         "once, so a stalled size moves down first (list smaller sizes, largest first, before larger)")
+            found.append(f"{where}: lists {grows} after a larger failover or out of size order. "
+                         "Blacksmith caps the org's concurrent vCPUs, so jobs move to smaller sizes first "
+                         "(list smaller sizes, largest first, before larger)")
     return found
 
 
@@ -686,8 +687,9 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
                 if isinstance(live, list):
                     started |= {str(label) for label in live if isinstance(label, str)}
     if stalls - started:
-        notes.append(f"probe found {', '.join(sorted(stalls - started))} waiting with no fresh janitor snapshot to tell a "
-                     "resting size from a full vCPU cap; no new resting mark")
+        notes.append(f"probe jobs on {', '.join(sorted(stalls - started))} reached the wait limit. "
+                     "There is no fresh janitor snapshot to tell if the size is resting or the vCPU cap is full, "
+                     "so the wait adds no routing marks.")
     # A label both started and stalled in one pass (two probes, or a probe and a stale queue) started. A full owned
     # Linux label is dead though it starts jobs: its starts clear the mark only once its queue no longer waits.
     return (dead - started) | full, started - full, notes

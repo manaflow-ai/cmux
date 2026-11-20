@@ -399,6 +399,7 @@ class Evidence(unittest.TestCase):
                 self.assertEqual(dead, set())
                 self.assertEqual(started, {"blacksmith-2vcpu-ubuntu-2404"})
                 self.assertTrue(any("no fresh janitor snapshot" in note for note in notes), notes)
+                self.assertNotRegex("\n".join(notes), r"\b(?:dead|stalled)\b")
         # The marks already there keep their state: no fresh evidence, so none expires or is renewed, and a
         # probe start still clears its label.
         pools = runner_pools.load_pools()
@@ -740,8 +741,12 @@ class Main(unittest.TestCase):
             "blacksmith-4vcpu-ubuntu-2404": "stalled", "blacksmith-16vcpu-ubuntu-2404": "started"})),
             "LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"})
         with tempfile.TemporaryDirectory() as tmp:
-            env = {"RUNNER_POOLS": "", "GITHUB_STEP_SUMMARY": f"{tmp}/summary"}
+            summary_path = Path(tmp) / "summary"
+            env = {"RUNNER_POOLS": "", "GITHUB_STEP_SUMMARY": str(summary_path)}
             self.assertEqual(runner_pools.main([], env, api=self.Api(RECORDED), switch=switch, now=NOW), 0)
+            summary = summary_path.read_text(encoding="utf-8")
+        self.assertNotRegex(summary, r"\b(?:dead|stalled)\b")
+        self.assertIn('"_dead"', summary)
         [(name, raw), mirrored] = switch.writes
         self.assertEqual(name, "RUNNER_POOLS")
         self.assertEqual(json.loads(raw)["linux"], "blacksmith-16vcpu-ubuntu-2404")
@@ -995,7 +1000,7 @@ class RawLabelVars(unittest.TestCase):
         self.assertIn(f"::warning title=Runner pools::LINUX_BUILD_RUNNER: {self.DEAD32} -> {self.LIVE16}", out)
         self.assertIn(f"::warning title=Runner pools::LINUX_RUNNER_DARWIN_CROSS: {self.DEAD32} -> {self.LIVE16}", out)
         self.assertNotRegex(out, r"\b(?:dead|stalled)\b")
-        self.assertIn(runner_pools.DEAD_KEY, value)
+        self.assertEqual(value["_dead"], {self.DEAD32: runner_pools.iso(self.NOW)})
         # The next pass, still dead, moves nothing and keeps the homes.
         again, kept, _ = self.run_pass(switch, runner_pools.render(value), self.NOW + dt.timedelta(minutes=10))
         self.assertEqual(set(again) - {"RUNNER_POOLS"}, set())
@@ -1231,8 +1236,9 @@ class CapBound(unittest.TestCase):
             with self.subTest(pool=name):
                 self.assertIsNone(runner_pools.grows_before_shrinking(runner_pools.members(spec)))
         grows = {"x": {"why": "x", "members": [self.SIXTEEN, self.THIRTY_TWO, self.EIGHT]}}
-        self.assertIn("lists blacksmith-8vcpu-ubuntu-2404 after a larger failover",
-                      "\n".join(runner_pools.spec_problems(grows)))
+        problems = "\n".join(runner_pools.spec_problems(grows))
+        self.assertIn("lists blacksmith-8vcpu-ubuntu-2404 after a larger failover", problems)
+        self.assertNotRegex(problems, r"\b(?:dead|stalled)\b")
         self.assertIsNone(runner_pools.grows_before_shrinking([self.SIXTEEN, self.EIGHT, self.FOUR, self.THIRTY_TWO]))
         self.assertEqual(runner_pools.grows_before_shrinking([self.SIXTEEN, self.FOUR, self.EIGHT]), self.EIGHT)
         # Only Blacksmith Linux pools of one family: macOS and mixed lists keep their declared order.
