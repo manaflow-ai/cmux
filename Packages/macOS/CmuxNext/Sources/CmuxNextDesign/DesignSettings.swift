@@ -140,6 +140,10 @@ public final class DesignSettings {
             NotificationCenter.default.post(name: WindowMaterialView.inactiveDimDidChange, object: nil)
         }
     }
+    /// `appearance.glass.composer.material` as the glass mode web pages draw (``GlassLensMode``): lens or
+    /// spectrum refract, any other value is plain glass. Plain until the setting reaches it (``SettingsApplier``);
+    /// ``GlassLensMode/current`` adds the Reduce Transparency and Low Power Mode fallback.
+    public var glassLensMode: GlassLensMode = .plain
     /// `appearance.wallpaperTint`: where the desktop shows through the window, its tint takes the
     /// desktop picture's hue (``WallpaperTint``), as macOS tints its own windows. Off until the
     /// setting reaches it (``SettingsApplier``).

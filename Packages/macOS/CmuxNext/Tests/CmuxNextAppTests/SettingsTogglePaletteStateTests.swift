@@ -116,7 +116,8 @@ struct SettingsTogglePaletteStateTests {
                     design.attention.agentChatRing = .none
                 }
             case .singlePaneFocusRing: design.focusRing.showsForSinglePane = on
-            case .glassLens: GlassLensMode.choose(on ? .lens : .plain, in: f.tunables)
+            // `appearance.glass.composer.material` as SettingsApplier applies it (the Debug choice `glass.lens` before 2026-11-20).
+            case .glassLens: design.glassLensMode = on ? .lens : .plain
             case .actionLatencyHUD: on ? f.services.actionLatencyHUD.show(over: nil) : f.services.actionLatencyHUD.hide()
             default: Issue.record("\(self) has no setter")
             }
