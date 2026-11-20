@@ -8,7 +8,14 @@
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::fs::OpenOptions;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+
+const HANDLE_POOL: &[&str] = &[
+    "Mango", "Biscuit", "Tofu", "Ramen", "Waffle", "Nori", "Pico", "Miso", "Kiwi", "Taco", "Panda",
+    "Olive", "Cocoa", "Mocha", "Peach", "Berry", "Sushi", "Pesto", "Gizmo", "Puff",
+];
 
 /// The owner-only file retained by a daemon. It lives beside the other acpmux state, so a
 /// session compaction or VM image move carries its handles with the daemon's home.
@@ -60,6 +67,21 @@ impl Registry {
         }
         crate::config::write_atomic(path, &bytes)
             .with_context(|| format!("write machine handles {}", path.display()))
+    }
+
+    /// Apply one read-modify-write transaction under an exclusive lock. CLI processes can run at
+    /// the same time, so atomic replacement alone is insufficient to preserve both renames.
+    pub fn update<T>(path: &Path, change: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
+        let lock_path = path.with_extension("lock");
+        if let Some(parent) = lock_path.parent() {
+            crate::home_fs::create_dir_all(parent, 0o700)?;
+        }
+        let file = open_lock_file(&lock_path)?;
+        let _lock = cmux_file_lock::FileLock::take(file, cmux_file_lock::Kind::Exclusive)?;
+        let mut registry = Self::load(path)?;
+        let result = change(&mut registry)?;
+        registry.save(path)?;
+        Ok(result)
     }
 
     /// The normal state path in a daemon's acpmux home.
@@ -187,6 +209,73 @@ impl Registry {
             }
         }
     }
+
+    /// Ensure every machine row has a stable, deterministic spoken handle, then annotate it for
+    /// display. Provider `machineId`/`daemonId` values are used when present. Existing canonical
+    /// host names, including `cmux-runner-pool-*`, remain routing metadata.
+    pub fn ensure_rows(&mut self, rows: &mut serde_json::Value) -> Result<()> {
+        let Some(items) = rows.get("peers").and_then(serde_json::Value::as_array).cloned() else {
+            return Ok(());
+        };
+        for row in items {
+            let id = row
+                .get("machineId")
+                .or_else(|| row.get("daemonId"))
+                .or_else(|| row.get("id"))
+                .or_else(|| row.get("name"))
+                .and_then(serde_json::Value::as_str)
+                .filter(|id| !id.is_empty())
+                .unwrap_or("machine");
+            let canonical = row.get("name").and_then(serde_json::Value::as_str).unwrap_or(id);
+            let existing =
+                self.get(id).map(|entry| (entry.id.clone(), entry.handle.clone())).or_else(|| {
+                    self.resolve(canonical)
+                        .ok()
+                        .flatten()
+                        .map(|entry| (entry.id.clone(), entry.handle.clone()))
+                });
+            let (entry_id, handle) = existing.unwrap_or_else(|| {
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                id.hash(&mut hasher);
+                let start = (hasher.finish() as usize) % HANDLE_POOL.len();
+                for offset in 0..HANDLE_POOL.len() {
+                    let candidate = HANDLE_POOL[(start + offset) % HANDLE_POOL.len()];
+                    if !self
+                        .entries
+                        .values()
+                        .any(|entry| entry.handle.eq_ignore_ascii_case(candidate))
+                    {
+                        return (id.to_owned(), candidate.to_owned());
+                    }
+                }
+                (id.to_owned(), format!("VM-{}", hasher.finish() % 10_000))
+            });
+            self.upsert(
+                entry_id,
+                canonical,
+                handle,
+                row.get("harness").and_then(serde_json::Value::as_str).map(str::to_owned),
+            )?;
+        }
+        self.annotate_rows(rows);
+        Ok(())
+    }
+}
+
+fn open_lock_file(path: &Path) -> Result<std::fs::File> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        return Ok(OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(path)?);
+    }
+    #[cfg(not(unix))]
+    Ok(OpenOptions::new().create(true).read(true).write(true).open(path)?)
 }
 
 /// Validates a short spoken handle. Whitespace is allowed between words, while slash and control
@@ -259,5 +348,19 @@ mod tests {
         assert!(validate_handle("---").is_err());
         assert!(validate_handle("  ").is_err());
         assert!(validate_handle("Biscuit 2").is_ok());
+    }
+
+    #[test]
+    fn every_inventory_row_gets_a_handle_from_its_stable_id() {
+        let mut registry = Registry::default();
+        let mut rows = serde_json::json!({
+            "peers": [
+                {"machineId": "vm-1", "name": "cmux-runner-pool-1"},
+                {"machineId": "vm-2", "name": "gcp-codex-lane-2"}
+            ]
+        });
+        registry.ensure_rows(&mut rows).unwrap();
+        assert!(rows["peers"].as_array().unwrap().iter().all(|row| row["handle"].is_string()));
+        assert_eq!(registry.get("vm-1").unwrap().canonical, "cmux-runner-pool-1");
     }
 }

@@ -1100,18 +1100,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 }
                 PeerCmd::Ls => {
                     let mut reply = client.request("_acpmux/peers", json!({})).await?;
-                    if let Ok(registry) = crate::machine_handle::Registry::load(
-                        &crate::machine_handle::Registry::default_path(),
-                    ) {
-                        registry.annotate_rows(&mut reply);
-                    }
+                    let path = crate::machine_handle::Registry::default_path();
+                    crate::machine_handle::Registry::update(&path, |registry| {
+                        registry.ensure_rows(&mut reply)
+                    })?;
                     reply
                 }
                 PeerCmd::Rename { machine, handle } => {
                     let path = crate::machine_handle::Registry::default_path();
-                    let mut registry = crate::machine_handle::Registry::load(&path)?;
-                    let entry = registry.rename_or_register(&machine, handle)?;
-                    registry.save(&path)?;
+                    let entry = crate::machine_handle::Registry::update(&path, |registry| {
+                        Ok(registry.rename(&machine, handle)?.clone())
+                    })?;
                     if json_out {
                         print_json(&json!({"machine": entry}));
                     } else {
