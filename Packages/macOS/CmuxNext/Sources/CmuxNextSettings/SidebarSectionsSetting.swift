@@ -67,6 +67,7 @@ public nonisolated enum SidebarSectionsSetting {
         result.groupHeaderUnreadCount = flag(root, groupHeaderUnreadCountPath, fallback: groupHeaderUnreadCountDefault, &diagnostics)
         result.groupHeaderBackground = ColumnLayoutSettings.choice(root, groupHeaderBackgroundPath, fallback: groupHeaderBackgroundDefault,
                                                                    diagnostics: &diagnostics)
+        result.groupBarShape = ColumnLayoutSettings.choice(root, groupBarShapePath, fallback: groupBarShapeDefault, diagnostics: &diagnostics)
         result.groupPalette = ColumnLayoutSettings.choice(root, groupPalettePath, fallback: groupPaletteDefault, diagnostics: &diagnostics)
         result.groupGradient = ColumnLayoutSettings.choice(root, groupGradientPath, fallback: groupGradientDefault, diagnostics: &diagnostics)
         let priority = SidebarPriorityViewSetting.self

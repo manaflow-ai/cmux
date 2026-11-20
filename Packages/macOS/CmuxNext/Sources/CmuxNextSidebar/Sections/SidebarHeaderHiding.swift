@@ -13,6 +13,6 @@ extension SidebarSectionsPreferences {
             || previous?.workspaceColorIndicator != workspaceColorIndicator
             || previous?.groupHeaderMemberCount != groupHeaderMemberCount || previous?.groupHeaderUnreadCount != groupHeaderUnreadCount
             || previous?.groupHeaderBackground != groupHeaderBackground || previous?.groupPalette != groupPalette
-            || previous?.groupGradient != groupGradient
+            || previous?.groupGradient != groupGradient || previous?.groupBarShape != groupBarShape
     }
 }
