@@ -3,7 +3,7 @@
 The rules every agent needs in every session here. Everything else lives on the page that owns it (the
 [table below](#where-the-rest-lives)); read the matching skill or page before changing an area.
 
-**Manaflow AI team members and their agents:** read the private [cmuxterm-hq CLAUDE.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/CLAUDE.md) and [AGENTS.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/AGENTS.md) before fleet or CI work. They are the entry point for fleet builds, CI routing, agent coordination, and landing rules. Start fleet work at [Fleet and CI: start here](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/FLEET-AND-CI.md). External contributors can ignore this block; those links return 404 for them.
+**Manaflow AI team members and their agents:** read the private [cmuxterm-hq CLAUDE.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/CLAUDE.md) and [AGENTS.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/AGENTS.md) before fleet or CI work. They are the entry point for fleet builds, CI routing, agent coordination, and landing rules. Start fleet work at [Fleet and CI: start here](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/FLEET-AND-CI.md). Before building a tool or calling yourself blocked, find the team's existing one in the [team-tools catalog](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/skills/agents/team-tools/SKILL.md) (exact commands, proven runs); with an hq checkout beside this one it is `../cmuxterm-hq/skills/agents/team-tools/SKILL.md`, and `scripts/install-team-tools.sh` there puts it in every session. External contributors can ignore this block; those links return 404 for them.
 
 ## The loop: use it first, then test
 
@@ -48,6 +48,10 @@ Full loop: the [cmux-hot-loop skill](skills/cmux-hot-loop/SKILL.md) and
   with a row in [cmux-next-ios/verify/parity-mac.md](cmux-next-ios/verify/parity-mac.md); the exceptions
   (Mac-only chrome, what [cmux-next-ios/SECURITY.md](cmux-next-ios/SECURITY.md) forbids a phone) are recorded
   there. A phone path that needs new trust policy goes to https://github.com/manaflow-ai/cmux/issues/13742 first.
+- **Dev builds are separate.** A tagged dev build (Mac and iPhone) never sees or changes another build's
+  backend data or local state, nor nightly's or stable's, and never reuses NIGHTLY's sign-in. The pre-push
+  gate's "Build spaces" and "Dev build state is its own" checks enforce it:
+  [dev build spaces](skills/cmux-dev-workflow/references/dev-build-spaces.md).
 - **Never add CI gates, perf-gate rows, CI jobs or CI tests** (Lawrence, 2026-10-23: "not to add gates/tests in
   CI, but you have to run them yourself"). Each fix still gets a regression test you run yourself on the fleet.
 - **Nightlies never use Blacksmith, run on one signing Mac, and nobody cancels them** (Lawrence, 2026-10-30
@@ -90,6 +94,7 @@ Read these before working in their scope; nested files may not load automaticall
 | Setup, tagged builds, scoped verification | [CONTRIBUTING.md](CONTRIBUTING.md#getting-started), [verification rules](skills/cmux-dev-workflow/references/verification-rules.md), [tagged builds](skills/cmux-dev-workflow/references/tagged-builds.md) |
 | Hooks, lints, pushing | [hooks and lints](skills/cmux-dev-workflow/references/hooks-and-lints.md), [pushing](skills/cmux-dev-workflow/references/pushing.md) |
 | Code rules, hot paths, crash classes, Swift namespaces | [code rules](docs/cmux-next/code-rules.md), [PATTERNS.md](plans/cmux-next/PATTERNS.md), [design-lessons.md](docs/cmux-next/design-lessons.md) |
+| Dev build backend data, local state and sign-in | [dev build spaces](skills/cmux-dev-workflow/references/dev-build-spaces.md) |
 | Finishing a task: dev build, simulator, iPhone hand-off | [finishing a task](skills/cmux-dev-workflow/references/finishing-a-task.md) |
 | Outside PRs, licenses, PR text, CI, review and merge | [landing](docs/ci/landing.md), [STYLE.md](STYLE.md), [risk tiers](docs/ci/risk-tiers.md) |
 | Typing paths, SwiftUI list/store boundaries, rendering, find layering, UTTypes or OS-specific bugs | [cmux-debugging](skills/cmux-debugging/SKILL.md) |

@@ -165,7 +165,7 @@ jobs:
     outputs:
       all_accepted: ${{ steps.poll.outputs.all_accepted }}
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
     timeout-minutes: 90
     concurrency:
       group: notarization-poll-${{ needs.preflight.outputs.channel }}-${{ needs.preflight.outputs.short_sha }}
@@ -499,7 +499,7 @@ jobs:
     outputs:
       decided: ${{ steps.poll.outputs.decided }}
       outer_variants: ${{ steps.poll.outputs.outer_variants }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
     # A stapled-app DMG is polled until Accepted or its 6 h fallback.
     timeout-minutes: 360
     environment: release
@@ -771,7 +771,7 @@ jobs:
     outputs:
       decided: ${{ steps.poll.outputs.decided }}
       outer_variants: ${{ steps.poll.outputs.outer_variants }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
     # A stapled-app DMG is polled until Accepted or its 6 h fallback.
     timeout-minutes: 360
     environment: release
@@ -1010,7 +1010,7 @@ jobs:
       actions: read
       contents: write
       issues: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
     concurrency:
       group: release-publish-${{ needs.preflight.outputs.release_tag }}
       cancel-in-progress: false
