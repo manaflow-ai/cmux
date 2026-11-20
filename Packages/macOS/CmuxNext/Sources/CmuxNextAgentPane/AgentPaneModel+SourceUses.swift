@@ -26,60 +26,38 @@ extension AgentPaneModel {
 }
 
 /// File-page reverse links consume only a context created by the originating agent pane.
-public protocol AgentSourceUsesPageHosting: AnyObject { var sourceUses: FilePageSourceContext? { get } }
-public protocol AgentSourceUsesPageContext: AnyObject {
-    var sourceContextID: String { get }
-    func matches(_ file: URL) -> Bool
-    func read(cursor: String?) async throws -> JSONValue
-    func reveal(reply: String, turn: String) -> Bool
-}
-
+@MainActor
 public enum AgentSourceUsesPageBridge {
-    public static func config(local: Bool, file: URL, source: (any AgentSourceUsesPageContext)?) -> [String: JSONValue] {
+    public static func config(local: Bool, file: URL, source: FilePageSourceContext?) -> [String: JSONValue] {
         guard local, let source, source.matches(file) else { return [:] }
-        return ["sourceUses": true, "sourceContext": .string(source.sourceContextID)]
-    }
-    @MainActor public static func call(op: String, params: JSONValue, gesture: Bool, markdown: Bool, local: Bool, file: URL?, canonical: (URL) -> URL, source: (any AgentSourceUsesPageContext)?, read: @escaping () -> Bool, stillCurrent: @escaping () -> Bool, cursor: String?) async throws -> JSONValue? {
-        guard markdown, op == "sourceUses" || op == "revealSourceUse" else { return nil }
-        guard let raw = params["path"]?.stringValue, raw.hasPrefix("/") else { throw PageError.invalidParams("path is not absolute") }
-        let requested = URL(fileURLWithPath: raw)
-        guard local, let file, canonical(requested) == file, let source, source.matches(file) else { throw PageError.invalidParams("no source context for this page's file") }
-        if op == "sourceUses" { let result = try await source.read(cursor: cursor); guard read(), stillCurrent() else { throw PageError.closed }; return result }
-        guard gesture else { throw PageError(code: "cmux.page.gesture", message: "opening a reply needs a user gesture") }
-        guard let reply = params["replyId"]?.stringValue, let turn = params["turnId"]?.stringValue, source.reveal(reply: reply, turn: turn) else { throw PageError.invalidParams("reply is not a recorded use of this page's file") }
-        return .object([:])
+        return ["sourceUses": true, "sourceContext": .string(source.id)]
     }
 
-    @MainActor public static func sourceUses(
-        local: Bool, file: URL?, requested: URL, matches: Bool, source: (any AgentSourceUsesPageContext)?,
-        read: @escaping () -> Bool, stillCurrent: @escaping () -> Bool, cursor: String?
-    ) async throws -> JSONValue {
-        guard local, matches, let file, let source, source.matches(file) else {
+    public static func call(op: String, params: JSONValue, gesture: Bool, markdown: Bool,
+                            local: Bool, file: URL?, canonical: (URL) -> URL,
+                            source: FilePageSourceContext?, isCurrent: () -> Bool) async throws -> JSONValue? {
+        let namespace = PageDescriptor.markdown.id
+        let reading = op == "\(namespace).sourceUses"
+        guard markdown, reading || op == "\(namespace).revealSourceUse" else { return nil }
+        if !reading, !gesture {
+            throw PageError(code: "cmux.page.gesture", message: "opening a reply needs a user gesture")
+        }
+        let requested = try FilePageRequest.path(params["path"])
+        guard local, let file, canonical(requested) == file, let source, source.matches(file) else {
             throw PageError.invalidParams("no source context for this page's file")
         }
-        let result = try await source.read(cursor: cursor)
-        guard read(), stillCurrent() else { throw PageError.closed }
-        _ = requested
-        return result
-    }
-
-    @MainActor public static func reveal(
-        gesture: Bool, local: Bool, file: URL?, requested: URL, matches: Bool, source: (any AgentSourceUsesPageContext)?,
-        reply: String?, turn: String?
-    ) throws -> JSONValue {
-        guard gesture else { throw PageError(code: "cmux.page.gesture", message: "opening a reply needs a user gesture") }
-        guard local, matches, let file, let source, source.matches(file), let reply, let turn else {
+        if reading {
+            let result = try await source.read(cursor: params["cursor"]?.stringValue)
+            guard isCurrent() else { throw PageError.closed }
+            return result
+        }
+        guard let reply = params["replyId"]?.stringValue, let turn = params["turnId"]?.stringValue,
+              source.reveal(reply: reply, turn: turn) else {
             throw PageError.invalidParams("reply is not a recorded use of this page's file")
         }
-        guard source.reveal(reply: reply, turn: turn) else {
-            throw PageError.invalidParams("reply is not a recorded use of this page's file")
-        }
-        _ = requested
         return .object([:])
     }
 }
-
-extension FilePageSourceContext: AgentSourceUsesPageContext { public var sourceContextID: String { id } }
 
 extension AgentPaneModel {
     /// Installs the checked file callbacks while keeping source provenance in the pane target.

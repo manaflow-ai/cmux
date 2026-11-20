@@ -165,9 +165,13 @@ final class FilePageService: InternalPageProvider {
         let reveal = kind == .editor ? position : nil
         let machineID = files.isLocal ? "local" : machine?.machineID ?? "local"
         let tab = Tab(file: real, userChose: userChose, readOnly: readOnly, recoveredText: files.isLocal ? recoveredText : nil,
-                      reveal: reveal, files: files, machine: machineID, sourceUses: files.isLocal ? sourceUses : nil)
+                      reveal: reveal, files: files, sourceUses: files.isLocal ? sourceUses : nil, machine: machineID)
         let key = show(in: pane, focus: focus, placed: placed, shownInPlace: shownInPlace, tab) { key in
-            self.file(key) == real && self.tabs[key]?.machine == machineID && (!noFollow || (self.tabs[key]?.files as? RemoteFilePageFiles)?.noFollow == true) && (sourceUses == nil || sourceUses.map { self.tabs[key]?.sourceUses = $0 } != nil)
+            self.file(key) == real && self.tabs[key]?.machine == machineID && (!noFollow || (self.tabs[key]?.files as? RemoteFilePageFiles)?.noFollow == true)
+        }
+        if let source = tab.sourceUses, let existing = tabs[key], existing.sourceUses !== source {
+            tabs[key]?.sourceUses = source
+            _ = existing.page?.send(command: "sourceContext", arguments: ["path": .string(real.path), "sourceUses": true, "sourceContext": .string(source.id)])
         }
         if let reveal { revealAt(reveal, in: key) }
         // The user opened a file a tab already shows (perhaps one an agent opened): it is theirs now.
@@ -551,7 +555,7 @@ final class FilePageTabHost: FilePageHosting {
         self.key = key
     }
 
-    var sourceUses: FilePageSourceContext? { service?.tabs[key]?.sourceUses }
+    var sourceUses: FilePageSourceContext? { service?.sourceUses(for: key) }
     var roots: FileWorkspaceRoots { service?.roots ?? FileWorkspaceRoots(folders: []) }
     var remoteImages: Bool { service?.look.remoteImages ?? false }
     func recents() -> JSONValue { service?.recents() ?? ["items": []] }
@@ -581,6 +585,8 @@ final class FilePageTabHost: FilePageHosting {
 }
 
 extension FilePageService {
+    fileprivate func sourceUses(for key: String) -> FilePageSourceContext? { tabs[key]?.sourceUses }
+
     fileprivate func servicesRecord(_ url: URL, from key: String) {
         guard tabs[key]?.files.isLocal ?? true else { return }
         services.viewers.recents.record(url, as: kind.recents)
