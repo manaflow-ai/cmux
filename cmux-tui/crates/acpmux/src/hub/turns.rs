@@ -261,7 +261,7 @@ impl Hub {
             let prior = opts.on_accepted.take();
             opts.on_accepted = Some(Box::new(move |mut v| {
                 if let Some(message) = message.as_ref() {
-                    record_message_context(&hub, &target_id, message);
+                    record_message_context(&hub, &target_id, message, &v);
                     name_message(&mut v, message);
                 }
                 if let Some(prior) = prior {
@@ -272,6 +272,11 @@ impl Hub {
         };
         let duplicate = |v: Value| {
             let mut answer = json!({"sessionId": session.id, "promptId": prompt_id, "duplicate": true, "queued": false, "turnId": v.pointer("/_meta/acpmux/turnId")});
+            if v.pointer("/_meta/acpmux/surgeHeld").and_then(Value::as_bool) == Some(true) {
+                answer["inbox"] = json!(true);
+                answer["surgeHeld"] = json!(true);
+                answer["threadId"] = v["_meta"]["acpmux"]["threadId"].clone();
+            }
             name_kept_message(&mut answer, session, &prompt_id);
             answer
         };
@@ -293,7 +298,18 @@ impl Hub {
                     // this copy then knows the prompt was taken. With none yet, the first run
                     // may still be held or refused, and only its answer says.
                     let (turn, queued) = pending_turn(session, &prompt_id).unzip();
-                    let mut notice = duplicate(json!({"_meta": {"acpmux": {"turnId": turn}}}));
+                    let previous = first
+                        .borrow()
+                        .as_ref()
+                        .and_then(|r| r.as_ref().ok())
+                        .filter(|v| {
+                            v.pointer("/_meta/acpmux/surgeHeld").and_then(Value::as_bool)
+                                == Some(true)
+                        })
+                        .cloned();
+                    let mut notice = duplicate(
+                        previous.unwrap_or_else(|| json!({"_meta": {"acpmux": {"turnId": turn}}})),
+                    );
                     if queued == Some(true) {
                         notice.set("queued", json!(true));
                     }
@@ -363,7 +379,7 @@ impl Hub {
             opts.on_accepted = Some(Box::new(move |mut v| {
                 accepted.store(true, Ordering::SeqCst);
                 if let Some(message) = message.as_ref() {
-                    record_message_context(&hub, &target_id, message);
+                    record_message_context(&hub, &target_id, message, &v);
                     keep_message(&kept_in, &kept_id, message);
                     name_message(&mut v, message);
                 }
@@ -374,10 +390,10 @@ impl Hub {
             let hub = self.clone();
             let target_id = session.id.clone();
             let (kept_in, kept_id) = (session.clone(), prompt_id.clone());
-            opts.on_accepted = Some(Box::new(move |_| {
+            opts.on_accepted = Some(Box::new(move |v| {
                 accepted.store(true, Ordering::SeqCst);
                 if let Some(message) = message.as_ref() {
-                    record_message_context(&hub, &target_id, message);
+                    record_message_context(&hub, &target_id, message, &v);
                     keep_message(&kept_in, &kept_id, message);
                 }
             }));
@@ -460,7 +476,7 @@ impl Hub {
         // Stop can arrive during dispatch setup, before session.turn is installed. Keep
         // that epoch through the write checks instead of sampling it after startup.
         let mut cancels = session.cancels.load(Ordering::SeqCst);
-        let prompt_id = opts.prompt_id.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+        let prompt_id = opts.prompt_id.take().unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         // A held agent message released, or a queued one sent now, may still name its uploads.
         let mut blocks = blocks;
         let web = opts.control == Control::Web;
@@ -493,7 +509,17 @@ impl Hub {
                 )
                 .map_err(|e| RpcError::invalid_params(e.to_string()))?;
         }
-        let mut on_accepted = self.with_host_pressure(opts.on_accepted);
+        if !opts.skip_surge_admission
+            && let Some(receipt) =
+                self.hold_surge_message(session, &prompt_id, client, &blocks, &opts, now_ms())?
+        {
+            self.schedule_surge_triage(session);
+            if let Some(accept) = opts.on_accepted.take() {
+                accept(receipt.clone());
+            }
+            return Ok(json!({"stopReason":"end_turn","_meta":{"acpmux":receipt}}));
+        }
+        let mut on_accepted = self.with_host_pressure(opts.on_accepted.take());
         // The prompts this one replaced (`supersede.rs`), named in its acceptance: set where it
         // is committed (queued, started, or steered in), never before a refusal.
         let supersede = opts.supersede.clone();
@@ -527,6 +553,69 @@ impl Hub {
                 }
             }
         };
+        // Typed work posts use the ordinary authenticated delivery transport, but their
+        // acceptance means durable forum storage, never a prompt or an agent's answer.
+        // Pair/protected holds and race checks above still apply. Storage starts no agent,
+        // needs no cold child, and does not grant a Web caller a local forum identity.
+        if control != Control::Web
+            && !crate::author::awaits_owner(opts.provenance.as_ref())
+            && !super::queue::closing(session)
+            && super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref())
+                .is_some()
+            // The person's message, a question, a blocker and a FIRE notice keep their
+            // immediate paths (`inbox_forum.rs`): storage starts no turn, so it never takes them.
+            && !super::inbox::forum_work::protected(&opts)
+            && let Some(wire) = super::inbox::forum_work::wire(&blocks)
+        {
+            if opts.send_now {
+                return Err(RpcError::invalid_params(
+                    "forum.requires_queued_delivery: typed work posts cannot use send-now or steer",
+                ));
+            }
+            let input: crate::forum::work::Input = serde_json::from_str(wire)
+                .map_err(|e| RpcError::invalid_params(format!("forum.bad_post: {e}")))?;
+            let provenance = opts.provenance.clone().unwrap_or(Value::Null);
+            let recipient = session.id.clone();
+            let hub = self.clone();
+            let post = input.clone();
+            let receipt = tokio::task::spawn_blocking(move || {
+                hub.forum().work_post(&recipient, post, provenance, now_ms())
+            })
+            .await
+            .map_err(|e| RpcError::internal(format!("forum storage task: {e}")))?
+            .map_err(|e| RpcError::internal(format!("forum storage: {e:#}")))?;
+            if receipt["duplicate"] != true {
+                self.append(session, "mux", "forum_work", receipt.clone());
+            }
+            // Stored first, then held once on the chat's held-messages row under the forum
+            // thread's topic, so triage routes it to the thread's owner (`inbox_forum.rs`).
+            // A failed hold refuses the send: its retry is a forum duplicate that holds it then.
+            let held = self.hold_forum_work(
+                session,
+                &prompt_id,
+                client,
+                &blocks,
+                &opts,
+                &input,
+                &receipt,
+                now_ms(),
+            )?;
+            if held.is_some() {
+                self.schedule_surge_triage(session);
+            }
+            let mut answer = json!({"sessionId": session.id, "promptId": prompt_id, "queued": false, "forum": receipt});
+            let mut meta = json!({"forum": receipt, "stored": true});
+            if let Some(held) = held.as_ref() {
+                for v in [&mut answer, &mut meta] {
+                    v["inbox"] = json!(true);
+                    v["surgeHeld"] = json!(true);
+                    v["threadId"] = held["threadId"].clone();
+                    v["heldId"] = held["promptId"].clone();
+                }
+            }
+            accept(answer);
+            return Ok(json!({"stopReason": "end_turn", "_meta": {"acpmux": meta}}));
+        }
         // A prompt that cannot reach any agent (none running, and its folder or harness is gone)
         // is refused before it is recorded (`cold_prompt_check`, after steer-only's refusal).
         let live = match session.child.lock().await.as_ref() {
@@ -1229,14 +1318,14 @@ impl Hub {
             Ok(_) => {
                 let e = stopped_before_prompt();
                 self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
-                self.forum_turn_end(session, &told, false);
+                self.forum_turn_end(session, &told, false).await;
                 Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
                 drop(guard);
                 return Err(e);
             }
             Err(e) => {
                 self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
-                self.forum_turn_end(session, &told, false);
+                self.forum_turn_end(session, &told, false).await;
                 Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
                 drop(guard);
                 return Err(e);
@@ -1257,7 +1346,7 @@ impl Hub {
             let e = RpcError::new(-32000, "the remote floor cancelled this turn before its prompt")
                 .with_data(json!({"reason": reason}));
             self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
-            self.forum_turn_end(session, &told, false);
+            self.forum_turn_end(session, &told, false).await;
             Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
             drop(guard);
             return Err(e);
@@ -1579,7 +1668,7 @@ impl Hub {
             self.start_carried(session, &child, &turn_id, c, guard.take_slot());
         }
         // A rule counts as told once the agent answered the prompt that carried it.
-        self.forum_turn_end(session, &told, result.is_ok());
+        self.forum_turn_end(session, &told, result.is_ok()).await;
         // A cut turn goes on by itself (`auto_resume.rs`), unless carried on or cache_compact's.
         let goes_on = !trigger && !super::idle::cache_compact::is_own(run.provenance.as_ref());
         let cut = match (&result, detached) {

@@ -23,9 +23,12 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+pub mod work;
 
 /// Longest post body, in bytes.
 pub const MAX_BODY_BYTES: usize = 8 * 1024;
@@ -130,6 +133,7 @@ pub struct Mark {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum Record {
     Post(Post),
+    Work(work::Event),
     #[serde(rename_all = "camelCase")]
     Delivered {
         post_id: String,
@@ -156,6 +160,7 @@ pub struct PostView {
 
 #[derive(Default)]
 struct State {
+    work: work::State,
     posts: Vec<Post>,
     /// Post id to its index in `posts`.
     index: BTreeMap<String, usize>,
@@ -170,6 +175,7 @@ struct State {
 impl State {
     fn apply(&mut self, record: Record) {
         match record {
+            Record::Work(event) => self.work.apply(event),
             Record::Post(post) => {
                 if self.index.contains_key(&post.id) {
                     return;
@@ -225,15 +231,44 @@ fn mark(marks: &mut Vec<Mark>, session_id: String, at: u64) -> bool {
     true
 }
 
+/// Compaction is paid for by at least this many newly appended bytes, then by the
+/// size of the previous snapshot. A full rewrite is never done for every notice.
+const COMPACT_MIN_BYTES: u64 = 1024 * 1024;
+/// Stop new work writes if maintenance cannot bound the journal. Existing rules stay intact.
+const WORK_JOURNAL_LIMIT_BYTES: u64 = 256 * 1024 * 1024;
+
 pub struct Forum {
     state: Mutex<State>,
     path: Option<PathBuf>,
+    journal_bytes: AtomicU64,
+    compact_after: AtomicU64,
+    persistent_error: Option<String>,
 }
 
 impl Forum {
     /// A log that lives in memory only (tests, a memory store).
     pub fn memory() -> Self {
-        Self { state: Mutex::new(State::default()), path: None }
+        Self {
+            state: Mutex::new(State::default()),
+            path: None,
+            journal_bytes: AtomicU64::new(0),
+            compact_after: AtomicU64::new(COMPACT_MIN_BYTES),
+            persistent_error: None,
+        }
+    }
+
+    /// A failed persistent open must never silently accept volatile work as stored.
+    pub(crate) fn unavailable(error: String) -> Self {
+        Self { persistent_error: Some(error), ..Self::memory() }
+    }
+
+    pub(super) fn ensure_available(&self) -> Result<()> {
+        if let Some(error) = &self.persistent_error {
+            anyhow::bail!(
+                "forum.storage_unavailable: {error}; repair the journal and reopen the daemon"
+            );
+        }
+        Ok(())
     }
 
     /// The log under `root` (`<ACPMUX_HOME>/forum`), replayed.
@@ -242,23 +277,43 @@ impl Forum {
             .with_context(|| format!("create private forum {}", root.display()))?;
         let path = root.join("posts.jsonl");
         let mut state = State::default();
+        let mut journal_bytes = 0;
         if path.exists() {
-            let mut bytes = Vec::new();
-            crate::config::private_state_file(&path)?
-                .read_to_end(&mut bytes)
-                .with_context(|| format!("read {}", path.display()))?;
-            // Line by line as bytes: a torn line (even mid-character) is skipped, never fatal.
-            for line in bytes.split(|&b| b == b'\n') {
-                if let Ok(record) = serde_json::from_slice::<Record>(line) {
+            let file = crate::config::private_state_file(&path)?;
+            journal_bytes = file.metadata()?.len();
+            let mut reader = BufReader::new(file);
+            let mut line = Vec::new();
+            let mut torn = false;
+            // Stream old journals too: replay never needs a second copy of the whole file.
+            loop {
+                line.clear();
+                if reader
+                    .read_until(b'\n', &mut line)
+                    .with_context(|| format!("read {}", path.display()))?
+                    == 0
+                {
+                    break;
+                }
+                torn = line.last() != Some(&b'\n');
+                if let Ok(record) = serde_json::from_slice::<Record>(&line) {
                     state.apply(record);
                 }
             }
-            // A torn last line gets its end, so the next record starts on its own line.
-            if bytes.last().is_some_and(|&c| c != b'\n') {
+            if torn {
                 append_private(&path)?.write_all(b"\n")?;
+                journal_bytes += 1;
             }
         }
-        Ok(Self { state: Mutex::new(state), path: Some(path) })
+        let forum = Self {
+            state: Mutex::new(state),
+            path: Some(path),
+            journal_bytes: AtomicU64::new(journal_bytes),
+            compact_after: AtomicU64::new(COMPACT_MIN_BYTES),
+            persistent_error: None,
+        };
+        // Upgrade an accumulated journal once on open; failures leave the original intact.
+        forum.compact_work(&forum.lock());
+        Ok(forum)
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
@@ -267,11 +322,20 @@ impl Forum {
 
     /// Appends `records` in one write; `durable` flushes them to disk first.
     fn write(&self, records: &[Record], durable: bool) -> Result<()> {
+        self.ensure_available()?;
         let Some(path) = &self.path else { return Ok(()) };
         let mut bytes = Vec::new();
         for record in records {
             serde_json::to_writer(&mut bytes, record)?;
             bytes.push(b'\n');
+        }
+        if records.iter().any(|r| matches!(r, Record::Work(_)))
+            && self.journal_bytes.load(Ordering::Relaxed).saturating_add(bytes.len() as u64)
+                > WORK_JOURNAL_LIMIT_BYTES
+        {
+            anyhow::bail!(
+                "forum.journal_limit: work journal reached 256 MiB; retry after atomic compaction succeeds (see the forum compaction error)"
+            );
         }
         let mut file = append_private(path).with_context(|| format!("open {}", path.display()))?;
         if let Err(e) = file.write_all(&bytes) {
@@ -282,7 +346,71 @@ impl Forum {
         if durable {
             file.sync_data()?;
         }
+        self.journal_bytes.fetch_add(bytes.len() as u64, Ordering::Relaxed);
         Ok(())
+    }
+
+    /// Optional maintenance under the forum lock, after the accepted record was applied.
+    /// A failed snapshot cannot turn an already durable post into a failed send.
+    fn compact_work(&self, state: &State) {
+        let Some(path) = &self.path else { return };
+        if state.work.is_empty() {
+            return;
+        }
+        let bytes = self.journal_bytes.load(Ordering::Relaxed);
+        if bytes < self.compact_after.load(Ordering::Relaxed)
+            && bytes < WORK_JOURNAL_LIMIT_BYTES - COMPACT_MIN_BYTES
+        {
+            return;
+        }
+        // A failed attempt is retried only after another bounded tranche, not every delta.
+        self.compact_after
+            .store(bytes.saturating_add(bytes.max(COMPACT_MIN_BYTES)), Ordering::Relaxed);
+        let snapshot = (|| -> Result<Vec<u8>> {
+            let mut out = Vec::new();
+            let mut record = |record: Record| -> Result<()> {
+                serde_json::to_writer(&mut out, &record)?;
+                out.push(b'\n');
+                Ok(())
+            };
+            // Keep every rules post, including superseded/proposed/retired ones, and every mark.
+            for post in &state.posts {
+                record(Record::Post(post.clone()))?;
+            }
+            for (post_id, marks) in &state.delivered {
+                for mark in marks {
+                    record(Record::Delivered {
+                        post_id: post_id.clone(),
+                        session_id: mark.session_id.clone(),
+                        at: mark.at,
+                    })?;
+                }
+            }
+            for (post_id, marks) in &state.acks {
+                for mark in marks {
+                    record(Record::Ack {
+                        post_id: post_id.clone(),
+                        session_id: mark.session_id.clone(),
+                        at: mark.at,
+                    })?;
+                }
+            }
+            for event in state.work.snapshots() {
+                record(Record::Work(event))?;
+            }
+            Ok(out)
+        })();
+        let result = snapshot.and_then(|snapshot| {
+            crate::config::write_atomic(path, &snapshot)?;
+            let len = snapshot.len() as u64;
+            self.journal_bytes.store(len, Ordering::Relaxed);
+            self.compact_after
+                .store(len.saturating_add(len.max(COMPACT_MIN_BYTES)), Ordering::Relaxed);
+            Ok(())
+        });
+        if let Err(error) = result {
+            tracing::warn!(%error, "forum journal compaction failed; accepted records remain in the journal");
+        }
     }
 
     /// The current announce of `key`, retired included.

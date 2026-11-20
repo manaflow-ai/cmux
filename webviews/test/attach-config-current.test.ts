@@ -36,7 +36,12 @@ const userEvent = (seq: number, text: string) => ({
 });
 
 /// A daemon whose session now runs `current`, with `history` (oldest first) as its replay.
-function fakeDaemon(current: string, history: Record<string, unknown>[], extra: Record<string, unknown> = {}) {
+function fakeDaemon(
+  current: string,
+  history: Record<string, unknown>[],
+  extra: Record<string, unknown> = {},
+  inbox?: { held: number; needYou: number; seq: number },
+) {
   let socket: any;
   const session = {
     sessionId: CHAT,
@@ -51,10 +56,18 @@ function fakeDaemon(current: string, history: Record<string, unknown>[], extra: 
     ...extra,
   };
   const lastSeq = () => Number(history.at(-1)?.seq ?? 0);
-  const answer = (method: string) => {
+  const answer = (method: string, params: Record<string, unknown>) => {
     switch (method) {
       case "initialize":
-        return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+        return {
+          protocolVersion: 1,
+          _meta: {
+            acpmux: { origin: "local", extensions: [], operations: [], features: inbox ? ["surgeInboxCounts"] : [] },
+          },
+        };
+      case "_acpmux/inbox_threads":
+        expect(params).toEqual({ sessionId: CHAT, countsOnly: true });
+        return { sessionId: CHAT, surge: inbox };
       case "_acpmux/watch":
         return { sessions: [session] };
       case "_acpmux/attach":
@@ -73,7 +86,7 @@ function fakeDaemon(current: string, history: Record<string, unknown>[], extra: 
         if (message.id !== undefined)
           queueMicrotask(() =>
             socket.onmessage?.({
-              data: JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }),
+              data: JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) }),
             }),
           );
       },
@@ -91,17 +104,32 @@ function fakeDaemon(current: string, history: Record<string, unknown>[], extra: 
 
 async function connect(daemon: ReturnType<typeof fakeDaemon>) {
   let summary: any;
-  await AcpmuxDirectClient.connect(
+  let surge: unknown;
+  const client = await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
-    (snapshot: any) => (summary = snapshot.summary),
+    (snapshot) => {
+      summary = snapshot.summary;
+      surge = snapshot.surge;
+    },
     undefined,
     daemon.open,
   );
   await new Promise((resolve) => setTimeout(resolve, 0));
   const shownEffort = () =>
     (summary?.configOptions ?? []).find((option: { id: string }) => option.id === "effort")?.currentValue;
-  return { shownEffort, shownGoal: () => summary?.goal };
+  return { client, shownEffort, shownGoal: () => summary?.goal, shownSurge: () => surge };
 }
+
+test("a reopened inbox restores a surge older than the attached page", async () => {
+  const archive = { held: 312, needYou: 4, seq: 512 };
+  const daemon = fakeDaemon("high", [userEvent(600, "A later turn")], {}, archive);
+  const { client, shownSurge } = await connect(daemon);
+  try {
+    expect(shownSurge()).toEqual(archive);
+  } finally {
+    client.dispose();
+  }
+});
 
 test("a reopened goal uses its persisted state, then follows completion and clearing", async () => {
   const goal = (status: string) => ({ objective: "Ship the fix", status });

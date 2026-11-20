@@ -17,8 +17,35 @@ use std::collections::BTreeMap;
 /// Completions running at once; more wait for a slot within their deadline.
 const SLOTS: usize = 4;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ModelFallback {
+    HarnessDefault,
+    SmallOnly,
+}
+
+impl ModelFallback {
+    fn permits(self, recipe: Recipe, model: Option<&String>) -> bool {
+        self == Self::HarnessDefault
+            || model.is_some_and(|id| {
+                // Claude's small-model selector also honors the provider's configured Haiku alias.
+                recipe == Recipe::Claude
+                    || model_pick::pick(recipe, std::slice::from_ref(id)).is_some()
+            })
+    }
+}
+
 static RUNNING: std::sync::LazyLock<tokio::sync::Semaphore> =
     std::sync::LazyLock::new(|| tokio::sync::Semaphore::new(SLOTS));
+
+#[test]
+fn surge_triage_never_uses_the_default_large_codex_model() {
+    let configured = "gpt-6.2-astra".to_owned();
+    let small = "gpt-5.4-mini".to_owned();
+    assert!(!ModelFallback::SmallOnly.permits(Recipe::Codex, None));
+    assert!(!ModelFallback::SmallOnly.permits(Recipe::Codex, Some(&configured)));
+    assert!(ModelFallback::SmallOnly.permits(Recipe::Codex, Some(&small)));
+    assert!(ModelFallback::HarnessDefault.permits(Recipe::Codex, Some(&configured)));
+}
 
 /// The model ids `_acpmux/models` offers harness `name` (with aliases);
 /// `refused`: only those its backend refused, else only those it did not.
@@ -127,7 +154,9 @@ impl Hub {
         let deadline = tokio::time::Instant::now() + req.timeout;
         let (name, profile) = self.completion_harness(req.harness.as_deref()).await?;
         let recipe = recipes::recipe_for(&name, &profile)?;
-        let reply = self.complete_with(&name, &profile, recipe, req, deadline).await;
+        let reply = self
+            .complete_with(&name, &profile, recipe, req, deadline, ModelFallback::HarnessDefault)
+            .await;
         let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         match &reply {
             Ok(v) => tracing::info!(
@@ -150,6 +179,7 @@ impl Hub {
         prompt: String,
         max_tokens: u32,
         timeout: std::time::Duration,
+        fallback: ModelFallback,
     ) -> Result<String, CompleteError> {
         let (name, profile) = {
             let cfg = self.config.read().await;
@@ -162,7 +192,7 @@ impl Hub {
         let recipe = recipes::recipe_for(&name, &profile)?;
         let req = Request { prompt, harness: Some(name.clone()), model: None, max_tokens, timeout };
         let deadline = tokio::time::Instant::now() + timeout;
-        let reply = self.complete_with(&name, &profile, recipe, &req, deadline).await?;
+        let reply = self.complete_with(&name, &profile, recipe, &req, deadline, fallback).await?;
         Ok(reply.get("text").and_then(Value::as_str).unwrap_or_default().to_owned())
     }
 
@@ -202,6 +232,7 @@ impl Hub {
         recipe: Recipe,
         req: &Request,
         deadline: tokio::time::Instant,
+        fallback: ModelFallback,
     ) -> Result<Value, CompleteError> {
         let failed = |detail: String| CompleteError::Failed { harness: name.to_owned(), detail };
         let timed_out = || CompleteError::Timeout {
@@ -222,6 +253,12 @@ impl Hub {
             Some(model) => Some(model.clone()),
             None => self.small_model(name, recipe, &env, &codex).await,
         };
+        if !fallback.permits(recipe, model.as_ref()) {
+            return Err(CompleteError::Unsupported {
+                harness: name.to_owned(),
+                why: "no small model is available for inbox triage".into(),
+            });
+        }
         // The CLIs need the login environment (PATH, API keys).
         tokio::time::timeout_at(deadline, self.wait_startup()).await.map_err(|_| timed_out())?;
         let (program, prefix) = recipes::program(recipe, profile, &env, &crate::config::which)

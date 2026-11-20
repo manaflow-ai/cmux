@@ -607,6 +607,16 @@ pub mod method {
     pub const MUX_INBOX_THREAD: &str = "_acpmux/inbox_thread";
     /// An answer in an inbox thread, to its sender's inbox: `{sessionId, threadId, text}`.
     pub const MUX_INBOX_REPLY: &str = "_acpmux/inbox_reply";
+    /// Bind a surge thread to its resolved recipient session: `{sessionId, threadId}`.
+    pub const MUX_INBOX_SUBSCRIPTION_SET: &str = "_acpmux/inbox_subscription_set";
+    /// Remove a surge thread binding: `{sessionId, threadId}`.
+    pub const MUX_INBOX_SUBSCRIPTION_REMOVE: &str = "_acpmux/inbox_subscription_remove";
+    /// List active surge thread bindings: `{sessionId}`.
+    pub const MUX_INBOX_SUBSCRIPTIONS: &str = "_acpmux/inbox_subscriptions";
+    /// Grant a recipient's thread to an already self-subscribed owner: `{sessionId, threadId, ownerSessionId}`.
+    pub const MUX_INBOX_SUBSCRIPTION_GRANT: &str = "_acpmux/inbox_subscription_grant";
+    /// Revoke a recipient's thread grant: `{sessionId, threadId, ownerSessionId}`.
+    pub const MUX_INBOX_SUBSCRIPTION_REVOKE: &str = "_acpmux/inbox_subscription_revoke";
     pub const MUX_TAG: &str = "_acpmux/tag";
     /// Ends a session's link to the session that started it (`acpmux session detach`,
     /// `hub/lane_reports.rs`): `{sessionId}` -> `{sessionId, detached}`. Its turns no longer go
@@ -852,6 +862,9 @@ pub mod method {
     pub const MUX_FORUM_ANNOUNCE: &str = "_acpmux/forum/announce";
     pub const MUX_FORUM_RULES: &str = "_acpmux/forum/rules";
     pub const MUX_FORUM_ACK: &str = "_acpmux/forum/ack";
+    pub const MUX_FORUM_THREADS: &str = "_acpmux/forum/threads";
+    pub const MUX_FORUM_POST: &str = "_acpmux/forum/post";
+    pub const MUX_FORUM_CLAIM: &str = "_acpmux/forum/claim";
     /// The background-process registry (`hub/processes.rs`): list a chat's
     /// (or every chat's) background processes, read one's output, and stop
     /// one.

@@ -239,9 +239,12 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_RACE_LIST, Request),
         untyped(method::MUX_RACE_START, Request),
         untyped(method::MUX_RACE_STATS, Request),
-        // Forum announcements (`server/forum.rs`).
+        // Forum announcements and work threads (`server/forum.rs`).
         untyped(method::MUX_FORUM_ACK, Request),
         untyped(method::MUX_FORUM_ANNOUNCE, Request),
+        untyped(method::MUX_FORUM_CLAIM, Request),
+        untyped(method::MUX_FORUM_POST, Request),
+        untyped(method::MUX_FORUM_THREADS, Request),
         keyed::<params::ForumRulesParams>(method::MUX_FORUM_RULES, Request),
         keyed::<params::SetToolsParams>(method::MUX_SET_TOOLS, Request),
         untyped(method::MUX_SET_DIRECTORIES, Request),
@@ -384,6 +387,20 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_INBOX_THREADS, Request),
         keyed::<params::InboxThreadParams>(method::MUX_INBOX_THREAD, Request),
         untyped(method::MUX_INBOX_REPLY, Request),
+        keyed::<params::InboxSubscriptionSetParams>(method::MUX_INBOX_SUBSCRIPTION_SET, Request),
+        keyed::<params::InboxSubscriptionRemoveParams>(
+            method::MUX_INBOX_SUBSCRIPTION_REMOVE,
+            Request,
+        ),
+        keyed::<params::InboxSubscriptionsParams>(method::MUX_INBOX_SUBSCRIPTIONS, Request),
+        keyed::<params::InboxSubscriptionGrantParams>(
+            method::MUX_INBOX_SUBSCRIPTION_GRANT,
+            Request,
+        ),
+        keyed::<params::InboxSubscriptionRevokeParams>(
+            method::MUX_INBOX_SUBSCRIPTION_REVOKE,
+            Request,
+        ),
         untyped(method::MUX_PERSON_ENROLL, Request),
         untyped(method::MUX_COMPUTER_USE_CALL, Request),
         untyped(method::MUX_COMPUTER_USE_MACHINES, Request),

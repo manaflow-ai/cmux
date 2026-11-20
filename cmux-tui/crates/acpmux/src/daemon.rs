@@ -631,9 +631,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // (`hub/clone_boot.rs`); read before any log is.
     let cloned = hub.take_clone_marker(&home()).is_some();
     // The forum log (`forum.rs`): on disk unless the store is in memory; a
-    // log that cannot open leaves the posts in memory.
+    // failed persistent open refuses writes rather than acknowledging volatile posts.
     if !memory_store && let Err(e) = hub.open_forum(&home().join("forum")) {
-        tracing::warn!("forum log unavailable, keeping posts in memory: {e:#}");
+        tracing::warn!("forum log unavailable, forum writes refused: {e:#}");
     }
     // Messages `send --no-wait` handed over (`hub/outbox.rs`): saved beside the sessions, and
     // what a restart left undelivered goes on.

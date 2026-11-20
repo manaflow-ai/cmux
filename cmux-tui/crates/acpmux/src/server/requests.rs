@@ -1357,7 +1357,7 @@ async fn dispatch_request_with_identity(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", crate::config::chief_builtins::BRAIN_PRESETS_FEATURE, "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, crate::hub::release_to_watch::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::sender_token::FEATURE, crate::hub::register::AUTO_FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE], "trustGate": true}}
+                "features": ["surgeInboxCounts", "promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", crate::config::chief_builtins::BRAIN_PRESETS_FEATURE, "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, crate::hub::release_to_watch::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::sender_token::FEATURE, crate::hub::register::AUTO_FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE], "trustGate": true}}
             });
             // This link carries the v2 list stream (`link_v2.rs`): the one change `peers` makes
             // to what v1 sends a link.
@@ -2217,6 +2217,7 @@ async fn dispatch_request_with_identity(
                 .map_err(|e| RpcError::invalid_params(e.to_string()))?;
             }
             let mut opts = crate::hub::PromptOptions {
+                skip_surge_admission: false,
                 race_guard: None,
                 cloud_turn,
                 prompt_id,
@@ -3158,6 +3159,57 @@ async fn dispatch_request_with_identity(
                 json!({"abandoned": s.abandon_prepared(prompt_id, generation, attempt_id, &conn.id)}),
             )
         }
+        method::MUX_INBOX_SUBSCRIPTION_SET
+        | method::MUX_INBOX_SUBSCRIPTION_REMOVE
+        | method::MUX_INBOX_SUBSCRIPTIONS
+        | method::MUX_INBOX_SUBSCRIPTION_GRANT
+        | method::MUX_INBOX_SUBSCRIPTION_REVOKE => {
+            let s = hub.resolve(session_key(&params)?)?;
+            // A binding belongs to the resolved recipient.  The person's connection may manage
+            // it, or the recipient's own agent may manage its own threads; no other session may
+            // claim an owner by putting a different id in the request.
+            let person = conn.is_person() || (conn.origin == Origin::Local && !conn.agent_side());
+            if !person && conn.caller() != Some(s.id.as_str()) {
+                let other = RpcError::invalid_params(
+                    "inbox_subscription.other_session: only the person or the chat's own agent manages its bindings",
+                )
+                .with_data(json!({"reason": "inbox_subscription.other_session"}));
+                return Err(conn.refusal("managing another chat's inbox subscription", other));
+            }
+            // Include records still held during a deferred append and journal records after a
+            // restart, using the same session-scoped load path as the inbox itself.
+            hub.session_log(&s).await;
+            let thread = || {
+                params
+                    .get("threadId")
+                    .and_then(Value::as_str)
+                    .filter(|v| !v.is_empty())
+                    .ok_or_else(|| RpcError::invalid_params("threadId is required"))
+            };
+            let owner = || {
+                let owner_id = params
+                    .get("ownerSessionId")
+                    .and_then(Value::as_str)
+                    .filter(|v| !v.is_empty())
+                    .ok_or_else(|| RpcError::invalid_params("ownerSessionId is required"))?;
+                hub.resolve(owner_id)
+            };
+            match m {
+                method::MUX_INBOX_SUBSCRIPTION_SET => hub.set_inbox_subscription(&s, thread()?),
+                method::MUX_INBOX_SUBSCRIPTION_REMOVE => {
+                    hub.remove_inbox_subscription(&s, thread()?)
+                }
+                method::MUX_INBOX_SUBSCRIPTIONS => hub.inbox_subscriptions(&s),
+                method::MUX_INBOX_SUBSCRIPTION_GRANT => {
+                    let owner = owner()?;
+                    hub.grant_inbox_subscription(&s, thread()?, &owner)
+                }
+                _ => {
+                    let owner = owner()?;
+                    hub.revoke_inbox_subscription(&s, thread()?, &owner)
+                }
+            }
+        }
         method::MUX_INBOX_THREADS | method::MUX_INBOX_THREAD | method::MUX_INBOX_REPLY => {
             let s = hub.resolve(session_key(&params)?)?;
             // The person's, or the chat's own agent's: no other session reads or answers for it.
@@ -3178,6 +3230,20 @@ async fn dispatch_request_with_identity(
                 text_of("threadId").ok_or_else(|| RpcError::invalid_params("threadId is required"))
             };
             match m {
+                method::MUX_INBOX_THREADS if params.get("search").is_some() => {
+                    let query = text_of("search")
+                        .ok_or_else(|| RpcError::invalid_params("search needs text"))?;
+                    let needle = crate::chats::search::Needle::parse(query)
+                        .map_err(RpcError::invalid_params)?;
+                    let before = params.get("before").and_then(Value::as_u64);
+                    let hub = Arc::clone(hub);
+                    tokio::task::spawn_blocking(move || hub.search_held_inbox(&s, &needle, before))
+                        .await
+                        .map_err(|e| RpcError::internal(format!("inbox search stopped: {e}")))?
+                }
+                method::MUX_INBOX_THREADS if params["countsOnly"] == true => {
+                    Ok(json!({"sessionId": s.id, "surge": hub.surge_snapshot(&s)}))
+                }
                 method::MUX_INBOX_THREADS => Ok(hub.inbox_threads(&s)),
                 method::MUX_INBOX_THREAD => {
                     let mark = params.get("markRead").and_then(Value::as_bool).unwrap_or(false);
