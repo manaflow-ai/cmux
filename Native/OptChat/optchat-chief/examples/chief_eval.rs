@@ -282,20 +282,23 @@ impl CompactModel for ApiCompactor {
 struct ApiDream(Model, String);
 
 impl optchat_chief::dream::DreamModel for ApiDream {
-    fn ask(&self, system: &str, prompt: &str) -> Result<String, String> {
+    fn ask(&self, system: &str, prompt: &str) -> Result<(String, Option<f64>), String> {
         let body = json!({
             "model": self.1, "max_tokens": 32000,
             "system": [{"type": "text", "text": CLAUDE_CODE}, {"type": "text", "text": system}],
             "messages": [{"role": "user", "content": prompt}],
         });
         let v = send_retry(&self.0, &body)?;
-        Ok(v["content"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|b| b["type"] == "text")
-            .filter_map(|b| b["text"].as_str())
-            .collect())
+        Ok((
+            v["content"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|b| b["type"] == "text")
+                .filter_map(|b| b["text"].as_str())
+                .collect(),
+            None,
+        ))
     }
 }
 
@@ -689,6 +692,45 @@ impl CaseRun<'_> {
                     "outcome: done. waking later; the turn ends now".into(),
                     false,
                 )
+            }
+            "nothing" if !self.opts.ledger_pre && self.open.lock().unwrap().is_some() => (
+                "nothing: refused, the user's message has no reply yet; reply first".into(),
+                true,
+            ),
+            "nothing" => {
+                *self.ended.lock().unwrap() = true;
+                (
+                    "outcome: done. nothing is posted; the turn ends now".into(),
+                    false,
+                )
+            }
+            "ask" => {
+                posted.push(format!(
+                    "**Needs you:** {}",
+                    input["question"].as_str().unwrap_or("")
+                ));
+                *self.open.lock().unwrap() = None;
+                *self.ended.lock().unwrap() = true;
+                ("outcome: done. sent; the turn ends now".into(), false)
+            }
+            "follow_up" => {
+                let now = self
+                    .turn_time()
+                    .unwrap_or_else(|| chrono::Local::now().fixed_offset());
+                match optchat_chief::check_in::follow_up_due(
+                    now,
+                    input["at"].as_str(),
+                    input["in"].as_str(),
+                ) {
+                    Ok(t) => (
+                        format!(
+                            "outcome: done. follow-up set for {}; your turn goes on",
+                            t.format("%a %Y-%m-%d %H:%M")
+                        ),
+                        false,
+                    ),
+                    Err(e) => (e, true),
+                }
             }
             "stop" => {
                 *self.ended.lock().unwrap() = true;
