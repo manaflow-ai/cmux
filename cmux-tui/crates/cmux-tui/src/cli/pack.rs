@@ -32,7 +32,7 @@ use super::{GlobalArgs, OutputMode};
 pub(super) const USAGE: &str = "\
 cmux pack: a whole look (tokens, colors, backgrounds, motion, tabs, fonts, slots) as one folder.
   cmux pack check DIR                       what the pack would lose and why; exit 1 when anything
-  cmux pack use DIR|NAME [--watch]          apply it (NAME: a folder in ~/.config/cmux/packs);
+  cmux pack use DIR|NAME [--watch]          apply it (NAME: a folder in packs/ beside settings);
                                             --watch reapplies it on every save until Ctrl-C
   cmux pack edit KEY VALUE                  one look value over the applied pack, as one undo step
   cmux pack undo | redo                     one whole pack back or forward
