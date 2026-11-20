@@ -2663,6 +2663,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-174
@@ -4072,6 +4073,7 @@ jobs:
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-226
@@ -4606,6 +4608,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-253
@@ -5051,6 +5054,7 @@ jobs:
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-273
@@ -6080,6 +6084,7 @@ jobs:
         if: ${{ (inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-316
@@ -6698,6 +6703,7 @@ jobs:
         if: steps.dev-product.outputs.hit != 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
       - name: Give this job its own bun
         if: steps.dev-product.outputs.hit != 'true'

@@ -168,6 +168,7 @@ jobs:
         if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: ${{ steps.bun-pin.outputs.version }}
 
       - name: Set up Node

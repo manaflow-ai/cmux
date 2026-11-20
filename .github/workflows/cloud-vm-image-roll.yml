@@ -137,6 +137,7 @@ jobs:
           fi
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
       - name: Plan the roll
         id: plan
@@ -214,6 +215,7 @@ jobs:
           filter: blob:none
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
       - name: Write the roll commit's message
         id: message

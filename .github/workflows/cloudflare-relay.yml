@@ -298,6 +298,7 @@ jobs:
           cache-dependency-path: cmux-tui/relays/cloudflare-do/package-lock.json
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
       - name: Set up pinned Rust toolchain
         if: needs.plan.outputs.mode != 'version'
@@ -456,6 +457,7 @@ jobs:
           path: ${{ runner.temp }}/journey-cmux
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
       - name: Cloud journey (staging), against the staging relay
         env:
@@ -502,6 +504,7 @@ jobs:
           path: ${{ runner.temp }}/journey-cmux
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
       - name: Check the production journey account
         env:
@@ -607,6 +610,7 @@ jobs:
           cache-dependency-path: cmux-tui/relays/cloudflare-do/package-lock.json
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
       - name: Set up pinned Rust toolchain
         if: needs.plan.outputs.mode != 'version'
@@ -709,6 +713,7 @@ jobs:
           path: ${{ runner.temp }}/cloud-journey
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
       - name: Cloud journey after the deploy
         id: after

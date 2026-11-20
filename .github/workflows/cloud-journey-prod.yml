@@ -133,6 +133,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         if: env.SELECTED == 'true'
         with:
+          no-cache: true
           bun-version: "1.4.4"
       - name: Cloud journey (prod, ${{ matrix.model }} model)
         id: journey
@@ -273,6 +274,7 @@ jobs:
           echo "path=$PWD/target/debug/cmux-tui" >> "$GITHUB_OUTPUT"
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
       - name: Mint the private HQ preclaim store token
         id: hq-preclaim-token

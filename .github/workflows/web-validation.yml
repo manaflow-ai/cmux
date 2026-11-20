@@ -104,6 +104,7 @@ jobs:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
       - run: bun install --frozen-lockfile
       - name: Vercel production build
@@ -134,6 +135,7 @@ jobs:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
@@ -177,6 +179,7 @@ jobs:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
       - run: bun install --frozen-lockfile
       - name: Apply migrations, including an idempotent second pass

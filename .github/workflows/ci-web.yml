@@ -130,6 +130,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
 
       - name: Cache Bun package cache
@@ -182,6 +183,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
 
       - name: Cache Bun package cache
@@ -227,6 +229,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
 
       - name: Cache Bun package cache
@@ -283,6 +286,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
 
       - name: Cache Bun package cache
@@ -365,6 +369,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
 
       - name: Cache Bun package cache
@@ -502,6 +507,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
 
       # The source build installs webviews dependencies before the test suite;
@@ -889,6 +895,7 @@ jobs:
         if: ${{ steps.pick.outputs.files != '0' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
+          no-cache: true
           bun-version: "1.4.4"
 
       - name: Use the base's bun
@@ -1096,6 +1103,7 @@ jobs:
         if: ${{ steps.head.outputs.reds != '0' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
+          no-cache: true
           bun-version: "1.4.4"
 
       # The base replays its reds with the bun its own webviews/package.json declares,
@@ -1367,6 +1375,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
 
       - name: Cache Bun package cache
@@ -1590,6 +1599,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
 
       - name: Cache Bun package cache
@@ -1668,6 +1678,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
 
       - name: Cache Bun package cache

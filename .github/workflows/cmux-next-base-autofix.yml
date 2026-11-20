@@ -414,6 +414,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
 
       - name: Give this job its own bun
@@ -556,6 +557,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
 
       # `vp` runs on Node and needs ^22.18 or ^24.11.
@@ -755,6 +757,7 @@ jobs:
         if: steps.areas.outputs.shortcuts == 'true' || steps.areas.outputs.apphost == 'true' || (needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.exports || needs.action-exports.outputs.exports) == 'true' || steps.areas.outputs.cloud == 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: true
           bun-version: "1.4.4"
 
       # Required for the strict parity check before every automatic push, regardless of repair area.
