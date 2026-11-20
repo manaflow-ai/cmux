@@ -71,13 +71,22 @@ public enum SettingsDeviceRows {
     /// recently active build Workspaces lists (``MacRoster``, per team, as
     /// each team's Workspaces groups them): Settings still lists them, so each
     /// can be removed, and says what they are. Every row is the caller's own.
-    public static func otherBuilds(_ macs: [SettingsDevice]) -> Set<String> {
-        Dictionary(grouping: macs, by: { $0.teamID ?? "" }).values.reduce(into: Set<String>()) { hidden, team in
+    /// `picked`: each team's picked Mac (``Team/pickedMacID``, by team id), listed for its computer as
+    /// Workspaces lists it, so Settings calls the other build the other build.
+    public static func otherBuilds(_ macs: [SettingsDevice], picked: [String: String] = [:]) -> Set<String> {
+        Dictionary(grouping: macs, by: { $0.teamID ?? "" }).reduce(into: Set<String>()) { hidden, entry in
+            let (teamID, team) = entry
             let devices = team.map {
                 MacDevice(id: $0.id, name: $0.name, isOnline: $0.online == true, lastSeenAt: $0.lastSeenAt, machineID: $0.machineID)
             }
-            hidden.formUnion(MacRoster(devices).hiddenIDs)
+            let pick = picked[teamID].flatMap { id in team.first { $0.ids.contains(id) }?.id }
+            hidden.formUnion(MacRoster(devices, preferring: pick).hiddenIDs)
         }
+    }
+
+    /// Each team's picked Mac by team id (``Team/pickedMacID``), for ``otherBuilds(_:picked:)``.
+    public static func picks(_ teams: [Team]) -> [String: String] {
+        teams.reduce(into: [:]) { out, team in if let pick = team.pickedMacID { out[team.id] = pick } }
     }
 
     /// The phone rows (only a device service lists phones).
