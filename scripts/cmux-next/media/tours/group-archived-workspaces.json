@@ -1,0 +1,66 @@
+{
+  "title": "Archived workspace placement: within groups and global Archive",
+  "settings": {
+    "sidebar.archivedPlacement": "withinGroups"
+  },
+  "steps": [
+    {
+      "title": "Within groups: mixed, all archived, nested and empty groups; folds closed",
+      "rpc": {
+        "method": "debug.sidebar_nested_fixture",
+        "params": {
+          "scenario": "archived",
+          "openArchived": false
+        }
+      }
+    },
+    {
+      "title": "Expanded archives stay under their groups; ungrouped archive remains global",
+      "rpc": {
+        "method": "debug.sidebar_nested_fixture",
+        "params": {
+          "scenario": "archived",
+          "openArchived": true
+        }
+      }
+    },
+    {
+      "title": "Collapse archives again",
+      "rpc": {
+        "method": "debug.sidebar_nested_fixture",
+        "params": {
+          "scenario": "archived",
+          "openArchived": false
+        }
+      }
+    },
+    {
+      "title": "Global Archive alternative",
+      "cmux": [
+        "settings",
+        "set",
+        "sidebar.archivedPlacement",
+        "archiveSection"
+      ]
+    },
+    {
+      "title": "Global Archive expanded",
+      "rpc": {
+        "method": "debug.sidebar_nested_fixture",
+        "params": {
+          "scenario": "archived",
+          "openArchived": true
+        }
+      }
+    },
+    {
+      "title": "Switch back: group expansion remembered",
+      "cmux": [
+        "settings",
+        "set",
+        "sidebar.archivedPlacement",
+        "withinGroups"
+      ]
+    }
+  ]
+}

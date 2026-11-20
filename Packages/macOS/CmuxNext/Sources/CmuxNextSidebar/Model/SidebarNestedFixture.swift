@@ -38,6 +38,8 @@ public nonisolated struct SidebarNestedFixture: Sendable {
         /// beside a group of one differently named member and a group of two (Leo 2026-10-29: "why is there all
         /// this weird stuff at the bottom of the sidebar").
         case soleMember
+        /// Mixed, entirely archived, empty and nested groups for archive placement captures.
+        case archived
     }
 
     /// The state this fixture captures.
@@ -103,6 +105,8 @@ public nonisolated struct SidebarNestedFixture: Sendable {
             nodes = Self.needsYouRows.map(SidebarNode.workspace)
         case .soleMember:
             nodes = Self.soleMembers
+        case .archived:
+            nodes = Self.archiveGroups
         }
         sections = [SidebarSection(kind: .machine(machine), nodes: nodes)]
     }
