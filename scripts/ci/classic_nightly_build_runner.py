@@ -166,13 +166,13 @@ def blacksmith_route(snapshot: Mapping[str, Any] | None, now: dt.datetime,
     fresh = isinstance(snapshot, Mapping) and isinstance(snapshot.get("pools"), Mapping)
     member = live_member(snapshot if fresh else evidence, now, pools)
     if member:
-        return member, f"every Blacksmith macOS 26 label shows dead; `{member}`, RUNNER_POOLS' live {POOL} member"
+        return member, f"every Blacksmith macOS 26 label is taking a breather; `{member}`, RUNNER_POOLS' live {POOL} member"
     order = candidates(first)
     dead = dead_labels(snapshot if fresh else evidence, now, pools)
     if not fresh:
         label = next(label for label in order if label not in dead)
         return label, f"no fresh pool snapshot, so `{label}`" + (
-            f", past dead `{order[0]}`" if label != order[0] else "")
+            f", past resting `{order[0]}`" if label != order[0] else "")
     pools = snapshot["pools"]
     try:
         generated = dt.datetime.fromisoformat(str(snapshot.get("generated_at")).replace("Z", "+00:00"))
@@ -194,9 +194,9 @@ def blacksmith_route(snapshot: Mapping[str, Any] | None, now: dt.datetime,
     if not moving:
         # A busy label still starts jobs; a dead one starts none.
         label = SMALL if SMALL not in dead else next(label for label in order if label not in dead)
-        return label, (f"every Blacksmith macOS 26 label is stalled; `{label}` "
-                       + ("has the most slots" if label == SMALL else f"still starts jobs (`{SMALL}` is dead)"))
-    return moving[0], f"`{moving[0]}`" + (f", past {'dead' if stuck[0] in dead else 'stalled'} `{stuck[0]}`"
+        return label, (f"every Blacksmith macOS 26 label is busy right now; `{label}` "
+                       + ("has the most slots" if label == SMALL else f"still starts jobs (`{SMALL}` is resting)"))
+    return moving[0], f"`{moving[0]}`" + (f", past {'resting' if stuck[0] in dead else 'busy'} `{stuck[0]}`"
                                           if moving[0] != order[0] else "")
 
 

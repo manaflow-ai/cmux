@@ -1018,10 +1018,10 @@ def signing_stall(jobs: Sequence[Mapping[str, Any]], now: dt.datetime,
                   if job.get("status") != "completed" and not any(job is other for other in stalled))
     if busy:
         return Look("watch", f"{names} queued on {label} with no runner past the {SIGN_STALL_SECONDS}s Blacksmith "
-                             f"stall time, but {', '.join(busy)} not finished; cancelling the run would lose that "
+                             f"wait time, but {', '.join(busy)} not finished; cancelling the run would lose that "
                              "work, so it is not rescued on this look", waiting=True)
     return Look("stalled", f"{names} queued on {label} with no runner past the {SIGN_STALL_SECONDS}s Blacksmith "
-                           "stall time, and every other job of the run has finished")
+                           "wait time, and every other job of the run has finished")
 
 
 def gated_signing_stall(jobs: Sequence[Mapping[str, Any]], now: dt.datetime, first_seen: Mapping[Any, dt.datetime],
