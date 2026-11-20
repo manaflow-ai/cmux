@@ -14,6 +14,14 @@ import textwrap
 import unittest
 from pathlib import Path
 
+import importlib.util as _git_fixture_importlib
+
+# tests/git_fixture_env.py turns off git's background maintenance in temp repos.
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", Path(__file__).resolve().parents[3] / "tests" / "git_fixture_env.py")
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+
 ROOT = Path(__file__).resolve().parents[3]
 TOOL = ROOT / "scripts/cmux-next/swap-binary.sh"
 SIDE = ROOT / "scripts/cmux-next/side-instance.sh"
@@ -147,7 +155,8 @@ class SwapBinaryTests(unittest.TestCase):
     def test_check_refuses_a_diff_that_touches_the_project(self):
         repo = self.tmp / "repo"
         repo.mkdir()
-        git = lambda *a: subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, text=True).stdout.strip()
+        git = lambda *a: subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, text=True,
+                                        env=git_fixture_env.fixture_env()).stdout.strip()
         git("init", "-q")
         git("config", "user.email", "t@example.com"); git("config", "user.name", "t")
         (repo / "App").mkdir(); (repo / "App/main.swift").write_text("1")
