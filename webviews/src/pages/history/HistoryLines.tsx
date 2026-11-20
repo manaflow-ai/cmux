@@ -2,7 +2,7 @@
 // Virtual), with the selected row always among them, so the page's 1,000 entries (PAGE_LIMIT) cost a
 // screenful of rows to open, filter or search, not a thousand. A short list keeps its plain sections
 // (HistoryPage): the cost only matters past a screenful or two.
-import { useLayoutEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useLayoutEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import type { HistoryGroup } from "./model";
 import type { HistoryEntry } from "./types";
@@ -21,15 +21,15 @@ export function HistoryLines({
   selection,
   title,
   row,
-  onKeyDown,
+  scroller,
 }: {
   groups: readonly HistoryGroup[];
   selection: string | undefined;
   title(group: HistoryGroup): ReactNode;
   row(entry: HistoryEntry): ReactNode;
-  onKeyDown(event: KeyboardEvent): void;
+  /** The scrolling element: HistoryPage owns it with the listbox role and its keys. */
+  scroller: RefObject<HTMLDivElement | null>;
 }) {
-  const scroller = useRef<HTMLDivElement>(null);
   const lines = useMemo(
     () =>
       groups.flatMap((group): Line[] => [
@@ -63,32 +63,21 @@ export function HistoryLines({
     virtualizer.scrollToIndex(selected, { align: "auto" });
   });
   return (
-    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-    <div
-      ref={scroller}
-      id="history-list"
-      className="history-list"
-      role="listbox"
-      tabIndex={0}
-      onKeyDown={onKeyDown}
-      data-virtual=""
-    >
-      <div className="history-lines" style={{ height: virtualizer.getTotalSize() }}>
-        {virtualizer.getVirtualItems().map((item) => {
-          const line = lines[item.index]!;
-          return (
-            <div
-              key={item.key}
-              ref={virtualizer.measureElement}
-              data-index={item.index}
-              className="history-line"
-              style={{ transform: `translateY(${item.start}px)` }}
-            >
-              {line.entry ? row(line.entry) : title(line.group)}
-            </div>
-          );
-        })}
-      </div>
+    <div className="history-lines" style={{ height: virtualizer.getTotalSize() }}>
+      {virtualizer.getVirtualItems().map((item) => {
+        const line = lines[item.index]!;
+        return (
+          <div
+            key={item.key}
+            ref={virtualizer.measureElement}
+            data-index={item.index}
+            className="history-line"
+            style={{ transform: `translateY(${item.start}px)` }}
+          >
+            {line.entry ? row(line.entry) : title(line.group)}
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -53,6 +53,7 @@ export function HistoryPage({
   const [menu, setMenu] = useState<OpenMenu | null>(null);
   // Even when two native menus open before the first reply, each owns its own actions.
   const menuSession = useRef(0);
+  const listScroller = useRef<HTMLDivElement>(null);
   const { t, language } = strings;
   // A lost history owner shows nothing until it lasts past the grace (a launch, a daemon restart:
   // the store re-reads once the link is back); then the disconnected line.
@@ -223,23 +224,33 @@ export function HistoryPage({
         <output className="history-empty">{t("page.stillLoading")}</output>
       ) : snap.groups.length === 0 ? (
         <div className="history-empty">{snap.loading ? "" : t(snap.text ? "page.emptySearch" : "page.empty")}</div>
-      ) : flat.length >= HISTORY_VIRTUAL_FROM ? (
-        <HistoryLines
-          groups={snap.groups}
-          selection={snap.selection}
-          title={(group) => <h2 className="history-group-title">{title(group)}</h2>}
-          row={(entry) => row(entry, false)}
-          onKeyDown={listKeys}
-        />
       ) : (
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-        <div id="history-list" className="history-list" role="listbox" tabIndex={0} onKeyDown={listKeys}>
-          {snap.groups.map((group) => (
-            <section key={group.id} className="history-group" aria-label={title(group)}>
-              <h2 className="history-group-title">{title(group)}</h2>
-              {group.entries.map((entry) => row(entry, true))}
-            </section>
-          ))}
+        <div
+          ref={listScroller}
+          id="history-list"
+          className="history-list"
+          role="listbox"
+          tabIndex={0}
+          onKeyDown={listKeys}
+          data-virtual={flat.length >= HISTORY_VIRTUAL_FROM ? "" : undefined}
+        >
+          {flat.length >= HISTORY_VIRTUAL_FROM ? (
+            <HistoryLines
+              groups={snap.groups}
+              selection={snap.selection}
+              title={(group) => <h2 className="history-group-title">{title(group)}</h2>}
+              row={(entry) => row(entry, false)}
+              scroller={listScroller}
+            />
+          ) : (
+            snap.groups.map((group) => (
+              <section key={group.id} className="history-group" aria-label={title(group)}>
+                <h2 className="history-group-title">{title(group)}</h2>
+                {group.entries.map((entry) => row(entry, true))}
+              </section>
+            ))
+          )}
         </div>
       )}
       {snap.cookieBackups.open && <CookieBackupsPanel store={store} state={snap.cookieBackups} strings={strings} />}

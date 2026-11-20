@@ -73,6 +73,8 @@ function entry(index: number): HistoryEntry {
 
 class DelayedProvider extends MockHistoryProvider {
   override async call<R>(op: string, callParams: unknown): Promise<R> {
+    // fixed-wait: the mock host's answer delay (the harness's "host" latency), not a wait for a state.
+    // fixed-wait: the mock host's answer delay (the harness's "host" latency), not a wait for a state.
     await new Promise((resolve) => setTimeout(resolve, delay));
     return super.call<R>(op, callParams);
   }
