@@ -258,6 +258,8 @@ impl Brain {
                 ),
             };
             (self.log)(&format!("a wake is due: {note}"));
+            // Its planned time, for the wake run's `scheduled_at` (memory.rs).
+            self.wake_planned.insert(text.clone(), wake.at_ms as i64);
             self.queue(text, Source::Note);
         }
     }
