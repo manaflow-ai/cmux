@@ -536,7 +536,7 @@ elif args[0] == "api":
         emit({"commit": {"committer": {"date": at.strftime("%Y-%m-%dT%H:%M:%SZ")}}})
     elif "/pulls/" in endpoint:
         number = endpoint.rsplit("/", 1)[1]
-        emit({"state": state["prs"][number], "base": {"ref": "feat-cmux-next"},
+        emit({"state": state["prs"][number], "base": {"ref": "feat-cmux-next"}, "mergeable": state.get("mergeable"),
               "head": {"ref": "app-ffi-repin", "sha": "f" * 40 if state["wrong_head"]
                        else state["refs"]["app-ffi-repin"]}})
     else: raise AssertionError(args)
@@ -576,7 +576,8 @@ class RePinPublication(unittest.TestCase):
                   runs=(), ancestry=(), runs_read="ok", jobs=None, same_inputs=False,
                   workflow=WORKFLOW, pr_files=None, current_pin=None, diff_exit=None,
                   jobs_read="ok", base_result="newer", base_enabled="true", pin_age_min=None,
-                  unpinned_age_min=None, staged_on=None, base_checks=(), base_checks_read="ok", checks_read="ok"):
+                  unpinned_age_min=None, staged_on=None, base_checks=(), base_checks_read="ok", checks_read="ok",
+                  mergeable=None):
         step = pin_step(yaml.safe_load(workflow.read_text())["jobs"]["repin"])
         with tempfile.TemporaryDirectory() as temp:
             work = Path(temp)
@@ -628,7 +629,7 @@ class RePinPublication(unittest.TestCase):
                 "runs_read": runs_read, "jobs": jobs or {}, "same_inputs": same_inputs,
                 "pr_files": pr_files or {}, "diff_exit": diff_exit, "jobs_read": jobs_read,
                 "pin_age_min": pin_age_min, "unpinned_age_min": unpinned_age_min, "staged_on": staged_on, "base_checks": list(base_checks),
-                "base_checks_read": base_checks_read, "checks_read": checks_read}))
+                "base_checks_read": base_checks_read, "checks_read": checks_read, "mergeable": mergeable}))
             env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STATE=str(state_path),
                        GH_TOKEN="pr-token", APP_TOKEN="contents-token", READ_TOKEN="read-token", TAG=TAG, CHECKSUM="f" * 64,
                        BASE_TOKEN="base-token", BASE_PIN_ENABLED=base_enabled,
@@ -1036,7 +1037,8 @@ class RePinPublication(unittest.TestCase):
             # Review 3 of #40150: a head that must move (a failed check, past the hold) or a closed PR is still rebuilt
             # or replaced, with the release it already pins: no checksum churn, and the pin keeps an owner.
             for head, options in {"a failed check": {"head_age_min": 20, "checks": ("failure",)},
-                                  "past the hold": {}, "the PR is closed": {"closed": True}}.items():
+                                  "past the hold, conflicting": {"mergeable": False},
+                                  "the PR is closed": {"closed": True}}.items():
                 with self.subTest(name, head=head):
                     result, state = self.run_repin(same_inputs=same, pr_files=files, **options)
                     self.assertEqual(result.returncode, 0, result.stderr)
@@ -1046,6 +1048,67 @@ class RePinPublication(unittest.TestCase):
                     self.assertIn("verified open", result.stdout)
                     if options.get("closed"):
                         self.assertEqual(state["prs"].get("2"), "open")
+
+    def test_a_head_past_the_hold_that_already_pins_the_picked_release_is_kept(self):
+        # 2026-11-19: #46990's head 82647df8 pinned cmux-app-ffi-db4a10c2, the newest release; its CI queued 10 h on
+        # starved pools, and at 16:16Z re-pin run 44466053157 found it 633 min old (hold 90) and moved it to 55a8bbd3
+        # with that same pin, cancelling every job and starting its CI over, while the base's pin stayed ~26 h
+        # behind (goal fix-running-ffi-pin). A move that changes no pin only restarts CI: next-autoland compiles the
+        # combined tip, so a stale base needs no rebase. Only a failed check of its own or a conflict moves it.
+        # Kept: under the cap whatever its checks show (mergeable true or still computing); past the cap while a
+        # check still runs. Moved: a failed check of its own, a conflict, or past the cap with nothing running (a
+        # cancelled check that never runs again would otherwise hold it forever).
+        cases = {
+            "under the cap, no check running": ({"head_age_min": 200}, True),
+            "under the cap, mergeable still computing": ({"head_age_min": 200, "mergeable": None}, True),
+            "under the cap, only a cancelled check": ({"head_age_min": 200, "checks": ("cancelled",)}, True),
+            "past the cap, a check running": ({"head_age_min": 633, "checks": ("success", None)}, True),
+            "past the cap, nothing running": ({"head_age_min": 633, "checks": ("success", "cancelled")}, False),
+            "a failed check of its own": ({"head_age_min": 200, "checks": ("failure", None)}, False),
+            "conflicting": ({"head_age_min": 200, "checks": ("success", None), "mergeable": False}, False),
+        }
+        for name, same in {"the same inputs": [[self.PR_PIN, self.NEWEST]], "the picked release itself": []}.items():
+            pr_pin = self.PR_PIN if same else self.NEWEST
+            for case, (options, kept) in cases.items():
+                options = {"mergeable": True, **options}
+                with self.subTest(name, case=case):
+                    result, state = self.run_repin(same_inputs=same, pr_files=self.pr_head(pr_pin), **options)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    if kept:
+                        self.assertIn("kept #1 at cccccccccccc", result.stdout)
+                        self.assertIn("already pins", result.stdout)
+                        self.assertEqual(state["refs"], {"app-ffi-repin": "c" * 40})
+                        self.assertEqual(state["published"], [])
+                        self.assertEqual(state["writes"], 0)
+                    else:
+                        self.assertEqual(state["refs"]["app-ffi-repin"], "b" * 40)
+                        self.assertIn("verified open", result.stdout)
+
+    def test_a_head_past_the_hold_whose_ci_still_runs_is_kept_up_to_the_cap(self):
+        # 2026-11-19: the re-pin PR's CI took over 2 h under load and FFI releases came about hourly, so a head moved
+        # for age alone never finished its CI. Past the hold, a head with a check still running and none of its own
+        # failed is kept; past REPIN_HOLD_MAX_MIN (360), or with nothing still running, it is moved.
+        cases = {
+            "past the hold, CI running": ({"head_age_min": 200, "checks": ("success", None)}, True),
+            "past the hold, CI done and green": ({"head_age_min": 200, "checks": ("success",)}, False),
+            "past the hold, CI running, a failure of its own": ({"head_age_min": 200,
+                                                               "checks": ("failure", None)}, False),
+            "past the cap, CI running": ({"head_age_min": 361, "checks": ("success", None)}, False),
+            "past the hold, CI running, conflicting": ({"head_age_min": 200, "checks": ("success", None),
+                                                       "mergeable": False}, False),
+        }
+        for name, (options, kept) in cases.items():
+            with self.subTest(name):
+                result, state = self.run_repin(**options)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                if kept:
+                    self.assertIn("kept #1 at cccccccccccc", result.stdout)
+                    self.assertIn("still running", result.stdout)
+                    self.assertEqual(state["refs"], {"app-ffi-repin": "c" * 40})
+                    self.assertEqual(state["writes"], 0)
+                else:
+                    self.assertEqual(state["refs"]["app-ffi-repin"], "b" * 40)
+                    self.assertIn("verified open", result.stdout)
 
     # Merge of feat into #40150 (lead decision, ffi-pin-rev-5): the steps run in this order, each one before the pin on
     # the base (#40097): the same-inputs skip, the pending-newer hold, the keep-the-branch's-release swap. Moving the pin
