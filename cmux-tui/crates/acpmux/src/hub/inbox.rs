@@ -2246,9 +2246,9 @@ impl Hub {
             }
         };
         let why = json!({"promptId": prompt_id, "threadId": removed.thread, "reason": "withdrawn"});
-        let event = self.append(session, "mux", "inbox_removed", why);
         let surge_counts = session.inbox().surge_counts.clone();
         let mut counts = surge_counts.lock().unwrap_or_else(|e| e.into_inner());
+        let event = self.append(session, "mux", "inbox_removed", why);
         counts.apply(&event);
         if let Some(answer) = removed.answer {
             answer.send_replace(Some(Ok(super::queue::withdrawn_reply(prompt_id, ""))));
@@ -2406,14 +2406,15 @@ impl Hub {
                 row
             })
             .collect();
-        json!({"sessionId": session.id, "threads": rows, "surge": surge})
+        json!({"sessionId": session.id, "threads": rows, "surge": surge, "seq": counts.seq})
     }
 
     /// `_acpmux/inbox_thread`: a thread's messages, newest first; `mark_read` marks them read.
     pub fn inbox_thread(&self, session: &Session, thread: &str, mark_read: bool) -> Value {
-        let (messages, marked, label_key) = {
+        let (messages, marked, surge_marked, label_key) = {
             let mut inbox = session.inbox();
             let mut marked = Vec::new();
+            let mut surge_marked = Vec::new();
             let mut messages = Vec::new();
             let allow_declared_fallback = thread.starts_with("from:")
                 && !inbox.items.iter().any(|item| item.thread == thread);
@@ -2442,16 +2443,20 @@ impl Hub {
                 }));
                 if mark_read && !item.read {
                     item.read = true;
+                    if item.surge_held {
+                        surge_marked.push(item.prompt_id.clone());
+                    }
                     marked.push(item.prompt_id.clone());
                 }
             }
-            (messages, marked, label_key)
+            (messages, marked, surge_marked, label_key)
         };
         if !marked.is_empty() {
-            let msg = json!({"threadId": thread, "promptIds": marked});
-            let event = self.append(session, "mux", "inbox_read", msg);
             let surge_counts = session.inbox().surge_counts.clone();
             let mut counts = surge_counts.lock().unwrap_or_else(|e| e.into_inner());
+            let msg =
+                json!({"threadId": thread, "promptIds": marked, "surgePromptIds": surge_marked});
+            let event = self.append(session, "mux", "inbox_read", msg);
             counts.apply(&event);
         }
         json!({"sessionId": session.id, "threadId": thread, "label": label(&label_key), "messages": messages})
