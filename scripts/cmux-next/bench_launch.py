@@ -974,6 +974,7 @@ class BenchApp:
         self.log_path = os.path.join(self.out, log_name or f"app-{self.tag}.log")
         self.process = None
         self.launched_env = None  # the environment the app was really started with (launch()), for a bench's record
+        self.in_tree = None  # `debug.cef` `in_tree` right after the launch (check_in_tree)
         self.socket = socket_candidates(self.tag)[0]
         self.launched_at = None
         self.ready_seconds = None
@@ -1129,10 +1130,32 @@ class BenchApp:
                 if isinstance(last, dict) and not last.get("error") and (ready != "debug.windows" or last.get("windows")):
                     self.ready_seconds = round(time.monotonic() - start, 2)
                     note(f"bench-launch: {self.tag} answered on {path} after {self.ready_seconds} s")
+                    self.check_in_tree(env)
                     return self
             time.sleep(0.25)  # the poll interval
         log.flush()
         self._fail(*self.diagnose(last, timeout))
+
+    def check_in_tree(self, env):
+        """In-tree pages (in_tree_mode.py): a launch that names CMUX_IN_TREE_PAGES must come up in that mode. Reads
+        `debug.cef` `in_tree` once, records it (`self.in_tree`, the BENCH-LAUNCH-IN-TREE line every bench log keeps) and
+        refuses a launch in the other mode, so an OFF-versus-IN comparison can never measure one mode twice (step
+        9ca86307: the divider bench's IN launches reported in_tree off)."""
+        asked = env.get("CMUX_IN_TREE_PAGES")
+        if asked is None:
+            return  # the launch keeps the build's own mode: nothing to hold it to
+        reply = self.rpc("debug.cef", timeout=20)
+        status = reply.get("in_tree") if isinstance(reply, dict) else None
+        self.in_tree = status
+        note("BENCH-LAUNCH-IN-TREE " + json.dumps({"tag": self.tag, "asked": asked, "in_tree": status}))
+        if asked in ("1", "true", "on") and status not in ("on", "pending"):
+            self._fail("in-tree-mismatch", {"tag": self.tag, **host_facts(), "asked": asked, "in_tree": status,
+                                            "detail": f"launched with CMUX_IN_TREE_PAGES={asked}, the app reports "
+                                                      f"in_tree={status!r}", "log_tail": ""})
+        if asked in ("0", "false", "off") and status not in ("off", None):
+            self._fail("in-tree-mismatch", {"tag": self.tag, **host_facts(), "asked": asked, "in_tree": status,
+                                            "detail": f"launched with CMUX_IN_TREE_PAGES={asked}, the app reports "
+                                                      f"in_tree={status!r}", "log_tail": ""})
 
     def _fail(self, reason, report):
         report.setdefault("gui_session", self.gui_session)
