@@ -122,7 +122,7 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
 
   for (const variant of ["claude", "project", "remote"])
     test(`${variant}: the new chat's card is the started chat's card`, async () => {
-      const started = await card(variant === "claude" ? "started" : "started-codex");
+      const started = await card("started");
       const fresh = await card(variant);
       expect(fresh.component).toBe("Composer");
       expect(started.component).toBe("Composer");
@@ -131,22 +131,18 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
       expect(fresh.radii.every((radius) => parseFloat(radius) > 0)).toBe(true);
       expect(fresh.ring).toBe(started.ring);
       expect(fresh.strip).not.toBeNull();
-      if (variant === "claude") {
-        // A saved Claude choice keeps separate location chips above the card.
-        expect(fresh.look).toBeNull();
-        expect(fresh.top - fresh.strip!.bottom).toBeGreaterThanOrEqual(2);
-        expect(fresh.top - fresh.strip!.bottom).toBeLessThanOrEqual(10);
-      } else {
-        // New viewers use Codex's filled tray, tucked 10px beneath the same card.
-        expect(fresh.look).toBe("codex");
-        expect(fresh.top - fresh.strip!.bottom).toBeCloseTo(-10, 1);
-      }
+      expect(fresh.look).toBeNull();
+      expect(fresh.top - fresh.strip!.bottom).toBeGreaterThanOrEqual(2);
+      expect(fresh.top - fresh.strip!.bottom).toBeLessThanOrEqual(10);
     });
 
   // Codex's look keeps its tray (composerLook.css); the card over it is the started Codex chat's.
   test("codex: the card keeps its four corners and its rim over the tray", async () => {
     const started = await card("started-codex");
     const fresh = await card("codex");
+    expect(fresh.look).toBe("codex");
+    expect(fresh.strip).not.toBeNull();
+    expect(fresh.top - fresh.strip!.bottom).toBeCloseTo(-10, 1);
     expect(fresh.component).toBe("Composer");
     expect(fresh.nested).toBe(true);
     expect(fresh.radii).toEqual(started.radii);
