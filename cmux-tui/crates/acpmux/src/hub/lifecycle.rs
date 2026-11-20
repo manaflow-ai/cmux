@@ -1568,6 +1568,10 @@ impl Hub {
                     }
                     Err(e) => {
                         tracing::warn!(session = %session.id, "session/load failed: {e}");
+                        if let Some(e) = super::adoption::unavailable_resume(&e) {
+                            self.note_load_failed(session, &e);
+                            return Err(e);
+                        }
                         self.note_load_failed(session, &e);
                         if meta.harness == "cmux-harness" {
                             return Err(Self::explain_start_failure(session, e).await);
