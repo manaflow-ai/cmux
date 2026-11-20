@@ -6485,6 +6485,7 @@ class TruncatedJoblessSweepTests(unittest.TestCase):
             self.assertEqual((entry["run_id"], entry["jobless"], entry["open_head"]), (stuck["id"], True, True))
             self.assertIn("### Jobless runs", text)
             self.assertIn("only the jobless pass acted", text)
+            self.assertIn("Jobless pass on this partial sweep: force-cancel 0 holder(s), cancel 1 jobless run(s)", text)
             # The next sweep is truncated too: the settled cancel is re-run whole at the same head.
             fake.runs[stuck["id"]].update(status="completed", conclusion="cancelled")
             fake.snapshots.append(load)
