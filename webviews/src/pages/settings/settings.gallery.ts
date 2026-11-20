@@ -307,10 +307,12 @@ export const heightChangingVariants: Record<string, SettingsPageVariant> = {
       ...host,
       backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
     },
-    steps: [
-      wait('[data-card="backdrop"] .backdrop-scope'),
-      { selector: '[aria-label="This Workspace (Research)"]', action: "click" },
-    ],
+    play: async (ctx) => {
+      const selector = ".backdrop-scope label:last-child";
+      await ctx.waitFor(() => ctx.document.querySelector(selector));
+      await ctx.click({ selector });
+      await ctx.waitFor(() => ctx.document.querySelector(`${selector} input:checked`));
+    },
     note: "Change Background… on a workspace: This Workspace (Research) picked, following All Workspaces until it has its own.",
   }),
   "theme-file-refused": variant("theme", {
@@ -864,13 +866,12 @@ Object.assign(variants, {
           ),
       ]),
     ),
-    steps: [
-      wait('[data-card="backdrop"]'),
-      click('[data-card="backdrop"] button[aria-expanded]'),
-      input('[data-card="art-browser"] input[type="search"]', "night"),
-      click('[data-card="art-browser"] button[type="submit"]'),
-      wait('[data-card="art-browser"] .backdrop-grid'),
-    ],
+    play: async (ctx) => {
+      await ctx.click({ selector: '[data-card="backdrop"] button[aria-expanded]' });
+      await ctx.type("night", { selector: '[data-card="art-browser"] input[type="search"]' });
+      await ctx.click({ selector: '[data-card="art-browser"] button[type="submit"]' });
+      await ctx.waitFor(() => ctx.document.querySelector('[data-card="art-browser"] .backdrop-grid'));
+    },
     note: "Browse More Art: a search answered by three open collections, each work with its source.",
   }),
   "terminal-shell-unknown": variant("terminal", {

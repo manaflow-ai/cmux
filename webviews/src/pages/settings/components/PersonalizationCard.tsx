@@ -43,7 +43,7 @@ export function PersonalizationCard({
           <>
             {picker && (
               <Backdrops
-                key={open}
+                key={JSON.stringify([workspace, open])}
                 focus={focus === `${FOCUS_PREFIX}background` ? "appearance.background" : key}
                 workspace={workspace}
               />
