@@ -12,6 +12,28 @@ fn input(key: &str, source: &str, body: String) -> Input {
 }
 
 #[test]
+fn forum_api_list_projects_only_authenticated_author_metadata() {
+    let author = json!({
+        "kind": "agent",
+        "sessionId": "session-uuid",
+        "handle": "Mango",
+        "name": "runner-check"
+    });
+    let projected = super::source_author(&json!({
+        "transport": {"author": author},
+        "body": "private source body",
+        "secret": "must not appear"
+    }))
+    .unwrap();
+    assert_eq!(projected["kind"], "agent");
+    assert_eq!(projected["sessionId"], "session-uuid");
+    assert_eq!(projected["handle"], "Mango");
+    assert_eq!(projected["name"], "runner-check");
+    assert!(projected.get("body").is_none());
+    assert!(projected.get("secret").is_none());
+}
+
+#[test]
 fn forum_api_detail_pages_reconstruct_all_hosts_and_older_posts() {
     let forum = Forum::memory();
     let mut expected = BTreeMap::new();
