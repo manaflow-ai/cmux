@@ -61,7 +61,12 @@ Known limit: a tree build is not Team-signed, so Rust hot-apply from it into a D
   or the acpmux `run_wait` tool, which uses it. Its daemon waits on GitHub's PR events
   (`gh event listen`, gh 2.105.0+, where the account has Event Streams access) and polls otherwise.
   Never `gh pr checks --watch`, `gh run watch`, a sleep loop, or a `gh event listen` of your own
-  (each listener holds one of the account's few subscriptions). Rules:
+  (each listener holds one of the account's few subscriptions), and no `gh api` / `gh run view` /
+  `gh pr view` re-read on a timer: on 2026-11-19 nine such loops in agents' background tasks made
+  most of this host's ~800 gh calls an hour. A fleet test's Actions run: `glaeda-gh wait run`; a
+  reply comment: `glaeda-gh wait comment OWNER/REPO#N --match RE --since URL`; a fleet job:
+  `cmux-ci wait ID`; a file or a process: `glaeda-gh wait file PATH` / `glaeda-gh wait pid PID`.
+  The Chief's `watch` tool routes such waits to glaeda-gh itself and refuses GitHub poll loops. Rules:
   [github-ci-wait](https://github.com/teamleaderleo/glaeda/blob/main/skills/github-ci-wait/SKILL.md).
 - **Scope every search.** `rg`/`find`/`fd` only inside your worktree or a named subfolder, never
   `..`, `~`, `~/fun`, `/`, `$TMPDIR` or `/var/folders` (worktrees and caches there hold millions of
