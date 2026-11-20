@@ -90,6 +90,13 @@ class StarvedDetectionTests(unittest.TestCase):
         self.assertEqual(starved(queued, job(label="cmux-fleet-linux-x64", status="in_progress", created=30,
                                              started=20, runner="cmux-gha-runner-1116-1")), [])
 
+    def test_the_persistent_linux_pool_label_is_in_scope(self) -> None:
+        # Same-repository jobs name cmux-linux (PR #47956); a pool that stops listening must alert too.
+        queued = job(label="cmux-linux", created=780, name="web / react-doctor")
+        self.assertEqual([entry["label"] for entry in starved(queued)], ["cmux-linux"])
+        self.assertEqual(starved(queued, job(label="cmux-linux", status="in_progress", created=30,
+                                             started=20, runner="cmux-gha-runner-1120-1")), [])
+
     def test_a_cancelled_job_that_never_got_a_runner_is_no_start(self) -> None:
         found = starved(job(created=60), job(status="completed", created=8, started=8, runner=None))
         self.assertEqual([entry["label"] for entry in found], [SIDE])
