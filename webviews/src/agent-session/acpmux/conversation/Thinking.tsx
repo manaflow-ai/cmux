@@ -188,10 +188,14 @@ function useRoll(key: string | undefined, label: string, lead: Roll["lead"], tai
 
 /// The old words roll out as they were drawn (review of cmux#41078): cut at the width the words had
 /// (ellipsis and all), their time and counts from where they sat, never the full words running their
-/// tail on past it. The width as last committed, one read of the line's own box a commit, set on the
-/// roll's copies in the commit that makes them, before paint; refs only in the effect.
+/// tail on past it. The width as last laid out, set on the roll's copies in the commit that makes
+/// them, before paint; refs only in the effect. A ResizeObserver reports the words' box after each
+/// layout that changes it, so no commit reads a box: a read here forced a layout on every streamed
+/// chunk, 0.7 ms of a tool call's 5.3 ms in a long chat (bench/transcript-replay.bench.ts PROFILE=1).
 function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number) {
   const drawn = useRef<{ turns: number; width?: number }>({ turns });
+  const watch = useRef<{ observer?: ResizeObserver; words?: Element | null }>({});
+  useLayoutEffect(() => () => watch.current.observer?.disconnect(), []);
   useLayoutEffect(() => {
     const node = line.current;
     if (!node) return;
@@ -203,8 +207,20 @@ function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number) 
       if (words) words.style.width = px;
       if (tail) tail.style.left = px;
     }
-    const width = node.querySelector<HTMLElement>("output.cv-thinking")?.getBoundingClientRect().width;
-    drawn.current = { turns, width: width && width > 0 ? width : undefined };
+    last.turns = turns;
+    const words = node.querySelector("output.cv-thinking");
+    const now = watch.current;
+    if (words === now.words || typeof ResizeObserver === "undefined") return;
+    now.observer?.disconnect();
+    now.words = words;
+    last.width = undefined;
+    if (!words) return;
+    now.observer ??= new ResizeObserver((entries) => {
+      const box = entries.at(-1)?.borderBoxSize?.[0];
+      const width = box ? box.inlineSize : entries.at(-1)?.target.getBoundingClientRect().width;
+      drawn.current.width = width && width > 0 ? width : undefined;
+    });
+    now.observer.observe(words);
   });
 }
 
