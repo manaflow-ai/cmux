@@ -1808,7 +1808,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // the host serves no rewind, so no prompt draws the button. Kept per chat:
   // `chat.select` switches chats with no new handshake (cloudTurnCheckpoints.ts `ChatMarks`).
   const [cloudTurnRewind, publishCloudTurnRewind] = useState<ChatMarks>();
-  const cloudTurnRewindRef = useRef<ChatMarks>();
+  const cloudTurnRewindRef = useRef<ChatMarks | undefined>(undefined);
   const setCloudTurnRewind = (
     update: ChatMarks | undefined | ((marks: ChatMarks | undefined) => ChatMarks | undefined),
   ) => {
