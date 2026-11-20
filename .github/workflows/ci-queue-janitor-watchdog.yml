@@ -1,0 +1,64 @@
+name: CI queue janitor watchdog
+
+# The queue janitor's sweep (ci-queue-janitor.yml) runs on cmux-fleet-linux-x64
+# and is what files "Runner label starved: <label>" issues. When that label
+# boots no runner the sweep cannot run, so it can never report its own label.
+# This watchdog runs on the sweep's previous selector, in its own workflow (a
+# sweep queued in the janitor's concurrency group would hold a job of that
+# workflow pending too), and reads only the age of the newest macos-pool-load
+# artifact. Over STALE_SECONDS it opens the starved-label issue for the fleet
+# label; the next sweep that runs closes it (starved_labels.sync_issues()).
+# cmux run 43807536777 sat queued on that label for 13 h with no alert
+# (tests/test_ci_starved_labels.py).
+
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ci-queue-janitor-watchdog
+  cancel-in-progress: true
+
+jobs:
+  watch:
+    name: Alert when the janitor sweep stops publishing
+    if: github.repository_owner == 'manaflow-ai'
+    permissions:
+      actions: read
+      issues: write
+    runs-on: ${{ contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux) && fromJSON(vars.RUNNER_POOLS || '{}').linux || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      LABEL: cmux-fleet-linux-x64
+      STALE_SECONDS: "1800"
+    steps:
+      - name: Open the starved-label issue when the newest sweep snapshot is stale
+        run: |
+          set -euo pipefail
+          newest="$(gh api "repos/$GH_REPO/actions/artifacts?name=macos-pool-load&per_page=20" \
+            --jq '[.artifacts[] | select(.expired | not) | select(.workflow_run.head_branch == "main") | .created_at] | max // ""')"
+          age=999999
+          if [ -n "$newest" ]; then
+            age=$(( $(date -u +%s) - $(date -u -d "$newest" +%s) ))
+          fi
+          echo "newest macos-pool-load: ${newest:-none} (${age}s old)"
+          if [ "$age" -lt "$STALE_SECONDS" ]; then
+            exit 0
+          fi
+          title="Runner label starved: $LABEL"
+          body="No queue janitor sweep has published a macos-pool-load snapshot for ${age}s (newest: ${newest:-none}). The sweep runs on \`$LABEL\`, so that label is likely booting no runners. Set the repository variable \`CI_REPAIR_SKIP_FLEET=1\` to move the janitors back to their previous selector, cancel the stalled ci-queue-janitor run that holds its concurrency group (or, if GitHub refuses that cancel, move the group key in ci-queue-janitor.yml), and dispatch a fresh sweep (docs/ci-runners.md). The next sweep that runs closes this issue."
+          echo "::error::$title: no janitor snapshot for ${age}s"
+          echo "- $title: no janitor snapshot for ${age}s" >> "$GITHUB_STEP_SUMMARY"
+          existing="$(gh issue list --state open --search "\"$title\" in:title" --json number,title 2>/dev/null |
+            jq -r --arg t "$title" '[.[] | select(.title == $t) | .number] | first // ""' || true)"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+          exit 1
