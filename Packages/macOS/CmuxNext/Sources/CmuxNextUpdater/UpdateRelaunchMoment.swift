@@ -14,6 +14,10 @@ nonisolated public struct UpdateRelaunchMoment: Equatable, Sendable {
     /// Why a relaunch now would cut something off (``UpdateRelaunchHoldState/reason``).
     nonisolated public enum Interruption: String, Equatable, Sendable, CustomStringConvertible {
         case modal, sheet, menu, composing
+        /// Update When Idle (`updates.installWhenIdle`, ``UpdateRelaunchMomentHold/idleGate``): input came
+        /// within the idle time, an agent turn runs, a composer holds an unsent message, or one of
+        /// those could not be read.
+        case notIdle, agentWorking, unsentDraft, unknown
 
         /// The log's words.
         public var description: String {
@@ -22,7 +26,17 @@ nonisolated public struct UpdateRelaunchMoment: Equatable, Sendable {
             case .sheet: "a sheet is up"
             case .menu: "a menu is open"
             case .composing: "text is mid-composition"
+            case .notIdle: "input came within the idle time"
+            case .agentWorking: "an agent turn runs"
+            case .unsentDraft: "a composer holds an unsent message"
+            case .unknown: "the agents' state is unknown"
             }
+        }
+
+        /// Update When Idle's answer (cmux-window-rules `update_idle`'s hold reason; nil installs): a reason this
+        /// build does not know, `off` included, holds as unknown.
+        public static func idleHold(_ reason: String?) -> Self? {
+            reason.map { Self(rawValue: $0).flatMap { [.notIdle, .agentWorking, .unsentDraft].contains($0) ? $0 : nil } ?? .unknown }
         }
     }
 
@@ -145,6 +159,10 @@ final class UpdateRelaunchMomentHold {
     private(set) var state: UpdateRelaunchHoldState?
     /// How long a hold waits before it is surfaced; a change applies to the next hold.
     @ObservationIgnored var surfaceAfter: Duration = UpdateRelaunchMomentHold.defaultSurfaceAfter
+    /// Update When Idle's check, read after the moment's (nil: the setting is off, nothing more holds).
+    /// The app answers it from Rust (cmux-window-rules `update_idle`): input within the idle time, an
+    /// agent turn, an unsent draft, or any of them unknown holds the install.
+    @ObservationIgnored var idleGate: (@MainActor () -> UpdateRelaunchMoment.Interruption?)?
 
     @ObservationIgnored private let moment: @MainActor () -> UpdateRelaunchMoment
     @ObservationIgnored private let now: () -> Date
@@ -173,7 +191,7 @@ final class UpdateRelaunchMomentHold {
     /// replacing an earlier hold, and runs it once the moment clears.
     func hold(_ ready: @escaping @MainActor () -> Void) -> Bool {
         cancel()
-        guard let reason = moment().interruption else { return false }
+        guard let reason = interruption() else { return false }
         log("automatic install waits: \(reason)")
         self.ready = ready
         state = UpdateRelaunchHoldState(reason: reason, since: now())
@@ -185,7 +203,7 @@ final class UpdateRelaunchMomentHold {
     /// Runs the held install if the moment has cleared.
     func recheck() {
         guard let ready else { return }
-        guard let reason = moment().interruption else {
+        guard let reason = interruption() else {
             let held = state.map { " after \(Int($0.age(at: now()))) s" } ?? ""
             log("automatic install: nothing would be cut off now; installing\(held)")
             dropped = nil
@@ -207,7 +225,7 @@ final class UpdateRelaunchMomentHold {
             if held { dropped = { done.resume(returning: false) } } else { done.resume(returning: true) }
         }
         guard cleared else { return false }
-        if moment().interruption == nil { return true }
+        if interruption() == nil { return true }
         return await waitUntilClear()
     }
 
@@ -225,11 +243,16 @@ final class UpdateRelaunchMomentHold {
     /// The hold outlived its bound: say so once, with its reason and age, and show it.
     private func surface() {
         guard isHolding, var held = state, !held.surfaced else { return }
-        if let reason = moment().interruption { held.reason = reason }
+        if let reason = interruption() { held.reason = reason }
         held.surfaced = true
         state = held
         log("automatic install held \(Int(held.age(at: now()))) s: \(held.reason); no longer waiting silently, "
             + "the staged update shows why for a click, and installs by itself once nothing would be cut off")
+    }
+
+    /// What a relaunch now would cut off: the moment's reason first, then Update When Idle's.
+    private func interruption() -> UpdateRelaunchMoment.Interruption? {
+        moment().interruption ?? idleGate?()
     }
 
     private func scheduleRecheck() {
