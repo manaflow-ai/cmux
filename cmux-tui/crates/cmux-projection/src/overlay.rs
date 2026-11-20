@@ -720,11 +720,11 @@ impl Overlay {
                 }
             }
         }
-        if let Node::Upper(stat) = &node {
-            if stat.is_dir() {
-                for (name, inode, kind) in self.upper.list(&path).unwrap_or_default() {
-                    names.insert(name, (Type::of_mode(kind), Some(inode)));
-                }
+        if let Node::Upper(stat) = &node
+            && stat.is_dir()
+        {
+            for (name, inode, kind) in self.upper.list(&path).unwrap_or_default() {
+                names.insert(name, (Type::of_mode(kind), Some(inode)));
             }
         }
         let dev = match &node {
@@ -1522,10 +1522,10 @@ impl Overlay {
                 (false, false) => {}
             }
             // Two names of one file: rename does nothing.
-            if let (Node::Upper(a), Node::Upper(b)) = (&node, &target) {
-                if (a.dev, a.ino) == (b.dev, b.ino) {
-                    return Ok(());
-                }
+            if let (Node::Upper(a), Node::Upper(b)) = (&node, &target)
+                && (a.dev, a.ino) == (b.dev, b.ino)
+            {
+                return Ok(());
             }
             replaced = Some((self.ino_of(&to, &target), target));
         }
