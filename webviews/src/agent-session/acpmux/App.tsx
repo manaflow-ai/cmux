@@ -121,8 +121,8 @@ import {
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import {
   heldPick,
-  shownCloudStartPick,
   withDraftFolder,
+  shownCloudStartPick,
   withCloudStartFolder,
   withCloudStartPick,
 } from "./newtab/draftFolder";
@@ -273,12 +273,12 @@ import { PeerCopyBanner } from "./PeerCopyBanner";
 import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
 import {
   cloudMachineAsleep,
-  currentCloudPlan,
-  readCloudPlanFresh,
   readUntilMoved,
   refreshCloudMachines,
   useCloudMachines,
   type CloudMachine,
+  currentCloudPlan,
+  readCloudPlanFresh,
 } from "./cloudMachines";
 import { usePeerCloudMachine } from "./peerCloudMachine";
 import { inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
@@ -611,12 +611,12 @@ import { harnessLabel } from "./subagents/agentRuns";
 import {
   cloudStartBegun,
   cloudStartEnded,
-  cloudStartPlanHeld,
   cloudStartPushed,
   cloudStartStalled,
   watchCloudStartStall,
   cloudStartSignedIn,
   type CloudStartProgress,
+  cloudStartPlanHeld,
 } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
 import { createCloudPlanSubscribe } from "./cloudPlanSubscribe";
@@ -848,11 +848,11 @@ import { holdWebSwap, pageEditHold, pageReleaseHold } from "../../pages/shared/w
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import {
   SandboxTab,
-  newTabRunModeRows,
   sandboxAgent,
   sandboxPageRefusal,
   sandboxRetryable,
   type RunMode,
+  newTabRunModeRows,
 } from "./sandboxRun";
 import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
@@ -871,7 +871,7 @@ import { ChildAsk } from "./subagents/ChildAsk";
 import { childAsks } from "./subagents/childAsks";
 import { HatQuestions, type HatQuestionActions } from "./question/HatQuestions";
 import { hatQuestions, hatShows, sameHatQuestions, type HatQuestion } from "./question/hatModel";
-import { hatSeenKey, hatQuestionsShown, stackCardKeys } from "./question/hatSeen";
+import { hatQuestionsShown, hatSeenKey, stackCardKeys } from "./question/hatSeen";
 import { declineReply, isPending, reply as questionReply, replyParams, selection } from "./question/model";
 
 import { defaultRegistry } from "./rows/registry";
@@ -3197,6 +3197,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             messageBreaks,
             trayAgents,
             supersededReplyIds,
+            // What the chat let go of stays gone (turns.ts `retainVisibleReplies`).
+            heldFromAt: snapshot.heldFromAt,
           },
           last?.turns,
         );
@@ -3287,6 +3289,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     snapshot.summary?.family,
     snapshot.waitingSteers,
     supersededReplyIds,
+    snapshot.heldFromAt,
     messageBreaks,
     chatShellRuns,
     panelAsks,

@@ -13,13 +13,18 @@
 // and in each, once the pages settle:
 //   idle         the renderers' CPU (/proc/PID/stat utime+stime) over IDLE_S seconds of nothing, as % of one core;
 //   streaming    the same while the shown chat streams a turn of TPS chunks a second for STREAM_S seconds;
-//   renderer MB  the renderers' proportional set size (/proc/PID/smaps_rollup Pss) after a collection on every page.
+//   renderer MB  the renderers' proportional set size (/proc/PID/smaps_rollup Pss) after a collection on every page;
+//   heap MB      the JS heap those pages use then (Runtime.getHeapUsage), its ratios beside ratio_max, not in it.
 // Rows (PERF_ROW, chat_100k_flat.*): each value per launch, each long/empty ratio at x1 and xN, and ratio_max, the
 // worst of the ratios a run measured (long and grown, each over empty; CASES below): the goal's number (NOW benches
 // row chat_100k_flat_ratio_max, target 1.2, the worse of ratio_max and grown_many.ratio_max). A CPU ratio is
 // taken over a floor of CPU_FLOOR_PCT (default 1 % of a core) on both sides, so two near-idle readings are not a ratio
 // of noise. An xN ratio's empty side is the mean of two empty xN launches, one before the xN launches it is compared
 // with and one after (empty_xN_after; see the bracket below the launches).
+// HEAP_SNAPSHOT=DIR writes each launch's V8 heap snapshots (the shown page, and in an xN launch a hidden one) for
+// DevTools. HEAP_RETAINERS=1 prints, per launch, the renderers' memory-infra allocators and what holds the JS heap
+// (heapRetainers.ts: the dominator tree, and self size by class over the empty launch).
+// CASES=long runs only empty x1, long x1, empty xN and long xN.
 // HIDDEN=0 keeps every chat shown; HIDDEN_FOCUS=1 lets the hidden chats keep their composer's focus (the fake hide
 // before cmux#45531).
 // TRACE=DIR (with WAKES=1 for the rAF sites) writes browser-wide Chrome traces of each xN launch's idle windows, of a
@@ -53,6 +58,8 @@ import type { CDPSession, Page } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { chromium } from "./browsers";
 import { newestPage } from "./daemonPage";
+import { takeSnapshot } from "./heapProbe";
+import { printRetainers, type Retainers } from "./heapRetainers";
 import { idleTrace, startIdleTrace } from "./idleTrace";
 import { describePaintWindow, paintWindow, runningAnimations } from "./paintWindow";
 import { sourceMapper } from "./sourceMapper";
@@ -107,11 +114,14 @@ const SETTLE_MAX_S = Number(process.env.SETTLE_MAX_S ?? 180);
 const heapDropped = (before: number, after: number) => before - after > Math.max(0.02 * before, 2);
 // A grown-many run's rows carry their own prefix: the perf cron stores them from a part of their own.
 const ROW = CASES === "grown-many" ? "chat_100k_flat.grown_many" : "chat_100k_flat";
-if (!["all", "main", "grown-many", "running", "long-many"].includes(CASES)) {
-  console.error("chat-100k-flat: CASES is all, main, grown-many, running or long-many");
+if (!["all", "main", "grown-many", "running", "long", "long-many"].includes(CASES)) {
+  console.error("chat-100k-flat: CASES is all, main, grown-many, running, long or long-many");
   process.exit(2);
 }
 const GROW_OPEN = process.env.GROW_OPEN === "1";
+const HEAP_SNAPSHOT = process.env.HEAP_SNAPSHOT;
+const HEAP_RETAINERS = process.env.HEAP_RETAINERS === "1";
+const retainerBase = new Map<number, Retainers>();
 const WAKES = process.env.WAKES === "1";
 const TRACE = process.env.TRACE;
 type Wakes = { timers: number; raf: number; posts: number; mutations: number };
@@ -250,6 +260,7 @@ type Launch = {
   idlePct: number;
   streamPct: number;
   mb: number;
+  heapMb: number;
   renderers: number;
   settleS: number;
   capped: boolean;
@@ -273,7 +284,8 @@ try {
   const { build } = await import("vite");
   await build({
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true, sourcemap: PAINT },
+    // HEAP_RETAINERS: names as written, so a holder reads as its source's (the minified build's are two letters).
+    build: { outDir: out, emptyOutDir: true, sourcemap: PAINT, ...(HEAP_RETAINERS ? { minify: false } : {}) },
     logLevel: "error",
   });
   // The paint windows name the sites that ask for frames by their source (the build's maps; PAINT above).
@@ -1056,6 +1068,118 @@ try {
       await new Promise((resolve) => setTimeout(resolve, 1500));
       const pids = renderers(root);
       const mb = pids.reduce((sum, pid) => sum + pssMB(pid), 0);
+      // heap MB: the JS heap the pages' one renderer uses after that collection (cmux-page's pages share an isolate,
+      // so the shown page's reading is every page's), and its DOM.
+      const shownPage = pages.at(-1)!;
+      const { usedSize } = (await shownPage.cdp.send("Runtime.getHeapUsage")) as { usedSize: number };
+      const heapMb = usedSize / 1048576;
+      const elements = await shownPage.page.evaluate(() => document.getElementsByTagName("*").length);
+      console.log(`  ${name}: JS heap ${heapMb.toFixed(1)} MB; shown page ${elements} elements`);
+      if (HEAP_SNAPSHOT) {
+        // HEAP_SNAPSHOT=DIR: the first page's (hidden in an xN launch) and the shown page's V8 heap, for DevTools.
+        fs.mkdirSync(HEAP_SNAPSHOT, { recursive: true });
+        const which =
+          count > 1
+            ? ([
+                ["hidden", pages[0]!],
+                ["shown", shownPage],
+              ] as const)
+            : ([["shown", shownPage]] as const);
+        for (const [label, { cdp }] of which) {
+          await cdp.send("HeapProfiler.enable");
+          const chunks: string[] = [];
+          const onChunk = (event: { chunk: string }) => chunks.push(event.chunk);
+          cdp.on("HeapProfiler.addHeapSnapshotChunk", onChunk);
+          await cdp.send("HeapProfiler.takeHeapSnapshot", { reportProgress: false } as never);
+          cdp.off("HeapProfiler.addHeapSnapshotChunk", onChunk);
+          fs.writeFileSync(path.join(HEAP_SNAPSHOT, `${name}-${label}.heapsnapshot`), chunks.join(""));
+        }
+      }
+      if (HEAP_RETAINERS) {
+        // HEAP_RETAINERS=1: what holds the renderer's memory. Chromium's memory-infra dump of the renderers (V8, Blink's
+        // GC heap, PartitionAlloc's partitions, malloc, caches), then the JS heap's dominator tree and self size by
+        // class over the empty launch of the same count (heapRetainers.ts).
+        try {
+          const browserCdp = await browser.newBrowserCDPSession();
+          const events: { ph?: string; pid?: number; args?: { dumps?: { allocators?: Record<string, unknown> } } }[] =
+            [];
+          browserCdp.on("Tracing.dataCollected", (event: { value: typeof events }) => events.push(...event.value));
+          const complete = new Promise((resolve) => browserCdp.once("Tracing.tracingComplete", resolve));
+          await browserCdp.send("Tracing.start", {
+            traceConfig: {
+              includedCategories: ["disabled-by-default-memory-infra"],
+              memoryDumpConfig: { triggers: [] },
+            },
+            transferMode: "ReportEvents",
+          } as never);
+          await browserCdp.send("Tracing.requestMemoryDump", {
+            deterministic: true,
+            levelOfDetail: "detailed",
+          } as never);
+          await browserCdp.send("Tracing.end");
+          await complete;
+          const rendererPids = new Set(pids);
+          for (const event of events) {
+            const allocators = event.args?.dumps?.allocators as
+              | Record<string, { attrs?: Record<string, { value?: string }> }>
+              | undefined;
+            if (event.ph !== "v" || !allocators || !rendererPids.has(event.pid!)) continue;
+            const sizes = Object.entries(allocators)
+              .map(([key, value]) => {
+                const attr = value.attrs?.effective_size ?? value.attrs?.size;
+                return [key, attr?.value ? parseInt(attr.value, 16) / 1048576 : 0] as const;
+              })
+              .filter(([key, size]) => key.split("/").length <= 3 && size >= 0.5 && !key.includes("0x"))
+              .sort((a, b) => a[0].localeCompare(b[0]));
+            console.log(`heap-retainers ${name}: renderer ${event.pid} allocators (MB):`);
+            for (const [key, size] of sizes) console.log(`  ${size.toFixed(1).padStart(8)}  ${key}`);
+          }
+          await browserCdp.detach();
+        } catch (error) {
+          console.log(`heap-retainers ${name}: no memory-infra dump (${String(error).slice(0, 200)})`);
+        }
+        // Each React component on the shown page drawn from a `rows` list, with that list's length: the rows a view
+        // holds, beside the rows its chat holds.
+        const rowLists = await shownPage.page.evaluate(() => {
+          const out: string[] = [];
+          const seen = new Set<unknown>();
+          type Fiber = { child?: Fiber; sibling?: Fiber; memoizedProps?: Record<string, unknown>; type?: unknown };
+          const nameOf = (type: unknown): string =>
+            typeof type === "function"
+              ? (type as { displayName?: string; name?: string }).displayName || (type as { name: string }).name
+              : typeof type === "object" && type !== null
+                ? nameOf((type as { type?: unknown; render?: unknown }).type ?? (type as { render?: unknown }).render)
+                : String(type);
+          const roots = [document, ...document.querySelectorAll("body, body > *")];
+          for (const node of roots) {
+            const key = Object.keys(node).find(
+              (k) => k.startsWith("__reactContainer$") || k.startsWith("__reactFiber$"),
+            );
+            if (!key) continue;
+            const stack: Fiber[] = [(node as unknown as Record<string, Fiber>)[key]!];
+            while (stack.length && out.length < 40) {
+              const fiber = stack.pop()!;
+              if (!fiber || seen.has(fiber)) continue;
+              seen.add(fiber);
+              for (const [prop, value] of Object.entries(fiber.memoizedProps ?? {}))
+                if (Array.isArray(value) && value.length > 200 && !seen.has(value)) {
+                  seen.add(value);
+                  out.push(`${nameOf(fiber.type)}.${prop}=${value.length}`);
+                }
+              if (fiber.sibling) stack.push(fiber.sibling);
+              if (fiber.child) stack.push(fiber.child);
+            }
+          }
+          return out;
+        });
+        console.log(`heap-retainers ${name}: row lists ${rowLists.join(" ")}`);
+        const domCounters = (await shownPage.cdp.send("Memory.getDOMCounters")) as Record<string, number>;
+        console.log(`heap-retainers ${name}: shown page DOM counters ${JSON.stringify(domCounters)}`);
+        const snapshot = await takeSnapshot(shownPage.cdp);
+        const base = name.startsWith("empty") ? undefined : retainerBase.get(count);
+        const summary = printRetainers(name, snapshot, base);
+        if (name.startsWith("empty")) retainerBase.set(count, summary);
+      }
       if (count === 1 && RESIZE) {
         const { page, cdp } = pages[0]!;
         await cdp.send("Performance.enable", { timeDomain: "threadTicks" });
@@ -1087,7 +1211,7 @@ try {
             `resize cpu ms ${resizeCpuMs.map((v) => v.toFixed(0)).join(", ")} (median ${median(resizeCpuMs).toFixed(0)})`,
         );
       }
-      const row: Launch = { name, idlePct, streamPct, mb, renderers: pids.length, settleS: settledS, capped };
+      const row: Launch = { name, idlePct, streamPct, mb, heapMb, renderers: pids.length, settleS: settledS, capped };
       perfRow({ name: `${ROW}.${name}.cpu_settle_s`, p50: settledS, p95: settledS, unit: "s" });
       perfRow({ name: `${ROW}.${name}.cpu_settle_capped`, p50: Number(capped), p95: Number(capped), unit: "count" });
       perfRow({ name: `${ROW}.${name}.settle_spike_cpu_s`, p50: spikeCpuS, p95: spikeCpuS, unit: "s", clock: "cpu" });
@@ -1102,6 +1226,7 @@ try {
         clock: "cpu",
       });
       perfRow({ name: `${ROW}.${name}.renderer_mb`, p50: mb, p95: mb, unit: "MB" });
+      perfRow({ name: `${ROW}.${name}.heap_mb`, p50: heapMb, p95: heapMb, unit: "MB" });
       return row;
     } finally {
       await context.close().catch(() => undefined);
@@ -1119,17 +1244,22 @@ try {
     const emptyOne = await runLaunch("empty_x1", small, 1);
     if (CASES !== "running") {
       const longOne = await runLaunch("long_x1", long, 1, { profile: PROFILE, match: emptyOne });
-      const grownOne = await runLaunch("grown_x1", small, 1, { profile: PROFILE, grow: long.turns, match: emptyOne });
-      pairs.push(["long_x1", longOne, emptyOne], ["grown_x1", grownOne, emptyOne]);
+      pairs.push(["long_x1", longOne, emptyOne]);
+      if (CASES !== "long") {
+        const grownOne = await runLaunch("grown_x1", small, 1, { profile: PROFILE, grow: long.turns, match: emptyOne });
+        pairs.push(["grown_x1", grownOne, emptyOne]);
+      }
     }
     // Running: one chat whose single open turn takes about ROWS records live (a chunk, a tool call and its update per
     // step), the coordinator chat that never finishes its turn.
-    const runningOne = await runLaunch("running_x1", small, 1, {
-      profile: PROFILE,
-      runGrow: Math.ceil(ROWS / 3),
-      match: emptyOne,
-    });
-    pairs.push(["running_x1", runningOne, emptyOne]);
+    if (CASES !== "long") {
+      const runningOne = await runLaunch("running_x1", small, 1, {
+        profile: PROFILE,
+        runGrow: Math.ceil(ROWS / 3),
+        match: emptyOne,
+      });
+      pairs.push(["running_x1", runningOne, emptyOne]);
+    }
   }
   // The xN baseline brackets the launches it is compared with: empty xN runs before them and again after
   // (empty_xN_after), and each xN ratio is taken over the two launches' mean. One empty xN launch's steady idle moved
@@ -1146,7 +1276,7 @@ try {
       `long_x${CHATS}`,
       await runLaunch(`long_x${CHATS}`, long, CHATS, { profile: PROFILE, match: emptyMany }),
     ]);
-  if (emptyMany && CASES !== "main" && CASES !== "long-many")
+  if (emptyMany && CASES !== "main" && CASES !== "long" && CASES !== "long-many")
     many.push([
       `grown_x${CHATS}`,
       await runLaunch(`grown_x${CHATS}`, small, CHATS, { grow: long.turns, match: emptyMany }),
@@ -1159,6 +1289,7 @@ try {
       idlePct: mean(emptyMany.idlePct, after.idlePct),
       streamPct: mean(emptyMany.streamPct, after.streamPct),
       mb: mean(emptyMany.mb, after.mb),
+      heapMb: mean(emptyMany.heapMb, after.heapMb),
       renderers: emptyMany.renderers,
       settleS: Math.max(emptyMany.settleS, after.settleS),
       capped: emptyMany.capped || after.capped,
@@ -1178,6 +1309,12 @@ try {
   for (const [name, value] of ratios) {
     console.log(`chat-100k-flat: ${name} ${value.toFixed(2)}x`);
     perfRow({ name: `${ROW}.${name}`, p50: value, p95: value, unit: "x", target: 1.2, floor: 0.05 });
+  }
+  // The JS heap's long/empty ratios: where a renderer MB ratio comes from, read beside ratio_max, never in it.
+  for (const [label, big, base] of pairs) {
+    const value = big.heapMb / base.heapMb;
+    console.log(`chat-100k-flat: ${label}.heap_mb_ratio ${value.toFixed(2)}x`);
+    perfRow({ name: `${ROW}.${label}.heap_mb_ratio`, p50: value, p95: value, unit: "x" });
   }
   const [worst, max] = ratios.reduce((a, b) => (b[1] > a[1] ? b : a));
   console.log(`chat-100k-flat: worst ratio ${max.toFixed(2)}x (${worst}); target 1.2x`);
