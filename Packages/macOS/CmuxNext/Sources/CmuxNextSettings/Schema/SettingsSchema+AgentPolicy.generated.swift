@@ -51,6 +51,8 @@ extension SettingsSchema {
         "app.hideDockIconWithoutWindows",
         // The menu bar item; looks only, ends no work.
         "app.showMenuBarIcon",
+        // The language cmux's own text is in; ends no work.
+        "app.language",
         "tabs.overflow",
         // How tabs are listed (looks only)
         "tabs.verticalTabs", "tabs.verticalTabsExpandOnHover",

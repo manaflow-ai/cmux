@@ -289,7 +289,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.navigation.historyScope", "Back and Forward"),
-                help: SettingsText.keyed("settings.navigation.historyScope.help", "What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history."),
+                help: SettingsText.keyed("settings.navigation.historyScope.help", "What Go Back and Go Forward walk."),
                 kind: .choice([
                     SettingChoice("workspace", SettingsText.keyed("settings.navigation.historyScope.workspace", "Workspace")),
                     SettingChoice("window", SettingsText.keyed("settings.navigation.historyScope.window", "Window")),
@@ -303,7 +303,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.navigation.historySteps", "Back and Forward Steps"),
-                help: SettingsText.keyed("settings.navigation.historySteps.help", "Workspaces: Go Back and Go Forward move between workspaces and top pages, and return to the tab each one last had focused. Everything: they also step through tabs and panes inside a workspace."),
+                help: SettingsText.keyed("settings.navigation.historySteps.help", "Everything also steps through tabs and panes inside a workspace."),
                 summary: SettingsText.keyed("settings.navigation.historySteps.summary", "What Go Back and Go Forward step through"),
                 kind: .choice([
                     SettingChoice("workspaces", SettingsText.keyed("settings.navigation.historySteps.workspaces", "Workspaces")),
@@ -327,7 +327,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.history.closed.maxGroups", "Recently Closed Items to Keep"),
-                help: SettingsText.keyed("settings.history.closed.maxGroups.help", "Each machine deletes its oldest closed tabs, screens, workspaces and windows past this many. 0 keeps them all."),
+                help: SettingsText.keyed("settings.history.closed.maxGroups.help", "Older closed tabs, workspaces and windows are deleted. 0 keeps them all."),
                 kind: .number(SettingNumber(ClosedHistoryRetentionSetting.maxGroupsRange, step: 1, unit: .count)),
                 default: .number(ClosedHistoryRetentionSetting.maxGroupsDefault),
                 keywords: ["history", "recently closed", "reopen", "retention", "delete", "privacy"]
