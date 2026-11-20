@@ -216,6 +216,7 @@ export function Tree({
   // The first mounted line of each kind sizes every one not yet mounted, so the lines a scroll
   // brings in measure as estimated: TanStack places all N lines again whenever a measure differs.
   const sizes = useRef(new Map<TreeLine["kind"], number>());
+  // react-doctor-disable-next-line react-hooks-js/incompatible-library -- TanStack Virtual returns functions the React Compiler cannot memoize safely, so the tree stays uncompiled on purpose; it pins the focused, first and last lines in its own range and sizes lines per kind, so ui/VirtualList does not fit.
   const virtualizer = useVirtualizer({
     count: lines.length,
     getScrollElement: findViewport,
