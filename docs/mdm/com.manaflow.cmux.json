@@ -2062,6 +2062,17 @@
       "title" : "Theme File",
       "type" : "string"
     },
+    "appearance.themeFileExceptions" : {
+      "default" : [
+
+      ],
+      "description" : "Settings you changed while a theme file sets them. Your value applies over the file's; resetting the row returns to the file's. Choosing another theme file clears the list.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Changed Over Theme File",
+      "type" : "array"
+    },
     "appearance.titleAreaContrast" : {
       "default" : 1,
       "description" : "How much darker the title bar, tab bar and sidebar are. 1 is the default.",
@@ -3889,6 +3900,12 @@
       "default" : false,
       "description" : "Mac Screen tabs connect only through the relay, to test it.",
       "title" : "Relay Only",
+      "type" : "boolean"
+    },
+    "macScreen.onlyPersonStartsViewing" : {
+      "default" : false,
+      "description" : "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first.",
+      "title" : "Only Your Click Starts Viewing a Screen",
       "type" : "boolean"
     },
     "macScreen.systemShortcuts" : {
