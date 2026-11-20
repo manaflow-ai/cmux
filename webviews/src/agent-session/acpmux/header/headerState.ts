@@ -13,7 +13,7 @@ export interface HeaderPullRequest {
   readonly url: string;
   readonly number: number;
   readonly title: string;
-  /// GitHub's head commit when the daemon supplies it. The armed merge watch pins this value.
+  /// Full GitHub head supplied by the daemon, binding explicit actions to the displayed revision.
   readonly headSha?: string;
   /// `open`, `draft`, `merged` or `closed`.
   readonly state: string;
