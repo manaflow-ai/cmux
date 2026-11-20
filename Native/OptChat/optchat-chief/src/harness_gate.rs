@@ -349,4 +349,52 @@ mod refusal_text_tests {
             assert!(shown.contains(agent), "{agent} in {shown}");
         }
     }
+
+    /// First-run findings row 8 ("chat looks stuck"): every refused turn posted the same tall text,
+    /// so in a small window the new reply looked exactly like the old one and the person's message
+    /// above it was out of view. Each reply now names the message it answers, stays short, and a
+    /// repeat says how many in a row: no two turns in a row post the same text.
+    #[test]
+    fn each_refused_turn_posts_a_short_reply_of_its_own() {
+        use super::refused_reply;
+        let error = refusal(
+            "the Chief runs Claude only through acpmux's own Claude Code adapter (kind claude-stdio); acpmux has none: acpmux has no harness named claude",
+        );
+        let first = refused_reply(&error, Some("hello?"), 1);
+        let second = refused_reply(&error, Some("hello?"), 2);
+        let third = refused_reply(&error, Some("are you there"), 3);
+        for shown in [&first, &second, &third] {
+            assert!(!shown.starts_with('('), "no raw wrapper: {shown}");
+            assert!(!shown.contains("refused"), "{shown}");
+            for word in INTERNAL {
+                assert!(!shown.contains(word), "{word:?} in {shown}");
+            }
+            assert!(shown.contains("Install Claude Code"), "{shown}");
+            assert!(shown.chars().count() <= 200, "short: {shown}");
+        }
+        assert!(first.contains("“hello?”"), "{first}");
+        assert!(third.contains("“are you there”"), "{third}");
+        assert_ne!(first, second);
+        assert_ne!(second, third);
+        assert!(second.contains('2'), "{second}");
+        assert!(
+            second.chars().count() < first.chars().count(),
+            "a repeat is shorter: {second}"
+        );
+        // A long or multi-line message is quoted by its start only.
+        let long = refused_reply(
+            &error,
+            Some(&format!("{}\nsecond line", "x".repeat(300))),
+            1,
+        );
+        assert!(
+            long.chars().count() <= 200 && !long.contains('\n'),
+            "{long}"
+        );
+        // No message to quote (a wake turn): still plain and still per count.
+        assert_ne!(
+            refused_reply(&error, None, 1),
+            refused_reply(&error, None, 2)
+        );
+    }
 }
