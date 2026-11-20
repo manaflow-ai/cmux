@@ -1,5 +1,5 @@
 {
- "title": "Pi has no Mode (user 2026-11-19: \"pi should not have a \\\"mode\\\"\"). A New Agent Chat on Pi, whose ACP bridge mirrors its thinking levels as modes, draws the model chip with no Mode chip; a New Agent Chat on Claude Code keeps its Mode chip. Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/pi-has-no-mode.json --mac",
+ "title": "Pi has no Mode (user 2026-11-19: \"pi should not have a \\\"mode\\\"\"). A New Agent Chat on Pi, whose ACP bridge mirrors its thinking levels as modes, draws the model chip with no Mode chip; a New Agent Chat on Claude Code keeps its Mode chip. A Pi chat that ran, and a fresh New Agent Chat on Pi after it, draw no Mode chip either. Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/pi-has-no-mode.json --mac",
  "launch_args": [
   "--skip-onboarding"
  ],
@@ -75,6 +75,17 @@
    "shot": false
   },
   {
+   "title": "Open a New Agent Chat tab for Pi",
+   "cmux": [
+    "agent",
+    "new-chat",
+    "--cwd",
+    "/tmp"
+   ],
+   "wait": 4,
+   "shot": false
+  },
+  {
    "title": "A New Agent Chat on Pi, before any send",
    "rpc": {
     "method": "debug.agent_pane",
@@ -111,6 +122,83 @@
    "wait": 1.5
   },
   {
+   "title": "Pi answers one prompt, as a person's earlier Pi chat did (its session reports options and copied modes)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "hi"
+    }
+   },
+   "wait": 4
+  },
+  {
+   "title": "Pi's running chat: model and thinking, no Mode",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "chat_state"
+    }
+   },
+   "record": "file",
+   "wait": 1
+  },
+  {
+   "title": "A second workspace for a fresh Pi New Agent Chat",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Pi2"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Show Pi2",
+   "cmux": [
+    "workspace",
+    "name:Pi2",
+    "focus"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Open a New Agent Chat tab for Pi again",
+   "cmux": [
+    "agent",
+    "new-chat",
+    "--cwd",
+    "/tmp"
+   ],
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "A fresh New Agent Chat on Pi, before any send",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "new_chat",
+     "harness": "pi"
+    }
+   },
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "Fresh Pi New Agent Chat: no held Mode chip",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "chat_state"
+    }
+   },
+   "record": "file",
+   "wait": 1.5
+  },
+  {
    "title": "A workspace for the Claude chat",
    "cmux": [
     "workspace",
@@ -129,6 +217,17 @@
     "focus"
    ],
    "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Open a New Agent Chat tab for Claude",
+   "cmux": [
+    "agent",
+    "new-chat",
+    "--cwd",
+    "/tmp"
+   ],
+   "wait": 4,
    "shot": false
   },
   {
