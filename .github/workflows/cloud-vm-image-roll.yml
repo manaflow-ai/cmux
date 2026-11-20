@@ -84,6 +84,7 @@ jobs:
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
       # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
         if: runner.os == 'Linux'
         shell: bash
         run: |
@@ -149,6 +150,7 @@ jobs:
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
       # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
         if: runner.os == 'Linux'
         shell: bash
         run: |
@@ -263,6 +265,7 @@ jobs:
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
       # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
         if: runner.os == 'Linux'
         shell: bash
         run: |
@@ -396,6 +399,7 @@ jobs:
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
       # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
         if: runner.os == 'Linux'
         shell: bash
         run: |
