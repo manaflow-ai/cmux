@@ -988,7 +988,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         defer {
             passFrame = frame
             shiftSample = current.map { ShiftSample(id: $0.id, next: $0.next, gap: $0.gap, bottom: $0.bottom, windowY: $0.windowY, width: width, offsetY: offsetY) }
-            if probe?.shiftDetail != nil {
+            if probe.shiftDetail != nil {
                 previousInterval = "\(source):\(trail.joined(separator: ","))/pending=\(ledger.pending)"
             }
             ledger.reset()
@@ -1001,7 +1001,9 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         }
         let shift = (now - last.windowY) + ledger.explained
         guard let report = probe.passFrameShift else { return }
-        let midPlacement = committedFrame.map { $0 != frame || lastFrame.map { old in old != $0 } ?? false } ?? false
+        let midPlacement = committedFrame.map { committed in
+            committed != frame || lastFrame.map { $0 != committed } ?? false
+        } ?? false
         report(shift, midPlacement, abs(shift) > 0.5
             ? shiftDetail(at: source, moved: now - last.windowY, explained: ledger.explained, offset: offsetY - last.offsetY, frame: frame)
             : nil)
