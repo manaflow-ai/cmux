@@ -49,11 +49,27 @@ pub(crate) fn url() -> Option<String> {
     if let Ok(url) = std::env::var(ENV) {
         return Some(url.trim().to_owned());
     }
+    // A Cloud machine's daemon has no app bundle: its room is the platform its host provisioned
+    // (`CMUX_PLATFORM_ORIGIN`, from the trusted turn scope), so a Cloud chat's links go to the
+    // same environment's room as its owner's app (cloud multiplayer lane C).
+    if let Some(room) = cloud_machine_room(std::env::var(PLATFORM_ORIGIN_ENV).ok().as_deref()) {
+        return Some(room.to_owned());
+    }
     let exe = std::env::current_exe().ok();
     let identity =
         crate::app_identity::AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref());
     default_for(identity.map_or(BuildKind::Unbundled, |identity| identity.build().kind()))
         .map(str::to_owned)
+}
+
+/// The trusted platform origin a Cloud machine's host hands its daemon (cmux-host `turn_scope`).
+const PLATFORM_ORIGIN_ENV: &str = "CMUX_PLATFORM_ORIGIN";
+
+/// The room of a Cloud machine whose host names `origin`: only a declared deployment's, whose
+/// owner API the app mints the owner token from (`share_owner_api`); any other origin, none.
+fn cloud_machine_room(origin: Option<&str>) -> Option<&'static str> {
+    let origin = origin?.trim().trim_end_matches('/');
+    [DEVELOPMENT, STAGING, PRODUCTION].into_iter().find(|room| *room == origin)
 }
 
 /// This daemon's app's URL scheme (the one its Info.plist registers, cmux-cloud-config `callback_scheme`), which
@@ -93,6 +109,16 @@ mod tests {
         assert_eq!(default_for(BuildKind::Staging), Some(STAGING));
         assert_eq!(default_for(BuildKind::Dev), Some(DEVELOPMENT));
         assert_eq!(default_for(BuildKind::Unbundled), None);
+    }
+
+    #[test]
+    fn a_cloud_machine_uses_the_room_of_its_provisioned_platform() {
+        assert_eq!(cloud_machine_room(Some(DEVELOPMENT)), Some(DEVELOPMENT));
+        assert_eq!(cloud_machine_room(Some(&format!("{STAGING}/"))), Some(STAGING));
+        assert_eq!(cloud_machine_room(Some(PRODUCTION)), Some(PRODUCTION));
+        assert_eq!(cloud_machine_room(Some("https://evil.example")), None);
+        assert_eq!(cloud_machine_room(Some("")), None);
+        assert_eq!(cloud_machine_room(None), None);
     }
 
     #[test]

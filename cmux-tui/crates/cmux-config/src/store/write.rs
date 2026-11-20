@@ -207,8 +207,7 @@ fn set_text(
         // The default's own value removes the key, so it keeps following the default when a later
         // release changes it (Swift `isUnsetValue`); not when a layer below the file fills the key.
         let below = state.managed.recommended.contains_key(&row.key)
-            || state.team.defaults.contains_key(&row.key)
-            || UNSET_IS_NOT_DEFAULT.contains(&row.key.as_str());
+            || state.team.defaults.contains_key(&row.key);
         if remove_default && !below && row.default.clone().map(canonical).as_ref() == Some(&value) {
             return remove_pruning(without_replaced(source.to_string(), &path)?, &path);
         }
@@ -230,12 +229,6 @@ fn without_replaced(text: String, path: &[String]) -> Result<String, Refusal> {
     }
     remove_pruning(text, &replaced.old)
 }
-
-/// Keys whose reader fills an unset key with something other than the row's default, so a written
-/// default is the person's own answer and stays (Swift `SettingsSchema.unsetIsNotDefaultKeys`): the
-/// login consents, which a DEV or NIGHTLY start reads as yes when unset (cmux#41072 review).
-const UNSET_IS_NOT_DEFAULT: &[&str] =
-    &["cloud.useMyClaudeLoginOnMyCloudMachines", "cloud.useMyCodexLoginOnMyCloudMachines"];
 
 /// A non-row path may not hold or sit inside a row: writing an ancestor
 /// object would replace rows without validating them, and writing below a

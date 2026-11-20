@@ -26,7 +26,7 @@ nonisolated enum AgentRetrySettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agents.autoRetry.enabled", "Retry Automatically"),
-                help: SettingsText.keyed("settings.agents.autoRetry.enabled.help", "When a model is rate limited or out of capacity, or the connection drops, the chat tries again by itself. Retry on the error card always works."),
+                help: SettingsText.keyed("settings.agents.autoRetry.enabled.help", "Retries after rate limits, capacity errors or a dropped connection."),
                 kind: .toggle,
                 default: .bool(AgentRetrySettings.autoRetryEnabledDefault),
                 keywords: ["retry", "rate limit", "capacity", "error", "resume", "agents"]
@@ -36,7 +36,7 @@ nonisolated enum AgentRetrySettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agents.autoRetry.interval", "Seconds Between Retries"),
-                help: SettingsText.keyed("settings.agents.autoRetry.interval.help", "How long the chat waits before each try. 0 waits longer after each failed try: 10 seconds, 1 minute, 5 minutes, then 20 minutes."),
+                help: SettingsText.keyed("settings.agents.autoRetry.interval.help", "0 waits longer after each failed try."),
                 kind: .number(SettingNumber(AgentRetrySettings.autoRetryIntervalRange, step: 1, unit: .seconds)),
                 default: .number(AgentRetrySettings.autoRetryIntervalDefault),
                 keywords: ["retry", "interval", "timer", "wait", "backoff", "rate limit"]

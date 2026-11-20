@@ -31,6 +31,5 @@ check python3 tests/test_strings_output_encoding.py
 check python3 tests/test_app_symbol_map.py
 check python3 tests/test_cmux_tui_release_profile.py
 check python3 tests/test_dead_code_stripping.py
-check python3 tests/test_computer_use_helper_icon_depth.py
 [[ "$failed" -eq 0 ]] || exit 1
 stage end test

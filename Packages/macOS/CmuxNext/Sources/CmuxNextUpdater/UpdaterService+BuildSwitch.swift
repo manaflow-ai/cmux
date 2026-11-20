@@ -184,15 +184,14 @@ nonisolated struct BuildSwitchDownload: Sendable {
 nonisolated extension UpdaterStrings {
     static var channelsSwitch: String { text("updater.channels.switch", "Switch") }
     static var channelsSwitchUnavailable: String {
-        text("updater.channels.switchUnavailable", "This build cannot switch builds (it follows no update feed).")
+        text("updater.channels.switchUnavailable", "This build doesn't get updates, so it can't switch builds.")
     }
     static var channelsSwitchAlreadyHere: String { text("updater.channels.switchAlreadyHere", "This Mac already runs that build.") }
     static var channelsSwitchPulled: String {
         text("updater.channels.switchPulled", "That build was pulled from the feed. Pick another one.")
     }
     static var channelsSwitchUnsigned: String {
-        text("updater.channels.switchUnsigned",
-             "That build was published before downloads carried a signature to check, so it can only be installed if this Mac kept it.")
+        text("updater.channels.switchUnsigned", "That build is too old to download. It installs only if this Mac kept a copy.")
     }
     static var channelsSwitchGone: String {
         text("updater.channels.switchGone", "That build is no longer offered for download.")

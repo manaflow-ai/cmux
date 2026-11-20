@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 class NamespaceLintTests(unittest.TestCase):
-    def lint(self, source, ratchet=None, update=False, fix=False, files_from=None):
+    def lint(self, source, ratchet=None, update=False, fix=False, files_from=None, others=None):
         root = Path(__file__).resolve().parents[2]
         with tempfile.TemporaryDirectory() as temporary:
             checkout = Path(temporary)
@@ -20,6 +20,9 @@ class NamespaceLintTests(unittest.TestCase):
             package = checkout / 'Packages/iOS/CmuxMobileFixture/Sources/Fixture'
             package.mkdir(parents=True)
             (package / 'Fixture.swift').write_text(source)
+            for relative, text in (others or {}).items():
+                (checkout / relative).parent.mkdir(parents=True, exist_ok=True)
+                (checkout / relative).write_text(text)
             ratchet_path = scripts / 'lint-namespace-types-ratchet.txt'
             if ratchet is not None:
                 ratchet_path.write_text(''.join(f'{entry}\n' for entry in ratchet))
@@ -40,6 +43,7 @@ class NamespaceLintTests(unittest.TestCase):
             )
             result.ratchet = ratchet_path.read_text() if ratchet_path.exists() else None
             result.fixed_source = (package / 'Fixture.swift').read_text()
+            result.others = {relative: (checkout / relative).read_text() for relative in (others or {})}
             return result
 
     def test_braces_in_strings_and_comments_do_not_hide_instance_members(self):
@@ -145,6 +149,44 @@ public struct Value {
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('public nonisolated struct Policy {', result.fixed_source)
         self.assertIn('public nonisolated init() {}', result.fixed_source)
+
+    def test_fix_rewrites_enum_imports_of_a_converted_enum(self):
+        # 8f33d7030: the base autofix turned LaunchPriorChat into a struct and left AgentPaneView's
+        # `import enum CmuxNextControl.LaunchPriorChat`, so the package stopped compiling.
+        source = '''public nonisolated enum Policy {
+    public static let enabled = true
+}
+'''
+        user = 'Packages/iOS/CmuxMobileFixture/Sources/User/User.swift'
+        test = 'Packages/iOS/CmuxMobileFixture/Tests/FixtureTests/PolicyTests.swift'
+        other = 'Packages/iOS/CmuxMobileFixture/Sources/Other/Other.swift'
+        result = self.lint(source, fix=True, others={
+            user: 'import enum Fixture.Policy\npublic import enum Fixture.PolicyKind\n',
+            test: '@testable import enum Fixture.Policy\n',
+            other: 'import enum Elsewhere.Policy\n',
+        })
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('public nonisolated struct Policy {', result.fixed_source)
+        self.assertEqual(result.others[user], 'import struct Fixture.Policy\npublic import enum Fixture.PolicyKind\n')
+        self.assertEqual(result.others[test], '@testable import struct Fixture.Policy\n')
+        self.assertEqual(result.others[other], 'import enum Elsewhere.Policy\n')
+
+    def test_fix_leaves_imports_of_a_top_level_enum_when_it_converts_a_nested_one(self):
+        # Review F1 of #45122: converting Owner.Policy must not rewrite `import enum Fixture.Policy`.
+        source = '''public struct Owner {
+    public let id: Int
+    public nonisolated enum Policy {
+        public static let enabled = true
+    }
+}
+public enum Policy {
+    case on, off
+}
+'''
+        user = 'Packages/iOS/CmuxMobileFixture/Sources/User/User.swift'
+        result = self.lint(source, fix=True, others={user: 'import enum Fixture.Policy\n'})
+        self.assertIn('public nonisolated struct Policy {', result.fixed_source)
+        self.assertEqual(result.others[user], 'import enum Fixture.Policy\n')
 
 
     def test_fix_does_not_change_class_or_actor_semantics(self):

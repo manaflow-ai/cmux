@@ -44,6 +44,9 @@ public final class DesignSettings {
     public var densityTokens: DensityTokens = .compact
     /// `appearance.customDensities`: the user's own densities, in file order.
     public var customDensities: [DensityTokens] = []
+    /// Whether `densityTokens` is the active theme file's own density (its `"density"` block): then a change to it
+    /// shows but is not saved, since the file would put it back.
+    public var densityFromThemeFile = false
     /// Every density the user can pick: the built-ins, densest first, then the custom ones.
     public var availableDensities: [DensityTokens] { DensityPreset.allCases.map(\.tokens) + customDensities }
     /// The density with `id` among `availableDensities`.
@@ -71,6 +74,7 @@ public final class DesignSettings {
         return "document.documentElement.style.setProperty('--cmux-interface-scale', '\(Typography.pageScale)');"
             + "document.documentElement.style.setProperty('--cmux-density-scale', '\(Typography.pageDensityScale)');"
             + "document.documentElement.style.setProperty('--cmux-density-text-scale', '\(Typography.pageDensityTextScale)');"
+            + "document.documentElement.style.setProperty('--cmux-chat-text-scale', '\(Typography.pageChatTextScale)');"
             + "if (window.__cmuxSyncPageZoom) { window.__cmuxSyncPageZoom(); } else { document.documentElement.style.setProperty('--cmux-ui-scale', '\(effectivePageZoom)'); }"
             + composerScript
             + "document.documentElement.style.setProperty('--cmux-row-text-scale', '\(Typography.pageRowTextScale)');"
@@ -79,7 +83,7 @@ public final class DesignSettings {
     }
     /// New Tab scales its Default page values together with one zoom.
     private var composerScript: String {
-        let tokens = densityTokens.tokens
+        let tokens = Metrics.tokens.tokens
         let values: [(String, String?)] = [
             ("--cmux-composer-zoom", tokens["composerZoom"].map { Self.cssNumber($0) }),
             ("--cmux-composer-column", tokens["composerMaxWidth"].map { "min(\(Self.cssNumber($0))px, 100%)" }),
@@ -297,8 +301,9 @@ public final class DesignSettings {
     /// `appearance.borders`: default, or none (no border, hairline or
     /// separator anywhere; `Borders`).
     public var borders: BorderMode = .default
-    /// `appearance.fontSmoothing`: what web pages draw with now (``WebTheme``). Native text keeps the
-    /// launch's value (``ProcessFontSmoothing/current``).
+    /// `appearance.fontSmoothing`: what web pages draw with now (``WebTheme``). Chrome text cmux draws
+    /// itself follows it too (``ProcessFontSmoothing/chrome``); stock AppKit text keeps the launch's
+    /// value (``ProcessFontSmoothing/current``).
     public var fontSmoothing: FontSmoothing = .auto
     /// `appearance.sidebarSurface`: the sidebar on the main pane's surface,
     /// or shaded apart from it.

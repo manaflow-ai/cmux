@@ -16,37 +16,44 @@
 //! floating pane becomes tiled.
 
 use cmux_layout_reducer::floating_panes::{
-    FloatFrame, FloatMode, FloatRefusal, Floating, normalized, place,
+    FloatFrame, FloatMode, FloatRefusal, Floating, focus_moved, normalized, place,
 };
 
 use super::*;
-use crate::model::{LayoutMutationKey, LayoutResizeOwner, Node, Screen};
+use crate::model::{LayoutColumn, LayoutMutationKey, LayoutResizeOwner, Node, Screen};
 use crate::resource::PanePublicId;
 
 /// Internal journal operation name. It is not a public resource operation:
 /// the command is reachable only through the JSON-lines `float-pane`.
 const FLOAT_PANE_OPERATION: &str = "pane.float";
 
-/// The durable form of a screen's floating panes: `list` as the rules read it
-/// against the panes of `root`, with public pane ids.
+/// The durable form of a screen's floating panes: `list` as the screen keeps
+/// it against the layout of `root` and `columns`
+/// ([`Screen::settled_floating_panes`]), with public pane ids. So the store
+/// never has an entry that the live screen does not keep.
 pub(crate) fn registry_floating_panes(
     state: &State,
     root: &Node,
+    columns: &[LayoutColumn],
     list: &[Floating<PaneId>],
 ) -> anyhow::Result<Vec<Floating<PanePublicId>>> {
-    if list.is_empty() {
-        return Ok(Vec::new());
-    }
-    normalized(&root.pane_ids_vec(), list)
+    Screen::settled_floating_panes(root, columns, list)
         .into_iter()
         .map(|entry| {
-            let pane =
-                state.resource_indexes.pane_ids.get(&entry.pane).cloned().with_context(|| {
-                    format!("floating pane {} has no public identity", entry.pane)
-                })?;
-            Ok(Floating { pane, frame: entry.frame })
+            entry
+                .renamed(|pane| state.resource_indexes.pane_ids.get(&pane).cloned())
+                .with_context(|| format!("floating pane {} has no public identity", entry.pane))
         })
         .collect()
+}
+
+/// Gives `pane` the focus of the stored `screen`, as [`Screen::set_active_pane`]
+/// does it for the live screen: a floating pane that gets the focus comes to
+/// the front. A plan that writes the focus into the stored record of a screen
+/// calls this, so the store has the list of the live screen.
+pub(crate) fn focus_registry_pane(screen: &mut RegistryScreen, pane: &PanePublicId) {
+    let previous = std::mem::replace(&mut screen.active_pane, pane.clone());
+    focus_moved(&mut screen.floating, pane, &previous);
 }
 
 /// The list `screen` has after the request, and the pane's frame in it.
