@@ -5,6 +5,7 @@ import {
   LIVE_RESUME_MS,
   resumesLiveResize,
   stepLiveResize,
+  widthChanged,
   type LiveResizeClock,
 } from "./liveResizeStep";
 
@@ -90,5 +91,22 @@ describe("resumesLiveResize", () => {
 
   it("starts a new resize after a long quiet", () => {
     expect(resumesLiveResize({ at: 0, steps: 0, settled: 1000 }, 1000 + LIVE_RESUME_MS + 1)).toBe(false);
+  });
+});
+
+describe("widthChanged", () => {
+  // A new chat has no session and no layout yet: `undefined === undefined` read as the same chat and the
+  // transcript's first render threw ("Cannot read properties of undefined (reading 'width')"), so a new
+  // chat's pane showed "The agent pane could not be drawn." (cmuxterm-hq#15602, fleet step b3282f50).
+  it("is false for a chat with no layout yet, session or not", () => {
+    expect(widthChanged(undefined, undefined, 640)).toBe(false);
+    expect(widthChanged(undefined, "s1", 640)).toBe(false);
+  });
+
+  it("is true for the same chat at another width or after a partial layout, false otherwise", () => {
+    expect(widthChanged({ sessionId: "s1", width: 600 }, "s1", 640)).toBe(true);
+    expect(widthChanged({ sessionId: "s1", width: 640, partial: true }, "s1", 640)).toBe(true);
+    expect(widthChanged({ sessionId: "s1", width: 640 }, "s1", 640)).toBe(false);
+    expect(widthChanged({ sessionId: "s0", width: 600 }, "s1", 640)).toBe(false);
   });
 });

@@ -230,7 +230,13 @@ import {
   SCROLL_ANCHOR_SETTLE_MS,
 } from "./virtualTranscriptModel";
 import { focusRoute } from "../../ui/focusRoute";
-import { continuesLiveResize, LIVE_RESIZE_MS, resumesLiveResize, stepLiveResize } from "./conversation/liveResizeStep";
+import {
+  continuesLiveResize,
+  LIVE_RESIZE_MS,
+  resumesLiveResize,
+  stepLiveResize,
+  widthChanged,
+} from "./conversation/liveResizeStep";
 import { DOCK_NOTICE } from "./noticeSlotModel";
 
 /// The live line's box and gap in a run as custom properties on the scroller (transcriptGrid.ts transcriptLiveVars):
@@ -4037,7 +4043,7 @@ function TranscriptView({
     // until it mounts or is measured near the view (layoutConversation `near.all`): O(rows in view),
     // not O(rows) of text layout, however long the chat.
     const near = nearView(lastPlaced.current, rows, sessionId);
-    const newWidth = last?.sessionId === sessionId && (last.width !== rowWidth || last.partial === true);
+    const newWidth = widthChanged(last, sessionId, rowWidth);
     const layout = layoutConversation(
       rows,
       rowWidth,

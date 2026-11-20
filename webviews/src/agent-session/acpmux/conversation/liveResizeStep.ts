@@ -69,3 +69,16 @@ export function stepLiveResize(clock: LiveResizeClock, now: number, window = LIV
   const live = continuesLiveResize(clock, now, window);
   return { ...clock, at: now, steps: live ? clock.steps + 1 : 0 };
 }
+
+/// What the transcript kept of its last layout, as far as a width change reads it.
+export interface LaidOutWidth {
+  sessionId?: string;
+  width: number;
+  partial?: boolean;
+}
+
+/// Whether the chat's last layout was at another width (or only partly laid out), so the rows away
+/// from the view keep their last heights until they come near it.
+export function widthChanged(last: LaidOutWidth | undefined, sessionId: string | undefined, width: number): boolean {
+  return last?.sessionId === sessionId && (last.width !== width || last.partial === true);
+}
