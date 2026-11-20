@@ -61,7 +61,7 @@ UNWIRED: set[str] = {
     # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, CLAUDE.md). It checks that a feat-cmux-next
     # push's Linux control jobs start on the JIT nightly label (#47764, #47905); it reads the workflows as data. Run it
     # by hand when those runs-on lines change. Exit: as below.
-    "tests/test_cmux_next_push_roots_on_control_jit.py",
+    "tests/test_cmux_next_push_roots_on_nightly_jit.py",
     # lane = "manual" (no new CI tests, CLAUDE.md). It runs scripts/cmux-next/cargo-locks.py in a throwaway
     # repository and reads rust-workspaces.yml only as data (that the workflow calls the script). Run it by hand
     # when the script or that workflow changes. Exit: as below.

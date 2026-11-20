@@ -89,7 +89,7 @@ OWNED = "cmux-gcp-lane-build-x64"
 NIGHTLY = "cmux-gcp-nightly-x64"
 # The JIT-only nightly label (#47905): one job per VM, holding the nightly's App keys; it serves nightly runs only,
 # so no job of this workflow takes it (#48109; cmux-next.yml's push control jobs left it too:
-# tests/test_cmux_next_push_roots_on_control_jit.py).
+# tests/test_cmux_next_push_roots_on_nightly_jit.py).
 NIGHTLY_JIT = "cmux-gcp-nightly-jit-x64"
 # Every x64 pool leads with our own one-job fleet label (#47803); its Blacksmith members follow in size order.
 FLEET = "cmux-fleet-linux-x64"
