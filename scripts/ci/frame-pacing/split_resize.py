@@ -226,7 +226,14 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
     if unknown:
         driver.save("split_resize", {"error": f"unknown gestures {unknown}"})
         return
+    # A workspace of its own first. A fresh launch lands on the docked Home (#46526): its chat dock refuses to split
+    # and its columns sit in a scrolling strip whose divider moved only when the drag ended (2026-11-20, fleet step
+    # cfe8a822: the divider read the same x in every sample of three drags, then 60 points further after each).
+    # A workspace's own split divider resizes its panes live, as a person drags it beside a chat.
+    workspace = driver.call("action.run", {"action": "workspace.newAtBottom", "focus": True}, timeout=30)
+    time.sleep(1.5)
     split = driver.call("action.run", {"action": "splitRight", "focus": True}, timeout=30)
+    split = {"workspace": workspace, **split} if isinstance(split, dict) else split
     if "error" in split or (split.get("data") or {}).get("not_run"):
         # A fresh window focuses its chat dock, which never splits ("The agent chat can't be split."): split the
         # first other pane instead. Before this the chat suite measured no drag (0 moving frames) on such a window.
@@ -367,6 +374,11 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
                 time.sleep(1.0)
             seeded["waited_s"] = round(60 - max(0.0, deadline - time.monotonic()), 1)
             opened = {"opened": opened, "seeded": seeded}
+            if not (isinstance(seeded.get("rows"), int) and seeded["rows"] >= seed - 1):
+                # A short chat measures nothing about a long one: say so instead of reporting its drags.
+                driver.save("split_resize", {"error": f"the chat never held its {seed}-row seed", "pane": pane,
+                                             "split": split, "opened": opened})
+                return
             time.sleep(2.0)
 
         def probe(step: str) -> dict:
