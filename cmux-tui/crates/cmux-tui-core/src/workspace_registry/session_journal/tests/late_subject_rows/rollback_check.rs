@@ -3,7 +3,7 @@
 //! A store stays at 16 when its owner ends with no stop step. No stop will
 //! write its subject rows, so a build that does not know the mark refuses
 //! the store until a build that knows it opens the session. The rollback's
-//! check (`store_schemas::stored`) reads the number of each session of a
+//! check (`store_schemas::stored_until`) reads the number of each session of a
 //! state root, and one such session refuses the rollback for all. So the
 //! check writes the subject rows of that store itself, as an open does, and
 //! then reads 15. These rows hold what that write must keep:
@@ -65,7 +65,7 @@ fn crashed(label: &str) -> Crashed {
 fn check(root: &Path) -> (i64, u64, u64) {
     let rows = subject_rows::rows_taken_by_writes();
     let opened = subject_rows::stores_opened_for_a_write();
-    let number = crate::store_schemas::stored(root).unwrap()["workspace_registry"];
+    let number = stored_numbers(root).unwrap()["workspace_registry"];
     (
         number,
         subject_rows::rows_taken_by_writes() - rows,
@@ -188,7 +188,7 @@ fn new_names(what: &str, root: &Path, act: impl FnOnce()) -> Vec<String> {
 /// The check of `root` when it must give no number: the text of its error.
 /// A check that gives a number fails the row with that number.
 fn check_gives_no_number(what: &str, root: &Path) -> String {
-    match crate::store_schemas::stored(root) {
+    match stored_numbers(root) {
         Ok(found) => panic!("{what}: the check must give no number, and it gave {found:?}"),
         Err(error) => format!("{error:#}"),
     }
@@ -336,7 +336,7 @@ fn the_rollback_check_makes_no_file_of_its_own() {
         &no_lock.store.root,
         || {
             // The check gives no number here: another row asserts that.
-            let _ = crate::store_schemas::stored(&no_lock.store.root);
+            let _ = stored_numbers(&no_lock.store.root);
         },
     );
 
@@ -347,7 +347,7 @@ fn the_rollback_check_makes_no_file_of_its_own() {
         "a store at 16 with no owner while the lock folder's lock is busy",
         &busy.store.root,
         || {
-            let _ = crate::store_schemas::stored(&busy.store.root);
+            let _ = stored_numbers(&busy.store.root);
         },
     );
     drop(held);
@@ -377,7 +377,7 @@ fn no_start_fails_and_no_subject_row_is_lost_while_the_rollback_check_runs_in_a_
             let (mut plain, mut due) = (0_u64, 0_u64);
             let (mut wrong, mut errors) = (Vec::new(), Vec::new());
             while !done.load(Relaxed) {
-                match crate::store_schemas::stored(&root) {
+                match stored_numbers(&root) {
                     Ok(found) => match found.get("workspace_registry").copied() {
                         Some(15) => plain += 1,
                         Some(16) => due += 1,

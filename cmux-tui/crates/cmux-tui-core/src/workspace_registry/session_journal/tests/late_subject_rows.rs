@@ -47,6 +47,17 @@ pub(crate) const DUE_NUMBER: &str = "16";
 /// product's one constant, not a second number.
 pub(crate) const PERIOD: u64 = subject_rows::PERIOD.unsigned_abs();
 const SESSION: &str = "late-subject-rows";
+
+/// The rollback's check of the state root `root` with no end time: it reads
+/// each session, so its answer is the numbers. An answer of a check that
+/// stopped before its end fails the row.
+fn stored_numbers(root: &Path) -> anyhow::Result<BTreeMap<String, i64>> {
+    match crate::store_schemas::stored_until(root, None)? {
+        crate::store_schemas::Stored::Schemas(found) => Ok(found),
+        stopped => panic!("a check with no end time stopped before its end: {stopped:?}"),
+    }
+}
+
 const SUBJECT_TABLE: &str = "CREATE TABLE journal_subject_index (
        sequence INTEGER NOT NULL CHECK(sequence > 0),
        kind TEXT NOT NULL,
@@ -554,7 +565,7 @@ impl Store {
 
     /// The schema number that a rollback's check reads for the store.
     fn rollback_number(&self) -> i64 {
-        crate::store_schemas::stored(&self.root).unwrap()["workspace_registry"]
+        stored_numbers(&self.root).unwrap()["workspace_registry"]
     }
 }
 
