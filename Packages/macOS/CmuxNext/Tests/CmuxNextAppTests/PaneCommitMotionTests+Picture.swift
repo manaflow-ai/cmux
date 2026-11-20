@@ -33,18 +33,22 @@ extension PaneCommitMotionTests {
 
     /// Puts a picture background under the panes of the window of `harness`, as the app's window has it: the window
     /// is not opaque, and a backdrop view is the lowest view of the window's content, with a picture and a tint of
-    /// 0.6 over it. `gap`: the backdrop is no still picture, for this reason (a case of `WindowPictureGap`).
+    /// 0.6 over it. `gap`: the backdrop is no still picture, for this reason (a case of `WindowPictureGap`), or the
+    /// window is `opaque`: it stays opaque with its own colour, and its backdrop has no picture.
     static func picture(under harness: Commit.Harness, gap: String? = nil) -> WindowMaterialView {
-        harness.window.isOpaque = false
-        harness.window.backgroundColor = NSColor.white.withAlphaComponent(0.001)
+        if gap != "opaque" {
+            harness.window.isOpaque = false
+            harness.window.backgroundColor = NSColor.white.withAlphaComponent(0.001)
+        }
         let backdrop = WindowMaterialView(frame: harness.root.bounds, images: BackdropImageStore(maxPixelSize: 256), videos: BackdropVideoPlayers())
         backdrop.autoresizingMask = [.width, .height]
         harness.root.addSubview(backdrop, positioned: .below, relativeTo: nil)
-        var look = WindowBackdrop(backgroundOpacity: 0.6, backgroundBlur: 0)
+        var look = WindowBackdrop(backgroundOpacity: gap == "opaque" ? 1 : 0.6, backgroundBlur: 0)
+        if gap == "glass" { look = WindowBackdrop(backgroundOpacity: 0.6, backgroundBlur: -1, liquidGlass: true) }
         if gap == "blur" { look.artBlurRadius = 8 }
         if gap == "seeThrough" { look.artOpacity = 0.5 }
         backdrop.apply(look, tint: .black)
-        if gap != "noPicture" { backdrop.showArt(NSImage(size: NSSize(width: 320, height: 200))) }
+        if !["noPicture", "glass", "opaque"].contains(gap ?? "") { backdrop.showArt(NSImage(size: NSSize(width: 320, height: 200))) }
         if gap == "changing" {
             let blend = CABasicAnimation(keyPath: "backgroundColor")
             blend.duration = 600
@@ -103,11 +107,15 @@ extension PaneCommitMotionTests {
 
     /// `count` panes in halves over a window's picture at rest, then the act of `scene` (``pictureScenes``).
     /// `speed`: the motion's springs have this speed, not the app's setting. `padding`: the model has its own style
-    /// with this padding around each pane's content, and each pane's content has a header.
-    static func overPicture(_ scene: String, panes count: Int, gap: String? = nil, speed: MotionSpeed? = nil, padding: CGFloat = 0) throws -> OverPicture {
+    /// with this padding around each pane's content, and each pane's content has a header. `configure` sets the
+    /// model up more. `before` runs at rest directly before a zoom, an unzoom or a lone close: the screen still shows
+    /// the layout before the act.
+    static func overPicture(_ scene: String, panes count: Int, gap: String? = nil, speed: MotionSpeed? = nil, padding: CGFloat = 0,
+                            configure: (LayoutModel) -> Void = { _ in }, before: (Commit.Harness) -> Void = { _ in }) throws -> OverPicture {
         let more = scene == "second close" || scene == "resize"
         let harness = Commit.Harness(Commit.screen(tree(more ? count + 1 : count)), focused: "p", holds: false, headed: padding > 0) { model in
             if scene != "resize" { model.splitSizingOverride = .even }
+            configure(model)
             guard padding > 0 else { return }
             model.followsDesignMetrics = false
             model.baseStyle.panePadding = padding
@@ -134,6 +142,7 @@ extension PaneCommitMotionTests {
         case "zoom", "unzoom":
             harness.model.focus(far.pane, notify: false)
             Commit.rest(harness)
+            if scene == "zoom" { before(harness) }
             harness.model.apply(screens: Commit.screen(.leaf(far.pane), zoomed: true))
             show()
             guard scene == "unzoom" else { break }
@@ -145,6 +154,7 @@ extension PaneCommitMotionTests {
             last.autoresizingMask = [.width, .height]
             area.addSubview(last)
             content.addSubview(area)
+            before(harness)
             harness.model.apply(screens: Commit.screen(tree(count)))
             show()
         case "split, held":
@@ -174,6 +184,7 @@ extension PaneCommitMotionTests {
             try #require(zip(rest, was).contains { $0.0.frame != $0.1 },
                          "SETUP: the resize in the move changes no pane's frame: the split has no room for its panes' least sizes")
         default:
+            before(harness)
             try closeFocused()
         }
         try #require(inFlight(screen), "SETUP: no pane moves at the \(scene) of \(count) panes")
