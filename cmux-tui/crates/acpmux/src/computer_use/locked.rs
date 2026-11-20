@@ -1,7 +1,7 @@
 //! A Mac that is already locked tells the agent and the person; it does not pretend.
 //!
 //! Design L2 (cmuxterm-hq `docs/design/locked-screen-computer-use.md`): the worker's own lock
-//! refusal stays (`mac_locked`; Cua Driver's older `screen_locked`), and this bridge maps it to one
+//! refusal stays (`mac_locked`; the older driver's `screen_locked`), and this bridge maps it to one
 //! typed result instead of a generic tool error: a stable `code` `mac_locked`, `state` `locked`,
 //! plain text, and the routes that work (unlock it, or run the call on a Cloud or remote machine).
 //! Whatever else the worker said (its message, a `whileLocked` detail) is kept beside it.
@@ -18,7 +18,7 @@ use super::client::Outcome;
 
 /// The one code an agent and a chat see for a locked Mac.
 pub const CODE: &str = "mac_locked";
-/// The worker codes that mean the Mac is locked (`screen_locked`: Cua Driver 0.38).
+/// The worker codes that mean the Mac is locked (`screen_locked`: the older driver's).
 pub const WORKER_CODES: &[&str] = &[CODE, "screen_locked"];
 /// The MCP result `_meta` key a chat reads to show the call as a state.
 pub const STATE_META: &str = "cmux/state";
