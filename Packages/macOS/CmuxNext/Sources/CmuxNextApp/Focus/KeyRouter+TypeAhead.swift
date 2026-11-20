@@ -69,7 +69,7 @@ extension KeyRouter {
         // Return follows the text typed before it, and the keys after it follow Return: they run once that text landed.
         if !otherPage, typeAheadTail.takes(keyCode: event.keyCode, chord: Self.isChord(event.modifierFlags), surface: surface, behindText: waiting) {
             decided.add(event)
-            typeAheadTail.hold(HeldTypeAheadKey(event: event, window: window), surface: surface, delivering: deliveringTypeAhead == surface || parkedTyping.park.isOnItsWay(to: readiness))
+            typeAheadTail.hold(HeldTypeAheadKey(event: event, window: window), surface: surface, delivering: deliveringTypeAhead == surface || parkedTyping.park.isOnItsWay(to: readiness)); CEFProbe.note("TA tail-hold \(event.characters ?? "")") // PROBE
             if typeAheadFocus == nil { typeAheadFocus = TypeAheadWait(focus: focus.resolved, page: surface) }
             readiness.whenReady { [weak self, weak readiness] in readiness.map { self?.flushTypeAhead(surface, into: $0) } }
             return true
@@ -77,18 +77,18 @@ extension KeyRouter {
         guard decide(event, focus: focus, keyWindow: kind, facts: facts) == .typeAhead else {
             // A key in another page's window edits nothing queued for this one.
             guard waiting, !otherPage else { return false }
-            if event.keyCode == Self.deleteKeyCode {
+            if event.keyCode == Self.deleteKeyCode { CEFProbe.note("TA delete while waiting") // PROBE
                 // A Delete while the taken text is being inserted, with nothing queued after it, is
                 // for that text: it goes to the page once the text landed (it was dropped before).
                 typeAhead.deleteBackward(surface: surface, delivering: deliveringTypeAhead == surface)
                 decided.add(event)
                 return true
             }
-            dropTypeAhead()
+            CEFProbe.note("TA non-typeahead key while waiting -> drop"); dropTypeAhead() // PROBE
             return false
         }
         decided.add(event)
-        typeAhead.append(event.characters ?? "", surface: surface, now: .now)
+        typeAhead.append(event.characters ?? "", surface: surface, now: .now); CEFProbe.note("TA append \(event.characters ?? "") ready=\(readiness.isReady) waiting=\(waiting) epoch=\(readiness.focusEpoch)") // PROBE
         typeAheadFocus = TypeAheadWait(focus: focus.resolved, page: surface)
         readiness.whenReady { [weak self, weak readiness] in readiness.map { self?.flushTypeAhead(surface, into: $0) } }
         return true
@@ -117,12 +117,12 @@ extension KeyRouter {
         // Nothing more is on its way: the keys held behind the text run now, as typed (out of the tail first, so none is held again).
         guard let text = typeAhead.take(surface: surface, now: .now) else { return typeAheadTail.settle(surface: surface).forEach { key in if let window = key.window { heldKeyReplay(key.event, window, self) } } }
         typeAheadTail.textWasTaken(surface: surface)
-        deliveringTypeAhead = surface
+        deliveringTypeAhead = surface; CEFProbe.note("TA take '\(text)' epoch=\(readiness.focusEpoch)") // PROBE
         let expectedEpoch = readiness.focusEpoch
         // task-owner: one queued insertion into the page, then its Deletes; the next flush runs after it
         Task { [weak self, weak readiness] in
             guard let self, let readiness else { return }
-            guard await readiness.insert(text, expectedEpoch: expectedEpoch) else {
+            guard await readiness.insert(text, expectedEpoch: expectedEpoch) else { CEFProbe.note("TA insert '\(text)' REFUSED expected=\(expectedEpoch) now=\(readiness.focusEpoch)") // PROBE
                 // The original element disappeared or refused the insert; discard Deletes tied
                 // to that failed text so they cannot hit a later focused field.
                 self.typeAhead.takeDeletes()
@@ -148,7 +148,7 @@ extension KeyRouter {
 
     /// A chord or another key ends the queue.
     func dropTypeAhead() {
-        if deliveringTypeAhead == nil {
+        if deliveringTypeAhead == nil { CEFProbe.note("TA DROP pending=\(typeAhead.text) delivering=\(deliveringTypeAhead != nil) " + Thread.callStackSymbols.dropFirst(1).prefix(6).map { $0.split(separator: " ", omittingEmptySubsequences: true).dropFirst(3).prefix(1).joined() }.joined(separator: " < ")) // PROBE
             typeAhead.drop()
         } else {
             // The taken text is still on its way to the page. Keep Deletes typed after it so a
