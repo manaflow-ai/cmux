@@ -38,6 +38,7 @@ import CmuxNextAppCore
 import CmuxNextPages
 import CmuxNextPopups
 import CmuxNextBrowserImport
+import CmuxNextImportCards
 import CmuxNextPhone
 import CmuxNextPhoneAccess
 import CmuxNextServer
@@ -93,6 +94,8 @@ final class AppServices {
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry
+    /// The browser import's reader: `browser_import.read` on the local daemon.
+    var browserDataReader: BrowserDataReader { .daemon { @MainActor [machines] in await machines.local.connectionOnceStarted() } }
     /// The names sidebar rows keep while their front tab's is briefly unknown (`WorkspaceAutoNameWiring`).
     let autoNameHold = WorkspaceAutoNameHold(), cloudStartTitles = AgentCloudStartTitles() // and the titles of Cloud chat starts
     /// The machine of the action being run, while its handler runs (`ActionRouting`); `activeDaemon` prefers it.
@@ -399,7 +402,7 @@ final class AppServices {
     /// One prewarmed new tab page per window (instant open).
     private(set) lazy var newTabSpares = NewTabSparePool(services: self, memoryPressure: memoryPressure)
     /// The New Tab bar's palette actions, read as background work after the page shows (``NewTabPage/fillPaletteActions(_:)``).
-    private(set) lazy var newTabActions = AgentPaneNewTabActions(on: mainWork, measure: { BenchSpans.measure("newTab.paletteActions", $0) }) { [palette = self.palette] in palette.commandListing() }
+    private(set) lazy var newTabActions = AgentPaneNewTabActions(on: mainWork, registry: registry, measure: { BenchSpans.measure("newTab.paletteActions", $0) }) { [palette = self.palette] in palette.commandListing() }
     /// The spare React page hosts for Settings, History and Cloud; its spare uses Settings' options, whatever the default engine.
     private(set) lazy var pageHostPool = PageHostPool(memoryPressure: memoryPressure, options: PageFactory.settingsEngineOptions)
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
