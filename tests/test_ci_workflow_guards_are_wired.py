@@ -45,6 +45,23 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
+    # lane = "manual" in tests/test-execution.d/app.toml (no new CI tests, CLAUDE.md). It checks that the app FFI release's Linux control jobs take the nightly lane's reserved label first, never the bulk route alone; it reads app-ffi-repin.yml and app-ffi-release.yml only as data. Run it by hand
+    # when those workflows change. Exit: as below.
+    "tests/test_app_ffi_release_linux_route.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, CLAUDE.md). It checks that a setup-bun step on a route that can reach an owned runner skips the Bun cache off the Blacksmith layout; it reads every workflow's setup-bun steps only as data. Run it by hand
+    # when those workflows change. Exit: as below.
+    "tests/test_ci_setup_bun_cache_layout.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, CLAUDE.md). It checks that every pool job in rust-workspaces, cmux-next-guards and the cloud VM image bake/roll removes a reused workspace left sparse or broken before checkout; it runs that step on fixture repos and reads the workflows as data. Run it by hand
+    # when those workflows change. Exit: as below.
+    "tests/test_ci_reused_sparse_checkout.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, CLAUDE.md). Policy tests of
+    # scripts/ci/shed_superseded_runs.py over fixture runs (#47662); it reads ci-shed-superseded-runs.yml only as data.
+    # Run it by hand when the script or that workflow changes. Exit: as below.
+    "tests/test_ci_shed_superseded_runs.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, CLAUDE.md). It checks that a feat-cmux-next
+    # push's Linux control jobs start on the JIT nightly label (#47764, #47905); it reads the workflows as data. Run it
+    # by hand when those runs-on lines change. Exit: as below.
+    "tests/test_cmux_next_push_roots_on_nightly_jit.py",
     # lane = "manual" (no new CI tests, CLAUDE.md). It runs scripts/cmux-next/cargo-locks.py in a throwaway
     # repository and reads rust-workspaces.yml only as data (that the workflow calls the script). Run it by hand
     # when the script or that workflow changes. Exit: as below.
