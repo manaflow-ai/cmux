@@ -1362,25 +1362,6 @@
             }
           },
           {
-            "key" : "settings.group.computerUse",
-            "rows" : [
-              "computerUse.mode",
-              "computerUse.deniedApps",
-              "computerUse.allowOwnMachines",
-              "computerUse.pauseOnTakeover",
-              "computerUse.showCursor",
-              "computerUse.cursorTag",
-              "computerUse.settle",
-              "computerUse.livePreview",
-              "computerUse.menus",
-              "computerUse.allowForeground"
-            ],
-            "title" : {
-              "key" : "settings.group.computerUse",
-              "text" : "Computer Use"
-            }
-          },
-          {
             "key" : "settings.group.cmuxRemote",
             "rows" : [
               "remote.endSharingOnQuit",
@@ -1477,6 +1458,16 @@
               "key" : "settings.group.folderTrust",
               "text" : "Folder Trust"
             }
+          },
+          {
+            "key" : "settings.group.agentTools",
+            "rows" : [
+              "agents.cmuxMcp"
+            ],
+            "title" : {
+              "key" : "settings.group.agentTools",
+              "text" : "cmux Tools"
+            }
           }
         ],
         "id" : "agents",
@@ -1489,11 +1480,84 @@
           "text" : "Agents"
         },
         "trail" : [
-          "computerUse",
+          "agentTools",
           "harnesses",
           "agentHarnesses",
           "agentIntegrations",
           "worktreeSetup"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.computerUse",
+            "rows" : [
+              "computerUse.mode",
+              "computerUse.deniedApps",
+              "computerUse.allowOwnMachines",
+              "computerUse.pauseOnTakeover",
+              "computerUse.showCursor",
+              "computerUse.cursorTag",
+              "computerUse.settle",
+              "computerUse.livePreview",
+              "computerUse.menus",
+              "computerUse.allowForeground"
+            ],
+            "title" : {
+              "key" : "settings.group.computerUse",
+              "text" : "Computer Use"
+            }
+          }
+        ],
+        "id" : "computerUse",
+        "lead" : [
+          "computerUse"
+        ],
+        "symbol" : "cursorarrow.click.2",
+        "title" : {
+          "key" : "settings.category.computerUse",
+          "text" : "Computer Use"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.mcpServers",
+            "rows" : [
+              "agents.mcpServers.enabled"
+            ],
+            "title" : {
+              "key" : "settings.group.mcpServers",
+              "text" : "Agent Chats"
+            }
+          }
+        ],
+        "id" : "mcpServers",
+        "lead" : [
+          "mcpServers"
+        ],
+        "symbol" : "server.rack",
+        "title" : {
+          "key" : "settings.category.mcpServers",
+          "text" : "MCP Servers"
+        },
+        "trail" : [
+
         ]
       },
       {
@@ -2277,6 +2341,8 @@
         "categories" : [
           "chat",
           "agents",
+          "computerUse",
+          "mcpServers",
           "models",
           "cloud",
           "chief"
@@ -12313,7 +12379,7 @@
         false
       ],
       "agent_refusal" : "userOnly",
-      "agent_settable" : true,
+      "agent_settable" : false,
       "consumers" : [
         "cmux-next"
       ],
@@ -12378,7 +12444,7 @@
         },
         "mcp" : {
           "aliases" : [
-            "settings.unset"
+
           ],
           "app_aliases" : [
 
@@ -12390,11 +12456,9 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
+            "settings.get"
           ],
-          "reason" : null,
+          "reason" : "agent_settable_false",
           "row" : null
         },
         "palette" : {
@@ -26834,7 +26898,7 @@
         ]
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -26902,7 +26966,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -26914,9 +26978,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -103251,7 +103317,7 @@
         false
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -103314,7 +103380,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -103326,9 +103392,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
