@@ -121,6 +121,8 @@
 //! the session weakly.
 
 use super::*;
+#[path = "inbox_forum.rs"]
+pub(super) mod forum_work;
 #[path = "inbox_surge.rs"]
 mod surge;
 #[path = "inbox_topic.rs"]

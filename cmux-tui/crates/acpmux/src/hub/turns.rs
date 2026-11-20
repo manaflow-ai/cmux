@@ -562,10 +562,10 @@ impl Hub {
             && !super::queue::closing(session)
             && super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref())
                 .is_some()
-            && blocks.len() == 1
-            && let Some(wire) = blocks[0].get("text").and_then(Value::as_str).and_then(|text| {
-                super::inbox::relay_body(text).strip_prefix(crate::forum::work::PREFIX)
-            })
+            // The person's message, a question, a blocker and a FIRE notice keep their
+            // immediate paths (`inbox_forum.rs`): storage starts no turn, so it never takes them.
+            && !super::inbox::forum_work::protected(&opts)
+            && let Some(wire) = super::inbox::forum_work::wire(&blocks)
         {
             if opts.send_now {
                 return Err(RpcError::invalid_params(
@@ -577,8 +577,9 @@ impl Hub {
             let provenance = opts.provenance.clone().unwrap_or(Value::Null);
             let recipient = session.id.clone();
             let hub = self.clone();
+            let post = input.clone();
             let receipt = tokio::task::spawn_blocking(move || {
-                hub.forum().work_post(&recipient, input, provenance, now_ms())
+                hub.forum().work_post(&recipient, post, provenance, now_ms())
             })
             .await
             .map_err(|e| RpcError::internal(format!("forum storage task: {e}")))?
@@ -586,12 +587,34 @@ impl Hub {
             if receipt["duplicate"] != true {
                 self.append(session, "mux", "forum_work", receipt.clone());
             }
-            accept(
-                json!({"sessionId": session.id, "promptId": prompt_id, "queued": false, "forum": receipt}),
-            );
-            return Ok(
-                json!({"stopReason": "end_turn", "_meta": {"acpmux": {"forum": receipt, "stored": true}}}),
-            );
+            // Stored first, then held once on the chat's held-messages row under the forum
+            // thread's topic, so triage routes it to the thread's owner (`inbox_forum.rs`).
+            // A failed hold refuses the send: its retry is a forum duplicate that holds it then.
+            let held = self.hold_forum_work(
+                session,
+                &prompt_id,
+                client,
+                &blocks,
+                &opts,
+                &input,
+                &receipt,
+                now_ms(),
+            )?;
+            if held.is_some() {
+                self.schedule_surge_triage(session);
+            }
+            let mut answer = json!({"sessionId": session.id, "promptId": prompt_id, "queued": false, "forum": receipt});
+            let mut meta = json!({"forum": receipt, "stored": true});
+            if let Some(held) = held.as_ref() {
+                for v in [&mut answer, &mut meta] {
+                    v["inbox"] = json!(true);
+                    v["surgeHeld"] = json!(true);
+                    v["threadId"] = held["threadId"].clone();
+                    v["heldId"] = held["promptId"].clone();
+                }
+            }
+            accept(answer);
+            return Ok(json!({"stopReason": "end_turn", "_meta": {"acpmux": meta}}));
         }
         // A prompt that cannot reach any agent (none running, and its folder or harness is gone)
         // is refused before it is recorded (`cold_prompt_check`, after steer-only's refusal).

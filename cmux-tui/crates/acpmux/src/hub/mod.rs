@@ -75,6 +75,8 @@ pub use fork::Retarget;
 #[cfg(test)]
 mod forum_held_turn_tests;
 #[cfg(test)]
+mod forum_surge_tests;
+#[cfg(test)]
 mod host_notice_tests;
 #[cfg(test)]
 mod ledger_hub_tests;

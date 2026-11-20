@@ -76,6 +76,9 @@ fn eligible(opts: &PromptOptions, blocks: &[Value]) -> Option<String> {
         || !blocks.iter().all(|b| b.get("type").and_then(Value::as_str) == Some("text"))
         || crate::prompt_uploads::any(blocks)
         || super::super::forum::slash_command(blocks).is_some()
+        // A typed forum work post has its own durable store; it reaches this inbox through
+        // `inbox_forum.rs` as its parsed post, never as raw wire text.
+        || super::forum_work::is_wire(blocks)
         // The receiver's own batch must reach it. External tool notices have kind "notice".
         || provenance.and_then(|p| p["kind"].as_str()) == Some(super::NOTICE_KIND)
     {
@@ -194,6 +197,28 @@ impl Hub {
             notice.as_ref(),
             &thread_sender(provenance, &from),
         );
+        let class = opts.class.unwrap_or(if notice.is_some() {
+            PromptClass::Fyi
+        } else {
+            PromptClass::Result
+        });
+        let held = Original { prompt_id, client, blocks, opts, from, thread, class, text };
+        self.hold_original(session, held, json!({}), Some(period), now).map(Some)
+    }
+
+    /// Journal one held original and put it in the live inbox: the one write the surge holder
+    /// and the forum adapter share. `extra` fields join the record (never replacing its own).
+    pub(in crate::hub) fn hold_original(
+        &self,
+        session: &Arc<Session>,
+        held: Original<'_>,
+        extra: Value,
+        period: Option<Option<u64>>,
+        now: u64,
+    ) -> Result<Value, RpcError> {
+        let Original { prompt_id, client, blocks, opts, from, thread, class, text } = held;
+        let provenance = opts.provenance.as_ref();
+        let notice = tool_notice_of(provenance);
         let from_session = sender_session(provenance);
         let sender_meta =
             from_session.as_deref().and_then(|id| self.resolve(id).ok()).map(|s| s.meta());
@@ -202,14 +227,17 @@ impl Hub {
             from_session.as_deref(),
             sender_meta.as_ref(),
         );
-        let class = opts.class.unwrap_or(if notice.is_some() {
-            PromptClass::Fyi
-        } else {
-            PromptClass::Result
-        });
-        let msg = json!({"promptId": prompt_id, "threadId": thread, "from": from, "fromSession": from_session,
+        let mut msg = json!({"promptId": prompt_id, "threadId": thread, "from": from, "fromSession": from_session,
             "class":class,"kind":kind_of(class),"client":client,"text":text,"prompt":blocks,
-            "sender":sender,"surgeHeld":true,"replyPeriodMs":period,"report":is_report(provenance)});
+            "sender":sender,"surgeHeld":true,"report":is_report(provenance)});
+        if let Some(period) = period {
+            msg["replyPeriodMs"] = json!(period);
+        }
+        if let (Some(fields), Some(more)) = (msg.as_object_mut(), extra.as_object()) {
+            for (k, v) in more {
+                fields.entry(k.clone()).or_insert_with(|| v.clone());
+            }
+        }
         self.persist_surge_event(
             session,
             "inbox",
@@ -240,10 +268,22 @@ impl Hub {
         let mut inbox = session.inbox();
         inbox.items.push(item);
         trim(&mut inbox);
-        Ok(Some(
+        Ok(
             json!({"sessionId":session.id,"promptId":prompt_id,"threadId":thread,"inbox":true,"surgeHeld":true,"queued":false}),
-        ))
+        )
     }
+}
+
+/// One original the inbox holds whole: its id, transport, sender, topic, class and words.
+pub(in crate::hub) struct Original<'a> {
+    pub(in crate::hub) prompt_id: &'a str,
+    pub(in crate::hub) client: &'a str,
+    pub(in crate::hub) blocks: &'a [Value],
+    pub(in crate::hub) opts: &'a PromptOptions,
+    pub(in crate::hub) from: String,
+    pub(in crate::hub) thread: String,
+    pub(in crate::hub) class: PromptClass,
+    pub(in crate::hub) text: String,
 }
 
 #[cfg(test)]
