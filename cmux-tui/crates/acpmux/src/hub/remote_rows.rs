@@ -109,8 +109,9 @@ impl RemoteRows {
 
     /// Marks `peer`'s rows stale (`peer_cache::mark_stale`): the summaries that changed. Each row
     /// is taken out and put back through `insert`, so the index follows whatever the mark touched.
-    /// There is no other way to change a row in place.
-    pub(crate) fn mark_peer_stale(&mut self, peer: &str, last_seen: Option<u64>) -> Vec<Value> {
+    /// There is no other way to change a row in place. Each summary shares its text with the row
+    /// put back, so announcing it copies no row (`RemoteRef::summary`).
+    pub(crate) fn mark_peer_stale(&mut self, peer: &str, last_seen: Option<u64>) -> Vec<PeerRow> {
         let keys: Vec<String> = self
             .of_peer(peer)
             .filter(|(_, r)| {
@@ -129,7 +130,7 @@ impl RemoteRows {
             let live = live.unwrap_or_else(|| Arc::clone(&row));
             let mut row = Arc::unwrap_or_clone(row);
             if row.summary.mark_stale(last_seen) {
-                changed.push(row.summary.value());
+                changed.push(row.summary.clone());
             }
             self.insert(key.clone(), row);
             self.stale_from.insert(key, live);
@@ -530,7 +531,8 @@ mod tests {
             Op::MarkStale(p, seen) => {
                 let peer = peer_of(p);
                 let seen = seen.map(u64::from);
-                let mut got: Vec<Value> = rows.mark_peer_stale(&peer, seen);
+                let mut got: Vec<Value> =
+                    rows.mark_peer_stale(&peer, seen).iter().map(PeerRow::value).collect();
                 let mut want: Vec<Value> = Vec::new();
                 for r in model.values_mut().filter(|r| r.peer == peer) {
                     let mut summary = r.summary.value();

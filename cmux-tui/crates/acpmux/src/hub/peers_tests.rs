@@ -640,3 +640,56 @@ fn a_peers_reattach_leaves_every_local_closed_row_cached() {
         peer.stop();
     }
 }
+
+/// A peer that comes and goes (2026-11-20: a host with ~100 sessions and peers down or
+/// reconnecting grew about 55 MB a minute, `tests/god_daemon/growth.rs`): each list and each
+/// outage announces every row of the peer into the hub's event ring (8,192 events), which keeps
+/// them for every connection that has not read them yet. Each event held a parsed copy of its
+/// row, several times the row's text (on the growth lab, 104 MB of trees under the peer notice
+/// loop). Now it shares the row's packed text with the table (`RemoteRef::summary`): what the
+/// ring holds is bounded by its slots, not by the rows' size.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_full_ring_of_a_peers_row_changes_holds_no_copy_of_the_rows() {
+    use crate::hub::peer_snapshot::thread_peak_bytes;
+    const ROWS: usize = 100;
+    const RING: usize = 8192;
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+    let peer = crate::peer::Peer::new("far", "ws://127.0.0.1:9", None, None, tx);
+    hub.peers.lock().unwrap().insert("far".to_owned(), peer.clone());
+    // Rows as a real peer lists them: 75 keys, tools, a plan (`god_fixture::peer_row`).
+    let list = || (0..ROWS).map(|i| crate::god_fixture::peer_row("far", i, 75)).collect();
+    let row_text = crate::god_fixture::peer_row("far", 0, 75).to_string().len();
+    hub.apply_peer_notice(
+        "far",
+        peer.generation,
+        crate::peer::PeerNotice::sessions_from_values(list()),
+    );
+    // A connection that reads nothing: the ring keeps every event for it.
+    let held = hub.subscribe();
+    let ((), peak) = thread_peak_bytes(|| {
+        // Each cycle: back (every row listed live again), then the outage's grace ends (every
+        // row marked stale): two announcements of each row. Past the ring's slots.
+        for _ in 0..RING / (2 * ROWS) + 2 {
+            hub.apply_peer_notice(
+                "far",
+                peer.generation,
+                crate::peer::PeerNotice::sessions_from_values(list()),
+            );
+            hub.mark_peer_unreachable("far", peer.generation);
+        }
+    });
+    let per_event = peak / RING;
+    println!(
+        "ring of {RING} row events: {peak} bytes at peak, {per_event} per event, row text {row_text}"
+    );
+    assert!(
+        per_event < row_text / 2,
+        "each held event costs {per_event} bytes, a row's text is {row_text}: the ring holds copies"
+    );
+    drop(held);
+}

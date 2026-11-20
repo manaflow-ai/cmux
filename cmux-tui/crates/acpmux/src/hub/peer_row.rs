@@ -108,9 +108,10 @@ fn pair_of(summary: &Value) -> Option<(Box<str>, Box<str>)> {
 pub struct PeerRow {
     /// `{...}`: every member but those kept apart, in the tree's order. A row that is not an
     /// object is its whole text.
-    base: Box<str>,
+    /// Shared: a clone (a hub event that announces the row, `RemoteRef`) copies no text.
+    base: Arc<str>,
     /// The members kept apart, each its value's text.
-    apart: Box<[(Apart, Box<str>)]>,
+    apart: Arc<[(Apart, Box<str>)]>,
     /// The title a list without tools shows (`views::without_summary_tools`), when it is cut.
     short_title: Option<Box<str>>,
     hot: Hot,
@@ -216,6 +217,12 @@ impl PeerRow {
     /// The whole row as JSON text.
     pub fn text(&self) -> String {
         self.text_with(None, None, true)
+    }
+
+    /// The row a `session_changed` carries: whole with `tools`, else as
+    /// `views::without_summary_tools` cuts it (no tools, a long title cut). No parse.
+    pub fn changed_text(&self, tools: bool) -> String {
+        self.text_with(None, None, tools)
     }
 
     /// The whole row, parsed: for a reader that needs more than the hot fields.

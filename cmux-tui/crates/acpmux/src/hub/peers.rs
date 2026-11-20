@@ -731,8 +731,9 @@ impl Hub {
     }
 
     /// Tell watching clients that a peer session appeared, changed or left.
-    pub(super) fn announce_remote(&self, peer: &str, summary: Value, kind: &str) {
-        let Some(id) = summary.get("sessionId").and_then(Value::as_str).map(str::to_owned) else {
+    pub(super) fn announce_remote(&self, peer: &str, summary: impl Into<PeerRow>, kind: &str) {
+        let summary: PeerRow = summary.into();
+        let Some(id) = summary.session_id().map(str::to_owned) else {
             return;
         };
         let _ = self.events.send_remote(HubEvent {
@@ -1005,10 +1006,10 @@ impl Hub {
                     self.save_peer_cache(&peer, generation, false);
                     // Each summary parsed as it is announced, one at a time.
                     for (_, row) in changed {
-                        self.announce_remote(&peer, row.summary.value(), "status");
+                        self.announce_remote(&peer, row.summary.clone(), "status");
                     }
                     for row in gone {
-                        self.announce_remote(&peer, row.summary.value(), "purged");
+                        self.announce_remote(&peer, row.summary.clone(), "purged");
                     }
                     // Its live asks that came before this list.
                     self.release_held_peer_asks(&peer, generation);
@@ -1034,11 +1035,12 @@ impl Hub {
                             current.purge_tombstones.purged(&mux_id);
                             let key = map.find_mux(&peer, &mux_id).map(|(key, _)| key.clone());
                             let removed =
-                                key.and_then(|key| map.take(&key).map(|r| r.summary.value()));
+                                key.and_then(|key| map.take(&key).map(|r| r.summary.clone()));
                             // The generation the purge names (else the row's) goes from the
                             // snapshots too (`peer_snapshot.rs`), before the lock does.
                             let created = |s: &Value| s.get("createdAt").and_then(Value::as_u64);
-                            let purged = created(&session).or(removed.as_ref().and_then(created));
+                            let purged = created(&session)
+                                .or(removed.as_ref().and_then(PeerRow::created_at));
                             self.peer_snapshots.gone(&peer, &mux_id, purged);
                             current
                                 .remote_rows_epoch
@@ -1058,7 +1060,8 @@ impl Hub {
                             }),
                             remote: Some(RemoteRef {
                                 peer: peer.clone(),
-                                summary: removed.unwrap_or_else(|| json!({"sessionId": mux_id})),
+                                summary: removed
+                                    .unwrap_or_else(|| PeerRow::new(&json!({"sessionId": mux_id}))),
                             }),
                             update_line: Default::default(),
                             row: Default::default(),
@@ -1069,6 +1072,7 @@ impl Hub {
                     let mut summary = Self::remote_summary(&peer, session);
                     let Some(receipt) = session_receipt(&summary) else { return };
                     let id = receipt.qualified_id();
+                    let announced;
                     {
                         #[cfg(test)]
                         self.pause_after_peer_session_projection_for_test();
@@ -1087,6 +1091,8 @@ impl Hub {
                             previous.as_ref().map(|r| &r.summary),
                         );
                         let row = PeerRow::new(&summary);
+                        // The table's row and the announcement share its text.
+                        announced = row.clone();
                         map.insert(
                             id.clone(),
                             RemoteSession { peer: peer.clone(), summary: row, receipt },
@@ -1123,7 +1129,7 @@ impl Hub {
                             msg: Value::Null,
                             host_seq: None,
                         }),
-                        remote: Some(RemoteRef { peer: peer.clone(), summary: summary.clone() }),
+                        remote: Some(RemoteRef { peer: peer.clone(), summary: announced }),
                         update_line: Default::default(),
                         row: Default::default(),
                         list_seq: 0,
@@ -1156,7 +1162,10 @@ impl Hub {
                             msg: json!({"sessionIds": [id], "reason": "peer_reattached"}),
                             host_seq: None,
                         }),
-                        remote: Some(RemoteRef { peer: peer.clone(), summary: Value::Null }),
+                        remote: Some(RemoteRef {
+                            peer: peer.clone(),
+                            summary: PeerRow::new(&Value::Null),
+                        }),
                         update_line: Default::default(),
                         row: Default::default(),
                         list_seq: 0,
@@ -1183,7 +1192,10 @@ impl Hub {
                                 msg: params.clone(),
                                 host_seq: None,
                             }),
-                            remote: Some(RemoteRef { peer: peer.clone(), summary: Value::Null }),
+                            remote: Some(RemoteRef {
+                                peer: peer.clone(),
+                                summary: PeerRow::new(&Value::Null),
+                            }),
                             update_line: Default::default(),
                             row: Default::default(),
                             list_seq: 0,
@@ -1331,12 +1343,18 @@ impl Hub {
                             crate::claude_stdio::prompt_suggestions::enabled_in_settings(),
                         );
                     }
+                    // The row's text is shared, never parsed here (`RemoteRef::summary`).
                     let summary = match &row {
-                        None => Value::Null,
-                        Some(row) if record.dir == "peer" => row.summary.value(),
-                        Some(row) => json!({"sessionId": row.summary.session_id()}),
+                        None => PeerRow::new(&Value::Null),
+                        Some(row) if record.dir == "peer" => row.summary.clone(),
+                        Some(row) => PeerRow::new(&json!({"sessionId": row.summary.session_id()})),
                     };
-                    self.capture_peer_record((&peer, generation, link), &id, &summary, &record);
+                    self.capture_peer_record(
+                        (&peer, generation, link),
+                        &id,
+                        row.is_some(),
+                        &record,
+                    );
                     let _ = self.events.send_remote(HubEvent {
                         session_id: id,
                         record: Arc::new(record),
