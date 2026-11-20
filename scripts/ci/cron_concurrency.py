@@ -81,6 +81,9 @@ EXCLUDED_SHARED: dict[tuple[str, str], str] = {
     ("nightly.yml", "publish-nightly"): (
         "known gap tracked by tests/test_nightly_delivery_concurrency.py: runs only for branch builds that "
         "publish no main or rc channel"),
+    ("ios-appstore-upload.yml", ""): (
+        "one cmux CLASSIC upload at a time; the decide job reads the newest build when it starts, so a newer "
+        "scheduled run replacing a pending one is safe"),
     ("published-in.yml", ""): "labels merged pull requests from the stable feed; reads the feed when it starts",
 }
 
