@@ -4,6 +4,7 @@ import { withoutRelayLabelOfMessage } from "../conversation/relayEnvelope";
 import { senderName } from "../conversation/senderIdentity";
 import { transcriptColumn, type AcpmuxRow } from "../model";
 import { opensTurn } from "../turnStart";
+import { rowsDelta } from "../conversation/rowsDelta";
 import { inboxCounts } from "../conversation/inboxNotice";
 import { MOTION_MS } from "../../../motion/scale.generated";
 import type { SenderReference } from "../senderIdentity";
@@ -710,6 +711,8 @@ export function minimapTurns(
   change?: RowsChange,
   earlierRows: readonly AcpmuxRow[] = EMPTY_EARLIER_ROWS,
   promptCount = 0,
+  /// Read every row from the first, never only a page above them (`keptAfterHead`).
+  whole = false,
 ): MinimapTurns {
   const prior = previous?.sessionId === sessionId ? previous : undefined;
   const reuse = prior
@@ -777,8 +780,13 @@ export function minimapTurns(
     reply = undefined;
     details = undefined;
   };
+  // A page of older history above the rows (or rows taken from their head): the turns from the first
+  // one that starts after it are the last reading's, moved by the rows it added, and only the rows
+  // above that turn's prompt are read (rowsDelta.ts: the rows after the page are the same objects).
+  const head = reuse && !whole && from === 0 ? keptAfterHead(reuse.turns, reuse.rows, rows) : undefined;
   const start = keep < (reuse?.turns.length ?? 0) ? reuse!.turns[keep]!.index : 0;
-  for (let index = reuse && keep > 0 ? start : 0; index < rows.length; index += 1) {
+  const stop = head ? head.at : rows.length;
+  for (let index = head ? 0 : reuse && keep > 0 ? start : 0; index < stop; index += 1) {
     const row = rows[index]!;
     // A "Worked for" that folds its turn's prompt (other agents' messages, conversation/turns.ts
     // `shapedTurn`) starts the turn in the prompt's place, open or closed; the prompt's copy the
@@ -798,6 +806,12 @@ export function minimapTurns(
       if (row.kind === "activity" || row.kind === "turnSummary") details = cardState(user, row, details);
     }
   }
+  // The kept turn's prompt still opens a turn after the page's rows (not the fold's copy of the
+  // page's last prompt): the page's last turn ends there. Else every row is read.
+  const headHolds =
+    head !== undefined &&
+    (rows[head.at]!.foldedPrompt !== undefined ||
+      (opensTurn(rows[head.at]!) && !(user && isFoldedPrompt(rows[head.at]!, user, userIndex, rows))));
   close();
   const old = reuse?.turns;
   const oldTicks = reuse?.ticks;
@@ -863,6 +877,11 @@ export function minimapTurns(
       loadedStart: earlier.length,
     };
   };
+  if (head) {
+    if (!headHolds) return minimapTurns(rows, sessionId, previous, undefined, earlierRows, promptCount, true);
+    const list = [...tail, ...movedTurns(reuse!.turns, head.first, head.by, rows)];
+    return withEarlier(list, ticksOf(list, oldTicks));
+  }
   if (!old) {
     const loaded = ticksOf(tail, oldTicks);
     return withEarlier(tail, loaded);
@@ -877,6 +896,56 @@ export function minimapTurns(
   agreed.set(old, { list, same: keep });
   const loaded = sameTicks ? oldTicks! : ticksOf(list, oldTicks);
   return withEarlier(list, loaded, old as MinimapTurn[]);
+}
+
+/// Where the last reading's turns go on after a page of older history above its rows (or rows taken
+/// from their head): `first`, its first turn whose prompt is after the rows that changed, and every
+/// one after it, are the same turns `by` rows later, from row `at` of `rows` on. O(log turns).
+function keptAfterHead(
+  turns: readonly MinimapTurn[],
+  base: readonly AcpmuxRow[],
+  rows: readonly AcpmuxRow[],
+): { first: number; at: number; by: number } | undefined {
+  if (!base.length || base === rows) return undefined;
+  const delta = rowsDelta(base, rows);
+  if (delta.from !== 0 || delta.baseEnd >= base.length) return undefined;
+  let low = 0;
+  let high = turns.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (turns[middle]!.index < delta.baseEnd) low = middle + 1;
+    else high = middle;
+  }
+  if (low >= turns.length) return undefined;
+  const by = delta.end - delta.baseEnd;
+  return { first: low, at: turns[low]!.index + by, by };
+}
+
+/// `turns` from `first` on, each `by` rows later (the same turn where `by` is 0), with what each
+/// turn's prompt and reply say of it (`turnsByPrompt`, `replyRows`) moved to it.
+function movedTurns(
+  turns: readonly MinimapTurn[],
+  first: number,
+  by: number,
+  rows: readonly AcpmuxRow[],
+): MinimapTurn[] {
+  const out: MinimapTurn[] = [];
+  for (let at = first; at < turns.length; at += 1) {
+    const turn = turns[at]!;
+    if (by === 0) {
+      out.push(turn);
+      continue;
+    }
+    const moved = { ...turn, index: turn.index + by };
+    const reply = replyRows.get(turn);
+    if (reply) replyRows.set(moved, reply);
+    const row = rows[moved.index]!;
+    const prompt = row.foldedPrompt ?? row;
+    const kept = turnsByPrompt.get(prompt);
+    if (kept?.turn === turn) turnsByPrompt.set(prompt, { ...kept, turn: moved });
+    out.push(moved);
+  }
+  return out;
 }
 
 /// Whether `row` is the open fold's copy of `user`, the prompt the "Worked for" at `rows[at]` folds:
