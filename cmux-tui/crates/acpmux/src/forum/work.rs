@@ -97,6 +97,16 @@ pub struct Post {
     pub sources: BTreeMap<String, Value>,
 }
 
+/// A digest needs only identifiers and counts, never copied source bodies or provenance.
+#[derive(Debug, Clone)]
+pub struct DigestPost {
+    pub id: String,
+    pub channel: String,
+    pub thread: String,
+    pub kind: Kind,
+    pub source_count: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Lease {
@@ -607,7 +617,7 @@ impl Forum {
 
     /// At most one bounded digest per fifteen minutes, carried by the next ordinary turn.
     /// No timer wakes a coordinator just because another host saw the same condition.
-    pub fn work_digest(&self, recipient: &str, now: u64) -> Vec<Post> {
+    pub fn work_digest(&self, recipient: &str, now: u64) -> Vec<DigestPost> {
         let state = self.lock();
         let Some(r) = state.work.recipients.get(recipient) else { return vec![] };
         if r.delivered_at.is_some_and(|at| now.saturating_sub(at) < DIGEST_MS) {
@@ -616,7 +626,16 @@ impl Forum {
         r.pending
             .iter()
             .take(20)
-            .filter_map(|(key, id)| r.threads.get(key)?.posts.iter().find(|p| &p.id == id).cloned())
+            .filter_map(|(key, id)| {
+                let post = r.threads.get(key)?.posts.iter().find(|p| &p.id == id)?;
+                Some(DigestPost {
+                    id: post.id.clone(),
+                    channel: post.channel.clone(),
+                    thread: post.thread.clone(),
+                    kind: post.kind,
+                    source_count: post.sources.len(),
+                })
+            })
             .collect()
     }
 

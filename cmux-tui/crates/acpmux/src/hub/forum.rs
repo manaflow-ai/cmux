@@ -376,7 +376,7 @@ impl Hub {
             if !posts.is_empty() {
                 let lines: Vec<String> = posts.iter().map(|p| format!(
                     "- {}/{}: {:?}, {} source(s). Read with cmux-forum threads (channel {:?}, thread {:?}); post {}.",
-                    one_line(&p.channel), one_line(&p.thread), p.kind, p.sources.len(), one_line(&p.channel), one_line(&p.thread), p.id
+                    one_line(&p.channel), one_line(&p.thread), p.kind, p.source_count, one_line(&p.channel), one_line(&p.thread), p.id
                 )).collect();
                 // Reuse the hidden context wrapper; this paragraph explicitly carries information,
                 // never rules. It does not start or steer a turn on its own.

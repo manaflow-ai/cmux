@@ -87,7 +87,7 @@ pub async fn run(cmd: ForumCmd, json_out: bool) -> Result<()> {
                 source,
                 body: body.join(" "),
             };
-            return send(&recipient, input, json_out).await;
+            return send(&recipient, input, "forum", json_out).await;
         }
         ForumCmd::Ingest { recipient, sender, body } => {
             let text = if body.is_empty() || body == ["-"] {
@@ -106,7 +106,7 @@ pub async fn run(cmd: ForumCmd, json_out: bool) -> Result<()> {
                         "forum.unsupported_notice: send this notice through its ordinary route"
                     )
                 })?;
-            return send(&recipient, input, json_out).await;
+            return send(&recipient, input, &sender, json_out).await;
         }
         ForumCmd::Threads { channel, thread, session_id, cursor } => (
             method::MUX_FORUM_THREADS,
@@ -137,7 +137,21 @@ pub async fn run(cmd: ForumCmd, json_out: bool) -> Result<()> {
     Ok(())
 }
 
-async fn send(recipient: &str, input: crate::forum::work::Input, json_out: bool) -> Result<()> {
+async fn send(
+    recipient: &str,
+    input: crate::forum::work::Input,
+    sender: &str,
+    json_out: bool,
+) -> Result<()> {
+    let command = send_command(recipient, &input, sender)?;
+    Box::pin(crate::cli::run::run_client(command, json_out, false)).await
+}
+
+fn send_command(
+    recipient: &str,
+    input: &crate::forum::work::Input,
+    sender: &str,
+) -> Result<crate::cli::command::Command> {
     // Parse the existing send grammar and execute its own path: caller-token binding,
     // peer routing, team hub, lane relay, durable retries and receipt ids stay together.
     let wire = input.wire()?;
@@ -151,13 +165,35 @@ async fn send(recipient: &str, input: crate::forum::work::Input, json_out: bool)
         "--class",
         "fyi",
         "--from",
-        "forum",
+        sender,
         "--prompt-id",
         &prompt_id,
         recipient,
         &wire,
     ])?;
-    let command =
-        args.command.ok_or_else(|| anyhow::anyhow!("forum.send: send command was not parsed"))?;
-    Box::pin(crate::cli::run::run_client(command, json_out, false)).await
+    args.command.ok_or_else(|| anyhow::anyhow!("forum.send: send command was not parsed"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn forum_ingest_transport_preserves_tool_sender_and_retry_identity() {
+        let notice = "disk-hygiene on host-a: healthy again (unowned-fetch cleared)";
+        let input = crate::forum::work::ingest("disk-hygiene", notice, 0).unwrap();
+        let command = send_command("coord", &input, "disk-hygiene").unwrap();
+        let crate::cli::command::Command::Send { from, prompt, prompt_id, no_wait, .. } = command
+        else {
+            panic!("expected existing send transport")
+        };
+        assert_eq!(from.as_deref(), Some("disk-hygiene"));
+        assert!(no_wait);
+        assert_eq!(prompt, vec![input.wire().unwrap()]);
+        let crate::cli::command::Command::Send { prompt_id: retry_id, .. } =
+            send_command("coord", &input, "disk-hygiene").unwrap()
+        else {
+            panic!("expected existing send transport")
+        };
+        assert_eq!(prompt_id, retry_id);
+    }
 }
