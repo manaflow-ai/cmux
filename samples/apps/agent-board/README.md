@@ -21,3 +21,8 @@ warning, an empty recipient and denied access. Fixtures are not DEV install proo
 Build on cmux-ci with `bun cmux-tui/crates/cmux-app-host/tools/pack.ts samples/apps/agent-board`,
 then run `scripts/cmux-next/sync-app-runtime.sh`. The Store distribution remains an
 ordinary package and uses the existing consent/install flow.
+
+Validate v2 packages with the owning Rust check on cmux-ci:
+`cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-manifest --test samples`.
+The focused pane check is
+`bun test cmux-tui/crates/cmux-app-host/js/test/agent-board.test.ts`.
