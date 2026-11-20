@@ -32,7 +32,7 @@
   padding: 0 var(--ds-space-2, 8px);
   min-height: var(--ds-control-row, 28px);
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   background: none;
   color: inherit;
   font: inherit;
