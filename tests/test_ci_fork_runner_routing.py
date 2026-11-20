@@ -179,7 +179,7 @@ BOUNDED_SELECTOR_JOBS = {
     ("ci-cla-quota-rerun.yml", "cla-quota-rerun"), ("ci-compile-attribution.yml", "analyze"),
     ("ci-guard-attribution.yml", "analyze"), ("ci-hosted-queue-rescue.yml", "rescue"),
     ("ci-macos.yml", "admission-placement"), ("ci-macos.yml", "late-placement"),
-    ("ci-main-full-suite.yml", "report"), ("ci-queue-janitor.yml", "sweep"), ("ci.yml", "changes"),
+    ("ci-main-full-suite.yml", "report"), ("ci.yml", "changes"),
     ("cmux-next-dev-daily-dispatch.yml", "dispatch"), ("cmux-tui-release-delivery.yml", "delivery"),
     ("dogfood-artifact-publish.yml", "capture-inputs"), ("dogfood-artifact-publish.yml", "capture-report"),
     ("iroh-release-gate.yml", "runner"), ("nightly-next-train.yml", "pick-train-runner"),
@@ -315,6 +315,16 @@ def _bounded_pick(conditions: list[tuple], picked: tuple) -> list[str]:
     return []
 
 
+def _is_fork_branch(operand: tuple) -> bool:
+    """`github.repository_owner != 'manaflow-ai' && '<label>'`, which never yields in manaflow-ai."""
+    if operand[0] != "and" or len(operand[1]) != 2 or _string(operand[1][1]) is None:
+        return False
+    condition = operand[1][0]
+    return (condition[0] == "cmp" and condition[1] == "!="
+            and sorted((side[0], _refs(side)[0] if side[0] == "ref" else _string(side)) for side in condition[2:])
+            == [("literal", "manaflow-ai"), ("ref", "github.repository_owner")])
+
+
 def runner_label_errors(runs_on: str) -> list[str]:
     """Why a runs-on could put a secret on a machine it does not name; [] when it never can.
 
@@ -325,6 +335,9 @@ def runner_label_errors(runs_on: str) -> list[str]:
     ends with a literal, so it never yields a falsy value. The one exception is the fork branch
     `github.repository_owner != 'manaflow-ai' && '<hosted label>'`, first, which never runs in
     manaflow-ai. The exact CI_TRUSTED_RUNNER selector is accepted too: its list is ephemeral.
+    After that fork branch, the last operand may be a GitHub-hosted literal: a hosted VM is
+    ephemeral too, and check_no_github_hosted_runners rules on its cost (the queue janitor's
+    sweep runs there, off the pools it judges).
     """
     if runs_on in (*TRUSTED_RUNNER_EXPRESSIONS, FAST_CHECKS_ADMISSION_EXPRESSION):
         return []
@@ -357,6 +370,9 @@ def runner_label_errors(runs_on: str) -> list[str]:
                 and sorted((side[0], _refs(side)[0] if side[0] == "ref" else _string(side))
                            for side in conditions[0][2:])
                 == [("literal", "manaflow-ai"), ("ref", "github.repository_owner")]):
+            continue
+        if (label is not None and index == len(chain) - 1 and index > 0 and not conditions
+                and HOSTED_LITERAL_LABEL.fullmatch(label) and _is_fork_branch(chain[0])):
             continue
         picked = _bounded_pick(conditions, result) if label is None else []
         if picked and all(blacksmith.fullmatch(item) for item in picked):
@@ -1822,7 +1838,14 @@ class ForkRunnerRoutingTests(unittest.TestCase):
             fork, f"{fork}{scheduled}'cmux-fleet-linux-x64' || ", 1)), [])
         self.assertNotEqual(runner_label_errors(TRUSTED_RUNNER_EXPRESSION.replace(
             fork, f"{fork}{scheduled}'cmux-gcp-lane-x64' || ", 1)), [])
-        for refused in (f"${{{{ {fork}{switch}'cmux-gcp-lane-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
+        # The queue janitor's sweep: GitHub-hosted Ubuntu last, after the fork branch and the fleet switch.
+        janitor = "vars.CI_QUEUE_JANITOR_ON_FLEET == '1' && 'cmux-fleet-linux-x64' || 'ubuntu-24.04'"
+        self.assertEqual(runner_label_errors(f"${{{{ {fork}{janitor} }}}}"), [])
+        for refused in (f"${{{{ {fork}vars.X == '1' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
+                        f"${{{{ vars.X == '1' && 'cmux-fleet-linux-x64' || 'ubuntu-24.04' }}}}",
+                        f"${{{{ {fork}'cmux-fleet-linux-x64' || vars.X == '1' && 'ubuntu-24.04' }}}}",
+                        f"${{{{ {fork}vars.X || 'ubuntu-24.04' }}}}",
+                        f"${{{{ {fork}{switch}'cmux-gcp-lane-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
                         f"${{{{ {fork}{switch}'glaeda-std-xcode-26.6' || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
                         f"${{{{ {fork}{switch}vars.CI_REPAIR_SKIP_FLEET || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
                         f"${{{{ {fork}contains(fromJSON('[\"cmux-fleet-linux-x64\",\"cmux-gcp-lane-x64\"]'), vars.X) "
