@@ -106,6 +106,38 @@ async fn a_pause_whose_clocks_all_kept_running_resets_the_counters() {
     }
 }
 
+/// The wall clock of [`a_wall_clock_step_alone_ends_the_wait_as_a_resume`]: its own, as above.
+static FROZEN_WALL_AHEAD_S: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn frozen_test_wall() -> std::time::SystemTime {
+    std::time::SystemTime::UNIX_EPOCH
+        + Duration::from_secs(1_800_000_000 + FROZEN_WALL_AHEAD_S.load(AtomicOrdering::SeqCst))
+}
+
+/// The wall-clock path on its own: the monotonic clock moves 10 s (well
+/// inside the relay's 45 s and the 60 s backoff) while the wall clock moves
+/// ten minutes, so only the wall step can end the wait as a resume.
+#[tokio::test(start_paused = true)]
+async fn a_wall_clock_step_alone_ends_the_wait_as_a_resume() {
+    use super::liveness::MAX_CREDENTIAL_BACKOFF;
+    let mut retry = Retry::new();
+    let mut wait = Duration::ZERO;
+    while wait < MAX_CREDENTIAL_BACKOFF {
+        wait = retry.wait(Ended::Credential, 1.0);
+    }
+    let (_shutdown_tx, mut shutdown) = watch::channel(false);
+    let task =
+        tokio::spawn(
+            async move { back_off(&mut retry, wait, &mut shutdown, frozen_test_wall).await },
+        );
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+    FROZEN_WALL_AHEAD_S.fetch_add(600, AtomicOrdering::SeqCst);
+    tokio::time::advance(Duration::from_secs(10)).await;
+    assert_eq!(task.await.unwrap(), Waited::Resumed);
+}
+
 async fn receive_test_control(socket: &mut WebSocketStream<TcpStream>) -> RelayControl {
     let message = socket.next().await.unwrap().unwrap();
     let Message::Text(text) = message else {
