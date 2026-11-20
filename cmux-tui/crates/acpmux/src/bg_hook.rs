@@ -530,7 +530,11 @@ enum StartFailure {
 /// when the task ends. If no start request was submitted, the shell runs the command as asked. A
 /// subagent's call still gets the deny: its task's end message must reach the subagent, which only
 /// the MCP server's `bg_start` arranges (`acpmux_mcp_bg.rs`).
-pub fn rewrite(input: &Value, route: Option<Route>, exe: &str) -> Option<Value> {
+pub fn rewrite(
+    input: &Value,
+    route: Option<Route>,
+    invocation: &crate::self_command::SelfCommand,
+) -> Option<Value> {
     if input.get("tool_name").and_then(Value::as_str) != Some("Bash")
         || input.pointer("/tool_input/run_in_background") != Some(&json!(true))
         || input.get("agent_id").is_some()
@@ -543,6 +547,14 @@ pub fn rewrite(input: &Value, route: Option<Route>, exe: &str) -> Option<Value> 
     let description =
         input.pointer("/tool_input/description").and_then(Value::as_str).unwrap_or_default();
     let q = crate::run_elsewhere::shell_quote;
+    // current_exe resolves the acpmux symlink to cmux-tui on Linux. Keep the
+    // entry point's prefix, so this remains an acpmux command in that binary.
+    let executable = q(invocation.exe.to_str()?);
+    let prefix = invocation.args_lossy::<&str>(&[]);
+    let invocation = std::iter::once(executable)
+        .chain(prefix.iter().map(|arg| q(arg)))
+        .collect::<Vec<_>>()
+        .join(" ");
     // The fallback runs the command on lines of its own, so a trailing comment or heredoc in it
     // closes before the conditional does. A missing reply or helper crash does not prove the
     // daemon failed to launch: only the explicit pre-submission exit permits a second attempt.
@@ -552,7 +564,7 @@ __acpmux_bg_start_status=$?\n\
 if [ \"$__acpmux_bg_start_status\" -ne {NOT_SUBMITTED_EXIT} ]; then\n\
 exit \"$__acpmux_bg_start_status\"\nfi\n\
 unset __acpmux_bg_start_status\n{command}\nfi",
-        q(exe),
+        invocation,
         q(cwd),
         q(command),
         q(description),
@@ -660,10 +672,8 @@ pub fn main(home: Option<std::path::PathBuf>) -> anyhow::Result<()> {
         .ok()
         .and_then(|raw| serde_json::from_slice(&raw).ok())
         .and_then(|c: Value| route(&c));
-    let exe = std::env::current_exe().ok();
-    if let Some(answer) =
-        exe.as_deref().and_then(|e| e.to_str()).and_then(|e| rewrite(&input, route, e))
-    {
+    let invocation = crate::self_command::SelfCommand::current().ok();
+    if let Some(answer) = invocation.as_ref().and_then(|me| rewrite(&input, route, me)) {
         println!("{answer}");
         return Ok(());
     }
@@ -979,7 +989,8 @@ mod tests {
     fn a_leads_background_shell_starts_a_daemon_task_instead_of_a_refusal() {
         let mut input = call(true);
         input["tool_input"]["description"] = json!("dev server");
-        let out = rewrite(&input, Some(Route::Direct), "/opt/acpmux").unwrap();
+        let invocation = crate::self_command::SelfCommand::new("/opt/acpmux".into(), vec![]);
+        let out = rewrite(&input, Some(Route::Direct), &invocation).unwrap();
         let out = &out["hookSpecificOutput"];
         assert!(out.get("permissionDecision").is_none(), "{out}");
         assert_eq!(out["updatedInput"]["run_in_background"], true);
@@ -993,10 +1004,10 @@ mod tests {
         // A subagent's, a foreground one, a chat with no acpmux server: as before.
         let mut sub = call(true);
         sub["agent_id"] = json!("a0");
-        assert_eq!(rewrite(&sub, Some(Route::Direct), "/opt/acpmux"), None);
+        assert_eq!(rewrite(&sub, Some(Route::Direct), &invocation), None);
         assert!(decide(&sub, Some(Route::Direct)).is_some());
-        assert_eq!(rewrite(&call(false), Some(Route::Direct), "/opt/acpmux"), None);
-        assert_eq!(rewrite(&call(true), None, "/opt/acpmux"), None);
+        assert_eq!(rewrite(&call(false), Some(Route::Direct), &invocation), None);
+        assert_eq!(rewrite(&call(true), None, &invocation), None);
     }
 
     /// Only a proven pre-submission failure permits fallback. Quotes, comments and heredocs survive.
@@ -1012,7 +1023,8 @@ mod tests {
             std::fs::set_permissions(&exe, mode).unwrap();
             let mut input = call(true);
             input["tool_input"]["command"] = json!(command);
-            let out = rewrite(&input, Some(Route::Direct), exe.to_str().unwrap()).unwrap();
+            let invocation = crate::self_command::SelfCommand::new(exe, vec![]);
+            let out = rewrite(&input, Some(Route::Direct), &invocation).unwrap();
             let script =
                 out["hookSpecificOutput"]["updatedInput"]["command"].as_str().unwrap().to_owned();
             std::process::Command::new("sh").args(["-c", &script]).output().unwrap()
@@ -1048,11 +1060,40 @@ mod tests {
             );
             let mut input = call(true);
             input["tool_input"]["command"] = json!(command);
-            let out = rewrite(&input, Some(Route::Direct), exe.to_str().unwrap()).unwrap();
+            let invocation = crate::self_command::SelfCommand::new(exe.clone(), vec![]);
+            let out = rewrite(&input, Some(Route::Direct), &invocation).unwrap();
             let script = out["hookSpecificOutput"]["updatedInput"]["command"].as_str().unwrap();
             let result = std::process::Command::new(shell).args(["-c", script]).output().unwrap();
             assert_eq!(result.status.code(), Some(1), "{result:?}");
             assert_eq!(std::fs::read_to_string(counter).unwrap(), "ran\n");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_rewritten_shell_keeps_the_multicall_prefix() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("cmux-tui with spaces");
+        // Like the multicall binary, refuse acpmux words without the acp prefix.
+        std::fs::write(
+            &exe,
+            "#!/bin/sh\n[ \"$1\" = acp ] || exit 2\nshift\n[ \"$1\" = __bg-start ] || exit 2\nprintf '%s|' \"$@\"\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&exe, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .unwrap();
+        let invocation = crate::self_command::SelfCommand::new(exe, vec!["acp".into()]);
+        let mut input = call(true);
+        input["tool_input"]["command"] = json!("echo should-not-run");
+        let out = rewrite(&input, Some(Route::Direct), &invocation).unwrap();
+        let script = out["hookSpecificOutput"]["updatedInput"]["command"].as_str().unwrap();
+        for shell in ["sh", "bash"] {
+            let result = std::process::Command::new(shell).args(["-c", script]).output().unwrap();
+            assert!(result.status.success(), "{result:?}");
+            assert_eq!(
+                String::from_utf8_lossy(&result.stdout),
+                "__bg-start|/work/app|echo should-not-run||"
+            );
         }
     }
 
