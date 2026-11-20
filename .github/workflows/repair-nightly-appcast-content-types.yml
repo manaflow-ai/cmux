@@ -19,8 +19,11 @@ permissions:
   actions: read
 
 concurrency:
-  group: repair-nightly-appcast-content-types
-  cancel-in-progress: false
+  # A pull request run only runs the unit test (the repair job is dispatch-only): one group per
+  # pull request, and a newer push cancels it. A dispatch writes nightly R2 objects: one shared
+  # group, never cancelled, so two repairs serialise and a pull request never waits on one.
+  group: ${{ github.event_name == 'pull_request' && format('repair-nightly-appcast-content-types-pr-{0}', github.event.pull_request.number) || 'repair-nightly-appcast-content-types' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).

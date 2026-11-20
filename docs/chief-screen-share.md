@@ -21,8 +21,8 @@ share screen with chief and have it incorporated into memories".
 ChiefScreenShare (@MainActor @Observable, CmuxNextChiefScreenShare)
   DemandTimer, one shot per 5 s while sharing (no repeating timer, nothing while off)
     -> ChiefScreenHelperCapture.capture(changedSince:)    off main (@concurrent)
-         host socket -> cmux Computer Use helper, host-only `display_still`
-           (scripts/cmux-cua-display-still.patch): a WindowServer still of the main
+         host socket -> the Computer Use helper's host-only `display_still`
+           (retired with the cmux-cua helper; see docs/computer-use/README.md): a WindowServer still of the main
            display, 1440 px wide, cmux and password managers' windows left out (by pid)
            32x20 grey signature; unchanged (< 2% mean difference) -> no JPEG in the reply
            changed -> JPEG (q 60) in the reply

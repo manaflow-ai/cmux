@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 REPAIR = "Repair a reused self-hosted checkout"
 OWNED = "cmux-gcp-lane-build-x64"
-FILES = ("cmux-tui-artifacts.yml", "cmux-tui-build-package.yml", "cmux-tui-tree-request.yml")
+FILES = ("cmux-tui-artifacts.yml", "cmux-tui-build-package.yml", "cmux-tui-tree-request.yml", "cloud-vm-image-roll.yml")
 
 
 def owned_jobs(workflow: dict) -> dict[str, dict]:

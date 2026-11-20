@@ -50,7 +50,7 @@ on:
       - "scripts/measure/screen-stream-eval/wifi-away-holds.json"
       - "skills/cmux-acpmux/SKILL.md"
       - "skills/cmux-browser/**"
-      - "skills/cmux-cua/SKILL.md"
+      - "skills/cmux-computer-use/SKILL.md"
       - "skills/cmux-customization/**"
       - "skills/cmux-live/SKILL.md"
       - "skills/cmux/SKILL.md"
@@ -85,6 +85,10 @@ on:
   # packages)`, and a required check must report. The `changes` job below says whether
   # the change touches a `push` path above; when it touches none, every job is skipped,
   # which GitHub counts as passing. The `push` list is the only list.
+      # Customize inputs of the routed jobs: the seven-language conformance and
+      # Windows check read these, so a change to them must start this workflow
+      # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
+      - "schemas/settings/source/mcp-servers.json"
   pull_request:
   workflow_dispatch:
     inputs:
@@ -630,9 +634,12 @@ jobs:
     timeout-minutes: 40
     # ghostty-vt-sys builds libghostty-vt from the ghostty-next gitlink with zig, as in
     # cmux-tui.yml (an empty CMUX_GHOSTTY_SRC overrides a runner-level one).
+    # CMUX_GHOSTTY_VT_ZIG_CPU=baseline: libghostty-vt for any x86-64 CPU, so the warm target
+    # below stays valid on every Blacksmith host model (scripts/blacksmith-testbox-source-mtimes.py).
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
       CMUX_GHOSTTY_SRC: ""
+      CMUX_GHOSTTY_VT_ZIG_CPU: baseline
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -693,8 +700,64 @@ jobs:
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # Warm start (projected fleet checkouts; Leo, 2026-11-17: "what if we were able to adopt
+      # that... for our own workflows? our own remote machines, our own ci?"): the last
+      # feat-cmux-next clippy's whole target dir and cargo registry on a Blacksmith sticky disk,
+      # as cmux-tui-build-package.yml's warm legs. rust-cache holds dependency builds only, and
+      # the fresh checkout gives every source a new mtime, so cargo checked every workspace
+      # crate the changed packages need again (cargo #6529). The disk is a block clone (mounted
+      # in seconds), and scripts/ci/machine-channel-warm-target.sh gives each source whose
+      # content equals the snapshot's its recorded mtime back, so only crates whose files
+      # changed are checked again; a changed file keeps its fresh mtime, so correctness never
+      # depends on the snapshot. Only feat-cmux-next pushes commit the disk; every other run
+      # mounts a clone of it and never writes it back. A failed mount falls back to the
+      # rust-cache restore below, as before. Keys are literal (tests/test_ci_testbox_broker_guard.py).
+      - name: Mount the warm clippy target (feat-cmux-next push, commits)
+        id: warm-next
+        if: startsWith(runner.name, 'blacksmith') && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
+        continue-on-error: true
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
+        with:
+          key: cmux-tui-clippy-warm-v1-next
+          path: /home/runner/cmux-tui-clippy-warm
+          commit: on-change
+
+      - name: Mount the warm clippy target (other runs, read-only)
+        id: warm-read
+        if: startsWith(runner.name, 'blacksmith') && !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')
+        continue-on-error: true
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
+        with:
+          key: cmux-tui-clippy-warm-v1-next
+          path: /home/runner/cmux-tui-clippy-warm
+          commit: "false"
+
+      - name: Link the warm clippy target
+        id: warm
+        if: steps.warm-next.outcome == 'success' || steps.warm-read.outcome == 'success'
+        continue-on-error: true
+        env:
+          WARM_WRITES: ${{ steps.warm-next.outcome == 'success' }}
+        # A run that never writes the disk links it only when a feat-cmux-next run has recorded a
+        # snapshot there; an empty disk would be a cold build where rust-cache is warm.
+        run: |
+          set -euo pipefail
+          disk=/home/runner/cmux-tui-clippy-warm
+          if [[ "$WARM_WRITES" != true && ! -f "$disk/target/.machine-channel-warm-source" ]]; then
+            echo "warm target: miss (no feat-cmux-next snapshot on the disk yet); rust-cache restore instead"
+            exit 0
+          fi
+          start=$(date +%s)
+          bash scripts/ci/machine-channel-warm-target.sh restore "$disk" x86_64-unknown-linux-gnu
+          if [[ "$(readlink cmux-tui/target 2>/dev/null || true)" == /home/runner/cmux-tui-clippy-warm/target ]]; then
+            echo "linked=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "warm target: restore took $(( $(date +%s) - start )) s"
+
       # Only a feat-cmux-next push saves the build cache; a pull request reads the base branch's.
+      # Skipped when the warm target above is linked.
       - name: Cache cargo build
+        if: steps.warm.outputs.linked != 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
@@ -749,3 +812,10 @@ jobs:
           path: ${{ runner.temp }}/panic-clippy.jsonl
           if-no-files-found: ignore
           retention-days: 3
+
+      # Before the sticky disk's post step commits it: bound it, then record the source
+      # mtimes and the commit next to the artifacts, so the next run restores them.
+      - name: Record the warm clippy target
+        if: ${{ !cancelled() && steps.warm-next.outcome == 'success' && steps.warm.outputs.linked == 'true' }}
+        continue-on-error: true
+        run: bash scripts/ci/machine-channel-warm-target.sh record /home/runner/cmux-tui-clippy-warm x86_64-unknown-linux-gnu
