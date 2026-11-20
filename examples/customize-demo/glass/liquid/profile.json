@@ -5,6 +5,7 @@
     "appearance.themeFile": "glass-liquid",
     "layout.paneCornerRadius": 14,
     "sidebar.groupHeader.background": "glass",
-    "sidebar.groupPalette": "glass"
+    "sidebar.groupPalette": "glass",
+    "agentPane.display.font.preset": "system"
   }
 }

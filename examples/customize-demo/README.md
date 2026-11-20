@@ -9,12 +9,17 @@ of its own (a New Tab page, sidebar sections, Session Info cards). Nothing is on
 and one command puts your own setup back.
 
 ```sh
+examples/customize-demo/demo.sh --nightly --only looks/claude.json  # one look; Enter reverts
 examples/customize-demo/demo.sh            # every setup in order, Enter for the next
 examples/customize-demo/demo.sh --auto 12  # 12 s each, no keys (for a recording)
 examples/customize-demo/demo.sh --nightly --auto 8  # all 13 looks in installed NIGHTLY, then revert
 examples/customize-demo/demo.sh --list     # the order
 examples/customize-demo/demo.sh reset      # your setup back
 ```
+
+To show the looks one at a time, use `--only` with a path from `--list`. The selected look stays
+on screen until Enter; then the script restores your setup. Run the next look only after that
+reset completes. `--auto` is the optional unattended tour, with one look visible at a time.
 
 `--nightly` selects `/Applications/cmux NIGHTLY.app` explicitly and clears inherited app socket
 and customization-root overrides. It does not restart the app. `--only` and `--auto` can be combined.
@@ -23,6 +28,13 @@ discard those changes first. Each look starts from your applied setup, so settin
 leak into the next one. Normal completion, Ctrl-C, and command failures restore the applied setup;
 a failed restore returns an error with the recovery command. This demo needs Python 3 for its
 status check.
+
+The demo's chat typography is sans-serif, including when the existing chat or Markdown reading
+preset is serif. Each profile explicitly selects the system preset; leaving it unset otherwise
+inherits the existing preset. Code fonts stay separate. Discard restores the
+previous font settings along with the rest of the setup. The regression detector is
+`webviews/test/customization-demo-fonts.test.ts`: it resolves every bundled profile over existing
+serif settings and checks both prompt and reply measurement fonts.
 
 Or one at a time: `cmux customize use examples/customize-demo/looks/claude.json`, then
 `cmux customize discard` (off) or `cmux customize apply` (keep it; `rollback` takes it off later).

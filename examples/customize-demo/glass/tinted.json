@@ -8,7 +8,8 @@
     "layout.paneCornerRadius": 12,
     "sidebar.groupGradient": "aurora",
     "sidebar.groupHeader.background": "glass",
-    "sidebar.groupPalette": "gradient"
+    "sidebar.groupPalette": "gradient",
+    "agentPane.display.font.preset": "system"
   },
   "files": {
     "agent-pane/theme.css": "/* Glass: tinted, in the agent pane: links and the caret in the cyan accent, and the chat's glass\n   (composer, popovers, menus) kept vivid behind its frost so the indigo stain reads through it.\n   Colors come from the theme file. */\n:root {\n  --agent-link: var(--agent-accent);\n  --glass-material-saturate: 2.1;\n  --ds-glass-popover-tint: 72%;\n}\n\ntextarea,\n[contenteditable=\"true\"] {\n  caret-color: var(--agent-accent);\n}\n",

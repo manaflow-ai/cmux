@@ -10,7 +10,8 @@
     "layout.paneCornerRadius": 8,
     "sidebar.controlsOnHover": true,
     "sidebar.groupHeader.background": "glass",
-    "tabs.plusButton": "always"
+    "tabs.plusButton": "always",
+    "agentPane.display.font.preset": "system"
   },
   "files": {
     "customize/cmux-app.json": "{\n  \"$schema\": \"https://cmux.dev/schemas/cmux-app/2.json\",\n  \"manifestVersion\": 2,\n  \"id\": \"local/customize\",\n  \"name\": \"The collection\",\n  \"version\": \"2.0.0\",\n  \"description\": \"The time and the weather, the usage left on your Claude and Codex accounts, and a chief gacha with an animated reel: a sidebar section and a New Tab page.\",\n  \"engines\": { \"cmux\": \"^2.0\" },\n  \"runtime\": { \"main\": \"main.js\" },\n  \"implements\": {\n    \"cmux.newtab/1\": { \"export\": \"renderPage\", \"title\": \"The collection\", \"symbol\": \"sparkles\" },\n    \"cmux.section/1\": {\n      \"export\": \"renderSection\",\n      \"title\": \"Collection\",\n      \"symbol\": \"sparkles\",\n      \"options\": { \"defaultRegion\": \"bottom\", \"maxRows\": 16 }\n    }\n  },\n  \"scopes\": {\n    \"usage_app:read\": \"Read the usage left on your Claude and Codex accounts from cmux's Usage app.\",\n    \"storage:local\": \"Remember your city and the chiefs you pulled.\",\n    \"net:geocoding-api.open-meteo.com\": \"Find your city's place on the map.\",\n    \"net:api.open-meteo.com\": \"Read the weather for your city.\"\n  }\n}\n",

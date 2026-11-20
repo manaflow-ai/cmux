@@ -18,6 +18,7 @@
     "ui.calm": "still",
     "agentPane.display.font.lineHeight": 1.6,
     "agentPane.display.font.size": 15,
-    "layout.paneCornerRadius": 10
+    "layout.paneCornerRadius": 10,
+    "agentPane.display.font.preset": "system"
   }
 }

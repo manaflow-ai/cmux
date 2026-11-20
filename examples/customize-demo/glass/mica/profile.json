@@ -5,6 +5,7 @@
     "appearance.themeFile": "glass-mica",
     "layout.paneCornerRadius": 8,
     "sidebar.groupHeader.background": "glass",
-    "sidebar.groupPalette": "wallpaper"
+    "sidebar.groupPalette": "wallpaper",
+    "agentPane.display.font.preset": "system"
   }
 }

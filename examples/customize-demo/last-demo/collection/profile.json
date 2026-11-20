@@ -8,6 +8,7 @@
     "layout.paneCornerRadius": 8,
     "sidebar.controlsOnHover": true,
     "sidebar.groupHeader.background": "glass",
-    "tabs.plusButton": "always"
+    "tabs.plusButton": "always",
+    "agentPane.display.font.preset": "system"
   }
 }

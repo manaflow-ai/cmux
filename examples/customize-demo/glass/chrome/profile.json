@@ -5,6 +5,7 @@
     "appearance.themeFile": "glass-chrome",
     "layout.paneCornerRadius": 12,
     "sidebar.groupHeader.background": "glass",
-    "sidebar.groupPalette": "glass"
+    "sidebar.groupPalette": "glass",
+    "agentPane.display.font.preset": "system"
   }
 }

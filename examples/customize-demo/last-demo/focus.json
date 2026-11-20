@@ -20,7 +20,8 @@
     "ui.calm": "still",
     "agentPane.display.font.lineHeight": 1.6,
     "agentPane.display.font.size": 15,
-    "layout.paneCornerRadius": 10
+    "layout.paneCornerRadius": 10,
+    "agentPane.display.font.preset": "system"
   },
   "files": {
     "customize/cmux-app.json": "{\n  \"$schema\": \"https://cmux.dev/schemas/cmux-app/2.json\",\n  \"manifestVersion\": 2,\n  \"id\": \"local/customize\",\n  \"name\": \"Focus\",\n  \"version\": \"2.0.0\",\n  \"description\": \"A New Tab page with one question, what you are working on, and a timed session, with buttons for a chat or a terminal.\",\n  \"engines\": { \"cmux\": \"^2.0\" },\n  \"runtime\": { \"main\": \"main.js\" },\n  \"implements\": {\n    \"cmux.newtab/1\": { \"export\": \"renderFocus\", \"title\": \"Focus\", \"symbol\": \"scope\" }\n  },\n  \"scopes\": {\n    \"actions:run\": \"Start a chat or a terminal from the page.\",\n    \"storage:local\": \"Remember what you are working on and how many sessions you finished today.\"\n  }\n}\n",

@@ -12,6 +12,7 @@
     "layout.paneSeparation": "cards",
     "layout.paneCornerRadius": 12,
     "sidebar.density": "expanded",
-    "sidebar.groupHeader.background": "glass"
+    "sidebar.groupHeader.background": "glass",
+    "agentPane.display.font.preset": "system"
   }
 }

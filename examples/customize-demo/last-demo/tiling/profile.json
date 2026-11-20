@@ -18,6 +18,7 @@
     "sidebar.style": "rail",
     "sidebar.controlsOnHover": true,
     "focus.inactiveTabStyle": "tonal",
-    "layout.paneCornerRadius": 8
+    "layout.paneCornerRadius": 8,
+    "agentPane.display.font.preset": "system"
   }
 }

@@ -6,6 +6,7 @@
     "layout.paneCornerRadius": 12,
     "sidebar.groupGradient": "aurora",
     "sidebar.groupHeader.background": "glass",
-    "sidebar.groupPalette": "gradient"
+    "sidebar.groupPalette": "gradient",
+    "agentPane.display.font.preset": "system"
   }
 }
