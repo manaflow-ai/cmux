@@ -1363,6 +1363,12 @@ export interface SeenParams {
 }
 
 /**
+ * Whose credential a sign-in refusal is about, so a client names that party and offers the one
+ * fix that works: sign in to the agent, replace the provider's key, or sign in to cmux.
+ */
+export type SessionAuthCredential = ("login" | "apiKey" | "cmux");
+
+/**
  * `terminal`: run `command` in a terminal on `host` (null: this machine). `route`: edit or
  * sign in again to the route `routeId`.
  */
@@ -1391,6 +1397,12 @@ export interface SessionAuthParams {
  * or `routeAuthNeeded`; `unknown` never blocks.
  */
 export type SessionAuthResult = {
+  /**
+   * Whose credential refused the chat, for `signedOut`, `expired` and `routeAuthNeeded`: the
+   * agent's own login, an API key a provider issued, or the person's cmux account. Absent when
+   * the evidence does not say (a route of another kind names it by `routeId`).
+   */
+  credential?: (SessionAuthCredential | null);
   /** One sentence: the probe's status, the turn's error, or the check that ran. */
   detail: string;
   /** When the evidence was observed (ms since the epoch); null when `source` is `none`. */
@@ -1405,6 +1417,12 @@ export type SessionAuthResult = {
   host?: (string | null);
   /** How to sign in: only for `signedOut`, `expired` and `routeAuthNeeded`. */
   login?: (SessionAuthLogin | null);
+  /**
+   * The provider that issued a refused API key, by its id as the chat's model names it
+   * (`opencode-go` in `opencode-go/deepseek-v4.1-flash`) or as the agent's family implies it
+   * (`anthropic` for Claude Code); only with `credential` `apiKey`.
+   */
+  provider?: (string | null);
   /** The route the chat is bound to; null when it is not routed. */
   routeId?: (string | null);
   source: SessionAuthSource;
