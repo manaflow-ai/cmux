@@ -205,3 +205,16 @@ The push run's half of the nightly-next pipeline (decide's pipeline): once the u
 sentry-dsyms-nightly:
 
 nightly-next's dSYMs to Sentry, off the build's path (Sentry held it 10.8 and 19.7 min in runs 41471126151, 41466468306). Nothing needs it; it continues on error. It runs with the rest of the tail (run_tail: on nightly-next the dispatched tail run), outside the push group: in the loop run it held the push group until its hosted queue (39 min for the oldest job on 2026-11-08) and its upload were done, and in a pipelined push run (decide's pipeline) it held the group after dispatch-nightly-next-sign. It stays on GitHub-hosted Ubuntu (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS): the Sentry token keeps it off the nightly mini's shared light runners, and on the trusted signing runner its 11-20 min upload would hold the whole Mac while the next run builds and signs there. The dSYMs come from the run that compiled the published binary, as keep-published-dsyms finds them.
+
+## note-30
+
+refresh-test-compilation-cache (the scheduled cold DerivedData seeder):
+
+This seeder runs on our nightly-only minis, never Blacksmith (a fork on hosted macos-26). The schedule skips this seeder while owned pools serve pull requests (CI_PR_POOL_OWNED is 1): admission then runs on owned minis that keep their own DerivedData, and seed-derived-data.yml still seeds the Blacksmith admission pools on main pushes that change app-host build inputs. Those incremental chains then get no six-hourly cold reset; a seed_only dispatch still writes one on demand. Writes the cold DerivedData seed that ci-macos.yml compile admission adopts. It no longer restores, bounds or saves the Debug compilation cache: admission stopped restoring it (the app target missed on every file; see tests/test_ci_test_compilation_cache_seed.sh), so nothing read it. The build's CAS stays local to the run. Scheduled, not per push: a build per merge would take macOS slots from the pull request queue.
+
+
+## note-29
+
+runner-preflight:
+
+Fails the run in minutes when a label its jobs would wait on has no online runner, instead of every job sitting queued for hours (2026-11-10: CI_NIGHTLY_MINI named cmux-lawrence-2-light, whose runners went offline at 00:45Z; the nightly sat queued for 3+ h). It takes decide's own route, so it never waits longer than decide would, and in one-mini mode it stays on vars.CI_NIGHTLY_MINI with the rest of the run (never split across Macs); there a dead mini holds it like every other job. It was on GitHub-hosted Ubuntu until 2026-11-18, when the org-wide hosted queue held it 1h25m+ (run 44207617943) and with it every nightly, while the nightly Macs were idle. It holds no secret and reads only vars.CI_RUNNER_STATE (scripts/ci/nightly_runner_preflight.py). It never cancels anything; an unreadable or stale census lets the run go on. A failure files the nightly's failure incident with the job's token (report-nightly-failure never runs then). hq docs/handbook/runner-var-points-at-dead-host.md.
