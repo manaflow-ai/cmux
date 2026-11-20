@@ -76,6 +76,8 @@ pub(crate) mod provision;
 #[cfg(unix)]
 mod socket_rebind;
 mod stop_causes;
+mod stop_watchdog;
+pub(crate) use stop_watchdog::shutdown_time_left;
 pub(crate) mod supervision;
 #[cfg(unix)]
 pub(crate) use crate::term_sender;
@@ -141,13 +143,14 @@ fn install_panic_log() {
     }
 }
 
-/// Debug builds only: the one panic the test triggers below raise.
+/// Debug builds only: the one panic the test triggers raise (below, and the agent host's
+/// translator seam, `agent_host/host.rs` `test_translator_panic`).
 #[cfg(debug_assertions)]
 #[allow(
     clippy::panic,
     reason = "debug-build test trigger for the acpmux panic log; release builds have no seam"
 )]
-fn test_panic(message: &str) -> ! {
+pub(crate) fn test_panic(message: &str) -> ! {
     // crash-allow: debug-only test trigger for the acpmux panic log
     panic!("{message}");
 }
@@ -195,23 +198,10 @@ pub(crate) fn shutdown_budget(ends_agents: bool) -> Duration {
     }
 }
 
-/// Includes the CLI's final diagnostic-log flush, which used to add a fresh second after
-/// the daemon had consumed its entire shutdown budget.
-static SHUTDOWN_DEADLINE: std::sync::Mutex<Option<std::time::Instant>> =
-    std::sync::Mutex::new(None);
-
-pub(crate) fn shutdown_time_left() -> Option<Duration> {
-    SHUTDOWN_DEADLINE
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .as_ref()
-        .map(|deadline| deadline.saturating_duration_since(std::time::Instant::now()))
-}
-
 /// `exit_tasks` belongs to the CLI and stays alive until process exit. Shutdown persistence
 /// may use the end of that lifetime while retaining this daemon's exclusive home lock.
 pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<()> {
-    *SHUTDOWN_DEADLINE.lock().unwrap_or_else(PoisonError::into_inner) = None;
+    stop_watchdog::reset();
     // The start of every startup phase in `daemon status` is timed from (`gauges.rs`).
     let gauges = crate::gauges::global();
     crate::cli::cloud_join::retain_own_machine_consent_requirement()?;
@@ -365,6 +355,10 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
     crate::config::refuse_lost_home(&home())?;
+    // `machine-auth` reads the env its agents start with from this record, never from /proc.
+    if let Err(e) = crate::cli::machine_auth::record_daemon_env(&home()) {
+        tracing::warn!("could not record the daemon's agent env: {e}");
+    }
     // Bind before durable startup work, so clients can connect independently of journal replay.
     // Requests wait for the hub and launch tokens; agent spawns wait for `finish_startup`.
     let unix_listener = crate::server::bind_unix(&socket_path()).await?;
@@ -672,6 +666,15 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // A machine joined before the hub recorded capabilities states them with its own credential,
     // in the background (`cli/cloud_join/self_capabilities.rs`); the start never waits for it.
     crate::cli::cloud_join::state_capabilities_at_start(&hub.scope);
+    // A joined Mac's daemon serves screen shares with no app running (`share_host/`).
+    #[cfg(target_os = "macos")]
+    crate::share_host::start(&hub.scope);
+    // A joined Linux machine's is cmux-rd's, which the daemon sets up here in the background
+    // (`share_host/linux.rs`): its join needs no step on the machine.
+    #[cfg(target_os = "linux")]
+    if !clone_unsettled {
+        crate::share_host::linux::start(&hub.scope);
+    }
     // The Macs whose app may allow here over the peer link (`hub/mac_approvers.rs`).
     hub.person.macs.open(home().join(crate::hub::mac_approvers::FILE));
     if let Some(key) = person_key {
@@ -685,12 +688,16 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             tracing::warn!("--person-key-fd: {e}");
         }
     }
-    // The curated model catalog (`catalog/`): the last good copy now, then a fetch at
-    // once and every 6 h. `ACPMUX_CATALOG_FETCH=0` keeps the stored or bundled copy.
+    // The curated model catalog (`catalog/`): the last good copy now, then a fetch of it and
+    // of the public model feed at once and every hour. `ACPMUX_CATALOG_FETCH=0` keeps the
+    // stored or bundled copy and reads no feed.
     let fetch_catalog = !std::env::var("ACPMUX_CATALOG_FETCH").is_ok_and(|v| v == "0");
     let fetcher: Option<std::sync::Arc<dyn crate::catalog::Fetcher>> =
         fetch_catalog.then(|| std::sync::Arc::new(crate::catalog::HttpsFetcher::current()) as _);
     hub.catalog.attach(home().join("catalog"), fetcher);
+    if fetch_catalog {
+        hub.catalog.attach_feed(std::sync::Arc::new(crate::catalog::feed::FeedFetcher::default()));
+    }
     if fetch_catalog {
         let catalog = hub.catalog.clone();
         crate::supervise::restarting("catalog", &hub.fatal, move || catalog.clone().run());
@@ -1190,8 +1197,11 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     hub.begin_shutdown();
     // The plan is fixed now: a shutdown that ends its agents gets the time their ends take.
     let shutdown_deadline = shutdown_started + shutdown_budget(hub.ends_agents_at_shutdown());
-    *SHUTDOWN_DEADLINE.lock().unwrap_or_else(PoisonError::into_inner) =
-        Some(shutdown_deadline.into_std());
+    // Every bound below is a timer on this runtime. With `start` in `acpmux.v2` a thread ends the
+    // process 800 ms in when the stop is held all the same (`daemon/stop_watchdog.rs`); with the
+    // setting empty there is none. `run`'s return disarms it.
+    let hard_exit = v2.as_ref().is_some_and(|v2| v2.allows_surfaces(&["start"]));
+    let _hard_exit = stop_watchdog::arm(&hub, shutdown_deadline.into_std(), hard_exit);
     let shutdown_left = || shutdown_deadline.saturating_duration_since(tokio::time::Instant::now());
     // Session/transport cleanup cannot consume the writers' entire chance to drain.
     let cleanup_deadline = shutdown_deadline - Duration::from_millis(250);

@@ -163,7 +163,10 @@ esac
 # A viewer that opens windows or posts input fights the person at a Mac they use (person_guard.py):
 # refuse before anything is removed or started. A tools-only build opens nothing.
 if [[ "$tools_only" != 1 ]]; then
-  python3 -I "$here/person_guard.py" check "$targets" || exit 2
+  # viewer-of= makes this Mac the viewer only, where apple-rfb is headless.
+  guard_role=()
+  [[ -n "$viewer_of" ]] && guard_role=(viewer)
+  python3 -I "$here/person_guard.py" check "$targets" ${guard_role[@]+"${guard_role[@]}"} || exit 2
 fi
 rm -rf "$out" "$work"
 mkdir -p "$out" "$work/bin"

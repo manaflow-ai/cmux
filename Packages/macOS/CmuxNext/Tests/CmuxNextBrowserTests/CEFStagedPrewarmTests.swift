@@ -38,6 +38,36 @@ import Testing
         #expect(Set(all.map(\.rawValue)).count == all.count)
     }
 
+    /// CefShutdown under a Chromium window that is still alive read freed memory on the main thread ("cmux exit 11" in
+    /// Leo's NIGHTLY update log, 2026-11-16): the pre-warm shuts down in the app's quit order, never on the browser
+    /// count alone.
+    @Test func shutdownWaitsForEveryWindowNotOnlyEveryBrowser() {
+        #expect(!CEFStagedPrewarm.readyToShutDown(liveBrowsers: 0, windows: 1, pendingCreates: 0), "CefShutdown ran with the page's window alive")
+        #expect(!CEFStagedPrewarm.readyToShutDown(liveBrowsers: 1, windows: 0, pendingCreates: 0))
+        #expect(CEFStagedPrewarm.readyToShutDown(liveBrowsers: 0, windows: 0, pendingCreates: 0))
+        #expect(CEFStagedPrewarm.readyToShutDown(liveBrowsers: 0, windows: -1, pendingCreates: 0), "stock CEF has no window count: that wait is skipped")
+    }
+
+    /// The page's create is asynchronous: from the create call until OnAfterCreated, both the browser and the window
+    /// count read 0, and a CefShutdown then runs under the creation (the same crash). Held back here: the session's
+    /// create stays pending, so the pre-warm does not shut down, until the shim's OnAfterCreated event arrives.
+    @MainActor @Test func shutdownWaitsForAPendingCreateUntilOnAfterCreated() {
+        let session = CEFPrewarmSession()
+        func ready() -> Bool { CEFStagedPrewarm.readyToShutDown(liveBrowsers: 0, windows: 0, pendingCreates: session.pendingCreates) }
+        session.createStarted()
+        #expect(!ready(), "CefShutdown would run while the page was still being made")
+        let context = Unmanaged.passUnretained(session).toOpaque()
+        CEFPrewarmSession.event(context, 9, 1, 0, 0, 0, nil, nil)  // CMUX_SHIM_LOAD_END: no create ends with it
+        #expect(session.loaded)
+        #expect(!ready())
+        CEFPrewarmSession.event(context, 2, 1, 0, 0, 0, nil, nil)  // CMUX_SHIM_AFTER_CREATED
+        #expect(ready())
+        session.createStarted()
+        session.createEnded()  // a refused create call
+        #expect(ready())
+        withExtendedLifetime(session) {}
+    }
+
     @MainActor @Test func aBundleWithNoRuntimeEndsBeforeChromium() {
         #expect(CEFStagedPrewarm().run(application: NSApplication.shared, layout: nil) == .notEmbedded)
     }

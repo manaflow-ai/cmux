@@ -110,7 +110,7 @@ The daemon starts on demand, like the tmux server. `acpmux daemon` runs it in th
 
 `acpmux ls` is compact by default: the live lanes someone named, as NAME, HOST (only while
 some row is on a peer), STATE, TURNS, AGE, STUCK and WARN. STUCK says in a few words why a
-lane needs someone (`permission`, `capacity`, `harness down`, `failed turn`, `stalled 12m`);
+lane needs someone (`permission`, `rate-limited until 04:30Z`, `capacity`, `harness down`, `failed turn`, `stalled 12m`);
 WARN is `warn` while the row breaks a usage rule. Closed sessions, reviewer boxes,
 sub-sessions and sessions with only a generated name are hidden and counted on the last line;
 `--all` lists them, and a filter (`--status`, `--tag`, `--since`, ...) hides nothing. `--wide`
@@ -238,7 +238,7 @@ Five everyday commands, three groups for the rest:
 
 | Command | What it does |
 | --- | --- |
-| `acpmux` | Open the TUI. Starts the daemon if needed. |
+| `acpmux` | Open the TUI. Starts the daemon if needed. A headless acpmux (the default build; the TUI is feature `tui`, which the `cmux` binary carries) hands it to a `cmux` (`ACPMUX_TUI`, beside it, else on PATH); with none, `attach` streams as `--plain`. |
 | `new [-m harness[/model]] [-n name] [--cwd dir] [--policy p] [prompt]` | Create a session. Opens the TUI unless `-d`. |
 | `send NAME "text" [--steer\|--no-steer] [--no-wait\|--wait] [-q]` | Prompt and stream the reply. An agent's send (`--from`, the session it runs in, a Claude Code or Codex shell) and one with `--class` are queued as with `--no-wait` unless given `--wait` (or `-q`, `--timeout`). With `--no-wait` it hands the message to this daemon and returns at once with a delivery id, for a session here or on a peer ([the outbox](#messages-to-other-sessions-the-outbox)); it steers into a running turn by default (read at the agent's next tool boundary, never stopping it) and queues when the agent does not steer. An agent's send steers by default even when it waits for the reply (`--wait`), and then prints the reply of the turn it went into; the person's waiting send queues unless given `--steer`, and `--no-steer` queues any send. `--supersede KEY` replaces the sender's own prompt still queued under KEY (never one whose turn started); with `--no-wait` it prints `replaced N queued` once delivered (`?` from a daemon that predates it) and `--json` adds `replaced` and `replacedPromptIds`. `--class block\|question\|result\|fyi` says what an agent's message asks of the receiver (a block: you cannot go on until it acts; a question: you wait for its answer; a result: work you finished, the default; an FYI): it is kept on the queued message and shown in its queue row as `class`. The sender is the agent (`--from`, or the session `send` runs in) or, for anything else, the person. `--attach FILE` (repeatable) sends files with it, to a peer's session too: an image (its type read from its bytes) reaches the agent and the transcript as an image, any other file as a link to its copy, saved owner-only under the session's `uploads` on the host that runs it. Any size and number: small files ride in the message, and the rest are uploaded to the session first, in chunks, and named by reference (an image too large to show inline reaches the agent by its path). `--notice --severity info\|warn\|fire --title T [--sender X] [--host H] [--link URL[=LABEL]]...` sends a tool's or reconciler's notice (`_meta.acpmux.notice`, `prompt_provenance.rs`): the text is its body, and the prompt is the rendered `[notice from SENDER on HOST · FIRE] TITLE`, the body, then `Links: URL (LABEL), …` (no tag for info), so an old daemon or page still reads it. The daemon records it with provenance `{kind: "notice", from: "fromAgent", fromName, to, notice: {sender, host?, severity, title, links?}}` and delivers it as a named sender's message (its inbox and digests keep the notice). `--sender` defaults to `--from`, `ACPMUX_FROM`, else the calling session's name, `--host` to this machine; links are https only, at most 16. Accepted over the unix socket and from a peer daemon; a Web client's is refused (`notice.origin_refused`), and a bad field refuses the prompt (`notice.value_refused`, `field` naming it). |
 | `send --status [ID]` | With no ID, every message this daemon still delivers or delivered in the last day, newest first. A queued delivery's state: `queued`, `delivering` (attempt n), `delivered` (the target's turn, steered or queued), `held` (a paused agent pair holds it until the person resumes the pair) or `failed` (the last error). |
@@ -436,8 +436,15 @@ off) the chat gets one prompt telling the agent to check what finished and conti
 id `<promptId>~resume-<n>` and `_meta.provenance.kind` `auto_resume`. Stop, closing the chat, or
 anything else run in it meanwhile cancels it, and a continuation that completes resumes the
 prompts the cut turn held (`hub/auto_resume.rs`). While it waits the session row's `retry` is
-`{attempt, of, reason, nextAt, promptId, turnId}` (`reason` `capacity`, `transport` or
-`agent_exited`), null otherwise. Usage limits and sign-in failures never retry this way.
+`{attempt, of, reason, nextAt, promptId, turnId}` (`reason` `capacity`, `rate_limit`, `transport` or
+`agent_exited`), null otherwise. Sign-in failures never retry this way. An account's usage or
+rate limit (HTTP 429, `rate_limit`) holds the whole chat until its reset (`hub/rate_hold.rs`): no
+turn starts, what comes in queues and goes in as one turn at the reset with the continuation's
+words (a context past 200K tokens compacts first), the row's `rateLimitedUntil` says until when,
+and `acpmux retry` is refused (`retry.rate_limited`) until then. Six such turns in a row, or a
+Stop (or `session stop`) while the limit has the chat, park it (`rateLimitParked`): nothing
+starts by itself until `acpmux retry` or the person's own prompt, which send it on with what
+queued as one turn. A daemon restart keeps the hold, the park and the strikes.
 `acpmux retry NAME` (`_acpmux/retry {sessionId}`, the Retry button; the sub-session tool
 `retry_session`) retries a failed last turn now, under the caller's rules, taking over a waiting
 retry: the failed prompt goes again as its next `~resume-<n>` (a continuation when the turn had
@@ -1437,10 +1444,15 @@ process keeps running.
 
 ### cmux tools in every session
 
-Every local session gets cmux's own agent tools: the `cmux-cua` MCP server (Computer Use)
-when `cmux-cua` sits next to the acpmux binary, the `cmux` MCP server with the browser REPL
-tools when `cmux.json` sets `"mcp": {"enabled": true}`, and, for Claude Code, a session-only
-plugin `cmux` with the skills `cmux:cmux-browser` and `cmux:cmux-cua`. Set
+Every local session gets cmux's own agent tools: the `cmux-computer-use` MCP server
+(`acpmux computer-use-mcp`, cmux Computer Use, built in) unless `cmux.json` sets
+`computerUse.mode` to `off`, the `cmux` MCP server with the browser REPL tools, and, for
+Claude Code, a session-only plugin `cmux` with the skills `cmux:cmux-browser` and
+`cmux:cmux-computer-use`. The Computer Use server answers `initialize` and `tools/list` from
+the catalog compiled into acpmux, so its tools are there while the worker starts or restarts;
+each call asks the cmux-tui daemon (`computer-use-endpoint`) for the worker and retries the
+same call id across a restart for up to 30 s. A call with `machine` goes to that peer daemon
+(`_acpmux/computer_use_call`, `src/server/computer_use_relay.rs`). Set
 `ACPMUX_AGENT_TOOLS=0` in the daemon's environment to turn all of them off, or in one
 profile's or preset's `env` to turn them off for that profile only. A Claude profile whose
 `argv` has `--strict-mcp-config` also gets none of them, so it keeps exactly the servers its

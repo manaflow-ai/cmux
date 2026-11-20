@@ -35,6 +35,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Process(..)
             | Command::Worktree(..)
             | Command::Group(..)
+            | Command::ShareHost(..)
             | Command::Attach { .. }
             | Command::ResumeHere { .. }
             | Command::Tail { .. }
@@ -636,7 +637,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if args.detach || json_out {
                 return Ok(());
             }
-            crate::tui::run(client, Some(route_id.to_owned())).await
+            crate::tui_entry::run(client, Some(route_id.to_owned())).await
         }
         Command::Send {
             session,
@@ -804,8 +805,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // A send that waits, to a name nobody here resolves, goes to this daemon's outbox once
             // more when config.json names a mesh hub: the hub delivers it (`server/mesh_send.rs`).
             let (mesh_prompt, mesh_steer) = (prompt_id.clone(), steer);
+            // The fan-out note runs beside the send and is never waited on (`send_fanout.rs`).
+            let fanout = Arc::new(std::sync::Mutex::new(None));
+            let fanout_slot = fanout.clone();
             let sent = async move {
                 let client = before_deadline(deadline, &session, connect(true)).await?;
+                let note = note_fanout(&client, &session, &text, prompt_id.from_agent.as_deref());
+                *fanout_slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                    Some(note);
                 if harness_agent {
                     let named = prompt_id.from_agent.as_deref();
                     let sender = crate::cli::sender::sending_as_on(&client, named).await;
@@ -932,6 +939,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .await
             }
             .await;
+            let note = fanout.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+            if let Some(line) = note.and_then(fanout_warning_if_known) {
+                eprintln!("{line}");
+            }
             match (sent, relay) {
                 (Err(e), Some(relay)) if crate::cli::send_relay::no_such_session(&e) => {
                     crate::cli::send_relay::send_with_deadline(
@@ -1073,6 +1084,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         Command::Process(cmd) => crate::cli::process::run(cmd, json_out).await,
         Command::Worktree(cmd) => crate::cli::worktree::run(cmd, json_out),
         Command::Group(cmd) => crate::cli::group::run(cmd, json_out).await,
+        Command::ShareHost(cmd) => crate::share_host::cli::run(cmd, json_out).await,
         Command::Attach { session, plain } => {
             let client = connect(true).await?;
             let id = match &session {
@@ -1083,7 +1095,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 let id = id.ok_or_else(|| anyhow!("--plain needs a session"))?;
                 return plain_attach(client, &id).await;
             }
-            crate::tui::run(client, id).await
+            crate::tui_entry::run(client, id).await
         }
         Command::ResumeHere { session, print } => {
             crate::cli::resume_here::run(connect(true).await?, &session, print, json_out).await
@@ -1094,12 +1106,20 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::Info { session, fields } => {
             let client = connect(true).await?;
-            let id = resolve_id(&client, &session).await?;
-            let v = crate::cli::slow_notice::noted(
-                "the session's details",
-                client.request(method::MUX_INFO, json!({"sessionId": id})),
-            )
-            .await?;
+            let v = match resolve_id(&client, &session).await {
+                Ok(id) => {
+                    crate::cli::slow_notice::noted(
+                        "the session's details",
+                        client.request(method::MUX_INFO, json!({"sessionId": id})),
+                    )
+                    .await?
+                }
+                // A row only the send relay lists: its details are the relay's row, `via: relay`.
+                Err(e) => match crate::cli::send_relay::relayed_row(&e) {
+                    Some(row) => row.clone(),
+                    None => return Err(e),
+                },
+            };
             if let Some(fields) = fields {
                 return super::fanout::print_info_fields(&v, &fields, json_out);
             }
@@ -1551,6 +1571,43 @@ fn held_message_line(h: &Value) -> String {
     )
 }
 
+/// Notes this send with the daemon (`send_fanout.rs`) on a task of its own, started before
+/// the send's own requests on the same connection and never waited on: the send adds no
+/// latency for it (the prompt's sha256 aside, microseconds). Its answer is read when the send is done ([`fanout_warning_if_known`]).
+fn note_fanout(
+    client: &Arc<crate::client::Client>,
+    session: &str,
+    text: &str,
+    from: Option<&str>,
+) -> tokio::task::JoinHandle<Option<String>> {
+    let params = json!({
+        "hash": crate::send_fanout::prompt_hash(text),
+        "session": session,
+        "machine": crate::send_fanout::machine_of(session),
+        "from": from,
+    });
+    let client = client.clone();
+    FANOUT_NOTES.spawn_named("send fan-out note", async move {
+        let reply = client.request(method::MUX_SEND_FANOUT, params).await.ok()?;
+        crate::send_fanout::warning(&reply)
+    })
+}
+
+/// The owner of the send's fan-out notes: the CLI process, which ends them when it exits.
+static FANOUT_NOTES: std::sync::LazyLock<cmux_scope::Scope> =
+    std::sync::LazyLock::new(|| cmux_scope::Scope::new("acpmux send fan-out notes"));
+
+/// The fan-out warning, if the daemon has already answered the note; else none, and the send
+/// does not wait for it (a daemon without the method answers an error: none too).
+fn fanout_warning_if_known(note: tokio::task::JoinHandle<Option<String>>) -> Option<String> {
+    use futures::FutureExt as _;
+    if !note.is_finished() {
+        // Dropped, not aborted: the note still reaches the daemon while the process lives.
+        return None;
+    }
+    note.now_or_never()?.ok().flatten()
+}
+
 /// Parse the compact durations accepted by `ls --since` (`30m`, `24h`, `7d`, or combinations).
 fn team_receipt_line(receipt: &Value) -> String {
     let canonical =
@@ -1629,6 +1686,26 @@ mod tests {
     }
     use super::{new_requires_tty, new_without_prompt_requires_tty, send_steers, started_by};
     use serde_json::json;
+
+    /// The send never waits on its fan-out note: an unanswered note yields nothing at once, an
+    /// answered one its warning.
+    #[tokio::test]
+    async fn a_fanout_note_is_read_only_if_already_answered() {
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        let pending = super::FANOUT_NOTES.spawn(async move {
+            let _ = rx.await;
+            Some("late".to_owned())
+        });
+        let started = std::time::Instant::now();
+        assert_eq!(super::fanout_warning_if_known(pending), None);
+        assert!(started.elapsed() < std::time::Duration::from_millis(50));
+        drop(tx);
+        let done = super::FANOUT_NOTES.spawn(async { Some("warned".to_owned()) });
+        while !done.is_finished() {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(super::fanout_warning_if_known(done).as_deref(), Some("warned"));
+    }
 
     #[test]
     fn an_agents_or_classed_send_is_queued_unless_it_waits_for_the_reply() {

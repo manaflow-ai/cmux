@@ -19,12 +19,15 @@ extension TranscriptDocumentView {
     // Not passed up the responder chain: the pane host's own hover (the field's attachments)
     // has its own tracking area.
     override func mouseMoved(with event: NSEvent) {
+        // cmux: a picture under the pointer shows its save button (HomeMediaSaveHover).
+        controller?.pointerMovedForSaveHover(controller?.host.convert(event.locationInWindow, from: nil))
         controller?.onPointerMoved?(window.map { $0.convertPoint(toScreen: event.locationInWindow) })
     }
 
     override func cursorUpdate(with event: NSEvent) { NSCursor.arrow.set() }
 
     override func mouseExited(with event: NSEvent) {
+        controller?.pointerMovedForSaveHover(nil)
         controller?.onPointerMoved?(nil)
     }
 }

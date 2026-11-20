@@ -56,22 +56,29 @@ impl Surface {
             return result;
         }
         // Not hosted: the daemon writes the PTY itself (the holder model's custody master). Marked
-        // before the runtime lock, so the mark never runs under it.
-        cmux_flow_trace::hop("daemon.pty.write", 0, pty.flow_terminal_id());
+        // after the runtime lock, and only for bytes that reached the PTY.
         let mut runtime = pty.runtime.lock().unwrap();
-        match &mut *runtime {
+        let (result, wrote) = match &mut *runtime {
             PtyRuntime::Local { writer, master, .. } => {
                 let master = master.as_deref().map(|master| master as &dyn MasterPty);
-                crate::pty_input_room::write_input(master, writer.as_mut(), bytes).map(|_| ())
+                let result =
+                    crate::pty_input_room::write_input(master, writer.as_mut(), bytes).map(|_| ());
+                let wrote = result.is_ok();
+                (result, wrote)
             }
             #[cfg(any(unix, windows))]
-            PtyRuntime::Hosted(host) => host.send(MessageKind::Input, bytes),
+            PtyRuntime::Hosted(host) => (host.send(MessageKind::Input, bytes), false),
             // A keep-on-exit terminal outlives its child, so typing into the
             // dead PTY is an expected interaction: drop the bytes silently
             // instead of failing every keystroke on the final screen.
             #[cfg(any(unix, windows))]
-            PtyRuntime::ExitedHosted => Ok(()),
+            PtyRuntime::ExitedHosted => (Ok(()), false),
+        };
+        drop(runtime);
+        if wrote {
+            crate::pty_write_marks::daemon_wrote(pty.flow_terminal_id());
         }
+        result
     }
 
     /// On the input lane (R-DAEMON-STATE stage S1 step 6): hands interactive input for a hosted terminal to the

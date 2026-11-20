@@ -253,15 +253,18 @@ public struct Metrics {
         let pixels = max(scale, 1)
         return max(0, (((rowHeight - iconSize) / 2 + iconSize / 16) * pixels).rounded() / pixels)
     }
-    /// The one gap at both ends of a tab strip, the same at every density: from the strip's leading edge (the
-    /// sidebar or the pane's edge) to the first tab, and from the last tab to the + button (Lucas 2026-11-15: "the
-    /// padding to the left is always the same ... the padding between the + and the last tab is also the same ... the
-    /// padding is the same for left tab and sidebar as it is for + and the last tab").
+    /// The one gap at both ends of a tab strip: from the strip's leading edge (the sidebar or the pane's edge) to the
+    /// first tab, and from the last tab to the + button (Lucas 2026-11-15: "the padding is the same for left tab and
+    /// sidebar as it is for + and the last tab"). It is the pill's own top gap in the strip (`PaneChromeMetrics.pillTop`,
+    /// on the 2x grid; the strip snaps it to its screen's, `TabStripMetrics.endGap(scale:)`), so the first tab rests
+    /// as far from the card's side as from its top (Lawrence 2026-11-17, a pinned tab at Compact sat 4 pt in from the
+    /// side and 2.5 from the top: "ensure top and left padding are the same here").
     public static var tabStripEndGap: CGFloat {
         // A set corner (`layout.cornerPadding`, `layout.paneCornerRadius`) keeps the first pill `cornerPadding` in from
         // the card, so its corner stays concentric with the card's (ConcentricCornerSettingTests).
         if DesignSettings.shared.paneChrome.cornerPadding != nil || cornerRadiusIsSet { return paneChromeInset }
-        return scale(4)
+        // A density's own end gap (the Density Playground's Strip end insets).
+        return densityToken("tabStripEndGap") ?? PaneChromeMetrics.current.pillTop(scale: 2)
     }
     /// Where the first tab's icon starts in a pane's strip: the strip's end gap plus the icon's inset in its pill.
     /// The browser's back arrow starts its ink there (`OmnibarStyle.toolbarInset`).
