@@ -41,18 +41,11 @@ struct AgentTabContent {
         // `layout.linkPlacement`), never over the chat; the external editor keeps its own path.
         view.model.installSourceFileOpener(
             noteOpened: { [weak pane] url in pane?.services.chatQuoteOpeners.noteOpened(url, byAgentTab: key) },
-            openTab: { [weak pane] url, source in
-                guard let pane else { return false }
-                return pane.services.linkOpener.openFile(url, from: pane, sourceUses: source)
-            },
-            openOther: { [weak pane] url, target in
-                guard let pane else { return false }
-                return pane.services.registry.openAgentFile(path: url.path, target: target, pane: pane.paneKey, machineID: pane.daemon.machineID)
-            },
+            openTab: { [weak pane] url, source in pane.map { $0.services.linkOpener.openFile(url, from: $0, sourceUses: source) } ?? false },
+            openOther: { [weak pane] url, target in pane.map { $0.services.registry.openAgentFile(path: url.path, target: target, pane: $0.paneKey, machineID: $0.daemon.machineID) } ?? false },
             reveal: { [weak pane, weak view] reply, seq in
                 guard let pane, let view, pane.services.revealTab(key, onMachine: pane.daemon.machineID) else { return false }
-                let target: JSONValue = ["replyId": .string(reply), "seq": JSONValue(seq)]
-                view.revealTurn("source-reply:" + target.compactText)
+                let target: JSONValue = ["replyId": .string(reply), "seq": JSONValue(seq)]; view.revealTurn("source-reply:" + target.compactText)
                 return true
             })
         view.model.onOpenMachineFile = { [weak pane] path in guard let pane, case let tabs = pane.services.agentTabs, tabs.remoteMachineID(of: key, machine: pane.daemon.machineID) != nil, let daemon = tabs.daemon(for: tabs.resolvedKey(tabs.tabKey(key, machine: pane.daemon.machineID))), !daemon.isLocal, case let link = pane.services.agentGit.link(for: daemon), await !link.reachesThroughLink(path) else { return false }

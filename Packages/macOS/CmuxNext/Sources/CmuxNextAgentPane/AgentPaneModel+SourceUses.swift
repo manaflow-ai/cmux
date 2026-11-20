@@ -37,10 +37,10 @@ public enum AgentSourceUsesPageBridge {
         local: Bool, file: URL?, requested: URL, matches: Bool, source: (any AgentSourceUsesPageContext)?,
         read: @escaping () -> Bool, stillCurrent: @escaping () -> Bool, cursor: String?
     ) async throws -> JSONValue {
-        guard local, matches, let file, source?.matches(file) == true else {
+        guard local, matches, let file, let source, source.matches(file) else {
             throw PageError.invalidParams("no source context for this page's file")
         }
-        let result = try await source!.read(cursor: cursor)
+        let result = try await source.read(cursor: cursor)
         guard read(), stillCurrent() else { throw PageError.closed }
         _ = requested
         return result
@@ -51,8 +51,10 @@ public enum AgentSourceUsesPageBridge {
         reply: String?, turn: String?
     ) throws -> JSONValue {
         guard gesture else { throw PageError(code: "cmux.page.gesture", message: "opening a reply needs a user gesture") }
-        guard local, matches, let file, source?.matches(file) == true,
-              let reply, let turn, source!.reveal(reply: reply, turn: turn) else {
+        guard local, matches, let file, let source, source.matches(file), let reply, let turn else {
+            throw PageError.invalidParams("reply is not a recorded use of this page's file")
+        }
+        guard source.reveal(reply: reply, turn: turn) else {
             throw PageError.invalidParams("reply is not a recorded use of this page's file")
         }
         _ = requested
