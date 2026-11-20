@@ -33,6 +33,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 /// The bound on every held stop with `start`, and the earliest it may end (its hard point is
@@ -183,6 +184,9 @@ fn spread(samples: &[f64]) -> (f64, f64, f64) {
     (at(0.5), at(0.95), sorted[sorted.len() - 1])
 }
 
+/// Held stops whose hard exit left the daemon's pid file, over the whole run.
+static PID_LEFT: AtomicUsize = AtomicUsize::new(0);
+
 /// Stops of one home and mode: their ms and how many did not exit with success.
 fn timed(scratch: &Path, home: &Path, held: bool, runs: usize, tag: &str) -> (Vec<f64>, usize) {
     let (mut ms, mut failed) = (Vec::new(), 0);
@@ -196,8 +200,11 @@ fn timed(scratch: &Path, home: &Path, held: bool, runs: usize, tag: &str) -> (Ve
         }
         ms.push(took);
         failed += usize::from(!success);
-        if held {
-            assert!(!home.join("daemon.pid").exists(), "the hard exit left the daemon's pid file");
+        if held && home.join("daemon.pid").exists() {
+            let text = std::fs::read(&daemon.stderr).unwrap_or_default();
+            eprint!("{}", String::from_utf8_lossy(&text));
+            eprintln!("STOP-WATCHDOG-PID-LEFT mode={tag} run={run} ms={took:.0}");
+            PID_LEFT.fetch_add(1, Ordering::Relaxed);
         }
     }
     (ms, failed)
@@ -257,6 +264,9 @@ fn a_held_stop_exits_at_800_ms_with_start_and_is_not_cut_without_it() {
         assert_eq!(running, runs, "{name}: a held stop with the setting empty was cut");
         assert_eq!(free_failed + base_failed, 0, "{name}: a stop that is not held failed");
     }
+    let left = PID_LEFT.load(Ordering::Relaxed);
+    eprintln!("STOP-WATCHDOG pid_file_left={left}");
+    assert_eq!(left, 0, "a hard exit left the daemon's pid file");
     let &[small, god] = &held_p95[..] else { unreachable!() };
     assert!(
         god <= small * 1.2,

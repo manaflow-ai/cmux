@@ -7,8 +7,9 @@
 //! with its lock held and its socket already removed (2026-11-02), and the app waited 38 s on a
 //! stop. The watchdog is a thread with a condition variable and no runtime, so it runs whatever
 //! the stop is stuck in. At its hard point ([`EXIT_MARGIN`] before the stop's deadline: 800 ms
-//! into every stop that keeps its agents) it kills this daemon's own child agents, writes the
-//! daemon's end and pid file within [`LAST_WORDS`], and calls `_exit` with the stop's status.
+//! into every stop that keeps its agents) it kills this daemon's own child agents, removes the
+//! pid file and writes the daemon's end within [`LAST_WORDS`], and calls `_exit` with the stop's
+//! status.
 //! Host records and live locks stay as they are: the agents under hosts keep running and the
 //! next daemon adopts them. What a writer still held in memory is lost, as in a crash at that
 //! moment; the design writes each item at its event so nothing a person would miss is there.
@@ -139,10 +140,19 @@ fn exit(hub: &Weak<crate::hub::Hub>) -> ! {
     );
     let (done, finished) = std::sync::mpsc::channel::<()>();
     let last = std::thread::Builder::new().name("acpmux-stop-last-words".into()).spawn(move || {
+        let began = Instant::now();
         if !crate::config::home_lost() {
             let home = crate::config::home();
-            super::supervision::finish(&home, status);
+            // The pid file first: it is one unlink, where the end record is a write the disk may
+            // hold past the bound.
             let _ = crate::home_fs::remove_file(home.join("daemon.pid"));
+            let unlinked = began.elapsed();
+            super::supervision::finish(&home, status);
+            tracing::warn!(
+                pid_file_ms = unlinked.as_millis() as u64,
+                end_record_ms = began.elapsed().as_millis() as u64,
+                "the hard exit's last writes"
+            );
         }
         let _ = crate::log_sink::flush(LAST_WORDS);
         let _ = done.send(());
