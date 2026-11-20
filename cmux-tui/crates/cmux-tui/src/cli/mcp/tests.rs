@@ -1874,7 +1874,7 @@ fn code_mode_stops_a_script_that_loops_or_allocates_without_end() {
     let found = call(
         &mut server,
         "cmux_exec",
-        json!({"script": "const o = {}; globalThis.keep = [o]; globalThis.items = []; for (let i = 0; i < 1e5; i++) items.push(o); while (true) items.find(() => false);"}),
+        json!({"script": "const o = {}; globalThis.keep = [o]; globalThis.items = []; for (let i = 0; i < 1e5; i++) items.push(o); await null; while (true) items.find(Number.isNaN);"}),
     );
     assert_eq!(found["structuredContent"]["error"]["code"], "script.timeout", "{found}");
 

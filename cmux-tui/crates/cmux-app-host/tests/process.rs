@@ -138,6 +138,26 @@ mod apps {
         assert_eq!(host.child.wait().expect("wait").code(), Some(0));
     }
 
+    /// cmuxterm-hq#15405: an interrupt inside `find` leaves an element of the app's module-level
+    /// array counted once short. The binary used to abort freeing that engine on exit
+    /// (`gc_decref_child` in JS_RunGC); it must end with `fatal` and exit 70.
+    #[test]
+    fn an_app_interrupted_inside_find_exits_70_not_by_abort() {
+        use std::os::unix::process::ExitStatusExt;
+        let mut host = Host::spawn();
+        host.send(json!({ "t": "init", "app": { "id": "local/find", "version": "1.0.0" }, "api_version": "1.0.0",
+            "main": common::app("const o = {}; const keep = [o]; const items = []; for (let i = 0; i < 1e5; i++) items.push(o); \
+                return { render: () => { for (;;) items.find(Number.isNaN) }, keep }") }));
+        let mut seen = Vec::new();
+        host.until("ready", &|_| json!({}), &mut seen);
+        host.send(json!({ "t": "mount", "mount": "m", "export": "render", "ctx": {} }));
+        let fatal = host.until("fatal", &|_| json!({}), &mut seen);
+        assert_eq!(fatal["reason"], "interrupt");
+        let status = host.child.wait().expect("wait");
+        assert_eq!(status.signal(), None, "killed by a signal ({status:?})");
+        assert_eq!(status.code(), Some(70));
+    }
+
     #[test]
     fn a_runaway_app_sends_fatal_and_exits_70() {
         let mut host = Host::spawn();
@@ -168,9 +188,6 @@ mod apps {
             "for (let i = 0; i < 1e7; i++) __cmuxAppNative.call('workspace.list', '{}', '{}', i)",
             "__cmuxAppNative.timer(1e308, false); __cmuxAppNative.timer(Infinity, true)",
             "for (;;) {}",
-            // cmuxterm-hq#15405: an interrupt inside `find` leaves an element counted once
-            // short; freeing the engine at exit aborted in JS_RunGC.
-            "const o = {}; globalThis.keep = [o]; globalThis.items = []; for (let i = 0; i < 1e5; i++) items.push(o); for (;;) items.find(() => false)",
         ];
         for bad in hostile {
             let mut host = Host::spawn();

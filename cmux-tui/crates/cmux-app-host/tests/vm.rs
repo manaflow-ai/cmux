@@ -340,7 +340,7 @@ mod apps {
         let mut spun =
             Harness::new(&app(r#"const o = {}; globalThis.keep = [o]; globalThis.items = [];
                for (let i = 0; i < 1e5; i++) items.push(o);
-               return { spin: () => { for (;;) items.find(() => false) } }"#));
+               return { spin: () => { for (;;) items.find(Number.isNaN) } }"#));
         assert!(!spun.vm.engine_poisoned());
         let error = spun.vm.run_command(1, "spin", &json!({}), None).expect_err("interrupt");
         assert!(
