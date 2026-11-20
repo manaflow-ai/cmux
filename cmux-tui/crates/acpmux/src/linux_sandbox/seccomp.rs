@@ -750,6 +750,8 @@ mod tests {
             );
             assert_eq!(evaluate(&deny_only, ARCH, nr as u32, [0; 6]), SECCOMP_RET_ALLOW, "nr {nr}");
         }
+        // One element on aarch64 (no SYS_link), two on x86_64.
+        #[allow(clippy::single_element_loop)]
         for nr in [
             SYS_linkat,
             #[cfg(target_arch = "x86_64")]
