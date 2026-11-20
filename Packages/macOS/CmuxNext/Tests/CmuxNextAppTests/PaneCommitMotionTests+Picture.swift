@@ -60,6 +60,12 @@ extension PaneCommitMotionTests {
         let backdrop: WindowMaterialView
     }
 
+    /// The window shows another picture from now: a copy of the one before, under a pane that moves, is not the
+    /// window's picture any more.
+    static func showAnotherPicture(_ over: OverPicture) {
+        over.backdrop.showArt(NSImage(size: NSSize(width: 320, height: 200)))
+    }
+
     /// The acts of a row over a picture.
     /// - `close`: the close key on the first pane; the pane beside it takes its room.
     /// - `zoom`, `unzoom`: of the pane at the far corner, so its origin moves.

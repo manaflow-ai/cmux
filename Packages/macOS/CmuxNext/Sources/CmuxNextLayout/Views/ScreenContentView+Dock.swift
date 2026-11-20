@@ -34,6 +34,11 @@ extension ScreenContentView {
     /// their headers are see-through, so what is under them is masked out.
     /// Computed once per presentation pass, not once per host (which walked
     /// every subview per host).
+    ///
+    /// From the pass that shows its change, a pane that a close or a zoom took out (`isLeaving`) covers nothing: it shows under every other pane until the
+    /// change's motion ends (`PaneCommitMotion.keepUnder`), whatever its place among the subviews, and then hides with
+    /// no pass to clip again. A docked Home's pane, stacked above the strip, cut the pane zoomed beside it to the part
+    /// outside the dock for good (Lawrence 2026-11-19).
     func panesAbove() -> [ObjectIdentifier: [CGRect]] {
         var covers: [ObjectIdentifier: [CGRect]] = [:]
         var front: [CGRect] = []
