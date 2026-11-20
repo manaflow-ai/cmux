@@ -7294,6 +7294,39 @@ jobs:
         run: bash scripts/ci/nightly-steps/prepare-thin-bundle.sh
       - *verify-shipped-libintl-has-its
       - *verify-nightly-binary-archs
+      # Signer-service experiment (docs/design/signer-service.md, migration step 1).
+      # It is shadow-only: the current in-job signing path remains authoritative, and
+      # the upload is skipped unless the repository variable is explicitly `on`.
+      - name: Package unsigned app for signer shadow
+        if: vars.NIGHTLY_SIGNER_SHADOW == 'on' && !env.LEFT_SLOT
+        run: bash scripts/ci/nightly-steps/prepare-package-app.sh
+      - name: Record unsigned app digest for signer shadow
+        if: vars.NIGHTLY_SIGNER_SHADOW == 'on' && !env.LEFT_SLOT
+        env:
+          PREPARED_APP_ARTIFACT: cmux-nightly-prepared-app-shadow-${{ github.run_id }}
+          NIGHTLY_SHOULD_PUBLISH: "true"
+        run: bash scripts/ci/nightly-steps/prepare-record-app-digest.sh
+      - name: Upload unsigned app for signer shadow
+        if: vars.NIGHTLY_SIGNER_SHADOW == 'on' && !env.LEFT_SLOT
+        id: signer-shadow-upload
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-prepared-app-shadow-${{ github.run_id }}
+          path: prepared-app-handoff/cmux-prepared-app.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+      - name: Retry unsigned app upload for signer shadow
+        if: vars.NIGHTLY_SIGNER_SHADOW == 'on' && !cancelled() && steps.signer-shadow-upload.outcome == 'failure' && !env.LEFT_SLOT
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-prepared-app-shadow-${{ github.run_id }}
+          path: prepared-app-handoff/cmux-prepared-app.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
       - name: Finish the webview checks before any signing secret
         if: ${{ !env.LEFT_SLOT }}
         id: webview-checks
