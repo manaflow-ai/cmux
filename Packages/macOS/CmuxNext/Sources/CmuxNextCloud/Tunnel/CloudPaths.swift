@@ -7,8 +7,14 @@ public import Foundation
 /// share an identity with the stable app.
 public struct CloudPaths: Sendable {
     public let root: URL
+    /// This computer (``HostMachine/current()``; tests inject another): a `device-id` made on another
+    /// Mac and copied here (Migration Assistant, a restore) is not this Mac's.
+    let host: @Sendable () -> HostMachine?
 
-    public init(root: URL) { self.root = root }
+    public init(root: URL, host: @escaping @Sendable () -> HostMachine? = { HostMachine.current() }) {
+        self.root = root
+        self.host = host
+    }
 
     /// `cloud-next` in the bundle's own folder under `cmux-next` (``NextSupport/bundleFolder(bundleID:)``);
     /// builds before kept it in classic cmux's `cmux/<bundle id>`, and the app moves it at launch.
@@ -19,6 +25,9 @@ public struct CloudPaths: Sendable {
     /// Where builds before the per-launch key kept this Mac's WireGuard private key.
     var legacyPrivateKey: URL { root.appendingPathComponent("wireguard.private.key") }
     var deviceIDFile: URL { root.appendingPathComponent("device-id") }
+    /// The computer `device-id` was made on (``HostMachine/stamp(purpose:)``).
+    var deviceMachineFile: URL { root.appendingPathComponent("device-id.machine") }
+    static let machinePurpose = "cmux cloud install machine v1"
     /// Where builds before the stdin config wrote the hub's config (with the private key).
     var legacyWireGuardConfig: URL { root.appendingPathComponent("wireguard.conf") }
     var linkState: URL { root.appendingPathComponent("link-state", isDirectory: true) }
@@ -69,8 +78,21 @@ public struct CloudPaths: Sendable {
     /// Callers that read it for the first time at once (the App's launch read on the files lane, a
     /// main-thread caller before that read ends, the tunnel hub) all return the same id: the first id
     /// written wins (``createSecretIfAbsent(_:at:)``) and every caller returns the file's id.
+    ///
+    /// An id made on another computer (its `device-id.machine` names another Mac: the folder came over
+    /// with Migration Assistant or a restore) is set aside and a new one made, so this Mac is a new
+    /// install, not a second copy of the old Mac's. An id with no record of its computer (an older
+    /// build's) is kept and stamped with this one.
     public func loadOrCreateDeviceID() throws -> String {
-        if let id = readDeviceID() { return id }
+        let stamp = host()?.stamp(purpose: Self.machinePurpose)
+        if let id = readDeviceID() {
+            guard let stamp, let made = readMachine(), made != stamp else {
+                if let stamp, readMachine() != stamp { try? writeSecret(stamp + "\n", to: deviceMachineFile) }
+                return id
+            }
+            return try replaceCopiedDeviceID(stamp: stamp)
+        }
+        if let stamp { try? prepare(); try? writeSecret(stamp + "\n", to: deviceMachineFile) }
         let id = "mac-\(UUID().uuidString.lowercased())"
         // Read before any Cloud sign-in (agent tabs' install id): the directory may not exist yet.
         try prepare()
@@ -79,6 +101,26 @@ public struct CloudPaths: Sendable {
         // An empty file (a write cut short by an older build) is replaced, as before.
         try writeSecret(id + "\n", to: deviceIDFile)
         return id
+    }
+
+    /// Replaces a `device-id` another Mac made. Concurrent first reads on the new Mac agree: the copied id
+    /// moves aside by one atomic rename (only one reader's rename finds it), that reader makes the new id
+    /// (``createSecretIfAbsent(_:at:)``, the first id written wins), and every reader returns the file's id.
+    private func replaceCopiedDeviceID(stamp: String) throws -> String {
+        try prepare()
+        let aside = root.appendingPathComponent("device-id.copied-\(UUID().uuidString)")
+        if rename(deviceIDFile.path, aside.path) == 0 { try? FileManager.checked.removeItem(at: aside) }
+        try writeSecret(stamp + "\n", to: deviceMachineFile)
+        try createSecretIfAbsent("mac-\(UUID().uuidString.lowercased())\n", at: deviceIDFile)
+        guard let id = readDeviceID() else { throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: deviceIDFile.path]) }
+        return id
+    }
+
+    /// The stamp in `device-id.machine`, or nil when there is none.
+    private func readMachine() -> String? {
+        guard let text = try? String(blockingContentsOf: deviceMachineFile, encoding: .utf8) else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     /// The ids in the `device-id` of each folder under ``root`` (`<root>/<backend namespace>`, #35284): the

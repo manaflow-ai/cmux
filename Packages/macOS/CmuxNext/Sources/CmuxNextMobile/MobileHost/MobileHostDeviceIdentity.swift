@@ -118,17 +118,8 @@ public struct MobileHostDeviceIdentity: Sendable {
         return Data(tag).prefix(16).map { String(format: "%02x", $0) }.joined()
     }
 
-    /// This computer's host UUID (`gethostuuid`, the IOPlatformUUID every build reads alike).
-    public static func currentHostUUID() -> Data? {
-        var uuid: uuid_t = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-        var wait = timespec(tv_sec: 1, tv_nsec: 0)
-        let ok = withUnsafeMutablePointer(to: &uuid) { pointer in
-            pointer.withMemoryRebound(to: UInt8.self, capacity: 16) { gethostuuid($0, &wait) }
-        } == 0
-        let id = withUnsafeBytes(of: uuid) { Data($0) }
-        guard ok, id.contains(where: { $0 != 0 }) else { return nil }
-        return id
-    }
+    /// This computer's host UUID (``HostMachine``).
+    public static func currentHostUUID() -> Data? { HostMachine.current()?.uuid }
 
     private static func readID(_ url: URL) -> String? {
         guard let text = try? String(blockingContentsOf: url, encoding: .utf8),
