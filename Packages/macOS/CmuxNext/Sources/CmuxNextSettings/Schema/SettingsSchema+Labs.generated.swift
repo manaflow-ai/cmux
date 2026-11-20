@@ -2,6 +2,9 @@
 // schemas/settings/source/labs.json. Do not edit; edit the JSON and rerun.
 
 extension CmuxConfigSnapshot {
+    /// `experiments.launch_shell_first`.
+    public nonisolated static let launchShellFirstPath = ["experiments", "launch_shell_first"]
+    public nonisolated static let launchShellFirstDefault = false
     /// `labs.previewFeatures`: Surfaces still being shaped (the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.
     public nonisolated static let previewFeaturesPath = ["labs", "previewFeatures"]
     public nonisolated static let previewFeaturesDefault = false
@@ -28,6 +31,16 @@ nonisolated enum LabsSettingsSchema {
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.labs", "Labs")
         return [
+            SettingDescriptor(
+                CmuxConfigSnapshot.launchShellFirstPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.launch_shell_first", "Show Window Shell at Launch"),
+                help: SettingsText.keyed("settings.experiments.launch_shell_first.help", "Show the saved window frame while cmux restores its content on the next launch."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.launchShellFirstDefault),
+                keywords: ["launch", "restore", "window", "startup"]
+            ),
             SettingDescriptor(
                 CmuxConfigSnapshot.previewFeaturesPath,
                 section: .advanced,
