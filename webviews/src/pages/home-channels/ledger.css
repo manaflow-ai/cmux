@@ -1196,7 +1196,7 @@
   margin: var(--ds-space-2) var(--lg-pad) var(--ds-space-1);
   padding: var(--ds-space-2) var(--ds-space-3);
   border: 1px solid color-mix(in srgb, var(--page-text-3) 24%, transparent);
-  border-radius: var(--ds-radius-lg);
+  border-radius: var(--ds-radius-lg); /* concentric-allow: predates the rule (baseline); same 8 it had as --ds-radius-popup, which popups now own */
   background: color-mix(in srgb, var(--page-text-3) 8%, transparent);
   /* A state change (failed, stalled) recolours it over standard; it never moves, so no transform. */
   transition:

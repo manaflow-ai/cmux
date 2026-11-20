@@ -279,7 +279,7 @@
   min-height: 0;
   height: 30px;
   padding: 0 var(--ds-space-2);
-  border-radius: var(--ds-radius-lg);
+  border-radius: var(--ds-radius-lg); /* concentric-allow: predates the rule (baseline); same 8 it had as --ds-radius-popup, which popups now own */
   background: none;
   box-shadow: none;
 }
