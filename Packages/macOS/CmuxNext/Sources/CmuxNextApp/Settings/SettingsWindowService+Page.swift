@@ -69,6 +69,7 @@ extension SettingsWindowService {
             "server": services.serverUpdates.settingsPageJSON,
             "import_suggestions": ImportSuggestionsCenter.shared.settingsJSON,
             "web_updates": WebUpdates.shared.pageJSON,
+            "nightly_daemon_updates_available": .bool(NightlyDaemonUpdate.available()),
             "app_update": services.updater.settingsPageJSON,
             // Chief > Voice input: home.voiceInput, null where the tunable does not exist (Release).
             "voice_input": ChiefVoiceInputPageRoute().hostJSON,

@@ -110,7 +110,7 @@ extension SettingsSchema {
         // Which builds this Mac installs (a faster ring runs less-tested code): the person's call.
         "updates.channel": .userOnly,
         // Web UI updates download and run new page code from files.cmux.com.
-        "updates.web": .network,
+        "updates.web": .network, "experiments.nightly_live_updates": .network,
         // How long a nightly waits before it restarts into an update: the person's call.
         "updates.idleInstallMaxWaitSeconds": .userOnly, "updates.idleInstallQuietSeconds": .userOnly,
         // On, cmux restarts into a downloaded update by itself once idle: the person's call.

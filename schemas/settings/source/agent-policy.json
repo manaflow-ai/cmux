@@ -1317,7 +1317,8 @@
       "agent": "network",
       "why": "Web UI updates download and run new page code from files.cmux.com.",
       "keys": [
-        "updates.web"
+        "updates.web",
+        "experiments.nightly_live_updates"
       ]
     },
     {

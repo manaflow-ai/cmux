@@ -24,6 +24,9 @@ extension UpdatesSettings {
     /// `updates.meteredNetwork`: What automatic downloads do on a metered link.
     public nonisolated static let meteredNetworkPath = ["updates", "meteredNetwork"]
     public nonisolated static let meteredNetworkDefault: UpdatesMeteredSetting = .deferLowData
+    /// `experiments.nightly_live_updates`.
+    public nonisolated static let nightlyLiveUpdatesPath = ["experiments", "nightly_live_updates"]
+    public nonisolated static let nightlyLiveUpdatesDefault = false
     /// `updates.web`: Web UI updates between app updates (plans/cmux-next/web-ota.md): NIGHTLY builds follow the signed channel; Release and RC builds ship their own web UI.
     public nonisolated static let webPath = ["updates", "web"]
     public nonisolated static let webDefault: UpdatesWebSetting = .everyMerge
@@ -154,6 +157,16 @@ nonisolated enum UpdateSettingsSchema {
                 ]),
                 default: .string(UpdatesSettings.meteredNetworkDefault.rawValue),
                 keywords: ["update", "metered", "cellular", "low data", "hotspot"]
+            ),
+            SettingDescriptor(
+                UpdatesSettings.nightlyLiveUpdatesPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.nightlyLiveUpdates", "Nightly Live Daemon Updates"),
+                help: SettingsText.keyed("settings.experiments.nightlyLiveUpdates.help", "On NIGHTLY and tip builds, apply signed daemon updates after terminal input and agent turns are idle."),
+                kind: .toggle,
+                default: .bool(UpdatesSettings.nightlyLiveUpdatesDefault),
+                keywords: ["nightly", "daemon", "live", "experiment"]
             ),
             SettingDescriptor(
                 UpdatesSettings.webPath,

@@ -140,6 +140,7 @@ export function SettingsApp() {
       query,
       valueOf: (key) => valueOf(state, key),
       devBuild: state.host?.dev_build === true,
+      nightlyDaemonUpdates: state.host?.nightly_daemon_updates_available === true,
       scope: "user",
       revision: state.revision,
     })[0]?.rows[0];

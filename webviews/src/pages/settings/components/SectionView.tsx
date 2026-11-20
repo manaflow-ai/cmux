@@ -31,6 +31,8 @@ import { PERSONALIZATION_KEYS, personalizationPart, type PartID } from "../perso
 import { PlaceholderSection } from "./PlaceholderSection";
 import { AppUpdateCard } from "./AppUpdateCard";
 import { WebUpdatesCard } from "./WebUpdatesCard";
+import { useSettingsSelector } from "../context";
+import { offeredOnBuild } from "../search";
 import { VoiceInputCard } from "./VoiceInputCard";
 import { ContextMenusCard } from "./ContextMenusCard";
 import { ServerCard } from "./ServerCard";
@@ -121,6 +123,7 @@ export function SectionView({
   reveal?: CategoryCard | null;
 }) {
   const category = categoryById(section);
+  const nightlyDaemonUpdates = useSettingsSelector((state) => state.host?.nightly_daemon_updates_available === true);
   // The theme studio draws appearance.theme, appearance.appTheme, appearance.accent,
   // appearance.highlightColor, appearance.rotateFavoriteThemes and appearance.themeFile itself; the
   // schema's group for them would draw each a second time (a second "App Theme" card).
@@ -151,6 +154,7 @@ export function SectionView({
       ...group,
       rows: group.rows.filter(
         (row) =>
+          offeredOnBuild(row.key, nightlyDaemonUpdates) &&
           row.key !== THEME_EDITS_KEY &&
           row.key !== FAVORITE_THEMES_KEY &&
           !HUB_KEYS.has(row.key) &&

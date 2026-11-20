@@ -24,6 +24,7 @@ export function SearchResults({ query }: { query: string }) {
         query,
         valueOf: (key) => valueOf(state, key),
         devBuild,
+        nightlyDaemonUpdates: state.host?.nightly_daemon_updates_available === true,
         scope: "user",
         revision: state.revision,
       }),

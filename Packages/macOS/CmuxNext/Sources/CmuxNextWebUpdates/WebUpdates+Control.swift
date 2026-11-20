@@ -17,6 +17,9 @@ extension WebUpdates {
     public var controlMethods: [ControlMethod] {
         let web = self
         return [
+            .async("updates.daemon.readiness") { call in
+                await web.daemonUpdates.readiness(checkActivity: call.params["activity"]?.boolValue == true)
+            },
             .mainActor("updates.web.status") { _ in .value(Self.json(web)) },
             .mainActor("updates.web.check") { call in
                 guard let updater = web.updater else { return .value(Self.json(web)) }

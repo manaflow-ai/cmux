@@ -10,6 +10,20 @@ use cmux_json::JsonSet as _;
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 
+/// Verify the owner itself after a NIGHTLY daemon handoff, on this build's socket.
+pub(super) fn owner_reports_commit(socket: &std::path::Path, pid: i32, commit: &str) -> bool {
+    let Ok(stream) = cmux_tui_core::server::connect_session_socket(socket, false) else {
+        return false;
+    };
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let Ok(reply) =
+        exchange(&mut BufReader::new(stream), json!({"id": 1, "cmd": "identify"}), deadline)
+    else {
+        return false;
+    };
+    reply["pid"].as_i64() == Some(i64::from(pid)) && reply["build_commit"].as_str() == Some(commit)
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct ServerPlan {
     pub action: ServerAction,

@@ -87,6 +87,7 @@ export type ListFilter = {
   valueOf(key: string): unknown;
   /** The host is a DEV build: DEV-only categories are searched too. */
   devBuild?: boolean;
+  nightlyDaemonUpdates?: boolean;
   /** Settings scope and owner revision used to invalidate the searchable text cache. */
   scope?: string;
   revision?: number;
@@ -97,16 +98,24 @@ export type ListFilter = {
 // appearance.favoriteThemes their stars.
 const UNLISTED = new Set(["appearance.themeEdits", "appearance.favoriteThemes"]);
 
+export function offeredOnBuild(key: string, nightlyDaemonUpdates: boolean): boolean {
+  return key !== "experiments.nightly_live_updates" || nightlyDaemonUpdates;
+}
+
 export function filterRows({
   query,
   valueOf,
   devBuild = false,
+  nightlyDaemonUpdates = false,
   scope = "user",
   revision = 0,
 }: ListFilter): SearchGroup[] {
   const terms = queryTerms(query);
   const keep = (row: SchemaRow) =>
-    !UNLISTED.has(row.key) && terms.length > 0 && rowMatches(row, valueOf(row.key), terms, { scope, revision });
+    offeredOnBuild(row.key, nightlyDaemonUpdates) &&
+    !UNLISTED.has(row.key) &&
+    terms.length > 0 &&
+    rowMatches(row, valueOf(row.key), terms, { scope, revision });
   return shownCategories(devBuild)
     .map((category) => {
       const groups = category.groups

@@ -218,6 +218,15 @@
           ]
         },
         {
+          "key": "experiments.nightly_live_updates",
+          "name": "nightlyLiveUpdates",
+          "title": {"key": "settings.experiments.nightlyLiveUpdates", "text": "Nightly Live Daemon Updates"},
+          "help": {"key": "settings.experiments.nightlyLiveUpdates.help", "text": "On NIGHTLY and tip builds, apply signed daemon updates after terminal input and agent turns are idle."},
+          "kind": "toggle",
+          "default": false,
+          "keywords": ["nightly", "daemon", "live", "experiment"]
+        },
+        {
           "key": "updates.web",
           "note": "Web UI updates between app updates (plans/cmux-next/web-ota.md): NIGHTLY builds follow the signed channel; Release and RC builds ship their own web UI.",
           "title": {

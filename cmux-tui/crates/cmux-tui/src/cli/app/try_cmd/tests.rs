@@ -579,6 +579,38 @@ fn app_try_plan_picks_live_full_and_none() {
 }
 
 #[test]
+fn automatic_handoff_restores_the_prior_files_when_the_new_owner_reports_another_commit() {
+    let fixture = fixture();
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+    let files = live_files(&fixture, &found(good_targets()));
+    let changes = files
+        .iter()
+        .map(|wanted| live::Change {
+            file: wanted.file.clone(),
+            to: fixture
+                .store
+                .fetch(wanted)
+                .unwrap()
+                .zip(wanted.binary.as_ref().map(|b| b.sha256.clone())),
+            expect: None,
+        })
+        .collect::<Vec<_>>();
+    let error = live::apply_verified(
+        &fixture.app,
+        &changes,
+        &fixture.store,
+        &daemon,
+        &mut Phases::default(),
+        Some(&|_| false),
+    )
+    .unwrap_err();
+    assert!(error.contains("did not report the signed commit"), "{error}");
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX));
+    assert_eq!(read(&fixture.app, "cmux-app-host").as_deref(), Some(OLD_HOST));
+    assert_eq!(read(&fixture.app, "cmux-holder").as_deref(), Some(OLD_HOLDER));
+}
+
+#[test]
 fn app_try_sha256_mismatch_refuses_and_changes_nothing() {
     let fixture = fixture();
     let mut targets = good_targets();

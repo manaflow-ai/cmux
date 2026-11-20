@@ -38,6 +38,7 @@ use super::nightly::{self, Switched, Target};
 use crate::localization::TryMessages;
 use live::{Change, Daemon, LivePayload, Phases, Store, Wanted};
 
+mod background;
 mod copy;
 mod live;
 mod resolve;
@@ -58,6 +59,9 @@ pub(crate) enum Command {
     Channel {
         dry_run: bool,
         app: Option<PathBuf>,
+    },
+    FollowChannel {
+        app: PathBuf,
     },
     Copy {
         tree: PathBuf,
@@ -146,6 +150,10 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
     }
     match words.as_slice() {
         [word] if word == "channel" => Ok(Command::Channel { dry_run, app }),
+        [word] if word == "follow-channel" && !dry_run => {
+            let app = app.ok_or_else(|| UsageError::new(messages().usage))?;
+            Ok(Command::FollowChannel { app })
+        }
         [verb] if verb == "status" => {
             if dry_run || app.is_some() {
                 return Err(UsageError::new(messages().usage));
@@ -182,6 +190,10 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
     if let Command::Channel { dry_run, app } = command {
         return run_channel(global, *dry_run, app.as_deref());
     }
+    if let Command::FollowChannel { app } = command {
+        return background::follow(global, app)
+            .map_or_else(|reason| failure("try.follow_channel", &reason, global.output), |()| 0);
+    }
     if let Command::Copy { tree, from, action, dry_run } = command {
         return copy::run(global, tree, from.as_deref(), *action, *dry_run);
     }
@@ -195,6 +207,7 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
         Command::Help
         | Command::Try { .. }
         | Command::Channel { .. }
+        | Command::FollowChannel { .. }
         | Command::Copy { .. }
         | Command::Status => status(global, &store),
     }

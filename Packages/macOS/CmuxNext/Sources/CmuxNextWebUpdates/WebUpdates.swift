@@ -20,6 +20,7 @@ import Observation
 @Observable
 public final class WebUpdates {
     public static let shared = WebUpdates()
+    @ObservationIgnored public let daemonUpdates = NightlyDaemonUpdate()
 
     public private(set) var updater: WebUpdater?
     /// The folder open pages reload into at their safe points while any still reads an older one
@@ -131,6 +132,7 @@ public final class WebUpdates {
 
     /// `updates.*`: the channel and what downloads may use. The first call starts web updates.
     public func follow(_ settings: UpdatesSettings, bundle: Bundle = .main) {
+        daemonUpdates.follow(settings.nightlyLiveUpdates, bundle: bundle)
         start(bundle: bundle)
         guard let updater else { return }
         follow(settings, updater: updater)

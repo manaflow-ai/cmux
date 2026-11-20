@@ -24,6 +24,10 @@ extension UpdaterService {
             behind.start(willQuit: willQuit, declined: declined, inFront: inFront)
         }
         let activity = UpdateAgentActivity(environment: QuitAgents.environment(services))
+        WebUpdates.shared.daemonUpdates.quiet = { [weak services] in
+            guard let daemon = services?.machines.local else { return false }
+            return await activity.quietForDaemonUpdate(daemon)
+        }
         relaunchBlockers = { [weak self, weak services, activity] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
         // Before the settings apply (`apply(_:)`): Update When Idle installs nothing without its gate (UpdateIdleGate).
         let idle = UpdateIdleGate(activity: activity, daemon: services.machines.local) { [weak services] in services?.agentTabs.unsentDrafts.count }
@@ -108,14 +112,6 @@ extension UpdaterService {
     func apply(_ updates: UpdatesSettings) {
         WebUpdates.shared.follow(updates)
         WebDevOverride.setAllowed(updates.liveWebReload)
-        let preferences = UpdatePreferences(
-            installOnQuit: updates.installOnQuit,
-            notify: UpdateNotifyMode(rawValue: updates.notify.rawValue) ?? .badge,
-            keepPreviousVersions: updates.keepPreviousVersions, oneClickInstall: updates.oneClickInstall, whatsNewInstall: updates.whatsNewInstall)
-        if self.preferences != preferences { self.preferences = preferences }
-        configure(checkAutomatically: updates.checkAutomatically, checkInterval: updates.checkIntervalSeconds,
-                  downloadAutomatically: updates.downloadAutomatically,
-                  metered: UpdateMeteredMode(rawValue: updates.meteredNetwork.rawValue) ?? .deferLowData, ring: updates.channel.rawValue, idleInstall: (updates.idleInstallMaxWaitSeconds, updates.idleInstallQuietSeconds),
-                  installWhenIdleMinutes: updates.installWhenIdle ? updates.installWhenIdleMinutes : nil)
+        configureUpdates(updates)
     }
 }

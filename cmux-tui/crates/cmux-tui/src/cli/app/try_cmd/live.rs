@@ -373,7 +373,11 @@ impl Store {
     }
 
     pub(super) fn channel_last(&self) -> Result<Option<u64>, String> {
-        let path = self.root.join("channel.json");
+        self.watermark("channel.json")
+    }
+
+    pub(super) fn watermark(&self, file: &str) -> Result<Option<u64>, String> {
+        let path = self.root.join(file);
         let body = match fs::read(&path) {
             Ok(body) => body,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -389,12 +393,21 @@ impl Store {
     }
 
     pub(super) fn record_channel(&self, committed_at: u64, commit: &str) -> Result<(), String> {
+        self.record_watermark("channel.json", committed_at, commit)
+    }
+
+    pub(super) fn record_watermark(
+        &self,
+        file: &str,
+        committed_at: u64,
+        commit: &str,
+    ) -> Result<(), String> {
         fs::create_dir_all(&self.root).map_err(|e| format!("{}: {e}", self.root.display()))?;
         let part = tempfile::NamedTempFile::new_in(&self.root).map_err(|e| e.to_string())?;
         let body = serde_json::to_vec(&json!({ "committed_at": committed_at, "commit": commit }))
             .map_err(|e| e.to_string())?;
         fs::write(part.path(), body).map_err(|e| e.to_string())?;
-        part.persist(self.root.join("channel.json")).map_err(|e| e.to_string())?;
+        part.persist(self.root.join(file)).map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -633,6 +646,17 @@ pub(super) fn apply(
     daemon: &dyn Daemon,
     phases: &mut Phases,
 ) -> Result<Applied, String> {
+    apply_verified(app, changes, store, daemon, phases, None)
+}
+
+pub(super) fn apply_verified(
+    app: &Path,
+    changes: &[Change],
+    store: &Store,
+    daemon: &dyn Daemon,
+    phases: &mut Phases,
+    verify_owner: Option<&dyn Fn(i32) -> bool>,
+) -> Result<Applied, String> {
     let bin = app.join(BIN);
     let cmux = bin.join("cmux");
     let started = Instant::now();
@@ -641,6 +665,9 @@ pub(super) fn apply(
     let owner = daemon
         .owner()
         .map_err(|error| format!("{error}: the daemon is unknown; nothing changed"))?;
+    if verify_owner.is_some() && owner.is_none() {
+        return Err("no running owner to verify after a background handoff".to_owned());
+    }
     if let Some((_, exe)) = &owner
         && !same_file(exe, &cmux)
     {
@@ -712,7 +739,9 @@ pub(super) fn apply(
             daemon.terminate(old);
             let new = wait_for_new_owner(daemon, old);
             let answered_here = new.as_ref().is_some_and(|(_, exe)| same_file(exe, &cmux));
-            if !answered_here {
+            let commit_matches =
+                verify_owner.is_none_or(|check| new.as_ref().is_some_and(|(pid, _)| check(*pid)));
+            if !answered_here || !commit_matches {
                 let left = put_back(&bin, &prior);
                 // A daemon that came up from the new files hands off once more, to the files that are back.
                 if let Some((late, exe)) =
@@ -727,6 +756,9 @@ pub(super) fn apply(
                         "no new daemon answered {} s after the hand-off",
                         daemon.owner_wait().as_secs()
                     ),
+                    Some(_) if answered_here => {
+                        "the new daemon did not report the signed commit".to_owned()
+                    }
                     Some((_, exe)) => {
                         format!("the new daemon runs {}, not {}", exe.display(), cmux.display())
                     }

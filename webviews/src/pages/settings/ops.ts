@@ -250,6 +250,7 @@ export type HostLists = {
   import_suggestions?: unknown;
   /** Updates > Web UI: the web UI served between app updates; null unless the bundle takes them (NIGHTLY). */
   web_updates?: WebUpdatesState | null;
+  nightly_daemon_updates_available?: boolean;
   /** Updates > App Update: the app update's status, a download's progress and the buttons; every text localized by the host. */
   app_update?: AppUpdateState | null;
   /** Settings > Chief > Voice input: the Debug toggle home.voiceInput; null where it does not exist (Release). */
