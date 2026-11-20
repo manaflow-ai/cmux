@@ -130,8 +130,8 @@ class FixForwardIssueTests(unittest.TestCase):
 
         def gh(*args, stdin=None):
             calls.append(args)
-            listed = json.dumps([{"number": 7, "title": issue.TITLE}])
-            return mock.Mock(returncode=0, stdout=listed if args[:2] == ("issue", "list") else "", stderr="")
+            listed = json.dumps([7, issue.TITLE]) + "\n" + json.dumps([8, "something else"])
+            return mock.Mock(returncode=0, stdout=listed if args[0] == "api" else "", stderr="")
 
         with mock.patch.object(issue, "gh", gh), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(issue.file("o/r", {"failed": []}, "url", "abc"), 0)
@@ -167,12 +167,19 @@ class WorkflowTests(unittest.TestCase):
                                 "a lint-class nightly step must be report-only (continue-on-error or "
                                 f"{ADVISORY}) or carry `# blocks-nightly: <reason>` on the line above it")
 
-    def test_both_webview_call_sites_pass_the_advisory_flag(self):
-        text = WORKFLOW.read_text(encoding="utf-8")
-        calls = [line for line in text.splitlines() if "fast_gate_webviews_checks.py" in line and "run:" in line]
-        self.assertEqual(len(calls), 2, calls)
-        for line in calls:
-            self.assertIn(ADVISORY, line)
+    def test_every_webview_checks_run_passes_the_advisory_flag(self):
+        import yaml
+
+        doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        runs = [(job_id, step.get("name", "")) for job_id, job in doc["jobs"].items()
+                for step in job.get("steps", []) or []
+                if "fast_gate_webviews_checks.py" in str(step.get("run", ""))
+                and ADVISORY not in str(step.get("run", ""))]
+        self.assertEqual(runs, [], "a nightly run of the webview checks without --advisory-out lets a lint red "
+                                   "hold the publish")
+        sites = {job_id for job_id, job in doc["jobs"].items() for step in job.get("steps", []) or []
+                 if "fast_gate_webviews_checks.py" in str(step.get("run", ""))}
+        self.assertEqual(sites, {"check-nightly-webviews", "nightly-next-one"})
 
     def test_the_report_job_only_writes_issues(self):
         import yaml
@@ -181,7 +188,7 @@ class WorkflowTests(unittest.TestCase):
         jobs = doc["jobs"]
         job = jobs["report-nightly-fix-forward"]
         self.assertEqual(job["permissions"], {"contents": "read", "issues": "write"})
-        self.assertIn("always()", job["if"])
+        self.assertIn("!cancelled()", job["if"])  # past a red job, not after a cancel
         for source in ("check-nightly-webviews", "nightly-next-one"):
             self.assertIn(source, job["needs"])
             self.assertIn("lint_report", jobs[source]["outputs"])

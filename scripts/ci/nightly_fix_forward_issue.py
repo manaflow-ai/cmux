@@ -71,13 +71,14 @@ def outputs(report_path: Path, github_output: str | None) -> int:
 
 
 def body(report: dict, run_url: str, sha: str) -> str:
-    lines = [f"The nightly at `{sha}` shipped with lint-class checks failing ({run_url}). These never stop the "
+    lines = [f"The nightly built `{sha}` with lint-class checks failing ({run_url}). These never stop the "
              "nightly; fix them forward on feat-cmux-next.", ""]
     for item in report.get("failed") or []:
         lines.append(f"### `{item.get('check')}`")
-        lines.append("```")
-        lines.extend(str(f) for f in item.get("findings") or ["(no finding printed; see the run log)"])
-        lines.append("```")
+        lines.append("~~~~")  # a finding may hold ``` itself
+        lines.extend(str(f).replace("~~~~", "~ ~ ~ ~") for f in
+                     item.get("findings") or ["(no finding printed; see the run log)"])
+        lines.append("~~~~")
     lines.append("")
     lines.append("This issue is updated by each nightly (scripts/ci/nightly_fix_forward_issue.py) and closed by the "
                  "first nightly whose lint-class checks all pass.")
@@ -92,13 +93,16 @@ def gh(*args: str, stdin: str | None = None) -> subprocess.CompletedProcess:
 
 
 def open_issue(repo: str) -> str | None:
-    found = gh("issue", "list", "-R", repo, "--state", "open", "--search", f'in:title "{TITLE}"',
-               "--json", "number,title", "--limit", "20")
+    """The open issue titled TITLE that the run's token opened, read from the issues list (as
+    report-visual-gate-nightly does), not the search index, which lags and would let a quick rerun open a second."""
+    found = gh("api", "--paginate", f"repos/{repo}/issues?state=open&creator=github-actions%5Bbot%5D&per_page=100",
+               "--jq", '.[] | select(.pull_request == null) | [.number, .title] | @json')
     if found.returncode:
         raise RuntimeError(found.stderr.strip()[:300])
-    for issue in json.loads(found.stdout or "[]"):
-        if issue.get("title") == TITLE:
-            return str(issue["number"])
+    for line in (found.stdout or "").splitlines():
+        number, title = json.loads(line)
+        if title == TITLE:
+            return str(number)
     return None
 
 
