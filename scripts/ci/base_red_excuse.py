@@ -5992,6 +5992,13 @@ JOURNEY_STEP = "Cloud journey (staging, this pull request's CLI)"
 JOURNEY_STEP_LINE = re.compile(r"^(PASS|FAIL|SKIP) (\S.*?) \d+ ms ::(?: (.*))?$")
 JOURNEY_SUMMARY = re.compile(r"^(PASS|FAIL) [\w.-]+: (\d+) passed, (\d+) failed, (\d+) skipped\b")
 JOURNEY_RETRIED = re.compile(r"^##\[warning\].* failed once; running it again\b")
+# The only lines the step prints outside a journey run (before its first step line, between a summary and the next
+# run's first step line, after its last summary): the runner's own header block, cloud-journey-ci.sh's retry warning,
+# its closing verdict notice and the runner's exit line. Anything else there is a run that died before its first step
+# line (a second team's, PRODUCT_TEAM, cloud-journey-ci.sh's second `run`), whose red no summary counts
+# (cmux#45546's review F1).
+JOURNEY_OUTSIDE_OK = re.compile(r"^(?:##\[(?:group|endgroup)\].*|##\[notice\]target=\S+ result=\S+"
+                                r"|##\[error\]Process completed with exit code \d+\.)$")
 # The journey's own files: they decide its steps, their checks and the detail each prints, so a PR that changes one
 # owns every step's line, whatever the base prints.
 JOURNEY_OWN_FILES = ("scripts/cmux-next/cloud-journey", ".github/workflows/cloud-journey-pr.yml")
@@ -6008,34 +6015,48 @@ def journey_reds(text: str) -> tuple[Counter, str | None]:
     """(Counter of (step, its detail with ids and numbers masked) for each FAIL line of the judged runs in TEXT, a
     journey job's failed_view text; None, or why TEXT is no finished journey). A judged run is one closed by its
     summary line and not followed by the retry warning; its FAIL lines must be as many as its summary counts. Step
-    lines after the last summary are a run cut short."""
+    lines after the last summary are a run cut short, and any line outside a run but JOURNEY_OUTSIDE_OK's is a run
+    that died before its first step line. A retry line names the failed first attempt just closed; one after a
+    retry's own run (cloud-journey-ci.sh retries each run once) is a later run that died printing nothing."""
     lines = test_reds.log_lines(text)
     skip = test_reds.echoed(lines)
-    runs: list[list] = []  # [FAIL keys, summary match, retried]
+    runs: list[list] = []  # [FAIL keys, summary match, retried, a retry's own run]
     current: list[tuple[str, str]] = []
-    pending = False
+    pending = grouped = False
     for n, line in enumerate(lines):
         if n in skip:
             continue
         if match := JOURNEY_STEP_LINE.match(line):
-            pending = True
+            # The runner's header block ends before the step's own output, closed or not.
+            pending, grouped = True, False
             if match[1] == "FAIL":
                 current.append((match[2], normalise_error(JOURNEY_ID.sub("<id>", match[3] or ""))))
         elif match := JOURNEY_SUMMARY.match(line):
-            runs.append([current, match, False])
+            runs.append([current, match, False, bool(runs) and runs[-1][2]])
             current, pending = [], False
         elif JOURNEY_RETRIED.match(line):
-            # It names the run just closed: a failed one, not already retried. After a run cut short (step lines
-            # with no summary) or anything else, which run it retries is unknown, and so is which run is judged.
-            if pending or not runs or runs[-1][1][1] != "FAIL" or runs[-1][2]:
-                return Counter(), f"a retry line that follows no closed failed run ({line[:200]})"
+            # It names the run just closed: a failed first attempt, not already retried. After a run cut short (step
+            # lines with no summary), a retry's own run or anything else, which run it retries is unknown, and so is
+            # which run is judged.
+            if pending or not runs or runs[-1][1][1] != "FAIL" or runs[-1][2] or runs[-1][3]:
+                return Counter(), (f"a retry line that follows no closed failed run that was a first attempt "
+                                   f"({line[:200]})")
             runs[-1][2] = True
+        elif pending or not line.strip():
+            continue  # a run's own output, or a blank line
+        elif line.startswith("##[group]"):
+            grouped = True
+        elif line.startswith("##[endgroup]"):
+            grouped = False
+        elif not grouped and not JOURNEY_OUTSIDE_OK.match(line):
+            return Counter(), (f"a line outside any journey run ({line[:200]}): a run that died before its first "
+                               "step line, which no summary counts")
     if pending:
         return Counter(), "journey step lines after its last closing summary (a run cut short)"
     if not runs:
         return Counter(), "no journey run with a closing summary"
     found: Counter = Counter()
-    for fails, summary, retried in runs:
+    for fails, summary, retried, _ in runs:
         if len(fails) != int(summary[3]):
             return Counter(), (f"a journey summary counts {summary[3]} failed and its run printed {len(fails)} FAIL "
                                f"step lines ({summary[0][:200]})")

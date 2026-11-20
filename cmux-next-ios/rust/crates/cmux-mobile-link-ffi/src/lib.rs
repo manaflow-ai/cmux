@@ -1050,21 +1050,26 @@ async fn network_changed_on(
     let roam = tokio::spawn(cmux_mobile_link::dial::wireguard::network_changed());
     let timeline = Timeline::new();
     let key = SocketKey { base_url, team_id, device_id };
-    if let Some(socket) = pool.reusable(&key, &timeline).await {
-        if socket.client.probe(network_probe(socket.client.rtt())).await {
-            timeline.mark("alive");
-        } else {
-            timeline.mark("stale");
-            pool.evict(&socket).await;
-        }
-    }
-    match pool.pooled_or_open(&key, &token, &timeline).await {
-        Ok((socket, _)) => {
-            if cmux_mobile_link::dial::wireguard::rehome(&socket.client) > 0 {
-                timeline.mark("rehomed");
+    // A changed path is proof that the old socket's is gone (its TCP connection is bound to the
+    // old interface or route), as Chromium treats an IP address change for its TCP sockets
+    // (`ERR_NETWORK_CHANGED`, no probe): a new socket opens at once, and every session moves onto
+    // it (`open` rehomes them). Waiting first on the old socket was four of its round trips, half
+    // of a roam's reconnect (ask-48f698fc26). The old one is kept only when no new one opens.
+    let old = pool.pooled(&key).await;
+    if pool.open(&key, &token, &timeline).await.is_err() {
+        match old {
+            Some(socket) if socket.client.probe(network_probe(socket.client.rtt())).await => {
+                timeline.mark("alive");
+                if cmux_mobile_link::dial::wireguard::rehome(&socket.client) > 0 {
+                    timeline.mark("rehomed");
+                }
             }
+            Some(socket) => {
+                timeline.mark("failed");
+                pool.evict(&socket).await;
+            }
+            None => timeline.mark("failed"),
         }
-        Err(_) => timeline.mark("failed"),
     }
     let roamed = roam.await.unwrap_or_default();
     let mut marks = roamed.first().map(|(_, timeline)| timing_marks(timeline)).unwrap_or_default();
@@ -1222,8 +1227,8 @@ pub fn keepalive_beat_delay_ms(period_ms: u64) -> u64 {
     u64::try_from(delay.as_millis()).unwrap_or(u64::MAX)
 }
 
-/// How long the signaling socket may take to answer after a network
-/// change before a new one is opened (the old network's socket is usually
+/// How long the old signaling socket may take to answer after a network
+/// change when no new one could open (the old network's socket is usually
 /// dead, and `bye` and new dials need a live one).
 const NETWORK_PROBE: Duration = Duration::from_millis(1000);
 /// The shortest wait for that answer: a few round trips of a fast network, plus scheduling.
