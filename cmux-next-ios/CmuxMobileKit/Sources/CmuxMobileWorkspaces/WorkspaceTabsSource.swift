@@ -1230,7 +1230,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         F3Trace.mark("idle=\(idle) held=\(heldTabRefreshes.count) feeds=\(cardFeeds.count) stale=\(cardFeeds.values.filter(\.stale).count)")
         gridIdle = idle
         if idle {
-            flushHeldTabRefreshes()
+            // Scratch A/B (never lands): held title refreshes wait for the grid to close.
             setCardsFollow()
         }
         followCards(idle)
