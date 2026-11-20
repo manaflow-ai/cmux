@@ -468,7 +468,8 @@ export function JumpToFilePalette({
                         name={row.name}
                         directory={row.directory}
                         index={index}
-                        count={rows.length}
+                        // Every match, the ones past the cap too: the options' aria-setsize.
+                        count={rows.length + hidden}
                         listboxId={listboxId}
                         active={index === active}
                         onHover={setHighlight}

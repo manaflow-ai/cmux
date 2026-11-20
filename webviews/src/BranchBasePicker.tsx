@@ -96,6 +96,9 @@ type FlatRow = {
   moreCount: number;
 };
 
+/** A drawn row and its 1-based place among every row the groups and query hold, drawn or capped. */
+type ListedRow = FlatRow & { place: number };
+
 // Per-group render cap when the filter is empty: huge ref lists (thousands of
 // remotes) would jank the popover if every row became DOM. The data is fetched
 // once; this only limits rendered rows. Suggested/Worktrees are usually small,
@@ -172,7 +175,8 @@ export function BranchBasePicker({
     node?.focus();
   };
 
-  const flat = buildFlatRows(groups, query, label);
+  // `total` counts the matches the caps leave out too: it is each option's aria-setsize.
+  const { rows: flat, total } = buildFlatRows(groups, query, label);
   const clampedHighlight = flat.length === 0 ? 0 : Math.min(highlight, flat.length - 1);
   /** What is highlighted now, read when a quiet refresh swaps the rows under it. */
   const shownRows = useRef({ flat, highlight: clampedHighlight, query });
@@ -208,7 +212,7 @@ export function BranchBasePicker({
           // Keep the highlight on the same ref: the refreshed rows can sit at other indexes.
           const shown = shownRows.current;
           const was = shown.flat[shown.highlight];
-          const next = buildFlatRows(response.groups, shown.query, label);
+          const next = buildFlatRows(response.groups, shown.query, label).rows;
           const same = (entry: FlatRow) => !!was && entry.raw === was.raw && entry.row.ref === was.row.ref;
           const inGroup = next.findIndex((entry) => same(entry) && entry.groupId === was?.groupId);
           const index = inGroup >= 0 ? inGroup : next.findIndex(same);
@@ -459,7 +463,7 @@ export function BranchBasePicker({
                           // key survives filter rebuilds (no array-index key).
                           key={`${entry.groupId}:${entry.row.ref}`}
                           index={index}
-                          count={flat.length}
+                          count={total}
                           listboxId={listboxId}
                           current={entry.row.current === true || entry.row.ref === picker.currentRef}
                           entry={entry}
@@ -558,9 +562,10 @@ const BranchPickerListRow = memo(function BranchPickerListRow({
   selected,
   style,
 }: {
+  /** Every row the groups and query hold, past the caps: the options' aria-setsize. */
   count: number;
   current: boolean;
-  entry: FlatRow;
+  entry: ListedRow;
   index: number;
   label: DiffViewerLabelResolver;
   listboxId: string;
@@ -578,7 +583,7 @@ const BranchPickerListRow = memo(function BranchPickerListRow({
         domId={rowDomId(listboxId, index)}
         entry={entry}
         label={label}
-        posInSet={index + 1}
+        posInSet={entry.place}
         setSize={count}
         onHover={() => onHover(index)}
         onSelect={() => onSelect(entry.row.ref)}
@@ -687,15 +692,17 @@ function renderMatched(text: string, match: [number, number] | null) {
 // Flatten groups into a render list. While filtering, fuzzy-match each row's
 // primary label across all groups, drop non-matches, and compute the matched
 // span for bolding. A synthetic raw row is prepended when the query matches no
-// row. Empty groups are omitted (no header) per LOCKED DECISIONS.
+// row. Empty groups are omitted (no header) per LOCKED DECISIONS. `total` is every row the groups
+// and query hold, the ones the caps leave out too, and each row's `place` is among them: a screen
+// reader hears the whole set's size (aria-setsize), not the capped rows'.
 export function buildFlatRows(
   groups: BranchPickerGroup[] | null,
   query: string,
   label: DiffViewerLabelResolver,
-): FlatRow[] {
+): { rows: ListedRow[]; total: number } {
   const trimmed = query.trim();
-  const result: FlatRow[] = [];
-  let anyMatch = false;
+  const result: ListedRow[] = [];
+  let total = 0;
 
   if (groups && trimmed === "") {
     // Empty filter: render each group up to its cap, then a "... N more" footer
@@ -714,27 +721,27 @@ export function buildFlatRows(
           match: null,
           raw: false,
           moreCount: index === visible.length - 1 ? hidden : 0,
+          place: total + index + 1,
         });
       });
+      total += group.rows.length;
     }
   } else if (groups) {
     // Filtering: match across ALL rows of every group, then cap the total
     // rendered set so a query that matches thousands of rows stays cheap.
+    // Matching goes on past the cap only to count the matches.
     for (const group of groups) {
-      if (result.length >= FILTERED_TOTAL_CAP) {
-        break;
-      }
       const groupLabel = resolveGroupLabel(group, label);
       let firstInGroup = true;
       for (const row of group.rows) {
-        if (result.length >= FILTERED_TOTAL_CAP) {
-          break;
-        }
         const match = fuzzyMatchSpan(row.label, trimmed);
         if (match == null) {
           continue;
         }
-        anyMatch = true;
+        total += 1;
+        if (result.length >= FILTERED_TOTAL_CAP) {
+          continue;
+        }
         result.push({
           row,
           groupId: group.id,
@@ -743,6 +750,7 @@ export function buildFlatRows(
           match,
           raw: false,
           moreCount: 0,
+          place: total,
         });
         firstInGroup = false;
       }
@@ -751,7 +759,8 @@ export function buildFlatRows(
 
   // Raw ref escape hatch: when a non-empty query matches nothing, offer it as a
   // top synthetic row that selects the typed value verbatim.
-  if (trimmed !== "" && !anyMatch) {
+  if (trimmed !== "" && total === 0) {
+    total = 1;
     result.unshift({
       row: { ref: trimmed, label: trimmed },
       groupId: "__raw",
@@ -760,9 +769,10 @@ export function buildFlatRows(
       match: null,
       raw: true,
       moreCount: 0,
+      place: 1,
     });
   }
-  return result;
+  return { rows: result, total };
 }
 
 function resolveGroupLabel(group: BranchPickerGroup, label: DiffViewerLabelResolver): string {
