@@ -1,3 +1,4 @@
+import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextDaemon
