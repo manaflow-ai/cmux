@@ -204,6 +204,7 @@ import { topZoneOffset } from "./overlayLayout";
 import "./jumpPair.css";
 import { jumpUpButton } from "./jumpUp.experiment";
 import { experimentArm } from "../../experiments/experiment";
+import { studioTranscriptLook } from "./conversation/studioTranscriptLook.experiment";
 import { jumpPairLook } from "./jumpPair.experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade, SHOWN_INK_PROPERTIES } from "../../scrollers";
@@ -1871,6 +1872,7 @@ function TranscriptView({
   /// above the composer. 0 for a scroller below its header.
   topInset?: number;
 }) {
+  const [transcriptLook] = useState(() => experimentArm(studioTranscriptLook));
   // Debug measurement (acpmuxPerf): the transcript's committed renders (perf.ts `renders`); tests
   // count them per key and per line (test/composer-smooth-grow.test.ts).
   useCountedRender("transcript");
@@ -7189,6 +7191,7 @@ function TranscriptView({
           <div
             ref={ref}
             className="acpmux-scroll"
+            data-transcript-look={transcriptLook}
             role="feed"
             // The slim arm's send: the bubble only fades in where it lands, on a send step of at most
             // 120 ms (conversation.css SEND-SLIM), never opening from the right on a clip the main thread

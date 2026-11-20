@@ -239,7 +239,7 @@
   box-sizing: border-box;
   max-width: 70%;
   padding: var(--cv-bubble-pad-block) var(--cv-bubble-pad-inline);
-  border-radius: calc(3 * var(--grid-base) * var(--cv-bubble-scale));
+  border-radius: var(--cv-bubble-radius, calc(3 * var(--grid-base) * var(--cv-bubble-scale)));
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: var(--cv-line-height);
@@ -248,6 +248,14 @@
   white-space: pre-wrap;
   overflow-wrap: break-word;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Studio's first shipped experiment keeps transcript geometry unchanged and only compares the
+   decided six-point corners with the current shared twelve-point cards. The arm is scoped to the
+   virtual transcript scroller, so the composer and its floating controls retain their appearance. */
+.acpmux-scroll[data-transcript-look="studio"] {
+  --grid-cards-radius: 6px;
+  --cv-bubble-radius: 6px;
 }
 /* The bubble's glass (Leo 2026-10-20: tinted glass, never a solid fill): the liquid glass
    (.ui-glass, UserBubble.tsx; ui/glass/glass.css) tinted with the theme's text at a low strength
