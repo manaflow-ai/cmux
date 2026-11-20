@@ -194,6 +194,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_runner_pools.py
 
+      - name: Validate the owned-first spill sweep
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_owned_first_spill.py
+
       - name: Validate fast checks take their size from the linux runner pool
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_failover.py
