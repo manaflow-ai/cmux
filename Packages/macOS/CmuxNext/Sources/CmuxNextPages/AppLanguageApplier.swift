@@ -46,6 +46,15 @@ public final class AppLanguageApplier {
     public func follow(_ settings: SettingsController) {
         observation?.cancel()
         language.adoptResourceBundles()
+        // A pack activation changes the files behind an already loaded document even when the
+        // selected language code is unchanged. Re-apply the page hook so its locale script is
+        // fetched from the newly active pack instead of leaving the page on its English table.
+        Bundle.observeLanguagePacks { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.pages(self.language.code)
+            }
+        }
         // task-owner: lives as long as the app's settings controller (app lifetime).
         observation = Task { [self] in
             await settings.waitForLoad(atLeast: 1)
@@ -88,7 +97,6 @@ public final class AppLanguageApplier {
 
     /// The code for every later document, and now to every live one.
     private static func pushToPages(_ code: String?) {
-        guard DesignSettings.shared.appLanguage != code else { return }
         DesignSettings.shared.appLanguage = code
         for page in PageRegistry.pages() { page.applyLanguage() }
     }

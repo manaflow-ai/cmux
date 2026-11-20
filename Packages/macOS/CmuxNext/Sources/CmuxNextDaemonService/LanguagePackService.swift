@@ -19,6 +19,7 @@ public final class LanguagePackService {
     private weak var daemon: DaemonService?
     private let bundleID: String
     private var observation: Task<Void, Never>?
+    private var systemLanguage = "en"
     /// The language of cmux's own native text, the app's one: `AppLanguageApplier` sets it from
     /// `app.language`, and this downloads the pack for the language it names.
     public let appLanguage = AppLanguage()
@@ -49,6 +50,7 @@ public final class LanguagePackService {
               let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
         else { return }
         let system = Bundle.main.preferredLocalizations.first ?? "en"
+        systemLanguage = system
         let cache = support.appending(path: bundleID, directoryHint: .isDirectory)
             .appending(path: "LanguagePacks", directoryHint: .isDirectory)
         observation?.cancel()
@@ -79,11 +81,16 @@ public final class LanguagePackService {
         do {
             switch try await LanguagePacksClient(connection: connection).ensure(language: language, manifest: manifest, cache: cache) {
             case .ready(let root):
+                // The setting may have changed while the download was in flight. Do not activate
+                // an older answer and briefly show the wrong language; the observation loop will
+                // request the current one after this await returns.
+                guard (appLanguage.code ?? systemLanguage) == language else { return }
                 activated = language
                 // task-owner: awaited here; opens the pack's bundles off the main thread (each a folder listing)
                 await Task.detached(priority: .userInitiated) { Bundle.activateLanguagePack(root: root) }.value
                 logger.info("language pack \(language, privacy: .public) active")
             case .bundled:
+                guard (appLanguage.code ?? systemLanguage) == language else { return }
                 await deactivate(for: language)
             case .unavailable(let code, let message):
                 logger.error("language pack \(language, privacy: .public): \(code, privacy: .public) \(message, privacy: .public)")
