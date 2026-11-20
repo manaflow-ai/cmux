@@ -32,6 +32,7 @@ const ALLOWED: &[&str] = &[
     method::MUX_ROWS,
     method::MUX_HISTORY,
     method::MUX_SESSION_SEARCH,
+    method::MUX_SOURCE_USES,
     method::MUX_WAIT,
     method::MUX_SCHEMA,
     method::MUX_RESOLVE,

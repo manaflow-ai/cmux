@@ -58,6 +58,7 @@ pub const INDEXED_KINDS: &[&str] = &[
     "queue_approved",
     "queue_declined",
     "turn_result",
+    "turn_sources",
     "prompt_refused",
     "agent_pair_held",
     "agent_pair_released",
