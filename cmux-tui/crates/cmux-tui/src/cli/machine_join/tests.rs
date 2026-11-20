@@ -905,19 +905,3 @@ fn expires_at_reads_the_platforms_iso_string_with_milliseconds() {
     assert_eq!(epoch_ms(&json!(1_793_243_400_250_u64)), Some(1_793_243_400_250));
     assert_eq!(epoch_ms(&json!("not a time")), None);
 }
-#[test]
-fn plain_join_uses_app_sign_in_only_for_the_production_platform() {
-    let app = || Some("app-session".to_owned());
-    let unread = || panic!("must not request an app credential");
-    assert_eq!(
-        super::join_credential(None, super::DEFAULT_ORIGIN, true, app).as_deref(),
-        Some("app-session")
-    );
-    assert!(super::join_credential(None, "https://custom.example", true, unread).is_none());
-    assert!(super::join_credential(None, super::DEFAULT_ORIGIN, false, unread).is_none());
-    assert_eq!(
-        super::join_credential(Some("supplied".into()), super::DEFAULT_ORIGIN, true, unread)
-            .as_deref(),
-        Some("supplied")
-    );
-}

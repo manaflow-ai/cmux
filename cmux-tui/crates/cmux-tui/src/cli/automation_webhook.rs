@@ -555,9 +555,8 @@ fn signed_in(global: &GlobalArgs, flag: Option<&str>) -> Result<(Platform, Strin
         .map_err(Unconnected::Origin)?;
     let credential = match crate::cli::joined_machine_credential(None, false) {
         Ok(Some(credential)) => credential,
-        Ok(None) => {
-            crate::cli::chat_start::joined::app_token(global).map_err(Unconnected::SignedOut)?
-        }
+        Ok(None) => crate::cli::machine_join::app_session::token(global, &origin, TIMEOUT)
+            .map_err(Unconnected::SignedOut)?,
         Err(reason) => return Err(Unconnected::SignedOut(reason)),
     };
     let platform =

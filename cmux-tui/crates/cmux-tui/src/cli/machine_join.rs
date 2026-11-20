@@ -73,6 +73,7 @@ const MAX_TTL_SECS: u64 = 600;
 /// A stick's line: its default life, the platform's longest (a longer one is a platform change).
 pub(super) const USB_TTL_SECS: u64 = MAX_TTL_SECS;
 
+pub(super) mod app_session;
 mod bootstrap;
 pub(super) mod vault;
 mod windows;
@@ -85,6 +86,7 @@ const USAGE: &str = "usage: cmux machine add [--name NAME] [--ttl 10m] [--wait|-
        cmux machine vault set|rm NAME, cmux machine vault ls, cmux machine vault grant|revoke MACHINE
   each takes --platform URL (or CMUX_PLATFORM_URL; default the production platform)
   and --cloud-token-file PATH, --cloud-token-stdin or CMUX_CLOUD_ACCESS_TOKEN.
+  For a plain join or machine list, signing in to the matching cmux app is enough.
   cmux machine add HOST (without --vault or --bootstrap) opens the app's Add Machine card for an ssh host.";
 const SIGN_IN: &str = "sign in: pass --cloud-token-file PATH (or set CMUX_CLOUD_ACCESS_TOKEN), or use Add Machine in the app";
 
@@ -174,26 +176,23 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         Err(message) => return Some(fail(Failure::usage(message))),
     };
     let supplied = read_credential(&command.auth, &env, &mut std::io::stdin().lock());
-    let credential = match supplied.map(|token| {
-        join_credential(
-            token,
-            &origin,
-            matches!(&command.verb, Verb::Add(add) if add.plain()),
-            || super::chat_start::joined::app_token(&global).ok(),
-        )
-    }) {
-        Ok(Some(credential)) => credential,
-        Ok(None) => {
-            // With no credential, `machine add` stays the app's Add Machine card wherever an
-            // app answers, as it was before joining existed.
-            if matches!(&command.verb, Verb::Add(add) if add.plain())
-                && let Some(code) = super::run_app_action_fallback(args)
-            {
-                return Some(code);
+    let credential = match supplied {
+        Ok(Some(token)) => token,
+        Err(reason) => return Some(fail(Failure::usage(reason))),
+        Ok(None) if matches!(&command.verb, Verb::Add(add) if add.plain()) => {
+            match app_session::token(&global, &origin, REQUEST_TIMEOUT) {
+                Ok(token) => token,
+                Err(reason) => {
+                    if command_args.as_slice() == ["machine", "add"]
+                        && let Some(code) = super::run_app_action_fallback(args)
+                    {
+                        return Some(code);
+                    }
+                    return Some(fail(Failure::usage(reason)));
+                }
             }
-            return Some(fail(Failure::usage(SIGN_IN)));
         }
-        Err(message) => return Some(fail(Failure::usage(message))),
+        Ok(None) => return Some(fail(Failure::usage(SIGN_IN))),
     };
     let platform = match Platform::new(origin, credential, REQUEST_TIMEOUT) {
         Ok(platform) => platform,
@@ -403,15 +402,6 @@ fn parse_ttl(text: &str) -> Result<u64, UsageError> {
     let seconds =
         digits.parse::<u64>().map_err(|_| error())?.checked_mul(scale).ok_or_else(error)?;
     if (60..=max).contains(&seconds) { Ok(seconds) } else { Err(error()) }
-}
-
-fn join_credential(
-    supplied: Option<String>,
-    origin: &str,
-    plain_add: bool,
-    from_app: impl FnOnce() -> Option<String>,
-) -> Option<String> {
-    supplied.or_else(|| if plain_add && origin == DEFAULT_ORIGIN { from_app() } else { None })
 }
 
 /// The caller's cmux credential: stdin, then the file, then the environment.
@@ -1412,20 +1402,23 @@ pub(super) fn split_auth(args: &[String]) -> (Auth, Vec<String>) {
     (auth, kept)
 }
 
-/// The joined machines as `machine list` rows, signed in with `auth` (or the
-/// environment). `None` when no credential is given (nothing to list, and no note).
-fn rows_with(auth: &Auth) -> Option<Result<Vec<Value>, String>> {
+/// Fetch joined rows under the same sign-in and origin as a plain `machine add`.
+pub(super) fn account_rows(global: &GlobalArgs, auth: &Auth) -> Result<Vec<Value>, String> {
     let env = |key: &str| std::env::var(key).ok();
-    let credential = match read_credential(auth, &env, &mut std::io::stdin().lock()) {
-        Ok(credential) => credential?,
-        Err(message) => return Some(Err(message)),
+    let origin = platform_origin(auth.platform.as_deref(), &env)?;
+    let credential = match read_credential(auth, &env, &mut std::io::stdin().lock())? {
+        Some(token) => token,
+        None => app_session::token(global, &origin, LIST_TIMEOUT)?,
     };
-    Some(rows_signed_in(auth.platform.as_deref(), credential))
+    rows_at(origin, credential)
 }
 
 fn rows_signed_in(platform: Option<&str>, credential: String) -> Result<Vec<Value>, String> {
-    let env = |key: &str| std::env::var(key).ok();
-    let origin = platform_origin(platform, &env)?;
+    let origin = platform_origin(platform, &|key| std::env::var(key).ok())?;
+    rows_at(origin, credential)
+}
+
+fn rows_at(origin: String, credential: String) -> Result<Vec<Value>, String> {
     let platform = Platform::new(origin, credential, LIST_TIMEOUT).map_err(|f| f.message)?;
     let entries = platform.credentials().map_err(|e| e.failure("the machine list").message)?;
     let now = now_ms();
@@ -1455,10 +1448,8 @@ pub(crate) fn rows_for_devices(
 /// The daemon's `machine.list` result with the joined machines added. Fails
 /// open: a platform that cannot be read leaves the list as it was, with a
 /// note on stderr.
-pub(super) fn merge(_global: &GlobalArgs, result: Value) -> Value {
-    let Some(rows) = rows_with(LIST_AUTH.get().unwrap_or(&Auth::default())) else {
-        return result;
-    };
+pub(super) fn merge(global: &GlobalArgs, result: Value) -> Value {
+    let rows = account_rows(global, LIST_AUTH.get().unwrap_or(&Auth::default()));
     let (merged, note) = merge_rows(result, rows);
     // On stderr in every mode, quiet included: a list that left them out says so.
     if let Some(reason) = note {
