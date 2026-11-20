@@ -322,9 +322,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.senderIcon.corner` | string | `"bottom-right"` | `bottom-right`, `bottom-left`, `top-right`, `top-left` | Sender Badge Corner. Where the small glyph sits on a sender's icon. |
 | `agentPane.display.font.preset` | string | `"markdown"` | `markdown`, `system`, `serif`, `mono` | Chat Font |
 | `agentPane.display.font.ui` | string | `"system-ui"` | `system-ui`, `system-ui-tight`, `inter-tuned`, `inter`, `verdana`, `roboto`, `plex`, `source-sans`, `geist`, `cmux-sans`, `hanken`, `atkinson` | Chat Interface Font. The font of the whole chat: replies, the composer, cards and menus. |
-| `agentPane.display.font.uiFamily` | string |  |  | Chat Interface Font Family. A font family or a comma list of them. When set, it replaces the Chat Interface Font. |
-| `agentPane.display.font.proseFamily` | string |  |  | Chat Reply Font Family. The font of the agent's replies. When set, it replaces the Chat Font. |
-| `agentPane.display.font.faces` | dictionary |  |  | Chat Font Files. A font file for each family, such as "Lora:italic": "file:~/Fonts/Lora-Italic.woff2". |
 | `agentPane.display.font.size` | real | `14` | 10 to 28 | Chat Font Size |
 | `agentPane.display.font.lineHeight` | real | `1.625` | 1.2 to 2.4 | Chat Line Height |
 | `agentPane.display.code.family` | string |  |  | Chat Code Font. Empty uses the Markdown viewer's code font. |
@@ -701,6 +698,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `developerTools.appPages` | boolean | `true` |  | Developer Tools for cmux Pages. Inspect Element and ⌥⌘I in chats, Home, Markdown and Settings. |
 | `app.internalDeveloperMode` | boolean | `false` |  | Internal Developer Mode. Shows "Debug: …" commands in the Command Palette. |
 | `macScreen.systemShortcuts` | boolean | `false` |  | Send System Shortcuts to the Remote Mac. Shortcuts like ⌘Tab and ⌘Space go to the other Mac. Needs Accessibility. |
+| `macScreen.shareWithoutAsking` | boolean | `false` |  | Share This Mac Without Asking. Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies. |
 | `macScreen.debug.relayOnly` | boolean | `false` |  | Relay Only. Mac Screen tabs connect only through the relay, to test it. |
 | `remote.endSharingOnQuit` | boolean | `false` |  | End Sharing When cmux Quits. Off: this Mac stays available to your devices while cmux is quit. |
 | `remote.ultra` | string | `"auto"` | `off`, `auto`, `always` | Ultra Connection Mode. Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data. |
