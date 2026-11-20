@@ -104,9 +104,6 @@ export type ComposerBoxProps = {
   trailing?: React.ReactNode;
   /// The hideable controls the row's right-click shows again (composerChrome.tsx).
   chromeItems: readonly HideableChromeItem[];
-  /// Drawn in the composer's bottom area, centered: the chat's look dots (LookSwitch.tsx), in the
-  /// quiet row's empty middle.
-  bottom?: React.ReactNode;
 };
 
 /// The one composer box every surface draws (one-composer: the chat pane, New Tab, Quick
@@ -148,7 +145,6 @@ export function ComposerBox({
   accessory,
   trailing,
   chromeItems,
-  bottom,
 }: ComposerBoxProps) {
   acpmuxPerf.render("composer:box");
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css). Both
@@ -442,9 +438,6 @@ export function ComposerBox({
         {rowInBox && quietRow}
       </div>
       {!rowInBox && quietRow}
-      {/* One stable host for both looks, so a look switched from the dots by keys keeps the same
-          radios and focus: they draw over the quiet row's empty middle (composerLook.css). */}
-      {bottom && <div className="acpmux-composer-under">{bottom}</div>}
     </>
   );
 }
