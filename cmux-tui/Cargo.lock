@@ -23,6 +23,7 @@ dependencies = [
  "chrono-tz",
  "clap",
  "cmux-agent-pane-policy",
+ "cmux-build-space",
  "cmux-chat-index",
  "cmux-cloud-api",
  "cmux-cloud-client",
@@ -1401,6 +1402,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-build-space"
+version = "0.1.0"
+dependencies = [
+ "cmux-agent-pane-policy",
+ "cmux-scope",
+ "http",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-chat-index"
 version = "0.1.0"
 dependencies = [
@@ -1436,6 +1447,7 @@ version = "1.0.0"
 dependencies = [
  "base64",
  "bytes",
+ "cmux-build-space",
  "cmux-cloud-client",
  "cmux-cloud-machine",
  "cmux-json",
@@ -1460,6 +1472,7 @@ name = "cmux-cloud-client"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "cmux-build-space",
  "cmux-cloud-config",
  "cmux-cloud-environment",
  "cmux-cloud-machine",
@@ -1493,6 +1506,7 @@ dependencies = [
 name = "cmux-cloud-environment"
 version = "0.1.0"
 dependencies = [
+ "cmux-build-space",
  "reqwest",
  "rustls",
  "serde",
@@ -1632,6 +1646,7 @@ name = "cmux-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-embed",
  "cmux-json",
  "cmux-theme-tokens",
  "core-foundation 0.10.1",
@@ -1735,6 +1750,21 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-embed"
+version = "0.1.0"
+dependencies = [
+ "cmux-embed-macros",
+ "zstd",
+]
+
+[[package]]
+name = "cmux-embed-macros"
+version = "0.1.0"
+dependencies = [
+ "zstd",
 ]
 
 [[package]]
@@ -2289,6 +2319,7 @@ name = "cmux-server"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-build-space",
  "cmux-cloud-environment",
  "cmux-json",
  "cmux-link",
@@ -2502,6 +2533,7 @@ dependencies = [
  "cmux-automations",
  "cmux-browser-host",
  "cmux-build-identity",
+ "cmux-build-space",
  "cmux-chat-index",
  "cmux-cloud-api",
  "cmux-cloud-client",
@@ -2642,6 +2674,7 @@ dependencies = [
  "cmux-bookmarks-core",
  "cmux-bookmarks-ops",
  "cmux-browser-import",
+ "cmux-build-space",
  "cmux-classic-import",
  "cmux-cloud-api",
  "cmux-computer-use",
@@ -2649,6 +2682,7 @@ dependencies = [
  "cmux-config",
  "cmux-conversation",
  "cmux-device-kind",
+ "cmux-embed",
  "cmux-feed-core",
  "cmux-file-lock",
  "cmux-flow-trace",
