@@ -24,6 +24,7 @@ impl Brain {
             return Ok("outcome: noop. no turn is running".to_owned());
         }
         self.refuse_unanswered("stop")?;
+        self.refuse_landed_untold("stop")?;
         self.end_turn_by_tool("stop");
         Ok("outcome: done. the turn ends now; nothing more is posted".to_owned())
     }
@@ -59,6 +60,51 @@ impl Brain {
         ))
     }
 
+    /// The running turn saw a subagent's landed report (with a range) and
+    /// posted nothing naming it: `stop`/`sleep` is refused once, naming it,
+    /// so the person hears it in this turn, not a later one (landed_told.rs).
+    /// A second call goes through.
+    fn refuse_landed_untold(&mut self, tool: &str) -> Result<(), String> {
+        if self.landed_refused {
+            return Ok(());
+        }
+        let untold: Vec<String> = self
+            .turn_landed
+            .iter()
+            .filter(|(id, _)| !super::outcome_ledger::names(&self.turn_posts, id))
+            .map(|(id, range)| format!("{id} ({range})"))
+            .collect();
+        if untold.is_empty() {
+            return Ok(());
+        }
+        self.landed_refused = true;
+        Err(format!(
+            "{tool}: refused once, this turn saw landed work it has not told: {}. Tell the person in one line each (send), with the range; then {tool}. A second {tool} goes through.",
+            untold.join(", ")
+        ))
+    }
+
+    /// The running turn posted `text` (`send`, `reply`).
+    pub(super) fn posted_in_turn(&mut self, text: &str) {
+        if self.state.turn.is_some() {
+            self.turn_posts.push_str(text);
+            self.turn_posts.push('\n');
+        }
+    }
+
+    /// Report `r` (its text `text`) went into the running turn: a landed
+    /// range in it is owed to the person in this turn.
+    pub(super) fn saw_report(&mut self, r: &crate::state::SpawnRef, text: &str) {
+        let Some(range) = landed_range(text) else {
+            return;
+        };
+        for (id, _) in &r.subs {
+            if !self.turn_landed.iter().any(|(i, _)| i == id) {
+                self.turn_landed.push((id.clone(), range.clone()));
+            }
+        }
+    }
+
     /// Marks the running turn as ended by the Chief's own tool and asks its
     /// runner to stop the session.
     fn end_turn_by_tool(&mut self, tool: &str) {
@@ -75,6 +121,7 @@ impl Brain {
     pub(super) fn sleep(&mut self, call: SleepCall) -> Result<String, String> {
         if self.phase == Phase::Running && call.seconds > 0 {
             self.refuse_unanswered("sleep")?;
+            self.refuse_landed_untold("sleep")?;
         }
         if call.seconds == 0 {
             let n = self.state.wakes.len();
@@ -181,4 +228,23 @@ pub(super) fn human(seconds: u64) -> String {
         s if s % 3600 / 60 == 0 => format!("{} h", s / 3600),
         s => format!("{} h {} min", s / 3600, s % 3600 / 60),
     }
+}
+
+/// The landed range a report names (`1a2b3c4d..5e6f7a8b`), when it says it
+/// landed (sub_watch `landed`).
+fn landed_range(text: &str) -> Option<String> {
+    if !crate::sub_watch::landed(text) {
+        return None;
+    }
+    let sha = |w: &str| {
+        (7..=40).contains(&w.len())
+            && w.chars().all(|c| c.is_ascii_hexdigit())
+            && w.chars().any(|c| c.is_ascii_digit())
+    };
+    text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '.'))
+        .find_map(|w| {
+            let (a, b) = w.split_once("..")?;
+            let b = b.trim_start_matches('.');
+            (sha(a) && sha(b)).then(|| format!("{a}..{b}"))
+        })
 }
