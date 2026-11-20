@@ -20,8 +20,8 @@ import { SidebarChats } from "./SidebarChats";
 export interface MountedSidebarChats {
   /** Draws one block (the host's stream calls this; tests and the gallery call it directly). */
   show(block: SidebarChatsBlock): void;
-  /** Mounts only the rows near `slice` (the host's slice stream calls this; a slice older than the drawn
-   * block is dropped). */
+  /** Mounts only the rows near `slice` (the host's slice stream calls this). It windows only the block whose
+   * revision it names: an older one is dropped, a newer one waits for exactly that block. */
   showSlice(slice: SidebarChatsSlice): void;
   /** The block drawn now (null before the first). */
   readonly block: SidebarChatsBlock | null;
@@ -52,8 +52,11 @@ export function mountSidebarChats(
   const reactRoot = (options.makeRoot ?? createRoot)(root);
   const nextFrame = options.nextFrame ?? animationFrame;
   let block = NO_BLOCK;
-  // The host's last slice; it holds across blocks until the next one (the host sends one after each push).
+  // The slice the drawn rows were windowed by: measured on the drawn block, or on an earlier drawn block
+  // (it holds across blocks until the next one; the host sends one after each push).
   let slice: SidebarChatsSlice | null = null;
+  // A slice naming a block not drawn yet; it windows only a block with exactly its revision, if that comes next.
+  let early: SidebarChatsSlice | null = null;
   let cancelReady: (() => void) | null = null;
 
   const send = (op: string, params: Record<string, unknown>) => {
@@ -104,16 +107,25 @@ export function mountSidebarChats(
     // A block older than the one drawn (a reordered event) changes nothing.
     if (block && next.revision <= block.revision) return;
     block = next;
+    // A slice sent ahead of this block windows it only if it names this block; any other is dropped.
+    if (early?.revision === next.revision) slice = early;
+    early = null;
     flushSync(render);
     scheduleReady();
   };
 
   const showSlice = (next: SidebarChatsSlice) => {
-    if (block && next.revision < block.revision) return;
+    // A slice windows only the block it was measured on. One for a block not drawn yet waits for exactly
+    // that block (`show`); one for an older block changes nothing.
+    if (!block || next.revision > block.revision) {
+      early = next;
+      return;
+    }
+    if (next.revision < block.revision) return;
     if (slice && slice.revision === next.revision && slice.top === next.top && slice.height === next.height) return;
     slice = next;
     // No ready: the slice changes which rows mount, never the block's height.
-    if (block) flushSync(render);
+    flushSync(render);
   };
 
   flushSync(render);
