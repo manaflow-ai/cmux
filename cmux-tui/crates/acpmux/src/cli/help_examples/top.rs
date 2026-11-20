@@ -29,6 +29,23 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "search",
+        &[
+            (
+                "Find what this session said earlier, compacted turns included",
+                "acpmux search \"four agent pages\" --session self",
+            ),
+            (
+                "Find a phrase in every session on every machine from the last 2 days",
+                "acpmux search \"merge_hold\" --machine all --since 2d",
+            ),
+            (
+                "Only a session's replies, as JSON",
+                "acpmux --json search \"root cause\" --session coord --role assistant",
+            ),
+        ],
+    ),
+    (
         "who-else",
         &[
             (

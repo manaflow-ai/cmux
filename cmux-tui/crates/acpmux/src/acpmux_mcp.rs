@@ -224,6 +224,21 @@ fn base_tools() -> Value {
                 },
                 "required": ["query"]
             }
+        },
+        {
+            "name": "transcript_search",
+            "description": "Find what was said earlier: where a phrase appears in the Claude Code and Codex transcripts on this machine (every session, desktop and terminal chats too, their subagents, and the turns before a compaction), newest first, each hit with its session, turn, line, time, role and the text around it. One call instead of grepping a transcript (`acpmux search` on the command line). session self is this chat; host all asks every peer too.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "The text to find, as written (any case)."},
+                    "session": {"type": "string", "description": "Only this session: self, a name, an acpmux session id, or a Claude Code or Codex session id. Default: every session."},
+                    "host": {"type": "string", "description": "all: this machine and every peer; a peer's name: that machine. Default: this machine."},
+                    "role": {"type": "string", "enum": ["user", "assistant", "tool"], "description": "Only prompts, replies or tool calls and their output."},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": crate::transcript_search::MAX_LIMIT, "description": "At most this many hits (default 20)."}
+                },
+                "required": ["query"]
+            }
         }
     ]);
     if let Some(list) = all.as_array_mut() {
@@ -384,6 +399,9 @@ fn served_with(
                 }
                 if name == "search" {
                     return search_tool(&daemon, &session, &args).await;
+                }
+                if name == "transcript_search" {
+                    return transcript_search_tool(&daemon, &session, &args).await;
                 }
                 if name == "machine_info" {
                     return machine_info(&daemon, &session).await;
@@ -562,6 +580,36 @@ pub(crate) async fn search_tool(daemon: &Arc<Client>, session: &str, args: &Valu
             };
             ok(text, r)
         }
+        Err(e) => refusal(e),
+    }
+}
+
+/// `transcript_search`: `_acpmux/transcript_search` (`transcript_search.rs`); `session: self` is
+/// this server's own chat (the daemon finds its harness session).
+pub(crate) async fn transcript_search_tool(
+    daemon: &Arc<Client>,
+    session: &str,
+    args: &Value,
+) -> Value {
+    let Some(query) = arg(args, "query") else {
+        return error_result("query is required".to_owned());
+    };
+    let mut params = json!({
+        "query": query,
+        "role": args.get("role"),
+        "limit": args.get("limit"),
+        "host": args.get("host"),
+    });
+    match arg(args, "session") {
+        Some("self" | "@") if session.is_empty() => {
+            return error_result("this server runs in no acpmux chat: name a session".to_owned());
+        }
+        Some("self" | "@") => params["sessionId"] = json!(session),
+        Some(other) => params["sessionId"] = json!(other),
+        None => {}
+    }
+    match daemon.request(method::MUX_TRANSCRIPT_SEARCH, params).await {
+        Ok(r) => ok(crate::cli::search::text(&r, false), r),
         Err(e) => refusal(e),
     }
 }

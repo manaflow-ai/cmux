@@ -67,6 +67,9 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // A task is this daemon's brief for one of its own sessions (`hub/tasks.rs`).
     method::MUX_TASK_NEW,
     method::MUX_TASKS,
+    // A transcript search asks the peers itself, and only for a local caller
+    // (`hub/transcript_search.rs`): its `sessionId` never sends it on whole.
+    method::MUX_TRANSCRIPT_SEARCH,
     // Resolving reads this daemon's own and mirrored session lists (`hub/locate.rs`).
     method::MUX_RESOLVE,
     // An agent message is taken back on this daemon only (`hub/withdraw.rs`).

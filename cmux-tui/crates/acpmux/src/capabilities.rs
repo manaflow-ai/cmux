@@ -169,6 +169,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // Who else works on these files, topic, branch or folder, here and on peers
     // (`hub/touched.rs`).
     Capability { id: "who-else-v1", wire: &[method::MUX_WHO_ELSE] },
+    // What was said in every Claude Code and Codex transcript, here and on peers
+    // (`transcript_search.rs`).
+    Capability { id: "transcript-search-v1", wire: &[method::MUX_TRANSCRIPT_SEARCH] },
     // What turns cost, indexed by day and session (`hub/ledger`).
     Capability { id: "cost-ledger-v1", wire: &[method::MUX_LEDGER] },
     // The team's agent spend from cmux-platform (`server/chats/team_audit.rs`).
