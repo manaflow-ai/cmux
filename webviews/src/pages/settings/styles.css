@@ -2924,7 +2924,9 @@ button.menu-disclosure {
   align-self: flex-start;
   width: 0;
   height: 0;
-  margin-top: calc((var(--text-body--line-height) - 6px) / 2);
+  /* Centers the 6px dot on the first line of body text. */
+  --doctor-dot-offset: calc((var(--text-body--line-height) - 6px) / 2);
+  margin-top: var(--doctor-dot-offset);
   border: 3px solid var(--muted-text);
   border-radius: 50%;
   opacity: 0.6;
