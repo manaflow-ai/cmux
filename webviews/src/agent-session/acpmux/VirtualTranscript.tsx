@@ -1117,6 +1117,9 @@ export function sendTopEndOf(
   height: number,
 ): number {
   if (!sent || height <= 0) return 0;
+  const at = rows[sent.index];
+  // The optimistic prompt replaced in place by its canonical row (a new id, the same place) is the same prompt.
+  if (at && at.id !== sent.id && sent.id.startsWith("local-") && at.kind === "user" && !isLineRow(at)) sent.id = at.id;
   if (rows[sent.index]?.id !== sent.id) {
     let found = -1;
     for (let index = rows.length - 1; index >= 0 && found < 0; index -= 1)
@@ -4439,8 +4442,10 @@ function TranscriptView({
   // Held while the view follows; the reader scrolling, Jump to latest or another chat lets it go.
   if (sessionSwitched || !following) sendTop.current = undefined;
   else if (didOpenAtLatest.current && rows !== previousRows.current) {
+    // Only a prompt this pane sent (`sentPromptIds`): one from another device, a queued prompt the
+    // agent took, a reconnect's or a hidden chat's rows land as before, followed at the latest row.
     const sent = sentPromptAt(previousRows.current, rows);
-    if (sent >= 0) sendTop.current = { id: rows[sent]!.id, index: sent };
+    if (sent >= 0 && sentPromptIdsForRender.has(rows[sent]!.id)) sendTop.current = { id: rows[sent]!.id, index: sent };
   }
   const sendTopEnd = sendTopEndOf(sendTop.current, rows, measured.layout, topInset, height);
   if (sendTopEnd === 0) sendTop.current = undefined;

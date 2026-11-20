@@ -94,12 +94,18 @@ await requireBrowserLane("agent-chat-stream-no-shift-browser.test.ts", async () 
   const steps = (turn: string): [string, Play][] => [
     [
       "send",
-      async (pane) => {
-        pane.record("user_message", {
-          text: `Find the retry loops (${turn})`,
-          promptId: `p-${turn}`,
-          turnId: `t-${turn}`,
-        });
+      // Typed in the composer and sent with Return, as the reader does; the stand-in acpmux echoes the
+      // prompt under the id the page sent it with.
+      async (pane, page) => {
+        const text = `Find the retry loops (${turn})`;
+        await page.locator(".acpmux-composer-box [contenteditable=true]").first().click();
+        await page.keyboard.type(text);
+        const before = pane.prompts.length;
+        const asked = pane.sent("session/prompt", pane.methods.filter((method) => method === "session/prompt").length);
+        await page.keyboard.press("Enter");
+        await asked;
+        const promptId = pane.prompts[before]?._meta?.acpmux?.promptId as string;
+        pane.record("user_message", { text, promptId, turnId: `t-${turn}` });
         pane.record("turn_started", {});
       },
     ],
