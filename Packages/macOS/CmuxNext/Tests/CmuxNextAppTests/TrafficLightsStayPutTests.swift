@@ -44,6 +44,7 @@ import Testing
     private func appKitTitlebarEvents(_ window: NSWindow) -> [(String, () -> Void)] {
         let close = window.standardWindowButton(.closeButton)
         let titlebar = close?.superview, container = titlebar?.superview
+        let native = Self.nativeOrigins(like: window, in: titlebar)
         return [
             ("a new window title (Home to a workspace)", { window.title = "cmux perf lead" }),
             ("another title", { window.title = "Home" }),
@@ -58,15 +59,43 @@ import Testing
                 container?.layoutSubtreeIfNeeded()
             }),
             ("a display pass", { window.displayIfNeeded() }),
-            // What AppKit's titlebar tiling does in each case above: it sets the buttons back at its place itself.
-            ("AppKit's tiling moves the close button", { close.map { $0.setFrameOrigin(NSPoint(x: 7, y: $0.frame.minY + 1.25)) } }),
-            ("AppKit's tiling moves the zoom button", {
-                window.standardWindowButton(.zoomButton).map { $0.setFrameOrigin(NSPoint(x: $0.frame.minX - 1.25, y: $0.frame.minY + 1.25)) }
+            // What AppKit's titlebar tiling does in each case above: it sets each button at its own place again (a bare
+            // window's frame for it, in the titlebar view), the titlebar view's bounds back to zero, the container to its height.
+            ("AppKit tiles the close button at its place", { native[.closeButton].map { close?.setFrameOrigin($0) } }),
+            ("AppKit tiles the zoom button at its place", {
+                native[.zoomButton].map { window.standardWindowButton(.zoomButton)?.setFrameOrigin($0) }
             }),
-            ("AppKit's tiling resets the container", {
+            ("AppKit tiles every button at its place", {
+                for (type, origin) in native { window.standardWindowButton(type)?.setFrameOrigin(origin) }
+            }),
+            ("AppKit tiles every button 2 pt lower (another titlebar height)", {
+                for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+                    window.standardWindowButton(type).map { $0.setFrameOrigin(NSPoint(x: $0.frame.minX, y: $0.frame.minY - 2)) }
+                }
+            }),
+            ("AppKit resets the titlebar view's bounds", { titlebar?.setBoundsOrigin(.zero) }),
+            ("AppKit resets the container", {
                 container.map { $0.setFrameSize(NSSize(width: $0.frame.width, height: window.frame.height - window.contentLayoutRect.maxY)) }
             }),
         ]
+    }
+
+    /// Where AppKit puts each light in `titlebar`: as far from its left and top edges as in a bare window of the same
+    /// style, which nothing moved (the titlebar view here may be taller).
+    private static func nativeOrigins(like window: NSWindow, in titlebar: NSView?) -> [NSWindow.ButtonType: CGPoint] {
+        let bare = NSWindow(contentRect: window.contentRect(forFrameRect: window.frame), styleMask: window.styleMask,
+                            backing: .buffered, defer: false)
+        bare.isReleasedWhenClosed = false
+        bare.titlebarAppearsTransparent = window.titlebarAppearsTransparent
+        defer { bare.close() }
+        var out: [NSWindow.ButtonType: CGPoint] = [:]
+        guard let titlebar else { return out }
+        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            guard let button = bare.standardWindowButton(type), let own = button.superview else { continue }
+            let top = own.isFlipped ? button.frame.minY : own.frame.height - button.frame.maxY
+            out[type] = CGPoint(x: button.frame.minX, y: titlebar.isFlipped ? top : titlebar.frame.height - top - button.frame.height)
+        }
+        return out
     }
 
     @Test(arguments: DensityPreset.allCases)
@@ -84,6 +113,10 @@ import Testing
         try #require(rest.count == 3, "\(density): \(rest.count) traffic lights")
         let center = window.frame.height - rest[0].midY
         #expect(abs(center - line.centerY) <= 0.5, "\(density): the lights rest at \(center), the line at \(line.centerY)")
+        let spacing = Self.nativeOrigins(like: window, in: window.standardWindowButton(.closeButton)?.superview)
+        let close = spacing[.closeButton]?.x ?? 0
+        #expect(TrafficLightsOwner.nativeOffsets(for: window.styleMask) == spacing.mapValues { $0.x - close },
+                "\(density): the owner's spacing is not macOS's own")
         var drift: CGFloat = 0
         for (event, run) in appKitTitlebarEvents(window) {
             run()

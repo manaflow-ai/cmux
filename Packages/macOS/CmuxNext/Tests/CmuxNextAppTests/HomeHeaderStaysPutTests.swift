@@ -52,9 +52,12 @@ import Testing
                 titlebar?.superview?.needsLayout = true
                 titlebar?.superview?.layoutSubtreeIfNeeded()
             }),
-            ("AppKit's tiling moves the close button", {
-                window.standardWindowButton(.closeButton).map { $0.setFrameOrigin(NSPoint(x: 7, y: $0.frame.minY + 2)) }
+            ("AppKit tiles every button 2 pt lower (another titlebar height)", {
+                for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+                    window.standardWindowButton(type).map { $0.setFrameOrigin(NSPoint(x: $0.frame.minX, y: $0.frame.minY - 2)) }
+                }
             }),
+            ("AppKit resets the titlebar view's bounds", { titlebar?.setBoundsOrigin(.zero) }),
         ]
         var drift: CGFloat = 0
         for (event, run) in events {
