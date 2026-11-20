@@ -327,6 +327,13 @@ final class ShellModel {
     }
     #endif
 
+    /// New Task started (the floating button on Workspaces or Feed): one workspace opens at once
+    /// on Workspaces; several stay in the list, each row spinning until its Mac answers.
+    func startedTask(_ made: [Workspace]) {
+        guard made.count == 1, let workspace = made.first else { return }
+        show(workspace: workspace)
+    }
+
     /// Shows `workspace` in place of the one on screen (the Chats list's Open in New Workspace).
     /// The destination keeps its screen state at the same place in the path, so the path is
     /// emptied first and the workspace pushed on the next turn, as `openTerminal` does.

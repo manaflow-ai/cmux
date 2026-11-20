@@ -55,8 +55,6 @@ public struct WorkspacesList: View {
     @State private var bulkClosing: BulkClose?
     /// Set Icon…: the workspace whose icon picker is open.
     @State private var iconPicking: Workspace?
-    /// New Task…: the task composer is open.
-    @State private var composingTask = false
     /// New Workspace Group…: the Mac it goes on (one name field with the other group names).
     @State private var newGroupOnMac: String?
     /// Group by None / Group by Folder (this iPhone's view of the list).
@@ -180,16 +178,6 @@ public struct WorkspacesList: View {
             // when they did not change, so a workspace update does not rebuild
             // the bar's items (it did, at about 10 ms, on every Mac tree update).
             .background { toolbarHost }
-            // New Task: Slack's compose spot, a floating button above the tab bar (2026-11-18).
-            .overlay(alignment: .bottomTrailing) {
-                if showsNewTaskButton {
-                    NewTaskFloatingButton { startNewTask() }
-                        .padding(.trailing, theme.metrics.sideMargin)
-                        .padding(.bottom, Self.newTaskButtonGap)
-                        .transition(.scale(scale: 0.6).combined(with: .opacity))
-                }
-            }
-            .animation(theme.motion.snap.animation.unlessReduceMotion, value: showsNewTaskButton)
             // The chosen Mac is the linked Mac: on a choice, on launch with a
             // remembered choice, and when the chosen Mac comes online.
             .onChange(of: scope.macToLink(in: macs), initial: true) { _, id in
@@ -211,20 +199,6 @@ public struct WorkspacesList: View {
             }
             .sheet(item: $iconPicking) { ws in
                 WorkspaceIconPicker(workspace: ws) { icon in creator.setIcon(ws, icon) }
-            }
-            #if DEBUG
-            // `-cmux-mobile-open-new-task`: New Task opens at launch (its captures at Accessibility sizes).
-            .task {
-                guard CommandLine.arguments.contains("-cmux-mobile-open-new-task"), !DebugLaunch.openedNewTask,
-                      !creator.taskMacs.isEmpty else { return }
-                DebugLaunch.openedNewTask = true
-                composingTask = true
-            }
-            #endif
-            // Full screen, as classic's task composer: a prompt canvas with its controls above the keyboard.
-            .fullScreenCover(isPresented: $composingTask) {
-                TaskComposerScreen(creator: creator, sameNames: sameNames,
-                                   started: { made in startedTask(made) }, close: { composingTask = false })
             }
             .alert("Rename Workspace", isPresented: isPresented($renaming), presenting: renaming) { ws in
                 TextField("Name", text: $renameText)
@@ -358,26 +332,6 @@ public struct WorkspacesList: View {
         create(tap.start, directory: tap.directory, on: macID)
     }
 
-    /// New Task…: opens the composer.
-    func startNewTask() { composingTask = true }
-
-    /// The New Task button's gap above the tab bar.
-    static let newTaskButtonGap: CGFloat = 12
-
-    /// The floating New Task button: some Mac can start agents now, and the list (not a
-    /// loading, failed or connect-a-Mac page) is on screen.
-    private var showsNewTaskButton: Bool {
-        guard !creator.taskMacs.isEmpty, !macs.isEmpty, case .content = launchState else { return false }
-        return true
-    }
-
-    /// New Task started: one workspace opens at once; several stay in the list, each row
-    /// spinning until its Mac answers.
-    func startedTask(_ made: [Workspace]) {
-        guard made.count == 1, let workspace = made.first else { return }
-        open(workspace)
-    }
-
     /// Opens a workspace: a needs-you one on its waiting tab, else the tab left on screen
     /// there in this launch, else the active tab of its layout's top-left pane
     /// (`AppStore.openingTab`). Clears its "Done".
@@ -436,8 +390,7 @@ public struct WorkspacesList: View {
     /// SwiftUI over it.
     private func list(_ inbox: WorkspaceInbox) -> some View {
         WorkspacesCollection(model: listModel(inbox), actions: collectionActions, control: listControl,
-                             membershipKey: inboxMemo.workspaceIDsKey &* 31 &+ inboxMemo.needsYouKey,
-                             bottomRoom: showsNewTaskButton ? NewTaskFloatingButton.size + Self.newTaskButtonGap : 0)
+                             membershipKey: inboxMemo.workspaceIDsKey &* 31 &+ inboxMemo.needsYouKey)
             // Under the bars, as the Feed's list: UIKit insets the content by them.
             .ignoresSafeArea(.container, edges: .vertical)
             .overlay(alignment: .topLeading) { closeAnchor }
