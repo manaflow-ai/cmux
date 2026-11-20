@@ -36,6 +36,9 @@ LIVE = re.compile(r"^(?:vars|needs|matrix)\.|^fromJSON\(.*\b(?:vars|needs|matrix
 # A workflow_call or dispatch input is the caller's choice only when nothing follows it; with a
 # literal after it (Fast checks' `runner`), an empty input means the literal.
 INPUT = re.compile(r"^inputs\.[A-Za-z0-9_-]+$")
+# The persistent Linux pool's label (cmux-linux): a runner group, not one size, so naming it
+# literally is reading the pool. Only this exact label; any other literal still fails.
+POOL_LABELS = frozenset({"'cmux-linux'"})
 POOL_READ = re.compile(r"fromJSON\(\s*vars\.RUNNER_POOLS\s*\)\.([A-Za-z0-9_]+)")
 
 # workflow file -> (why it is not on a pool yet, its jobs that still name only literals)
@@ -43,11 +46,11 @@ PINNED: dict[str, tuple[str, set[str]]] = {
     'fast-checks.yml': ('the hosted admission picker is a light read-only job; checks use its live fleet output',
      {'admit'}),
     'auto-resume-nightly-notarization.yml': ('nightly signing and notarization: an ephemeral label the signing rule checks literally',
-     {'preflight', 'poll', 'wait-and-staple', 'poll-outer', 'staple-outer', 'poll-stapled', 'staple-stapled', 'verify-stapled', 'publish', 'generate-deltas', 'republish-deltas'}),
+     {'poll', 'wait-and-staple', 'poll-outer', 'staple-outer', 'poll-stapled', 'staple-stapled', 'verify-stapled', 'publish', 'generate-deltas', 'republish-deltas'}),
     'cloud-journey-prod.yml': ('holds the production journey environment secrets: the fork-routing secret rule forbids a variable-movable runner',
      {'journey', 'preclaim'}),
     'billing-nightly.yml': ('holds the App Store In-App Purchase key and health token: the fork-routing secret rule forbids a variable-movable runner',
-     {'apple-delivery', 'apple-api', 'alert'}),
+     {'apple-delivery', 'apple-api', 'apple-post-release', 'alert'}),
     'cloud-claude-matrix.yml': ('holds the production journey environment secrets: the fork-routing secret rule forbids a variable-movable runner',
      {'matrix'}),
     'build-ghosttykit.yml': ('not yet on a pool; moves in its own PR',
@@ -84,8 +87,6 @@ PINNED: dict[str, tuple[str, set[str]]] = {
      {'drive'}),
     'nightly-next-verdict.yml': ('not yet on a pool; moves in its own PR',
      {'write'}),
-    'nightly-sign.yml': ('nightly signing admission: an ephemeral label the signing rule checks literally',
-     {'admit'}),
     'nightly-tag-permission-probe.yml': ('not yet on a pool; moves in its own PR',
      {'probe'}),
     'nightly.yml': ('NEXT nightly: never moved mid-train here; its runner change is its own PR',
@@ -99,7 +100,7 @@ PINNED: dict[str, tuple[str, set[str]]] = {
     'release.yml': ('release signing: an ephemeral label the signing rule checks literally',
      {'build-sign-notarize'}),
     'repair-nightly-appcast-content-types.yml': ('not yet on a pool; moves in its own PR',
-     {'test', 'repair'}),
+     {'repair'}),
     'repair-v0-64-25-helper-rpaths.yml': ('release repair that re-signs: an ephemeral label the signing rule checks literally',
      {'verify-shipped', 'repair'}),
     'resume-nightly-notarization.yml': ('nightly signing and notarization: an ephemeral label the signing rule checks literally',
@@ -150,7 +151,7 @@ def has_live_source(expression: str) -> bool:
         value = terms[-1]
         if value.startswith("(") and value.endswith(")") and has_live_source(value[1:-1]):
             return True
-        if LIVE.match(value):
+        if LIVE.match(value) or value in POOL_LABELS:
             return True
         if INPUT.match(value) and len(terms) == 1 and index == len(alternatives) - 1:
             return True
@@ -195,6 +196,9 @@ class RuleTests(unittest.TestCase):
         self.assertFalse(runs_on_is_live("${{ inputs.runner || 'blacksmith-32vcpu-ubuntu-2404' }}"))
         self.assertFalse(runs_on_is_live("${{ fromJSON('[\"blacksmith-32vcpu-ubuntu-2404\"]') }}"))
         self.assertFalse(runs_on_is_live("blacksmith-32vcpu-ubuntu-2404"))
+        # Only the exact pool label: a look-alike literal is still one label written down.
+        self.assertFalse(runs_on_is_live("${{ 'cmux-linux-x64' }}"))
+        self.assertFalse(runs_on_is_live("${{ github.repository_owner != 'manaflow-ai' && 'cmux-linux' || 'x' }}"))
         self.assertFalse(runs_on_is_live(["self-hosted", "blacksmith-32vcpu-ubuntu-2404"]))
 
     def test_a_pool_variable_or_picker_passes(self) -> None:
@@ -209,6 +213,10 @@ class RuleTests(unittest.TestCase):
             # A reusable workflow whose caller picks the runner.
             fork + "inputs.runner",
             fork + "fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on)",
+            # The persistent pool's label, after the fork branches.
+            fork + "'cmux-linux'",
+            fork + "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != "
+                   "github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux'",
         ):
             with self.subTest(expression=expression):
                 self.assertTrue(runs_on_is_live("${{ " + expression + " }}"))

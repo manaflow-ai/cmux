@@ -473,6 +473,8 @@ FORK_PULL_REQUEST_LABEL = re.compile(
 # CI_SIDE_LANE_RUNNER and CI_LIGHT_LANE_RUNNER name owned side labels outright
 # (runner_label_policy.side_lane_reason), so every read of them is gated too.
 OWNED_RUNNER_NAME = r"(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER|CI_SIDE_LANE_RUNNER|CI_SIDE_LANE_LABELS|CI_LIGHT_LANE_RUNNER)"
+# A literal label served by persistent (reused) machines; gated like a runner variable.
+PERSISTENT_POOL_LITERAL = r"'cmux-linux'"
 OWNED_RUNNER_VARIABLE = re.compile(
     rf"\bvars(?:\.{OWNED_RUNNER_NAME}\b|\[\s*'{OWNED_RUNNER_NAME}'\s*\])", re.IGNORECASE
 )
@@ -480,7 +482,10 @@ OWNED_RUNNER_SELECTOR = re.compile(
     OWNED_RUNNER_VARIABLE.pattern
     + r"|\bmatrix(?:\.pr_runner\b|\[\s*'pr_runner'\s*\])"
     + r"|\binputs(?:\.pr_runner\b|\[\s*'pr_runner'\s*\])"
-    + r"|\bneeds\.changes\.outputs\.macos_pr_runner\b",
+    + r"|\bneeds\.changes\.outputs\.macos_pr_runner\b"
+    # The persistent Linux pool's label: its machines outlive a job, so fork PR code never reaches
+    # them (web-complexity.yml named it after the owner branch only, #47956 review).
+    + r"|" + PERSISTENT_POOL_LITERAL,
     re.IGNORECASE,
 )
 # (workflow, stripped line) -> why a runner variable read there picks no runner.
@@ -697,6 +702,8 @@ def _refs(node: tuple) -> list[str]:
         return _refs(node[2]) + _refs(node[3])
     if kind == "call":
         return [ref for arg in node[2] for ref in _refs(arg)]
+    if kind == "literal" and re.fullmatch(PERSISTENT_POOL_LITERAL, node[1]):
+        return [node[1]]
     return []
 
 
@@ -1108,6 +1115,9 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 " || vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26', 'tart-') }}"
             ),
             "no selector": "runs-on: ${{ inputs.runner || 'macos-15' }}",
+            "persistent pool after the fork branch": (
+                "runs-on: ${{ " + owner + " || " + clause + " && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}"
+            ),
         }
         rejected = {
             "linux ungated": (
@@ -1137,6 +1147,9 @@ class ForkRunnerRoutingTests(unittest.TestCase):
             "self-hosted literal ahead of the fork branch": (
                 "runs-on: ${{ github.repository_owner == 'manaflow-ai' && 'tart-macos-15' || "
                 + clause + " && 'macos-26' || vars.MACOS_RUNNER_26 }}"
+            ),
+            "persistent pool behind the owner branch only": (
+                "runs-on: ${{ " + owner + " || 'cmux-linux' }}"
             ),
             "second expression on the line": (
                 "run-name: ${{ " + clause + " && 'macos-26' || vars.MACOS_RUNNER_26 }}"
