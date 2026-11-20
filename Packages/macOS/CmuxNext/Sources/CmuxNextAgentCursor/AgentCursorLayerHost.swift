@@ -142,8 +142,10 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
             for layer in cursors.removeValue(forKey: session)?.roots ?? [] { layer.removeFromSuperlayer() }
         }
         switch command {
-        case .place, .glide, .indicate, .reposition, .hide, .remove: onTagsChange?()
-        case .pulse, .caption, .setPaused, .confine: break
+        // A caption re-arms the idle fade, so a faded cursor shows again: its
+        // glass wakes (`AgentCursorCarrierView.syncGlassActivity`).
+        case .place, .glide, .indicate, .reposition, .hide, .remove, .caption: onTagsChange?()
+        case .pulse, .setPaused, .confine: break
         }
     }
 
