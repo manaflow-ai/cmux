@@ -8471,7 +8471,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                         break
                     except Final:
                         raise
-                    except Refused:
+                    except Refused as mismatch:
                         run, found = next(verdicts, (None, None)) if read < BASE_WINDOW else (None, None)
                         if (run is None or found.get("conclusion") != "failure"
                                 or (newest and created(run)
@@ -8486,6 +8486,12 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                                     evidence.runs(workflow), base_jobs, github, run_reads)) is not None:
                                 audit.append(same)
                                 break
+                            # Out of verdicts because the cap cut the search, with older runs unread (#47971's review
+                            # F1, as the placed window's F3): an older red matching the whole head may be among them.
+                            if (run is None and read < BASE_WINDOW
+                                    and (cut := search_cut(job_reads, name, workflow, base_workflow)) is not None):
+                                raise Refused(f"{cut_refusal(name, base, cut)}; the newest so far: "
+                                              f"{mismatch}") from None
                             # Last, so it pre-empts no excuse: a refusal that says the base ran and passed the check
                             # the head fails, and to merge the base (passed_on_base_verdict).
                             passed_on_base_verdict(repo, base, name, mine, seen, github)
