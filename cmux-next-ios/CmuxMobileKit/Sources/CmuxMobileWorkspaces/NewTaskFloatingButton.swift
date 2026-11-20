@@ -91,14 +91,20 @@ private struct NewTaskButtonHost: ViewModifier {
     func body(content: Content) -> some View {
         content
             .environment(\.cmuxMobileFloatingBottomRoom, canStart ? NewTaskFloatingButton.room : 0)
-            .overlay(alignment: .bottomTrailing) {
-                if shows {
-                    NewTaskFloatingButton { composing = true }
-                        .padding(.trailing, theme.metrics.sideMargin)
-                        .padding(.bottom, NewTaskFloatingButton.gap)
-                        .ignoresSafeArea(.keyboard, edges: .bottom)
-                        .transition(.scale(scale: 0.6).combined(with: .opacity))
+            .overlay {
+                // A full-size layer that ignores the keyboard (so its bottom stays the tab bar's
+                // edge with a keyboard up), the button at its bottom trailing corner. Only the
+                // button takes touches.
+                ZStack(alignment: .bottomTrailing) {
+                    Color.clear.allowsHitTesting(false)
+                    if shows {
+                        NewTaskFloatingButton { composing = true }
+                            .padding(.trailing, theme.metrics.sideMargin)
+                            .padding(.bottom, NewTaskFloatingButton.gap)
+                            .transition(.scale(scale: 0.6).combined(with: .opacity))
+                    }
                 }
+                .ignoresSafeArea(.keyboard, edges: .bottom)
             }
             .animation(theme.motion.snap.animation.unlessReduceMotion, value: shows)
             #if DEBUG
