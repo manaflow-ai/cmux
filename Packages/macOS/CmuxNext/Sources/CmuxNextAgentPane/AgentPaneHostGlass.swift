@@ -55,6 +55,14 @@ public nonisolated struct AgentPaneHostGlassSurface: Equatable, Sendable {
         self.zoom = zoom
     }
 
+    /// The view points per CSS pixel this box is placed with: the zoom the page measured it at (its
+    /// report's), never the pane's own value, which a Chromium page applies over another channel than
+    /// its reports (cmux#42413: the glass apart from the menu after a zoom). `paneZoom`, the zoom the
+    /// pane set, only for a page that sends none.
+    func placementZoom(paneZoom: CGFloat) -> CGFloat {
+        max(0.25, zoom ?? paneZoom)
+    }
+
     /// The zooms a report may say it was measured at (the page zoom's range, with room).
     static let zoomRange: ClosedRange<Double> = 0.1...8
 
