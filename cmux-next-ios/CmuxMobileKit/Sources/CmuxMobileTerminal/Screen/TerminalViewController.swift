@@ -549,14 +549,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         NavigationPopExclusion.shared.exclude(keyBarClip)
         keyBarClip.translatesAutoresizingMaskIntoConstraints = false
         bottomStack.translatesAutoresizingMaskIntoConstraints = false
-        // The terminal background under the whole bottom chrome, from the
-        // composer card's top to the page's bottom: rows scrolled under it are
-        // not legible between and below the toolbar pills or at the
-        // composer's corners (R1-2). Above the card the soft edge fades.
+        // Keep the theme backing behind the rows, so the composer's native
+        // glass refracts live scrollback instead of sampling a flat fill.
+        // The soft scroll edge and regular glass provide chrome contrast;
+        // full-screen apps retain their separate tuiClip/tuiBelowCover.
         bottomBacking.backgroundColor = terminalBackground
         bottomBacking.isUserInteractionEnabled = false
         bottomBacking.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(bottomBacking)
+        view.insertSubview(bottomBacking, belowSubview: scrollView)
         let base = terminalBackground
         bottomFade.gradient.colors = [base.withAlphaComponent(0).cgColor, base.cgColor]
         bottomFade.isUserInteractionEnabled = false
@@ -2348,7 +2348,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         snapshot.isUserInteractionEnabled = false
         if source === view {
             snapshot.frame = view.bounds
-            view.insertSubview(snapshot, belowSubview: bottomBacking)
+            view.insertSubview(snapshot, belowSubview: bottomFade)
         } else {
             // In the grid's own host, where it was taken, top-pinned with it:
             // the host stands at the toolbar's edge while the composer moves.
@@ -2475,7 +2475,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         sizingLog.notice("foreground: the Mac's grid is not the phone's; the page from before holds until the reclaim's replay")
         still.frame = view.bounds
         still.isUserInteractionEnabled = false
-        view.insertSubview(still, belowSubview: bottomBacking)
+        view.insertSubview(still, belowSubview: bottomFade)
         freezeView = still
         freezeBatches = 0
         placedSinceHold = false
