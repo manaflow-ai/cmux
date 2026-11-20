@@ -76,3 +76,11 @@ apply, so rollback can remove them when empty before restoring a file at their
 parent. Index conflict checks still cover only affected paths, preserving
 unrelated target staging. Both the real partial-write and publication-failure
 regressions include multi-level file-to-directory replacements.
+
+Backup and rollback never traverse symlink ancestors. Descendants of a new
+symlink are skipped while its own recorded path is restored or removed; archive
+extraction refuses if an original file still has a symlink ancestor.
+`failed_apply_never_recovers_through_new_symlink_ancestors` carries a staged
+child plus a final symlink into an unrelated directory, forces both a real write
+failure and publication failure, and proves the outside target-only file remains
+unchanged before retrying.

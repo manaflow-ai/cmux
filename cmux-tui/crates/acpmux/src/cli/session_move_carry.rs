@@ -326,6 +326,18 @@ cleanup() { if [ "$keep_backup" = 0 ]; then rm -rf -- "$s"; fi; }
 trap cleanup EXIT
 # Do not read multi-megabyte payloads into shell variables: tar consumes stdin directly.
 tar -xf - -C "$s" staged patch intent intent-placeholders paths recovery-paths || exit 2
+# Recovery must never follow a symlink created by the failed apply into files
+# outside the carry. Descendants are skipped; their recorded ancestor is handled
+# separately. Use the same guard while taking the backup.
+cat >"$s/path-guards.sh" <<'GUARDS'
+safe_parents() {
+  parent=$1
+  while [ "$parent" != "${parent%/*}" ]; do
+    parent=${parent%/*}
+    [ ! -L "$parent" ] || return 1
+  done
+}
+GUARDS
 cd -- "$top" || exit 2
 real=$(git rev-parse --git-path index) || exit 3
 # Claim only our own lock. A concurrent Git writer makes the carry refuse unchanged.
@@ -371,24 +383,33 @@ restore_worktree() {
   # A carried file may replace a directory. Remove that file before restoring
   # the directory's original children; never remove an existing directory tree.
   if [ -s "$s/directories" ]; then
-    xargs -0 sh -c 'for p do
+    xargs -0 sh -c '. "$1/path-guards.sh"; shift; for p do
+      safe_parents "$p" || continue
       if [ -L "$p" ] || [ -f "$p" ]; then rm -f -- "$p" || exit 1; fi
       mkdir -p -- "$p" || exit 1
-    done' sh <"$s/directories" || restored=1
+    done' sh "$s" <"$s/directories" || restored=1
   fi
   if [ -s "$s/absent" ]; then
-    xargs -0 sh -c 'for p do
+    xargs -0 sh -c '. "$1/path-guards.sh"; shift; for p do
+      safe_parents "$p" || continue
       if [ -d "$p" ] && [ ! -L "$p" ]; then rmdir -- "$p" || exit 1
       else rm -f -- "$p" || exit 1; fi
-    done' sh <"$s/absent" || restored=1
+    done' sh "$s" <"$s/absent" || restored=1
   fi
   if [ -s "$s/present" ]; then
     # A file may have become an empty directory while a later patch failed.
-    xargs -0 sh -c 'for p do
+    xargs -0 sh -c '. "$1/path-guards.sh"; shift; for p do
+      safe_parents "$p" || continue
       if [ -d "$p" ] && [ ! -L "$p" ]; then rmdir -- "$p" || exit 1; fi
-    done' sh <"$s/present" || restored=1
+    done' sh "$s" <"$s/present" || restored=1
   fi
-  tar -xpf "$s/worktree-before.tar" -C "$top" || restored=1
+  # Every original file must now have real directory ancestors. If a symlink
+  # still blocks one, keep the archive instead of extracting through it.
+  if xargs -0 sh -c '. "$1/path-guards.sh"; shift; for p do
+    safe_parents "$p" || exit 1
+  done' sh "$s" <"$s/present"; then
+    tar -xpf "$s/worktree-before.tar" -C "$top" || restored=1
+  else restored=1; fi
   if [ "$restored" != 0 ]; then
     keep_backup=1
     echo "worktree recovery needs attention: original files are in $s/worktree-before.tar; originally absent paths are in $s/absent (NUL-separated)" >&2
@@ -399,7 +420,8 @@ if [ -s "$s/patch" ]; then
   # --check cannot predict disk exhaustion or a write error. Snapshot exactly the
   # affected worktree files before the first write; never recurse into submodules.
   : >"$s/present"; : >"$s/absent"; : >"$s/directories"
-  xargs -0 sh -c 's=$1; shift; for p do
+  xargs -0 sh -c 's=$1; . "$s/path-guards.sh"; shift; for p do
+    safe_parents "$p" || continue
     if [ -L "$p" ] || [ -f "$p" ]; then printf "%s\000" "$p" >>"$s/present"
     elif [ ! -e "$p" ]; then printf "%s\000" "$p" >>"$s/absent"
     elif [ -d "$p" ]; then printf "%s\000" "$p" >>"$s/directories"

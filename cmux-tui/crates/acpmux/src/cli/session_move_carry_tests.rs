@@ -590,6 +590,53 @@ fn a_real_partial_write_restores_the_worktree_and_allows_retry() {
 }
 
 #[test]
+fn failed_apply_never_recovers_through_new_symlink_ancestors() {
+    for partial_write in [false, true] {
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        repo(src.path());
+        // The staged child is absent from the final worktree, which instead has
+        // a symlink. Its destination contains target-only data outside the repo.
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("child"), b"target-only edit").unwrap();
+        std::fs::create_dir(src.path().join("dir")).unwrap();
+        std::fs::write(src.path().join("dir/child"), b"staged").unwrap();
+        sh(src.path(), "git add dir/child");
+        std::fs::remove_file(src.path().join("dir/child")).unwrap();
+        std::fs::remove_dir(src.path().join("dir")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), src.path().join("dir")).unwrap();
+        std::fs::write(src.path().join("z-last.txt"), vec![b'x'; 128 * 1024]).unwrap();
+        let carry = snapshot(&here, src.path(), true).unwrap();
+        sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
+        let index = std::fs::read(dst.path().join(".git/index")).unwrap();
+        let write = "git -c core.fsmonitor=false -c core.symlinks=true -C \"$top\" apply --binary --whitespace=nowarn \"$s/patch\"";
+        let failing = if partial_write {
+            APPLY_SCRIPT.replace(
+                &format!("if ! {write}; then"),
+                &format!(
+                    "if ! (ulimit -f 2; {write}); then\n    test -L dir && printf SYMLINK_CREATED"
+                ),
+            )
+        } else {
+            APPLY_SCRIPT.replace("if ! mv -- \"$real.lock\" \"$real\"; then", "if ! false; then")
+        };
+        assert_ne!(failing, APPLY_SCRIPT);
+        let out =
+            here(&failing, &apply_input(&dst.path().to_string_lossy(), &carry).unwrap()).unwrap();
+        assert!(!out.ok);
+        if partial_write {
+            assert!(out.stdout.contains("SYMLINK_CREATED"), "{} / {}", out.stdout, out.stderr);
+        }
+        assert_eq!(std::fs::read(outside.path().join("child")).unwrap(), b"target-only edit");
+        assert_eq!(std::fs::read(dst.path().join(".git/index")).unwrap(), index);
+        assert!(!dst.path().join("dir").exists());
+        assert_eq!(sh(dst.path(), "git --no-optional-locks status --porcelain"), "");
+        assert!(apply(dst.path(), &carry).ok, "retry after symlink-safe recovery");
+        assert_eq!(std::fs::read(outside.path().join("child")).unwrap(), b"target-only edit");
+    }
+}
+
+#[test]
 fn submodule_patch_format_and_paths_ignore_display_preferences() {
     let src = tempfile::tempdir().unwrap();
     let module = tempfile::tempdir().unwrap();
@@ -656,7 +703,7 @@ fn target_head_moving_during_payload_receipt_refuses_under_the_lock() {
         "git -c user.name=t -c user.email=t@t commit-tree HEAD^{tree} -p HEAD -m moved",
     );
     let index = std::fs::read(dst.path().join(".git/index")).unwrap();
-    let receipt = "tar -xf - -C \"$s\" staged patch intent intent-placeholders paths || exit 2";
+    let receipt = "tar -xf - -C \"$s\" staged patch intent intent-placeholders paths recovery-paths || exit 2";
     let racing = APPLY_SCRIPT.replace(
         receipt,
         &format!("{receipt}\ngit -C \"$top\" update-ref HEAD {} || exit 2", next.trim()),
