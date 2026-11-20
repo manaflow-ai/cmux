@@ -178,6 +178,38 @@ fn an_initial_handshake_waits_for_a_candidate_instead_of_being_dropped() {
     }
 }
 
+/// Signaling can take longer than the handshake's own bound (the device hub under load; the
+/// pair bench's relayed lines took 6 to 23 s on 2026-11-20). The handshake's clock starts when
+/// the first route arrives, so a late route still connects.
+#[test]
+fn a_route_that_arrives_after_the_handshake_timeout_still_connects() {
+    let viewer_key = KeyPair::generate().unwrap();
+    let host_key = KeyPair::generate().unwrap();
+    let mut viewer =
+        Endpoint::new(Role::Initiator, b"late", &viewer_key, host_key.public, 0).unwrap();
+    let mut host =
+        Endpoint::new(Role::Responder, b"late", &host_key, viewer_key.public, 0).unwrap();
+
+    let late = HANDSHAKE_TIMEOUT_US + 2_000_000;
+    let mut now = 0;
+    while now < late {
+        now += HANDSHAKE_RETRY_US;
+        assert!(viewer.poll_transmit(now).expect("waiting for signaling fails nothing").is_empty());
+        assert!(host.poll_transmit(now).expect("waiting for the viewer fails nothing").is_empty());
+    }
+    viewer.add_path(Route::Udp(addr(HOST_LAN)), PathKind::DirectLan, now);
+    for _ in 0..4 {
+        for t in viewer.poll_transmit(now).unwrap() {
+            host.on_packet(Route::Udp(addr(VIEWER_WAN)), &t.packet, now).unwrap();
+        }
+        for t in host.poll_transmit(now).unwrap() {
+            viewer.on_packet(Route::Udp(addr(HOST_LAN)), &t.packet, now).unwrap();
+        }
+    }
+    assert!(viewer.link().is_established(), "the viewer connects on the late route");
+    assert!(host.link().is_established(), "the host connects on the late route");
+}
+
 #[test]
 fn a_missing_candidate_still_reaches_the_handshake_timeout() {
     let viewer_key = KeyPair::generate().unwrap();
