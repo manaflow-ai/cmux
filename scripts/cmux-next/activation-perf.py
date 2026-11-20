@@ -119,8 +119,56 @@ class Session:
                 "chat_tabs": len(made["chat"]), "hibernated": hibernated, "build_s": round(time.monotonic() - start, 1)}
 
 
+REALLY_ACTIVE = "really active"
+
+
+def finder_pid():
+    """Finder's pid, the app a backgrounded cmux hands activation to (None when it does not run)."""
+    found = subprocess.run(["/usr/bin/pgrep", "-x", "Finder"], capture_output=True, text=True).stdout.split()
+    return int(found[0]) if found else None
+
+
+def background(app, seconds=10):
+    """Makes the app really inactive, as after a Cmd-Tab away: `debug.app_activation` refuses to run while it is
+    active, and on a measure host with a console session the launched app is frontmost even under
+    CMUX_NEXT_NO_ACTIVATE (every cycle of the first fleet run, 2026-11-20, answered "really active" and measured
+    nothing). Hands activation to Finder (`debug.focus {deactivate}`) until a probe resign is accepted.
+    Returns whether it is."""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:  # bounded wait for the window server to move activation away
+        probe = app.rpc("debug.app_activation", {"active": False}) or {}
+        if REALLY_ACTIVE not in str(probe.get("error") or ""):
+            app.rpc("debug.app_activation", {"active": True})  # the probe's resign undone: cycles start from active
+            return True
+        params = {"deactivate": True}
+        pid = finder_pid()
+        if pid:
+            params["activate_pid"] = pid
+        app.rpc("debug.focus", params)
+        time.sleep(0.5)  # test script: the window server applies the activation change
+    return False
+
+
+def main_thread_sample(path, limit=2500):
+    """The main thread's call graph from a `sample` file, its first `limit` lines (heaviest first): the report
+    carries it, since a fleet step uploads only its report.json."""
+    lines, keep = [], False
+    with open(path, errors="replace") as f:
+        for line in f:
+            if "com.apple.main-thread" in line:
+                keep = True
+            elif keep and line.strip().startswith(("Thread_", "Total number in stack")):
+                break
+            if keep:
+                lines.append(line.rstrip("\n"))
+                if len(lines) >= limit:
+                    break
+    return lines
+
+
 def cycles(app, count, pid=None, sample_out=None, settle=0.4, window_notices=True):
     """`count` resign/become pairs; per become: observers_ms, drain_ms, round trip and resyncs."""
+    background(app)
     app.rpc("debug.hangs", {"clear": True})
     app.rpc("debug.layout_counters", {"reset": True})
     sampler = None
@@ -257,8 +305,13 @@ def run(app, opts, pid=None):
     sample_out = os.path.join(opts.out, "activation-sample.txt") if opts.sample and pid else None
     heavy_rows, heavy_hangs = cycles(app, opts.cycles, pid=pid, sample_out=sample_out)
     heavy = summarize(heavy_rows, heavy_hangs)
-    print(f"activation-perf: heavy {json.dumps(heavy)}", flush=True)
+    if sample_out and os.path.exists(sample_out):
+        heavy["main_thread_sample"] = main_thread_sample(sample_out)
+    print(f"activation-perf: heavy {json.dumps({k: v for k, v in heavy.items() if k != 'main_thread_sample'})}", flush=True)
     failures = []
+    for name, part in (("light", light), ("heavy_app_only", heavy_app), ("heavy", heavy)):
+        if part["observers_ms"]["p50"] is None:
+            failures.append(f"{name}: no activation was timed (observers_ms missing): {'; '.join(part['errors']) or 'no error'}")
     worst = heavy["resyncs"]["max"]
     if worst is not None and worst > opts.max_resyncs:
         failures.append(f"an activation resynced {worst} status indicators in the heavy session (budget {opts.max_resyncs}: "
@@ -297,7 +350,8 @@ def main():
             json.dump(report, f, indent=1)
     for failure in report.get("failures") or []:
         print(f"FAIL {failure}", flush=True)
-    sys.exit(1 if opts.gate and report.get("failures") else 0)
+    untimed = any("no activation was timed" in f for f in report.get("failures") or [])
+    sys.exit(1 if untimed or (opts.gate and report.get("failures")) else 0)
 
 
 if __name__ == "__main__":
