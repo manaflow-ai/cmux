@@ -24,3 +24,94 @@ extension AgentPaneModel {
         return json
     }
 }
+
+/// File-page reverse links consume only a context created by the originating agent pane.
+public protocol AgentSourceUsesPageContext: AnyObject {
+    var sourceContextID: String { get }
+    func matches(_ file: URL) -> Bool
+    func read(cursor: String?) async throws -> JSONValue
+    func reveal(reply: String, turn: String) -> Bool
+}
+
+public enum AgentSourceUsesPageBridge {
+    public static func config(local: Bool, file: URL, source: (any AgentSourceUsesPageContext)?) -> [String: JSONValue] {
+        guard local, let source, source.matches(file) else { return [:] }
+        return ["sourceUses": true, "sourceContext": .string(source.sourceContextID)]
+    }
+    @MainActor public static func call(op: String, params: JSONValue, gesture: Bool, markdown: Bool, local: Bool, file: URL?, canonical: (URL) -> URL, source: (any AgentSourceUsesPageContext)?, read: @escaping () -> Bool, stillCurrent: @escaping () -> Bool, cursor: String?) async throws -> JSONValue? {
+        guard markdown, op == "sourceUses" || op == "revealSourceUse" else { return nil }
+        guard let raw = params["path"]?.stringValue, raw.hasPrefix("/") else { throw PageError.invalidParams("path is not absolute") }
+        let requested = URL(fileURLWithPath: raw)
+        guard local, let file, canonical(requested) == file, let source, source.matches(file) else { throw PageError.invalidParams("no source context for this page's file") }
+        if op == "sourceUses" { let result = try await source.read(cursor: cursor); guard read(), stillCurrent() else { throw PageError.closed }; return result }
+        guard gesture, let reply = params["replyId"]?.stringValue, let turn = params["turnId"]?.stringValue, source.reveal(reply: reply, turn: turn) else { throw PageError.invalidParams("reply is not a recorded use of this page's file") }
+        return .object([:])
+    }
+
+    @MainActor public static func sourceUses(
+        local: Bool, file: URL?, requested: URL, matches: Bool, source: (any AgentSourceUsesPageContext)?,
+        read: @escaping () -> Bool, stillCurrent: @escaping () -> Bool, cursor: String?
+    ) async throws -> JSONValue {
+        guard local, matches, let file, let source, source.matches(file) else {
+            throw PageError.invalidParams("no source context for this page's file")
+        }
+        let result = try await source.read(cursor: cursor)
+        guard read(), stillCurrent() else { throw PageError.closed }
+        _ = requested
+        return result
+    }
+
+    @MainActor public static func reveal(
+        gesture: Bool, local: Bool, file: URL?, requested: URL, matches: Bool, source: (any AgentSourceUsesPageContext)?,
+        reply: String?, turn: String?
+    ) throws -> JSONValue {
+        guard gesture else { throw PageError(code: "cmux.page.gesture", message: "opening a reply needs a user gesture") }
+        guard local, matches, let file, let source, source.matches(file), let reply, let turn else {
+            throw PageError.invalidParams("reply is not a recorded use of this page's file")
+        }
+        guard source.reveal(reply: reply, turn: turn) else {
+            throw PageError.invalidParams("reply is not a recorded use of this page's file")
+        }
+        _ = requested
+        return .object([:])
+    }
+}
+
+extension FilePageSourceContext: AgentSourceUsesPageContext { public var sourceContextID: String { id } }
+
+extension AgentPaneModel {
+    /// Installs the checked file callbacks while keeping source provenance in the pane target.
+    public func installSourceFileOpener(
+        noteOpened: @escaping (URL) -> Void,
+        openTab: @escaping (URL, FilePageSourceContext?) -> Bool,
+        openOther: @escaping (URL, AgentPaneFileTarget) -> Bool,
+        reveal: @escaping (String, Int) -> Bool
+    ) {
+        onOpenFile = { url, target in
+            noteOpened(url)
+            return target == .tab ? openTab(url, nil) : openOther(url, target)
+        }
+        onOpenFileWithSource = { [weak self] url, target, rawPath in
+            guard let self else { return false }
+            noteOpened(url)
+            guard target == .tab else { return openOther(url, target) }
+            guard let session = self.sessionId, self.canReadSourceUses,
+                  let rawPath, let uri = FilePageSourceContext.sourceURI(rawPath) else {
+                return openTab(url, nil)
+            }
+            let context = FilePageSourceContext(file: url,
+                read: { [weak self] cursor in
+                    guard let self else { throw PageError.closed }
+                    return try await self.sourceUses(uri: uri, session: session, cursor: cursor)
+                },
+                current: { [weak self] in
+                    self?.sessionId == session && self?.canReadSourceUses == true
+                },
+                reveal: { [weak self] reply, seq in
+                    guard let self, self.sessionId == session, self.canReadSourceUses else { return false }
+                    return reveal(reply, seq)
+                })
+            return openTab(url, context)
+        }
+    }
+}

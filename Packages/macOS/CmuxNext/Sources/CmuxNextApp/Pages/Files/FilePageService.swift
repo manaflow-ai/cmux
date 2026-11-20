@@ -42,10 +42,9 @@ final class FilePageService: InternalPageProvider {
         /// The Markdown omnibar above the page (markdown tabs only).
         var bar: MarkdownOmnibarBar?
         /// Where the file lives: the machine of the pane the tab opened in (#25581).
-        var files: any FilePageFiles = LocalFilePageFiles()
+        var files: any FilePageFiles = LocalFilePageFiles(), sourceUses: FilePageSourceContext?
         /// That machine's id (`local` for this Mac): a tab shows one machine's file of a path.
         var machine = "local"
-        var sourceUses: FilePageSourceContext?
     }
 
     let kind: FilePageKind
@@ -112,7 +111,6 @@ final class FilePageService: InternalPageProvider {
     }
 
     func pageView(_ key: String) -> PageWebView? { tabs[key]?.page }
-    fileprivate func sourceUses(_ key: String) -> FilePageSourceContext? { tabs[key]?.sourceUses }
 
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Each tab's key, file and page, for `debug.filepages`.
@@ -169,13 +167,7 @@ final class FilePageService: InternalPageProvider {
         let tab = Tab(file: real, userChose: userChose, readOnly: readOnly, recoveredText: files.isLocal ? recoveredText : nil,
                       reveal: reveal, files: files, machine: machineID, sourceUses: files.isLocal ? sourceUses : nil)
         let key = show(in: pane, focus: focus, placed: placed, shownInPlace: shownInPlace, tab) { key in
-            self.file(key) == real && self.tabs[key]?.machine == machineID && (!noFollow || (self.tabs[key]?.files as? RemoteFilePageFiles)?.noFollow == true)
-        }
-        if let sourceUses, files.isLocal {
-            tabs[key]?.sourceUses = sourceUses
-            // Preserve edits in a reused viewer; update only its originating-chat capability.
-            tabs[key]?.page?.send(command: "sourceContext", arguments: ["path": .string(real.path), "sourceUses": true,
-                                                                      "sourceContext": .string(sourceUses.id)])
+            self.file(key) == real && self.tabs[key]?.machine == machineID && (!noFollow || (self.tabs[key]?.files as? RemoteFilePageFiles)?.noFollow == true) && (sourceUses == nil || sourceUses.map { self.tabs[key]?.sourceUses = $0 } != nil)
         }
         if let reveal { revealAt(reveal, in: key) }
         // The user opened a file a tab already shows (perhaps one an agent opened): it is theirs now.
@@ -559,7 +551,7 @@ final class FilePageTabHost: FilePageHosting {
         self.key = key
     }
 
-    var sourceUses: FilePageSourceContext? { service?.sourceUses(key) }
+    var sourceUses: FilePageSourceContext? { service?.tabs[key]?.sourceUses }
     var roots: FileWorkspaceRoots { service?.roots ?? FileWorkspaceRoots(folders: []) }
     var remoteImages: Bool { service?.look.remoteImages ?? false }
     func recents() -> JSONValue { service?.recents() ?? ["items": []] }

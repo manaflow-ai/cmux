@@ -15479,7 +15479,7 @@ export class AcpmuxDirectClient {
     return read;
   }
 
-  private mergeIndexedPage(page: EventRecord[], fillGaps = true): boolean {
+  private mergeIndexedPage(page: EventRecord[], fillGaps = true, keepPlaceholders = true): boolean {
     if (!page.length) return false;
     const before = this.events.length ? this.events[0]!.seq : Number.POSITIVE_INFINITY;
     const pageStart = Math.min(...page.map((event) => event.seq));
@@ -15490,8 +15490,10 @@ export class AcpmuxDirectClient {
     // newly held records, as `checkFinishedTurn` does for a narrow repair read.
     this.rebuildKeepingLiveState(Math.min(before, ...page.map((event) => event.seq)) - 1);
     const held = new Set(this.events.map((event) => event.seq));
-    for (const row of indexedPromptPlaceholders(this.promptIndex?.rows ?? [], held, pageStart, tailStart))
-      this.indexedPlaceholders.set(row.id, row);
+    if (keepPlaceholders) {
+      for (const row of indexedPromptPlaceholders(this.promptIndex?.rows ?? [], held, pageStart, tailStart))
+        this.indexedPlaceholders.set(row.id, row);
+    }
     this.emit("history");
     // The page sits below the held tail with a hole between them: no older page reads across it
     // (they page down from `firstSeq`), so read it forward from the page's end, in the background.
@@ -15660,7 +15662,7 @@ export class AcpmuxDirectClient {
       )
     )
       return false;
-    this.mergeIndexedPage(page, false);
+    this.mergeIndexedPage(page, false, false);
     return this.rows.get(id)?.kind === "assistant";
   }
 

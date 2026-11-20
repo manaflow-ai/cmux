@@ -59,6 +59,8 @@ test("a source-use jump reads one bounded window without walking or filling the 
     expect(reads[0]).toMatchObject({ afterSeq: 0, beforeSeq: 10, limit: 400 });
     expect(internal.indexedGaps).toEqual([]);
     expect(internal.indexedGapFill).toBeUndefined();
+    // A source jump is a bounded lookup; it must not leave prompt placeholders that pin retention.
+    expect(internal.indexedPlaceholders.size).toBe(0);
     expect(internal.events.length).toBeLessThan(1500);
   } finally {
     client.close();
