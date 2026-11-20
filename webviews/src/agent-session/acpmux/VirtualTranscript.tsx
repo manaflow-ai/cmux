@@ -99,6 +99,7 @@ import { holdOlderScrollTarget, noteOlderScrollTarget } from "./conversation/old
 import { noteTranscriptMount, noteMounted, noteUnmounted } from "./flickerLog";
 import { useEndedReplyCheck } from "./conversation/replyJudge";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
+import { transcriptScrollPacer } from "./transcriptScrollPacer.experiment";
 import { type Translate, useT } from "./i18n";
 import { TRAY_GHOST } from "./subagents/trayMotionModel";
 import { noteReaderScroll, readerScroll } from "./summary/heldWhileScrolling";
@@ -2056,6 +2057,7 @@ function TranscriptView({
   followRef.current = follow;
   const transcriptMounted = useRef(true);
   const scrollPacer = useRef<ReturnType<typeof createScrollPacer> | undefined>(undefined);
+  const [scrollPacerArm] = useState(() => experimentArm(transcriptScrollPacer));
   scrollPacer.current ??= createScrollPacer((frame: ScrollFrame) => {
     if (!transcriptMounted.current) return;
     // A wheel/default write or a rail jump may move the live scroller after an event queued this
@@ -2116,7 +2118,7 @@ function TranscriptView({
       delta: top - scrollRef.current.top || scrollRef.current.delta,
     };
     scheduleScrollLeadReset();
-    if (immediate) scrollPacer.current!.flush({ top, atLatest });
+    if (immediate || scrollPacerArm === "sync") scrollPacer.current!.flush({ top, atLatest });
     else scrollPacer.current!.enqueue({ top, atLatest });
   };
   /// The chat's frame budget (frameBudget.ts): while it is busy its frames are read, and past the
