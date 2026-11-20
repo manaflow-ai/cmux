@@ -133,8 +133,8 @@ extension AgentPageRedraw {
     /// pane's own first layout (a new workspace's pane made with its page's view: a spare still loading), when it has
     /// no size to pick a frame by (``AgentPaneNewTabFrame/image(size:appearance:)``). A view laid out in its pane is
     /// in the pane's layout pass, so the frame at the pane's size is in the pane's first frame with this view. A view
-    /// still parked (``PageOffscreenParking``: a spare its pane has not taken yet) asks nothing: its size there is not
-    /// its pane's, and an ask there would spend the ask at the size it next has in the pane. A pane that already shows
+    /// still parked (``PageOffscreenParking``: a spare its pane has not taken yet) asks nothing: its pane has no size
+    /// yet and gives no picture; the move into the pane asks again (``paneWired(_:)``). A pane that already shows
     /// a picture keeps it (the closure draws none over one).
     func askPictureAtNewSize(of pane: NSView) {
         guard let view = pane as? AgentPaneView, view.model.newTab != nil, !view.model.hasPainted, view.bounds.size != pictureAskedAt,
