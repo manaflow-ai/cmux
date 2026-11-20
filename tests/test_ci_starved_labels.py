@@ -448,6 +448,18 @@ class RescueTests(unittest.TestCase):
         starved_labels.sync_issues(github, found, iso(0), now=NOW)
         self.assertEqual(dispatches(github), ["11"])
 
+    def test_the_persistent_pool_label_alerts_but_starts_no_rescue(self) -> None:
+        # A job on cmux-linux names it literally, so the rescue cannot move it (PR #47956 review).
+        stuck = job(label="cmux-linux", created=231, name="full bake")
+        stuck["run_id"], stuck["run_attempt"] = 11, 1
+        found = starved_labels.starved([{"id": 11}], {11: [stuck]}, now=NOW)
+        self.assertEqual([entry["label"] for entry in found], ["cmux-linux"])
+        self.assertEqual(starved_labels.rescue_plan(found[0], {}, NOW), [])
+        github = FakeGitHub([])
+        starved_labels.sync_issues(github, found, iso(0), now=NOW)
+        self.assertEqual(dispatches(github), [])
+        self.assertEqual(github.opened(), 1)
+
     def test_a_label_starved_under_thirty_minutes_only_alerts(self) -> None:
         found = starved_labels.starved([{"id": 11}], {11: [self.stuck_ios(11, 25)]}, now=NOW)
         self.assertEqual(len(found), 1)

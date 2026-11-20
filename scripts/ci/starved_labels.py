@@ -336,7 +336,10 @@ def rescued_runs(body: object) -> dict[int, dt.datetime]:
 def rescue_plan(entry: Mapping[str, Any], rescued: Mapping[int, dt.datetime], now: dt.datetime,
                 room: int = RESCUE_RUNS_PER_SWEEP) -> list[tuple[int, int]]:
     """The (run, attempt) pairs to start a rescue for: the entry's runs stuck past RESCUE_AFTER (starved()), oldest
-    first, each at most once per RESCUE_REPEAT, `room` at most."""
+    first, each at most once per RESCUE_REPEAT, `room` at most. None for the persistent pool's label: a job there
+    names it literally, so the rescue cannot move it, and it would only spend the sweep's rescue slots."""
+    if entry.get("label") == PERSISTENT_LINUX:
+        return []
     plan: list[tuple[int, int]] = []
     for pair in entry.get("runs") or ():
         if len(plan) >= room:
