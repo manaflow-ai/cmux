@@ -4910,6 +4910,8 @@ GUARD_WORKFLOWS = {
         "portable-placement": _PLACE,
         "hot-route": _PLACE,
         "ci-guard-group": "judged step by step against the base by its own rule (GUARD_GROUP_JOB)",
+        "release-notary": "skipped on a pull request (its `if:`): it judges a push to the branch on its own "
+                          "(guards_new_reds.py --tip), so no pull request's red is its",
         "rust-notices-tree": _PRODUCT,
         "pr-red-checks": _PUBLISH,
     },
