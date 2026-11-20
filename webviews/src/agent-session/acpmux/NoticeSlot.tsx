@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import { type NoticeTier, type Entry, SlotContext, topNotice, useNoticeTurn } from "./noticeSlotModel";
+import { useCountedRender } from "./perfRender";
 /// The one place above the composer where notices show: of every notice that wants to show, only
 /// the highest tier draws (the first to ask, on a tie); the rest wait, mounted with their state,
 /// and show once it clears. Notices outside a slot (a gallery, a test) always draw.
@@ -40,6 +41,8 @@ export function Notice({
   when: unknown;
   children: ReactNode;
 }) {
+  // Debug measurement (acpmuxPerf): its committed renders (NoticeSlot.test.tsx).
+  useCountedRender(`notice:${id}`);
   const { shown } = useNoticeTurn(id, tier, Boolean(when));
   return shown ? <>{children}</> : null;
 }
