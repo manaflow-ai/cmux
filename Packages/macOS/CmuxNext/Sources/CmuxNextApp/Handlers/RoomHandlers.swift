@@ -75,13 +75,11 @@ enum RoomHandlers {
         }
         for color in GroupColor.allCases {
             bind(ActionID(rawValue: "space.color.\(color.rawValue)")) { invocation in
-                let room = try context.room(invocation)
-                update(room.id, context) { try await $0.updateProfile($1, color: .set(color.rawValue)) }
+                try update(context.room(invocation).id, context) { try await $0.updateProfile($1, color: .set(color.rawValue)) }
             }
         }
         bind("space.clearColor") { invocation in
-            let room = try context.room(invocation)
-            update(room.id, context) { try await $0.updateProfile($1, color: .clear) }
+            try update(context.room(invocation).id, context) { try await $0.updateProfile($1, color: .clear) }
         }
         bind("space.setIcon") { invocation in
             let room = try context.room(invocation)
