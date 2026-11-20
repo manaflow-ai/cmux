@@ -499,7 +499,7 @@ def main():
         failures.extend(coverage_failures(rows))
     warnings = scaling_warnings(rows)
     result = {"workspaces": list(COUNTS), "rows": rows, "warnings": warnings, "incomplete": failures,
-              "budget": {"ratio": LIMIT, "advisory": True}}
+              "budget": {"ratio": LIMIT, "advisory": True}, "instant_runs": instant_runs(reports)}
     output = pathlib.Path(opts.json)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, indent=2) + "\n")
