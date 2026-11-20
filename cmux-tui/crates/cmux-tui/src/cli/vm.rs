@@ -114,9 +114,11 @@ const VERBS: &str = "run, new, show, pause, resume, start, stop, rm, exec, fork,
 
 /// `cmux vm`'s usage for the VM API verbs; `cmux vm --help` adds the Cloud verbs.
 fn help() -> String {
+    let japanese = crate::localization::catalog().is_japanese();
     format!(
         "usage: cmux vm <verb> [options]\n\n{}\nUse `cmux vm --help` for every VM verb, and `cmux vm <verb> --help` for one verb's options.",
-        super::surface::VM_VERBS_HELP.trim_end()
+        (if japanese { super::surface::VM_VERBS_HELP_JA } else { super::surface::VM_VERBS_HELP })
+            .trim_end()
     )
 }
 
@@ -812,7 +814,8 @@ pub(super) fn vm_help(japanese: bool) -> String {
     format!(
         "{}\n{}\n{}\n",
         super::cloud_help::overview(japanese).trim_end(),
-        super::surface::VM_VERBS_HELP.trim_end(),
+        (if japanese { super::surface::VM_VERBS_HELP_JA } else { super::surface::VM_VERBS_HELP })
+            .trim_end(),
         vm_help_note(japanese)
     )
 }
