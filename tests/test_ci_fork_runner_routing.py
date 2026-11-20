@@ -125,7 +125,23 @@ CLA_TRUSTED_RUNNER_EXPRESSION = (
     '["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'
     "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
 )
-TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, CLA_TRUSTED_RUNNER_EXPRESSION)
+# The same selector without the 8 vCPU size, which the jobs that used to share the CLA selector keep.
+TRUSTED_RUNNER_EXPRESSION_SMALL = TRUSTED_RUNNER_EXPRESSION.replace(',"blacksmith-8vcpu-ubuntu-2404"', '')
+# The required merge gates' reserved one-job label (cmuxterm-hq gha_runners.py GATE_JIT_LABEL): served only by the
+# fleet reconciler's JIT VMs (no service account, deleted after the one job), created first in a tick under its own
+# cap with a warm floor, and named only by the jobs behind main's required checks (tests/test_ci_required_gate_label.py).
+# On 2026-11-20 #47869's required CLA policy guard jobs 136180710145 and 136182264409 sat queued with no runner from
+# 08:41Z on hosted ubuntu-24.04. The operand leads the trusted selector, after the fork branch; CI_GATE_SKIP_FLEET=1
+# turns it off and the selector after it is unchanged, so it can only ever add that one literal label.
+GATE_JIT_LABEL = "cmux-gcp-gate-jit-x64"
+GATE_FIRST_OPERAND = "vars.CI_GATE_SKIP_FLEET != '1' && '" + GATE_JIT_LABEL + "' || "
+GATE_TRUSTED_RUNNER_EXPRESSION = TRUSTED_RUNNER_EXPRESSION.replace(
+    "'ubuntu-24.04' || ", "'ubuntu-24.04' || " + GATE_FIRST_OPERAND, 1)
+GATE_CLA_TRUSTED_RUNNER_EXPRESSION = CLA_TRUSTED_RUNNER_EXPRESSION.replace(
+    "'ubuntu-24.04' || ", "'ubuntu-24.04' || " + GATE_FIRST_OPERAND, 1)
+TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, TRUSTED_RUNNER_EXPRESSION_SMALL,
+                              CLA_TRUSTED_RUNNER_EXPRESSION, GATE_TRUSTED_RUNNER_EXPRESSION,
+                              GATE_CLA_TRUSTED_RUNNER_EXPRESSION)
 # Fast checks admission accepts only the smallest measured Blacksmith size (a
 # picker's one re-run route, never 16 or 32 vCPU), with the same hosted
 # default. No input can select a persistent runner.
@@ -177,6 +193,35 @@ BOUNDED_SELECTOR_JOBS = {
     ("sdk-release-cut.yml", "cut-tags"), ("test-e2e.yml", "runner"), ("test-ios.yml", "runner"),
 }
 HOSTED_LITERAL_LABEL = re.compile(r"ubuntu-latest|ubuntu-\d{2}\.\d{2}(?:-arm)?|macos-\d+(?:-intel)?|windows-\d{4}")
+# Our own one-job Linux label: the fleet reconciler boots one cloud VM per queued job with a
+# JIT config, no service account, and deletes it after that job, so a key held there leaves with the VM as on a
+# Blacksmith one. Accepted only as a literal operand: no variable may name it, and no other owned label is.
+# The queue janitors take it first so they never queue on the hosted pools they drain (2026-11-19: about 28,700
+# queued jobs, the janitors among them).
+FLEET_EPHEMERAL_LABELS = frozenset({"cmux-fleet-linux-x64"})
+# The janitors' fleet-first operand, exactly: a switch-off variable compared with a literal, an optional
+# schedule-or-dispatch event test, then the fleet literal. Placed after the fork branch of an otherwise accepted
+# expression (the trusted selector included), it can only ever add that one label.
+FLEET_FIRST_OPERAND = re.compile(
+    r"(?:\(github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch' && !inputs\.run_id\) && )?"
+    r"vars\.CI_REPAIR_SKIP_FLEET != '1' && '(" + "|".join(map(re.escape, sorted(FLEET_EPHEMERAL_LABELS))) + r")' \|\| "
+)
+FORK_BRANCH_PREFIX = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+
+
+def without_fleet_first(runs_on: str) -> str:
+    """RUNS_ON with the janitors' fleet-first operand removed, when it sits right after the fork branch."""
+    if runs_on.startswith(FORK_BRANCH_PREFIX):
+        rest = runs_on[len(FORK_BRANCH_PREFIX):]
+        matched = FLEET_FIRST_OPERAND.match(rest)
+        if matched:
+            return FORK_BRANCH_PREFIX + rest[matched.end():]
+    return runs_on
+# Ephemeral by construction like a Blacksmith label: only cmuxterm-hq's gha-runners reconciler serves it, one JIT VM
+# per job (no service account, no ingress, deleted after the job), and no persistent runner registers it
+# (cmuxterm-hq build-fleet/swift-linux-builder/gha-runners/README.md). The nightly's App-key control jobs take it on
+# attempt 1, ahead of the PR queue (Leo, 2026-11-19: "why isn't nightly getting priority then? on the linux things").
+OWNED_EPHEMERAL_LABELS = frozenset({"cmux-gcp-nightly-jit-x64"})
 # Values the selector test tries for LINUX_RUNNER: owned and hosted labels, case and list forms.
 ADVERSARIAL_VARIABLE_VALUES = (
     "", "glaeda-std-xcode-26.6", "glaeda-gui-xcode-26.6", "self-hosted", "cmux-lawrence", "ubuntu-24.04",
@@ -289,10 +334,13 @@ def runner_label_errors(runs_on: str) -> list[str]:
     """
     if runs_on in (*TRUSTED_RUNNER_EXPRESSIONS, FAST_CHECKS_ADMISSION_EXPRESSION):
         return []
+    if without_fleet_first(runs_on) in TRUSTED_RUNNER_EXPRESSIONS:
+        return []
     expression = re.fullmatch(r"\$\{\{(.*)\}\}", runs_on.strip(), re.DOTALL)
     if expression is None:
-        if re.fullmatch(r"blacksmith-[a-z0-9-]+", runs_on) or HOSTED_LITERAL_LABEL.fullmatch(runs_on):
-            return []  # One fixed ephemeral label: a Blacksmith VM or a GitHub-hosted one.
+        if (re.fullmatch(r"blacksmith-[a-z0-9-]+", runs_on) or HOSTED_LITERAL_LABEL.fullmatch(runs_on)
+                or runs_on in OWNED_EPHEMERAL_LABELS):
+            return []  # One fixed ephemeral label: a Blacksmith VM, a GitHub-hosted one or a one-job JIT VM of ours.
         return [f"{runs_on!r} is not an ephemeral label"]
     try:
         chain = _alternatives(parse_expression(expression.group(1)))
@@ -303,7 +351,8 @@ def runner_label_errors(runs_on: str) -> list[str]:
     for index, operand in enumerate(chain):
         conditions, result = (operand[1][:-1], operand[1][-1]) if operand[0] == "and" else ([], operand)
         label = _string(result)
-        if label is not None and blacksmith.fullmatch(label):
+        if label is not None and (blacksmith.fullmatch(label) or label in FLEET_EPHEMERAL_LABELS
+                                  or label in OWNED_EPHEMERAL_LABELS):
             continue
         if (label is not None and index == 0 and HOSTED_LITERAL_LABEL.fullmatch(label) and len(conditions) == 1
                 and conditions[0][0] == "cmp" and conditions[0][1] == "!="
@@ -1346,7 +1395,26 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 self.assertEqual(len(runs_on), 1, runs_on)
                 self.assertRegex(runs_on[0], TRUSTED_RUNNER_LINE)
                 if workflow in {"cla.yml", "cla-policy-guard.yml"}:
-                    self.assertEqual(runs_on[0].strip(), "runs-on: " + CLA_TRUSTED_RUNNER_EXPRESSION)
+                    self.assertIn(runs_on[0].strip(), ("runs-on: " + CLA_TRUSTED_RUNNER_EXPRESSION,
+                                                       "runs-on: " + GATE_CLA_TRUSTED_RUNNER_EXPRESSION))
+                if workflow == "backend-migrations.yml":
+                    # The required gates' reserved label leads (test_ci_required_gate_label.py).
+                    self.assertEqual(runs_on[0].split(" #", 1)[0].strip(), "runs-on: " + GATE_TRUSTED_RUNNER_EXPRESSION)
+
+    def test_the_gate_label_passes_only_as_the_literal_operand_ahead_of_the_trusted_selector(self) -> None:
+        # A trusted-token gate may lead with cmux-gcp-gate-jit-x64 (one VM per job, deleted after it). Only that
+        # literal, behind CI_GATE_SKIP_FLEET, ahead of the exact selector passes; anything else still fails.
+        self.assertEqual(runner_label_errors(GATE_TRUSTED_RUNNER_EXPRESSION), [])
+        self.assertEqual(runner_label_errors(GATE_CLA_TRUSTED_RUNNER_EXPRESSION), [])
+        for refused in (GATE_TRUSTED_RUNNER_EXPRESSION.replace(GATE_JIT_LABEL, "cmux-fleet-linux-x64"),
+                        GATE_TRUSTED_RUNNER_EXPRESSION.replace(GATE_JIT_LABEL, "cmux-gcp-lane-x64"),
+                        GATE_TRUSTED_RUNNER_EXPRESSION.replace("'" + GATE_JIT_LABEL + "'", "vars.GATE_RUNNER"),
+                        GATE_JIT_LABEL):
+            with self.subTest(runs_on=refused):
+                self.assertNotEqual(runner_label_errors(refused), [])
+        # Not the repair workflows' switch: a variable named for the other label cannot turn this one off.
+        self.assertNotEqual(runner_label_errors(GATE_TRUSTED_RUNNER_EXPRESSION.replace(
+            "CI_GATE_SKIP_FLEET", "CI_REPAIR_SKIP_FLEET")), [])
 
     def test_a_job_with_an_app_key_runs_where_no_variable_can_move_it(self) -> None:
         jobs = app_key_jobs()
@@ -1412,6 +1480,25 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         self.assertTrue(_trusted_fork_exclusion(parse_expression(
             "!contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)")))
         self.assertNotEqual(runner_label_errors("self-hosted"), [])
+
+    def test_only_the_one_job_jit_nightly_label_of_ours_counts_as_ephemeral(self) -> None:
+        # cmux-gcp-nightly-x64 is also served by a persistent runner on a lane VM; the JIT label never is.
+        jit = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && "
+               "'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}")
+        self.assertEqual(runner_label_errors(jit), [])
+        self.assertEqual(runner_label_errors("cmux-gcp-nightly-jit-x64"), [])
+        for owned in ("cmux-gcp-nightly-x64", "cmux-gcp-lane-build-x64"):
+            self.assertNotEqual(runner_label_errors(jit.replace("cmux-gcp-nightly-jit-x64", owned)), [], owned)
+        # cmux-fleet-linux-x64 is the janitors' one-job label (FLEET_EPHEMERAL_LABELS): an operand, never a literal.
+        for owned in ("cmux-gcp-nightly-x64", "cmux-gcp-lane-build-x64", "cmux-fleet-linux-x64"):
+            self.assertNotEqual(runner_label_errors(owned), [], owned)
+
+    def test_the_classic_nightly_app_key_pickers_start_on_the_jit_label(self) -> None:
+        jobs = yaml.load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]
+        for name in ("pick-nightly-app-runner", "pick-classic-prepare-runner"):
+            runs_on = jobs[name]["runs-on"]
+            self.assertIn("github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64'", runs_on, name)
+            self.assertTrue(runs_on.rstrip("} ").endswith("'blacksmith-2vcpu-ubuntu-2404'"), name)
 
     def test_key_holding_linux_jobs_follow_linux_runner_through_the_bounded_selector(self) -> None:
         runs_on = {(workflow, job): line for workflow, job, line in app_key_jobs()}
@@ -1536,6 +1623,28 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                         f"${{{{ {fork}contains(fromJSON('[\"blacksmith-6vcpu-macos-26\"]'), fromJSON(needs.r.outputs.map).a) "
                         "&& fromJSON(needs.r.outputs.map).a || 'blacksmith-6vcpu-macos-26' }}"):
             self.assertEqual(runner_label_errors(allowed), [], allowed)
+
+    def test_the_fleet_one_job_label_passes_only_as_a_literal(self) -> None:
+        # The queue janitors lead with cmux-fleet-linux-x64 (one VM per job, deleted after it) so they do not
+        # queue on the pools they drain. Only that literal passes; a variable, a bounded pick or a persistent
+        # owned label still fails.
+        fork = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+        switch = "vars.CI_REPAIR_SKIP_FLEET != '1' && "
+        self.assertEqual(runner_label_errors(f"${{{{ {fork}{switch}'cmux-fleet-linux-x64' || {BOUNDED_LINUX_SELECTOR} }}}}"), [])
+        self.assertEqual(runner_label_errors("cmux-fleet-linux-x64"), ["'cmux-fleet-linux-x64' is not an ephemeral label"])
+        # Ahead of the exact trusted selector, on schedule and dispatch only (the owned-pool sweeper).
+        scheduled = "(github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && " + switch
+        self.assertEqual(runner_label_errors(TRUSTED_RUNNER_EXPRESSION.replace(
+            fork, f"{fork}{scheduled}'cmux-fleet-linux-x64' || ", 1)), [])
+        self.assertNotEqual(runner_label_errors(TRUSTED_RUNNER_EXPRESSION.replace(
+            fork, f"{fork}{scheduled}'cmux-gcp-lane-x64' || ", 1)), [])
+        for refused in (f"${{{{ {fork}{switch}'cmux-gcp-lane-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
+                        f"${{{{ {fork}{switch}'glaeda-std-xcode-26.6' || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
+                        f"${{{{ {fork}{switch}vars.CI_REPAIR_SKIP_FLEET || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
+                        f"${{{{ {fork}contains(fromJSON('[\"cmux-fleet-linux-x64\",\"cmux-gcp-lane-x64\"]'), vars.X) "
+                        "&& vars.X || 'blacksmith-4vcpu-ubuntu-2404' }}"):
+            with self.subTest(runs_on=refused):
+                self.assertNotEqual(runner_label_errors(refused), [])
 
     def test_trusted_runner_selector_admits_only_ephemeral_labels(self) -> None:
         self.assertEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {TRUSTED_RUNNER_EXPRESSION}\n"), [])
