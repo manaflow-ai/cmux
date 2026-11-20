@@ -258,6 +258,22 @@ struct DensityPlaygroundTests {
         #expect(Self.fixture(active: DensityPreset.cozy.tokens).model.statusNotice == nil)
     }
 
+    /// A theme file's own density: a change shows, but nothing is written (no dangling `appearance.customDensity`
+    /// naming the theme's density), and the window says the theme file sets it.
+    @Test func aThemeFilesDensitySaysItWillNotSave() throws {
+        var theirs = DensityPreset.compact.tokens
+        theirs.id = "theme-arcade"
+        theirs.name = "Arcade"
+        let f = Self.fixture(active: theirs)
+        f.design.densityFromThemeFile = true
+        #expect(f.model.savesBlocked)
+        f.model.set(try #require(DensityTokenCatalog.entry("tabCornerRadius")), to: 4)
+        #expect(f.design.densityTokens.tokens["tabCornerRadius"] == 4, "it still applies live")
+        f.model.flush()
+        #expect(f.saves.isEmpty)
+        #expect(f.model.statusNotice == DensityPlaygroundStrings.themeFileNotice)
+    }
+
     /// Export writes what Import (and the Settings density card) reads; importing again adds a copy, never a replacement.
     @Test func exportedJSONImportsAsANewDensity() throws {
         let f = Self.fixture(active: DensityPreset.cozy.tokens)
