@@ -224,6 +224,7 @@ impl Hub {
         peer.set_explicit_route(pc.names_route());
         peer.recall_overlay();
         peer.set_vm_boundary(pc.vm_boundary);
+        peer.set_wake_hook(self.peer_wake.clone());
         peer.set_github_broker(pc.github_broker);
         peer.set_github_app(self.github_app.clone());
         peer.set_mirror(self.link_v2.clone());

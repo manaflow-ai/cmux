@@ -1379,6 +1379,22 @@ returns once the message is on disk here, and the daemon delivers it when the pe
    state, and `acpmux ls` ends with how many still wait (`outboxPending` in `_acpmux/status`).
    Delivered, held and failed deliveries are kept for a day.
 
+**Waking a paused machine for a message (`peerWake`).** A message for a session on a peer whose
+link is down marks that peer to wake for 180 s: its reconnects come within a second, and each
+runs its ssh with `ACPMUX_PEER_WAKE=1`, which a route's ProxyCommand may act on. A daemon with a
+wake command also runs it once, at the first such message in each 180 s window, whatever the
+peer's route, with the peer's name appended:
+
+```json
+{"peerWake": {"argv": ["machine-wake"]}}
+```
+
+runs `machine-wake lane-vm-3` (with `ACPMUX_PEER_WAKE=1`) for a message to `lane-vm-3/lane`. The
+command resumes the machine on whatever provider it is on (a paused VM, a VM that
+was stopped); it is killed after 180 s, and its outcome is logged. The message waits in the
+sender's outbox and goes once the link is back. Unset (the default), nothing runs. A config reload
+takes a new or removed command at once.
+
 **A relay for targets no peer reaches (`sendRelay`).** A host may have no peer that reaches the
 target, such as an agent VM that cannot dial back to the machine that drives it. A relay command,
 e.g. one that hands the message to a broker the driving machine keeps a connection to, still
