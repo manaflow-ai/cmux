@@ -22,8 +22,10 @@ import UIKit
         let window: UIWindow
         let list: UICollectionView
         let seen: Seen
-        /// The hosting controller's view: what moves the list without SwiftUI putting it back.
-        var container: UIView { window.rootViewController?.view ?? list }
+        /// A plain view holding the list's host: nothing places it but the test, so moving it moves
+        /// the list on screen with no layout pass of the list (SwiftUI and the window put back a
+        /// transform set on the collection or on the root view: steps 797372f0, 93049c31).
+        let container: UIView
     }
 
     private func host() throws -> Hosted {
@@ -37,7 +39,18 @@ import UIKit
         .pagedIdentifier("commit.list")
         .pagedProbe(probe)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
-        window.rootViewController = UIHostingController(rootView: list)
+        let root = UIViewController()
+        let container = UIView(frame: root.view.bounds)
+        container.autoresizingMask = []
+        root.view.addSubview(container)
+        let hosting = UIHostingController(rootView: list)
+        root.addChild(hosting)
+        hosting.view.frame = container.bounds
+        container.addSubview(hosting.view)
+        hosting.didMove(toParent: root)
+        window.rootViewController = root
+        container.frame = window.bounds
+        hosting.view.frame = container.bounds
         window.makeKeyAndVisible()
         let found = try #require(drain { () -> UICollectionView? in
             guard let view = window.firstCollection(identifier: "commit.list"), !view.indexPathsForVisibleItems.isEmpty else { return nil }
@@ -45,16 +58,15 @@ import UIKit
         }, "the list showed no rows")
         settle()
         seen.shifts = []
-        return Hosted(window: window, list: found, seen: seen)
+        return Hosted(window: window, list: found, seen: seen, container: container)
     }
 
     /// A row being read that moves on screen and stays there is a shift of its full size, even when
-    /// nothing lays the list out again (its container moved it; the screen's root view here, which
-    /// SwiftUI does not place, unlike the collection itself).
+    /// nothing lays the list out again (its container moved it).
     @Test func aJumpThatDrawsCountsInFull() throws {
         let hosted = try host()
         defer { hosted.window.isHidden = true }
-        hosted.container.transform = CGAffineTransform(translationX: 0, y: 10)
+        hosted.container.frame.origin.y += 10
         settle()
         #expect(abs(hosted.seen.worst - 10) < 0.5, "a drawn 10 pt jump measured \(hosted.seen.shifts)")
     }
@@ -63,9 +75,9 @@ import UIKit
     @Test func aOneFrameJumpCountsThereAndBack() throws {
         let hosted = try host()
         defer { hosted.window.isHidden = true }
-        hosted.container.transform = CGAffineTransform(translationX: 0, y: 10)
+        hosted.container.frame.origin.y += 10
         turn()
-        hosted.container.transform = .identity
+        hosted.container.frame.origin.y -= 10
         settle()
         let big = hosted.seen.shifts.filter { abs($0) > 0.5 }
         #expect(big.count == 2 && abs(abs(big[0]) - 10) < 0.5 && abs(abs(big[1]) - 10) < 0.5,

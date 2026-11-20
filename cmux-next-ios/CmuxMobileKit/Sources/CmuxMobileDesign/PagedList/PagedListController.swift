@@ -1001,9 +1001,12 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         }
         let shift = (now - last.windowY) + ledger.explained
         guard let report = probe.passFrameShift else { return }
-        let midPlacement = committedFrame.map { committed in
-            committed != frame || lastFrame.map { $0 != committed } ?? false
-        } ?? false
+        // The list's own window frame moved since the last pass, or differs from the last committed
+        // frame's: one of the two passes saw it mid-placement (before the first commit too).
+        let movedSincePass = lastFrame.map { $0 != frame } ?? false
+        let movedSinceCommit = committedFrame.map { $0 != frame } ?? false
+        let lastPassOffCommit = lastFrame.flatMap { last in committedFrame.map { last != $0 } } ?? false
+        let midPlacement = movedSincePass || movedSinceCommit || lastPassOffCommit
         report(shift, midPlacement, abs(shift) > 0.5
             ? shiftDetail(at: source, moved: now - last.windowY, explained: ledger.explained, offset: offsetY - last.offsetY, frame: frame)
             : nil)
