@@ -58,6 +58,54 @@ fn dial_load(socket: PathBuf, stop: Arc<AtomicBool>, answered: Arc<AtomicUsize>)
     }
 }
 
+/// The step the test is at, and when it began. A step that takes longer than [`STUCK`] is a
+/// hang: the watchdog prints the step, the processes under the home and the home's logs, then
+/// ends the test process (a hang would otherwise hold the run until the job's own timeout).
+struct Step(std::sync::Mutex<(String, Instant)>);
+
+// timeout: test-only hang detector; every step here takes seconds.
+const STUCK: Duration = Duration::from_secs(90);
+
+impl Step {
+    fn at(&self, what: String) {
+        eprintln!("take_over_under_load: {what}");
+        *self.0.lock().unwrap() = (what, Instant::now());
+    }
+}
+
+fn watchdog(step: Arc<Step>, home: PathBuf, done: Arc<AtomicBool>) {
+    while !done.load(Ordering::Relaxed) {
+        std::thread::sleep(Duration::from_millis(500));
+        let (what, since) = step.0.lock().unwrap().clone();
+        if since.elapsed() < STUCK {
+            continue;
+        }
+        eprintln!("take_over_under_load: STUCK for {:?} at: {what}", since.elapsed());
+        let ps =
+            std::process::Command::new("ps").args(["-eo", "pid,ppid,stat,etime,args"]).output();
+        if let Ok(ps) = ps {
+            let home = home.display().to_string();
+            for line in String::from_utf8_lossy(&ps.stdout).lines() {
+                if line.contains(&home) || line.contains("acpmux") || line.contains("fake_agent") {
+                    eprintln!("  ps: {line}");
+                }
+            }
+        }
+        for entry in std::fs::read_dir(&home).into_iter().flatten().flatten() {
+            let path = entry.path();
+            eprintln!("  home: {}", path.display());
+            if path.extension().is_some_and(|e| e == "log") {
+                let text = std::fs::read_to_string(&path).unwrap_or_default();
+                let tail: Vec<&str> = text.lines().rev().take(80).collect();
+                for line in tail.into_iter().rev() {
+                    eprintln!("    {line}");
+                }
+            }
+        }
+        std::process::exit(101);
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn nightly_take_overs_mid_tool_call_keep_agents_and_run_each_queued_prompt_once() {
     let mut daemon = Daemon::new("tvload", "approve-all");
@@ -75,9 +123,16 @@ async fn nightly_take_overs_mid_tool_call_keep_agents_and_run_each_queued_prompt
         .to_string(),
     )
     .unwrap();
+    let step = Arc::new(Step(std::sync::Mutex::new(("start".into(), Instant::now()))));
+    let done = Arc::new(AtomicBool::new(false));
+    let dog = {
+        let (step, home, done) = (step.clone(), daemon.home.clone(), done.clone());
+        std::thread::spawn(move || watchdog(step, home, done))
+    };
     daemon.start();
 
     // Every chat is inside a tool call that waits on its FIFO.
+    step.at("chats start their tool calls".into());
     let mut chats: Vec<(String, PathBuf)> = Vec::new();
     let mut clients = Vec::new();
     for i in 0..CHATS {
@@ -112,6 +167,7 @@ async fn nightly_take_overs_mid_tool_call_keep_agents_and_run_each_queued_prompt
 
     for install in 0..INSTALLS {
         // The person queues one more prompt behind each running turn, right before the install.
+        step.at(format!("install {install}: queue prompts"));
         let mut rpc = daemon.rpc().await;
         for (i, (session, _)) in chats.iter().enumerate() {
             let id = format!("q-{i}-{install}");
@@ -128,8 +184,10 @@ async fn nightly_take_overs_mid_tool_call_keep_agents_and_run_each_queued_prompt
         }
 
         install_over(&exe);
+        step.at(format!("install {install}: take-over"));
         daemon.take_over();
         drop(rpc);
+        step.at(format!("install {install}: adoption"));
         for (i, pid) in harness.iter().enumerate() {
             assert!(alive(*pid), "install {install}: chat {i}'s agent died at the take-over");
         }
@@ -153,6 +211,7 @@ async fn nightly_take_overs_mid_tool_call_keep_agents_and_run_each_queued_prompt
     }
 
     // Each tool call finishes; the queued prompts run after it.
+    step.at("tool calls finish, queued prompts run".into());
     for (_, gate) in &chats {
         let mut writer = std::fs::OpenOptions::new()
             .write(true)
@@ -167,8 +226,11 @@ async fn nightly_take_overs_mid_tool_call_keep_agents_and_run_each_queued_prompt
             daemon.wait_event(session, &echo, |e| chunk(e, &echo));
         }
     }
+    step.at("the dial load stops".into());
     stop.store(true, Ordering::Relaxed);
     load.join().unwrap();
+    done.store(true, Ordering::Relaxed);
+    dog.join().unwrap();
     assert!(
         answered.load(Ordering::Relaxed) > 0,
         "no status dial was answered during the installs"
