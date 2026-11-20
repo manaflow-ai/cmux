@@ -131,7 +131,7 @@ final class TerminalClipboardRequests {
     }
 
     private func confirmProgramWrite(contents: String, contentBytes: Int, state: UncheckedPointer) {
-        guard !contents.isEmpty, contentBytes <= Self.maxProgramWriteBytes,
+        guard contentBytes <= Self.maxProgramWriteBytes,
               beginWritePrompt(state: state), let scope = writePromptScope() else {
             deny(state: state)
             return
