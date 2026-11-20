@@ -504,6 +504,15 @@ const noScroll = () => {};
  * context menu's. Their children are the stack's flex items, so the wrapper itself measures 0. */
 const CONTENTS_WRAPPER = ".cmux-app-scene-group, .cmux-app-scene-foreach, .cmux-app-scene-context";
 
+/** An element out of the column's flow (fixed or absolute): no flex item, so no height and no gap. A scene
+ * node never is; an open context menu's anchor and the popup's focus guards beside it are (fixed). Only
+ * those other elements read their style, so a measure reads none per row or per wrapper. */
+function outOfFlow(element: HTMLElement): boolean {
+  if (element.dataset.appNode !== undefined) return false;
+  const position = element.ownerDocument.defaultView?.getComputedStyle(element).position;
+  return position === "fixed" || position === "absolute";
+}
+
 /** A stack child's height in a column whose items are `gap` apart. A `display: contents` wrapper spans its
  * boxes (through nested wrappers) and the gaps between them, as the column lays them out; walking its
  * own children only, never the list. */
@@ -515,7 +524,7 @@ function childHeight(element: HTMLElement, gap: number): number {
     for (const child of parent.children as HTMLCollectionOf<HTMLElement>) {
       if (child.hidden) continue;
       if (child.matches(CONTENTS_WRAPPER)) walk(child);
-      else {
+      else if (!outOfFlow(child)) {
         height += child.offsetHeight;
         boxes++;
       }
@@ -634,8 +643,6 @@ function LazyStackChildren({
   useLayoutEffect(measureMargin);
 
   const indexOf = useMemo(() => new Map(items.map((id, index) => [id, index])), [items]);
-  // Tracked from mount, not from the first slice: a child focused while the stack draws whole must stay
-  // mounted when the first slice windows it.
   // A row a render just added enters (scene motion); one that only scrolled into the window does not. The rows
   // drawn before: null until the stack first draws rows, which may enter only if the stack itself came after the
   // scene's first frame (as a new stack's children do; a page scroller's stack draws its rows a pass late).
@@ -651,8 +658,12 @@ function LazyStackChildren({
     (id: string) => (known.current === null ? !cameLate : known.current.has(id)),
     [cameLate],
   );
+  // Tracked from mount, not from the first slice: a child focused while the stack draws whole must stay
+  // mounted when the first slice windows it. Installed in a layout effect, before any child's passive effect
+  // (a TextField's autofocus) can move focus, and seeded from the focus it finds (an `autoFocus` attribute
+  // or a child's layout effect focused before it).
   const focused = useRef<string | undefined>(undefined);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = stack.current;
     if (!element) return;
     // The outermost of the stack's items around the target (a child drawn whole has no `data-index`, and an
@@ -671,6 +682,8 @@ function LazyStackChildren({
     const focusOut = (event: FocusEvent) => {
       if (!element.contains(event.relatedTarget as Node | null)) focused.current = undefined;
     };
+    const active = element.ownerDocument.activeElement;
+    if (active && element.contains(active)) focused.current = childOf(active);
     element.addEventListener("focusin", focusIn);
     element.addEventListener("focusout", focusOut);
     return () => {

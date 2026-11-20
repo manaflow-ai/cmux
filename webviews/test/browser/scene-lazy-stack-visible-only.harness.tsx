@@ -4,7 +4,8 @@
 // mark, read from each mounted row's fiber (test/support/mountedRowRenders.ts), so the page carries no counter.
 // `#groups=1` makes every third child a styled Group (a background, padding and a border, which its
 // `display: contents` box does not draw) of two Rows; `#stack=VStack` draws the same children whole, as the
-// layout a LazyVStack must keep.
+// layout a LazyVStack must keep. `#menus=1` gives each grouped Row a context menu (its open anchor and the
+// popup's focus guards are fixed elements inside the Group).
 import { createRoot } from "react-dom/client";
 import "../../src/pages/shared/desktop";
 import "../../src/pages/shared/pageBase.css";
@@ -25,6 +26,7 @@ declare global {
 const hash = new URLSearchParams(location.hash.slice(1));
 const n = Number(hash.get("n") ?? 1000);
 const groups = hash.get("groups") === "1";
+const menus = hash.get("menus") === "1";
 const stackType = hash.get("stack") === "VStack" ? "VStack" : "LazyVStack";
 const style = document.createElement("style");
 style.textContent = "html, body, #root { height: 100%; margin: 0; } #root { display: flex; flex-direction: column; }";
@@ -45,7 +47,16 @@ const children = groups
       if (index % 3 !== 2) return id;
       const pair = [`${id}a`, `${id}b`];
       for (const [at, child] of pair.entries())
-        ops.push({ op: "create", id: child, type: "Row", props: { title: `Grouped ${index}.${at}`, onTap: true } });
+        ops.push({
+          op: "create",
+          id: child,
+          type: "Row",
+          props: {
+            title: `Grouped ${index}.${at}`,
+            onTap: true,
+            ...(menus && { menu: [{ title: "Open" }, { title: "Copy" }] }),
+          },
+        });
       ops.push(
         {
           op: "create",
