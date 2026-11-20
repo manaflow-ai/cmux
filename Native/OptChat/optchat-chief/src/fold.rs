@@ -144,6 +144,9 @@ pub struct TurnFold {
     /// The `turn_result` that follows the last `turn_end` was read: it says
     /// whether another carried turn follows.
     result_after_end: bool,
+    /// The own cost (acpmux `turn_result.costUsd`) of each carried turn this
+    /// fold went on into: the prompt's answer carries only the first turn's.
+    carried_cost: f64,
     /// Inside a turn Claude Code ran on its own (acpmux `background_turn`
     /// started .. ended: a task notification, a scheduled wakeup, a hook)
     /// between two Chief turns of a kept session: its lines are not this
@@ -296,6 +299,14 @@ impl TurnFold {
             match event.kind.as_str() {
                 "turn_result" => {
                     self.result_after_end = true;
+                    if self.carries > 0 {
+                        self.carried_cost += event
+                            .msg
+                            .get("costUsd")
+                            .and_then(Value::as_f64)
+                            .filter(|c| c.is_finite() && *c >= 0.0)
+                            .unwrap_or(0.0);
+                    }
                     if event.msg.get("carriedTo").is_some_and(|c| !c.is_null()) {
                         self.expect_carry = true;
                     }
@@ -326,6 +337,14 @@ impl TurnFold {
             // Claude Code finished an answer; with a steered message it goes
             // on in this prompt, and the next answer is posted after it.
             if !self.in_subagent && event.kind.starts_with("claude.result") {
+                // A step a steer stopped (`steerNow`, Claude Code's interrupt)
+                // ends with `error_during_execution`: the words it was writing
+                // are cut mid-sentence, so only they go; finished segments stay.
+                if event.msg.get("subtype").and_then(Value::as_str)
+                    == Some("error_during_execution")
+                {
+                    self.talk.clear();
+                }
                 let mut out = Vec::new();
                 self.finish_talk(&mut out);
                 if let Some(text) = self.last_talk.take() {
@@ -494,13 +513,9 @@ impl TurnFold {
     /// far is kept and posted first. A turn that ended in error goes on too
     /// (the carried turn answers the message); its error is dropped.
     fn resume_carried(&mut self) {
-        // A step a steer stopped (`steerNow`) ended with a cancel: its words
-        // were cut mid-sentence and the carried turn answers again; a clean
-        // end's answer stays and is posted first.
-        let cut = self.ended.as_ref().is_some_and(|e| e.error.is_some());
-        if let Some(text) = self.last_talk.take()
-            && !cut
-        {
+        // Finished segments stay and are posted first (a step a steer cut
+        // dropped its open words at its result).
+        if let Some(text) = self.last_talk.take() {
             self.answered.push(text);
         }
         self.ended = None;
@@ -536,6 +551,11 @@ impl TurnFold {
     /// How many carried turns this fold went on into.
     pub fn carries(&self) -> usize {
         self.carries
+    }
+
+    /// The carried turns' own cost, USD (none: 0).
+    pub fn carried_cost(&self) -> f64 {
+        self.carried_cost
     }
 
     /// The turn is over without a `turn_end` (the prompt failed or the

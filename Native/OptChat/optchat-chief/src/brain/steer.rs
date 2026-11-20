@@ -43,6 +43,10 @@ pub(super) struct Steering {
     pub(super) logged: bool,
 }
 
+/// Added to a person's message sent with `steerNow`: Claude Code reads the
+/// stop it causes as the person cancelling the request.
+pub(super) const STEER_NOW_NOTE: &str = "\n\n[You were stopped only so you read this now. Answer it, then still finish and answer every earlier message of this turn.]";
+
 /// Whether `items` hold a person's message (a report never interrupts).
 fn has_person(items: &[Queued]) -> bool {
     items
@@ -108,20 +112,12 @@ impl Brain {
             .flat_map(|i| i.images.iter())
             .filter_map(super::images::TurnImage::block)
             .collect();
-        let texts: Vec<&str> = items.iter().map(|i| i.text.as_str()).collect();
-        blocks.push(serde_json::json!({"type": "text", "text": texts.join("\n\n")}));
-        self.steer_seq += 1;
-        let id = self.steer_seq;
-        let prompt_id = format!("optchat-steer:{key}:{id}");
         // Only Claude Code says when it read a message; elsewhere the
         // answer comes at the turn's end, so the message is logged now.
         let at_end = self
             .turn_engine
             .as_ref()
             .is_none_or(|e| self.family_of(&e.harness) != Family::Claude);
-        // Their people join the turn before their words reach it, so the
-        // rights hook holds the turn's next call to them too.
-        self.add_turn_people(&items);
         // A person's message is read now, not at the turn's next step
         // (bench 2026-11-20: later burst messages acted on after 19 s p50).
         // With no tool call running, `steerNow` stops the model's current
@@ -131,6 +127,21 @@ impl Brain {
         // which ends the step without killing the call.
         let person = has_person(&items) && !at_end;
         let calling = self.interrupt.tool_running();
+        let texts: Vec<&str> = items.iter().map(|i| i.text.as_str()).collect();
+        let mut text = texts.join("\n\n");
+        // Sent now, the message stops the step Claude Code was on, which it
+        // reads as the person cancelling; it must still answer the turn's
+        // earlier messages.
+        if person && !calling {
+            text.push_str(STEER_NOW_NOTE);
+        }
+        blocks.push(serde_json::json!({"type": "text", "text": text}));
+        self.steer_seq += 1;
+        let id = self.steer_seq;
+        let prompt_id = format!("optchat-steer:{key}:{id}");
+        // Their people join the turn before their words reach it, so the
+        // rights hook holds the turn's next call to them too.
+        self.add_turn_people(&items);
         let started = if person && !calling {
             self.agents.start_steer_now(&session, blocks, &prompt_id)
         } else {
@@ -324,12 +335,16 @@ impl Brain {
         if !current {
             return;
         }
+        // A move is recorded even when the message was read already (the
+        // read can answer first): the session must outlive the moved call.
+        if moved {
+            self.moved = Some(key.to_owned());
+            self.interrupt.set_moved_work();
+        }
         if !self.steering.iter().any(|s| s.key == key && !s.logged) {
             return;
         }
         if moved {
-            self.moved = Some(key.to_owned());
-            self.interrupt.set_moved_work();
             (self.log)(&format!(
                 "turn {key}: moved its running work to the background so a new message is read now"
             ));

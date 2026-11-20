@@ -157,3 +157,78 @@ fn a_turn_with_no_carry_ends_at_its_turn_end_as_before() {
     assert!(all.contains("answer 0"), "{all}");
     let _ = Duration::from_millis(0);
 }
+
+/// A step a `steerNow` message stopped: Claude Code ends it with
+/// `error_during_execution` while it writes; its cut words never post, the
+/// finished segment before them does, and the carried turn's answer follows.
+/// The carried turn's own cost joins the turn's.
+#[test]
+fn a_step_stopped_for_a_message_drops_its_cut_words_and_the_carried_answer_posts() {
+    let script: Script = Box::new(|turn, _| {
+        if turn > 0 {
+            return Vec::new();
+        }
+        vec![
+            json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+            update(
+                "agent_message_chunk",
+                json!({"content": {"type": "text", "text": "Port is 8443."}}),
+            ),
+            update(
+                "tool_call",
+                json!({"toolCallId": "t0", "title": "Bash", "rawInput": {"command": "true"}, "_meta": {"claude": {"tool": "Bash"}}}),
+            ),
+            update(
+                "tool_call_update",
+                json!({"toolCallId": "t0", "status": "completed", "content": []}),
+            ),
+            update(
+                "agent_message_chunk",
+                json!({"content": {"type": "text", "text": "The cache ttl is half-wri"}}),
+            ),
+            json!({"dir": "in", "kind": "claude.result", "msg": {"type": "result", "subtype": "error_during_execution", "is_error": true}}),
+            json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "cancelled"}}),
+            json!({"dir": "mux", "kind": "turn_result", "msg": {"status": "cancelled", "carriedTo": {"turnId": "t2"}}}),
+            json!({"dir": "mux", "kind": "turn_started", "msg": {"carried": {"fromTurnId": "t1", "promptIds": ["optchat-steer:x:1"]}}}),
+            update(
+                "agent_message_chunk",
+                json!({"content": {"type": "text", "text": "7 times 9 is 63. The cache ttl is 600."}}),
+            ),
+            json!({"dir": "mux", "kind": "turn_end", "msg": {}}),
+            json!({"dir": "mux", "kind": "turn_result", "msg": {"status": "completed", "costUsd": 0.25}}),
+        ]
+    });
+    let mut h = Harness::new(script);
+    let traces = h.dir.path().join("traces");
+    h.brain
+        .set_trace(optchat_chief::trace::Trace::open(&traces, false).unwrap());
+    h.agents.inner.lock().unwrap().answer = Some(json!({"stopReason": "cancelled",
+        "_meta": {"claude": {"cost_usd": 0.10, "carried": {"seq": 7, "promptIds": ["optchat-steer:x:1"]}}}}));
+    h.connect();
+    h.say("user_local", "what port, and what ttl?");
+    h.settle_posts();
+    let all = posts(&h).join("\n---\n");
+    assert!(all.contains("Port is 8443."), "the finished segment: {all}");
+    assert!(
+        all.contains("The cache ttl is 600."),
+        "the carried answer: {all}"
+    );
+    assert!(!all.contains("half-wri"), "no cut words: {all}");
+    let cost: f64 = std::fs::read_dir(&traces)
+        .unwrap()
+        .flatten()
+        .flat_map(|e| {
+            std::fs::read_to_string(e.path())
+                .unwrap()
+                .lines()
+                .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+                .collect::<Vec<_>>()
+        })
+        .filter(|e| e["ev"] == "turn.end")
+        .filter_map(|e| e["cost_usd"].as_f64())
+        .sum();
+    assert!(
+        (cost - 0.35).abs() < 1e-9,
+        "the first and the carried turn: {cost}"
+    );
+}

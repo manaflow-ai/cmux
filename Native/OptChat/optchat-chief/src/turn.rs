@@ -1218,7 +1218,7 @@ pub fn run_with_drafts(
     // The owner's Stop (or a denial, an engine change) ends the session even
     // when the harness answered it `end_turn` (a turn that finished as the
     // stop came): acpmux reads such a turn as stopped too.
-    let kept = ((start.keep || interrupt.moved_work())
+    let mut kept = ((start.keep || interrupt.moved_work())
         && !interrupt.ends_session()
         && !fold.expects_carry()
         && orphan.is_none()
@@ -1245,7 +1245,14 @@ pub fn run_with_drafts(
     }
     // From here on the cost is this turn's own (the session's total less
     // what it was when this turn took the kept session).
-    let cost = own_cost(cost, reused.and_then(|r| r.kept.cost_total));
+    // The carried turns' own cost joins (their prompt answered once, at the
+    // first turn's end).
+    let carried = fold.carried_cost();
+    let session_total = cost.map(|c| c + carried);
+    if let Some(k) = kept.as_mut() {
+        k.cost_total = session_total.map(micros);
+    }
+    let cost = own_cost(cost, reused.and_then(|r| r.kept.cost_total)).map(|c| c + carried);
     // The run's end: what is left of its steps, its use and cost.
     send_run(
         // A turn cut by a lost acpmux link (an update relaunch) runs again
