@@ -149,7 +149,7 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         let step = (lane["step"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let title = (lane["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let unread = (summary["unread"] as? Bool) ?? false
-        let project = (summary["cwd"] as? String).map { URL(fileURLWithPath: $0).lastPathComponent }.flatMap { $0.isEmpty || $0 == "/" ? nil : $0 }
+        let project = (summary["cwd"] as? String).map { ($0 as NSString).lastPathComponent }.flatMap { $0.isEmpty || $0 == "/" ? nil : $0 }
         return AgentActivityLane(id: id, name: name, title: title ?? name, peer: summary["peer"] as? String, parent: parent,
                                  state: state, since: since, error: error, workspaceID: workspaceID,
                                  harness: harness, step: step, unread: unread, project: project,
