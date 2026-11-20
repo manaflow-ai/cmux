@@ -1066,7 +1066,8 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 9px;
+  /* The scale's smallest step: 9 px was under the 11 px floor (audit 2026-11-19). */
+  font-size: var(--text-caption);
   line-height: 1;
   color: var(--cmux-diff-text-muted);
 }
