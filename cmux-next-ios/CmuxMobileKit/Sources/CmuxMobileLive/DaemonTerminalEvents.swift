@@ -140,12 +140,6 @@ struct DaemonTerminalEventParser: Sendable {
             accept(frame, into: &out)
         case "detached":
             out.append(.detached(reason: object["reason"] as? String))
-        case "phone-open-link":
-            // A program in this terminal asked a browser for a public page while this phone
-            // drove it: the Mac's daemon sent it here instead of opening it on the Mac.
-            if let text = object["url"] as? String, let url = URL(string: text) {
-                out.append(.openLink(url, terminalID: object["terminal_id"] as? String))
-            }
         case "size-state":
             if let state = TerminalSizeState.decode(object["state"]) {
                 out.append(.sizeState(state, selfParticipant: object["self_participant"] as? String))

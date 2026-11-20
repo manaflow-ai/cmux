@@ -1263,7 +1263,6 @@ public final class DaemonTerminalSession: TerminalSession {
             // `remote`: the daemon then knows the keys on this lane are this phone's, so a link a
             // program opens right after them comes to this phone (`phone-open-link`). Until it
             // answers, keys keep going on the attach channel.
-            _ = try? await lane.request("set-client-info", params: [:], deadline: .seconds(5))
             guard let self, self.client === main, self.attached, self.inputClient == nil else {
                 await lane.close()
                 return
@@ -1582,8 +1581,7 @@ public final class DaemonTerminalSession: TerminalSession {
     /// and only that many history rows (latest screen first).
     static let replayHistoryRowsCapability = "attach-replay-history-rows-v1"
     /// What the attach channel lists in `set-client-info`.
-    static let clientCapabilities = [shortSizeLeaseCapability, sizeLeaseCapability, sharedSizingCapability, hostGridViewCapability,
-                                     phoneOpenLinkCapability]
+    static let clientCapabilities = [shortSizeLeaseCapability, sizeLeaseCapability, sharedSizingCapability, hostGridViewCapability]
     /// `phone-open-link-v1`: this phone opens a link a program in the terminal asks a browser for
     /// while the phone drives it (the daemon's `phone-open-link` event, `offer-link-to-phone`).
     static let phoneOpenLinkCapability = "phone-open-link-v1"
