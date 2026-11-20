@@ -1,6 +1,7 @@
 public import CmuxNextSettings
 public import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextWakeups
 public import Foundation
 
 /// Applies `app.language` (Leo, 2026-11-16: "we gotta add settings for changing languages"). The
@@ -26,6 +27,7 @@ public final class AppLanguageApplier {
     /// The name of `defaults`' own domain, read without the global domain's fallback.
     private let domain: String?
     private let pages: @MainActor (String?) -> Void
+    private let refreshPages: @MainActor (String?) -> Void
     /// cmux's own string bundles' language (the app's one ``AppLanguage``).
     let language: AppLanguage
     private var observation: Task<Void, Never>?
@@ -37,6 +39,7 @@ public final class AppLanguageApplier {
         self.defaults = defaults
         self.domain = domain
         self.pages = pages ?? Self.pushToPages
+        self.refreshPages = pages == nil ? Self.refreshToPages : { _ in }
         self.language = language
     }
 
@@ -52,7 +55,7 @@ public final class AppLanguageApplier {
         Bundle.observeLanguagePacks { [weak self] in
             MainDelivery().run { [weak self] in
                 guard let self else { return }
-                self.pages(self.language.code)
+                self.refreshPages(self.language.code)
             }
         }
         // task-owner: lives as long as the app's settings controller (app lifetime).
@@ -99,5 +102,12 @@ public final class AppLanguageApplier {
     private static func pushToPages(_ code: String?) {
         DesignSettings.shared.appLanguage = code
         for page in PageRegistry.pages() { page.applyLanguage() }
+    }
+
+    /// Replays the current code after a pack becomes active. The page must reload its locale
+    /// script because the same URL now resolves to the downloaded pack through the scheme handler.
+    private static func refreshToPages(_ code: String?) {
+        DesignSettings.shared.appLanguage = code
+        for page in PageRegistry.pages() { page.applyLanguage(refresh: true) }
     }
 }

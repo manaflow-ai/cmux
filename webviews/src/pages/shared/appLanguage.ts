@@ -15,7 +15,7 @@ declare global {
   // eslint-disable-next-line no-var
   var __cmuxAppLanguage: string | null | undefined;
   // eslint-disable-next-line no-var
-  var __cmuxSetAppLanguage: ((code: string | null) => void) | undefined;
+  var __cmuxSetAppLanguage: ((code: string | null, refresh?: boolean) => void) | undefined;
   /** The locales a split strings table ships (split-strings.mjs's head loader writes it). */
   // eslint-disable-next-line no-var
   var __cmuxStringLocales: readonly string[] | undefined;
@@ -54,12 +54,18 @@ function currentWindow(): Window | undefined {
 }
 
 /** Loads `language`'s strings scripts beside every split table's English script that lacks them. */
-function loadLocale(language: string): Promise<void> | null {
+function loadLocale(language: string, refresh = false): Promise<void> | null {
   const doc = globalThis.document;
   if (!doc?.head || language === "en" || !LANGUAGE_CODE.test(language)) return null;
-  const missing = englishScriptSources(doc)
-    .map((english) => localeScriptSource(english, language))
-    .filter((src) => !hasScript(doc, src));
+  const sources = englishScriptSources(doc).map((english) => localeScriptSource(english, language));
+  if (refresh) {
+    for (const src of sources) {
+      for (const script of Array.from(doc.querySelectorAll<HTMLScriptElement>("script[src]"))) {
+        if (script.getAttribute("src") === src) script.remove();
+      }
+    }
+  }
+  const missing = sources.filter((src) => !hasScript(doc, src));
   if (missing.length === 0) return null;
   return Promise.all(missing.map((src) => new Promise<void>((done) => loadScript(doc, src, () => done())))).then(
     () => undefined,
@@ -82,14 +88,14 @@ function announce(): void {
  * Sets the app's language (null or "system": System) and re-renders every surface in it once its
  * strings are in. Idempotent: the same value again does nothing. Resolves when the change is out.
  */
-export function setAppLanguage(code: string | null | undefined): Promise<void> {
+export function setAppLanguage(code: string | null | undefined, refresh = false): Promise<void> {
   const next = normalize(code);
   const view = currentWindow() as (Window & typeof globalThis) | undefined;
   if (view) view.__cmuxAppLanguage = next;
-  if (next === override) return Promise.resolve();
+  if (next === override && !refresh) return Promise.resolve();
   override = next;
   const mine = ++generation;
-  const loading = loadLocale(next ?? targetLocale());
+  const loading = loadLocale(next ?? targetLocale(), refresh);
   if (!loading) {
     announce();
     return Promise.resolve();
@@ -111,7 +117,7 @@ export function setAppLanguage(code: string | null | undefined): Promise<void> {
  */
 export function installAppLanguage(win: (Window & typeof globalThis) | undefined = globalThis.window): void {
   if (!win || win.__cmuxSetAppLanguage) return;
-  win.__cmuxSetAppLanguage = (code) => void setAppLanguage(code);
+  win.__cmuxSetAppLanguage = (code, refresh = false) => void setAppLanguage(code, refresh);
   const pending = normalize(win.__cmuxAppLanguage);
   if (pending && pending !== override) {
     void setAppLanguage(pending);

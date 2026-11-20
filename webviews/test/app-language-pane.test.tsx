@@ -124,6 +124,19 @@ test("a split table loads the new locale's script before the pane switches", asy
       await switching;
     });
     expect(shown("pane")).toBe(table.fr["trust.notNow"]);
+
+    // Pack activation can replace the file behind the same URL. A same-code refresh must reload
+    // that script instead of taking the idempotent fast path.
+    let refreshed = false;
+    const refresh = setAppLanguage("fr", true).then(() => (refreshed = true));
+    const replacement = [...doc.querySelectorAll<HTMLScriptElement>("script[src]")].find(
+      (element) => element.getAttribute("src") === "locales/fr.js",
+    );
+    expect(replacement).toBeDefined();
+    expect(replacement).not.toBe(script);
+    expect(refreshed).toBe(false);
+    replacement!.dispatchEvent(new dom.window.Event("load"));
+    await refresh;
   } finally {
     tables.fr = french;
     english.remove();
