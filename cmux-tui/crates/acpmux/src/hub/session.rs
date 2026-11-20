@@ -650,7 +650,8 @@ impl Session {
     /// A test's stand-in for an agent's `available_commands_update`: a detail of any size.
     #[cfg(test)]
     pub(crate) fn set_available_commands_for_test(&self, commands: Value) {
-        self.meta.lock().unwrap().available_commands = Some(commands.into());
+        self.meta.lock().unwrap_or_else(|e| e.into_inner()).available_commands =
+            Some(commands.into());
     }
     /// Read only the needed fields without copying large metadata payloads. The
     /// callback must not acquire other session/hub locks or call back into this session.
