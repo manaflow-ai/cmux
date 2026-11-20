@@ -7,6 +7,8 @@ import { revealRow } from "../keyboard";
 import { rowsByKey, type SchemaRow } from "../schema";
 import { managedText, type SettingsStore } from "../store";
 import { t, text } from "../strings";
+import { isExperimentalRow, useBetaChips } from "../betaChips";
+import { BetaChip } from "./BetaChip";
 import { Highlight } from "./Highlight";
 import { RowNotes } from "./RowNotes";
 import { RowNotice } from "./RowNotice";
@@ -62,6 +64,7 @@ export const SettingRow = memo(function SettingRow({
   const labelId = useId();
   const disabled = inactive || !state.connected || !state.readable || state.managed !== null;
   const menu = rowMenu(row.key, state, store);
+  const beta = useBetaChips() && isExperimentalRow(row);
   return (
     <RowFrame
       settingKey={row.key}
@@ -75,6 +78,7 @@ export const SettingRow = memo(function SettingRow({
         <ContextMenu className="row-label" items={menu}>
           <div className="row-title" id={labelId}>
             <Highlight text={text(row.title)} query={query} />
+            {beta && <BetaChip />}
           </div>
           {row.summary && (
             <div className="row-help">

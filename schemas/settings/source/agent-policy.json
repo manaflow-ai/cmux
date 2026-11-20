@@ -274,6 +274,7 @@
         "appearance.paneBackgrounds",
         "ui.reducedBackgrounds",
         "appearance.experimentalControls",
+        "appearance.settingsBetaChips",
         "app.uiScale",
         "appearance.glassTransparency",
         "appearance.hue",

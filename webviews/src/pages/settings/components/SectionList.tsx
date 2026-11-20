@@ -8,6 +8,8 @@ import type { SettingsState } from "../store";
 import { managedOf } from "../store";
 import { t, text } from "../strings";
 import { harnessesNeedAttention } from "../harnesses";
+import { isExperimentalCategory, useBetaChips } from "../betaChips";
+import { BetaChip } from "./BetaChip";
 
 function badge(state: SettingsState, category: string): "warning" | "lock" | "update" | null {
   const keys = categoryRows(category).map((row) => row.key);
@@ -86,6 +88,7 @@ const BADGE_TEXT = {
  * so it never marks a section the page is not showing. */
 export function SectionList({ current, onSelect }: { current: string | null; onSelect: (section: string) => void }) {
   const state = useSettingsState();
+  const betaChips = useBetaChips();
   const link = (category: Category) => {
     const mark = badge(state, category.id);
     return (
@@ -106,6 +109,7 @@ export function SectionList({ current, onSelect }: { current: string | null; onS
           <CategoryIcon symbol={category.symbol} />
         </span>
         <span className="section-name">{text(category.title)}</span>
+        {betaChips && isExperimentalCategory(category.id) && <BetaChip />}
         {mark && (
           <span className={`badge badge-${mark}`} data-badge={mark}>
             <Icon name={mark} />
