@@ -1654,16 +1654,10 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         self.assertEqual(len(ungated_blacksmith_labels("x.yml", other)), 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
-# 2026-11-19: the runner pool variables moved to the hosted label, and every size-bounded
-# runs-on, the queue janitor's included, kept asking for a third-party label that had stopped
-# starting jobs. The janitor is what finds a job queued with no runner, so it could not find its
-# own. Every bounded list that names a third-party Linux label and reads a repository variable
-# also names the hosted label, so a pool moved there is followed. Every workflow file is read,
-# so a new one copied from an old one is caught too.
+# 2026-11-19: the runner pool variables moved to the hosted label, and a size-bounded list that
+# did not name it could not follow them. Every bounded list that names a third-party Linux label
+# and reads a repository variable also names the hosted label. Every workflow file is read, so a
+# new one copied from an old one is caught too.
 BOUNDED_RUNNER_LIST = re.compile(r"contains\(fromJSON\('(\[[^'\]]*\])'\), (?:fromJSON\()?vars\.")
 
 
@@ -1679,3 +1673,6 @@ class BoundedListsFollowTheHostedPool(unittest.TestCase):
                         missing.append(f"{path.name}:{number}")
         self.assertEqual(missing, [], "bounded runner lists without the hosted label 'ubuntu-24.04'")
 
+
+if __name__ == "__main__":
+    unittest.main()
