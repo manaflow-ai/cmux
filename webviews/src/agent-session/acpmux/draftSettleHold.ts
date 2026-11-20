@@ -39,15 +39,15 @@ export function useDraftWaitOver(
 ): string | undefined {
   const [draftWaitOver, setDraftWaitOver] = useState<string>();
   const waiting = rowsReadFor !== undefined && draftSettled !== rowsReadFor ? rowsReadFor : undefined;
-  // The checks are read when they run, the latest of each, written as the render commits: a new pair
-  // each render arms nothing again, and a lint rule turned off keeps the hook out of the React Compiler.
-  const checks = useRef({ promptShown, promptRoot });
+  // The checks and `ended` are read when they run, the latest of each, written as the render commits: a
+  // new set each render arms nothing again, and a lint rule turned off keeps the hook out of the React Compiler.
+  const checks = useRef({ promptShown, promptRoot, ended });
   useInsertionEffect(() => {
-    checks.current = { promptShown, promptRoot };
+    checks.current = { promptShown, promptRoot, ended };
   });
   useEffect(() => {
     if (waiting === undefined) return;
-    const { promptShown, promptRoot } = checks.current;
+    const { promptShown, promptRoot, ended } = checks.current;
     if (promptShown()) {
       ended("shown");
       setDraftWaitOver(waiting);
