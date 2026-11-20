@@ -238,17 +238,12 @@ impl Hub {
         let msg = json!({"promptId": prompt_id, "threadId": thread, "from": from, "fromSession": from_session,
             "class":class,"kind":kind_of(class),"client":client,"text":text,"prompt":blocks,
             "sender":sender,"surgeHeld":true,"replyPeriodMs":period,"report":is_report(provenance)});
-        let msg = crate::prompt_provenance::marked(msg, provenance);
-        // The sender retries a refused hold. A concurrent journal restore must never park
-        // a second copy of that refused record to write behind the sender's back.
-        let stored = {
-            let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
-            self.catch_up_locked(session);
-            self.append_at_locked(session, "mux", "inbox", msg, None, None, true, true).1
-        };
-        if !stored {
-            return Err(RpcError::internal("could not persist the surge inbox message"));
-        }
+        self.persist_surge_event(
+            session,
+            "inbox",
+            crate::prompt_provenance::marked(msg, provenance),
+            None,
+        )?;
         let item = Item {
             prompt_id: prompt_id.to_owned(),
             notice: None,
