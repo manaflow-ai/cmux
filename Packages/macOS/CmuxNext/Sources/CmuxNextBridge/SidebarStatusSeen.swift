@@ -37,10 +37,4 @@ public final class SidebarStatusSeenStore {
         return true
     }
 
-    /// Marks every source that contributes a workspace row through one path.
-    @discardableResult
-    public func markSeen(tabs: [TabModel], status: WorkspaceStatus?, workspaceID: String) -> Bool {
-        let reports = tabs.flatMap(StatusMapping.shared.reports) + StatusMapping.shared.reports(status)
-        return markSeen(reports, workspaceID: workspaceID)
-    }
 }

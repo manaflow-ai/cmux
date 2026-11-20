@@ -30,7 +30,7 @@ public struct StatusMapping {
     /// Marks every source that contributes a workspace row as seen.
     @discardableResult
     public func markSeen(tabs: [TabModel], status: WorkspaceStatus?, workspaceID: String) -> Bool {
-        statusSeen.markSeen(tabs: tabs, status: status, workspaceID: workspaceID)
+        statusSeen.markSeen(tabs.flatMap(reports) + reports(status), workspaceID: workspaceID)
     }
 
     /// The reports one tab contributes.
