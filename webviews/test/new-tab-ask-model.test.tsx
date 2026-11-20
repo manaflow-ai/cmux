@@ -224,6 +224,8 @@ async function newTabPage(
   const { SignInContext } = await import("../src/agent-session/acpmux/signIn");
   const asks: unknown[][] = [];
   const queries: unknown[] = [];
+  const logIns: [string, string][] = [];
+  const opened: unknown[] = [];
   const readSessionAuth = (query: unknown) => {
     queries.push(query);
     return options.auth === undefined ? new Promise<unknown>(noop) : Promise.resolve(options.auth);
@@ -232,9 +234,16 @@ async function newTabPage(
   await act(async () =>
     root.render(
       <QueryClientProvider client={new QueryClient()}>
-        <SignInContext.Provider value={{ signedOut: options.signedOut ?? {}, logIn: noop, readSessionAuth }}>
+        <SignInContext.Provider
+          value={{
+            signedOut: options.signedOut ?? {},
+            logIn: (harness: string, login: string) => logIns.push([harness, login]),
+            readSessionAuth,
+          }}
+        >
           <NewTabScreen
             template="default"
+            onSetup={(...args: unknown[]) => opened.push(args)}
             {...options.launch}
             chips={options.chips}
             snapshot={noChat()}
@@ -282,6 +291,8 @@ async function newTabPage(
     },
     asks,
     queries,
+    logIns,
+    opened,
     type,
     pressReturn,
     status,
@@ -463,5 +474,29 @@ test("a tilde start folder does not become an invalid target auth cwd", async ()
     } finally {
       await act(async () => page.root.unmount());
     }
+  }
+});
+
+// First-run findings row 5: signed out, Return and Send did nothing (no message, no error). Return now
+// says why, and the note offers the two fixes: the agent's own sign-in, or another agent.
+test("Return with a signed-out agent says to sign in first and offers the sign-in or another agent", async () => {
+  const page = await newTabPage({
+    auth: { ...READY, state: "signedOut", login: { kind: "terminal", command: "codex login" } },
+    signedOut: { codex: "codex login" },
+  });
+  try {
+    await page.pressReturn();
+    expect(page.asks).toEqual([]);
+    expect(page.field.value).toBe("fix the flaky upload test");
+    expect(page.alert()).toContain("Sign in to Codex first");
+    const note = host.querySelector(".nt-composer .nt-signed-out")!;
+    const buttons = [...note.querySelectorAll("button")];
+    expect(buttons.map((button) => button.textContent)).toEqual(["Sign in to Codex", "Use Another Agent"]);
+    await act(async () => buttons[0]!.click());
+    expect(page.logIns).toEqual([["codex", "codex login"]]);
+    await act(async () => buttons[1]!.click());
+    expect(page.opened).toHaveLength(1);
+  } finally {
+    await act(async () => page.root.unmount());
   }
 });

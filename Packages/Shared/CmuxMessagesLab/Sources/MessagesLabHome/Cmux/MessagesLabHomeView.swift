@@ -126,8 +126,13 @@ public final class MessagesLabHomeView: NSView {
     /// The bounds that draw the host at `zoom`: the frame's size over the zoom, from the origin.
     private func applyZoomBounds() {
         let size = NSSize(width: frame.width / zoom, height: frame.height / zoom)
-        if bounds.size != size { setBoundsSize(size) }
-        if bounds.origin != .zero { setBoundsOrigin(.zero) }
+        guard bounds.size != size || bounds.origin != .zero else { return }
+        // A new scale realigns the transcript's clip view to the new pixels: the model's move, not the reader's
+        // scroll (TranscriptScrollView.placing; first-run audit row 8).
+        controller.host.scrollView.placing {
+            if bounds.size != size { setBoundsSize(size) }
+            if bounds.origin != .zero { setBoundsOrigin(.zero) }
+        }
     }
 
     public override func layout() {
