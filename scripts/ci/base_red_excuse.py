@@ -117,6 +117,17 @@ class RateLimitedRead(Exception):
     """
 
 
+class JobBudgetCut(Exception):
+    """A judgement's live base job-list reads ran out (CALL_JOB_READS, job_budget) or glaeda-gh's sweep guard refused
+    one: a read that never happened. Not a Refused, for RateLimitedRead's reason: the comparison turns a Refused from
+    a read into a refusal of its own in a dozen places, so the guard's raw text came out of a web or gallery path as
+    the judgement's answer. one_judgement makes it the timed retry (cut_refusal) for the red being judged (NAME)."""
+
+    def __init__(self, reads: int, name: str | None):
+        super().__init__(f"{reads} live base job lists read")
+        self.reads, self.name = reads, name
+
+
 def rate_limited_classes() -> tuple:
     """What main() reports as a rate limit, as one flat tuple. A reader without RateLimited leaves it the empty
     tuple, and `except ((), RateLimitedRead)` is a TypeError on every other refusal ("catching classes that do not
@@ -4136,22 +4147,33 @@ def jobs_cache() -> Path | None:
 
 
 def base_run_jobs(repo: str, run: dict, github) -> list[dict]:
-    """The jobs of base RUN's newest attempt (jobs?filter=latest), from the disk cache when RUN is completed."""
+    """The jobs of base RUN's newest attempt (jobs?filter=latest): a kept list first (kept_run_jobs: the disk cache
+    when RUN is completed, or the settled store), else one live read, counted against the judgement's one budget
+    (job_budget) whatever path asks. Past it, or refused by glaeda-gh's sweep guard, JobBudgetCut: never a read."""
+    kept = kept_run_jobs(repo, run)
+    if kept is not None:
+        return kept
     where, key = jobs_cache(), None
     if (where is not None and run.get("status") == "completed" and isinstance(run.get("run_attempt"), int)
             and re.fullmatch(r"[0-9TZ:.+-]{10,40}", str(run.get("updated_at") or ""))):
         stamp = re.sub(r"[^0-9]", "", run["updated_at"])
         key = where / f"{repo.replace('/', '--')}-{int(run['id'])}-{run['run_attempt']}-{stamp}.json"
-        try:
-            kept = json.loads(key.read_text())
-            if (isinstance(kept, list) and all(isinstance(job, dict) and job.get("run_id") == run["id"] for job in kept)
-                    and time.time() - key.stat().st_mtime < JOBS_CACHE_SECONDS):
-                return kept
-        except (OSError, ValueError):
-            pass
-    jobs = [found for page in github.json(f"repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100",
-                                          paginate=True)
-            for found in page.get("jobs") or []]
+    budget = job_budget()
+    if budget is not None and run["id"] not in budget["read"] and (
+            budget["spent"] or len(budget["read"]) >= CALL_JOB_READS):
+        budget["spent"] = True
+        raise JobBudgetCut(len(budget["read"]), budget["name"])
+    try:
+        jobs = [found for page in github.json(f"repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100",
+                                              paginate=True)
+                for found in page.get("jobs") or []]
+    except Refused as why:
+        if budget is None or not SWEEP_GUARD_REFUSED.search(str(why)):
+            raise
+        budget["spent"] = True
+        raise JobBudgetCut(len(budget["read"]), budget["name"]) from None
+    if budget is not None:
+        budget["read"].add(run["id"])
     for job in jobs:  # a --jq projection of glaeda's slim list reads a null run_id; the cache check above needs it
         if job.get("run_id") is None:
             job["run_id"] = run["id"]
@@ -4737,6 +4759,27 @@ CALL_JOB_READS = 24
 CALL_READS = "call-job-reads"
 SWEEP_GUARD_REFUSED = re.compile(r"glaeda-gh: refused: this caller read the jobs of \d+ different runs or jobs")
 INCOMPLETE = "incomplete: read"  # cut_refusal's words; merge_hold reads them as a timed retry, never a red
+JOB_BUDGET = ("job-list-budget",)  # the judgement memo's key for job_budget
+
+
+def job_budget() -> dict | None:
+    """The judgement's one live job-list budget (in JUDGEMENT_READS): the run ids read live ("read", at most
+    CALL_JOB_READS), whether it is spent ("spent": past it, or the sweep guard refused), and the red being judged
+    ("name", set by judge). Every live base_run_jobs read counts, the per-test paths' (web_base_runs,
+    gallery_run_results, pr_only_step_verdict, compile_errors_verdict, ...) as much as base_verdicts'. None outside a
+    judgement."""
+    memo = JUDGEMENT_READS.get()
+    if memo is None:
+        return None
+    return memo.setdefault(JOB_BUDGET, {"read": set(), "spent": False, "name": None})
+
+
+def budget_spent(job_reads: dict) -> int:
+    """The live job lists this judgement read: the shared budget's (job_budget), else job_reads' own count."""
+    budget = job_budget()
+    if budget is None:
+        return job_reads.get(CALL_READS, 0)
+    return CALL_JOB_READS if budget["spent"] else max(len(budget["read"]), job_reads.get(CALL_READS, 0))
 
 
 def kept_run_jobs(repo: str, run: dict) -> list[dict] | None:
@@ -4782,11 +4825,15 @@ def budgeted_run_jobs(repo: str, run: dict, github, workflow, name: str, job_rea
     kept = kept_run_jobs(repo, run)
     if kept is not None:
         return kept
-    if job_reads.get(workflow, 0) >= BASE_JOB_READS or job_reads.get(CALL_READS, 0) >= CALL_JOB_READS - reserve:
+    if job_reads.get(workflow, 0) >= BASE_JOB_READS or budget_spent(job_reads) >= CALL_JOB_READS - reserve:
         job_reads[(SEARCH_CUT, workflow, name)] = job_reads.get(workflow, 0)
         return None
     try:
         listed = base_run_jobs(repo, run, github)
+    except JobBudgetCut:
+        job_reads[CALL_READS] = CALL_JOB_READS
+        job_reads[(SEARCH_CUT, workflow, name)] = job_reads.get(workflow, 0)
+        return None
     except Refused as why:
         if not SWEEP_GUARD_REFUSED.search(str(why)):
             raise
@@ -8248,6 +8295,9 @@ def one_judgement(function):
         token = JUDGEMENT_READS.set({})
         try:
             return function(*args, **kwargs)
+        except JobBudgetCut as cut:  # a read that never happened, from any path: the timed retry (job_budget)
+            base = args[1] if len(args) > 1 else kwargs.get("base", "the base")
+            raise Refused(cut_refusal(cut.name or "the base search", base, cut.reads)) from None
         finally:
             JUDGEMENT_READS.reset(token)
     return run
@@ -8301,6 +8351,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
     pr_only: set[tuple] = set()  # (run id, job name) excused by pr_only_step_verdict
     for job in jobs:
         name = job.get("name", "")
+        if (budget := job_budget()) is not None:
+            budget["name"] = name  # whose judgement a JobBudgetCut cuts (one_judgement)
         if (name == GENERATED_VERDICT_JOB and job.get("conclusion") == "failure" and not refused_at_setup(job)
                 and (host := shared_generated_host(repo, job, github)) is not None
                 and (job.get("run_id"), host) in pr_only):
