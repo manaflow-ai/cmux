@@ -152,13 +152,19 @@ impl Hub {
         now: u64,
     ) -> Result<Option<Value>, RpcError> {
         let Some(from) = eligible(opts, blocks) else { return Ok(None) };
-        let period =
+        self.start_time_breakdown_backfill(session);
+        let measured =
             session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner()).reply_period_ms(now);
+        let period =
+            measured.or_else(|| session.turn().map(|turn| now.saturating_sub(turn.started_at)));
         if !session.inbox().surge_rate.arrival(now, period) {
             return Ok(None);
         }
         if super::super::queue::closing(session) {
             return Err(super::super::queue::closing_error());
+        }
+        if session.moving().is_some() {
+            return Err(super::super::queue::moving_error(session));
         }
 
         let provenance = opts.provenance.as_ref();
