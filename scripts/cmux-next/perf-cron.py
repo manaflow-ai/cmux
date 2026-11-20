@@ -82,6 +82,10 @@ HOST_WAIT_HOURS = 2
 HOST_GONE_HOURS = 72
 LATENCY_TARGET_MS = 10.0
 STALE_HOURS = 24
+# A part whose newest stored rows are older than this runs ahead of the PARTS order (part_order), so each row the
+# cron feeds gets a pass within STALE_HOURS: the goals in cmuxterm-hq's NOW (terminal-throughput reads
+# terminal.throughput.ratio) need one every 24 h. Four hours under that leave room for one queue wait and the part.
+PART_STALE_HOURS = 20
 ABANDON_HOURS = 12          # of active time: the hours a measurement spent yielding to the fleet do not count
 ABANDON_WALL_HOURS = 48     # the hard cap, yielding included
 MAX_YIELDS = 3
@@ -225,6 +229,10 @@ PARTS = [
     {"name": "web-ui-flat", "where": "linux", "kind": "webui", "needs": "web-ui-flat"},
     # Its 20 chats grown live to 100k rows each, about 28 minutes on its own (chat_100k_flat.grown_many.*).
     {"name": "web-ui-flat-grown", "where": "linux", "kind": "webui", "needs": "web-ui-flat"},
+    # Composer typing under load (webviews/bench/composer-typing.bench.ts, CMUX-571): 500 keys in Chromium and WebKit
+    # under idle, a focused stream, ten streaming documents and a focused 100k-row stream; keydown to paint p95/p99
+    # (webui.composer_typing.*) against report-only 16/33 ms targets. Its own part, under the 30-minute run cap.
+    {"name": "web-ui-typing", "where": "linux", "kind": "webui", "needs": "web-ui-typing"},
     # One live chat's disk growth (scripts/measure/chat-disk-growth.py, the same goal): a release acpmux streams one
     # chat to 100k rows on simulated time against an empty chat; bytes per simulated hour and their ratio
     # (chat_disk.growth_ratio). About 30 s after the build, which runs first under its own cap.
@@ -244,6 +252,7 @@ ROW_PARTS = [
     (r"^webui\.million_event_chat\.", "web-ui-million"),
     (r"^webui\.chat_100k_flat\.grown_many\.", "web-ui-flat-grown"),
     (r"^webui\.chat_100k_flat\.", "web-ui-flat"),
+    (r"^webui\.composer_typing\.", "web-ui-typing"),
     (r"^webui\.chat_disk\.", "chat-disk"),
     (r"^webui\.", "web-ui"),
 ]
@@ -950,12 +959,16 @@ def linux_bench_runs(root, part="diff-viewer"):
     if part == "web-ui-flat-grown":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat-grown"],
                           os.path.join(root, "webviews"), {})}
+    if part == "web-ui-typing":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "composer-typing"], os.path.join(root, "webviews"), {})}
     if part == "chat-disk":
         script = os.path.join(root, CHAT_DISK)
         return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
     if part == "infinite-items":
-        # The release build first, in a run of its own: a cold one takes about 15 minutes, and each run has its own
-        # 30-minute cap. The suite's build is then a no-op; its rows are the part's (a webui part keeps the last run's).
+        # The release build first, in a run of its own: each run has its own 30-minute cap (LINUX_RUN_SECONDS) and the
+        # linux job's cap covers both (linux_job_minutes). A cold build of acpmux, cmux-tui and its Zig terminal engine
+        # outlasted 38 minutes on a 4-vCPU runner (2026-11-17), so the workflow runs this part on 16 vCPUs.
+        # The suite's build is then a no-op; its rows are the part's (a webui part keeps the last run's).
         script = os.path.join(root, INFINITE_ITEMS)
         return {"build": (["bash", script, "build-only"], root or ".", {}),
                 "suite": (["bash", script, "pages=0", "days=1", "--window=5"], root or ".", {})}
@@ -1049,6 +1062,23 @@ def with_build(parts):
     """A measurement's parts in order: the build first whenever a fleet part needs the app."""
     fleet = [p for p in parts if p != "build" and not is_linux_part(p)]
     return (["build"] if fleet else []) + [p for p in parts if p != "build"]
+
+
+def part_order(state, todo, t):
+    """The order a tick takes a measurement's parts to do in (pure): the build first (every other Mac part reuses its
+    app), then each part whose newest stored rows (state['part_stored'], store_part_rows) are older than
+    PART_STALE_HOURS, oldest first, then the rest in their PARTS order. A part with no stored rows yet keeps its
+    place. A yielded part stays first in todo, so without this a part that keeps yielding, or a measurement dropped
+    before its tail, starved the last parts: throughput, the 13th Mac part, went 38 h without a row (2026-11-19)."""
+    stored = state.get("part_stored") if isinstance(state.get("part_stored"), dict) else {}
+    stale = []
+    for i, name in enumerate(todo):
+        e = stored.get(name)
+        at = parse_iso(e.get("at")) if isinstance(e, dict) else None
+        if name != "build" and at and hours_between(at, t) > PART_STALE_HOURS:
+            stale.append((at, i, name))
+    first = [n for _, _, n in sorted(stale)]
+    return [n for n in todo if n == "build"] + first + [n for n in todo if n != "build" and n not in first]
 
 
 def measurement_id(cur):
@@ -1338,8 +1368,9 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     if not cur["parts_todo"]:
         return {"action": "finish", "sha": cur["sha"],
                 "reason": f"its Mac parts have no host ({no_host}); report only" if no_host else "every part ran; report only"}
-    linux = next((p for p in cur["parts_todo"] if is_linux_part(p)), "")
-    fleet = "" if tree_wait else next((p for p in cur["parts_todo"] if not is_linux_part(p)), "")
+    todo = part_order(state, cur["parts_todo"], t)  # a part past PART_STALE_HOURS goes first
+    linux = next((p for p in todo if is_linux_part(p)), "")
+    fleet = "" if tree_wait else next((p for p in todo if not is_linux_part(p)), "")
     done = f"{len(cur['parts'])} of {len(cur['parts']) + len(cur['parts_todo'])} done"
     if tree_wait and not linux:
         return {"action": "none", "sha": cur["sha"], "reason": tree_wait}
@@ -1889,6 +1920,8 @@ def supported_parts_at(sha):
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{STATE_GROWTH_BENCH}"], capture_output=True).returncode == 0
         elif need == "web-ui-flat":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{FLAT_100K_BENCH}"], capture_output=True).returncode == 0
+        elif need == "web-ui-typing":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{COMPOSER_TYPING_ROWS}"], capture_output=True).returncode == 0
         elif need == "web-ui-million":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{MILLION_EVENT_BENCH}"], capture_output=True).returncode == 0
         elif need == "infinite-items":
@@ -1947,6 +1980,8 @@ UPDATE_ONE_BENCH = "webviews/bench/update-one.bench.ts"
 STATE_GROWTH_BENCH = "webviews/bench/state-growth.bench.ts"
 MILLION_EVENT_BENCH = "webviews/bench/million-event-chat.bench.ts"
 FLAT_100K_BENCH = "webviews/bench/chat-100k-flat.bench.ts"
+# The web-ui-typing part needs the load modes (composer-load.ts) and their rows (composerTypingRows.ts).
+COMPOSER_TYPING_ROWS = "webviews/bench/composerTypingRows.ts"
 INFINITE_ITEMS = "scripts/measure/infinite-items-linux.sh"
 CHAT_DISK = "scripts/measure/chat-disk-growth-linux.sh"
 # The web-ui-god part: the benches that take FIXTURE=god (web-ui-suite.ts lists each as NAME and NAME-god) and the
@@ -2963,6 +2998,8 @@ def plan(o):
     out = {"action": d["action"], "sha": d.get("sha", ""), "part": d.get("part", ""), "linux_part": d.get("linux_part", ""),
            "worker": d.get("worker", ""), "reason": d["reason"], "stale_hours": round(stale_hours(state, t), 1),
            "not_measuring": state.get("not_measuring") or ""}
+    if d.get("linux_part"):
+        out["linux_minutes"] = linux_job_minutes(d["linux_part"])
     if d.get("part"):
         p = PART_BY_NAME[d["part"]]
         out["run_seconds"] = p.get("run_seconds", PART_RUN_SECONDS)
@@ -3234,6 +3271,43 @@ def restart_note(restarts):
             + (f" and {len(names) - 6} more" if len(names) > 6 else "") + ". Close this issue when they are checked")
 
 
+# Each of a Linux part's bench runs gets LINUX_RUN_SECONDS (cmd_run_linux_part); the linux job's cap is the sum of its
+# runs' caps plus LINUX_SETUP_MINUTES (checkout, bun install, browsers, artifact upload), never under the old fixed
+# 40 minutes. With that one fixed cap for every part, infinite-items' build-only run alone outlasted the job on a
+# 4-vCPU runner (2026-11-17, runs 44104871256 and 44112712262: still in rustc at 38 minutes when GitHub cancelled the
+# job), so the job left no result three ticks running, the part ended yielded_out, and no infinite_items row was
+# stored after 2026-11-17 06:41Z.
+LINUX_RUN_SECONDS = 1800
+LINUX_SETUP_MINUTES = 10
+LINUX_JOB_MIN_MINUTES = 40
+
+
+def linux_job_minutes(name):
+    """The linux job's timeout-minutes for Linux part NAME (pure): its runs' caps and the setup. web-ui-god's paired
+    rounds stop at GOD_PAIRED_DEADLINE_S of the part's time, so they add no run of their own."""
+    runs = [n for n in linux_bench_runs("", name) if n != "paired"]
+    return max(LINUX_JOB_MIN_MINUTES, LINUX_SETUP_MINUTES + len(runs) * -(-LINUX_RUN_SECONDS // 60))
+
+
+def run_capped(argv, cwd, env, timeout):
+    """(stdout, stderr, exit code) of argv; the exit code is None when it ran past timeout seconds. It runs in its
+    own process group, and a timeout kills the whole group: subprocess.run's timeout kills only the direct child (bash),
+    so a build-only run past its cap left its cargo building, and the suite's own cargo build then waited on that
+    build's lock until GitHub cancelled the job and the part left no result at all."""
+    proc = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            start_new_session=True)
+    try:
+        out, err = proc.communicate(timeout=timeout)
+        return out or "", err or "", proc.returncode
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, 9)
+        except OSError:
+            pass
+        out, err = proc.communicate()
+        return out or "", err or "", None
+
+
 def last_json_object(text):
     """The last top-level JSON object a bench printed (it may log lines before it), or None."""
     starts = [i for i in range(len(text)) if text[i] == "{" and (i == 0 or text[i - 1] == "\n")]
@@ -3287,11 +3361,10 @@ def cmd_run_linux_part(o):
             tail += [f"paired: {len(report['paired']['rounds'])} rounds, {report['paired']['stopped']}"]
             continue
         before = host_contention() if part != "web-ui" else []
-        try:
-            proc = subprocess.run(argv, cwd=cwd, env={**env, **extra}, capture_output=True, text=True, timeout=1800)
-            value, code, stderr = last_json_object(proc.stdout), proc.returncode, proc.stderr or ""
-        except subprocess.TimeoutExpired:
-            value, code, stderr = None, "timeout (1800 s)", ""
+        stdout, stderr, code = run_capped(argv, cwd, {**env, **extra}, LINUX_RUN_SECONDS)
+        value = last_json_object(stdout) if code is not None else None
+        if code is None:
+            code = f"timeout ({LINUX_RUN_SECONDS} s)"
         tail += [f"{name}: exit {code}"] + stderr.splitlines()[-10:]
         if before:
             load[name] = contention_factor(before + host_contention())
