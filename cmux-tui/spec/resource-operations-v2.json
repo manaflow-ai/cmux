@@ -15412,7 +15412,7 @@
               "name": "string"
             }
           },
-          "description": "Slot id to variant id, for each entry of the file's `slots` that schemas/theme/slots.json ships; the app passes it to its web views as the theme's `slots`."
+          "description": "Each `slots` key to its variant id, for each entry of the file's `slots` that schemas/theme/slots.json ships; the app passes it to its web views as the theme's `slots`."
         },
         "diagnostics": {
           "required": true,
@@ -15423,7 +15423,7 @@
               "name": "ThemeSlotsDiagnostic"
             }
           },
-          "description": "Each refused slot entry, or the file itself when it does not parse."
+          "description": "Each refused `slots` entry, or the file itself when it does not parse."
         }
       },
       "extra": false
@@ -15448,7 +15448,7 @@
             "kind": "primitive",
             "name": "string"
           },
-          "description": "The dotted key (`slots.<slot id>`, or `slots`); empty for the file itself."
+          "description": "The dotted key (`slots.<id>`, or `slots`); empty for the file itself."
         },
         "message": {
           "required": true,
@@ -41172,7 +41172,7 @@
         "extra": false,
         "constraints": [
           "Stateless: nothing is written or kept between calls.",
-          "Each `slots` entry is checked against schemas/theme/slots.json: an unknown slot or variant is left out with a diagnostic and the others are kept."
+          "Each `slots` entry is checked against schemas/theme/slots.json: an unknown key or variant is left out with a diagnostic and the others are kept."
         ]
       },
       "result": {
