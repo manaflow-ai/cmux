@@ -15,6 +15,7 @@ import { CommandRow } from "./CommandRow";
 import { ToolRow } from "./ToolRow";
 import { McpCallRow } from "./McpCallRows";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { subscribePageSecond } from "../../../ui/pageClock";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -79,6 +80,17 @@ async function render(node: ReactNode): Promise<HTMLElement> {
   return container;
 }
 
+/** Resolves on the page clock's next tick (a joining listener is told the last sample at once: skipped). */
+const nextSecond = () =>
+  new Promise<void>((resolve) => {
+    let calls = 0;
+    const stop = subscribePageSecond(() => {
+      if (++calls < 2) return;
+      queueMicrotask(stop);
+      resolve();
+    });
+  });
+
 const COMMAND = "glaeda-gh wait pid 13341 --timeout 1750";
 
 /** A shell call: in the foreground while `status` runs, or launched and gone on in the background. */
@@ -115,9 +127,7 @@ for (const [name, Row] of [
     expect(container.querySelector(".cv-command__elapsed")!.closest(".cv-command__time")).toBeNull();
     // The page clock's next second moves it on.
     now += 61_000;
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 1_100));
-    });
+    await act(nextSecond);
     expect(time(container)).toBe("13m 5s");
   });
 
