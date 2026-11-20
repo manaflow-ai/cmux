@@ -202,14 +202,19 @@ struct CloudGitHubReposTests {
         #expect(completion.error == nil)
         // Another build's scheme, another path, no signed state: not a completion.
         #expect(CloudGitHubCompletion(url: url, scheme: "cmux") == nil)
-        #expect(CloudGitHubCompletion(url: try #require(URL(string: "cmux-dev-x://integration/other?state=\(state)")), scheme: "cmux-dev-x") == nil)
-        #expect(CloudGitHubCompletion(url: try #require(URL(string: "cmux-dev-x://integration/complete?code=abc")), scheme: "cmux-dev-x") == nil)
+        let otherPath = try #require(URL(string: "cmux-dev-x://integration/other?state=\(state)"))
+        let noState = try #require(URL(string: "cmux-dev-x://integration/complete?code=abc"))
+        #expect(CloudGitHubCompletion(url: otherPath, scheme: "cmux-dev-x") == nil)
+        #expect(CloudGitHubCompletion(url: noState, scheme: "cmux-dev-x") == nil)
         // A cancel on GitHub carries its error; an installation id that is not a number is not sent.
-        let cancelled = try #require(CloudGitHubCompletion(url: try #require(URL(string: "\(link)?state=\(state)&error=access_denied&installation_id=1;x")), scheme: "cmux-dev-x"))
+        let cancelURL = try #require(URL(string: "\(link)?state=\(state)&error=access_denied&installation_id=1;x"))
+        let cancelled = try #require(CloudGitHubCompletion(url: cancelURL, scheme: "cmux-dev-x"))
         #expect(cancelled.error == "access_denied")
         #expect(cancelled.params == ["state": state])
         // A state whose team claim is not a team id routes nowhere.
-        #expect(try #require(CloudGitHubCompletion(url: try #require(URL(string: "\(link)?state=a.b.c")), scheme: "cmux-dev-x")).team == nil)
+        let opaqueURL = try #require(URL(string: "\(link)?state=a.b.c"))
+        let opaque = try #require(CloudGitHubCompletion(url: opaqueURL, scheme: "cmux-dev-x"))
+        #expect(opaque.team == nil)
     }
 
     @Test func aCompletionIsConnectedOnlyWhenTheAPISaysOk() {

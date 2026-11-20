@@ -213,15 +213,21 @@ class StoreKitSlot(unittest.TestCase):
     def tearDown(self) -> None:
         self.dir.cleanup()
 
-    def test_real_tree_target_is_found_when_declared(self) -> None:
-        # Holds before and after the rewrite lands BillingStoreKitTests: whatever
-        # declares the target, the slot must see it rather than skip.
-        app = ROOT / "cmux-next-ios"
-        declared = any(path.is_dir() for path in app.rglob(lane.STOREKIT_TARGET)
-                       if ".build" not in path.parts and "target" not in path.parts)
-        project = app / "project.yml"
-        declared = declared or (project.is_file() and lane.STOREKIT_TARGET in project.read_text(encoding="utf-8"))
-        self.assertEqual(lane.storekit_target() != ("", ""), declared)
+    def test_real_tree_runs_the_billing_package_suite(self) -> None:
+        # The iPhone app's billing client and its StoreKit suite live in
+        # Packages/iOS/CmuxMobileBilling; the slot must run it, not skip.
+        self.assertEqual(lane.storekit_target(), ("project", "Packages/iOS/CmuxMobileBilling/StoreKitTests"))
+
+    def test_billing_package_project_comes_first(self) -> None:
+        (self.root / "cmux-next-ios/CmuxMobileKit/Tests/BillingStoreKitTests").mkdir()
+        project = self.root / "Packages/iOS/CmuxMobileBilling/StoreKitTests/project.yml"
+        project.parent.mkdir(parents=True)
+        project.write_text("targets:\n  BillingStoreKitHost:\n    type: application\n", encoding="utf-8")
+        self.assertEqual(lane.storekit_target(self.root), ("package", "cmux-next-ios/CmuxMobileKit"),
+                         "a project without the target is not the suite")
+        project.write_text("targets:\n  BillingStoreKitHost:\n    type: application\n"
+                           "  BillingStoreKitTests:\n    type: bundle.unit-test\n", encoding="utf-8")
+        self.assertEqual(lane.storekit_target(self.root), ("project", "Packages/iOS/CmuxMobileBilling/StoreKitTests"))
 
     def test_absent_target_skips(self) -> None:
         self.assertEqual(lane.storekit_target(self.root), ("", ""))

@@ -33,6 +33,7 @@ tool="$root/scripts/cmux-next/swap-binary.sh" side="$root/scripts/cmux-next/side
 work="$(mktemp -d "${TMPDIR:-/tmp}/swap-binary-proof.XXXXXX")"
 mkdir -p "$work/side"; CMUX_SIDE_ROOT="$(cd "$work/side" && pwd -P)"; export CMUX_SIDE_ROOT
 cleanup() {
+  [[ -n "${stream_pid:-}" ]] && kill "$stream_pid" 2>/dev/null # the log stream this script started, by its pid
   "$side" remove sb-base >/dev/null 2>&1 || true
   "$side" remove sb-head >/dev/null 2>&1 || true
   rm -rf "$work"
@@ -112,14 +113,37 @@ PY
 seen=""
 launch sb-base || true
 "$side" stop sb-base >/dev/null 2>&1 || true
-launch sb-head || true
-# The probe's line is written at main(), before the socket exists: it is in the log once the socket answers.
-pid="$(cat "$CMUX_SIDE_ROOT/sb-head/pid" 2>/dev/null || true)"
+# The probe's line is written at main(), but the unified log delivers it seconds to tens of seconds later (the
+# persisted store a one-shot `log show` reads, and `log stream` too: cmux_next_pair_e2e.py), so a read taken when the
+# socket answers can miss a line that was written. A `log stream` started before the head launches is waited on for
+# up to 90 s, then `log show` from the launch is the fallback; both keep their output and errors in the report.
+stream_pid="" via=none
+# Only event records count: `log stream` and `log show` print a banner ("Filtering the log data using ... CONTAINS
+# \"swapped-in-1\"") that holds the probe text. An event line starts with its date; the banner and "Timestamp" do not.
+probe_event() { grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}[ T]' "$1" 2>/dev/null | grep -F -- "$expect" >/dev/null 2>&1; }
 if [[ -n "$expect" ]]; then
-  if log show --last 5m --style compact --predicate "processID == ${pid:-0}" 2>/dev/null | grep -F "$expect" >/dev/null; then # not -q: an early exit fails the pipe (pipefail)
-    seen=1
+  esc="${expect//\\/\\\\}"; esc="${esc//\"/\\\"}"
+  predicate="eventMessage CONTAINS \"$esc\"" # no process filter: the nightly app is "cmux NIGHTLY", and the probe text is unique
+  log stream --style compact --level default --predicate "$predicate" >"$out/log-head-stream.txt" 2>"$out/log-head-stream.err" &
+  stream_pid=$!
+  /bin/sleep 2 # log stream attaches before the app starts
+fi
+launch_at="$(date '+%Y-%m-%d %H:%M:%S')"
+launch sb-head || true
+if [[ -n "$expect" ]]; then
+  for _ in $(seq 1 90); do
+    if probe_event "$out/log-head-stream.txt"; then seen=1 via=stream; break; fi
+    kill -0 "$stream_pid" 2>/dev/null || break # the stream ended (its error is in log-head-stream.err)
+    /bin/sleep 1
+  done
+  kill "$stream_pid" 2>/dev/null || true; wait "$stream_pid" 2>/dev/null || true; stream_pid=""
+  if [[ -z "$seen" ]]; then
+    log show --start "$launch_at" --style compact --predicate "$predicate" >"$out/log-head-show.txt" 2>"$out/log-head-show.err" || true
+    if probe_event "$out/log-head-show.txt"; then seen=1 via=show; fi
   fi
-  echo "SB-SEEN expect=\"$expect\" seen=${seen:-0}"
+  why=""
+  [[ -z "$seen" ]] && why=" stream_err=\"$(head -c 200 "$out/log-head-stream.err" | tr '\n"' ' ')\" show_err=\"$(head -c 200 "$out/log-head-show.err" | tr '\n"' ' ')\""
+  echo "SB-SEEN expect=\"$expect\" seen=${seen:-0} via=$via$why"
 fi
 "$side" stop sb-head >/dev/null 2>&1 || true
 tar -czf "$out/overlay-head.tgz" -C "$out/build-head" app build.json
