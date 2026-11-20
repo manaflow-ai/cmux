@@ -148,6 +148,16 @@ describe("switching modes never loses a mode's folder or picture", () => {
     expect(value("appearance.background")).toBe(ART);
   });
 
+  test("a chosen No Wallpaper is what Off puts back, also after Settings reopens", async () => {
+    await card({ "appearance.background": "none" });
+    await click(mode("Rotate"));
+    page!.unmount();
+    page = null;
+    await card({ "appearance.background": "daily", "appearance.backgroundLight": HARBOR });
+    await click(mode("Off"));
+    expect(value("appearance.background")).toBe("none");
+  });
+
   test("Off after Rotate keeps the picture on screen before it", async () => {
     await card({ "appearance.background": ART, "appearance.backgroundLight": HARBOR });
     await click(mode("Off"));
