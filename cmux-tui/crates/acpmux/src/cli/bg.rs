@@ -55,7 +55,7 @@ fn current_session() -> Result<String> {
         })
 }
 
-fn text(v: &Value, key: &str) -> &str {
+fn text<'a>(v: &'a Value, key: &str) -> &'a str {
     v.get(key).and_then(Value::as_str).unwrap_or_default()
 }
 
