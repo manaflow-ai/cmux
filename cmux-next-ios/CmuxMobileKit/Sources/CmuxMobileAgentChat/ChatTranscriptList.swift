@@ -848,13 +848,15 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         }
     }
 
-    /// A send drew its bubble (`AgentChatStore.showSent`): rebuild in this turn, so it is laid out
-    /// in the frame the composer clears in. A held list (a card on the tab grid) waits, as for any
+    /// A send drew its bubble (`AgentChatStore.showSent`): rebuild and lay out in this turn, so the
+    /// transcript's glide starts in the frame the composer clears in, not at the next layout pass
+    /// (behind the keyboard's resign). A held list (a card on the tab grid) waits, as for any
     /// change; the observation's rebuild after this one finds nothing new.
     func showSentNow() {
         if surface.holdsTranscript, surface.heldRefresh == appliedHeldRefresh { return }
         appliedHeldRefresh = surface.heldRefresh
         reload()
+        collectionView.layoutIfNeeded()
     }
 
     /// Any file: reading whether it is viewed observes every viewed mark.
