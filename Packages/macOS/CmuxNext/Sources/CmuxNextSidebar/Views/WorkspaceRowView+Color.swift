@@ -1,10 +1,13 @@
 import AppKit
 import CmuxNextDesign
 
-/// `workspaceColors.indicatorStyle` (#25653): a colored workspace's row as a bar down its leading
+/// `workspaceColors.indicatorStyle` (#25653): a colored workspace's row as a short bar at its leading
 /// edge (`leftRail`) or filled with its color (`fill`), in place of the dot before its name. The
 /// fill steps up for hover, multi-selection and selection, so a selected colored row still reads
-/// as selected; light and dark both use the group color's own swatch. An archived row dims both.
+/// as selected; light and dark both use the group color's own swatch. The bar is a quiet mark on the
+/// title's line (`GroupColor.railRGB(_:emphasized:)`), a step stronger on a selected row (Lawrence
+/// 2026-11-20, "these colors look horrible by default": the full-strength swatch ran the row's whole
+/// height). An archived row dims both.
 extension WorkspaceRowView {
     /// The fill's opacity of the color swatch at rest, hovered, softly selected and selected.
     static let colorFillAlpha: (rest: CGFloat, hover: CGFloat, soft: CGFloat, selected: CGFloat) = (0.26, 0.34, 0.40, 0.52)
@@ -32,7 +35,8 @@ extension WorkspaceRowView {
         guard let rowColor else { return nil }
         let dim = isArchived ? SidebarStyle.archivedAlpha : 1
         guard rowColor.style == .fill else {
-            colorRail.layer?.backgroundColor = rowColor.color.swatch.withAlphaComponent(dim).cgColor
+            let emphasized = isDropTarget || isSelected
+            colorRail.layer?.backgroundColor = rowColor.color.railColor(emphasized: emphasized).withAlphaComponent(dim).cgColor
             return nil
         }
         let a = Self.colorFillAlpha, hovered = isHovered && !isPlaceholderRow && DesignSettings.shared.showsHoverFills
@@ -40,13 +44,17 @@ extension WorkspaceRowView {
         return rowColor.color.swatch.withAlphaComponent(alpha * dim)
     }
 
-    func layoutColorRail(in bounds: NSRect) {
+    /// Lays the bar out as a short pill on the title's line: as tall as the title's text, centered on `centerY` (the
+    /// name line's center), clipped to the row's inset.
+    func layoutColorRail(in bounds: NSRect, centerY: CGFloat) {
         guard !colorRail.isHidden else { return }
         // A started workspace's rail moves in with its content (`treeDepth`), clear of its parent's. The bar sits in the
         // row's leading inset, left of the one title edge, so a colored title starts where every other does (Lawrence
         // 2026-11-09, "red dot on left feels weird").
         let inset = Metrics.space1, indent = CGFloat(treeDepth) * SidebarStyle.treeIndent
-        colorRail.frame = NSRect(x: bounds.minX + indent + Self.colorRailLead, y: bounds.minY + inset, width: Self.colorRailWidth,
-                                 height: max(0, bounds.height - 2 * inset))
+        let font = SidebarStyle.titleFont
+        let height = min(max(0, bounds.height - 2 * inset), (font.capHeight + Metrics.space1).rounded())
+        colorRail.frame = NSRect(x: bounds.minX + indent + Self.colorRailLead, y: (centerY - height / 2).rounded(),
+                                 width: Self.colorRailWidth, height: height)
     }
 }
