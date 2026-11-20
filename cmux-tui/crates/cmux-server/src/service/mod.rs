@@ -224,11 +224,12 @@ impl Services<'_> {
                 foreign.push(path);
             }
         }
-        if matches!(
-            self.layout.service,
-            ServiceKind::SystemdUser { .. } | ServiceKind::SystemdSystem { .. }
-        ) {
-            systemd::check_sources(self)?;
+        match self.layout.service {
+            ServiceKind::SystemdUser { .. } | ServiceKind::SystemdSystem { .. } => {
+                systemd::check_sources(self)?;
+            }
+            ServiceKind::LaunchAgent { .. } => launchd::check_source(self)?,
+            _ => {}
         }
         Ok(foreign)
     }
@@ -240,13 +241,31 @@ impl Services<'_> {
     /// The ownership record; empty when there is none or it cannot be read
     /// as one (a lost record only makes cmux more careful). A record another
     /// account could have written is refused.
+    ///
+    /// Read through one descriptor opened without following a symlink, and
+    /// checked after the open, so the file checked is the file read.
     fn read_record(&self) -> Result<BTreeMap<String, String>> {
+        use std::io::Read as _;
         let path = self.record_path();
-        let meta = match std::fs::symlink_metadata(&path) {
-            Ok(meta) => meta,
+        check_private_dir(&crate::fsx::local(&self.layout.state), "the cmux state directory")?;
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+        }
+        let mut file = match options.open(&path) {
+            Ok(file) => file,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
-            Err(e) => return Err(Error::io(path.display(), e)),
+            Err(e) => {
+                return Err(Error::rejected(format!(
+                    "{} (the record of the service files cmux wrote) cannot be opened as a plain file ({e}); remove it, then run the command again",
+                    path.display()
+                )));
+            }
         };
+        let meta = file.metadata().map_err(|e| Error::io(path.display(), e))?;
         let private = meta.is_file()
             && crate::sys::owner_uid(&meta) == crate::sys::euid()
             && crate::fsx::mode_of(&meta) & 0o022 == 0;
@@ -256,7 +275,8 @@ impl Services<'_> {
                 path.display()
             )));
         }
-        let text = std::fs::read(&path).map_err(|e| Error::io(path.display(), e))?;
+        let mut text = Vec::new();
+        file.read_to_end(&mut text).map_err(|e| Error::io(path.display(), e))?;
         Ok(serde_json::from_slice(&text).unwrap_or_default())
     }
 
