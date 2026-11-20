@@ -138,7 +138,8 @@ impl Follower {
             if pointer.expires_at <= now() || readiness(global, app, true)? != (true, true) {
                 return Err("waiting for a current pointer and quiet app".into());
             }
-            let daemon = super::app_daemon(app);
+            let mut daemon = super::app_daemon(app);
+            daemon.cli.set_file_name("cmux-tui");
             let socket = daemon.socket.as_deref().ok_or("no daemon socket for this app")?;
             let reports_commit =
                 |pid| crate::cli::lifecycle::owner_reports_commit(socket, pid, &pointer.commit);
@@ -147,6 +148,7 @@ impl Follower {
             if !live::channel_is_newer(store.watermark(ATTEMPT)?, pointer.committed_at) {
                 return Err("this channel update was already attempted".into());
             }
+            let sessions = super::session_handoff::discover(&daemon)?;
             store.record_watermark(ATTEMPT, pointer.committed_at, &pointer.commit)?;
             let mut phases = live::Phases::default();
             let result = live::apply_verified(
@@ -156,7 +158,19 @@ impl Follower {
                 &daemon,
                 &mut phases,
                 Some(&reports_commit),
-            );
+            )
+            .and_then(|applied| {
+                super::session_handoff::finish(
+                    sessions,
+                    applied,
+                    app,
+                    app_build,
+                    &pointer.commit,
+                    store,
+                    &daemon,
+                    &mut phases,
+                )
+            });
             let receipt = json!({"schema": 1, "action": "try", "target": pointer.commit,
                 "commit": pointer.commit, "path": "live", "channel": pointer.channel,
                 "app": app, "app_commit": app_build, "at": now()});

@@ -23,6 +23,16 @@ public final class NightlyDaemonUpdate {
         let process = Process()
         process.executableURL = resources.appending(path: "bin/cmux", directoryHint: .notDirectory)
         process.arguments = ["app", "try", "follow-channel", "--app", bundle.bundlePath]
+        process.terminationHandler = { [weak self] finished in
+            Task { @MainActor in
+                guard let self, self.worker === finished else { return }
+                self.worker = nil
+                // Re-enable may have arrived after the worker read the off setting.
+                if self.enabled && finished.terminationStatus == 0 {
+                    self.follow(true, bundle: bundle)
+                }
+            }
+        }
         do {
             try process.run()
             worker = process

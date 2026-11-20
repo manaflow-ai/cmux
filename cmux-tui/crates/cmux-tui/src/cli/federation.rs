@@ -256,7 +256,7 @@ pub(super) fn join(results: Vec<(String, Value)>) -> Value {
 }
 
 #[cfg(unix)]
-fn session_sockets() -> Vec<(String, PathBuf)> {
+pub(super) fn session_sockets() -> Vec<(String, PathBuf)> {
     let directories =
         [cmux_tui_core::platform::runtime_dir(), cmux_tui_core::platform::fallback_runtime_dir()];
     #[cfg(target_os = "macos")]
@@ -274,7 +274,7 @@ fn session_sockets() -> Vec<(String, PathBuf)> {
 }
 
 #[cfg(not(unix))]
-fn session_sockets() -> Vec<(String, PathBuf)> {
+pub(super) fn session_sockets() -> Vec<(String, PathBuf)> {
     local_sessions(&[cmux_tui_core::platform::runtime_dir()], None)
 }
 

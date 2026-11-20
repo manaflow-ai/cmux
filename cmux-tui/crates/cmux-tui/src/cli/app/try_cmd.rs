@@ -42,6 +42,7 @@ mod background;
 mod copy;
 mod live;
 mod resolve;
+mod session_handoff;
 
 /// `updates.builds` reads the feed's notes, verdicts and pulled list.
 const LIST_TIMEOUT: Duration = Duration::from_secs(35);

@@ -543,7 +543,7 @@ pub(super) fn status_error(err: &str) -> Option<String> {
     code(&value).or_else(|| value.get("error").and_then(code))
 }
 
-fn same_file(left: &Path, right: &Path) -> bool {
+pub(super) fn same_file(left: &Path, right: &Path) -> bool {
     left == right || matches!((left.canonicalize(), right.canonicalize()), (Ok(l), Ok(r)) if l == r)
 }
 
