@@ -168,11 +168,13 @@ extension SidebarMapping {
         // An unnamed Cloud workspace whose shell idles at its home reads "Terminal" (`homeShellTitle`), its header
         // naming the machine (Leo 2026-10-30: "JUST DEPICT IT SIMILARLY TO EVERYTHING ELSE"). A caller whose
         // `pageFace` gives no title (a pinned tile) has its shell's folder read as the label.
-        let label = options.foldersLabel ? face?.cwd.map { URL(fileURLWithPath: $0).lastPathComponent } : page?.title
+        let label = options.foldersLabel ? face?.cwd.map { ($0 as NSString).lastPathComponent } : page?.title
         let title = Self.homeShellName(options.homeShellTitle, workspace: workspace, label: label, face: face)
             ?? Self.sidebarTitle(workspace, page: page)
         let agentTab = at(facts.agent)
         let rowAgent = Self.agentMark(agentTab, harnessIcons: harnessIcons)
+        // The user's icon or color, before the shown tab's marks (`iconFromShownTab`).
+        let ownIcon = Self.icon(color: workspace.color, icon: workspace.icon, asset: options.iconAsset)
         var row = SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,
@@ -189,7 +191,7 @@ extension SidebarMapping {
             agentWorking: statuses.working,
             // A cmux page draws its own icon; a site with no favicon (none, or not loaded yet) keeps the slot with a
             // globe the favicon replaces.
-            icon: Self.icon(color: workspace.color, icon: workspace.icon, asset: options.iconAsset)
+            icon: ownIcon
                 ?? iconPage?.icon.map(WorkspaceIcon.page)
                 ?? iconPage?.favicon.map(WorkspaceIcon.favicon)
                 ?? (Self.isSite(iconTab, newTabPages: newTabPages) ? .pagePlaceholder : nil),
@@ -236,6 +238,7 @@ extension SidebarMapping {
             folder: facts.bucket
         )
         row.focusedTab = focused.map { TabID($0.id) }
+        row.iconFromShownTab = ownIcon == nil && row.icon != nil
         row.activityFromProgram = indicator.primary?.source == .program
         row.presence = presence(tabs)
         row.startsInCloud = page?.startsInCloud ?? false
