@@ -48,6 +48,48 @@ fn named_cloud_and_auto_targets_share_the_launch_budget() {
 }
 
 #[test]
+fn automatic_placement_with_wait_keeps_the_start_budget_and_turn_timeout() {
+    for wait in [false, true] {
+        for local in [false, true] {
+            let args = if wait {
+                vec!["--machine", "auto", "--wait", "--timeout", "45", "go"]
+            } else {
+                vec!["--machine", "auto", "go"]
+            };
+            let request = start(&args);
+            let began = std::time::Instant::now();
+            let end = super::named_launch::deadline(&request, began)
+                .expect("automatic placement keeps its startup deadline with --wait");
+            let calls = Cell::new(0);
+            let (route, placed) = super::named_launch::find_with(
+                request,
+                end,
+                |left| {
+                    calls.set(calls.get() + 1);
+                    assert!(!left.is_zero() && left <= acpmux::launch_contract::NAMED_START_LIMIT);
+                    Ok(json!({"pick":"chosen-machine", "local":local}))
+                },
+                |placed| {
+                    assert!(!local, "a local placement does not query the remote catalog");
+                    assert_eq!(placed.on.as_deref(), Some("chosen-machine"));
+                    Ok(Route::Peer("chosen-machine".into()))
+                },
+            )
+            .unwrap();
+            assert_eq!(calls.get(), 1);
+            if local {
+                assert!(matches!(route, Route::Joined(machine)
+                    if machine.host == "chosen-machine" && machine.carrier == Carrier::Local));
+            } else {
+                assert_eq!(route, Route::Peer("chosen-machine".into()));
+            }
+            assert_eq!(placed.wait, wait);
+            assert_eq!(here_wait(&placed).unwrap(), wait.then(|| Duration::from_secs(45)));
+        }
+    }
+}
+
+#[test]
 fn a_named_start_never_opens_the_prompt_file_after_its_deadline() {
     let began = std::time::Instant::now() - acpmux::launch_contract::NAMED_START_LIMIT;
     for args in [

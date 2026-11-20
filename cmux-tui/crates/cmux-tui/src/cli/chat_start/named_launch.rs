@@ -71,14 +71,24 @@ pub(super) fn route(
     Ok((route, start))
 }
 
-fn find_named(
-    global: &GlobalArgs,
+fn find_named(global: &GlobalArgs, start: Start, end: Instant) -> Result<(Route, Start), Value> {
+    find_with(
+        start,
+        end,
+        |left| joined::acp_json(&["machine", "pick", "--json"], None, left),
+        |start| lookup(global, start, Some(end)),
+    )
+}
+
+pub(super) fn find_with(
     mut start: Start,
     end: Instant,
+    pick: impl FnOnce(std::time::Duration) -> Result<Value, Value>,
+    lookup: impl FnOnce(&Start) -> Result<Route, Value>,
 ) -> Result<(Route, Start), Value> {
     if start.on.as_deref() == Some("auto") {
         let left = end.saturating_duration_since(Instant::now());
-        let verdict = joined::acp_json(&["machine", "pick", "--json"], None, left)?;
+        let verdict = pick(left)?;
         let host = verdict["pick"].as_str().filter(|name| !name.is_empty()).ok_or_else(|| json!({
             "code":"chat_target.unavailable", "message":"Placement selected no machine. Run `cmux acp machine pick` for its reasons.", "details":verdict, "retryable":true
         }))?;
@@ -87,7 +97,7 @@ fn find_named(
         }
         start.on = Some(host.to_owned());
     }
-    let route = match lookup(global, &start, Some(end))? {
+    let route = match lookup(&start)? {
         Route::Here => local_route(start.on.as_deref().expect("named machine")),
         route => route,
     };
