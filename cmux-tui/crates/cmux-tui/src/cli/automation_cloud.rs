@@ -143,6 +143,10 @@ fn checkout_name(repo: &str) -> String {
 }
 
 /// Step 0's script: start the command once per run (`CMUX_RUN` names it), detached.
+/// A repo's checkout (the first clone of a large repo takes minutes; manaflow-ai/cmux's is 1.1 GB)
+/// runs in the detached part too, before the command, so step 0 returns at once and the wait steps
+/// cover the clone (in step 0 it outlived the provider's exec and the run failed "the machine did
+/// not answer", leaving a half-made checkout and its `index.lock`, which the next run clears).
 /// It leads a session of its own (`setsid`, or perl's where there is none, as on macOS), so the
 /// step's process group can end without it and the last wait can end its whole group. The step
 /// returns only after the command detached (its `detached` mark, at most 10 s), so a step runner
@@ -150,26 +154,30 @@ fn checkout_name(repo: &str) -> String {
 /// detach from console" under launchd (a fleet or Cloud daemon), so the command ignores HUP itself.
 pub(super) fn start_script(c: &CloudCommand) -> String {
     let q = super::cloud_start_chat::shell_quote;
-    let place = match (&c.repo, &c.folder) {
-        (Some((repo, branch)), _) => format!(
-            "w=\"$HOME/.cmux/automations/checkouts/\"{name}; \
-             if [ -d \"$w/.git\" ]; then git -C \"$w\" fetch --quiet origin {branch} && git -C \"$w\" checkout --quiet --force --detach FETCH_HEAD; \
-             else rm -rf \"$w\" && mkdir -p \"$(dirname \"$w\")\" && git clone --quiet --filter=blob:none --branch {branch} {url} \"$w\"; fi; \
-             git -C \"$w\" log -1 --format='%H %s' > \"$d/commit\"; ",
-            name = q(&checkout_name(repo)),
-            branch = q(branch),
-            url = q(&format!("https://github.com/{repo}.git")),
+    // `prep.sh WORKDIR RUNDIR`: what readies the folder, run detached before the command.
+    let (place, prep) = match (&c.repo, &c.folder) {
+        (Some((repo, branch)), _) => (
+            format!("w=\"$HOME/.cmux/automations/checkouts/\"{}; ", q(&checkout_name(repo))),
+            format!(
+                "set -e; w=\"$1\"; rm -f \"$w/.git/index.lock\"; \
+                 if [ -d \"$w/.git\" ]; then git -C \"$w\" fetch --quiet origin {branch} && git -C \"$w\" checkout --quiet --force --detach FETCH_HEAD; \
+                 else rm -rf \"$w\" && mkdir -p \"$(dirname \"$w\")\" && git clone --quiet --filter=blob:none --branch {branch} {url} \"$w\"; fi; \
+                 git -C \"$w\" log -1 --format='%H %s' > \"$2/commit\"",
+                branch = q(branch),
+                url = q(&format!("https://github.com/{repo}.git")),
+            ),
         ),
-        (None, Some(folder)) => format!("w={}; ", folder_words(folder)),
-        (None, None) => "w=\"$HOME\"; ".into(),
+        (None, Some(folder)) => (format!("w={}; ", folder_words(folder)), ":".into()),
+        (None, None) => ("w=\"$HOME\"; ".into(), ":".into()),
     };
     format!(
         "set -e; d=\"{RUNS}/$CMUX_RUN\"; if [ -e \"$d/started\" ]; then echo started; exit 0; fi; mkdir -p \"$d\"; \
-         {place}cd \"$w\"; printf '%s\\n' {command} > \"$d/cmd.sh\"; s=; if command -v setsid >/dev/null 2>&1; then s=setsid; \
+         {place}printf '%s\\n' {prep} > \"$d/prep.sh\"; printf '%s\\n' {command} > \"$d/cmd.sh\"; s=; if command -v setsid >/dev/null 2>&1; then s=setsid; \
          elif command -v perl >/dev/null 2>&1; then s='perl -MPOSIX -e POSIX::setsid();exec(@ARGV)'; fi; \
-         $s sh -c 'trap \"\" HUP; : > \"$1/detached\"; bash \"$1/cmd.sh\" > \"$1/log\" 2>&1; echo $? > \"$1/exit.tmp\"; mv \"$1/exit.tmp\" \"$1/exit\"' _ \"$d\" </dev/null >/dev/null 2>\"$d/launch.log\" & \
+         $s sh -c 'trap \"\" HUP; : > \"$1/detached\"; {{ bash \"$1/prep.sh\" \"$2\" \"$1\" && cd \"$2\" && bash \"$1/cmd.sh\"; }} > \"$1/log\" 2>&1; echo $? > \"$1/exit.tmp\"; mv \"$1/exit.tmp\" \"$1/exit\"' _ \"$d\" \"$w\" </dev/null >/dev/null 2>\"$d/launch.log\" & \
          echo $! > \"$d/pid\"; i=0; while [ ! -e \"$d/detached\" ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done; \
          : > \"$d/started\"; echo started in \"$w\"",
+        prep = q(&prep),
         command = q(&c.command),
     )
 }
@@ -466,6 +474,75 @@ mod tests {
         assert!(out.contains("building"));
         let (code, _, _) = step(&log_script("run_none"), &home, "x");
         assert_eq!(code, 3);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// [`step`] with `PATH` led by `bin`.
+    fn step_with_path(
+        script: &str,
+        home: &std::path::Path,
+        run: &str,
+        bin: &std::path::Path,
+    ) -> (i32, String, String) {
+        let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+        let out = cmux_process::Command::new("bash")
+            .args(["-c", script])
+            .env("HOME", home)
+            .env("CMUX_RUN", run)
+            .env("PATH", path)
+            .stdin(cmux_process::Stdio::null())
+            .output()
+            .unwrap();
+        (
+            out.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&out.stdout).into(),
+            String::from_utf8_lossy(&out.stderr).into(),
+        )
+    }
+
+    /// models-scout on a fresh machine (2026-11-20): step 0 cloned manaflow-ai/cmux (1.1 GB) in the
+    /// foreground, the provider's exec gave up first ("the machine did not answer") and left a
+    /// half-made checkout with its `index.lock`. The checkout now runs detached, before the command.
+    #[cfg(unix)]
+    #[test]
+    fn a_slow_first_clone_runs_detached_so_the_start_step_answers_at_once() {
+        let home = std::env::temp_dir().join(format!("cmux-cloud-clone-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let bin = home.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        // A git whose clone takes 3 s and makes the checkout; every other verb succeeds.
+        let git = bin.join("git");
+        std::fs::write(&git, "#!/bin/sh\nif [ \"$1\" = clone ]; then sleep 3; for a; do w=\"$a\"; done; mkdir -p \"$w/.git\"; fi\nexit 0\n").unwrap();
+        std::fs::set_permissions(&git, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .unwrap();
+        let mut c = scout(60);
+        c.command = "pwd; echo hello".into();
+
+        let started = std::time::Instant::now();
+        let (code, out, err) = step_with_path(&start_script(&c), &home, "run_clone", &bin);
+        assert_eq!(code, 0, "{out} {err}");
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "step 0 waited for the clone: {:?}",
+            started.elapsed()
+        );
+        let (code, out, err) = step_with_path(&wait_script(20, true), &home, "run_clone", &bin);
+        assert_eq!(code, 0, "{err}");
+        assert!(out.contains("hello") && out.contains("checkouts/manaflow-ai-cmux"), "{out}");
+
+        // A half-made checkout (a clone the provider ended) is fetched again, its lock cleared.
+        std::fs::write(
+            home.join(".cmux/automations/checkouts/manaflow-ai-cmux/.git/index.lock"),
+            "",
+        )
+        .unwrap();
+        step_with_path(&start_script(&c), &home, "run_again", &bin);
+        let (code, out, err) = step_with_path(&wait_script(20, true), &home, "run_again", &bin);
+        assert_eq!(code, 0, "{err}");
+        assert!(out.contains("hello"), "{out}");
+        assert!(
+            !home.join(".cmux/automations/checkouts/manaflow-ai-cmux/.git/index.lock").exists()
+        );
         let _ = std::fs::remove_dir_all(&home);
     }
 

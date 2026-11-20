@@ -175,7 +175,7 @@ def cycles(app, count, pid=None, sample_out=None, settle=0.4, window_notices=Tru
     if pid and sample_out:
         seconds = max(3, int(count * (settle * 2 + 0.3)) + 2)
         sampler = subprocess.Popen(["/usr/bin/sample", str(pid), str(seconds), "-mayDie", "-file", sample_out],
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                   stdout=subprocess.DEVNULL, stderr=open(sample_out + ".err", "w"))
         time.sleep(0.5)  # test script: sample attaches before the first cycle
     rows = []
     for _ in range(count):
@@ -188,7 +188,8 @@ def cycles(app, count, pid=None, sample_out=None, settle=0.4, window_notices=Tru
         counters = app.rpc("debug.layout_counters", {"reset": False}) or {}
         t2 = time.monotonic()
         rows.append({"round_trip_ms": round((t1 - t0) * 1000, 2), "drain_ms": round((t2 - t1) * 1000, 2),
-                     "observers_ms": reply.get("observers_ms"), "resyncs": counters.get("indicator_resyncs"),
+                     "observers_ms": reply.get("observers_ms"), "parts_ms": reply.get("parts_ms"),
+                     "resyncs": counters.get("indicator_resyncs"),
                      "error": reply.get("error")})
         time.sleep(settle)  # test script: trailing work of this activation ends before the next one
     if sampler:
@@ -202,7 +203,12 @@ def summarize(rows, hangs):
         values = [r[key] for r in rows if isinstance(r.get(key), (int, float))]
         return {"p50": pct(values, 0.5), "p95": pct(values, 0.95), "max": max(values) if values else None}
     total = [r["round_trip_ms"] + r["drain_ms"] for r in rows]
-    return {"cycles": len(rows), "observers_ms": stat("observers_ms"), "round_trip_ms": stat("round_trip_ms"),
+    names = sorted({k for r in rows if isinstance(r.get("parts_ms"), dict) for k in r["parts_ms"]})
+    parts = {}
+    for name in names:
+        values = [r["parts_ms"][name] for r in rows if isinstance((r.get("parts_ms") or {}).get(name), (int, float))]
+        parts[name] = {"p50": pct(values, 0.5), "p95": pct(values, 0.95), "max": max(values) if values else None}
+    return {"cycles": len(rows), "observers_ms": stat("observers_ms"), "parts_ms": parts, "round_trip_ms": stat("round_trip_ms"),
             "drain_ms": stat("drain_ms"), "total_ms": {"p50": pct(total, 0.5), "p95": pct(total, 0.95)},
             "resyncs": stat("resyncs"), "hangs": hangs.get("count", hangs.get("total")),
             "worst_hangs": (hangs.get("hangs") or hangs.get("items") or [])[:3],
@@ -305,8 +311,10 @@ def run(app, opts, pid=None):
     sample_out = os.path.join(opts.out, "activation-sample.txt") if opts.sample and pid else None
     heavy_rows, heavy_hangs = cycles(app, opts.cycles, pid=pid, sample_out=sample_out)
     heavy = summarize(heavy_rows, heavy_hangs)
-    if sample_out and os.path.exists(sample_out):
-        heavy["main_thread_sample"] = main_thread_sample(sample_out)
+    if sample_out:
+        heavy["main_thread_sample"] = main_thread_sample(sample_out) if os.path.exists(sample_out) else []
+        if os.path.exists(sample_out + ".err"):
+            heavy["sample_errors"] = open(sample_out + ".err", errors="replace").read()[-2000:]
     print(f"activation-perf: heavy {json.dumps({k: v for k, v in heavy.items() if k != 'main_thread_sample'})}", flush=True)
     failures = []
     for name, part in (("light", light), ("heavy_app_only", heavy_app), ("heavy", heavy)):
