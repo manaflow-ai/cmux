@@ -154,6 +154,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `sidebar.groupHeader.background`: a group header's background is glass, solid, or (the default, `auto`)
     /// glass where the sidebar is see-through and solid where it is opaque. It always shows (Lawrence 2026-11-05).
     public var groupHeaderBackground: SidebarGroupBackgroundStyle = .auto
+    /// `sidebar.groupBarShape`: the shape of the bar beside a group's members. Lawrence's even capsule by default
+    /// (2026-11-17); Tapered is Leo's tip (2026-10-23, the katana of #42553), opt-in.
+    public var groupBarShape: SidebarGroupBarShape = .rounded
     /// `sidebar.groupPalette` (``GroupPalette``): where group colors come from, and whether a new group takes the
     /// palette's next color. Pure glass by default: a new group has no color until a person picks one.
     public var groupPalette: GroupPalette = .glass

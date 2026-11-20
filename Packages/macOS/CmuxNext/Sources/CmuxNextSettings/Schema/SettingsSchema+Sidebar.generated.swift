@@ -110,6 +110,9 @@ extension SidebarSectionsSetting {
     /// `sidebar.groupHeader.background`.
     public nonisolated static let groupHeaderBackgroundPath = ["sidebar", "groupHeader", "background"]
     public nonisolated static let groupHeaderBackgroundDefault: SidebarGroupBackgroundStyle = .auto
+    /// `sidebar.groupBarShape`.
+    public nonisolated static let groupBarShapePath = ["sidebar", "groupBarShape"]
+    public nonisolated static let groupBarShapeDefault: SidebarGroupBarShape = .rounded
     /// `sidebar.groupPalette`.
     public nonisolated static let groupPalettePath = ["sidebar", "groupPalette"]
     public nonisolated static let groupPaletteDefault: GroupPalette = .glass

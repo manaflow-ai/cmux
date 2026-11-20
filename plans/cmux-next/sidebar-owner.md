@@ -64,6 +64,13 @@
 
 - 2026-11-16 (lane/sidebar-share-icon, ask-3d308b4cbd): Sidebar-Look: Leo, 2026-11-16, on the share arrow drawn on every row: "Holy moly is THIS the icon for screen sharing???". Workspace rows draw no screen button (the revert below, ask-035c65b611, stands). Where Share and View screen remain, on the machine header and the Projects header, they draw a screen (`remote.display`), never the generic share arrow (`action.share`), and show on hover only; the header keeps the slot so the name never moves. While This Mac shares (`SidebarMachine.screenShared`, from this device's `HubDevice.macScreenShared`), those headers draw the screen in the accent at rest, labelled "Sharing screen": the sharing badge. VoiceOver reaches a hidden header button through the header's custom action. The header's + stays at rest (cx-g2kk). Regression: `SidebarScreenActionTests`, `SidebarRowControlsAtRestTests` (no row draws an action at rest); gallery `AASidebarScreenActionsGalleryTests.renderStates` (four glyph variants).
 
+- 2026-11-20 (helper-o/group-bar-taper-option, ask-8e5e0aeec3): Sidebar-Look: Leo, 2026-10-23, on the group bar: "keep
+  the left thing but I like the cut, do you guys see the cut, just make the cut the taper on the bar". The Sidebar setting
+  Group Bar Shape (`sidebar.groupBarShape`): Rounded, Lawrence's even capsule above, stays the default and draws
+  unchanged; Tapered (opt-in) draws the 2026-11-08 katana again (the left edge straight up to the point, the right edge
+  curving out of it over twice the bar's width, only the bottom rounded by the corner clip). A `joined` rail keeps its
+  square top under either. Regression: `SidebarGroupBarShapeTests`.
+
 - 2026-11-17 (group-rail-polish): Sidebar-Look: Lawrence, 2026-11-17, on the "Chief's workspaces" rail zoomed in: "group
   left bar is not pixel perfect, it needs proper even roundness, and have slight padding on left as well, and identical
   color/texture to the workspace group". Every group rail is now an even capsule (both ends rounded by half its width;
