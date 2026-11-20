@@ -143,6 +143,16 @@ impl Native {
                     "required": ["id"],
                     "additionalProperties": false
                 }
+            },
+            {
+                "name": "recall",
+                "description": chief_kernel::prompt::RECALL_DESCRIPTION,
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": chief_kernel::tools::RECALL_MAX}, "all": {"type": "boolean"}},
+                    "required": ["query"],
+                    "additionalProperties": false
+                }
             }
         ])
     }
@@ -483,7 +493,7 @@ impl Native {
                 }
             }
             "str_replace_based_edit_tool" => editor::run(&input, &shell.cwd()),
-            "zoom" | "date" => Call::parse(name, &input).map(|call| call.answer(chat)),
+            "zoom" | "date" | "recall" => Call::parse(name, &input).map(|call| call.answer(chat)),
             other => Err(format!("unknown tool {other}")),
         };
         match result {
