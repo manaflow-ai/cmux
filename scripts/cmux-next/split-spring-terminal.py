@@ -57,6 +57,11 @@ if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in
 if "--suite=memory-agents" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "memory-agents-cron.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=memory-agents"])
+# `--suite=memory-day`: the app's memory growth per simulated hour over a typical day replayed in minutes, per
+# process kind, as perf-cron rows (scripts/cmux-next/memory-day-replay.py on bench_memory.py and the acpmux test agent).
+if "--suite=memory-day" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "memory-day-replay.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=memory-day"])
 # `--suite=renderer-rest`: each Chromium renderer's footprint, pages and V8 heap every 5 s while the empty app rests,
 # then after a GC and a memory-pressure purge (scripts/cmux-next/renderer-rest.py, CMUX-571 ram-baseline).
 if "--suite=renderer-rest" in sys.argv:
