@@ -1914,7 +1914,7 @@ export function devboxClaudeSettingsDefaultsCheckCommand(
   const ownership = expectedWorkUser === null
     ? ""
     : ` && [ "$(stat -c %U ${files[1] ?? files[0]})" = ${expectedWorkUser} ]`;
-  return `python3 -c 'import json, os; rows = [json.load(open(p)) for p in ${encodedFiles}]; assert all(r.get("crossSessionInbound", "accept") in ("accept", "hold", "refuse") for r in rows), rows; m = "/etc/claude-code/managed-settings.json"; assert not os.path.exists(m) or "crossSessionInbound" not in json.load(open(m))'${ownership} && echo claude-settings-defaults-ok`;
+  return `python3 -c 'import json, os; rows = [json.load(open(p)) for p in ${encodedFiles}]; assert all("crossSessionInbound" in r and r["crossSessionInbound"] in ("accept", "hold", "refuse") for r in rows), rows; m = "/etc/claude-code/managed-settings.json"; assert not os.path.exists(m) or "crossSessionInbound" not in json.load(open(m))'${ownership} && echo claude-settings-defaults-ok`;
 }
 
 /**

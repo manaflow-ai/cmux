@@ -399,7 +399,7 @@ COPY claude-onboarding.py /etc/cmux/claude-onboarding.py
 # (devboxClaudeSettingsDefaultsCommand).
 RUN python3 -I /etc/cmux/claude-onboarding.py --settings-default /root/.claude/settings.json \
   && sudo -n -u cmux python3 -I /etc/cmux/claude-onboarding.py --settings-default /home/cmux/.claude/settings.json \
-  && python3 -c 'import json; assert all(json.load(open(p)).get("crossSessionInbound", "accept") in ("accept", "hold", "refuse") for p in ["/root/.claude/settings.json", "/home/cmux/.claude/settings.json"])'
+  && python3 -c 'import json; assert all("crossSessionInbound" in (row := json.load(open(p))) and row["crossSessionInbound"] in ("accept", "hold", "refuse") for p in ["/root/.claude/settings.json", "/home/cmux/.claude/settings.json"])'
 # Agent sign-in launchers: /usr/local/bin/<agent> resolves the team or
 # own-login mode per launch (agent-auth.sh) and execs
 # /usr/local/libexec/cmux-<agent>-real. mise's shims come first on PATH, so

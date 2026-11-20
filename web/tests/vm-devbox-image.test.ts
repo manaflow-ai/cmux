@@ -1814,6 +1814,9 @@ test "$daemon_pid" = fixture
     const root = mkdtempSync(path.join(tmpdir(), "claude-settings-verify-unset-"));
     try {
       const file = path.join(root, "settings.json");
+      writeFileSync(file, "{}\n");
+      const unseeded = await runChild("/bin/sh", ["-c", devboxClaudeSettingsDefaultsCheckCommand([file], null)]);
+      expect(unseeded.status).not.toBe(0);
       const seeded = await runChild("python3", ["-I", path.join(templateDir, "claude-onboarding.py"), "--settings-default", file], { timeout: 10_000 });
       expect(seeded.status).toBe(0);
       expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ crossSessionInbound: "accept" });
