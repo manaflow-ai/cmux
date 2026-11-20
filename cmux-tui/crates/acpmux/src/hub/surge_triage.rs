@@ -107,7 +107,7 @@ impl Hub {
             due.insert(session.id.clone(), false);
         }
         let (hub, session) = (self.clone(), session.clone());
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("surge-triage", async move {
             loop {
                 tokio::time::sleep(hub.surge_triage_debounce()).await;
                 let more = match hub.surge_triage_pass(&session).await {
@@ -276,7 +276,7 @@ impl Hub {
         };
         let (hub, chat) = (self.clone(), to.clone());
         // Runs on past the accept: a queued prompt's run lasts until its turn ends.
-        let run = tokio::spawn(async move {
+        let run = self.scope.spawn_named("surge-digest", async move {
             let blocks = vec![json!({"type": "text", "text": text})];
             hub.prompt_with(&chat, blocks, "acpmux", false, opts).await
         });
