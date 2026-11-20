@@ -1175,6 +1175,7 @@ test("acpmux's turn cap notice and inbox digest draw as acpmux's message, never 
   for (const [kind, text] of [
     ["turn_cap", "This turn has run 30 minutes. Wrap up and end the turn."],
     ["inbox_digest", "3 messages waited: 1 block, 2 FYIs"],
+    ["surge_digest", "Held during a message surge: one thread needs you."],
   ] as const) {
     const prompt = incomingPrompt(text, { _meta: { provenance: { kind } } });
     expect(prompt).toEqual({ kind: "message", message: { name: "acpmux", text, raw: text } });

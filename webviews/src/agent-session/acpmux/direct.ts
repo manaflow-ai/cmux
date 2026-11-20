@@ -162,6 +162,7 @@ import {
 } from "./conversation/incomingMessage";
 import { noticeRowText } from "./conversation/agentNotice";
 import { inboxMessages, inboxText, type InboxMessage, type InboxNotice } from "./conversation/inboxNotice";
+import { listedSurge, newerSurge, surgeOfEvent, type SurgeHold } from "./conversation/surgeHold";
 import { withoutRelayEnvelope, withoutRelayLabel, withoutRelayLabelOfMessage } from "./conversation/relayEnvelope";
 import { bareSender, provenanceAuthenticated } from "./conversation/senderIdentity";
 import { recapDismissed, rememberRecapDismissed } from "./conversation/recapDismissed";
@@ -3472,6 +3473,10 @@ export class AcpmuxDirectClient {
   /// that turn (stopThroughReconnect.ts).
   private turnPrompt?: string;
   private lastSeq = 0;
+  /// The chat's held surge, its newest snapshot by seq (conversation/surgeHold.ts): the composer hat's
+  /// one row for it (SurgeHoldRow.tsx). A full refold keeps it: its events set it again or leave a
+  /// listing's newer one.
+  private surge?: SurgeHold;
   /// Each gap read out or failed (`fetchMissedEvents`), by its own key: the seq the chat's records
   /// are whole through below a page merged past that gap. A copy kept, or the next open's resume,
   /// continues from the lowest of them, not from `lastSeq`, so the records in a hole are read once
@@ -4015,8 +4020,10 @@ export class AcpmuxDirectClient {
     const from = this.replayThrough ?? 0;
     if (throughSeq === from) return;
     this.replayThrough = throughSeq;
-    if (throughSeq < from) this.rebuild();
-    else
+    if (throughSeq < from) {
+      this.surge = undefined;
+      this.rebuild();
+    } else
       for (const event of this.events) {
         if (event.seq <= from || event.seq > throughSeq) continue;
         this.lastSeq = event.seq;
@@ -4767,6 +4774,7 @@ export class AcpmuxDirectClient {
     this.planBuilds.clear();
     this.memoryEarly.clear();
     this.presetApprovals.clear();
+    this.surge = undefined;
     this.presetApprovalRemoved.clear();
     this.queueAuthors.clear();
     this.queueEdited.clear();
@@ -7401,6 +7409,11 @@ export class AcpmuxDirectClient {
   /// SCREEN").
   private startAttachReads(sessionId: string): AttachReads {
     this.permissions.select(sessionId);
+    if (this.features.has("surgeInboxCounts")) {
+      // The page can contain only newer turns. This owner-scoped read restores just the
+      // counters, off the first-paint path, including after the daemon has recovered its log.
+      void this.readInboxThreads(sessionId, true).catch(() => undefined);
+    }
     if (this.handoffSupported) this.handoff.select(sessionId);
     return {
       permissions: this.permissions.refresh().catch(() => {}),
@@ -9916,6 +9929,9 @@ export class AcpmuxDirectClient {
             failover: { from: msg.from, to: msg.to },
           });
         }
+      } else if (event.kind === "inbox" || event.kind === "inbox_triaged") {
+        // A held surge's snapshot (acpmux's receiver): the hat's one row, never a row per message.
+        this.surge = newerSurge(this.surge, surgeOfEvent(event.kind, msg, event.seq, event.at));
       } else if (event.kind === "recap") {
         this.recordRecap(event, msg);
       } else if (event.kind === "memory_offer") {
@@ -11504,6 +11520,7 @@ export class AcpmuxDirectClient {
       peerLinks: this.peerLinks,
       peerResources: this.peerResources,
       ...(this.forkedAtSeq !== undefined ? { forkedAtSeq: this.forkedAtSeq } : {}),
+      ...(this.surge ? { surge: this.surge } : {}),
       summary: this.publishedSummary(summary, effort, limits),
       connection,
       ...(this.daemonWaitingSince !== undefined ? { daemonWaitingSince: this.daemonWaitingSince } : {}),
@@ -13230,6 +13247,37 @@ export class AcpmuxDirectClient {
       messages?: unknown;
     } | null;
     return inboxMessages(Array.isArray(reply?.messages) ? reply.messages : []).reverse();
+  }
+  /// The chat's inbox threads for the panel. A slow listing must not rewind a live event.
+  async inboxThreads(): Promise<unknown> {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId) throw new Error(translate("error.notOpen"));
+    return this.readInboxThreads(sessionId, false);
+  }
+
+  private async readInboxThreads(sessionId: string, countsOnly: boolean): Promise<unknown> {
+    const generation = this.selectionGeneration;
+    const reply = await this.request("_acpmux/inbox_threads", { sessionId, ...(countsOnly && { countsOnly }) }, 15_000);
+    if (sessionId === this.selectedSessionId && generation === this.selectionGeneration) {
+      const next = newerSurge(this.surge, listedSurge(reply?.surge));
+      if (next !== this.surge && (next?.held || next?.needYou || this.surge)) {
+        this.surge = next;
+        this.emit();
+      }
+    }
+    return reply;
+  }
+  /// A page of the chat's inbox archive matching `search` (acpmux `_acpmux/inbox_threads` with
+  /// `{search, before?}`): `{hits, next}`, as acpmux sent it, for the held surge's search
+  /// (SurgeArchiveResults.tsx). Asked only when the person searches, never as posts arrive.
+  async searchInbox(search: string, before?: string | number): Promise<unknown> {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || !search.trim()) throw new Error(translate("error.notOpen"));
+    return this.request(
+      "_acpmux/inbox_threads",
+      { sessionId, search: search.trim(), ...(before !== undefined && { before }) },
+      15_000,
+    );
   }
   /// An offer the reducer draws: offers of one group share one card, in the order they came.
   private addOffer(offer: AcpmuxSessionOffer, at: number): void {

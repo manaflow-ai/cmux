@@ -138,6 +138,9 @@ import { rememberRecentFolders } from "./newtab/recentProject";
 import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
+import { SurgeHoldRow } from "./SurgeHoldRow";
+import { surgeShows } from "./conversation/surgeHold";
+import type { InboxMessage } from "./conversation/inboxNotice";
 import { goalHatPlace } from "./goalHat.experiment";
 import { githubFolder, githubFolderRepo } from "./githubRepos";
 import { StyleSwitch } from "./newtab/StyleSwitch";
@@ -1001,6 +1004,12 @@ async function saveLogNatively(text: string, suggestedName: string): Promise<Exp
     return "unavailable";
   }
 }
+
+/// The held surge's listing and a thread's posts, through the pane's own actions (SurgeHoldRow.tsx).
+const listSurgeThreads = () => callNative<unknown>("chat.inbox.threads");
+const readInboxThread = (threadId: string) => callNative<InboxMessage[]>("chat.inbox.thread", { threadId });
+const searchSurgeArchive = (search: string, before?: string | number) =>
+  callNative<unknown>("chat.inbox.search", { search, ...(before !== undefined && { before }) });
 
 /** Saves a side panel document through the host's save panel (`pane.saveFile`); a host without one, or a failed write, is unavailable (the panel copies the document instead). */
 const saveDocumentNatively: SaveDocument = async (text, suggestedName, kind) => {
@@ -9839,6 +9848,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // An inbox notice's thread the person opened: its messages, read without marking them
           // read (conversation/InboxNoticeCard.tsx).
           "chat.inbox.thread": ({ threadId }) => client.inboxThread(String(threadId ?? "")),
+          // The held surge's threads (SurgeHoldRow.tsx): the chat's inbox listing, read as its panel opens.
+          "chat.inbox.threads": () => client.inboxThreads(),
+          // The held surge's archive search (SurgeArchiveResults.tsx): one page per search or More.
+          "chat.inbox.search": ({ search, before }) =>
+            client.searchInbox(
+              String(search ?? ""),
+              typeof before === "string" || typeof before === "number" ? before : undefined,
+            ),
           // An agent link or `HOST/NAME` in a reply (conversation/sessionRefs.ts): the session it names.
           "chat.session.resolve": ({ query }) => client.resolveSession(String(query ?? "")),
           // Open a started offer or a sub-session: the app shows its tab or opens it beside this
@@ -12812,6 +12829,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         {/* The agent's questions waiting on the person, over the hat (question/HatQuestions.tsx). */}
         {/* The card under it keeps answering the question it shows; the hat shows only with more to
             step to than that one (hatShows), and stays mounted so it arrives and leaves as a move. */}
+        {/* The chat's held surge, one row however many messages its inbox holds (SurgeHoldRow.tsx). */}
+        {!showNewTab && snapshot.sessionId && (
+          <SurgeHoldRow
+            key={`surge:${snapshot.sessionId}`}
+            surge={snapshot.surge}
+            sessionId={snapshot.sessionId}
+            listThreads={listSurgeThreads}
+            readThread={readInboxThread}
+            onOpenSender={openSenderChat}
+            searchArchive={searchSurgeArchive}
+          />
+        )}
         {!goalAtFoot && goalNode}
         <HatQuestions
           key={shownSessionId}
@@ -12848,6 +12877,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             stackAbove={
               (trayPlacement === "tray" && trayNode !== null) ||
               goalNode !== null ||
+              (!showNewTab && surgeShows(snapshot.surge)) ||
               statusCardOpen ||
               hatShows(hatQuestionList)
             }

@@ -121,9 +121,14 @@
 //! the session weakly.
 
 use super::*;
+#[path = "inbox_surge.rs"]
+mod surge;
+#[path = "inbox_topic.rs"]
+mod topics;
 use crate::prompt_class::PromptClass;
 use std::sync::Weak;
 use std::sync::atomic::Ordering;
+pub(super) use topics::topic as surge_topic;
 
 /// The provenance kind of a notice.
 pub const NOTICE_KIND: &str = "inbox_notice";
@@ -161,6 +166,8 @@ const CLIENT: &str = "acpmux";
 
 /// One message in the inbox.
 pub(super) struct Item {
+    /// Archived for batch triage. An ordinary notice must never carry this item.
+    pub(super) surge_held: bool,
     pub(super) prompt_id: String,
     /// The notice that carried it, once one went in: a resend answers with its outcome.
     pub(super) notice: Option<String>,
@@ -205,6 +212,7 @@ impl Item {
     /// Message `prompt_id` from agent `from`, that a notice carries now.
     pub(super) fn carried(prompt_id: &str, from: &str, text: &str) -> Self {
         Self {
+            surge_held: false,
             prompt_id: prompt_id.to_owned(),
             notice: None,
             answered: None,
@@ -233,6 +241,8 @@ type Waiter = tokio::sync::watch::Sender<Option<super::queue::Answer>>;
 /// A session's inbox (`Session::inbox`).
 #[derive(Default)]
 pub struct Inbox {
+    surge_rate: surge::SurgeRate,
+    surge_counts: Arc<StdMutex<surge::Counts>>,
     pub(super) items: Vec<Item>,
     /// Replies to questions no caller waits for: due under the prompt that carries them until
     /// its turn is known, then sent to their askers when that turn ends (`question_replies.rs`).
@@ -898,7 +908,16 @@ fn body(text: &str) -> &str {
 
 /// Whether `item` may wake the idle chat of `meta`.
 fn wakes(meta: &SessionMeta, item: &Item) -> bool {
-    wakes_as(meta, item.class, item.report, item.from_session.as_deref())
+    fire_notice(item.tool_notice.as_ref())
+        || wakes_as(meta, item.class, item.report, item.from_session.as_deref())
+}
+
+fn fire_notice(notice: Option<&Value>) -> bool {
+    notice.and_then(|n| n.get("severity")).and_then(Value::as_str) == Some("fire")
+}
+
+fn ordinary_fyi(item: &Item) -> bool {
+    item.class == PromptClass::Fyi && !fire_notice(item.tool_notice.as_ref())
 }
 
 /// [`wakes`] for a message of `class` from session `from` (a report or not) not in the inbox yet.
@@ -944,7 +963,7 @@ fn would_strand(session: &Session, inbox: &Inbox, meta: &SessionMeta, class: Pro
 fn fyis_alone_wait(inbox: &Inbox, class: PromptClass) -> bool {
     class == PromptClass::Fyi
         && !inbox.due_now
-        && inbox.items.iter().filter(|i| !i.noticed).all(|i| i.class == PromptClass::Fyi)
+        && inbox.items.iter().filter(|i| !i.noticed).all(ordinary_fyi)
 }
 
 /// The refusal of a waiting send whose message the receiver's inbox would hold without waking it
@@ -1234,8 +1253,8 @@ impl Hub {
         let sender_session = sender_session(provenance);
         // Read before the inbox's lock, as `inbox_review` reads them.
         let meta_now = session.meta();
-        let wakes_now =
-            wakes_as(&meta_now, class, is_report(provenance), sender_session.as_deref());
+        let wakes_now = fire_notice(provenance.and_then(|p| p.get("notice")))
+            || wakes_as(&meta_now, class, is_report(provenance), sender_session.as_deref());
         let continuing = self.continuation_pending(session);
         // It would sit in an idle chat's inbox until a flush: said in its acceptance, and a
         // sender that waits for it is refused at once (`not_woken`).
@@ -1252,7 +1271,12 @@ impl Hub {
             sender_meta.as_ref(),
             human_authenticated,
         );
-        let thread = thread_key(explicit, &thread_sender(provenance, sender), &text);
+        let thread_sender = thread_sender(provenance, sender);
+        let tool_notice = tool_notice_of(provenance);
+        let thread = match &tool_notice {
+            Some(notice) => surge_topic(explicit, &text, Some(notice), &thread_sender),
+            None => thread_key(explicit, &thread_sender, &text),
+        };
         let (tx, mut rx) = tokio::sync::watch::channel(None);
         let mut resent: Option<Option<super::queue::Answer>> = None;
         let mut withdrawn = false;
@@ -1313,6 +1337,7 @@ impl Hub {
                     None => {
                         held = strands;
                         inbox.items.push(Item {
+                            surge_held: false,
                             prompt_id: prompt_id.to_owned(),
                             notice: None,
                             answered: None,
@@ -1326,7 +1351,7 @@ impl Hub {
                             at: now_ms(),
                             text: text.clone(),
                             details: provenance.and_then(|p| p.get("details")).cloned(),
-                            tool_notice: tool_notice_of(provenance),
+                            tool_notice,
                             noticed: false,
                             read: false,
                             answer: Some(tx.clone()),
@@ -1435,6 +1460,7 @@ impl Hub {
                 false
             } else {
                 inbox.items.push(Item {
+                    surge_held: false,
                     prompt_id: prompt_id.to_owned(),
                     notice: None,
                     answered: None,
@@ -1474,7 +1500,7 @@ impl Hub {
             crate::prompt_provenance::marked(msg, opts.provenance.as_ref()),
         );
         if let Some(message) = message.as_ref() {
-            super::message_events::record_message_context(self, &session.id, message);
+            super::message_events::record_message_context(self, &session.id, message, &Value::Null);
         }
         // Existing readers can replay these marks without knowing the new deliveredRead flag.
         self.append(
@@ -1547,7 +1573,7 @@ impl Hub {
                 let oldest = new.iter().map(|i| i.at).min().unwrap_or(now);
                 // Nothing new but FYIs: they go with the next notice, or once the oldest is
                 // `FLUSH_MS` old (module docs).
-                let fyi_only = new.iter().all(|i| i.class == PromptClass::Fyi);
+                let fyi_only = new.iter().all(|i| ordinary_fyi(i));
                 if new.is_empty()
                     || inbox.in_flight.is_some()
                     || meta.status == SessionStatus::Closed
@@ -2051,6 +2077,7 @@ impl Hub {
     /// The record kinds `restore_inbox` reads (a log load's, so `store/kind_index.rs` copies them).
     pub(crate) const INBOX_KINDS: &[&str] = &[
         "inbox",
+        "inbox_triaged",
         "inbox_noticed",
         "inbox_returned",
         "inbox_answered",
@@ -2061,6 +2088,8 @@ impl Hub {
     /// The inbox from the session's log (`restore_queue`): every message, read and noticed as
     /// the log says. Run again, it adds only what it does not hold.
     pub(super) fn restore_inbox(&self, session: &Session) {
+        let mut counts = surge::Counts::default();
+        let mut recent_held = std::collections::VecDeque::new();
         let mut items: Vec<Item> = Vec::new();
         let mut noticed: std::collections::HashMap<String, String> = Default::default();
         let mut read: std::collections::HashSet<String> = Default::default();
@@ -2070,6 +2099,7 @@ impl Hub {
         let kinds = Self::INBOX_KINDS;
         // And what was changed here but is not in the journal yet (`scan_for_rebuild`).
         let scanned = self.scan_for_rebuild(session, kinds, &mut |e: EventRecord| {
+            counts.restore(&e);
             let ids = || {
                 let ids = e.msg.get("promptIds").and_then(Value::as_array).cloned();
                 ids.unwrap_or_default().into_iter().filter_map(|v| v.as_str().map(str::to_owned))
@@ -2096,7 +2126,8 @@ impl Hub {
                     } else {
                         thread
                     };
-                    items.push(Item {
+                    let item = Item {
+                        surge_held: e.msg.get("surgeHeld") == Some(&Value::Bool(true)),
                         prompt_id: field("promptId").to_owned(),
                         notice: None,
                         answered: None,
@@ -2115,7 +2146,15 @@ impl Hub {
                         read: e.msg.get("deliveredRead") == Some(&Value::Bool(true)),
                         answer: None,
                         reader: None,
-                    });
+                    };
+                    if item.surge_held {
+                        if recent_held.len() == KEEP {
+                            recent_held.pop_front();
+                        }
+                        recent_held.push_back(item);
+                    } else {
+                        items.push(item);
+                    }
                 }
                 "inbox_noticed" => {
                     let notice = e.msg.get("noticePromptId").and_then(Value::as_str);
@@ -2142,11 +2181,19 @@ impl Hub {
             }
             true
         });
-        if scanned.is_err() || items.is_empty() {
+        items.extend(recent_held);
+        if scanned.is_err() || (items.is_empty() && counts.seq == 0) {
             return;
         }
         // The state itself: `Session::inbox` calls this to fill it.
+        let mut surge_held = false;
         let mut inbox = session.inbox_state.lock().unwrap_or_else(|e| e.into_inner());
+        {
+            let mut live = inbox.surge_counts.lock().unwrap_or_else(|e| e.into_inner());
+            if counts.seq > live.seq {
+                *live = counts;
+            }
+        }
         for mut item in items {
             if removed.contains(&item.prompt_id) {
                 inbox.removed.insert(item.prompt_id.clone());
@@ -2164,10 +2211,20 @@ impl Hub {
             item.notice = noticed.get(&item.prompt_id).cloned().filter(|n| !n.is_empty());
             item.answered = item.notice.as_ref().and_then(|n| answered.get(n).cloned());
             item.noticed |= noticed.contains_key(&item.prompt_id);
+            if item.surge_held {
+                item.noticed = true;
+                inbox.surge_rate.restore(item.at);
+                surge_held = true;
+            }
             item.read |= read.contains(&item.prompt_id);
             inbox.items.push(item);
         }
         trim(&mut inbox);
+        drop(inbox);
+        // A restart resumes the held backlog's triage with no new arrival (`surge_triage.rs`).
+        if surge_held {
+            super::surge_triage::resume_after_restore(session);
+        }
     }
 
     /// `_acpmux/prompt_withdraw` of an inbox item (`withdraw.rs`): one no notice carried yet
@@ -2243,6 +2300,7 @@ impl Hub {
             ids.is_some_and(|ids| ids.iter().any(|v| v.as_str() == Some(prompt_id)))
         };
         let (mut found, mut removed, mut noticed) = (false, false, false);
+        let mut surge_thread = None;
         let mut answer: Option<super::queue::Answer> = None;
         let kinds = ["inbox", "inbox_noticed", "inbox_answered", "inbox_removed"];
         // Only the records naming it are read whole: by `promptId`, or in a list of prompts
@@ -2253,7 +2311,12 @@ impl Hub {
         let _ = self.scan_for_rebuild_keyed(session, &kinds, keep, &mut |e: EventRecord| {
             let own = e.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id);
             match e.kind.as_str() {
-                "inbox" if own => found = true,
+                "inbox" if own => {
+                    found = true;
+                    if e.msg.get("surgeHeld") == Some(&Value::Bool(true)) {
+                        surge_thread = e.msg.get("threadId").cloned();
+                    }
+                }
                 "inbox_removed" if own => removed = true,
                 "inbox_noticed" if names(&e.msg) => noticed = true,
                 "inbox_answered" if names(&e.msg) => answer = answered_record(&e.msg).map(|a| a.1),
@@ -2266,6 +2329,11 @@ impl Hub {
         }
         if removed {
             return Some(Ok(super::queue::withdrawn_reply(prompt_id, "")));
+        }
+        if let Some(thread) = surge_thread {
+            return Some(Ok(json!({"stopReason":"end_turn","_meta":{"acpmux":{
+                "promptId":prompt_id,"threadId":thread,"inbox":true,"duplicate":true,"surgeHeld":true
+            }}})));
         }
         let meta = json!({"promptId": prompt_id, "inbox": true, "duplicate": true});
         match answer {
@@ -2318,12 +2386,14 @@ impl Hub {
                     "threadId": key, "key": key, "label": label(key), "from": from,
                     "unread": unread.len(), "new": list.iter().filter(|i| !i.noticed).count(),
                     "count": list.len(), "newestAt": newest(list),
+                    "surgeHeld": list.iter().any(|i| i.surge_held),
                     "newestPreview": last.map(|i| preview(&i.text)), "class": class,
                     "sender": last.map(|i| i.sender.clone()),
                 })
             })
             .collect();
-        json!({"sessionId": session.id, "threads": rows})
+        let counts = inbox.surge_counts.lock().unwrap_or_else(|e| e.into_inner()).json();
+        json!({"sessionId": session.id, "threads": rows, "surge": counts})
     }
 
     /// `_acpmux/inbox_thread`: a thread's messages, newest first; `mark_read` marks them read.
@@ -2355,7 +2425,7 @@ impl Hub {
                     "sender": item.sender,
                     "class": item.class, "kind": kind_of(item.class), "at": item.at,
                     "text": item.text, "read": item.read, "details": item.details,
-                    "notice": item.tool_notice,
+                    "notice": item.tool_notice, "surgeHeld": item.surge_held,
                 }));
                 if mark_read && !item.read {
                     item.read = true;
@@ -2445,6 +2515,9 @@ fn answered_record(msg: &Value) -> Option<(String, super::queue::Answer)> {
 
 /// Keeps at most [`KEEP`] messages: the oldest read and noticed ones go first.
 fn trim(inbox: &mut Inbox) {
+    if inbox.items.len() <= KEEP {
+        return;
+    }
     // A message a notice carries that has not gone in yet may be new again: never trimmed.
     let carried: std::collections::HashSet<String> = inbox
         .in_flight
@@ -2455,12 +2528,16 @@ fn trim(inbox: &mut Inbox) {
         .collect();
     while inbox.items.len() > KEEP {
         let gone = |i: &Item| {
-            i.read && i.noticed && i.answered.is_some() && !carried.contains(&i.prompt_id)
+            i.surge_held
+                || (i.read && i.noticed && i.answered.is_some() && !carried.contains(&i.prompt_id))
         };
         match inbox.items.iter().position(gone) {
             Some(i) => {
                 let item = inbox.items.remove(i);
-                inbox.trimmed.insert(item.prompt_id);
+                // The archive reader and resend ledger still resolve an evicted held post.
+                if !item.surge_held {
+                    inbox.trimmed.insert(item.prompt_id);
+                }
             }
             None => break,
         }
