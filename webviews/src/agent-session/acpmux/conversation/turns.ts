@@ -1117,7 +1117,9 @@ function shapedTurn(
   // A running turn changes with every event: it is neither read from nor kept in the cache, so its
   // open-fold key is never needed, and a streamed token does no work over its rows for it.
   const open = live ? "" : openFolds(rows, start, end, expanded);
-  const background = openBackgroundTurns(rows, start + 1, end, expanded);
+  const background =
+    openBackgroundTurns(rows, start + 1, end, expanded) +
+    (live ? "" : openBackgroundWorked(rows, start + 1, end, expanded));
   const messageRuns = live ? "" : openMessageRuns(rows, start + 1, end, expanded);
   const backgroundRuns = live ? "" : openBackgroundRuns(rows, start + 1, end, expanded);
   const source = rows.slice(start + 1, end).filter((row) => !hiddenInBackground(row, foldedBackground));
@@ -2213,8 +2215,80 @@ function shapeTurn(
     shaped.push(
       ...liveTurn({ ...summary, at: since }, answered, clockOffset, sessionStatus, trayAgents, turnStartedAtMs),
     );
-  else shaped.push(...(live ? answered : endedTail(answered)));
+  else shaped.push(...(live ? answered : endedTail(foldEndedBackground(answered, expanded))));
   return shaped;
+}
+
+/// The key of the "Worked for" a finished background turn's work folds under (`foldEndedBackground`).
+/// It names no row of the transcript, so a click toggles this fold alone (`toggleTurnFold`), and
+/// Thinking and Verbose open it as they open every "Worked for" (viewFolds.ts).
+export const backgroundWorkedId = (id: string) => `${WORKED}-background-${id}`;
+
+/// The ids of the open background "Worked for" folds (`backgroundWorkedId`) in `rows[start..end)`,
+/// which a cached turn compares, read off each background turn's line row.
+function openBackgroundWorked(rows: readonly AcpmuxRow[], start: number, end: number, expanded: Folds): string {
+  if (expanded.size === 0) return "";
+  let open = "";
+  for (let at = start; at < end; at += 1) {
+    const turn = rows[at]!.background;
+    if (rows[at]!.kind === BACKGROUND_TURN && turn && expanded.has(backgroundWorkedId(turn.id)))
+      open += `${backgroundWorkedId(turn.id)} `;
+  }
+  return open;
+}
+
+/// `rows` (an ended tail) with each finished turn the agent ran on its own (a background task's end
+/// woke it, its rows share `inBackground`) folded as a prompt's turn folds: its calls and earlier
+/// messages under a closed "Worked for", its answer and footer beside it (Lawrence, 2026-11-19: "in
+/// collapsed, literally everything but final assistant message should be collapsed"). Inline
+/// (backgroundTurnLook.experiment.ts), such a turn's calls drew as run lines under the last reply.
+/// One that said nothing folds to its closed line alone. A turn with no call, or no footer yet,
+/// draws as it came; its named line (a failure, a result) stays above the fold. Opened, the rows
+/// draw as before, under the open line.
+function foldEndedBackground(rows: readonly AcpmuxRow[], expanded: Folds): AcpmuxRow[] {
+  if (!rows.some((row) => row.inBackground !== undefined)) return rows as AcpmuxRow[];
+  const out: AcpmuxRow[] = [];
+  let at = 0;
+  while (at < rows.length) {
+    const id = rows[at]!.inBackground;
+    if (id === undefined) {
+      out.push(rows[at]!);
+      at += 1;
+      continue;
+    }
+    let end = at;
+    while (end < rows.length && rows[end]!.inBackground === id) end += 1;
+    const stretch = rows.slice(at, end);
+    at = end;
+    // Its footer: acpmux's own summary, or the one `backgroundFooters` adds right after its rows.
+    const footer =
+      stretch.find((row) => row.kind === "turnSummary") ??
+      (rows[end]?.id === `${BACKGROUND_END}-${id}` ? rows[end] : undefined);
+    const answer = stretch[answerAt(stretch)];
+    const work = stretch.filter((row) => row !== answer && (row.kind === "activity" || row.kind === "assistant"));
+    const calls = callsIn(work);
+    if (!footer || calls === 0) {
+      out.push(...stretch);
+      continue;
+    }
+    const key = backgroundWorkedId(id);
+    const open = expanded.has(key);
+    out.push({
+      id: key,
+      // What it folds is part of the version, so the memoized line redraws when a row changes.
+      version: work.reduce((version, row) => mixVersion(version, row.version), open ? 1 : 0),
+      at: stretch[0]!.at,
+      kind: WORKED,
+      foldOpen: open,
+      status: footer.status ?? "completed",
+      toolCount: calls,
+      // Timed from its first row to its footer: acpmux's summary of such a turn counts from an
+      // earlier start (316 s on a 49 s wake in a recorded chat).
+      durationMs: Math.max(0, footer.at - stretch[0]!.at),
+    });
+    out.push(...(open ? stretch : stretch.filter((row) => !work.includes(row))));
+  }
+  return out;
 }
 
 /// An ended tail (the turns the agent ran on its own after the prompt's turn, with no turn running now)
