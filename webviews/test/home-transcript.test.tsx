@@ -22,7 +22,9 @@ const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 let observerCallback: (entries: { isIntersecting: boolean }[]) => void;
 let disconnected = 0;
+let idleCallback: (() => void) | undefined;
 function installDom() {
+  idleCallback = undefined;
   dom = new JSDOM("<main id='root'></main>", { url: "https://cmux.test/", pretendToBeVisual: true });
   const globals = {
     window: dom.window,
@@ -34,6 +36,10 @@ function installDom() {
     getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
     IS_REACT_ACT_ENVIRONMENT: true,
     __cmuxPaneStrings: paneTable,
+    requestIdleCallback: (callback: () => void) => {
+      idleCallback = callback;
+      return 1;
+    },
     IntersectionObserver: class {
       constructor(callback: typeof observerCallback) {
         observerCallback = callback;
@@ -121,6 +127,12 @@ test("Home renders a grouped tool summary and keeps details behind it", async ()
   expect(block.kind).toBe("tools");
   if (block.kind !== "tools") throw new Error("expected a tool block");
   await act(async () => root!.render(<HomeToolGroup row={block.row} steps={tools} agentNames={new Map()} collapsed />));
+  // Run the scheduled idle work and await the actual chunk before React flushes its update.
+  await act(async () => {
+    idleCallback?.();
+    await import("../src/agent-session/acpmux/conversation/TurnRows");
+  });
+  await settleReact();
   const summary = container.querySelector(".lg-home-tool-summary")!;
   expect(summary.textContent).toContain("Ran 1 command, 1 read");
   expect(summary.textContent).toContain("bun test");

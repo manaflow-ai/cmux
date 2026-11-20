@@ -1467,6 +1467,11 @@
 .lg-home-tool-details {
   margin-block-start: var(--ds-space-1);
 }
+/* An open group's rows while their chunk loads (HomeToolGroup.tsx): one tool line per step, the
+   height the rows take, so they arrive without moving what is below. */
+.lg-home-tool-pending {
+  min-height: calc(var(--lg-tool-lines, 1) * var(--cv-tool-row-height));
+}
 .lg-run-block.note {
   color: var(--page-text-2);
   font-size: var(--text-detail);
