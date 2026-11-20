@@ -490,14 +490,21 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// `rgba(r, g, b, a)` with 0-255 channels.
     public static func css(_ color: ThemeRGB) -> String {
         func channel(_ value: Double) -> Int { Int((value * 255).rounded()) }
-        let alpha = (color.alpha * 1000).rounded() / 1000
-        return "rgba(\(channel(color.red)), \(channel(color.green)), \(channel(color.blue)), \(alpha))"
+        return "rgba(\(channel(color.red)), \(channel(color.green)), \(channel(color.blue)), \(cssAlpha(color.alpha)))"
     }
 
-    /// `color` as pages read it from `css`: each channel rounded to 8 bits, the alpha to 3 decimals.
+    /// `alpha` as the 8-bit alpha the native layer draws (round(alpha x 255) / 255), written to 3 decimals, which
+    /// every engine reads back as that same 8-bit value. Before, an alpha on a half step (0.1 x 255 = 25.5, the
+    /// light theme's pressed row) drew 26/255 natively and 25/255 in WebKit, a level apart over the whole row
+    /// (Liquid Glass Parity, fleet step e573c84a).
+    static func cssAlpha(_ alpha: Double) -> Double {
+        ((alpha * 255).rounded() / 255 * 1000).rounded() / 1000
+    }
+
+    /// `color` as pages read it from `css`: each channel and the alpha rounded to 8 bits.
     public static func cssRounded(_ color: ThemeRGB) -> ThemeRGB {
         func channel(_ value: Double) -> Double { (value * 255).rounded() / 255 }
         return ThemeRGB(red: channel(color.red), green: channel(color.green), blue: channel(color.blue),
-                        alpha: (color.alpha * 1000).rounded() / 1000)
+                        alpha: cssAlpha(color.alpha))
     }
 }

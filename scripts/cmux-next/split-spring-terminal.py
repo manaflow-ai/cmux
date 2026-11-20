@@ -57,6 +57,13 @@ if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in
 if "--suite=memory-agents" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "memory-agents-cron.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=memory-agents"])
+# `--suite=relaunch`: quit and reopen with the session restored, to the window, the chats live again and the terminals
+# live; `--suite=wake`: the app after every process of it was frozen and resumed, a wake proxy. Both as perf-cron rows
+# (scripts/cmux-next/relaunch-wake-cron.py, which keeps the --suite argument).
+for _suite in ("relaunch", "wake"):
+    if f"--suite={_suite}" in sys.argv:
+        suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "relaunch-wake-cron.py")
+        os.execv(sys.executable, [sys.executable, suite] + sys.argv[1:])
 # `--suite=renderer-rest`: each Chromium renderer's footprint, pages and V8 heap every 5 s while the empty app rests,
 # then after a GC and a memory-pressure purge (scripts/cmux-next/renderer-rest.py, CMUX-571 ram-baseline).
 if "--suite=renderer-rest" in sys.argv:
