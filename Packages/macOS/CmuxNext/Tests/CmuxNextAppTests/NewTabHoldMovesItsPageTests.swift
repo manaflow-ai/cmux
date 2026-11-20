@@ -135,8 +135,8 @@ struct NewTabHoldMovesItsPageTests {
 
     /// The setup of each row: an empty pool, the window's made-ahead workspace (`makesItsWorkspaceAhead`: else its
     /// page view is made in the count of a row at one run and not at the next), each page view that the store builds
-    /// or adopts noted, and ONE New Tab key with its frame. `body` gets the count of page views that the pane's New
-    /// Tab tabs have after that key.
+    /// or adopts noted, and ONE New Tab key with the wait for its page view (`waitsForItsPage`). `body` gets the count
+    /// of page views that the pane's New Tab tabs have after that key.
     static func row(_ install: String,
                     _ body: (AppServices, PaneController, Views, Int) async throws -> Void) async throws {
         try await NewTabPageAtItsFrameTests.withAnEmptyPool(install) { services, _, pane, _ in
@@ -150,16 +150,44 @@ struct NewTabHoldMovesItsPageTests {
             }
             defer { tabs.onPageBuilt = wired }
             _ = views.read(pane, services)
+            let pressed = ContinuousClock.now
             NewTabPage.open(in: pane, seed: nil)
-            await NewTabPageAtItsFrameTests.frame(services)
-            let shown = try #require(pane.currentTabKey, "setup: the pane shows no tab after the row's own New Tab key")
-            try #require(tabs.isNewTabPage(shown), "setup: the pane shows no New Tab tab after the row's own New Tab key")
-            try #require(tabs.existingView(shown) != nil, "setup: the row's own New Tab tab has no page view at its frame")
+            try await waitsForItsPage(pane, services, row: install, since: pressed)
             try await body(services, pane, views, views.read(pane, services).count)
             _ = views.read(pane, services)
             #expect(views.indexFaults.isEmpty,
                     "the store's index of its New Tab page views did not agree with a walk over each view at \(views.indexFaults.count) reads of the row: \(views.indexFaults.prefix(3))")
         }
+    }
+
+    /// The setup's wait for the page view of the row's own New Tab tab: frames of the app until the tab that the pane
+    /// shows has a page view, 10 seconds at most. A New Tab key with no warm page gets its page view at the key's
+    /// frame. One setup of 8 in one run had none at that frame. The cause by a read of the code, not proved by a run:
+    /// the daemon's answer for the creation came before that frame, the app then asks the store for the daemon's key
+    /// (the alias of the shown key), and the store lists that key only when the daemon's tree brings it. The rows
+    /// count after the wait, so no row wants a page view at the key's frame for a key with that order.
+    ///
+    /// Prints ONE line that starts `SETUP WAIT:`: the frames and the time from the key to the page view, and what the
+    /// app had at the first frame: the shown key, the key that the alias gives for it (`none`: no alias), and if the
+    /// store listed that key (with no alias: the shown key). A line with more than 1 frame, an alias and `false` is
+    /// that order by a run.
+    static func waitsForItsPage(_ pane: PaneController, _ services: AppServices, row: String,
+                                since key: ContinuousClock.Instant) async throws {
+        let tabs = services.agentTabs
+        var frames = 0, first = "the pane showed no tab"
+        repeat {
+            await NewTabPageAtItsFrameTests.frame(services)
+            frames += 1
+            if frames == 1, let shown = pane.currentTabKey {
+                let alias = tabs.resolve(shown), listed = services.daemon.store.tab(idOrResource: alias) != nil
+                first = "the shown key \(shown), the alias's key \(alias == shown ? "none" : alias), the store lists it: \(listed)"
+            }
+        } while pane.currentTabKey.flatMap({ tabs.existingView($0) }) == nil && ContinuousClock.now - key < .seconds(10)
+        let ms = Int((ContinuousClock.now - key) / .milliseconds(1))
+        print("SETUP WAIT: NewTabHoldMovesItsPageTests \(row): \(frames) frames and \(ms) ms from the row's own New Tab key to its page view; at the first frame: \(first)")
+        let shown = try #require(pane.currentTabKey, "setup: the pane shows no tab after the row's own New Tab key")
+        try #require(tabs.isNewTabPage(shown), "setup: the pane shows no New Tab tab after the row's own New Tab key")
+        try #require(tabs.existingView(shown) != nil, "setup: the row's own New Tab tab has no page view \(frames) frames after its key")
     }
 
     /// A hold of `keys` New Tab keys with a frame of the app after each. It stops after the key that made the third
