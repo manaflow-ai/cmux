@@ -669,6 +669,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         let screen = collectionView.bounds.height
         guard screen > 0 else { return }
         let above = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
+        Logger(subsystem: "dev.cmux.mobile", category: "frames").notice("FRAMELOG a146diag readAhead following=\(self.surface.following, privacy: .public) above=\(Double(above), privacy: .public) screen=\(Double(screen), privacy: .public) content=\(Double(self.layout.contentHeight), privacy: .public) turns=\(self.store.turns.count, privacy: .public) loading=\(self.store.isLoadingEarlier, privacy: .public)")
         store.readAhead(screensAbove: max(above, 0) / screen)
     }
 
@@ -837,6 +838,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     func reload() {
         let reloadStart = ContinuousClock.now
         defer { reloadTime += reloadStart.duration(to: .now) }
+        Logger(subsystem: "dev.cmux.mobile", category: "frames").notice("FRAMELOG a146diag reload-in turns=\(self.store.turns.count, privacy: .public) loaded=\(self.loaded, privacy: .public) earlier=\(self.store.hasEarlierHistory, privacy: .public) following=\(self.surface.following, privacy: .public) offset=\(Double(self.collectionView.contentOffset.y), privacy: .public)")
         // A disclosure opened or closed, or a file was marked viewed: shown rows may change
         // their cell type or their drawing.
         let disclosures = surface.disclosures.revision
