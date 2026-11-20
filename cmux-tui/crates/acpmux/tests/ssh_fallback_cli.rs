@@ -77,8 +77,12 @@ fn start(home: PathBuf, config: Value, listen: bool, path: Option<&Path>) -> Dae
         .unwrap();
     let stdout = child.stdout.take().unwrap();
     let (tx, rx) = std::sync::mpsc::channel();
+    // The daemon logs to its stdout (`log_sink.rs`): every line goes to `daemon.log` too, where
+    // `Pair::log` reads it.
+    let mut kept = fs::OpenOptions::new().append(true).open(home.join("daemon.log")).unwrap();
     std::thread::spawn(move || {
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            let _ = writeln!(kept, "{line}");
             if line.starts_with('{') {
                 let _ = tx.send(line);
             }
@@ -92,7 +96,16 @@ fn start(home: PathBuf, config: Value, listen: bool, path: Option<&Path>) -> Dae
 }
 
 fn cli(home: &Path, args: &[&str]) -> Output {
+    cli_on(home, None, args)
+}
+
+/// `cli` with `path` first on its PATH: `acpmux ls` reads a down peer over ssh itself
+/// (`cli/ls_ssh.rs`), so it needs the stand-in `ssh` the daemon has.
+fn cli_on(home: &Path, path: Option<&Path>, args: &[&str]) -> Output {
     let mut cmd = daemon_env::command(home, daemon_env::Agents::StandIn, &[]);
+    if let Some(dir) = path {
+        cmd.env("PATH", format!("{}:{}", dir.display(), daemon_env::bare_path(&[])));
+    }
     cmd.args(args)
         .env("ACPMUX_HOME", home)
         .env("ACPMUX_SOCKET", home.join("s.sock"))
@@ -325,7 +338,7 @@ fn a_send_to_a_down_ssh_peer_is_delivered_once_over_ssh_and_not_again_on_reconne
 fn ls_lists_a_down_ssh_peers_sessions_read_over_ssh() {
     let pair = Pair::start("ls");
     assert_ne!(pair.peer_state(), json!("connected"));
-    let listed = cli(&pair.a.home, &["--json", "ls"]);
+    let listed = cli_on(&pair.a.home, Some(&pair.dir), &["--json", "ls"]);
     assert!(listed.status.success(), "{}", text(&listed));
     let rows = json_of(&listed);
     let row = rows["sessions"]
@@ -337,7 +350,7 @@ fn ls_lists_a_down_ssh_peers_sessions_read_over_ssh() {
         .clone();
     assert_eq!(row["via"], "ssh", "{row}");
     assert_eq!(pair.calls("ls"), 1);
-    let table = cli(&pair.a.home, &["ls"]);
+    let table = cli_on(&pair.a.home, Some(&pair.dir), &["ls"]);
     assert!(String::from_utf8_lossy(&table.stdout).contains("lane-x"), "{}", text(&table));
 }
 

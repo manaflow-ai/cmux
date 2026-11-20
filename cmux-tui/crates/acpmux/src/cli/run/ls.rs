@@ -355,16 +355,14 @@ pub(crate) async fn output(
         merged = crate::cli::send_relay::merge_rows(&mut sessions, far);
         // A down `ssh://` peer's rows are the ones its link left: read again over ssh, at most
         // `ls_ssh::LS_DEADLINE`, and put in their place (`cli/ls_ssh.rs`).
-        let known = match status_read.as_ref() {
-            Some(read) => read.clone(),
-            None => tokio::time::timeout(
-                std::time::Duration::from_secs(5),
-                client.request(method::MUX_STATUS, json!({})),
-            )
-            .await
-            .ok()
-            .and_then(Result::ok),
-        };
+        // Each peer's url and link state (`_acpmux/peers`, the read `machine ls` makes).
+        let known = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            client.request("_acpmux/peers", json!({})),
+        )
+        .await
+        .ok()
+        .and_then(Result::ok);
         let peers = known
             .as_ref()
             .and_then(|s| s.get("peers"))
