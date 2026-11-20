@@ -251,6 +251,7 @@ pub mod sender_program;
 pub mod sender_token;
 pub mod server;
 pub mod session_env;
+mod session_handle;
 pub mod session_identity;
 pub mod session_liveness;
 pub mod session_name;

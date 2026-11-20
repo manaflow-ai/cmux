@@ -2054,6 +2054,15 @@ def main():
             }
             if os.environ.get("FAKE_MODE_OPTION") == "1":
                 result["configOptions"] = mode_options(new_sid)
+            # FAKE_PI_MODES=1: pi-acp 0.0.33's answer: its thinking levels as its `thought_level`
+            # option and, for clients older than config options, again as ACP `modes`.
+            if os.environ.get("FAKE_PI_MODES") == "1":
+                levels = ["off", "minimal", "low", "medium", "high", "xhigh"]
+                result["modes"] = {"currentModeId": "medium", "availableModes": [
+                    {"id": v, "name": f"Thinking: {v}", "description": None} for v in levels]}
+                result["configOptions"].append({"id": "thought_level", "name": "Thinking", "type": "select",
+                                                "category": "thought_level", "currentValue": "medium",
+                                                "options": [{"value": v, "name": v} for v in levels]})
             # FAKE_NO_MODES=1: an adapter that reports no session modes.
             if os.environ.get("FAKE_NO_MODES") == "1":
                 del result["modes"]

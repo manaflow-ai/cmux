@@ -214,6 +214,9 @@ pub(crate) fn name_probe(summary: &Summary) -> Option<Value> {
     }
     let mut probe = serde_json::Map::new();
     probe.insert("name".into(), name);
+    if let Some(handle) = extra(summary, "handle") {
+        probe.insert("handle".into(), handle);
+    }
     probe.insert("sessionId".into(), json!(summary.chat_id));
     if summary.origin == "local" {
         // This daemon's rows are `local/ID` (`SessionReceipt::qualified_id`).

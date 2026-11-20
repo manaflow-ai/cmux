@@ -710,6 +710,7 @@ impl Hub {
         let summary = SessionSummary {
             session_id: m.id.clone(),
             name: m.name.clone(),
+            handle: Some(m.spoken_handle().into_owned()),
             name_given: m.name_given,
             harness: m.harness.clone(),
             family: m.family.clone(),
@@ -978,7 +979,8 @@ impl Hub {
         self.start_time_breakdown_seed(session);
         let m = session.meta();
         let mut v = self.session_summary(session);
-        v.set("modes", m.modes.clone().unwrap_or(Value::Null));
+        // Its permission modes (`permission_modes.rs`): the phone's Mode picker reads them.
+        v.set("modes", super::permission_modes::of_session(&m).unwrap_or(Value::Null));
         v.set("configOptions", m.config_options.as_deref().cloned().unwrap_or(Value::Null));
         v.set("models", m.models.clone().unwrap_or(Value::Null));
         v.set("agentInfo", m.agent_info.clone().unwrap_or(Value::Null));
