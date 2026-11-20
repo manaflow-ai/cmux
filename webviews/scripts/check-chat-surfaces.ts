@@ -71,7 +71,7 @@ export function rawChatFills(): Record<string, string[]> {
 
 const STATE = /:(hover|active|focus-visible)\b|\[(aria-expanded|aria-pressed)(=["']?true["']?)?\]|\[data-popup-open\]/g;
 const NOT = /:not\((?:[^()]|\([^()]*\))*\)/g;
-const STATE_FILL = /var\(--ds-color-(hover|pressed)\)/;
+const STATE_FILL = /var\(--ds-(color-hover|color-pressed|surface-hover)\)/;
 
 /// The rules of `css` as [selector, body], comments blanked, selector lists split at top-level commas.
 function* selectorRules(css: string): Generator<[string, string]> {
@@ -120,6 +120,17 @@ export function statesReplacingFilledRest(): string[] {
   return states
     .filter(([, selector]) => /var\(--ds-surface-(card|inset)\)/.test(rest.get(restOf(selector)) ?? ""))
     .map(([file, selector]) => `${file}: ${selector}`);
+}
+
+/// `file: selector` for each toggle that shows "on" (aria-pressed true) with the pressed fill, the
+/// transient press: an on toggle is the checked segment, --ds-color-selection, so its press still shows.
+export function togglesOnWithPressedFill(): string[] {
+  const out: string[] = [];
+  for (const file of cssFiles(CHAT_ROOT))
+    for (const [selector, body] of selectorRules(readFileSync(file, "utf8")))
+      if (/\[aria-pressed=["']?true/.test(selector) && /var\(--ds-color-pressed\)/.test(fillOf(body) ?? ""))
+        out.push(`${relative(SRC, file)}: ${selector}`);
+  return out;
 }
 
 if (import.meta.main) {
