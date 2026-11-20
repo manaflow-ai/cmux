@@ -140,7 +140,7 @@ import Testing
     func aResizeInsideTheStableRangeKeepsThePartition(_ selected: String?) {
         let items = TabLayoutResizeTests.tabs(12, pinned: 1)
         let selected = selected.map { TabID($0) }
-        var current = Self.partition(items, available: 900, selected: selected).1
+        var current = Self.partition(items, available: 0, selected: selected).1
         var previous = current.hidden.count
         var off: [String] = []
         let widths = Array(stride(from: CGFloat(0), through: 13 * Self.width, by: 0.75)) + Array(stride(from: 13 * Self.width, through: 0, by: -3.25))
