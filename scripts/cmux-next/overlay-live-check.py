@@ -98,13 +98,15 @@ env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR":
        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
        "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config, "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1100,720"}
 in_tree_mode.apply(opts.in_tree, env)
-log = open(os.path.join(opts.out, "app.log"), "a")
-app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-report = {"pid": app.pid, "app": APP}
+# Through bench_launch (fresh saved state, a refusal when another app of the tag runs or the app comes up in the other
+# in-tree mode), never a bare Popen whose socket another app of the tag may answer.
+from bench_launch import launch_app  # noqa: E402
+report = {"app": APP}
 failures = []
+app = None
 try:
-    if not wait(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), 90):
-        sys.exit("app did not come up")
+    app, SOCKET = launch_app(APP, env, os.path.join(opts.out, "app.log"), timeout=90, ready="debug.focus",
+                             on_start=lambda p: report.__setitem__("pid", p.pid))
     page = f"http://127.0.0.1:{server.server_address[1]}/"
     report["open"] = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": page}, "focus": True})
     report["state"] = wait(lambda: (lambda s: s if s.get("title") == TITLE else None)(rpc("browser.page.state")), 45)
@@ -148,7 +150,7 @@ try:
     if second.get("child_window_violations"):
         failures.append(f"child-window violations: {second.get('child_window_violations')}")
 finally:
-    if app.poll() is None:
+    if app is not None and app.poll() is None:
         app.send_signal(signal.SIGTERM)
         try:
             app.wait(20)
