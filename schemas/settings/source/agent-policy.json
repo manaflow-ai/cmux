@@ -912,6 +912,11 @@
     },
     {
       "agent": "privacy",
+      "why": "Your asks stores the person's chat requests in a local ledger.",
+      "keys": ["labs.askLedger"]
+    },
+    {
+      "agent": "privacy",
       "why": "What leaves the machine: a device proof to the Cloud service (cx-ds09i).",
       "keys": [
         "freeModel.enabled"

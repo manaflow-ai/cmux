@@ -5,6 +5,9 @@ extension CmuxConfigSnapshot {
     /// `labs.previewFeatures`: Surfaces still being shaped (the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.
     public nonisolated static let previewFeaturesPath = ["labs", "previewFeatures"]
     public nonisolated static let previewFeaturesDefault = false
+    /// `labs.askLedger`: Local ask ledger experiment (docs/rfd/0010-ask-ledger.md). Off by default. Read when acpmux starts. Off stops new capture and hides History > Your asks; existing records stay local and are removed with their chat.
+    public nonisolated static let askLedgerPath = ["labs", "askLedger"]
+    public nonisolated static let askLedgerDefault = false
     /// `labs.voiceRoom`: Unofficial Labs feature (plans/cmux-next/voice-room-DESIGN.md): Open Voice Room transcribes the mic on device, reads the screen's text on device when it changes, and posts both to the room server at labs.voiceRoomURL, whose cheap model keeps the room's memory and sends asks spoken to Chief as tasks. Off by default; while off the Voice Room actions are unavailable everywhere. The person turns it on: agents may not (not in SettingsSchema agent-writable keys).
     public nonisolated static let voiceRoomPath = ["labs", "voiceRoom"]
     public nonisolated static let voiceRoomDefault = false
@@ -37,6 +40,16 @@ nonisolated enum LabsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.previewFeaturesDefault),
                 keywords: ["labs", "preview", "experimental", "beta", "prototype"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.askLedgerPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.askLedger", "Your Asks"),
+                help: SettingsText.keyed("settings.labs.askLedger.help", "Keep your chat requests on this Mac and link them to pull requests in History. Takes effect after cmux restarts."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.askLedgerDefault),
+                keywords: ["labs", "asks", "history", "requests", "experiment", "ledger"]
             ),
             SettingDescriptor(
                 CmuxConfigSnapshot.voiceRoomPath,

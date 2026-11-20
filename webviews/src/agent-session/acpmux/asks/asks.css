@@ -1,0 +1,27 @@
+/* Your asks (asks/AsksScreen.tsx): Waiting on you's row geometry (queue.css), borderless, flat
+   tonal fills only. A status tag and a chip per pull request; a merged one takes the accent. */
+.ask{flex:1;min-height:0;display:flex;flex-direction:column;font-family:var(--font-ui);-webkit-font-smoothing:antialiased;color:var(--agent-text)}
+.ask[data-loading] .ask-rows{opacity:.6}
+.ask-status{flex:none;display:flex;align-items:center;gap:var(--ds-space-2);min-height:var(--text-body--line-height);padding:var(--ds-space-2) var(--ds-space-3);font-size:var(--text-detail);color:var(--agent-muted)}
+.ask-link{height:24px;padding:0 var(--ds-space-2);border:0;border-radius:var(--radius-control);background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-detail)}
+.ask-rows{flex:1;min-height:0;overflow-y:auto;list-style:none;margin:var(--ds-space-2) 0 0;padding:0;display:flex;flex-direction:column}
+.ask-row{display:flex;gap:var(--ds-space-3);padding:var(--ds-space-2) var(--ds-space-3);margin-bottom:var(--ds-space-1);border-radius:var(--radius-control);content-visibility:auto;contain-intrinsic-size:auto 52px}
+.ask-row:hover{background:color-mix(in srgb,var(--agent-text) 4%,transparent)}
+.ask-mark{flex:none;width:28px;height:28px;display:grid;place-items:center;border-radius:var(--radius-control);background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
+.ask-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:var(--ds-space-1)}
+.ask-line{display:flex;align-items:baseline;gap:var(--ds-space-2);min-width:0;font-size:var(--text-body);line-height:var(--text-body--line-height)}
+.ask-text{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:var(--weight-emphasis)}
+.ask-state{flex:none;font-size:var(--text-detail);color:var(--agent-muted);padding:0 var(--ds-space-1);border-radius:var(--radius-sm);background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
+.ask-state[data-status="pr"]{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 12%,transparent);color:var(--agent-text)}
+.ask-state[data-status="merged"]{background:color-mix(in srgb,var(--success,var(--agent-accent,var(--agent-text))) 16%,transparent);color:var(--agent-text)}
+.ask-age{flex:none;margin-left:auto;font-size:var(--text-detail);color:var(--agent-muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.ask-sub{display:flex;align-items:center;gap:var(--ds-space-2);min-width:0;font-size:var(--text-detail);color:var(--agent-muted);overflow:hidden}
+.ask-chat,.ask-pr{flex:none;max-width:40ch;height:20px;display:inline-flex;align-items:center;gap:var(--ds-space-1);padding:0 var(--ds-space-1);border:0;border-radius:var(--radius-sm);background:color-mix(in srgb,var(--agent-text) 5%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-detail);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ask-chat{flex:0 1 auto;min-width:0;display:block;line-height:20px}
+.ask-chat:hover,.ask-pr:hover{background:color-mix(in srgb,var(--agent-text) 10%,transparent)}
+.ask-chat:focus-visible,.ask-pr:focus-visible{outline:none;background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 14%,transparent)}
+.ask-pr{font-variant-numeric:tabular-nums}
+.ask-pr-state{color:var(--agent-muted)}
+.ask-pr[data-state="merged"]{background:color-mix(in srgb,var(--success,var(--agent-accent,var(--agent-text))) 14%,transparent)}
+.ask-pr[data-state="closed"] .ask-pr-state{text-decoration:line-through}
+.ask-id{flex:none;margin-left:auto;font-family:var(--font-mono,monospace);opacity:.7}
