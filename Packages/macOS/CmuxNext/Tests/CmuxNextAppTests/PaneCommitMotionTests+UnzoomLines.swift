@@ -10,14 +10,20 @@ import Testing
 ///
 /// The pane that grows is opaque and whole in each frame; only the other panes dim. An unzoom brings each divider of
 /// its layout back in the frame that shows it, under the pane that still has the screen's size. In a window that
-/// gives a pane no ground, a line under that pane shows through it. So no part of a line that shows is inside the
-/// rect of that pane, in each frame of the move. The row reads the animations on the layers; it reads no pixels, and
-/// it does not read an animation of a line's opacity as a clip.
+/// gives a pane no ground, a line under that pane would show through it. So the unzoom holds such a line back, with no
+/// animation, and the motion's end shows it (`PaneCommitMotion+Lines`). The first row says that no line shows inside
+/// that pane; with the lines held back it is true because no line shows at all, so the rows for the motion's end carry
+/// the weight: each line shows there, at each kind of end. The rows read the animations on the layers and what a
+/// divider says of its line; they read no pixels.
 extension PaneCommitMotionTests {
     /// An unzoom in each kind of window, at each speed at which a pane moves.
     nonisolated static let unzoomLooks: [Look] = windowKinds.flatMap { kind in
         movingSpeeds.map { Look(kind: kind, scene: "unzoom", speed: $0) }
     }
+
+    /// How an unzoom's motion ends: by its own time; after the zoom of the same pane in its move, and the unzoom
+    /// again; after a split or a close in its move; cut.
+    nonisolated static let unzoomEnds = ["plain", "the key again", "a split in the move", "a close in the move", "cut"]
 
     /// The rect of its screen in which the line of `view` shows when the moves of each act are at `part(act)` of
     /// their way: the line, where the animations on the view's layer put it, cut by that layer when the layer clips
@@ -30,6 +36,17 @@ extension PaneCommitMotionTests {
         let shown = layer.masksToBounds ? line.intersection(cell) : line
         return shown.isNull || shown.width <= 0 || shown.height <= 0 ? nil : shown
     }
+
+    /// The dividers that `screen` shows now.
+    static func dividers(on screen: ScreenContentView) -> [DividerHandleView] {
+        screen.subviews.compactMap { $0 as? DividerHandleView }.filter { !$0.isHidden && $0.alphaValue > 0 }
+    }
+
+    /// Whether `view` has a colour for its line: it draws a line at rest.
+    static func hasLine(_ view: DividerHandleView) -> Bool { (view.lineColor?.alpha ?? 0) > 0.001 }
+
+    /// Whether the line of `view` waits: the divider has a colour for its line, and the line draws nothing.
+    static func lineWaits(_ view: DividerHandleView) -> Bool { hasLine(view) && !view.isLineVisible }
 
     /// In the frame that shows an unzoom, in each frame of its move and at rest, no part of a divider's line that
     /// shows is inside the rect of the pane that closes to its place, unless that pane has a ground that covers its
@@ -46,8 +63,9 @@ extension PaneCommitMotionTests {
         let mover = try #require(Self.movers(of: look.scene, on: screen).first, "SETUP: the unzoom puts no pane over another")
         let layer = try #require(mover.layer, "SETUP: the pane that closes has no layer")
         let lines = screen.dividerViews.values.filter { $0.superview === screen }
-        let drawn = lines.filter { Self.lineShowing($0, at: { _ in 1 }) != nil }.count
-        try #require(drawn > 0, "SETUP: none of the \(lines.count) dividers on the screen draws a line")
+        // A line that the unzoom holds back draws nothing in this frame: the count is of the dividers with a line's colour.
+        let drawn = lines.filter { !$0.isHidden && Self.hasLine($0) }.count
+        try #require(drawn > 0, "SETUP: none of the \(lines.count) dividers on the screen has a colour for its line")
         var faults: [String] = [], bare = 0, under = 0
         let frames = try Self.eachTick(of: look, over) { frame, way, _ in
             let rect = Self.rect(of: layer, at: { _ in way }).insetBy(dx: 1, dy: 1)
@@ -66,5 +84,116 @@ extension PaneCommitMotionTests {
         let grounded = look.kind == "still" || look.kind == "opaque"
         try #require(grounded || bare > 0, "SETUP: the pane that closes has a ground in each of the \(frames) frames, in a window of the kind `\(look.kind)`")
         #expect(faults.isEmpty, "\(faults.count) reads show a divider's line inside the pane that an unzoom closes with no ground; the first: \(faults.prefix(3))")
+    }
+
+    /// An unzoom in a glass window holds the lines of its dividers back in the frame that shows it. At the motion's
+    /// end each divider that the screen shows draws its line, and no line waits, at each kind of end
+    /// (``unzoomEnds``). After the key again the zoomed screen shows no line that waits, and the row goes on to the
+    /// unzoom again and its end. The motion keeps no divider then.
+    @Test(arguments: unzoomEnds, movingSpeeds)
+    func atTheEndOfAnUnzoomsMotionEachDividerShowsItsLine(_ end: String, _ speed: MotionSpeed) throws {
+        let over = try Self.overPicture("unzoom", panes: 6, gap: "glass", speed: speed, configure: { $0.followsDesignMetrics = false })
+        defer { over.harness.window.closeAfterTest() }
+        try #require(over.harness.model.style.showsDividerLine, "SETUP: the row's style draws no line between split panes")
+        try Self.requireKind("glass", of: over)
+        let screen = over.screen, harness = over.harness, motion = screen.zoomDim.motion
+        let mover = try #require(Self.movers(of: "unzoom", on: screen).first, "SETUP: the unzoom puts no pane over another")
+        let held = Self.dividers(on: screen).filter { Self.lineWaits($0) }.count
+        try #require(held > 0, "SETUP: no line waits in the frame that shows the unzoom, of \(Self.dividers(on: screen).count) dividers")
+        let first = motion.serial
+        func step(_ count: Int) { for _ in 0..<count { _ = harness.root.advanceFrame(Self.dt) } }
+        func rest() throws {
+            var tick = 0
+            while Self.inFlight(screen), tick < 2 * Commit.frames {
+                step(1)
+                tick += 1
+            }
+            try #require(!Self.inFlight(screen), "SETUP: a pane still moves \(tick) frames after the last act (`\(end)`)")
+        }
+        if end != "plain" {
+            step(Self.framesBeforeTheKey)
+            try #require(Self.inFlight(screen), "SETUP: no pane moves \(Self.framesBeforeTheKey) frames after the frame that showed the unzoom")
+        }
+        switch end {
+        case "the key again":
+            try Self.secondAct(on: over, zoomed: mover.pane, of: 6, closing: nil)
+            try #require(motion.serial == first + 1, "SETUP: the zoom in the unzoom's move shows in one frame: no second act moves")
+            try rest()
+            let waits = Self.dividers(on: screen).filter { Self.lineWaits($0) }.count
+            #expect(waits == 0, "after the zoom in the unzoom's move, \(waits) lines wait on the zoomed screen")
+            try Self.secondAct(on: over, zoomed: nil, of: 6, closing: mover)
+            try #require(Self.inFlight(screen), "SETUP: the unzoom after the key again moves no pane")
+        case "a split in the move":
+            harness.model.apply(screens: Commit.screen(Self.tree(7)))
+            harness.root.syncWithModel()
+            step(1)
+            try #require(motion.serial == first + 1, "SETUP: the split in the unzoom's move shows in one frame: no second act moves")
+        case "a close in the move":
+            _ = try #require(harness.model.showPaneClose(PaneID("pbab")), "SETUP: the model does not show the close of a pane")
+            harness.root.syncWithModel()
+            step(1)
+            try #require(motion.serial == first + 1, "SETUP: the close in the unzoom's move shows in one frame: no second act moves")
+        case "cut":
+            screen.zoomDim.end()
+        default:
+            break
+        }
+        try rest()
+        let lines = Self.dividers(on: screen).filter { Self.hasLine($0) }
+        try #require(!lines.isEmpty, "SETUP: at the end (`\(end)`) the screen shows no divider with a colour for its line")
+        let dark = lines.filter { Self.lineWaits($0) || Self.lineShowing($0, at: { _ in 1 }) == nil }.count
+        #expect(dark == 0, "at the end (`\(end)`) \(dark) of \(lines.count) dividers draw no line; \(held) lines waited in the frame that showed the unzoom")
+        #expect(motion.lateLines.isEmpty, "at the end (`\(end)`) the motion still keeps \(motion.lateLines.count) dividers")
+    }
+
+    /// With the panes' move off, an unzoom in a glass window shows each divider's line in the frame that shows it:
+    /// no pane closes over the lines, so no line waits.
+    @Test
+    func withThePanesMoveOffAnUnzoomShowsEachDividersLineAtOnce() throws {
+        let over = try Self.overPicture("zoom", panes: 6, gap: "glass", speed: .normal, configure: { $0.followsDesignMetrics = false })
+        defer { over.harness.window.closeAfterTest() }
+        try #require(over.harness.model.style.showsDividerLine, "SETUP: the row's style draws no line between split panes")
+        try Self.requireKind("glass", of: over)
+        let screen = over.screen, harness = over.harness
+        let mover = try #require(Self.movers(of: "zoom", on: screen).first, "SETUP: the zoom puts no pane over another")
+        Commit.rest(harness)
+        try #require(!Self.inFlight(screen), "SETUP: the zoom did not come to rest")
+        harness.root.context.commitMotionOverride = false
+        try Self.secondAct(on: over, zoomed: nil, of: 6, closing: mover)
+        // The unzoom can wait some frames for its panes' content: each frame from its turn is read.
+        var waits = 0, shown = 0, frames = 0
+        while frames < 8 {
+            try #require(!Self.inFlight(screen), "SETUP: a pane moves in an unzoom with the panes' move off")
+            let lines = Self.dividers(on: screen).filter { Self.hasLine($0) }
+            shown = lines.count
+            waits += lines.filter { Self.lineWaits($0) || Self.lineShowing($0, at: { _ in 1 }) == nil }.count
+            _ = harness.root.advanceFrame(Self.dt)
+            frames += 1
+        }
+        try #require(shown > 0, "SETUP: \(frames) frames after the unzoom the screen shows no divider with a colour for its line")
+        #expect(waits == 0, "with the panes' move off, \(waits) reads in \(frames) frames show a divider that draws no line")
+    }
+
+    /// A close and a split in a glass window hold no line back: in the frame that shows the act, in each frame of its
+    /// move and at rest, no divider that the screen shows has a colour for its line and draws nothing. Only an
+    /// unzoom's dividers wait.
+    @Test(arguments: ["close", "split, held"], movingSpeeds)
+    func aMoveThatIsNoUnzoomHoldsNoDividersLineBack(_ scene: String, _ speed: MotionSpeed) throws {
+        let look = Look(kind: "glass", scene: scene, speed: speed)
+        let over = try Self.overPicture(look.scene, panes: 6, gap: look.gap, speed: look.speed, configure: { $0.followsDesignMetrics = false })
+        defer { over.harness.window.closeAfterTest() }
+        try #require(over.harness.model.style.showsDividerLine, "SETUP: the row's style draws no line between split panes")
+        try Self.requireKind(look.kind, of: over)
+        let screen = over.screen
+        var faults: [String] = [], read = 0
+        let frames = try Self.eachTick(of: look, over) { frame, _, _ in
+            let lines = Self.dividers(on: screen).filter { Self.hasLine($0) }
+            read += lines.count
+            let waits = lines.filter { Self.lineWaits($0) }.count
+            if waits > 0 { faults.append("\(frame): \(waits) of \(lines.count) lines") }
+        }
+        try #require(frames > 0, "SETUP: the \(scene) moves no pane")
+        try #require(read > 0, "SETUP: in no frame of the \(scene) does the screen show a divider with a colour for its line")
+        #expect(faults.isEmpty, "\(faults.count) reads of a \(scene) show a divider's line that waits; the first: \(faults.prefix(3))")
     }
 }

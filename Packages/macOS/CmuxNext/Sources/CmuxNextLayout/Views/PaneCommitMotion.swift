@@ -118,6 +118,8 @@ final class PaneCommitMotion {
     /// The hosts that show only past an edge of a pane over them (`PaneCommitMotion+Cover`): each with whether the move
     /// kept it under then, its layer's frame, the window that it shows through at the end of its acts, and their numbers.
     var covers: [ObjectIdentifier: (host: PaneHostView, kept: Bool, frame: CGRect, window: CGRect, acts: [Int])] = [:]
+    /// The dividers whose lines an unzoom holds back to the motion's end (`PaneCommitMotion+Lines`).
+    var lateLines: [DividerHandleView] = []
     /// The window's picture that the copies show, as it was read at the motion's first act, and its screen.
     var shownPicture: WindowStillPicture?
     weak var pictured: ScreenContentView?
@@ -298,6 +300,8 @@ final class PaneCommitMotion {
                 guard old != new else { continue }
                 move(layer, act.spring, origin: CGPoint(x: old.minX - new.minX, y: old.minY - new.minY),
                      size: CGSize(width: old.width - new.width, height: old.height - new.height))
+            } else if act == .unzoom {
+                holdLine(of: view, under: changes[0])
             } else if let edge = changes.lazy.compactMap({ Self.edge(of: $0, at: new) }).first {
                 move(layer, act.spring, origin: edge, size: .zero)
             }
@@ -370,6 +374,7 @@ final class PaneCommitMotion {
         for hold in held { endHold(hold.holder, of: hold.host) }
         // Between the begin of a close's pass and its panes' placement, what it took out shows.
         let hide = passBegan ? nil : departs
+        showLines()
         guard hide != nil || !moved.isEmpty || !grounds.isEmpty || !under.isEmpty || !sheets.isEmpty || lastFrame != nil || raised != nil else { return }
         // One transaction, and the hide is first in it: no commit takes the ground from the panes over a pane that a
         // close took out while that pane still shows under them.
