@@ -344,6 +344,7 @@ impl Hub {
         };
         match self.hold_surge_message(session, &prompt_id, client, blocks, opts) {
             Ok(Some(receipt)) => {
+                self.schedule_surge_triage(session);
                 let Some(thread) = receipt["threadId"].as_str() else {
                     return Some(Err(RpcError::internal("held inbox receipt has no thread")));
                 };

@@ -510,6 +510,7 @@ impl Hub {
         if let Some(receipt) =
             self.hold_surge_message(session, &prompt_id, client, &blocks, &opts)?
         {
+            self.schedule_surge_triage(session);
             if let Some(accept) = opts.on_accepted.take() {
                 accept(receipt.clone());
             }
