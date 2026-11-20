@@ -64,7 +64,7 @@ check_cla_guard_runner() {
   # the same exact allowlist and is the authority; this keeps it visible.
   local hosted selector runs_on
   hosted="    runs-on: ubuntu-24.04"
-  selector="    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
+  selector="    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
   runs_on="$(grep -E '^    runs-on:' "$CLA_GUARD_FILE" || true)"
   if [[ "$runs_on" != "$hosted" && "$runs_on" != "$selector" ]]; then
     echo "FAIL: cla-policy-guard.yml must use ubuntu-24.04 or the CI_TRUSTED_RUNNER ephemeral selector"
@@ -1069,8 +1069,8 @@ check_no_github_hosted_runners() {
   # Ubuntu is allowed only for centrally declared light jobs (Leo, 2026-11-01).
   local nightly_hosted="(^|[^A-Za-z0-9_-])'?(windows-2025)'?([^A-Za-z0-9_.-]|$)"
   # A GitHub billing block or a GitHub-hosted outage must never stop CI, so no
-  # job in manaflow-ai may select a GitHub-hosted runner (ubuntu-*, macos-*,
-  # windows-*). Jobs run on Blacksmith labels, the CI_TRUSTED_RUNNER selector
+  # job in manaflow-ai may unconditionally select a GitHub-hosted runner
+  # (ubuntu-*, macos-*, windows-*). Jobs run on Blacksmith labels, the CI_TRUSTED_RUNNER selector
   # (Blacksmith by default), or owned pools reached through the pickers.
   # A `# github-hosted-required:` comment is no longer an exemption.
   # No route reaches GitHub-hosted macOS, script-computed labels included
@@ -1080,15 +1080,14 @@ check_no_github_hosted_runners() {
   #   - the fork branch `github.repository_owner != 'manaflow-ai' && '<label>'`
   #     (and `&& matrix.hosted_runner`), which never evaluates in manaflow-ai;
   #   - the label list inside the exact CI_TRUSTED_RUNNER selector, which names
-  #     ephemeral sizes only: until 2026-11-18 it also accepted ubuntu-24.04,
-  #     and while a variable named it the hosted pool held jobs for hours;
+  #     ephemeral sizes only, including ubuntu-24.04 when the variable selects it;
   #   - the exact lines in `exceptions` below, each with the reason it cannot move.
   # Runner-selection positions: runs-on, labels/group, matrix os/runner keys,
   # scalar list items, dispatch defaults, and every *RUNNER* key (env mirrors
   # and inputs feed runs-on too).
   local hosted='(^|[^A-Za-z0-9_-])(ubuntu-(latest|slim|[0-9]{2}[.][0-9]{2}(-arm)?)|macos-(latest|[0-9]+(-intel|-large|-xlarge|-arm64)?)|windows-(latest|[0-9]{4}(-arm)?|11-arm))([^A-Za-z0-9_.-]|$)'
   local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)"
-  local trusted_list='fromJSON[(]'"'"'[[]"blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
+  local trusted_list='fromJSON[(]'"'"'[[]"ubuntu-24[.]04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
   # The signer route's exact runs-on line (its exception below): GitHub-hosted Ubuntu on every attempt.
   # Nightlies never run on Blacksmith (Lawrence, 2026-10-30), so a re-run or a slow hosted start
   # (run 41684606067's signer-app queued 9.3 min) waits for hosted Ubuntu instead of moving to Blacksmith.
@@ -1143,9 +1142,6 @@ SIGNER_BUILD_ROUTE
     # pull_request_target write token on fork pull requests (trust policy).
     "cla.yml:    runs-on: ubuntu-24.04 # github-hosted-required: write token on fork pull requests"
     "cla-policy-guard.yml:    runs-on: ubuntu-24.04"
-    # The one file still on the CI_TRUSTED_RUNNER selector that admits ubuntu-24.04: its own guard refuses a
-    # change to it without Leo's leo-approved-port label; a follow-up PR carries it.
-    "language-boundaries.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
     # The signer jobs and their picks, a measured exception: notarization-bound, not CPU-bound (HQ
     # build-fleet summary, W44 p50 on Blacksmith 32 vCPU: signer-app 240 s, signer-dmg 199 s, signer-build
     # 7 s, the pick 11 s; 74 picks already ran hosted, p50 9 s). Hosted Ubuntu is trusted like Blacksmith and
@@ -1194,7 +1190,7 @@ SIGNER_BUILD_ROUTE
                "runs-on: \${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'blacksmith-4vcpu-ubuntu-2404' }}" \
                "LINUX_ARM64_RUNNER: \${{ vars.LINUX_ARM64_RUNNER || 'ubuntu-24.04-arm' }}" \
                "runs-on: \${{ vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}" 'runs-on: macos-15-intel' 'runs-on: windows-2025' \
-               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-22.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && fromJSON(vars.RUNNER_POOLS).linux_4 || 'ubuntu-24.04' }}"; do
     if ! printf '%s\n' "$probe" | sed -E "s/$fork_branch//g; s/$trusted_list//g" | grep -Eq "$hosted"; then
       echo "FAIL: GitHub-hosted runner guard self-test missed a GitHub-hosted label: $probe"
@@ -1203,7 +1199,7 @@ SIGNER_BUILD_ROUTE
   done
   for probe in "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || 'blacksmith-4vcpu-windows-2025' }}" \
-               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
                '- blacksmith-6vcpu-macos-15' 'runs-on: blacksmith-4vcpu-ubuntu-2404-arm' '- warp-macos-15-arm64-6x'; do
     if printf '%s\n' "$probe" | sed -E "s/$fork_branch//g; s/$trusted_list//g" | grep -Eq "$hosted"; then
       echo "FAIL: GitHub-hosted runner guard self-test flagged an allowed runner: $probe"
