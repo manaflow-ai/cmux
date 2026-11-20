@@ -51,6 +51,9 @@ on:
       - Packages/Shared/CmuxTerminalSizing/**
       - Packages/Shared/CmuxTerminalStream/**
       - .github/workflows/cmux-next-terminal.yml
+      # A README or notes file alone starts nothing here (tests/test_ci_docs_only_prs.py); no build reads them.
+      - "!**/README.md"
+      - "!**/COORDINATION.md"
   workflow_dispatch:
 
 permissions:
