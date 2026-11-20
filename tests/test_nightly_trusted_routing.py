@@ -55,6 +55,24 @@ OUR_LABELS = {NIGHTLY_ONLY, NIGHTLY_SLOT, SIGNING_SLOT, HOSTED}
 # override): an upload with the release App key that held the whole signing Mac.
 HOSTED_SECRET_JOBS = ('sentry-dsyms-nightly', 'sign-release-notes', 'publish-release-notes', 'publish-nightly-reel',
                       'publish-nightly-next-github')
+# Leo, 2026-11-19 (ask-b3e8183722): "why isn't nightly getting priority then? on the linux things". These hosted
+# jobs queued behind the org's busy hosted pool (publish-release-notes waited 24 min on ubuntu-24.04, run
+# 44556480014), so on attempt 1 they take cmux-gcp-nightly-jit-x64 first: one-job GCE VMs (no service account, no
+# ingress, deleted after the job) that only cmuxterm-hq gha-runners serve and no PR job may name
+# (tests/test_ci_nightly_labels_reserved.py). Ephemeral like the hosted VM, so each secret stays off persistent
+# runners; a re-run (attempt 2+) keeps hosted Ubuntu. publish-nightly-reel stays hosted: it apt-installs ffmpeg,
+# which the JIT image lacks. These are the only nightly.yml jobs whose route names the JIT label.
+JIT_LABEL = 'cmux-gcp-nightly-jit-x64'
+JIT_ARM = f"github.run_attempt == 1 && '{JIT_LABEL}' || "
+JIT_ARM_JOBS = frozenset({'sentry-dsyms-nightly', 'sign-release-notes', 'publish-release-notes',
+                          'publish-nightly-next-github'})
+
+
+def hosted_route(name: str, attempt: object) -> str:
+    """The label a hosted tail or loop job resolves to on a manaflow-ai run at `attempt`."""
+    return JIT_LABEL if name in JIT_ARM_JOBS and str(attempt) == '1' else HOSTED
+
+
 # No hosted preflight: runner-preflight runs on the nightly-only pool since 2026-11-18
 # (test_nightly_owned_minis_only.HOSTED_PREFLIGHT_JOBS has the reason).
 HOSTED_PREFLIGHT_JOBS: tuple[str, ...] = ()
@@ -584,7 +602,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                                    'github.ref': 'refs/heads/nightly-next',
                                    'vars.CI_CLOUD_OVERFLOW_SAVED': '{"probe":"x"}',
                                    'needs.prepare-nightly-variant-primary.result': primary}
-                        allowed = {HOSTED} if name in HOSTED_SECRET_JOBS or name in HOSTED_PREFLIGHT_JOBS else OUR_LABELS - {HOSTED}
+                        allowed = {hosted_route(name, attempt)} if name in HOSTED_SECRET_JOBS or name in HOSTED_PREFLIGHT_JOBS else OUR_LABELS - {HOSTED}
                         with self.subTest(job=name, runner=runner, attempt=attempt, primary=primary):
                             self.assertIn(evaluate(parse_expression(source), context), allowed)
                         if name in NIGHTLY_NEXT_ONLY_OWNED:
