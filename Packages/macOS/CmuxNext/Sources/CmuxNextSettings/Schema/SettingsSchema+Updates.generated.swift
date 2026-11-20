@@ -33,6 +33,13 @@ extension UpdatesSettings {
     /// `updates.installOnQuit`.
     public nonisolated static let installOnQuitPath = ["updates", "installOnQuit"]
     public nonisolated static let installOnQuitDefault = false
+    /// `updates.installWhenIdle`: Optional longer idle window for automatic installs (Leo 2026-11-19: "maybe even having it as an opt-in option would be pretty interesting. Yeah, like update when idle"): when on, a downloaded update waits for updates.installWhenIdleMinutes, never while an agent works or a draft is unsent; the relaunch keeps every terminal and agent.
+    public nonisolated static let installWhenIdlePath = ["updates", "installWhenIdle"]
+    public nonisolated static let installWhenIdleDefault = false
+    /// `updates.installWhenIdleMinutes`: How long cmux must be idle when the longer idle install window is enabled.
+    public nonisolated static let installWhenIdleMinutesPath = ["updates", "installWhenIdleMinutes"]
+    public nonisolated static let installWhenIdleMinutesDefault: Double = 15
+    public nonisolated static let installWhenIdleMinutesRange: ClosedRange<Double> = 1...240
     /// `updates.notify`: How a ready update makes itself known: the control on the Settings item, or nothing (installs on quit). The old card value (the update card, removed 2026-10-05) loads as badge.
     public nonisolated static let notifyPath = ["updates", "notify"]
     public nonisolated static let notifyDefault: UpdatesNotifySetting = .badge
@@ -181,6 +188,26 @@ nonisolated enum UpdateSettingsSchema {
                 kind: .toggle,
                 default: .bool(UpdatesSettings.installOnQuitDefault),
                 keywords: ["update", "install", "quit"]
+            ),
+            SettingDescriptor(
+                UpdatesSettings.installWhenIdlePath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.updates.installWhenIdle", "Update When Idle"),
+                help: SettingsText.keyed("settings.updates.installWhenIdle.help", "When on, waits for the idle time below before installing. Automatic updates otherwise use Quiet Time Before Installing and never interrupt active work."),
+                kind: .toggle,
+                default: .bool(UpdatesSettings.installWhenIdleDefault),
+                keywords: ["update", "install", "idle", "automatic", "restart"]
+            ),
+            SettingDescriptor(
+                UpdatesSettings.installWhenIdleMinutesPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.updates.installWhenIdleMinutes", "Idle Time Before Updating"),
+                help: SettingsText.keyed("settings.updates.installWhenIdleMinutes.help", "How long cmux waits before an automatic install when the longer idle window is on."),
+                kind: .number(SettingNumber(UpdatesSettings.installWhenIdleMinutesRange, step: 1, unit: .minutes)),
+                default: .number(UpdatesSettings.installWhenIdleMinutesDefault),
+                keywords: ["update", "install", "idle", "automatic", "restart", "minutes"]
             ),
             SettingDescriptor(
                 UpdatesSettings.notifyPath,
