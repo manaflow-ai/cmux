@@ -85,6 +85,9 @@ export PATH="$HOME/.cargo/bin:$PATH"
 # first one's generated code (E0599 in cmux-tui-core, run 43834927681).
 depth=()
 [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
+# Where a commit is fetched from: a fleet step's tree has no `origin` remote (a snapshot commit over the head), so
+# origin's URL when there is one, else the repository's own (as acpmux-overhead.sh).
+fetch_url="${TUI_IDLE_FETCH_URL:-$(git -C "$root" remote get-url origin 2>/dev/null || echo https://github.com/manaflow-ai/cmux.git)}"
 # A commit by any unique prefix: git rev-parse resolves it. A shallow CI checkout has no other commit, and GitHub
 # serves a fetch only by the full id, so a prefix it cannot resolve first deepens feat-cmux-next to its last
 # since_days days (`cmux-bench tui-idle` resolves prefixes where it runs, so a run from it never needs this).
@@ -92,10 +95,10 @@ resolve() {
   local want="$1" full
   if full="$(git -C "$root" rev-parse -q --verify "$want^{commit}" 2>/dev/null)"; then echo "$full"; return 0; fi
   if [[ ${#want} -eq 40 ]]; then
-    git -C "$root" fetch -q --no-tags --no-recurse-submodules ${depth[@]+"${depth[@]}"} origin "$want" || return 1
+    git -C "$root" fetch -q --no-tags --no-recurse-submodules ${depth[@]+"${depth[@]}"} "$fetch_url" "$want" || return 1
   else
     git -C "$root" fetch -q --no-tags --no-recurse-submodules --shallow-since="${since_days} days ago" \
-      origin feat-cmux-next || return 1
+      "$fetch_url" feat-cmux-next || return 1
   fi
   git -C "$root" rev-parse -q --verify "$want^{commit}"
 }
@@ -110,7 +113,7 @@ for sha in ${shas[@]+"${shas[@]}"}; do
   else
     full="$(resolve "$sha")" || { echo "TUI-IDLE-ERROR $sha: not a commit here or on feat-cmux-next's last ${since_days} days"; status=1; continue; }
     # A prefix resolved from commits only: fetch the commit itself for its tree.
-    git -C "$root" fetch -q --no-tags --no-recurse-submodules ${depth[@]+"${depth[@]}"} origin "$full" 2>/dev/null || true
+    git -C "$root" fetch -q --no-tags --no-recurse-submodules ${depth[@]+"${depth[@]}"} "$fetch_url" "$full" 2>/dev/null || true
     tree="$scratch/${full:0:12}"
     git -C "$root" worktree add -q --detach "$tree" "$full" && trees+=("$tree") || { status=1; continue; }
   fi
