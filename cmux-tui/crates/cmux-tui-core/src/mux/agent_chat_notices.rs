@@ -751,9 +751,10 @@ struct OwedRows {
 impl OwedRows {
     /// The rows owed once the batch `params` came too.
     fn with(owed: Option<Self>, params: &Value) -> Option<Self> {
-        let (Some(after), Some(through)) =
-            (params["afterSeq"].as_u64(), params["listSeq"].as_u64())
-        else {
+        let (Some(after), Some(through)) = (
+            params.get("afterSeq").and_then(Value::as_u64),
+            params.get("listSeq").and_then(Value::as_u64),
+        ) else {
             return owed;
         };
         Some(match owed {
@@ -1037,10 +1038,11 @@ fn read_watch(
                 page = Some(ask_follow(&mut writer, &mut last_id, at)?);
                 page_is_watch = true;
             }
-        } else if message["method"] == "_acpmux/peer_rows_changed" {
+        } else if message.get("method").and_then(Value::as_str) == Some("_acpmux/peer_rows_changed")
+        {
             // One peer's rows changed at once (its list), told once instead of row by row: the
             // watch follows its cursor for them, kept below them until a read holds them.
-            owed = OwedRows::with(owed, &message["params"]);
+            owed = OwedRows::with(owed, message.get("params").unwrap_or(&Value::Null));
             for at in [cursor.as_mut(), pending.as_mut()].into_iter().flatten() {
                 at.seq = OwedRows::cap(owed, at.seq);
             }
