@@ -6,6 +6,7 @@
 //! machine's disk, and everything the agent writes lands in an upper folder on the machine
 //! ([`overlay`]), never on the Mac.
 
+pub mod cache;
 pub mod link;
 pub mod manifest;
 pub mod overlay;
