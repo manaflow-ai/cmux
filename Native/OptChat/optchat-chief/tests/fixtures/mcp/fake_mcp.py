@@ -200,7 +200,7 @@ def http(port, token):
         def authed(self):
             if token and self.headers.get("Authorization") != f"Bearer {token}":
                 self.send_response(401)
-                self.send_header("WWW-Authenticate", 'Bearer resource_metadata="http://127.0.0.1:%d/.well-known/oauth-protected-resource"' % port)
+                self.send_header("WWW-Authenticate", 'Bearer resource_metadata="http://127.0.0.1:%d/.well-known/oauth-protected-resource"' % self.server.server_address[1])
                 self.send_header("Content-Length", "0")
                 self.end_headers()
                 return False
@@ -219,7 +219,7 @@ def http(port, token):
 
         def do_POST(self):
             body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
-            base = "http://127.0.0.1:%d" % port
+            base = "http://127.0.0.1:%d" % self.server.server_address[1]
             if self.path == "/register":
                 return self.reply(201, {"client_id": "fake-client", "redirect_uris": json.loads(body)["redirect_uris"]})
             if self.path == "/token":
@@ -251,7 +251,7 @@ def http(port, token):
             self.wfile.write(data)
 
         def do_GET(self):
-            base = "http://127.0.0.1:%d" % port
+            base = "http://127.0.0.1:%d" % self.server.server_address[1]
             if self.path.startswith("/.well-known/oauth-protected-resource"):
                 return self.reply(200, {"resource": base + "/mcp", "authorization_servers": [base]})
             if self.path.startswith("/.well-known/oauth-authorization-server"):
