@@ -4853,15 +4853,22 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_view: Fail
         if unmatched:
             raise Final(f"'{name}': panic ratchet failures not on {base} run {base_run['id']}: "
                         f"{'; '.join(unmatched)[:600]}")
-    why = []
-    for entry in window:
+    said: list[str] = []
+
+    def missing(label, entry) -> list[str]:
         try:
-            return one_verdict(repo, base, name, head, head_view, entry, window[0][0], known,
-                               flake_state=flake_state, workflow=workflow, head_pairs=head_pairs)
+            said.append(one_verdict(repo, base, name, head, head_view, entry, window[0][0], known,
+                                    flake_state=flake_state, workflow=workflow, head_pairs=head_pairs))
+            return []
         except Final:
             raise
         except Refused as refused:
-            why.append(str(refused))
+            return [str(refused)]
+    # The rule every window shares (test_reds.one_verdict): one verdict alone holds every failure.
+    found, tried = test_reds.one_verdict(((entry[0]["id"], entry) for entry in window), missing)
+    if found is not None:
+        return said[-1]
+    why = [gone[0] for _, gone in tried]
     if len(why) == 1:
         raise Refused(why[0])
     raise Refused(f"'{name}': no one {base} verdict of runs {', '.join(str(w[0]['id']) for w in window)} holds "
@@ -5352,8 +5359,12 @@ def ws_check_red(repo: str, base: str, sha: str, github) -> dict:
     window, when = [(tip, tip_verdict)], created({"created_at": tip_verdict["at"]})
     at_merge_base: list[tuple[str, dict]] = []
 
-    def on(unit) -> tuple[str, dict] | None:
-        return next(((commit, verdict) for commit, verdict in window + at_merge_base if has(verdict, unit)), None)
+    # One verdict alone (test_reds.one_verdict): a candidate, the window's verdicts newest first and then the merge-base's,
+    # holds every unit, or none does. Before, each test and line could rest on its own verdict (dep-fleet-6 on #41431).
+    def one() -> "tuple[tuple[str, dict] | None, list]":
+        found, tried = test_reds.one_verdict(
+            window + at_merge_base, lambda commit, verdict: [unit for unit in units if not has(verdict, unit)])
+        return ((found[0], found[1]) if found is not None else None), tried
 
     def older() -> str:
         return f" or the {len(window) - 1} red {base} verdict(s) before it" if len(window) > 1 else ""
@@ -5362,7 +5373,7 @@ def ws_check_red(repo: str, base: str, sha: str, github) -> dict:
         return f" or at the merge-base {merge_base[:12]}" if at_merge_base else ""
 
     passed_at = ""  # the base pass that ended the window, if one did
-    while any(on(unit) is None for unit in units) and len(window) < BASE_WINDOW:
+    while one()[0] is None and len(window) < BASE_WINDOW:
         before = next(verdicts, None)
         if before is None or before[1] != "fail":
             passed_at = before[0] if before is not None and before[1] == "pass" else ""
@@ -5371,13 +5382,14 @@ def ws_check_red(repo: str, base: str, sha: str, github) -> dict:
         if when and then and when - then > timedelta(hours=BASE_WINDOW_HOURS):
             break
         window.append((before[0], before[2]))
-    if (any(on(unit) is None for unit in units) and re.fullmatch(r"[0-9a-f]{40}", merge_base)
+    if (one()[0] is None and re.fullmatch(r"[0-9a-f]{40}", merge_base)
             and merge_base not in (commit for commit, _ in window)):
         mb_kind, mb_verdict = ws_check_verdict(repo, merge_base, github)
         if mb_kind == "fail":
             if passed_at:
                 ws_check_fix_untouched(repo, base, sha, merge_base, passed_at, github)
             at_merge_base.append((merge_base, mb_verdict))
+    found, tried = one()
     lines, missing = [], []
 
     def where(found: tuple[str, dict]) -> str:
@@ -5385,35 +5397,53 @@ def ws_check_red(repo: str, base: str, sha: str, github) -> dict:
                    if passed_at else "")
         return (f"red at this PR's merge-base {found[0][:12]} too{crossed}, so not this PR's red"
                 if at_merge_base and found[0] == at_merge_base[0][0] else f"red on {base} {found[0][:12]} too")
+
+    def elsewhere(unit) -> str:
+        on = [commit[:12] for commit, verdict in window + at_merge_base if has(verdict, unit)]
+        return (f"red on {base} {', '.join(on)} alone, and no one {base} verdict holds every failure of this head"
+                if on else f"not red on {tested}{older()}{mb_note()}")
     for step, red in head["steps"].items():
         # One line per failing test; a step with none (a lint) is one line, matched by every line it printed.
         for test in sorted(red["tests"]):
-            if (found := on((step, "test", test))) is not None:
+            if found is not None:
                 lines.append(f"excused '{WS_CHECK}' test '{step} :: {test}': {where(found)} "
                              f"({found[1]['url'] or 'no run'})")
             else:
                 missing.append(f"'{step} :: {test}'")
-                lines.append(f"not excused '{WS_CHECK}' test '{step} :: {test}': not red on {tested}{older()}"
-                             f"{mb_note()}; this head's own red")
-        unmatched = [line for line in sorted(red["lines"]) if on((step, "line", line)) is None]
+                lines.append(f"not excused '{WS_CHECK}' test '{step} :: {test}': {elsewhere((step, 'test', test))}; "
+                             "this head's own red")
         label = f"step '{step}'" + (" (its ws-check lines)" if red["tests"] else " (no test names: its output)")
-        if unmatched:
-            missing.append(f"'{step}' line '{unmatched[0][:200]}'")
-            lines.append(f"not excused '{WS_CHECK}' {label}: {len(unmatched)} of {len(red['lines'])} line(s) not on "
-                         f"{tested}{older()}{mb_note()}, first '{unmatched[0][:200]}'; this head's own red")
+        if found is None and red["lines"]:
+            candidates = window + at_merge_base
+            unmatched = [line for line in sorted(red["lines"])
+                         if not any(has(verdict, (step, "line", line)) for _, verdict in candidates)]
+            if unmatched:
+                missing.append(f"'{step}' line '{unmatched[0][:200]}'")
+                lines.append(f"not excused '{WS_CHECK}' {label}: {len(unmatched)} of {len(red['lines'])} line(s) not "
+                             f"on {tested}{older()}{mb_note()}, first '{unmatched[0][:200]}'; this head's own red")
+            else:
+                missing.append(f"'{step}' lines")
+                lines.append(f"not excused '{WS_CHECK}' {label}: its {len(red['lines'])} line(s) are each red on some "
+                             f"{base} verdict, but no one {base} verdict holds every failure of this head alone")
         elif not red["tests"]:
-            found = {on((step, "line", line))[0] for line in red["lines"]}
             lines.append(f"excused '{WS_CHECK}' {label}: its {len(red['lines'])} line(s) are red on {base} "
-                         f"{', '.join(sorted(commit[:12] for commit in found)) or tip[:12]} too"
-                         + (" (the merge-base's included)" if at_merge_base and at_merge_base[0][0] in found else ""))
-    if missing:
+                         f"{found[0][:12]} too"
+                         + (" (the merge-base's)" if at_merge_base and at_merge_base[0][0] == found[0] else ""))
+    if found is None:
+        nowhere = [unit for unit in units if not any(has(verdict, unit) for _, verdict in window + at_merge_base)]
+        said = (f"{len(nowhere)} failure(s) not on {base}: "
+                + "; ".join(f"'{step} :: {item}'" if kind == "test" else f"'{step}' line '{item[:200]}'"
+                            for step, kind, item in nowhere)
+                if nowhere else test_reds.one_verdict_why([(commit[:12], [f"{step} :: {item}"[:120]
+                                                                         for step, _, item in gone])
+                                                           for commit, gone in tried], base))
         return {"kind": "head_only", "fix": "", "audit": [],
-                "message": f"'{WS_CHECK}': {len(missing)} failure(s) not on {base}: {'; '.join(missing)[:600]}\n"
-                           + "\n".join(lines)}
+                "message": f"'{WS_CHECK}': {said[:600]}\n" + "\n".join(lines)}
     via = (f"; at this PR's merge-base {merge_base[:12]} ({at_merge_base[0][1]['url'] or 'no run'}) for what the "
-           "window does not show" if at_merge_base and any(on(unit)[0] == merge_base for unit in units) else "")
+           "window does not show" if at_merge_base and found[0] == merge_base else "")
+    alone = f"; {base} {found[0][:12]} alone holds every one" if found[0] != tip and not via else ""
     audit = [f"excused '{WS_CHECK}': every failure on {sha[:12]} is red on {base} too (newest {base} verdict "
-             f"{tested}{via})"] + lines
+             f"{tested}{via}{alone})"] + lines
     return {"kind": "base_red", "fix": "", "message": audit[0], "audit": audit}
 
 

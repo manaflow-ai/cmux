@@ -1248,21 +1248,31 @@ class WebviewTestsAcrossJobs(unittest.TestCase):
                 found = reds.web_failures(log(f"##[error]{named}", line))
                 self.assertEqual("no final charged-test verdict" in " ".join(found.truncated), cut)
 
-    def test_a_window_matches_each_test_on_any_one_run_and_reads_no_further(self):
+    def test_a_window_needs_one_run_that_fails_every_test_alone_and_reads_no_further(self):
+        # dep-fleet-6 on #41431: "a test's evidence comes from one verdict" (test_reds.one_verdict). Each test on a run
+        # of its own (run 3 fails the capsule test another way, run 2 the footer, run 1 the capsule) is no run's red;
+        # a run that alone fails both the same way excuses them, and nothing older is read.
         other = "test/composer-footer-plain.test.ts"
         head = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]), (other, [("rests flat", "boom", 9)]))
         read = []
 
-        def windows():
-            for label, logs in (("run 3", [web_job((CAPSULES, [(CAPSULE_TEST, "other error", 87)]))]),
-                                ("run 2", [web_job((other, [("rests flat", "boom", 9)]))]),
-                                ("run 1", [web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))]),
-                                ("run 0", [None])):
+        def windows(runs):
+            for label, logs in runs:
                 read.append(label)
                 yield label, logs
-        verdict = reds.classify_web_window([head], windows())
+        split = (("run 3", [web_job((CAPSULES, [(CAPSULE_TEST, "other error", 87)]))]),
+                 ("run 2", [web_job((other, [("rests flat", "boom", 9)]))]),
+                 ("run 1", [web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))]))
+        verdict = reds.classify_web_window([head], windows(split))
+        self.assertTrue(verdict.own)
+        self.assertTrue(any("no one the base verdict holds every failure alone" in reason
+                            for reason in verdict.reasons), verdict.reasons)
+        read.clear()
+        both = ("run 2", [web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]), (other, [("rests flat", "boom", 9)]))])
+        verdict = reds.classify_web_window([head], windows((split[0], both, split[2], ("run 0", [None]))))
         self.assertFalse(verdict.own, verdict.reasons)
-        self.assertEqual(read, ["run 3", "run 2", "run 1"])
+        self.assertEqual(read, ["run 3", "run 2"])
+        self.assertTrue(all(name.endswith("(run 2)") for name in verdict.shared), verdict.shared)
         verdict = reds.classify_web_window([head], iter([("run 3", [web_job((CAPSULES, [(CAPSULE_TEST, "x", 87)]))])]))
         self.assertTrue(verdict.own)
         self.assertIn("1 failing test(s) pass or do not run on run 3: test/composer-footer-plain.test.ts > rests flat",
