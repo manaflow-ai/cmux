@@ -165,7 +165,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `workspaces.hibernation.enabled` | boolean | `true` |  | Hibernate Idle Workspaces. Frees the memory of unused workspaces. Terminals and agents keep running. |
 | `workspaces.hibernation.idleMinutes` | real | `60` | 5 to 10080 | Hibernate After. Minutes a workspace goes unopened and unchanged before it hibernates. |
 | `workspaces.hibernation.hiddenSpaceMinutes` | real | `15` | 5 to 1440 | Hibernate Hidden Spaces After. Idle minutes before the workspaces of a space no window shows hibernate. |
-| `workspaces.freeing.enabled` | boolean | `false` |  | Free Idle Terminals. Ends idle shells of long-unused workspaces; they restart in the same folder. |
+| `workspaces.freeing.enabled` | boolean | `true` |  | Free Idle Terminals. Ends idle shells of long-unused workspaces; they restart in the same folder. |
 | `workspaces.freeing.idleMinutes` | real | `1440` | 60 to 43200 | Free Terminals After. Minutes before a hibernated workspace's idle shells end (1440 is a day). |
 | `workspaces.freeing.agents` | boolean | `true` |  | Free Idle Agents. Also ends idle Claude Code and Codex sessions; opening the tab resumes them. |
 | `workspaces.freeing.runningCommands` | string | `"never"` | `never`, `relaunch` | Running Commands. What happens to a command that still runs in a workspace that frees its terminals. |
