@@ -200,8 +200,8 @@ html[data-cmux-page="artifacts"] body { overflow: hidden; }
 
 .artifacts-diff {
   /* Added and removed lines: the agent pane's status greens and reds, as page tokens. */
-  --artifacts-line-added: color-mix(in srgb, light-dark(#1a7f37, #3fb950) 16%, transparent);
-  --artifacts-line-removed: color-mix(in srgb, light-dark(#b42318, #ff7b72) 16%, transparent);
+  --artifacts-line-added: color-mix(in srgb, light-dark(#1a7f37, #3fb950) 16%, transparent); /* theme-fixed: the diff's standard addition green */
+  --artifacts-line-removed: color-mix(in srgb, light-dark(#b42318, #ff7b72) 16%, transparent); /* theme-fixed: the diff's standard deletion red */
 }
 
 .artifacts-line.is-add { background: var(--artifacts-line-added); }

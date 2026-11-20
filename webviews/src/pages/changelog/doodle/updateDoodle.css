@@ -2,7 +2,7 @@
    size from the first frame, so the card's height is the same before, while and after it draws.
    The ink is a marker blue, lighter on a dark theme, as a felt pen reads on paper and on a slate. */
 .wn-doodle {
-  --wn-doodle-ink: #2a66d4;
+  --wn-doodle-ink: #2a66d4; /* theme-fixed: the doodle's marker blue, a drawing's ink, on paper */
   display: contents;
 }
 /* The words a few points over the card's title size, at the sidebar's density (--wn-title). */
@@ -12,7 +12,7 @@
   --wn-doodle-line: calc(var(--wn-doodle-size) * 1.05);
 }
 .wn-doodle[data-scheme="dark"] {
-  --wn-doodle-ink: #7fb2ff;
+  --wn-doodle-ink: #7fb2ff; /* theme-fixed: the doodle's marker blue, lighter on a slate */
 }
 .wn-doodle-defs {
   position: absolute;

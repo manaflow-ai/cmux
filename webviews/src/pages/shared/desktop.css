@@ -140,9 +140,9 @@ body {
   --ds-glass-fisheye-frost: blur(2.5px) saturate(1.15);
   --ds-glass-edge: var(--cmux-hairline);
   /* glass material: the neutral glass every neutral overlay role is one of (FloatingGlassStyle.look; schemas/surface-roles): the gray its veil mixes at the role's opacity on each side, and the lit and shaded rims, so the sidebar's cards, group headers and sheets are one material with only their opacities apart */
-  --ds-material-neutral-light: rgb(252 252 252); /* the neutral veil's gray on the light side */
-  --ds-material-neutral-dark: rgb(28 28 28); /* the neutral veil's gray on the dark side */
-  --ds-material-rim-lit: rgb(255 255 255); /* the lit rim: a top edge, and a dark side's bottom edge */
+  --ds-material-neutral-light: rgb(252 252 252); /* theme-fixed: the neutral veil's gray on the light side, as native FloatingGlassStyle */
+  --ds-material-neutral-dark: rgb(28 28 28); /* theme-fixed: the neutral veil's gray on the dark side, as native FloatingGlassStyle */
+  --ds-material-rim-lit: rgb(255 255 255); /* theme-fixed: the lit rim, a top edge and a dark side's bottom edge, as native FloatingGlassStyle */
   --ds-material-rim-shade: rgb(0 0 0); /* the shaded rim: a light side's bottom edge */
   --ds-transient-dark-veil-alpha: 0.42;
   --ds-transient-light-veil-alpha: 0.55;

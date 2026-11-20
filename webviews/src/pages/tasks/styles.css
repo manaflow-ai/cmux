@@ -283,7 +283,7 @@
 }
 
 .tasks-priority.urgent rect.mark {
-  fill: var(--cmux-surface-background, Canvas);
+  fill: var(--cmux-surface-solid, Canvas);
 }
 
 .tasks-priority.bars rect {

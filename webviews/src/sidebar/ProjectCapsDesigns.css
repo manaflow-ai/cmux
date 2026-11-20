@@ -2,7 +2,7 @@
  * highlight is 6 from both sidebar edges with radius 8; the leading icon box starts at 16 (lead),
  * text starts at 40 (lead + 24); every trailing mark centres 24 from the sidebar edge. */
 .pcd-sidebar {
-  --pcd-tone: var(--cmux-app-sidebar, var(--cmux-surface-background, Canvas));
+  --pcd-tone: var(--cmux-app-sidebar, var(--cmux-surface-solid, Canvas));
   --pcd-ink: var(--cmux-text, CanvasText);
   --pcd-ink-2: var(--cmux-text-secondary, color-mix(in srgb, var(--pcd-ink) 62%, transparent));
   --pcd-ink-3: var(--cmux-text-tertiary, color-mix(in srgb, var(--pcd-ink) 42%, transparent));

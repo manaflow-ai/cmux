@@ -55,7 +55,9 @@ html[data-cmux-page="changelog"] body {
 .cl-media-open:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: -2px; }
 /* The enlarged picture: on glass over the page, the picture whole (contain), never cut. */
 .cl-lightbox-backdrop {
-  background: color-mix(in srgb, var(--cmux-surface-background, Canvas) 60%, transparent);
+  /* The page's own background, read as a root alias: the scrim is the page at 60%, clear where it is. */
+  --cl-lightbox-page: var(--cmux-surface-background, Canvas);
+  background: color-mix(in srgb, var(--cl-lightbox-page) 60%, transparent);
   -webkit-backdrop-filter: var(--surface-blur);
   backdrop-filter: var(--surface-blur);
 }

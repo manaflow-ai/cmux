@@ -74,7 +74,7 @@ body,
    page backgrounds are `!important` too: `:root` outranks `html`. The `markdown.theme` paper
    (light, dark) below, at `:root[...]`, still wins over this one. */
 :root {
-  background: var(--cmux-reading-background, var(--cmux-surface-solid, var(--cmux-surface-background, Canvas))) !important;
+  background: var(--cmux-reading-background, var(--cmux-surface-solid, Canvas)) !important;
 }
 
 /* R139: the page selects nothing by default (shared/desktop.css); the document (.md-doc) is
@@ -118,11 +118,11 @@ body {
   min-width: 0;
 }
 ::highlight(cmux-md-find) {
-  background-color: light-dark(rgba(255, 199, 0, 0.42), rgba(255, 199, 0, 0.34));
+  background-color: light-dark(rgba(255, 199, 0, 0.42), rgba(255, 199, 0, 0.34)); /* theme-fixed: the app's one find highlight (find/highlight.ts findColors), as in the diff viewer */
 }
 ::highlight(cmux-md-find-active) {
-  background-color: light-dark(#ff9632, #e8821e);
-  color: #1a1208;
+  background-color: light-dark(#ff9632, #e8821e); /* theme-fixed: the app's one current find match (find/highlight.ts findColors) */
+  color: #1a1208; /* theme-fixed: the ink on the current find match's fixed orange (find/highlight.ts findColors) */
 }
 
 .md-page-message {
@@ -605,7 +605,7 @@ body {
   /* Inside rgb(from …) only: 1 for a translucent color, 0 for an opaque one. */
   --md-cell-selection-keep: sign(1 - alpha);
   --md-cell-selection-alpha: clamp(0.6, round(up, 1 - min(r, g, b) / 255, calc(1 / 15)), 0.8);
-  --md-cell-selection-color: rgb(
+  --md-cell-selection-color: rgb( /* theme-fixed: a relative color from the theme's selection color, not a literal */
     from var(--cmux-md-selection-color)
       calc(
         var(--md-cell-selection-keep) * r + (1 - var(--md-cell-selection-keep)) *

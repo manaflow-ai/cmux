@@ -166,7 +166,11 @@
    useTabRowRoot) and the shell paints that background below the row instead.
    test/chat-header-tab-row-surface.test.ts loads the agent page's own sheets with WebTheme's rule. */
 :root[data-acpmux-tab-row]{background:transparent !important}
-.acpmux-shell[data-tab-row]{background:linear-gradient(transparent var(--acpmux-tab-row-height),var(--agent-page-bg) var(--acpmux-tab-row-height)),linear-gradient(transparent var(--acpmux-tab-row-height),var(--cmux-surface-background,transparent) var(--acpmux-tab-row-height))}
+/* The page's own background, read as a root alias: the shell paints it below the row (the root is clear). */
+.acpmux-shell[data-tab-row]{
+  --acpmux-shell-page:var(--cmux-surface-background,transparent);
+}
+.acpmux-shell[data-tab-row]{background:linear-gradient(transparent var(--acpmux-tab-row-height),var(--agent-page-bg) var(--acpmux-tab-row-height)),linear-gradient(transparent var(--acpmux-tab-row-height),var(--acpmux-shell-page) var(--acpmux-tab-row-height))}
 .acpmux-header[data-tab-row]{position:relative;z-index:var(--layer-sticky);flex:0 0 var(--acpmux-tab-row-height);height:var(--acpmux-tab-row-height);padding:0 var(--acpmux-tab-row-inset) 0 0;background:transparent;pointer-events:none}
 .acpmux-header[data-tab-row] .acpmux-header-status-slot{visibility:hidden}
 /* In the tab row the warning leads the tools (ChatHeaderInlineStatus): the slot is under the tabs. */
@@ -182,7 +186,7 @@
    over the chat; it is one surface under the tab and the tools, never a rectangle behind the tools alone (above). Two or
    more tabs keep the row as before. The window drags from the strip's empty space, which the App keeps above the page.
    test/chat-header-solo-tab.test.ts keeps it so. */
-.acpmux-shell[data-tab-row][data-solo-tab]{background:linear-gradient(var(--agent-page-bg),var(--agent-page-bg)),var(--cmux-surface-background,transparent)}
+.acpmux-shell[data-tab-row][data-solo-tab]{background:linear-gradient(var(--agent-page-bg),var(--agent-page-bg)),var(--acpmux-shell-page)}
 /* glass-raw-blur-allow: the solo tab row's soft edge fade over the chat, not a glass surface */
 .acpmux-stage[data-solo-tab]{--acpmux-solo-blur:6px}
 /* A line under the header (header/underHeader.ts: a Create Checkpoint review, a live chat's choice, a peer copy, a watched

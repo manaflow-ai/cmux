@@ -114,12 +114,25 @@ export const gray = (level) => {
 };
 // The neutral glass material's tokens (glassMaterial): the overlay surface roles mix these at their
 // own opacities (the surface-roles block of ui/glass/glass.css, scripts/cmux-next/check-surface-roles.py).
+// Each says theme-fixed: a glass material is the same gray in every theme, as the native one (test/theme-colors.test.ts).
 // They are opaque grays, named --ds-material-* and not --ds-glass-*: check-glass-never-opaque reads a
 // --*glass* token as a glass fill, and these are only ever mixed at an opacity.
 const materialVars = (material) => [
-  ["--ds-material-neutral-light", gray(material.neutralLight), "the neutral veil's gray on the light side"],
-  ["--ds-material-neutral-dark", gray(material.neutralDark), "the neutral veil's gray on the dark side"],
-  ["--ds-material-rim-lit", gray(material.rimLit), "the lit rim: a top edge, and a dark side's bottom edge"],
+  [
+    "--ds-material-neutral-light",
+    gray(material.neutralLight),
+    "theme-fixed: the neutral veil's gray on the light side, as native FloatingGlassStyle",
+  ],
+  [
+    "--ds-material-neutral-dark",
+    gray(material.neutralDark),
+    "theme-fixed: the neutral veil's gray on the dark side, as native FloatingGlassStyle",
+  ],
+  [
+    "--ds-material-rim-lit",
+    gray(material.rimLit),
+    "theme-fixed: the lit rim, a top edge and a dark side's bottom edge, as native FloatingGlassStyle",
+  ],
   ["--ds-material-rim-shade", gray(material.rimShade), "the shaded rim: a light side's bottom edge"],
 ];
 // A surface level's fill and line: the page's ink over clear at the level's share (design/chat-surfaces.md).
