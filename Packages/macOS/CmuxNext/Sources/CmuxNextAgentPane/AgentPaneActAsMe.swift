@@ -177,6 +177,8 @@ import Security
     @ObservationIgnored var following: Task<Void, Never>?
     /// Shows the consent card (the app sets it); nil (tests) shows none.
     @ObservationIgnored public var ask: (@MainActor () -> Void)?
+    /// Takes the consent card away (the app sets it with ``ask``; captures).
+    @ObservationIgnored var hideCard: (@MainActor () -> Void)?
     /// The card asked once in this run of the app: an agent's refused sends never show it again.
     public private(set) var asked = false
 

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 395c64cf019d86e9b1348fc53d3c55625bc449821f6428bea0c29cb515a8cec8.
+// cmux-tui mux protocol 12, IR 2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -955,6 +955,38 @@ pub type CloudSessionStatusResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ComputerUseApprovalsRequest {
+    pub action: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub answer: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub app_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub id: Optional<u64>,
+}
+
+#[rustfmt::skip]
+pub type ComputerUseApprovalsResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ComputerUseConfigRequest {
+    pub config: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+pub type ComputerUseConfigResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ComputerUseEndpointRequest {
+}
+
+#[rustfmt::skip]
+pub type ComputerUseEndpointResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationAgentTokenRequest {
     pub participant: String,
 }
@@ -1841,6 +1873,27 @@ pub struct FeedLocalReadRequest {
 
 #[rustfmt::skip]
 pub type FeedLocalReadResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FloatPaneRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub h: Optional<f64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mode: Optional<String>,
+    pub pane: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub w: Optional<f64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub x: Optional<f64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub y: Optional<f64>,
+}
+
+#[rustfmt::skip]
+pub type FloatPaneResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2964,6 +3017,25 @@ pub type PutSessionResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QuickTerminalRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub h: Optional<f64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mode: Optional<String>,
+    pub screen: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub w: Optional<f64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub x: Optional<f64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub y: Optional<f64>,
+}
+
+#[rustfmt::skip]
+pub type QuickTerminalResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReadScreenRequest {
     pub surface: T::Id,
 }
@@ -3053,6 +3125,8 @@ pub type RemoteHostCallResult = T::JsonValue;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct RemoteHostConfigRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub app_permissions: Optional<T::RemoteHostAppPermissions>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub computer_use: Optional<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -4732,6 +4806,18 @@ impl CmuxClient {
         self.execute(&CLOUD_SESSION_STATUS_METADATA, &request)
     }
 
+    pub fn computer_use_approvals(&mut self, request: ComputerUseApprovalsRequest) -> Result<ComputerUseApprovalsResult> {
+        self.execute(&COMPUTER_USE_APPROVALS_METADATA, &request)
+    }
+
+    pub fn computer_use_config(&mut self, request: ComputerUseConfigRequest) -> Result<ComputerUseConfigResult> {
+        self.execute(&COMPUTER_USE_CONFIG_METADATA, &request)
+    }
+
+    pub fn computer_use_endpoint(&mut self, request: ComputerUseEndpointRequest) -> Result<ComputerUseEndpointResult> {
+        self.execute(&COMPUTER_USE_ENDPOINT_METADATA, &request)
+    }
+
     pub fn conversation_agent_token(&mut self, request: ConversationAgentTokenRequest) -> Result<ConversationAgentTokenResult> {
         self.execute(&CONVERSATION_AGENT_TOKEN_METADATA, &request)
     }
@@ -4978,6 +5064,10 @@ impl CmuxClient {
 
     pub fn feed_local_read(&mut self, request: FeedLocalReadRequest) -> Result<FeedLocalReadResult> {
         self.execute(&FEED_LOCAL_READ_METADATA, &request)
+    }
+
+    pub fn float_pane(&mut self, request: FloatPaneRequest) -> Result<FloatPaneResult> {
+        self.execute(&FLOAT_PANE_METADATA, &request)
     }
 
     pub fn focus_direction(&mut self, request: FocusDirectionRequest) -> Result<T::FocusDirectionResult> {
@@ -5499,6 +5589,10 @@ impl CmuxClient {
 
     pub fn put_session(&mut self, request: PutSessionRequest) -> Result<PutSessionResult> {
         self.execute(&PUT_SESSION_METADATA, &request)
+    }
+
+    pub fn quick_terminal(&mut self, request: QuickTerminalRequest) -> Result<QuickTerminalResult> {
+        self.execute(&QUICK_TERMINAL_METADATA, &request)
     }
 
     pub fn read_screen(&mut self, request: ReadScreenRequest) -> Result<T::ReadScreenResult> {

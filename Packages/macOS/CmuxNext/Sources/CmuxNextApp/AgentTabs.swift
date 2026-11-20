@@ -4,6 +4,7 @@ import CmuxNextAgentActivity
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextChiefPetWiring
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -98,6 +99,7 @@ final class AgentTabStore {
     var placeForkScoped: @MainActor (_ key: AgentTabKey, _ chat: AgentTabKey, _ left: Bool?) -> Void = { _, _, _ in }
     /// Keeps a tab about to be made in pane `pane` for a move elsewhere out of its strip (``OutboundTab``).
     var holdOutbound: @MainActor (_ pane: PaneID, _ daemon: DaemonService) -> OutboundTab? = { _, _ in nil }
+    var chatInAgentDockScoped: @MainActor (_ chat: AgentTabKey) -> Bool = { _ in false } // its pane is in the agent chat dock (#46926)
     var moveToNewWorkspace: @MainActor (_ key: String, _ machine: String, _ newWindow: Bool) async -> Bool = { _, _, _ in false } // true once its window is placed
     /// Selects tab `key` in its pane without moving keyboard focus (an unfocused subagent tab).
     var selectInPane: @MainActor (String) -> Void = { _ in }
@@ -225,6 +227,8 @@ final class AgentTabStore {
     var onTabSession: @MainActor () -> Void = {}
     /// The daemon created a remote chat, including its effective seed folder and harness.
     var onRemoteChatStarted: (@MainActor (String, String, String?, String?) -> Void)?
+    /// The owner's model credentials: a Cloud chat's start sends the one its Cloud start chose (``CloudAgentCredentials``).
+    var cloudCredentials: CloudAgentCredentials?
     /// A new chat's seed on another machine (its folder and harness start it there, its draft and
     /// prompt reach the page), by tab (``startRemoteChat(_:machine:endpoint:)``).
     var remoteSeeds: AgentTabMap<AgentPaneSeedSource> = .init()
@@ -251,8 +255,13 @@ final class AgentTabStore {
     var shareOp: (@MainActor (String, AgentPaneShareOp, String?) async -> AgentPaneShareReply?)?
     /// The display name of a remote daemon's machine, recorded on the tabs of its new chats.
     var remoteMachineName: @MainActor (DaemonService) -> String? = { _ in nil }
+    /// The person's `agents.defaultPermissionMode`, which a new chat on their own Cloud machine starts in as a local one does.
+    var startPermissionMode: @MainActor () -> String? = { nil }
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
     var blankChatHandler: ((AgentTabKey) -> NewTabPageHandler?)?
+    /// Whether agent tab `key` is half of a terminal and chat pair: its chat menu offers Switch to Terminal
+    /// (``TerminalChatHandler/offersToggle(on:services:)``, as the tab's right-click).
+    var offersTerminalSwitch: ((AgentTabKey) -> Bool)?
     /// Each agent session's own avatar (Set Avatar… in the chat's ⋯ menu).
     var agentAvatars: AgentAvatars?
     /// The floating mini's chat: the chat menu's Show in Mini (`agent.mini`, `agent.mini.show`).
@@ -344,7 +353,6 @@ final class AgentTabStore {
     var localPaths: (@MainActor (_ tab: String) -> Bool)?
     /// A background task's terminal beside chat tab `chat` (``AgentProcessTerminal``); false when none opened.
     var openProcess: (@MainActor (_ chat: String, _ viewer: AgentPaneProcessViewer) -> Bool)?
-    var cloudCredentialTransfer: (@MainActor (_ chat: String, _ request: AgentPaneCloudCredentialTransferRequest) async -> Bool)?
     /// Cloud's latest-turn machine + transcript fork. Tests inject a mocked platform here.
     var tryAnotherApproach: (@MainActor (_ chat: String, _ session: String, _ throughSeq: Int) async throws -> [String: Any])?
     /// A Cloud chat's turn checkpoints and rewinds (``AppServices/cloudTurnRewindHost``).
@@ -550,7 +558,7 @@ final class AgentTabStore {
         // already as idle work (``reserveWorkspace(on:cwd:)``): a take here was a cold open on an empty pool, marking a launch's pool used.
         if known == nil, local, kind == .local, sessions[tabKey] == nil, record.session == nil, let newTab = newTabPages[tabKey],
            seed?.holdsOnlyFolder ?? true, wakeStates[tabKey] == nil, !relaunchWake.mayHold(tabKey.relaunchKeyCandidates), let spare = takeSpare?(.now) {
-            adoptSpare(spare, key: tabKey, page: newTab.page)
+            adoptSpare(spare, key: tabKey, page: newTab.page.listing(newTab.handler.listsAtViewMake(tabKey.key)))
             track(key, in: store, machine: tabKey.machine)
             onPageBuilt?(key)
             return spare
@@ -584,7 +592,7 @@ final class AgentTabStore {
             sessionId: sessions[tabKey] ?? record.session,
             seed: seed,
             // A new chat this app opened on another machine shows the same New Tab page (cx-k21v).
-            newTab: local || record.host.hasPrefix(AgentTabRemoteStart.registryPrefix) ? newTabPages[tabKey]?.page : nil,
+            newTab: local || record.host.hasPrefix(AgentTabRemoteStart.registryPrefix) ? newTabPages[tabKey].map { $0.page.listing($0.handler.listsAtViewMake(tabKey.key)) } : nil,
             allowsTabConversion: local
         )
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: tabKey) ?? seed?.revealTurn
@@ -600,7 +608,7 @@ final class AgentTabStore {
                 guard let self else { return [] }
                 let listed = remoteFoldersScoped?(resolvedRemoteKey(tabKey)) ?? []
                 let machine = await remoteMachineFoldersScoped?(resolvedRemoteKey(tabKey)) ?? []
-                let folders = AgentTabRemoteStart.folders(listed: listed, machine: machine)
+                let folders = AgentRemoteStartFolders(listed: listed, machine: machine).merged
                 guard let query = query?.lowercased(), !query.isEmpty else { return folders }
                 return folders.filter { $0.lowercased().contains(query) }
             }
@@ -649,13 +657,6 @@ final class AgentTabStore {
             if bindsHere(key, machine: scoped.machine) { sendSession(session, for: key, machine: scoped.machine) }
         }
         model.onSessionHarness = { [weak self] session in self.map { $0.sendSession(session, for: $0.resolve(provisional, machine: scoped.machine), machine: scoped.machine) } }
-        model.onCloudCredentialTransfer = { [weak self, weak model] request in
-            guard let self, let model, model.sessionId == request.sessionID,
-                  let record = self.record(for: self.resolvedKey(scoped))?.record,
-                  AgentPaneCloudCredentialTransferRequest.Provider(harnessID: record.harness) == request.provider,
-                  let transfer = self.cloudCredentialTransfer else { return false }
-            return await transfer(self.resolve(provisional, machine: scoped.machine), request)
-        }
         model.onTryAnotherApproach = { [weak self] throughSeq, session in
             guard let self, let operation = self.tryAnotherApproach else { throw AgentPaneHostError.daemonStopped }
             return try await operation(self.resolve(provisional, machine: scoped.machine), session, throughSeq)
@@ -710,9 +711,9 @@ final class AgentTabStore {
             if let self, let view = views[self.resolvedKey(scoped)], view.model.newTab != nil, let host = view.superview { AgentPaneNewTabFrame.shared.capture(view, in: host) }
             return answer
         }
-        model.onAppAction = { [weak self] id in
+        model.onAppAction = { [weak self] id, shown in
             guard let self else { return }
-            newTabPages[resolvedKey(scoped)]?.handler.action(id)
+            newTabPages[resolvedKey(scoped)]?.handler.action(id, shown)
         }
         model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }
         model.onGit = { [weak self] request in

@@ -4,7 +4,8 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ensureOutputFile, harnessEnsureScript, harnessGate, judgeEnsure, pickerHarnesses } from "../scripts/cmux-vm-image/harness-gate";
+import { probeOptionsFromArgv } from "../scripts/cmux-vm-image/agent-tools-probe";
+import { ensureOutputFile, harnessEnsureScript, harnessGate, judgeEnsure, pickerHarnesses, regressionGate } from "../scripts/cmux-vm-image/harness-gate";
 
 // The image roll's harness gate (incident 2026-11-16, staging roll run 43919811234): a candidate image is promoted only
 // when a booted guest of it passes `acp ensure` for every harness the Cloud chat picker offers.
@@ -43,6 +44,11 @@ function fixtureGuest(have: string[]): { dir: string; cmux: string; out: string 
 
 /** Runs the gate's guest script on a fixture guest and judges what it wrote, as the probe does on the candidate. */
 async function runOnFixture(harnesses: readonly string[], have: string[]) {
+  return harnessGate(harnesses, await ensureOnFixture(harnesses, have));
+}
+
+/** Each harness's ensure output on a fixture guest that has exactly the harnesses in `have`. */
+async function ensureOnFixture(harnesses: readonly string[], have: string[]): Promise<Record<string, string | undefined>> {
   const guest = fixtureGuest(have);
   try {
     const script = harnessEnsureScript({ cmux: guest.cmux, cwd: guest.dir, outDir: guest.out, harnesses });
@@ -60,7 +66,7 @@ async function runOnFixture(harnesses: readonly string[], have: string[]) {
         outputs[h] = undefined;
       }
     }
-    return harnessGate(harnesses, outputs);
+    return outputs;
   } finally {
     rmSync(guest.dir, { recursive: true, force: true });
   }
@@ -120,6 +126,49 @@ describe("image roll harness gate", () => {
     expect(script).toContain("acp ensure 'image-gate-claude' -m 'claude' --cwd '/home/cmux/w' --json");
     expect(script).toContain("acp session stop 'image-gate-codex'");
     expect(() => harnessEnsureScript({ cmux: "c", cwd: "/", outDir: "/tmp", harnesses: ["bad name;rm"] })).toThrow();
+  });
+
+  // Only regressions block (V0 lead, after #44718): one harness already broken on the live image (grok on staging,
+  // 2026-11-15) must not freeze every cmux-tui fix from reaching machines.
+  test("a harness that passes ensure on the live image and fails on the candidate blocks the roll", async () => {
+    const harnesses = await pickerHarnesses();
+    const live = await ensureOnFixture(harnesses, [...harnesses]);
+    const candidate = await ensureOnFixture(harnesses, harnesses.filter((h) => h !== "claude"));
+    const gate = regressionGate(harnesses, candidate, live);
+    expect(gate.passed).toBe(false);
+    expect(gate.blocking.map((f) => f.harness)).toEqual(["claude"]);
+    expect(gate.blocking[0]!.detail).toContain('unknown harness \\"claude\\"');
+    expect(gate.warnings).toEqual([]);
+  });
+
+  test("a harness already failing on the live image is a named warning and does not block", async () => {
+    const harnesses = await pickerHarnesses();
+    const broken = harnesses[harnesses.length - 1]!;
+    const live = await ensureOnFixture(harnesses, harnesses.filter((h) => h !== broken));
+    const candidate = await ensureOnFixture(harnesses, harnesses.filter((h) => h !== broken));
+    const gate = regressionGate(harnesses, candidate, live);
+    expect(gate.blocking).toEqual([]);
+    expect(gate.passed).toBe(true);
+    expect(gate.warnings.map((w) => w.harness)).toEqual([broken]);
+    expect(gate.warnings[0]!.detail).toContain(broken);
+    expect(gate.warnings[0]!.detail).toContain("already failing on the live image");
+  });
+
+  test("with no live result to compare, every candidate failure blocks", async () => {
+    const harnesses = await pickerHarnesses();
+    const candidate = await ensureOnFixture(harnesses, harnesses.filter((h) => h !== "claude"));
+    const gate = regressionGate(harnesses, candidate, null);
+    expect(gate.passed).toBe(false);
+    expect(gate.blocking.map((f) => f.harness)).toEqual(["claude"]);
+    expect(gate.blocking[0]!.detail).toContain("no live image result");
+  });
+
+  test("the probe takes the live image as its baseline (--baseline live) and runs the same ensure on a clone of it", () => {
+    expect(probeOptionsFromArgv(["bun", "probe", "--snapshot", "sh-a", "--tag", "t", "--baseline", "live"]).baseline).toBe("live");
+    expect(probeOptionsFromArgv(["bun", "probe", "--snapshot", "sh-a", "--tag", "t"]).baseline).toBe("none");
+    expect(() => probeOptionsFromArgv(["bun", "probe", "--snapshot", "sh-a", "--tag", "t", "--baseline", "yesterday"])).toThrow();
+    const bake = readFileSync(path.join(HERE, "../../.github/workflows/cloud-vm-image-bake.yml"), "utf8");
+    expect(bake).toMatch(/agent-tools-probe\.ts [^\n]*\$\{?BASELINE/);
   });
 
   test("the agent tools probe, the image roll's gate before promotion, runs the harness gate", () => {

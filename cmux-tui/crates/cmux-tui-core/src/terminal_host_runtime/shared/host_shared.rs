@@ -364,9 +364,7 @@ impl HostShared {
     }
 
     pub(crate) fn write_input(&self, payload: &[u8], request_id: u64, target: &HostTap) -> bool {
-        // Marked before the writer lock, so the mark never runs under it.
-        cmux_flow_trace::hop_id("host.pty.write", 0, self.terminal_id.as_bytes());
-        let delivered = {
+        let (delivered, wrote) = {
             let mut writer = self.writer.lock().recover_poison();
             // Receipted input certifies delivery, so none of it is dropped. The master is
             // held only to read the queue, never across a write that can block.
@@ -374,8 +372,13 @@ impl HostShared {
                 let master = self.master.lock().recover_poison();
                 crate::pty_input_room::admits(&**master, payload)
             };
-            !admitted || writer.write_all(payload).and_then(|()| writer.flush()).is_ok()
+            let wrote = admitted && writer.write_all(payload).and_then(|()| writer.flush()).is_ok();
+            (!admitted || wrote, wrote)
         };
+        // Marked after the writer lock, and only for bytes that reached the PTY.
+        if wrote {
+            crate::pty_write_marks::host_wrote(self.terminal_id.as_bytes());
+        }
         // Interactive input has always been best-effort. Only a nonzero
         // request id asks the authoritative host to certify delivery.
         if request_id == 0 {

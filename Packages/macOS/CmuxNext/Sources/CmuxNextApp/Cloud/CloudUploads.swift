@@ -139,7 +139,7 @@ final class CloudUploads {
             if let batch = begun.batchToken { response["batchToken"] = batch }
             return AgentPaneReply.success(response)
         case .chunk(let token, let offset, let data):
-            guard current() != nil, let received = stages.chunk(token, offset: offset, data: data, owns: owns, work: services.work) else { return failed }
+            guard current() != nil, let received = await stages.chunk(token, offset: offset, data: data, owns: owns, work: services.work) else { return failed }
             return AgentPaneReply.success(["offset": received])
         case .finish(let token):
             guard current() != nil else { return failed }

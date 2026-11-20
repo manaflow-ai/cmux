@@ -1,2 +1,4 @@
-# #43914: Screen Sharing palette keywords, tier and categories, ahead of the pinned app FFI
-/keywords
+# Share This Mac on the sidebar machine header menu (machineSection); the re-pin carries it
+/surfaces
+/surfacePlan/contextMenuExemption
+/surfacePlan/contextMenus

@@ -70,7 +70,7 @@ import Testing
         // Lucas 2026-11-15: one gap before the first tab at every density and in every style (`Metrics.tabStripEndGap`),
         // outlined panes and the flush corner too.
         let leading = pill.minX - stripRect.minX
-        #expect(abs(leading - Metrics.tabStripEndGap) <= 0.01, "\(style) \(density): \(leading) pt before the first tab")
+        #expect(abs(leading - TabStripMetrics().endGap(scale: scale)) <= 0.01, "\(style) \(density): \(leading) pt before the first tab")
     }
 
     @Test(arguments: Density.allCases)

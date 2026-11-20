@@ -38,6 +38,7 @@ mod chat_perf;
 mod classic;
 mod events;
 mod group_create;
+mod join;
 mod keybinding;
 mod launch;
 mod launch_times;
@@ -689,6 +690,17 @@ pub(super) fn run_action(
                 index += 1;
                 continue;
             }
+            // `--no-focus` (the CLI's word: `workspace create`, `agent start`, `app open`): the run may not change
+            // what the app shows, said in the request (`focus: false`), never sent as an argument the action
+            // does not take. An agent's or a probe's `cloud start-session` passes it (cloud_start_chat.rs).
+            "no-focus" => {
+                if super::action_hint::action_takes_argument(action, "focus") {
+                    arguments.insert("focus".into(), json!(false));
+                }
+                params.insert("focus".into(), json!(false));
+                index += 1;
+                continue;
+            }
             _ => {}
         }
         // `--name value`, `--name=value`, or a bare `--name` (true) when no
@@ -1066,7 +1078,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
     {
         eprintln!("{note}");
     }
-    let response = match wait::request(global, stream, method, &params, timeout) {
+    let response = match wait::request(global, stream, method, &params, timeout)
+        .and_then(|response| join_change(global, stream, method, &params, timeout, response))
+    {
         Ok(response) => response,
         Err(error) => {
             let code = super::wire::print_local_error(&error, global.output, 3);
@@ -1121,6 +1135,39 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
     }
 }
 
+/// A Cloud machine change that waits for the person's Allow (join.rs): the waiting answer is said
+/// at once (a note for a person, the answer itself as a JSON line on stderr for JSON output), then
+/// the same run is asked again, each time under a new key (the old one would replay the
+/// `pending`), until it ends.
+fn join_change(
+    global: &GlobalArgs,
+    stream: &mut UnixStream,
+    method: &str,
+    params: &Value,
+    timeout: Option<Duration>,
+    response: Result<Value, Value>,
+) -> Result<Result<Value, Value>, Value> {
+    let first = match response {
+        Ok(first) if method == "action.run" && join::joins(&first) => first,
+        other => return Ok(other),
+    };
+    join::join(
+        first,
+        join::JOIN_LIMIT,
+        Instant::now,
+        |answer| match global.output {
+            OutputMode::Human => eprintln!("{}", join::note(answer)),
+            OutputMode::Json | OutputMode::JsonLines => eprintln!("{answer}"),
+            OutputMode::Quiet => {}
+        },
+        || {
+            let mut again = params.clone();
+            insert_run_key(&mut again, None).map_err(|error| json!({ "message": error }))?;
+            wait::request(global, stream, method, &again, timeout)
+        },
+    )
+}
+
 /// After a person's `cloud new-machine` (`cmux machine new`) made a machine, the app opens it
 /// (`cloud open-machine`): a workspace on the machine is shown, so the window's new-terminal
 /// button opens there (Leo, 2026-11-06: "the terminal I open on the top right button works thru
@@ -1151,6 +1198,10 @@ fn open_created_command(target: String) -> Result<AppCommand, UsageError> {
 /// The machine a person's `cloud new-machine` made, for [`open_created`]; `None` otherwise.
 fn created_target(output: OutputMode, params: &Value, value: &Value) -> Option<String> {
     if output != OutputMode::Human || params.get("action")?.as_str()? != "cloud new-machine" {
+        return None;
+    }
+    // `--no-focus`: the run asked to leave the app's view alone, so nothing opens after it either.
+    if params.get("focus").and_then(Value::as_bool) == Some(false) {
         return None;
     }
     let result = value.get("result")?;
@@ -1370,14 +1421,26 @@ const NO_DAEMON_STATE: [&str; 5] =
 
 /// The app methods that place a new tab or report where the caller is: the
 /// app opens an agent's tabs in the column right of its chat
-/// (`beside_caller`) and marks the caller in `snapshot.get` and
-/// `system.identify`.
-const CALLER_METHODS: [&str; 4] =
-    ["action.run", "browser.open_split", "snapshot.get", "system.identify"];
+/// (`beside_caller`), or in its session's workspace when no tab shows the
+/// chat, and marks the caller in `snapshot.get` and `system.identify`.
+/// `browser.open_link` and `file.open` are ones: the `BROWSER` and `open`
+/// shims of an agent's shell and its `cmux open FILE` run them with no
+/// terminal, and with no caller they opened in the focused pane, Home
+/// (user, 2026-11-18).
+const CALLER_METHODS: [&str; 6] = [
+    "action.run",
+    "browser.open_link",
+    "browser.open_split",
+    "file.open",
+    "snapshot.get",
+    "system.identify",
+];
 
 /// Who calls, from the environment: the acpmux agent session
 /// (`CMUX_AGENT_SESSION`, set by acpmux for the agent and its cmux MCP
-/// server), else the caller's own terminal (`CMUX_TUI_TERMINAL_ID`).
+/// server) with the workspace it runs in (`CMUX_WORKSPACE_ID`, where the app
+/// places it when no tab shows its chat), else the caller's own terminal
+/// (`CMUX_TUI_TERMINAL_ID`).
 pub(super) fn caller_from(env: impl Fn(&str) -> Option<String>) -> Option<Value> {
     let set = |key: &str| env(key).filter(|value| !value.is_empty());
     // A Chief turn (`CMUX_CALLER_HOME_CHAT=1`, set by the Chief host): the
@@ -1385,11 +1448,13 @@ pub(super) fn caller_from(env: impl Fn(&str) -> Option<String>) -> Option<Value>
     // chat, where the app places the turn's tabs when the session is unknown.
     let home_chat = set("CMUX_CALLER_HOME_CHAT").as_deref() == Some("1");
     if let Some(session) = set("CMUX_AGENT_SESSION") {
-        return Some(if home_chat {
-            json!({ "agent_session": session, "home_chat": true })
-        } else {
-            json!({ "agent_session": session })
-        });
+        let mut caller = json!({ "agent_session": session });
+        if home_chat {
+            caller["home_chat"] = json!(true);
+        } else if let Some(workspace) = set("CMUX_WORKSPACE_ID") {
+            caller["workspace"] = json!(workspace);
+        }
+        return Some(caller);
     }
     if home_chat {
         return Some(json!({ "home_chat": true }));

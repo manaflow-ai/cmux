@@ -1,6 +1,5 @@
 @testable import CmuxNextApp
 @testable import CmuxNextCloud
-@testable import CmuxNextCloudCredentials
 import Foundation
 import Testing
 
@@ -144,22 +143,5 @@ struct CloudWorkerMachineFilesTests {
             == .http(status: 409, code: "vm_not_running", message: "Start the machine first.", action: nil, traceId: nil))
         #expect(CloudAPIError.from(status: 409, data: body, headerCode: "vm_not_running")
             == .http(status: 409, code: "vm_not_running", message: "Start the machine first.", action: nil, traceId: nil))
-    }
-
-    /// Claude credential recovery on a Worker machine: its exec runs as `cmux`, so a root 0600
-    /// staging file (what the file route writes) can't be read by the installer, and every transfer
-    /// failed. The file goes in 0644 into `cmux`'s own 0700 folder, which the guest check that passed
-    /// just before made and checked (no symlink, `cmux`'s): the stage itself is one write, no exec.
-    @Test func aWorkerMachineStagesTheCredentialWhereTheWorkUserCanReadIt() async throws {
-        WorkerAPI.seen = []
-        let machine = "vm_aaaaaaaaaaaaaaaaaaaa", path = "/home/cmux/.cmux/credential-transfer/x.json"
-        try await CloudCredentialTransfer.stage(Data("tok".utf8), at: path, on: worker(), machineID: machine)
-        #expect(WorkerAPI.seen.map(\.url) == ["https://machines.standin.invalid/v1/cloud/machines/\(machine)/fs/write"])
-        #expect(WorkerAPI.seen.last?.body["mode"] as? Int == 0o644)
-        #expect(WorkerAPI.seen.last?.body["path"] as? String == path)
-        for check in [CloudCredentialInstaller.preflight, CloudCredentialInstaller.creatorTeamPreflight] {
-            #expect(check.contains("mkdir -p /home/cmux/.cmux/credential-transfer") && check.contains("chmod 700 /home/cmux/.cmux/credential-transfer"))
-            #expect(check.contains("[ ! -L /home/cmux/.cmux/credential-transfer ]") && check.contains("stat -c %U /home/cmux/.cmux/credential-transfer)\" = cmux"))
-        }
     }
 }

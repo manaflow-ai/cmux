@@ -133,9 +133,9 @@ test("the Cards page: one field, a chip row under it, three chat cards", async (
     expect(toolbar!.querySelector(".nt-location")).not.toBeNull();
     expect(toolbar!.querySelector(".nt-pickers .acpmux-mic")).not.toBeNull();
     expect(box.querySelector(".nt-location")).toBeNull();
-    // Return sends, and create buttons sit under the composer.
+    // Return sends; creation is available through search.
     expect(host.querySelector(".nt-send")).toBeNull();
-    expect(host.querySelector(".nt-create [data-create=chat]")).not.toBeNull();
+    expect(host.querySelector(".nt-create")).toBeNull();
     // Three cards in a grid, "All Chats >" beside the Chats header.
     expect(host.querySelectorAll(".nt-cards[data-variant=cards] .nt-card").length).toBe(3);
     await act(async () => host.querySelector<HTMLButtonElement>(".nt-chats-all")!.click());
@@ -229,8 +229,8 @@ test("Cards with the agent's chips draws the split, and the mic stays in the box
     expect(above.contains(strip)).toBe(true);
     expect(above.compareDocumentPosition(box) & window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(box.compareDocumentPosition(foot) & window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // The split composer keeps its create buttons.
-    expect(host.querySelector(".nt-create [data-create=chat]")).not.toBeNull();
+    // The split composer leaves creation in searchable suggestions.
+    expect(host.querySelector(".nt-create")).toBeNull();
     const mic = box.querySelector<HTMLElement>(".acpmux-mic");
     expect(mic).not.toBeNull();
     expect(mic!.closest(".nt-toolbar")).toBeNull();

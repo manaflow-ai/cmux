@@ -145,6 +145,14 @@ impl FrameGate {
         self.poll(now_us)
     }
 
+    /// Puts a frame's damage back after the encoder produced nothing for it (a dropped
+    /// frame), so the next slot encodes that change again. Without this the change stays
+    /// unsent until other damage arrives, and the viewer shows a stuck region. It does not
+    /// encode now: the frame goes out at [`Self::next_deadline_us`], on the cap's schedule.
+    pub fn requeue(&mut self, rect: Rect) {
+        self.pending = Some(self.pending.map_or(rect, |p| p.union(rect)));
+    }
+
     /// Records the viewer's newest decoded frame.
     pub fn ack(&mut self, frame: u32, now_us: u64) -> FlowAction {
         if frame > self.acked && frame <= self.last_sent {

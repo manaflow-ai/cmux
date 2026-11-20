@@ -2,8 +2,8 @@
   "_doc": "Architecture counts the pre-push ratchet holds (scripts/cmux-next/guardrails.py runs scripts/cmux-next/arch-ratchet.py; the method is scripts/cmux-next/arch_counts.py, whose docstring defines every row). A push may not raise a ratcheted row's total, in the code or in this file's totals, nor swap a counted global, broadcast or layer edge for another; when one drops, rerun `scripts/cmux-next/arch-ratchet.py --update` (the only writer). The one escape is a dated exception: add {\"date\": \"YYYY-MM-DD\", \"row\": \"<row>\", \"allow\": <n>, \"why\": \"...\", \"author\": \"<who wrote it>\", \"owner\": \"<who removes it>\", \"receipt\": \"Review (<reviewer, not the author>): SHIP at <40-hex sha>\", \"expiry\": \"YYYY-MM-DD\"} as a new file plans/cmux-next/arch-exceptions/<id>.json (one entry per file, <id> a short unique slug such as the PR number, so two pushes that add one never conflict; never append to the exceptions list below, whose old entries are read with the files as one list; an entry with no independent receipt, owner or expiry allows nothing); the push that adds it may raise that row by n, and the next --update folds it into the totals and marks it with applied_sha (an applied entry is never edited or removed). --update refuses a rise that no pending exception covers, except a rise that commits already on origin/feat-cmux-next made past the hook (a GitHub merge, --no-verify): it records that one with a generated applied entry whose raised_by names those commits. A generated entry allows no rise in any push's code, and the push that brings it is re-checked: its commits must be on origin/feat-cmux-next, after the old measured_sha and in the new one, named by no other entry, and its allow at most their rise. Every blocking_allow_escapes site also needs an escape_reviews entry (path, text, owner, author, receipt, expiry, state): a push that adds a site with no reviewed entry is refused, and --audit lists unreviewed and expired ones. Never CI.",
   "method": "arch_counts",
   "method_version": 6,
-  "measured_sha": "8612894af4b10885260e320e9b3526f57ed0fb3b",
-  "measured_date": "2026-11-15",
+  "measured_sha": "92aeb2987f12fc87762cd724d9f805cc2fa2d221",
+  "measured_date": "2026-11-18",
   "rows": {
     "layer_hard": {
       "title": "hard layer edges (core/service/domain -> ui/app)",
@@ -60,13 +60,13 @@
     "layer_upward": 3,
     "layer_unplaced": 0,
     "stateful_singletons": 200,
-    "global_mutable_statics": 470,
+    "global_mutable_statics": 468,
     "assume_isolated_outside_adapters": 142,
-    "assume_isolated_total": 215,
+    "assume_isolated_total": 218,
     "app_broadcast_names": 13,
-    "observer_sites": 351,
+    "observer_sites": 350,
     "blocking_allow_escapes": 1,
-    "app_lines": 152923
+    "app_lines": 152281
   },
   "packages": {
     "CmuxAuthRuntime": {
@@ -125,12 +125,12 @@
       "layer_soft": 1
     },
     "CmuxNextApp": {
-      "stateful_singletons": 30,
-      "global_mutable_statics": 65,
+      "stateful_singletons": 29,
+      "global_mutable_statics": 64,
       "assume_isolated_outside_adapters": 20,
-      "assume_isolated_total": 27,
-      "observer_sites": 100,
-      "app_lines": 152923
+      "assume_isolated_total": 28,
+      "observer_sites": 97,
+      "app_lines": 152281
     },
     "CmuxNextAppCore": {
       "global_mutable_statics": 1
@@ -151,7 +151,7 @@
       "stateful_singletons": 12,
       "global_mutable_statics": 21,
       "assume_isolated_outside_adapters": 19,
-      "assume_isolated_total": 24,
+      "assume_isolated_total": 26,
       "app_broadcast_names": 1,
       "observer_sites": 15
     },
@@ -256,6 +256,7 @@
     },
     "CmuxNextFocusUI": {
       "stateful_singletons": 2,
+      "global_mutable_statics": 1,
       "assume_isolated_total": 1
     },
     "CmuxNextHome": {
@@ -356,7 +357,7 @@
     },
     "CmuxNextSettings": {
       "layer_hard": 1,
-      "global_mutable_statics": 3,
+      "global_mutable_statics": 1,
       "observer_sites": 5
     },
     "CmuxNextSettingsWindow": {
@@ -393,7 +394,8 @@
       "observer_sites": 11
     },
     "CmuxNextUpdater": {
-      "observer_sites": 3,
+      "stateful_singletons": 1,
+      "observer_sites": 5,
       "blocking_allow_escapes": 1
     },
     "CmuxNextWakeups": {
@@ -1618,5 +1620,9 @@
     "toggle",
     "toggleVideo",
     "watchUser"
-  ]
+  ],
+  "reanchor": {
+    "measured_sha": "8612894af4b10885260e320e9b3526f57ed0fb3b",
+    "at": "8dfdb346e8b5be366364ded6fae28174655e9e81"
+  }
 }

@@ -125,6 +125,17 @@ extension AgentPaneNewTab {
         return page
     }
 
+    /// The page with the open tabs and other workspaces of `lists` in its bar; nil keeps the page's own. A page
+    /// whose view is made after its tab opened gets the lists of then. The folders stay
+    /// the page's own, as at a refresh (``AgentPaneView/refreshNewTabPlaces(tabs:workspaces:)``).
+    public func listing(_ lists: NewTabPlaces.Lists?) -> AgentPaneNewTab {
+        guard let lists else { return self }
+        var page = self
+        page.omnibar.tabs = lists.tabs
+        page.omnibar.workspaces = lists.workspaces
+        return page
+    }
+
     /// The newest chats a local page posted (`newTab.warm`), for the next page's ``warm``.
     @MainActor public internal(set) static var warmed: String?
     /// The largest `newTab.warm` the host keeps.

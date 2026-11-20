@@ -76,6 +76,7 @@
     "cloud.environment.list": "cloud.environment.list",
     "cloud.environment.update": "cloud.environment.update",
     "cloud.handoffTurn": "cloud.handoffTurn",
+    "cloud.plan.subscribe": "cloud.plan.subscribe",
     "cloud.preview.open": "cloud.preview.open",
     "cloud.releaseReservation": "cloud.releaseReservation",
     "cloud.repickChat": "cloud.repickChat",
@@ -86,6 +87,7 @@
     "cloud.repo.sync": "cloud.repo.sync",
     "cloud.repo.wait_github": "cloud.repo.wait_github",
     "cloud.reserve": "cloud.reserve",
+    "cloud.setUp": "cloud.setUp",
     "cloud.signIn": "cloud.signIn",
     "cloud.signInCancel": "cloud.signInCancel",
     "cloud.startChat": "cloud.startChat",
@@ -133,6 +135,10 @@
     "git.worktree.create": "git.worktree.create",
     "git.worktree.remove": "git.worktree.remove",
     "git.worktree.setup": "git.worktree.setup",
+    "github.connect": "github.connect",
+    "github.repos.checkout": "github.repos.checkout",
+    "github.repos.list": "github.repos.list",
+    "github.status": "github.status",
     "handshake": "ready",
     "harness.restart": "harness.restart",
     "harness.symbol": "harness.symbol",
@@ -233,6 +239,7 @@
     "uiPointer.report": "uiPointer.report",
     "video.frames": "video.frames",
     "video.info": "video.info",
+    "video.probes": "video.probes",
     "video.quickLook": "video.quickLook",
     "video.transcript": "video.transcript",
     "workspace.chooseFolder": "workspace.chooseFolder",
@@ -309,6 +316,9 @@
       "times"
     ],
     "video.info": [
+      "src"
+    ],
+    "video.probes": [
       "src"
     ],
     "video.quickLook": [

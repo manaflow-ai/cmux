@@ -9,7 +9,7 @@ import { basename, dirname, resolve } from "node:path";
 const bundleDirectory = resolve(import.meta.dir, "../../Resources/markdown-viewer/webviews-app");
 const chunksDirectory = resolve(bundleDirectory, "chunks");
 const workerEntry = resolve(chunksDirectory, "diff-worker.mjs");
-const lazyOnlyChunkPattern = /^(shiki-lang-|shiki-theme-|shiki-wasm|pierre-theme-)/;
+const lazyOnlyChunkPattern = /^(shiki-lang-|shiki-theme-|shiki-unpack|shiki-wasm|pierre-theme-)/;
 const staticImportPattern = /(?:^|[;}\s])(?:import|export)\s*(?:[^;'"()]*?from\s*)?["']([^"']+)["']/g;
 
 function staticImports(filePath: string): string[] {
