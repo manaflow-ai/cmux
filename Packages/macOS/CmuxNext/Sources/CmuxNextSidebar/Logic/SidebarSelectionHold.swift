@@ -10,7 +10,7 @@ import CmuxNextWakeups
 @MainActor
 public final class SidebarSelectionHold {
     /// A selected workspace the rows never list (another space's) waits no longer.
-    public static let limit: Duration = .milliseconds(250)
+    static let limit: Duration = .milliseconds(250)
     private let model: SidebarModel
     private var held: SidebarItem??
     private let backstop = DemandTimer(owner: "SidebarSelectionHold.limit")

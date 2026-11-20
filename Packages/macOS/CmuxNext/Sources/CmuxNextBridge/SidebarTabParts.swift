@@ -33,11 +33,15 @@ public final class SidebarTabParts {
         public var title: String?
         /// The tab's favicon is of a store of another machine (the app does not fetch a loopback address of it).
         public var remoteFavicon: Bool
+        /// For a page: the count of the changes of the favicon loader's own icons (a page shows an icon that another
+        /// page's engine fetched, and those icons are not observable); 0 for each other tab.
+        public var loadedIcons: Int
 
-        public init(incognito: Bool = false, title: String? = nil, remoteFavicon: Bool = false) {
+        public init(incognito: Bool = false, title: String? = nil, remoteFavicon: Bool = false, loadedIcons: Int = 0) {
             self.incognito = incognito
             self.title = title
             self.remoteFavicon = remoteFavicon
+            self.loadedIcons = loadedIcons
         }
     }
 

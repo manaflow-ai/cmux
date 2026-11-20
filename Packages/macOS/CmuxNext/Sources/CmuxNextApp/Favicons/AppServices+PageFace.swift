@@ -58,9 +58,9 @@ extension SidebarTabParts.Unobserved {
     /// What no observation covers of `tab`'s title and favicon in the tab list of a workspace whose incognito answer
     /// is `incognito`, from the app's sources. `titles`: the strip's title rule. `newTabPage`: the row's page answer for `tab`, if it has one.
     @MainActor init(_ tab: TabModel, newTabPage: Bool? = nil, incognito: Bool, titles: TabTitleResolver, _ services: AppServices) {
-        let pages = services.cache
-        let remote = tab.kind == .browser && pages.pageRequests.proxiedTabs.faviconIsRemote(key: tab.id, page: pages.existingBrowser(tab.id)?.tab)
-        self.init(incognito: incognito, title: titles.unobservedTitle(tab, incognito: incognito, newTabPage: newTabPage), remoteFavicon: remote)
+        let pages = services.cache, page = tab.kind == .browser, icons = page ? services.favicons.loaderCacheChanges : 0
+        let remote = page && pages.pageRequests.proxiedTabs.faviconIsRemote(key: tab.id, page: pages.existingBrowser(tab.id)?.tab)
+        self.init(incognito: incognito, title: titles.unobservedTitle(tab, incognito: incognito, newTabPage: newTabPage), remoteFavicon: remote, loadedIcons: icons)
     }
 }
 

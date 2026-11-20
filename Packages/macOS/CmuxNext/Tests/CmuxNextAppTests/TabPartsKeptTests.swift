@@ -131,8 +131,10 @@ struct TabPartsKeptTests {
             calls.faces.append(tab.id)
             return nil
         })
+        /// The rows that the last pass got from the feed, in order.
+        private(set) var rows: [SidebarWorkspace] = []
         /// The rows the last pass listed.
-        private(set) var listed = 0
+        var listed: Int { rows.count }
 
         init(session: Int, tabs: Int) throws {
             let keys = TabPartsKeptTests.keys(session)
@@ -159,7 +161,22 @@ struct TabPartsKeptTests {
                                                       return tab.displayTitle
                                                   },
                                                   rows: feed.rowSource, tabs: parts)
-            listed = feed.fill(sections).flatMap(\.workspaces).count
+            rows = feed.fill(sections).flatMap(\.workspaces)
+        }
+
+        /// The window's rows now, as the feed has them (one pass more: a row that a frame mapped again is the feed's
+        /// row after that frame), and whether they are a walk's rows: the same rows made now with no feed and no
+        /// kept part. The pass maps no row and counts in no cost.
+        func shown() -> (rows: [SidebarWorkspace], isTheWalk: Bool) {
+            pass()
+            let walk = SidebarBridge.sections(services.machines, doc: services.sidebarDoc, members: keys, profile: state.profileID,
+                                              pageFace: { _, _, _ in nil }, tabTitle: { _, tab in tab.displayTitle }).flatMap(\.workspaces)
+            return (rows, rows == walk)
+        }
+
+        /// The ids of the tabs that the storm workspace's row shows (the only row with more than 2 tabs), in order.
+        static func stormTabs(_ rows: [SidebarWorkspace]) -> [String] {
+            rows.first { $0.tabs.count > 2 }?.tabs.map(\.id.rawValue) ?? []
         }
 
         /// One display frame: the row feed's flush maps its dirty rows again and arms them.
@@ -172,12 +189,17 @@ struct TabPartsKeptTests {
         /// What the row's map cost after the storm workspace got `tabs` tabs: the change, then the pass and the frame
         /// that follow it. `first`: the id of that workspace's first tab.
         func cost(storm tabs: Int, first: String) -> RowCost {
+            cost(first: first, tree: TabPartsKeptTests.tree(keys, storm: tabs))
+        }
+
+        /// What the row's map cost after the store got `tree`: the change, then the pass and the frame that follow it.
+        func cost(first: String, tree: DaemonTree) -> RowCost {
             _ = SidebarPerfCounters.report(reset: true)
             calls.titles.removeAll()
             calls.faces.removeAll()
             let work = ObservationWork()
             ObservationWork.$current.withValue(work) {
-                services.machines.local.store.apply(snapshot: TabPartsKeptTests.tree(keys, storm: tabs))
+                services.machines.local.store.apply(snapshot: tree)
                 pass()
                 frame()
             }
@@ -200,12 +222,21 @@ struct TabPartsKeptTests {
         defer { fixture.feed.reset() }
         try #require(fixture.listed == session, "setup: the fixture lists \(fixture.listed) of \(session) workspaces")
         let first = try #require(Self.firstStormTab(fixture.services.machines.local.store), "setup: the storm workspace has no tab")
+        try #require(fixture.shown().isTheWalk, "setup: the sidebar's rows are not the walk's rows before a change")
         var costs: [(made: RowCost, closed: RowCost)] = []
         for tabs in Self.sizes {
             // The workspace at this size; its cost is no row.
             _ = fixture.cost(storm: tabs, first: first)
+            let sized = fixture.shown()
             let made = fixture.cost(storm: tabs + 1, first: first)
+            let more = fixture.shown()
             let closed = fixture.cost(storm: tabs, first: first)
+            let fewer = fixture.shown()
+            // The row shows the tabs that a walk shows after each change: a count with a wrong tab in the row is red.
+            #expect(sized.isTheWalk && more.isTheWalk && fewer.isTheWalk,
+                    "the sidebar's rows are not the walk's rows at \(tabs) tabs (sized \(sized.isTheWalk), one tab made \(more.isTheWalk), one tab closed \(fewer.isTheWalk))")
+            let counts = [Rows.stormTabs(sized.rows).count, Rows.stormTabs(more.rows).count, Rows.stormTabs(fewer.rows).count]
+            #expect(counts == [tabs, tabs + 1, tabs], "the storm workspace's row shows \(counts) tabs (sized, one tab made, one tab closed), want \([tabs, tabs + 1, tabs])")
             costs.append((made, closed))
         }
         let (small, large) = (costs[0], costs[1])
@@ -228,6 +259,49 @@ struct TabPartsKeptTests {
         let others = [small.made.otherFaces, small.closed.otherFaces, large.made.otherFaces, large.closed.otherFaces]
         #expect(others == [0, 0, 0, 0],
                 "the row asked a page face for \(others) tabs that are not its first tab (one tab made and closed at \(Self.sizes[0]) tabs, then at \(Self.sizes[1])), want 0: no page changed")
+    }
+
+    /// A tab in the middle of its pane closes, then a tab moves to another place of the pane (an order change): after
+    /// each, the sidebar's row shows the walk's tabs in the walk's order, and its map makes no part: each tab that
+    /// stays has its kept part at its new place.
+    @Test func aTabClosedInTheMiddleOrMovedShowsTheWalksRowAndMakesNoPart() throws {
+        let fixture = try Rows(session: 40, tabs: Self.sizes[0])
+        defer { fixture.feed.reset() }
+        let store = fixture.services.machines.local.store
+        let first = try #require(Self.firstStormTab(store), "setup: the storm workspace has no tab")
+        /// The ids of the storm workspace's tabs in the store, in order.
+        func stored() -> [String] { store.workspace(key: WorkspaceKey(rawValue: Self.storm))?.screens.flatMap(\.panes).flatMap(\.tabs).map(\.id) ?? [] }
+        var tree = Self.tree(fixture.keys, storm: Self.sizes[0])
+        let at = try #require(tree.workspaces.firstIndex { $0.key.rawValue == Self.storm }, "setup: the tree has no storm workspace")
+        var want = stored()
+        let before = fixture.shown()
+        try #require(want.count == Self.sizes[0] && Rows.stormTabs(before.rows) == want && before.isTheWalk,
+                     "setup: the row does not show the storm workspace's \(Self.sizes[0]) tabs as a walk does before a change")
+
+        // The third tab of 6 closes.
+        tree.workspaces[at].screens[0].panes[0].tabs.remove(at: 2)
+        want.remove(at: 2)
+        let closed = fixture.cost(first: first, tree: tree)
+        try #require(stored() == want, "setup: the store does not have the workspace without its third tab")
+        let fewer = fixture.shown()
+        #expect(Rows.stormTabs(fewer.rows) == want, "a tab in the middle closed: the row shows the tabs \(Rows.stormTabs(fewer.rows)), want \(want)")
+        #expect(fewer.isTheWalk, "the sidebar's rows are not the walk's rows after a tab in the middle closed")
+
+        // The last tab moves to the second place.
+        let moved = tree.workspaces[at].screens[0].panes[0].tabs.removeLast()
+        tree.workspaces[at].screens[0].panes[0].tabs.insert(moved, at: 1)
+        let last = want.removeLast()
+        want.insert(last, at: 1)
+        let reordered = fixture.cost(first: first, tree: tree)
+        try #require(stored() == want, "setup: the store does not have the workspace's tabs in the new order")
+        let ordered = fixture.shown()
+        #expect(Rows.stormTabs(ordered.rows) == want, "a tab moved in its pane: the row shows the tabs \(Rows.stormTabs(ordered.rows)), want \(want)")
+        #expect(ordered.isTheWalk, "the sidebar's rows are not the walk's rows after a tab moved in its pane")
+
+        print("TAB-PARTS sidebar row, a workspace of \(Self.sizes[0]) tabs: a tab in the middle closed = \(closed), a tab moved in its pane = \(reordered)")
+        #expect([closed.rowsMade, reordered.rowsMade] == [1, 1], "the 2 changes mapped \([closed.rowsMade, reordered.rowsMade]) rows, want 1 each: the workspace's own row")
+        #expect([closed.items, reordered.items] == [0, 0],
+                "the row made \(closed.items) items of the tab list for a tab closed in the middle and \(reordered.items) for a tab moved, want 0: no tab is new")
     }
 
     @MainActor final class Events {

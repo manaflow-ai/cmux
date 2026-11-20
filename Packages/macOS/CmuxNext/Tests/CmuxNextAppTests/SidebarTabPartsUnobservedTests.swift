@@ -26,6 +26,11 @@ import Testing
 /// on the New Tab page the title rule's own page rule is asked 0 times at a map where each part is kept. For a tab
 /// that is no chat that answer gives no title to compare, and the row shows what a walk shows. Both are guards.
 ///
+/// A fifth source is the favicon loader's own cache: the favicon store hands out an icon that a page's engine put
+/// there, and that cache is not observable. The input of a page's part has the loader's count of the changes of
+/// its cache. That count is one for the whole cache, so one icon kept makes the part of each page of each mapped
+/// row again: 3 rows, of an icon that comes, of a second icon for the same address, and of the price at 84 tabs.
+///
 /// Limits: the 3 title sources are the title rule's own functions, set by the test (not the app's page provider,
 /// its incognito page or its history page); the incognito answer is given by the test, not by a window's
 /// registry; the favicon row's page function is the test's, over the app's proxied-tabs type with a defaults suite
@@ -50,8 +55,9 @@ struct SidebarTabPartsUnobservedTests {
     }
 
     /// The row's rule: the rows with kept parts show `before` for tab `tab`; then `change`; then a walk shows
-    /// `after` (setup), and the next map with the kept parts shows `after`, makes 1 part and equals the walk.
-    static func showsTheChange<Shown: Equatable>(_ session: Session, _ row: Row, tab: String, before: Shown, after: Shown, what: String,
+    /// `after` (setup), and the next map with the kept parts shows `after`, makes `made` parts (1: the part of that
+    /// tab and no other) and equals the walk.
+    static func showsTheChange<Shown: Equatable>(_ session: Session, _ row: Row, tab: String, before: Shown, after: Shown, what: String, made: Int = 1,
                                                  shown: (SidebarTab) -> Shown, change: () -> Void) throws {
         func value(_ rows: [SidebarWorkspace]) -> Shown? { Session.item(tab, in: rows).map(shown) }
         let first = session.mapped(row.parts, title: row.title, page: row.page)
@@ -66,7 +72,7 @@ struct SidebarTabPartsUnobservedTests {
         let next = session.mapped(row.parts, title: row.title, page: row.page)
         #expect(value(next.rows) == after,
                 "the row shows \(String(describing: value(next.rows))) as the tab's \(what) after its source changed, want \(after): the kept part is stale")
-        #expect(next.made == 1, "one tab's \(what) changed and the next map made \(next.made) parts, want 1")
+        #expect(next.made == made, "one tab's \(what) changed and the next map made \(next.made) parts, want \(made)")
         #expect(next.rows == walk, "the rows with kept parts are not the walk's rows after the change")
     }
 
@@ -182,10 +188,14 @@ struct SidebarTabPartsUnobservedTests {
         #expect(next.rows == walk, "the rows with kept parts are not the walk's rows after the title changed")
     }
 
-    /// A 1x1 image.
-    static func icon() throws -> CGImage {
+    /// A 1x1 image: clear, or `filled` with one color.
+    static func icon(filled: Bool = false) throws -> CGImage {
         let context = CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 0,
                                 space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        if filled {
+            context?.setFillColor(red: 1, green: 0, blue: 0, alpha: 1)
+            context?.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+        }
         return try #require(context?.makeImage(), "setup: no 1x1 image")
     }
 
@@ -216,21 +226,29 @@ struct SidebarTabPartsUnobservedTests {
     }
 
     /// A PNG file of the 1x1 image, as a page's engine gives its favicon to the loader.
-    static func png() throws -> Data {
-        try #require(NSBitmapImageRep(cgImage: try icon()).representation(using: .png, properties: [:]), "setup: no PNG file of the 1x1 image")
+    static func png(filled: Bool = false) throws -> Data {
+        try #require(NSBitmapImageRep(cgImage: try icon(filled: filled)).representation(using: .png, properties: [:]), "setup: no PNG file of the 1x1 image")
     }
 
-    /// A page whose favicon the app could not fetch shows none while that failure is remembered. Another page of
-    /// the site then loads, and its engine's own fetch puts the icon in the loader's cache: the next map of the row
-    /// shows it for the first page too (#42435). The loader's cache is not observable.
-    ///
-    /// The page function and the input are the app's own, over the app's favicon store and its shared loader. Each
-    /// page of the session has an `http` address on a host of its own: the loader refuses it with no request, so
-    /// each fetch fails at once and the row asks no network. The map after the drain starts no second fetch: the
-    /// failure is remembered.
-    @Test func aPageWhoseFetchFailedShowsTheIconOfTheLoadersCacheAtTheNextMap() async throws {
+    /// A session whose pages each showed no favicon because the app's fetch failed, with the row that maps it.
+    struct FailedIcons {
+        let session: Session
+        let row: Row
+        /// The storm workspace's last page, its favicon address and its engine's profile.
+        let tab: TabModel
+        let url: URL
+        let profile: BrowserProfileID
+        /// The pages of the session's 2 workspaces: a change of the loader's icons makes the part of each again.
+        let pages: Int
+    }
+
+    /// A session with a storm workspace of `tabs` tabs. The page function and the input are the app's own, over the
+    /// app's favicon store and its shared loader. Each page has an `http` address on a host of its own: the loader
+    /// refuses it with no request, so each fetch fails at once and the row asks no network. The map after the drain
+    /// starts no second fetch: the failure is remembered.
+    static func failedIcons(tabs: Int) async throws -> FailedIcons {
         let run = UUID().uuidString.lowercased()
-        let session = try Session(tabs: 6) { tree in
+        let session = try Session(tabs: tabs) { tree in
             for at in tree.workspaces.indices {
                 for tab in tree.workspaces[at].screens[0].panes[0].tabs.indices where tree.workspaces[at].screens[0].panes[0].tabs[tab].kind == .browser {
                     tree.workspaces[at].screens[0].panes[0].tabs[tab].url = "http://page-\(at)-\(tab)-\(run).example/"
@@ -255,12 +273,83 @@ struct SidebarTabPartsUnobservedTests {
         _ = session.mapped(row.parts, title: row.title, page: row.page)
         try #require(!services.favicons.isFetching(address, profile: profile), "setup: a fetch of the page's favicon is in work after the drain, want a remembered failure")
         try #require(services.favicons.cachedImage(for: address, profile: profile) == nil, "setup: the page's favicon landed, want a failed fetch")
+        let store = services.machines.local.store
+        let pages = session.keys.compactMap { store.workspace(key: WorkspaceKey(rawValue: $0)) }
+            .flatMap { $0.screens.flatMap(\.panes).flatMap(\.tabs) }.count(where: { $0.kind == .browser })
+        return FailedIcons(session: session, row: row, tab: tab, url: url, profile: profile, pages: pages)
+    }
 
+    /// A page whose favicon the app could not fetch shows none while that failure is remembered. Another page of
+    /// the site then loads, and its engine's own fetch puts the icon in the loader's cache: the next map of the row
+    /// shows it for the first page too (#42435). The loader's cache is not observable. The loader's count is one
+    /// for its whole cache, so the next map makes the part of each page of the 2 rows, and of no other tab.
+    @Test func aPageWhoseFetchFailedShowsTheIconOfTheLoadersCacheAtTheNextMap() async throws {
+        let fixture = try await Self.failedIcons(tabs: 6)
         // Another page's engine fetched the site's icon: it is in the loader's cache.
         let file = try Self.png()
-        try Self.showsTheChange(session, row, tab: tab.id, before: false, after: true, what: "favicon", shown: { $0.favicon != nil }) {
-            _ = BrowserFaviconLoader.shared.store(file, at: url, profile: profile)
+        try Self.showsTheChange(fixture.session, fixture.row, tab: fixture.tab.id, before: false, after: true, what: "favicon", made: fixture.pages,
+                                shown: { $0.favicon != nil }) {
+            _ = BrowserFaviconLoader.shared.store(file, at: fixture.url, profile: fixture.profile)
         }
+    }
+
+    /// The engine of a page stores 2 different icons one after the other for ONE address (a site that changes its
+    /// icon): the map after each store shows that store's icon, and makes the parts again each time. The loader
+    /// decodes each stored file into an image of its own, so the count rises at each store, also of an address
+    /// that it has.
+    @Test func aSecondIconForTheSameAddressShowsAtTheNextMap() async throws {
+        let fixture = try await Self.failedIcons(tabs: 6)
+        let (session, row) = (fixture.session, fixture.row)
+        func favicon(_ rows: [SidebarWorkspace]) -> SidebarFavicon? { Session.item(fixture.tab.id, in: rows)?.favicon }
+        var shown: [SidebarFavicon] = []
+        let files = [try Self.png(), try Self.png(filled: true)]
+        try #require(files[0] != files[1], "setup: the 2 PNG files are the same bytes")
+        for (at, file) in files.enumerated() {
+            let kept = session.mapped(row.parts, title: row.title, page: row.page)
+            try #require(kept.made == 0, "setup: the map before store \(at + 1) made \(kept.made) parts, want 0")
+            try #require(BrowserFaviconLoader.shared.store(file, at: fixture.url, profile: fixture.profile) != nil, "setup: the loader did not keep icon \(at + 1)")
+            let walk = session.rows(nil, title: row.title, page: row.page)
+            let icon = try #require(favicon(walk), "setup: a row made now shows no favicon after store \(at + 1)")
+            let next = session.mapped(row.parts, title: row.title, page: row.page)
+            #expect(favicon(next.rows) == icon, "the row does not show the icon of store \(at + 1) for the page: the kept part is stale")
+            #expect(next.made == fixture.pages, "store \(at + 1) of an icon for one address: the next map made \(next.made) parts, want \(fixture.pages) (each page)")
+            #expect(next.rows == walk, "the rows with kept parts are not the walk's rows after store \(at + 1)")
+            shown.append(icon)
+        }
+        try #require(shown.count == 2 && shown[0] != shown[1], "setup: the second store's icon is the first store's image: the row proves nothing of a second icon")
+    }
+
+    /// THE PRICE, with its count and a time report (no condition on a time): the loader's count is one for its whole
+    /// cache. One icon that the loader keeps, of an address that no tab shows, makes the part of EACH page of the
+    /// mapped rows again (28 of the 84 tabs of the storm workspace and the 1 page of the other workspace), and no
+    /// part of a terminal or a chat. The 2 times are of one map of the window's 2 rows with the app's own page
+    /// function: with each part kept, and directly after one icon was kept.
+    @Test func oneIconKeptByTheLoaderMakesThePartOfEachPageAgain() async throws {
+        let fixture = try await Self.failedIcons(tabs: SidebarTabPartsTests.Base.sizes[1])
+        let (session, row) = (fixture.session, fixture.row)
+        let other = try #require(URL(string: "http://no-tab-shows-this-\(UUID().uuidString.lowercased()).example/favicon.ico"), "setup: no address")
+        let file = try Self.png()
+        let rounds = 20
+        var kept = Duration.zero, again = Duration.zero, made: [Int] = []
+        for round in 0 ..< rounds {
+            var start = ContinuousClock.now
+            let before = session.mapped(row.parts, title: row.title, page: row.page)
+            kept += ContinuousClock.now - start
+            try #require(before.made == 0, "setup: the map before the store of round \(round) made \(before.made) parts, want 0")
+            try #require(BrowserFaviconLoader.shared.store(file, at: other, profile: fixture.profile) != nil, "setup: the loader did not keep the icon")
+            let walk = session.rows(nil, title: row.title, page: row.page)
+            start = ContinuousClock.now
+            let next = session.mapped(row.parts, title: row.title, page: row.page)
+            again += ContinuousClock.now - start
+            made.append(next.made)
+            #expect(next.rows == walk, "the rows with kept parts are not the walk's rows after the loader kept an icon (round \(round))")
+        }
+        func ms(_ time: Duration) -> Double { (Double(time.components.attoseconds) / 1e15 + Double(time.components.seconds) * 1e3) / Double(rounds) }
+        print("TAB-PARTS one icon kept by the favicon loader (an address that no tab shows): the next map of the window's 2 rows, a workspace of "
+            + "\(session.tabs.count) tabs and one of 2 (\(fixture.pages) pages), made \(made.max() ?? -1) parts again; one map with each part kept = \(ms(kept)) ms, "
+            + "the map after the icon = \(ms(again)) ms (each the mean of \(rounds) maps in the tests' build, the app's own page function; a report, no condition)")
+        #expect(made == Array(repeating: fixture.pages, count: rounds),
+                "one icon kept by the loader made \(made) parts again in \(rounds) rounds, want \(fixture.pages) each: the part of each page, and no other part")
     }
 
     private static func library() throws -> CEFShimLibrary {
