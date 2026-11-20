@@ -21,6 +21,10 @@ class WebSubareas:
     react_apps: bool
     typecheck: bool
     unit_tests: bool
+    # The real-daemon agent-pane lane is narrower than the general React suite.
+    # Keep it separate so unrelated React changes do not spend a 30-minute
+    # Linux runner on two agent-pane tests.
+    agent_pane: bool = False
 
     @classmethod
     def all(cls) -> "WebSubareas":
@@ -32,6 +36,7 @@ class WebSubareas:
             react_apps=True,
             typecheck=True,
             unit_tests=True,
+            agent_pane=True,
         )
 
     def emit(self, output: Path) -> None:
@@ -43,6 +48,7 @@ class WebSubareas:
             handle.write(f"react_apps={str(self.react_apps).lower()}\n")
             handle.write(f"typecheck={str(self.typecheck).lower()}\n")
             handle.write(f"unit_tests={str(self.unit_tests).lower()}\n")
+            handle.write(f"agent_pane={str(self.agent_pane).lower()}\n")
         print(
             "web subareas: "
             f"db={str(self.db).lower()} "
@@ -52,6 +58,7 @@ class WebSubareas:
             f"react_apps={str(self.react_apps).lower()} "
             f"typecheck={str(self.typecheck).lower()} "
             f"unit_tests={str(self.unit_tests).lower()}"
+            f" agent_pane={str(self.agent_pane).lower()}"
         )
 
 
@@ -220,6 +227,31 @@ REACT_PREFIXES = (
     "webviews/",
 )
 
+# agent-pane-real-acpmux runs two browser tests against a built acpmux daemon.
+# Keep its route tied to the pane implementation and the daemon/fixtures those
+# tests exercise, rather than every React app in webviews/.
+AGENT_PANE_EXACT = {
+    "webviews/bun.lock",
+    "webviews/package.json",
+    "webviews/test/agent-pane-new-chat-settles.test.ts",
+    "webviews/test/agent-pane-picks-hold.test.ts",
+    "webviews/test/support/chipValues.ts",
+    "webviews/test/support/compactModelMenu.ts",
+    "webviews/test/support/paintedFrames.ts",
+    "webviews/test/support/realAcpmux.ts",
+    "webviews/test/support/realPaneLane.ts",
+    "webviews/test/support/requireBrowserLane.ts",
+    "webviews/test/support/settleFrames.ts",
+    "scripts/ci/run-webviews-tests.sh",
+}
+AGENT_PANE_PREFIXES = (
+    "webviews/src/agent-session/",
+    "cmux-tui/crates/acpmux/",
+    "cmux-tui/crates/acpmux-client/",
+    "cmux-tui/crates/acpmux-core/",
+    "cmux-tui/crates/acpmux-list-types/",
+)
+
 # Every other input of the web bundles (the settings schema, the What's New
 # highlights, the model catalog, the string catalogs the pages read...) runs
 # react-apps-check too, as web-bundle-key.py derives them (`--routed`); the same
@@ -257,10 +289,11 @@ def classify_paths(paths: list[str], repo_root: Path | None = None) -> WebSubare
     react_apps = False
     typecheck = False
     unit_tests = False
+    agent_pane = False
 
     for path in paths:
         if path in ALL_SUBAREA_INPUTS:
-            db = diff_sidecar = instant = production_build = react_apps = typecheck = unit_tests = True
+            db = diff_sidecar = instant = production_build = react_apps = typecheck = unit_tests = agent_pane = True
             continue
 
         if path in DB_EXACT or path.startswith(DB_PREFIXES) or test_path_requires_db(path, root):
@@ -292,6 +325,9 @@ def classify_paths(paths: list[str], repo_root: Path | None = None) -> WebSubare
         ):
             typecheck = True
 
+        if path in AGENT_PANE_EXACT or path.startswith(AGENT_PANE_PREFIXES):
+            agent_pane = True
+
         if path in UNIT_TESTS_EXACT or (
             path.startswith("web/") and not path.startswith(UNIT_TESTS_EXCLUDED_PREFIXES)
         ):
@@ -305,6 +341,7 @@ def classify_paths(paths: list[str], repo_root: Path | None = None) -> WebSubare
         react_apps=react_apps,
         typecheck=typecheck,
         unit_tests=unit_tests,
+        agent_pane=agent_pane,
     )
 
 

@@ -2075,6 +2075,7 @@ def run_web_status(
             "instant": "true",
             "production_build": "true",
             "react_apps": "true",
+            "agent_pane": "true",
             "typecheck": "true",
             "unit_tests": "true",
         } if scope_required else {
@@ -2083,6 +2084,7 @@ def run_web_status(
             "instant": "false",
             "production_build": "false",
             "react_apps": "false",
+            "agent_pane": "false",
             "typecheck": "false",
             "unit_tests": "false",
         }
@@ -4978,6 +4980,23 @@ def test_web_subarea_router_keeps_expensive_lanes_narrow() -> None:
         ) == expected, (paths, actual)
 
 
+def test_agent_pane_real_daemon_lane_is_narrower_than_react_apps() -> None:
+    for path in (
+        "webviews/test/agent-pane-picks-hold.test.ts",
+        "webviews/test/support/realAcpmux.ts",
+        "webviews/src/agent-session/acpmux/Composer.tsx",
+        "cmux-tui/crates/acpmux/src/lib.rs",
+    ):
+        areas = web_subareas.classify_paths([path], ROOT)
+        assert areas.react_apps is (path.startswith("webviews/"))
+        assert areas.agent_pane is True, path
+
+    for path in ("webviews/src/diff/App.tsx", "webviews/src/agent-activity/view.tsx"):
+        areas = web_subareas.classify_paths([path], ROOT)
+        assert areas.react_apps is True, path
+        assert areas.agent_pane is False, path
+
+
 
 def test_docs_reference_inputs_run_web_unit_tests() -> None:
     # web/tests/next-docs.test.ts reads these outside web/; a change to them that
@@ -5004,6 +5023,7 @@ def test_web_status_allows_unselected_subarea_jobs_to_skip() -> None:
             "instant": "false",
             "production_build": "false",
             "react_apps": "false",
+            "agent_pane": "false",
             "typecheck": "false",
             "unit_tests": "false",
         },
