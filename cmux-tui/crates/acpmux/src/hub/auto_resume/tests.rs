@@ -17,6 +17,11 @@ impl crate::store::Store for FailingPromptStopStore {
     }
     fn append(&self, id: &str, record: &EventRecord) -> anyhow::Result<()> {
         anyhow::ensure!(
+            record.kind != "rate_limit_parked"
+                || self.failure.load(std::sync::atomic::Ordering::SeqCst) != 4,
+            "injected rate park append failure"
+        );
+        anyhow::ensure!(
             !matches!(record.kind.as_str(), "prompt_stop_requested" | "auto_resume_stopped")
                 || self.failure.load(std::sync::atomic::Ordering::SeqCst) != 1,
             "injected prompt stop append failure"
@@ -31,6 +36,10 @@ impl crate::store::Store for FailingPromptStopStore {
         self.inner.flush_session(id)
     }
     fn events(&self, id: &str, after: u64, limit: usize) -> anyhow::Result<Vec<EventRecord>> {
+        anyhow::ensure!(
+            self.failure.load(std::sync::atomic::Ordering::SeqCst) != 3,
+            "injected stop boundary read failure"
+        );
         self.inner.events(id, after, limit)
     }
     fn delete(&self, id: &str) -> anyhow::Result<()> {
@@ -106,10 +115,10 @@ fn waiting_for_park(hub: &Hub, session: &Session) -> Value {
     last
 }
 
-#[test]
-fn park_retry_never_acknowledges_failed_append_or_flush() {
+#[tokio::test]
+async fn park_retry_never_acknowledges_failed_persistence_or_readback() {
     use std::sync::atomic::{AtomicU8, Ordering};
-    for failed_operation in [1, 2] {
+    for failed_operation in [1, 2, 3, 4] {
         let mut config = crate::config::Config::default();
         config.store.mode = crate::config::StoreMode::Memory;
         let inner = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
@@ -124,6 +133,7 @@ fn park_retry_never_acknowledges_failed_append_or_flush() {
         let hub = Hub::new(config, Box::new(store));
         let session = hub.resolve("failed-park").unwrap();
         let last = waiting_for_park(&hub, &session);
+        hub.hold_for_rate_limit(&session, "workflow-turn", crate::store::now_ms() + 60_000, true);
         failure.store(failed_operation, Ordering::SeqCst);
         assert!(hub.park_retry(&session, Hub::revision(&session)).is_err());
         assert_eq!(session.meta().last_turn, Some(last));
@@ -211,6 +221,16 @@ async fn park_retry_keeps_rate_limit_queue_held_after_reset_and_restore() {
     assert!(hub.fire_pending(&session, "workflow-turn").is_err());
     let events = hub.store.events(&session.id, 0, 100).unwrap();
     assert!(events.iter().any(|e| e.kind == "rate_limit_parked" && e.msg["why"] == "handoff"));
+    // A fresh session instance reads only the journal, with neither in-memory fence.
+    let (fresh, restored) = retry_chat();
+    for event in events {
+        fresh.store.append(&restored.id, &event).unwrap();
+    }
+    restored.meta.lock().unwrap().status = SessionStatus::Idle;
+    fresh.restore_rate_hold(&restored);
+    fresh.restore_auto_resume(&restored);
+    assert!(restored.rate_hold.parked().is_some());
+    assert!(!fresh.continuation_pending(&restored));
 }
 
 #[tokio::test]
