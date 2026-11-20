@@ -68,6 +68,13 @@ Known limit: a tree build is not Team-signed, so Rust hot-apply from it into a D
   `cmux-ci wait ID`; a file or a process: `glaeda-gh wait file PATH` / `glaeda-gh wait pid PID`.
   The Chief's `watch` tool routes such waits to glaeda-gh itself and refuses GitHub poll loops. Rules:
   [github-ci-wait](https://github.com/teamleaderleo/glaeda/blob/main/skills/github-ci-wait/SKILL.md).
+- **Make worktrees with `python3 scripts/cmux_worktree.py add -b BRANCH PATH origin/feat-cmux-next`.**
+  Its files are APFS clones of a clean seed checkout: about 4 s and almost no new disk, where a plain
+  `git worktree add` writes 1.3 GiB in 17 s. `--cargo cmux-tui` also seeds `cmux-tui/target` from a
+  sibling worktree's. Never symlink node_modules or point worktrees at one Cargo target dir; `bun
+  install` already clones from bun's store. `gc` lists landed, clean, idle worktrees (and `--apply`
+  removes only those); `dedupe` turns old worktrees' unchanged files into clones. See the
+  [dev workflow skill](skills/cmux-dev-workflow/SKILL.md#worktrees).
 - **Scope every search.** `rg`/`find`/`fd` only inside your worktree or a named subfolder, never
   `..`, `~`, `~/fun`, `/`, `$TMPDIR` or `/var/folders` (worktrees and caches there hold millions of
   files). Prefer `git grep` or `rg` with a path; prefix long scans with `nice -n 10`.
