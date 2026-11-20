@@ -173,6 +173,14 @@ BOUNDED_SELECTOR_JOBS = {
     ("required-checks-drift.yml", "reconcile"),
     ("sdk-release-cut.yml", "cut-tags"), ("test-e2e.yml", "runner"), ("test-ios.yml", "runner"),
 }
+# The jobs that alert on or recover a fleet outage. Their bounded selector leaves out FLEET_EPHEMERAL_LABELS:
+# after cutover LINUX_RUNNER and RUNNER_POOLS.linux name the fleet, and a fleet that boots nothing would then hold
+# the fleet-down alert and the CI_REPAIR_SKIP_FLEET restart too (cmux#47794 review F1).
+FLEET_INDEPENDENT_JOBS = frozenset({
+    ("ci-cla-quota-rerun.yml", "cla-quota-rerun"), ("ci-queue-janitor.yml", "sweep"),
+    ("ci-queue-janitor-watchdog.yml", "watch"),
+})
+FLEET_INDEPENDENT_SELECTOR = BOUNDED_LINUX_SELECTOR.replace('"cmux-fleet-linux-x64",', "")
 HOSTED_LITERAL_LABEL = re.compile(r"ubuntu-latest|ubuntu-\d{2}\.\d{2}(?:-arm)?|macos-\d+(?:-intel)?|windows-\d{4}")
 # Our own one-job Linux label: the fleet reconciler boots one cloud VM per queued job with a
 # JIT config, no service account, and deletes it after that job, so a key held there leaves with the VM as on a
@@ -1443,8 +1451,8 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         for key in sorted(BOUNDED_SELECTOR_JOBS):
             with self.subTest(job=key):
                 self.assertIn(key, runs_on)
-                expected = BOUNDED_LINUX_SELECTOR
-                if key == ("sdk-release-cut.yml", "cut-tags"):
+                expected = FLEET_INDEPENDENT_SELECTOR if key in FLEET_INDEPENDENT_JOBS else BOUNDED_LINUX_SELECTOR
+                if key ==("sdk-release-cut.yml", "cut-tags"):
                     # The SDK release security contract pins the pre-BS8 selector.
                     expected = expected.replace(',"blacksmith-8vcpu-ubuntu-2404"', '')
                 self.assertIn(expected + " }}", runs_on[key])

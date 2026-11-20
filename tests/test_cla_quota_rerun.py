@@ -102,6 +102,25 @@ def rerun_path(run_id):
     return f"/repos/o/r/actions/runs/{run_id}/rerun-failed-jobs"
 
 
+class RunnerTests(unittest.TestCase):
+    def test_cla_emergency_skip_leaves_fleet(self):
+        # cmux#47794 review F1: after cutover LINUX_RUNNER names the fleet label, and
+        # CI_REPAIR_SKIP_FLEET=1 must still keep the scheduled and dispatched pass (and every
+        # workflow_run pass) off the fleet it would wait on during an outage.
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("janitor_tests_for_cla", ROOT / "tests" / "test_ci_queue_janitor.py")
+        janitor_tests = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(janitor_tests)
+        workflow = ROOT / ".github/workflows/ci-cla-quota-rerun.yml"
+        for event in ("schedule", "workflow_dispatch", "workflow_run"):
+            with self.subTest(event=event):
+                label = janitor_tests.runs_on_label(workflow, "cla-quota-rerun",
+                                                    {**janitor_tests.FLEET_CUTOVER, "CI_REPAIR_SKIP_FLEET": "1"}, event)
+                self.assertNotIn(label, janitor_tests.OWNED_LINUX)
+                self.assertEqual(label, "blacksmith-4vcpu-ubuntu-2404")
+
+
 class Tests(unittest.TestCase):
     def sweep(self, fake, dry=False, now=NOW, slept=None, code=0):
         env = {"GITHUB_REPOSITORY": "o/r", "GH_TOKEN": "app", "RATE_TOKEN": "workflow"}

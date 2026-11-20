@@ -122,12 +122,20 @@ class Declared(unittest.TestCase):
         selector = re.compile(r"contains\(fromJSON\('(\[[^']*\])'\), (?:vars\.LINUX_RUNNER|fromJSON\(vars\.RUNNER_POOLS[^)]*\)\.linux)\)"
                               r" && (?:vars\.LINUX_RUNNER|fromJSON\(vars\.RUNNER_POOLS[^)]*\)\.linux) \|\| '(blacksmith-4vcpu-ubuntu-2404)'")
         members = runner_pools.load_pools()["linux"]["members"]
+        # The jobs that alert on or recover a fleet outage accept every member but the fleet's own label, so they
+        # never wait on the fleet they recover (cmux#47794 review F1; tests/test_ci_fork_runner_routing.py).
+        fleet_independent = {"ci-cla-quota-rerun.yml", "ci-queue-janitor.yml", "ci-queue-janitor-watchdog.yml"}
         found = 0
         for workflow in sorted((ROOT / ".github/workflows").glob("*.y*ml")):
             for match in selector.finditer(workflow.read_text(encoding="utf-8")):
                 found += 1
                 with self.subTest(workflow=workflow.name):
-                    self.assertLessEqual(set(members), set(json.loads(match.group(1))))
+                    accepted = set(json.loads(match.group(1)))
+                    if workflow.name in fleet_independent:
+                        self.assertFalse(accepted & runner_pools.OWNED_LINUX)
+                        self.assertLessEqual(set(runner_pools.sized(members)), accepted)
+                    else:
+                        self.assertLessEqual(set(members), accepted)
         self.assertGreater(found, 0)
 
     def test_no_pool_names_a_reused_machine(self) -> None:
@@ -346,6 +354,32 @@ class Evidence(unittest.TestCase):
         dead, _, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
         self.assertNotIn("glaeda-trusted-std-xcode-26.6", dead)
         self.assertNotIn("cmux-fleet-linux-x64", dead)
+
+    def test_a_janitor_snapshot_shows_a_fleet_recovery(self) -> None:
+        # cmux#47794 review F2: the janitor's label_started must carry the fleet label, or a fleet marked dead
+        # from `starved` is never seen starting jobs again. The snapshot here is built by the janitor itself.
+        import queue_janitor  # noqa: PLC0415 heavy; only this test reads it
+
+        fleet = "cmux-fleet-linux-x64"
+        at = lambda minutes: runner_pools.iso(NOW - dt.timedelta(minutes=minutes))  # noqa: E731
+        run = {"id": 1, "event": "pull_request", "head_branch": "feature", "path": ".github/workflows/ci.yml",
+               "name": "CI", "status": "in_progress", "head_sha": "aaa", "created_at": at(30), "run_attempt": 1,
+               "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/1",
+               "head_repository": {"full_name": "manaflow-ai/cmux", "owner": {"login": "manaflow-ai"}},
+               "pull_requests": []}
+        jobs = [{"name": "lint", "status": "in_progress", "labels": [fleet], "created_at": at(4),
+                 "started_at": at(2), "runner_id": 9}]
+        snapshot = queue_janitor.pool_load_snapshot([run], {1: jobs}, now=NOW)
+        self.assertEqual(snapshot["label_started"].get(fleet), at(2))
+        snapshot["starved"] = [{"label": fleet, "oldest_queued_minutes": 40}]
+        dead, started, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
+        self.assertIn(fleet, started)
+        self.assertNotIn(fleet, dead)
+        pools = runner_pools.load_pools(env={})
+        down, _ = runner_pools.reconcile({}, pools, dead_now={fleet}, served_now=(), now=NOW - dt.timedelta(minutes=5))
+        self.assertEqual(down["linux"], "blacksmith-4vcpu-ubuntu-2404")
+        back, _ = runner_pools.reconcile(down, pools, dead_now=dead, served_now=started, now=NOW)
+        self.assertEqual(back["linux"], fleet)
 
     def test_probe_health_per_label(self) -> None:
         fresh = dict(copy.deepcopy(RECORDED), label_started={})

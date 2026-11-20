@@ -849,9 +849,10 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertIn("\npermissions: {}\n", text)
         self.assertIn("  sweep:\n    permissions:\n      actions: write\n      pull-requests: read\n      contents: read\n", text)
         # It mints GLAEDA_ROUTE_APP_KEY and CMUX_BOT_APP_KEY: RUNNER_POOLS and LINUX_RUNNER move it only
-        # among the Blacksmith Linux sizes the expression names (tests/test_ci_fork_runner_routing.py).
-        # It leads with the fleet's one-job label, so it never queues on the hosted pools it sheds (2026-11-19).
-        self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-fleet-linux-x64' || contains(fromJSON('[\"cmux-fleet-linux-x64\",\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\",\"blacksmith-32vcpu-ubuntu-2404\"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux) && fromJSON(vars.RUNNER_POOLS || '{}').linux || contains(fromJSON('[\"cmux-fleet-linux-x64\",\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\",\"blacksmith-32vcpu-ubuntu-2404\"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}", text)
+        # among the Blacksmith Linux sizes the expression names (tests/test_ci_fork_runner_routing.py), never onto
+        # the fleet label it recovers (cmux#47794 review F1). It leads with the fleet's one-job label, so it never
+        # queues on the hosted pools it sheds (2026-11-19).
+        self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-fleet-linux-x64' || contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\",\"blacksmith-32vcpu-ubuntu-2404\"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux) && fromJSON(vars.RUNNER_POOLS || '{}').linux || contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\",\"blacksmith-32vcpu-ubuntu-2404\"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}", text)
         self.assertIn("concurrency:\n  group: ${{ (github.event_name == 'workflow_run'", text)
         self.assertIn("vars.CI_JANITOR_QUEUE_THRESHOLD", text)
         self.assertIn("ORPHAN_MINUTES: ${{ vars.CI_JANITOR_ORPHAN_MINUTES }}", text)
@@ -896,6 +897,61 @@ def orphan_plan(orphans, prs=None, *, max_cancels=5, exclude=()):
     return janitor.build_orphan_plan(orphans, prs or {}, max_cancels=max_cancels, exclude_ids=set(exclude), now=NOW)
 
 
+def runs_on_label(workflow: Path, job: str, variables: dict[str, str], event_name: str = "schedule") -> str:
+    """The label a job's runs-on yields in manaflow-ai for this event and these repository variables."""
+    spec = importlib.util.spec_from_file_location("fork_routing", ROOT / "tests" / "test_ci_fork_runner_routing.py")
+    routing = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(routing)
+    expression = yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"][job]["runs-on"]
+    tree = routing.parse_expression(re.fullmatch(r"\$\{\{(.*)\}\}", expression.strip(), re.DOTALL).group(1))
+    context = {"github.repository_owner": "manaflow-ai", "github.event_name": event_name,
+               **{f"vars.{name}": value for name, value in variables.items()}}
+
+    def value(node: tuple) -> object:
+        kind = node[0]
+        if kind == "or":
+            result: object = None
+            for child in node[1]:
+                result = value(child)
+                if result:
+                    return result
+            return result
+        if kind == "and":
+            result = None
+            for child in node[1]:
+                result = value(child)
+                if not result:
+                    return result
+            return result
+        if kind == "literal":
+            return node[1][1:-1]
+        if kind == "ref":
+            return context.get(node[1], "")
+        if kind == "cmp":
+            return (str(value(node[2])).lower() == str(value(node[3])).lower()) == (node[1] == "==")
+        if kind == "call" and node[1] == "fromJSON":
+            parsed = json.loads(str(value(node[2][0])))
+            for key in (node[3].lstrip(".").split(".") if len(node) > 3 and node[3] else ()):
+                parsed = parsed.get(key, "") if isinstance(parsed, dict) else ""
+            return parsed
+        if kind == "call" and node[1] == "contains":
+            haystack, needle = (value(arg) for arg in node[2])
+            return any(str(item).lower() == str(needle).lower() for item in haystack)
+        raise AssertionError(f"unexpected node {node!r}")
+
+    return str(value(tree))
+
+
+# The fleet's one-job labels. After cutover both runner variables name one of them; the jobs that
+# alert on or recover the fleet must never follow them there.
+_POOLS_SPEC = importlib.util.spec_from_file_location("runner_pools_for_janitor_tests", ROOT / "scripts/ci/runner_pools.py")
+_pools = importlib.util.module_from_spec(_POOLS_SPEC)
+assert _POOLS_SPEC.loader is not None
+_POOLS_SPEC.loader.exec_module(_pools)
+OWNED_LINUX = _pools.OWNED_LINUX
+FLEET_CUTOVER = {"RUNNER_POOLS": json.dumps({"linux": "cmux-fleet-linux-x64"}), "LINUX_RUNNER": "cmux-fleet-linux-x64"}
+
+
 class SweepRunnerTests(unittest.TestCase):
     """The sweep follows the mirrored Linux pool member, even when LINUX_RUNNER is stale.
 
@@ -907,47 +963,26 @@ class SweepRunnerTests(unittest.TestCase):
 
     def runner(self, variables: dict[str, str]) -> str:
         """The label the sweep's runs-on yields in manaflow-ai with these repository variables."""
-        spec = importlib.util.spec_from_file_location("fork_routing", ROOT / "tests" / "test_ci_fork_runner_routing.py")
-        routing = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(routing)
-        expression = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["sweep"]["runs-on"]
-        tree = routing.parse_expression(re.fullmatch(r"\$\{\{(.*)\}\}", expression.strip(), re.DOTALL).group(1))
-        context = {"github.repository_owner": "manaflow-ai",
-                   **{f"vars.{name}": value for name, value in variables.items()}}
+        return runs_on_label(WORKFLOW, "sweep", variables)
 
-        def value(node: tuple) -> object:
-            kind = node[0]
-            if kind == "or":
-                result: object = None
-                for child in node[1]:
-                    result = value(child)
-                    if result:
-                        return result
-                return result
-            if kind == "and":
-                result = None
-                for child in node[1]:
-                    result = value(child)
-                    if not result:
-                        return result
-                return result
-            if kind == "literal":
-                return node[1][1:-1]
-            if kind == "ref":
-                return context.get(node[1], "")
-            if kind == "cmp":
-                return (str(value(node[2])).lower() == str(value(node[3])).lower()) == (node[1] == "==")
-            if kind == "call" and node[1] == "fromJSON":
-                parsed = json.loads(str(value(node[2][0])))
-                for key in (node[3].lstrip(".").split(".") if len(node) > 3 and node[3] else ()):
-                    parsed = parsed.get(key, "") if isinstance(parsed, dict) else ""
-                return parsed
-            if kind == "call" and node[1] == "contains":
-                haystack, needle = (value(arg) for arg in node[2])
-                return any(str(item).lower() == str(needle).lower() for item in haystack)
-            raise AssertionError(f"unexpected node {node!r}")
+    def test_emergency_skip_leaves_fleet(self):
+        # cmux#47794 review F1: after cutover RUNNER_POOLS.linux and LINUX_RUNNER both name the fleet
+        # label, and CI_REPAIR_SKIP_FLEET=1 (the documented restart during a fleet outage) must still
+        # land the sweep off the fleet it is meant to recover.
+        label = self.runner({**FLEET_CUTOVER, "CI_REPAIR_SKIP_FLEET": "1"})
+        self.assertNotIn(label, OWNED_LINUX)
+        self.assertEqual(label, "blacksmith-4vcpu-ubuntu-2404")
 
-        return str(value(tree))
+    def test_watchdog_is_independent_of_fleet(self):
+        # The watchdog files the fleet-down alert, so it never queues on that label, whatever the
+        # runner variables name (cmux#47794 review F1).
+        watchdog = ROOT / ".github/workflows/ci-queue-janitor-watchdog.yml"
+        for variables in ({}, FLEET_CUTOVER, {"RUNNER_POOLS": json.dumps({"linux": "cmux-fleet-linux-x64"})},
+                          {"LINUX_RUNNER": "cmux-fleet-linux-x64"}):
+            with self.subTest(variables=variables):
+                label = runs_on_label(watchdog, "watch", variables)
+                self.assertNotIn(label, OWNED_LINUX)
+                self.assertEqual(label, "blacksmith-4vcpu-ubuntu-2404")
 
     def test_the_sweep_leads_with_the_fleet_label_off_the_pool_it_sheds(self):
         # 2026-11-19: about 28,700 queued jobs, and the janitor's own sweep queued among them on Blacksmith.

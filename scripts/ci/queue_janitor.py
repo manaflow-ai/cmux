@@ -238,6 +238,7 @@ from pr_runner_pool import ARTIFACT_NAME as SNAPSHOT_ARTIFACT  # noqa: E402
 from pr_runner_pool import SNAPSHOT_BRANCH, SNAPSHOT_FILE, trusted_snapshot_artifact  # noqa: E402
 import owned_pool_rescue as rescue  # noqa: E402
 import owned_warm_state  # noqa: E402
+from runner_pools import OWNED_LINUX  # noqa: E402
 import ui_tests_dispatch  # noqa: E402
 import starved_labels  # noqa: E402
 from delivery_workflows import REPLACEMENT_JOB_READS, attempt_jobs, build_started, is_delivery_run  # noqa: E402
@@ -1279,8 +1280,10 @@ def label_started(runs: Sequence[Mapping[str, Any]],
             if started is None:
                 continue
             for label in {str(item) for item in job.get("labels") or ()}:
-                if not (owned_pool(label) or LANE_LABEL.fullmatch(label) or "macos" in label.lower()
-                        or rescue.BLACKSMITH_PORTABLE_LABEL.fullmatch(label)):
+                # OWNED_LINUX too: runner_pools.py marks a starved fleet label dead and clears that mark only on
+                # a start it reads here (recently_started()), so without it a fleet recovery is never seen.
+                if not (owned_pool(label) or label in OWNED_LINUX or LANE_LABEL.fullmatch(label)
+                        or "macos" in label.lower() or rescue.BLACKSMITH_PORTABLE_LABEL.fullmatch(label)):
                     continue
                 if label not in newest or started > newest[label]:
                     newest[label] = started
