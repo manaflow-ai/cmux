@@ -59,34 +59,25 @@ class RunnerSetTests(unittest.TestCase):
         self.assertEqual(job["needs"], ["portable-placement"])
         self.assertEqual(yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]["portable-placement"]["steps"][-1]["env"]["LINUX_ONLY"], "changes")
 
-    def test_light_report_jobs_run_on_blacksmith_every_attempt(self) -> None:
-        # A few seconds of report or routing work each. They took hosted Ubuntu on attempt 1 until
-        # 2026-11-18, when GitHub-hosted runners left them queued for hours (cmux#45735); Blacksmith
-        # is the rule for all CI, so every attempt reads the declared pool.
-        import json
+    def test_light_report_jobs_keep_the_writer_isolated(self) -> None:
+        for workflow, name in (("pr-red-checks-comment.yml", "comment"), ("cmux-next.yml", "path_route"),
+                               ("ci-guards.yml", "guard-status"), ("pr-checks.yml", "size"),
+                               ("pr-checks.yml", "ui-review")):
+            with self.subTest(workflow=workflow, job=name):
+                job = workflow_jobs.jobs(WORKFLOWS / workflow)[name]
+                route = runs_on_text(job, name)
+                expected = "cmux-gcp-pr-control-jit-x64" if name == "comment" else "cmux-linux"
+                self.assertEqual(labels_at(route, "pull_request"), {expected})
+                fork_labels = labels_at(route, "pull_request", "outside/fork")
+                if name == "comment":
+                    self.assertEqual(fork_labels, {"ubuntu-24.04"})
+                else:
+                    self.assertNotIn("cmux-linux", fork_labels)
 
-        declared = json.loads((ROOT / ".github" / "runners.json").read_text())["hosted_light_jobs"]
-        hosted = "github.run_attempt == 1 && 'ubuntu-24.04'"
-        # The job that holds a pull-requests write token, or runs the checked-out revision's
-        # scripts, retries only on ephemeral Blacksmith; the rest may take the reconciled pool.
-        ephemeral = "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"
-        cases = {
-            ("pr-red-checks-comment.yml", "comment"): "|| 'cmux-linux' }}",
-            ("cmux-next.yml", "path_route"): ephemeral,
-            ("ci-guards.yml", "guard-status"): f"|| {POOL} }}}}",
-            ("pr-checks.yml", "size"): "|| 'cmux-linux' }}",
-            ("pr-checks.yml", "ui-review"): "|| 'cmux-linux' }}",
-        }
-        for (workflow, name), tail in cases.items():
-            with self.subTest(job=f"{workflow}#{name}"):
-                self.assertNotIn(f"{workflow}#{name}", declared)
-                runs_on = runs_on_text(yaml.safe_load((WORKFLOWS / workflow).read_text())["jobs"][name], f"{workflow}#{name}")
-                # A fork's run keeps the label it had; every other run reads the pool.
-                runs_on = re.sub(r"\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name"
-                                 r" != github\.repository && 'blacksmith-\d+vcpu-ubuntu-2404' \|\| (fromJSON\(vars\.RUNNER_POOLS\)\.[a-z0-9_]+)\)", r"\1", runs_on)
-                self.assertNotIn(hosted, runs_on)
-                self.assertTrue(runs_on.rstrip().endswith(tail), runs_on)
-                self.assertNotIn("cmux-fleet-linux-x64", runs_on)
+    def test_release_verifier_executes_the_tag_only_on_a_single_job_runner(self) -> None:
+        job = workflow_jobs.jobs(WORKFLOWS / "coderouter-verify-release.yml")["verify"]
+        for event in ("release", "workflow_dispatch"):
+            self.assertEqual(labels_at(runs_on_text(job, "verify"), event), {"cmux-gcp-pr-control-jit-x64"})
 
     def test_no_light_job_takes_hosted_ubuntu_on_attempt_one(self) -> None:
         # On 2026-11-18 jobs that finished on GitHub-hosted had waited a median 10,768 s, so every pull request's
