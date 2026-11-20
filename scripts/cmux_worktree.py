@@ -812,7 +812,7 @@ def classify(repo: Path, wt: dict, seed_dir: Path, idle_days: float, landing: Li
 
 def gc(repo: Path, seed_dir: Path, idle_days: float, apply: bool, landing: List[str]) -> List[GcEntry]:
     now = time.time()
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=4) as pool:
         entries = list(pool.map(lambda wt: classify(repo, wt, seed_dir, idle_days, landing, now), list_worktrees(repo)))
     if apply:
         for entry in entries:
