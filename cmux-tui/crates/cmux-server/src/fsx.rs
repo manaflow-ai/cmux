@@ -133,10 +133,12 @@ pub fn atomic_copy(source: &Path, path: &Path, mode: u32) -> Result<()> {
 }
 
 /// Like [`atomic_write`], but only when the content differs. Returns
-/// whether it wrote.
+/// whether it wrote. Anything but a plain file at `path` (a symlink, even
+/// to the same bytes) is replaced, never kept or written through.
 pub fn write_if_changed(path: &Path, bytes: &[u8], mode: u32) -> Result<bool> {
+    let plain = fs::symlink_metadata(path).is_ok_and(|m| m.is_file());
     match fs::read(path) {
-        Ok(old) if old == bytes => {
+        Ok(old) if plain && old == bytes => {
             set_mode(path, mode).ctx(path.display())?;
             Ok(false)
         }
