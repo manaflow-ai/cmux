@@ -1,5 +1,5 @@
 //! Every sample app and example extension with a `cmux-app.v2.json` (`samples/apps/*`,
-//! `examples/extensions/*`) is a valid
+//! `examples/extensions/*`), and every first-party store app (`first-party-apps/*/STORE`), is a valid
 //! manifest v2 package; a sample with a script also has interface
 //! implementations that name exports its built script defines.
 //! `cmux-app.json` stays manifest v1 for the CmuxNextApps prototype and is
@@ -16,18 +16,34 @@ mod apps {
     use super::*;
 
     const V2: &str = "cmux-app.v2.json";
+    /// A first-party store app (`first-party-apps/<name>/STORE`, the widgets) is an SDK extension:
+    /// its manifest v2 is `cmux-app.json`, synced to the store as `cmux-app.v2.json`.
+    const STORE_MANIFEST: &str = "cmux-app.json";
 
-    fn samples() -> Vec<PathBuf> {
+    fn samples() -> Vec<(PathBuf, &'static str)> {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
         let mut dirs = Vec::new();
         for folder in ["samples/apps", "examples/extensions"] {
-            let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..").join(folder);
+            let root = repo.join(folder);
             dirs.extend(
                 std::fs::read_dir(&root)
                     .unwrap_or_else(|e| panic!("{}: {e}", root.display()))
                     .map(|e| e.expect("entry").path())
-                    .filter(|p| p.join(V2).is_file()),
+                    .filter(|p| p.join(V2).is_file())
+                    .map(|p| (p, V2)),
             );
         }
+        let root = repo.join("first-party-apps");
+        dirs.extend(
+            std::fs::read_dir(&root)
+                .unwrap_or_else(|e| panic!("{}: {e}", root.display()))
+                .map(|e| e.expect("entry").path())
+                .filter(|p| p.join("STORE").is_file() && !p.join("BUNDLED").is_file())
+                .map(|p| {
+                    let file = if p.join(V2).is_file() { V2 } else { STORE_MANIFEST };
+                    (p, file)
+                }),
+        );
         dirs.sort();
         dirs
     }
@@ -36,8 +52,8 @@ mod apps {
     fn samples_are_valid_manifest_v2_packages() {
         let dirs = samples();
         assert!(dirs.len() >= 3, "expected the samples, found {dirs:?}");
-        for dir in dirs {
-            let report = validate_package_file(&dir, V2);
+        for (dir, file) in dirs {
+            let report = validate_package_file(&dir, file);
             assert!(report.is_valid(), "{}: {:?}", dir.display(), report.issues);
             let manifest = report.manifest.expect("manifest");
             assert_eq!(manifest["manifestVersion"], 2, "{}", dir.display());
