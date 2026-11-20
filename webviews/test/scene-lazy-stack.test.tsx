@@ -183,6 +183,50 @@ test("a LazyVStack over a ForEach windows the ForEach's rows", async () => {
   expect(mountedIds()[0]).toBe("r280");
 });
 
+test("a windowed stack keeps scene motion: a scroll enters nothing, an added row enters, a removed row leaves", async () => {
+  const store = new SceneStore();
+  const rows = Array.from({ length: 1_000 }, (_, index) => `r${index}`);
+  const ops: SceneOp[] = [{ op: "create", id: "list", type: "LazyVStack", props: {} }];
+  for (const id of rows) ops.push({ op: "create", id, type: "Row", props: { title: id, transition: "slide" } });
+  ops.push({ op: "create", id: "each", type: "ForEach" }, { op: "children", id: "each", children: rows });
+  ops.push({ op: "children", id: "list", children: ["each"] }, { op: "root", id: "list" });
+  store.apply(ops, true);
+  const scroller = await inScroller(store);
+  const entering = () => document.querySelectorAll("[data-app-type=Row][data-entering]").length;
+  // The first scene draws in place, and rows a scroll brings into the window draw in place too.
+  expect(entering()).toBe(0);
+  await scrollTo(scroller, 300 * ROW);
+  expect(mountedIds()[0]).toBe("r280");
+  expect(entering()).toBe(0);
+
+  // A row a render adds in the window enters; the rest stay.
+  await act(async () =>
+    store.apply([
+      { op: "create", id: "new", type: "Row", props: { title: "new", transition: "slide" } },
+      { op: "children", id: "each", children: [...rows.slice(0, 305), "new", ...rows.slice(305)] },
+    ]),
+  );
+  expect(document.querySelector('[data-app-node="new"]')!.hasAttribute("data-entering")).toBe(true);
+  expect(entering()).toBe(1);
+
+  // A removed row keeps its place, from its last props, while it leaves.
+  await act(async () =>
+    store.apply([
+      { op: "children", id: "each", children: [...rows.slice(0, 305), "new", ...rows.slice(306)] },
+      { op: "remove", id: "r305" },
+    ]),
+  );
+  const leaving = document.querySelector<HTMLElement>('[data-app-node="r305"]')!;
+  expect(leaving.hasAttribute("data-leaving")).toBe(true);
+  expect(mountedIds().indexOf("r305")).toBe(mountedIds().indexOf("new") + 1);
+  for (let turn = 0; turn < 200 && document.querySelector('[data-app-node="r305"]'); turn += 1)
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 5)));
+  expect(document.querySelector('[data-app-node="r305"]')).toBeNull();
+  // A later scroll still enters nothing.
+  await scrollTo(scroller, 400 * ROW);
+  expect(entering()).toBe(0);
+});
+
 test("in a scroller the page owns, the focused child stays mounted when it scrolls far away", async () => {
   const store = lazyScene(1_000);
   store.apply([{ op: "update", id: "r5", props: { title: "Focused", onTap: true } }]);
