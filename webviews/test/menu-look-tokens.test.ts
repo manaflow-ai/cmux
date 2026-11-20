@@ -42,4 +42,54 @@ describe("menu look tokens", () => {
       if (!read.fallback) expect({ ...read, bare: bareReads.has(read.token) }).toEqual({ ...read, bare: true });
     }
   });
+
+  // A rule added only to wrap a token (glass.css `.ui-popup.ui-glass`) re-declares a property an
+  // earlier rule for the same selector already sets; its fallback must be that value, or a base change
+  // to the earlier rule (cmux#47046's merge: popups' --host-glass-fill went transparent) is silently
+  // undone for every person with no look installed.
+  test("a token's fallback equals the value an earlier rule for the same selector sets", () => {
+    const mismatches: string[] = [];
+    for (const { file, text } of sheets) {
+      const rules = [...text.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => ({
+        selectors: match[1].split(",").map((s) => s.trim().replace(/\s+/g, " ")),
+        decls: new Map(
+          match[2]
+            .split(/;(?![^(]*\))/)
+            .map((decl) => decl.split(/:(.*)/s).map((part) => part?.trim()))
+            .filter(([prop, value]) => prop && value)
+            .map(([prop, value]) => [prop, value.replace(/\s+/g, " ")] as [string, string]),
+        ),
+      }));
+      rules.forEach((rule, index) => {
+        for (const [prop, value] of rule.decls) {
+          const fallback = tokenFallback(value);
+          if (fallback === undefined) continue;
+          for (const selector of rule.selectors) {
+            const earlier = rules
+              .slice(0, index)
+              .filter((other) => other.selectors.includes(selector) && other.decls.has(prop))
+              .at(-1);
+            if (earlier && earlier.decls.get(prop) !== fallback)
+              mismatches.push(
+                `${file}: ${selector} ${prop}: falls back to ${fallback}, earlier ${earlier.decls.get(prop)}`,
+              );
+          }
+        }
+      });
+    }
+    expect(mismatches).toEqual([]);
+  });
 });
+
+/** `var(--menu-x, F)` as a whole value: F, else undefined. */
+function tokenFallback(value: string): string | undefined {
+  const head = /^var\(\s*--menu-[\w-]+\s*,/.exec(value);
+  if (!head || !value.endsWith(")")) return undefined;
+  let depth = 0;
+  for (let i = 3; i < value.length; i++) {
+    if (value[i] === "(") depth++;
+    else if (value[i] === ")" && --depth === 0)
+      return i === value.length - 1 ? value.slice(head[0].length, -1).trim() : undefined;
+  }
+  return undefined;
+}
