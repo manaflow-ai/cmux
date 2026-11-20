@@ -19,9 +19,14 @@ public enum AgentPaneDebugVerb {
         return JSON.stringify((await debug[fn](...args)) ?? null);
         """
 
+    /// How long the page call of one verb may run: the verb's deadline less room for its answer to
+    /// go back. A Chromium page's script call is a DevTools `Runtime.evaluate`, cut at 5 s unless its
+    /// caller names a timeout, so a long seed or a waited fling timed out at 5 s on every run (hq#15602).
+    public static let pageDeadline: Duration = deadline - .seconds(5)
+
     /// Runs page verb `function` through `call` (the page's script call: script, arguments, timeout).
     public static func call(_ function: String, args: [Any],
                             through call: (String, [String: Any], Duration?) async throws -> Any?) async throws -> Any? {
-        try await call(script, ["fn": function, "args": args], nil)
+        try await call(script, ["fn": function, "args": args], pageDeadline)
     }
 }
