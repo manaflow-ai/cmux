@@ -99,6 +99,8 @@ import { holdOlderScrollTarget, noteOlderScrollTarget } from "./conversation/old
 import { noteTranscriptMount, noteMounted, noteUnmounted } from "./flickerLog";
 import { useEndedReplyCheck } from "./conversation/replyJudge";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
+import { FrameGuard } from "./conversation/frameGuard";
+import { STAND_IN_VIEWPORTS, standInRanges } from "./conversation/standIns";
 import { type Translate, useT } from "./i18n";
 import { TRAY_GHOST } from "./subagents/trayMotionModel";
 import { noteReaderScroll, readerScroll } from "./summary/heldWhileScrolling";
@@ -861,6 +863,31 @@ type RowFramesView = {
   scopeAt: (index: number) => ReferenceScope | undefined;
 };
 
+/// The stand-ins' elements (conversation/standIns.ts): no class and no children, only the row's box.
+function standInElements(
+  rows: readonly AcpmuxRow[],
+  ranges: readonly { first: number; last: number }[],
+  geometry: { topAt(index: number): number; heightAt(index: number): number },
+  frameKey: string,
+): React.ReactElement[] {
+  const out: React.ReactElement[] = [];
+  for (const { first, last } of ranges)
+    for (let index = first; index < last && index < rows.length; index += 1)
+      out.push(
+        <div
+          key={`${frameKey}:${rows[index]!.id}`}
+          style={{
+            position: "absolute",
+            left: "var(--cv-inset)",
+            right: "var(--cv-inset-end, var(--cv-inset))",
+            top: geometry.topAt(index),
+            height: geometry.heightAt(index),
+          }}
+        />,
+      );
+  return out;
+}
+
 /// Each mounted row's frame, its props worked out again only when its rows or inputs changed
 /// (conversation/rowFrameCache.ts): a streamed token redoes the live row's alone, and React skips
 /// every other frame on the element `cache` kept, whatever the rows in view.
@@ -1088,6 +1115,10 @@ const SCROLL_LEAD_STEPS = 2;
 /// of the reader and makes every later render pay for a scroll that already ended.
 // motion-allow: a scroll idle timeout, not a motion
 const SCROLL_LEAD_IDLE_MS = 120;
+
+/// How long the frame guard (VirtualTranscript `armFrameGuard`) keeps reading the offset each frame after
+/// it last moved: a fling's frames and the pauses between a trackpad's flicks.
+const SCROLL_GUARD_IDLE_MS = 250;
 
 /// More new rows than this in one update are a load (a session switch, older history), not live rows.
 const LIVE_ROWS_PER_UPDATE = 3;
@@ -1922,6 +1953,25 @@ function TranscriptView({
   /// Where the warm rows were built from (warmAnchor), held while a fast scroll outruns them (below).
   const heldWarmAt = useRef<string | undefined>(undefined);
   const scrollLeadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /// The frame guard (conversation/frameGuard.ts, `armFrameGuard` below) and the offset it last read and
+  /// the one it handled. Made in the first render (one guard for the transcript's life), before the rows'
+  /// observer (`observer` below), so its read runs first in a frame's ResizeObserver callbacks. Its read,
+  /// frame and node, which read refs, are given as the transcript mounts (`connect`, below): until then
+  /// they did nothing (`transcriptMounted`).
+  const guardRead = useRef<() => void>(() => {});
+  const frameGuard = useRef<{ seen: number | undefined; handled: number | undefined }>({
+    seen: undefined,
+    handled: undefined,
+  });
+  const [guard] = useState(
+    () =>
+      new FrameGuard({
+        read: () => {},
+        node: () => null,
+        idleMs: SCROLL_GUARD_IDLE_MS,
+        observer: (callback) => (typeof ResizeObserver === "function" ? new ResizeObserver(callback) : undefined),
+      }),
+  );
   const [, setScroll] = useState(scrollRef.current);
   const scheduleScrollLeadReset = () => {
     clearTimeout(scrollLeadTimer.current);
@@ -2127,14 +2177,23 @@ function TranscriptView({
   }, [rows]);
   useEffect(() => {
     transcriptMounted.current = true;
+    guard.connect({
+      read: () => guardRead.current(),
+      // An offset handled a frame ago has had its scroll event by now (or never gets one).
+      frame: () => {
+        frameGuard.current.handled = undefined;
+      },
+      node: () => (transcriptMounted.current ? ref.current : null),
+    });
     // The flicker detector's remount count (flickerLog.ts): a second mount on one page is a remount.
     noteTranscriptMount();
     return () => {
       transcriptMounted.current = false;
       scrollPacer.current?.cancel();
       clearTimeout(scrollLeadTimer.current);
+      guard.stop();
     };
-  }, []);
+  }, [guard]);
   /// Where Jump to latest's glide is headed while it is in flight: its steps are the view following,
   /// not the reader's scroll, and nothing snaps it to the end before it arrives.
   const jumpTarget = useRef<number | undefined>(undefined);
@@ -4542,6 +4601,16 @@ function TranscriptView({
     heldIndices.length === 0
       ? scrolledRanges
       : mergeRowRanges([...scrolledRanges, ...heldIndices.map((index) => ({ first: index, last: index + 1 }))]);
+  // A viewport either side of the view is never bare spacer: a row there that is not mounted in full
+  // is a stand-in at its placed box (conversation/standIns.ts). Not while a drag flows the rows (they
+  // leave their placed tops) nor as another chat loads.
+  const standIns =
+    flowing || sessionChanged
+      ? []
+      : standInRanges(
+          visibleLayoutRange(layout, shownTop - height * STAND_IN_VIEWPORTS, height * (1 + 2 * STAND_IN_VIEWPORTS), 0),
+          mountedRanges,
+        );
   // Find highlights only need repainting when the query/target, row content, or mounted DOM
   // window changes. Keep this signature primitive so scroll and layout state updates that leave
   // the mounted rows alone do not walk every text node in the transcript again.
@@ -4941,9 +5010,22 @@ function TranscriptView({
         viewport.height === height &&
         viewport.width === width &&
         scrolledTo.current.top - live > UNSEEN_READER_MOVE_PX;
+      // A parked view whose live offset is neither the last one handled nor the last one the transcript
+      // wrote or committed (`scrollRef`, which its own writes set): a move nobody here made, a step of the
+      // reader's scroll whose event has not come yet (a scrollbar thumb, which sends no wheel or key, a
+      // fling's frame). Anchored from the handled offset instead, a pass that measured rows in between
+      // put the view back where the step began: the row on screen stood still for a frame while the
+      // offset went on, then leapt (transcript-scroll-up MODE=drag, a whole step every other frame).
+      const unhandledMove =
+        !followingRef.current &&
+        !unmeasured &&
+        Math.abs(scrolledTo.current.top - live) > 0.5 &&
+        Math.abs(scrollRef.current.top - live) > 0.5;
       const readerLeft =
         !clamped &&
-        (unseenReaderMove || (performance.now() - inputAt <= READER_SCROLL_MS && scrolledTo.current.top - live > 0));
+        (unseenReaderMove ||
+          unhandledMove ||
+          (performance.now() - inputAt <= READER_SCROLL_MS && scrolledTo.current.top - live > 0));
       if (readerLeft) follow(false);
       if (readerUpPending.current && readerLeft) readerUpPending.current = false;
       // A real wheel can move the live offset before its scroll event reaches React. Keep that
@@ -5239,8 +5321,11 @@ function TranscriptView({
           writeAnchorScrollTop(node, nextTop);
           // Keep React's rendered offset in the same frame as the anchor correction. Otherwise a
           // rounded DOM offset arrives through scroll later and can briefly show Jump to latest.
+          // The move is the anchor's, not the reader's, so the reader's last move stays the lead: zeroed,
+          // a fling's next render dropped its lead and the warm rows caught up to the view, a deferred
+          // render of six views of rows each time an older page landed under it.
           scrollPacer.current?.cancel();
-          setScrollAt(node.scrollTop, 0);
+          setScrollAt(node.scrollTop, scrollRef.current.delta);
         }
       }
     }
@@ -6085,7 +6170,44 @@ function TranscriptView({
   const checkOlderNow = useRef<() => void>(() => {});
   /// The reader's speed up and how long pages take, which move the older-history ask further ahead.
   const [olderAhead] = useState(() => new OlderAhead());
+  /// The room held above the loaded rows for history still to load (conversation/olderReserve.ts), 0 once
+  /// it went (`roomGone`): what is left then is no history, only what keeps a short tail at the view's foot.
+  const roomWent = () => roomGone !== undefined && roomGone.sessionId === sessionId && rows[0]?.id === roomGone.firstId;
+  const roomAbove = () => (roomWent() ? 0 : (latestLayout.current.layout.origin ?? 0));
+  /// The view is in that room, where no row is drawn, and no scrollbar drag holds it there (handleScroll
+  /// gives it back).
+  const inRoom = (node: HTMLDivElement, room: number) =>
+    room > 0 && layoutScrollTop(node) < room && !userScrollIntent(node).isScrollbarDragging();
+  /// The frame guard: while the reader scrolls, each frame reads the offset once more after its frame
+  /// callbacks ran and before it paints and, if it moved since the last commit, handles it as its scroll
+  /// event would and commits at once, so the frame paints the rows at the offset it paints. The scroll
+  /// event of an offset written in a frame callback (a fling's or a drag's step, a wheel's default
+  /// applied there) comes only in the next frame, and the scroll pacer's frame callback, run before that
+  /// write or cancelled (an older page landing re-anchored the view) or not asked for (a scroll from
+  /// rest), left the frame painting the rows the last commit mounted: a jump past them painted a view
+  /// with no row, and a step into the room above the loaded rows was given back only after a frame had
+  /// painted that room empty (Leo, 2026-11-17: "scrolling.. bit of blank screening when the content
+  /// loads"). It mounts nothing the pacer would not: the same commit, earlier.
+  /// The read runs in a ResizeObserver callback, the one hook after every frame callback and before the
+  /// paint: a frame callback re-observes the scroller, whose new observation is delivered that frame.
+  /// It runs until the offset has stood still SCROLL_GUARD_IDLE_MS. `handled` is the offset it handled,
+  /// whose own scroll event (the next frame's) is then not handled again (`frameGuard`, above).
+  const guardOffset = (node: HTMLDivElement) => {
+    const state = frameGuard.current;
+    const live = node.scrollTop;
+    // Only a move restarts the idle clock: an offset the handler leaves unhandled (a chat not opened
+    // yet, a hidden pane) would otherwise keep the guard running.
+    if (live !== state.seen) guard.moved();
+    // The pacer may have committed this offset already, inside the room: given back only by the handler.
+    if (Math.abs(live - scrollRef.current.top) > 0.5 || (node.clientHeight > 0 && inRoom(node, roomAbove()))) {
+      motionScroll.current(node, true);
+      state.handled = node.scrollTop;
+    }
+    state.seen = node.scrollTop;
+  };
+  const armFrameGuard = () => guard.arm();
   const handleScroll = (node: HTMLDivElement, immediate = false) => {
+    armFrameGuard();
     pacing.scrolled();
     // A row whose glide the reader's input held, scrolled out of view, lands now where nobody sees it,
     // so it never plays on under the view when they come back to the latest row (tailGlide.ts).
@@ -6100,9 +6222,9 @@ function TranscriptView({
     // the room. A view inside it showed nothing, and the pages then landed under it unseen.
     // Once it went (`roomGone`), what is left is no history to load, only what keeps a short tail at
     // the view's foot: nothing to hold the reader from.
-    const gone = roomGone !== undefined && roomGone.sessionId === sessionId && rows[0]?.id === roomGone.firstId;
-    const room = gone ? 0 : (latestLayout.current.layout.origin ?? 0);
-    if (room > 0 && layoutScrollTop(node) < room && !userScrollIntent(node).isScrollbarDragging()) {
+    const gone = roomWent();
+    const room = roomAbove();
+    if (inRoom(node, room)) {
       // Only a pointer held on the scroller (a thumb drag the scrollbar check missed) keeps its target
       // for the page to bring into reach. A wheel's step into the room is given back here and stays
       // given back: kept, it was replayed in one frame when the page landed, and the row being read
@@ -6236,6 +6358,12 @@ function TranscriptView({
   const motionScroll = useRef(handleScroll);
   motionScroll.current = handleScroll;
   useLayoutEffect(() => {
+    guardRead.current = () => {
+      const node = ref.current;
+      if (node && transcriptMounted.current) guardOffset(node);
+    };
+  });
+  useLayoutEffect(() => {
     const node = ref.current;
     if (!node) return;
     // The shared motion clock emits only from RAF callbacks, after writing scrollTop. Mount
@@ -6244,7 +6372,15 @@ function TranscriptView({
     node.addEventListener(MOTION_SCROLL_EVENT, moved);
     return () => node.removeEventListener(MOTION_SCROLL_EVENT, moved);
   }, []);
-  const onScroll = (event: React.UIEvent<HTMLDivElement>) => handleScroll(event.currentTarget);
+  const onScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    const node = event.currentTarget;
+    // The frame guard handled this offset in the frame that wrote it: handled again, its zero move would
+    // read as the reader stopping (OlderAhead's speed) and the older pages would ask late.
+    const handled = frameGuard.current.handled;
+    frameGuard.current.handled = undefined;
+    if (handled !== undefined && Math.abs(node.scrollTop - handled) <= 0.5) return;
+    handleScroll(node);
+  };
   // Jump to latest (the button, ChatGPT and Codex style): a smooth scroll to the latest message, then a
   // landing on it, so a reply that grew meanwhile is followed again.
   const jumpToLatest = (focused: boolean, path = "jump") => {
@@ -6976,10 +7112,19 @@ function TranscriptView({
   // A wheel up with the view already at the loaded rows' top moves nothing, so no scroll event says the reader
   // wants more: it asks itself, unless an ask is still out.
   const onWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    // Its default moves the offset before the frame paints (in a frame callback, as a synthetic wheel's
+    // is applied): the frame guard reads it this frame.
+    armFrameGuard();
     // Held at the loaded rows' top, a wheel up moves nothing: the reader is still scrolling up (`rising`).
-    if (event.deltaY < 0) olderAhead.wheeledUp(performance.now());
+    if (event.deltaY < 0) olderAhead.wheeledUp(performance.now(), event.deltaMode === 0 ? -event.deltaY : 0);
     const loadedTop = layout.origin ?? 0;
-    if (event.deltaY >= 0 || layoutScrollTop(event.currentTarget) > loadedTop + 0.5 || olderAsking.current) return;
+    if (event.deltaY >= 0 || olderAsking.current) return;
+    // A fling's first wheel asks as far ahead as its step reaches while a page is read (OlderAhead), a
+    // frame before its scroll event would.
+    if (layoutScrollTop(event.currentTarget) > loadedTop + 0.5) {
+      checkOlderNow.current();
+      return;
+    }
     olderLoadRequested.current = undefined;
     checkOlderNow.current();
   };
@@ -7259,6 +7404,10 @@ function TranscriptView({
                   width: lane > 0 ? `calc(100% + ${lane}px)` : undefined,
                 }}
               >
+                {/* Under the rows, at the thread's place: one empty element per stand-in. */}
+                <div className="acpmux-stand-ins" aria-hidden style={{ top: lift + topInset }}>
+                  {standInElements(rows, standIns, layout.geometry, frameKey)}
+                </div>
                 <div
                   ref={thread}
                   className="acpmux-thread"
