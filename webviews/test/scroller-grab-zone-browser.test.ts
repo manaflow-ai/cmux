@@ -60,10 +60,31 @@ await requireBrowserLane("scroller-grab-zone-browser.test.ts", async () => {
         await page.evaluate(() => window.cmuxPaintFrame());
       }
 
+      /** Puts the box at its top and waits until it stays there for 3 painted frames: a track press's
+       *  page scroll animates on in Chromium, and a reset in its middle would let it scroll the box
+       *  again, in the next column's press. */
+      async function toTop(page: Page): Promise<void> {
+        for (let attempt = 0; attempt < 120; attempt += 1) {
+          const stays = await page.evaluate(async () => {
+            const list = document.getElementById("list")!;
+            list.scrollTop = 0;
+            let top = 0;
+            for (let frame = 0; frame < 3; frame += 1) {
+              await window.cmuxPaintFrame();
+              top = Math.max(top, list.scrollTop);
+            }
+            return top === 0;
+          });
+          if (stays) return;
+        }
+        throw new Error("the box never stayed at its top");
+      }
+
       for (const kind of ["legacy", "shown"] as const)
         for (const [row, y] of [
           ["thumb", 8],
-          ["track", 150],
+          // Clear of the bottom edge: a drag that ends near it autoscrolls a selection in the content.
+          ["track", 110],
         ] as const)
           test(`${kind}, on the ${row}: near exactly where a press and a drag scroll`, async () => {
             const page = await open(kind);
@@ -72,11 +93,9 @@ await requireBrowserLane("scroller-grab-zone-browser.test.ts", async () => {
               let near = 0;
               for (let column = 0; column < 32; column += 1) {
                 await page.mouse.move(40, 100);
-                await page.evaluate(() => {
-                  document.getElementById("list")!.scrollTop = 0;
-                });
-                await frames(page);
-                const x = 200 - column - 0.5;
+                await toTop(page);
+                // The pixel column's left edge: engines hit-test whole pixels, so a half-pixel point rounds over.
+                const x = 199 - column;
                 await page.mouse.move(x, y, { steps: 2 });
                 await frames(page);
                 const marked = await page.evaluate(
@@ -84,14 +103,23 @@ await requireBrowserLane("scroller-grab-zone-browser.test.ts", async () => {
                   NEAR_ATTRIBUTE,
                 );
                 await page.mouse.down();
-                await page.mouse.move(x, y + 40, { steps: 4 });
+                await page.mouse.move(x, y + 30, { steps: 4 });
                 await page.mouse.up();
                 const scrolled = await page.evaluate(() => document.getElementById("list")!.scrollTop > 0);
                 if (marked) near += 1;
                 if (marked !== scrolled)
                   mismatches.push(`column ${column}: near ${marked}, a drag scrolls ${scrolled}`);
               }
-              expect({ mismatches, someNear: near > 0 }).toEqual({ mismatches: [], someNear: true });
+              // An engine that draws an overlay scrollbar (no lane: headless WebKit on Linux) marks nothing
+              // and takes no press on it; every engine that draws a lane must mark it.
+              const lane = await page.evaluate(() => {
+                const list = document.getElementById("list")!;
+                return list.offsetWidth - list.clientWidth;
+              });
+              expect({ mismatches, marksTheLane: lane > 0 ? near === lane : near === 0 }).toEqual({
+                mismatches: [],
+                marksTheLane: true,
+              });
             } finally {
               await page.close();
             }
