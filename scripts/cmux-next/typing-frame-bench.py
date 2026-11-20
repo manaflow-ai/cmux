@@ -117,6 +117,9 @@ parser.add_argument("--modes", help="the shared load modes instead of --phases: 
                                     "`all`; one app launch each, knobs from webviews/bench/load-modes.json")
 parser.add_argument("--cpu-burners", type=int, default=0,
                     help="spinning processes a mode that saturates every core starts (default: this host's cores)")
+parser.add_argument("--launch", choices=("direct", "launchservices"), default="direct",
+                    help="how the app starts: `direct` (a child of this script, with its scheduling: on a fleet worker "
+                         "the worker's utility clamp) or `launchservices` (`open -n`, as a person's Finder or Dock launch)")
 parser.add_argument("--samples", type=int, default=80)
 parser.add_argument("--interval", type=float, default=0.1, help="seconds between keys (one key in flight)")
 parser.add_argument("--busy", type=int, default=20, help="busy terminals in the load phase")
@@ -517,7 +520,7 @@ def measure_agentpane(phase, pid, pane, streams=()):
     entry = {
         "session": SESSION, "surface": "agentpane", "phase": phase, "mode": (MODE or {}).get("id"),
         "mode_missing": (MODE or {}).get("nativeMissing") or [], "pane": pane,
-        "engine": LOAD.get("agentpane_engine"), "foreground": activation,
+        "engine": LOAD.get("agentpane_engine"), "foreground": activation, "launch": opts.launch,
         "focus": {"composer": focus_reply, "report": focus, "app_active": focus.get("app_active") is True},
         "capabilities": {
             "typing": "debug.key -> agent page",
@@ -791,11 +794,23 @@ class SchedProbe(threading.Thread):
         pids = [self.pid] + [child["pid"] for child in children if child["helper"]]
         if BURNERS:
             pids.append(BURNERS[0].pid)
+        # Where a scheduling clamp would come from: this harness and its parent (the fleet worker's step tree), and
+        # two apps LaunchServices started on this host, for reference.
+        reference = {"harness": os.getpid(), "harness_parent": os.getppid()}
+        for name in ("Finder", "Dock"):
+            found = subprocess.run(["pgrep", "-x", name], capture_output=True, text=True).stdout.split()
+            if found:
+                reference[name] = int(found[0])
+        pids += [pid for pid in reference.values() if pid not in pids]
         threads = subprocess.run(["ps", "-M", "-p", ",".join(str(p) for p in pids)],
                                  capture_output=True, text=True).stdout
         load = subprocess.run(["sysctl", "-n", "vm.loadavg"], capture_output=True, text=True).stdout.strip()
-        self.snapshots.append({"index": index, "t": time.time(), "app_pid": self.pid,
+        front = subprocess.run(["lsappinfo", "front"], capture_output=True, text=True).stdout.strip()
+        front_info = subprocess.run(["lsappinfo", "info", "-only", "pid", front], capture_output=True,
+                                    text=True).stdout.strip() if front else ""
+        self.snapshots.append({"index": index, "t": time.time(), "app_pid": self.pid, "launch": opts.launch,
                                "burner_pid": BURNERS[0].pid if BURNERS else None, "loadavg": load,
+                               "reference_pids": reference, "front_app": front, "front_app_pid": front_info,
                                "children": children, "ps_M": threads})
 
     def run(self):
@@ -1101,7 +1116,7 @@ def run_session(session, phases=None, backdrop="default"):
         config["appearance"] = BACKDROPS[backdrop]
     bench = BenchApp(APP, out=OUT, config=config, window=WINDOW,
                      log_name=f"app-{SESSION.replace('/', '-')}.log",
-                     env=env)
+                     env=env, launch=opts.launch)
     try:
         try:
             bench.launch(timeout=180)
