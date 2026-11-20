@@ -19,7 +19,8 @@ count merely moves the failure. Detectors in the existing acpmux suites:
 - `large_batch_and_tag_sends_reach_every_recipient`: explicit and tag sends reach 65 real
   daemon sessions, crossing every former count limit and the dispatch window.
 - `an_active_goal_accepts_the_persons_steered_and_queued_sends`: a fake harness reports a
-  native goal, then the real CLI sends through all three running-turn paths.
+  native goal, then the real CLI sends through all three running-turn paths. Goal assertions
+  read `session_detail`: the compact `session_summary` does not include the goal payload.
 
 Buffered async work owns its session names, client handles and request metadata. Materialize
 the boxed `Send` futures before buffering them; a lazy iterator borrowing the request can

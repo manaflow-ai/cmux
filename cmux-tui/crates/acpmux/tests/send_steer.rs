@@ -88,9 +88,12 @@ async fn busy_with_goal(steering: bool, goal: bool) -> Busy {
             )
             .await
             .unwrap();
-        let summary = b.hub.session_summary(&b.hub.resolve(&b.id).unwrap());
-        assert_eq!(summary["goal"]["objective"], "Ship the fix", "{summary}");
-        assert!(matches!(summary["goal"]["status"].as_str(), Some("active" | "running")));
+        let detail = b.hub.session_detail(&b.hub.resolve(&b.id).unwrap());
+        assert_eq!(detail["goal"]["objective"], "Ship the fix", "{detail}");
+        assert!(
+            matches!(detail["goal"]["status"].as_str(), Some("active" | "running")),
+            "{detail}"
+        );
     }
     b.run_gated().await;
     b
@@ -122,9 +125,12 @@ async fn an_active_goal_accepts_the_persons_steered_and_queued_sends() {
         } else {
             b.record("queued", &pid).await;
         }
-        let summary = b.hub.session_summary(&b.hub.resolve(&b.id).unwrap());
-        assert_eq!(summary["goal"]["objective"], "Ship the fix", "{summary}");
-        assert!(matches!(summary["goal"]["status"].as_str(), Some("active" | "running")));
+        let detail = b.hub.session_detail(&b.hub.resolve(&b.id).unwrap());
+        assert_eq!(detail["goal"]["objective"], "Ship the fix", "{detail}");
+        assert!(
+            matches!(detail["goal"]["status"].as_str(), Some("active" | "running")),
+            "{detail}"
+        );
         b.open_gate();
         if !(steering && steer) {
             b.agent_said("follow my correction").await;
