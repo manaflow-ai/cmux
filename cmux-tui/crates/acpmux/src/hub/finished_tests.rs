@@ -310,8 +310,7 @@ async fn finished_shared_pause_gates_direct_notice_and_restored_queue_runner() {
     let hub = memory_hub();
     let session = chat(&hub);
     hub.bind_fleet("local").await.unwrap();
-    let mut opts = PromptOptions::default();
-    opts.provenance = Some(json!({"kind": "notice"}));
+    let opts = PromptOptions { provenance: Some(json!({"kind": "notice"})), ..Default::default() };
     let mut notice = Box::pin(hub.run_prompt(&session, Vec::new(), "notice", false, opts));
     assert!(futures::poll!(&mut notice).is_pending());
     hub.finish_session(&session, "finished while the notice waited").unwrap();

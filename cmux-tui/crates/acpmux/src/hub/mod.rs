@@ -1225,7 +1225,7 @@ pub struct Hub {
     pub(super) races_running: StdMutex<std::collections::HashSet<String>>,
     /// Creates admitted and still starting (`admission.rs`).
     pub(super) admitting: admission::Admitting,
-    pub(super) resume_admission: resume_admission::Admission,
+    resume_admission: resume_admission::Admission,
     /// Run slots of each session's sub-sessions (`subsession_runs.rs`).
     pub(super) subsession_runs: Arc<subsession_runs::Runs>,
     /// `_acpmux/wait` requests subscribed and not yet answered (`server/wait.rs`), shown
