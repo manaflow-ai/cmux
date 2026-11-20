@@ -102,3 +102,30 @@ test("every pick from the field opens in the page's tab, never a split; Option-R
     { kind: "browser", text: "cmux docs", search: true, beside: true },
   ]);
 });
+
+test("a send held for the Computer Use check starts nothing once the visit changed meanwhile", async () => {
+  const calls: string[] = [];
+  let release!: (go: boolean) => void;
+  let generation = 0;
+  const actions = newTabScreenActions({
+    callNative: async (method) => {
+      calls.push(method);
+      return { sessionId: "s1" };
+    },
+    leave: () => calls.push("leave"),
+    selectSession: () => {},
+    showAllChats: () => {},
+    runShell: () => {},
+    startScope: () => {
+      const mine = ++generation;
+      return () => generation === mine;
+    },
+    letsSend: () => new Promise<boolean>((resolve) => (release = resolve)),
+  });
+  const sent = actions.onAsk("claude", "open the settings app with @computer-use", undefined, undefined, true);
+  // Another start (another chat, Cmd-T adoption) takes the visit while the check is out.
+  generation += 1;
+  release(true);
+  await expect(sent).rejects.toBeDefined();
+  expect(calls).toEqual([]);
+});

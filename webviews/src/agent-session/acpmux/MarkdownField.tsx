@@ -71,14 +71,15 @@ import { focusRoute } from "../../ui/focusRoute";
 
 /// How the draft names its known cmux links (composer/deeplinkTitles.ts), in the sent message's
 /// look (chips/cmuxLinkLook.experiment.ts); none in its `link` arm.
-function draftLinkTitles(): DeeplinkTitles | undefined {
+function draftLinkTitles(): DeeplinkTitles {
   const look = experimentArm(cmuxLinkLook);
-  if (look === "link") return undefined;
   return {
-    // A built-in tool's word (`@computer-use`) is its badge in every look: the tool's name and icon.
+    // A built-in tool's word (`@computer-use`) is its badge in every look, `link` too (that look keeps
+    // cmux links as links): the tool's name and icon.
     known: (href) => {
       const tool = toolOfHref(href);
-      return tool ? { kind: "chat", title: translate(tool.label), tool: tool.icon } : knownCmuxLink(href);
+      if (tool) return { kind: "chat", title: translate(tool.label), tool: tool.icon };
+      return look === "link" ? undefined : knownCmuxLink(href);
     },
     // The page's icon family too: a pooled page learns it when claimed, and the icon follows it.
     subscribe: (listener) => {

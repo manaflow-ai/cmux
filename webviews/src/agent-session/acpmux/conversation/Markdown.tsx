@@ -447,6 +447,7 @@ export function Markdown({
   messageAt,
   trailing,
   skills,
+  tools,
   commonmark = false,
   claims,
 }: MarkdownProps) {
@@ -500,6 +501,7 @@ export function Markdown({
       ...(commits ? { commits } : {}),
       ...(thumbnails === false ? { thumbnails } : {}),
       ...(skills?.size ? { skills } : {}),
+      ...(tools ? { tools } : {}),
       ...(commonmark ? { commonmark } : {}),
       ...(claims?.length ? { claims } : {}),
     };
@@ -513,6 +515,7 @@ export function Markdown({
     started,
     thumbnails,
     skills,
+    tools,
     commonmark,
     claims,
   ]);

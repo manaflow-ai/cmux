@@ -23,6 +23,8 @@ test("a message names a tool as its own @word outside code, once, in menu order"
   expect(toolMentionsIn("```\n@browser-use\n```")).toEqual([]);
   expect(toolMentionsIn("mail me@computer-use.dev")).toEqual([]);
   expect(toolMentionsIn("@computer-user")).toEqual([]);
+  // Markdown's emphasis around it is no part of the word.
+  expect(toolMentionsIn("use **@computer-use** now and _@browser-use_")).toEqual(["computer-use", "browser-use"]);
   // A file named after it is a file; a sentence's full stop still ends the mention.
   expect(toolMentionsIn("review @computer-use.md")).toEqual([]);
   expect(toolMentionsIn("use @computer-use. Then stop")).toEqual(["computer-use"]);

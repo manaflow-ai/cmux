@@ -393,7 +393,7 @@ export function PromptTyped({
   // Drawn as Markdown, the renderer reads its code as send does (`commonmark`) and lights skills
   // only in its own plain text.
   return isPromptMarkdown(text) ? (
-    <Markdown className="cv-user__markdown" thumbnails={false} skills={markdownSkills} commonmark>
+    <Markdown className="cv-user__markdown" thumbnails={false} skills={markdownSkills} tools commonmark>
       {shown}
     </Markdown>
   ) : (

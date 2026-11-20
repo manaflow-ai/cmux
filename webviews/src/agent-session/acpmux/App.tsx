@@ -9807,17 +9807,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // `splitRight`: `/side`'s, always a new split right of the chat (the menu's keeps the right
           // column's placement, AgentSidePanes).
           "chat.side": async ({ throughSeq, live, prompt, splitRight, attachments, gesture }) => {
+            // The chat it is beside, read before anything waits (the reader may open another chat meanwhile).
+            const chat = client.selectedSession;
             // `/side` with `@computer-use` from this Mac forks nothing until a fresh read of Computer Use
-            // lets it (`computerUseLets`); held, the composer keeps `/side <prompt>` and says why.
+            // lets it (`computerUseLets`); held, the composer keeps `/side <prompt>` and says why. A chat
+            // switched to during the read is not forked in its place.
             if (
               !snapshotRef.current?.sideChatOnMachine &&
               typeof prompt === "string" &&
-              toolMentionsIn(prompt).includes("computer-use") &&
-              !(await computerUseLets(prompt))
-            )
-              throw new Error(translate("computerUseSetup.title"));
-            // The chat it is beside, read before the fork (the reader may open another chat meanwhile).
-            const chat = client.selectedSession;
+              toolMentionsIn(prompt).includes("computer-use")
+            ) {
+              if (!(await computerUseLets(prompt))) throw new Error(translate("computerUseSetup.title"));
+              if (client.selectedSession !== chat) throw new Error(translate("error.notOpen"));
+            }
             const split = splitRight === true ? { split: "right" } : {};
             // `/side`'s staged files (in-page only; the app's own calls name none): the side chat's
             // first prompt carries them, as a send does (#40066).
@@ -12967,11 +12969,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 !machinePeer &&
                 !snapshot.summary?.peer;
               if (onThisMac && toolMentionsIn(text).includes("computer-use") && computerUseLet.current !== text) {
-                // Held while the state is read; the composer keeps the draft and sends it again if it may go.
+                // Held while the state is read; the composer keeps the draft and sends it again, the way it
+                // was sent (a steer stays one), only if neither the draft nor the chat changed meanwhile.
+                const heldDraft = composerHandle.current?.draftText();
+                const heldChat = directClient.current?.selectedSession;
                 void computerUseLets(text).then((go) => {
-                  if (!go) return;
+                  const handle = composerHandle.current;
+                  if (!go || !handle || handle.draftText() !== heldDraft) return;
+                  if (directClient.current?.selectedSession !== heldChat) return;
                   computerUseLet.current = text;
-                  composerHandle.current?.send();
+                  handle.resend(steer === true);
                 });
                 return false;
               }

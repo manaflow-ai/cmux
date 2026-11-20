@@ -265,6 +265,10 @@ export type ComposerHandle = {
   /// Sends what is typed now, as Enter would, even while a trust `blocked` reason is still drawn
   /// (the user just answered Trust). A pending folder choice still holds it. False when nothing went.
   send(): boolean;
+  /// Sends what is typed now exactly as Enter (or ⌘Return, `steer`) did a moment ago: a send the pane held
+  /// for a check (App.tsx `computerUseLets`) goes on once it passed. Every hold applies again. False when
+  /// nothing went.
+  resend(steer: boolean): boolean;
   /// Puts the caret in the prompt (Edit and Resend).
   focus(): void;
   /// Starts the prompt with `prefix` (the palette's Side Question writes `/btw `), keeping what is
@@ -1075,6 +1079,7 @@ function ComposerFrame({
         for (const id of ids) field.current?.removeInline(id);
       },
       send: () => submitNow.current(true),
+      resend: (steer) => submitNow.current(false, steer),
       focus: () => field.current?.focus(),
       prefill(prefix) {
         const typed = (field.current?.value() ?? textRef.current).trimStart();

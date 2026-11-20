@@ -94,8 +94,9 @@ export function toolMentionsIn(text: string): readonly ToolMentionId[] {
   if (!text.includes("@") && !text.includes("$")) return [];
   const outsideCode = text.replace(/(```|~~~)[\s\S]*?(?:\1|$)|`[^`\n]*`/g, (code) => code.replace(/[^\n]/g, " "));
   const found = new Set<string>();
+  // Markdown's emphasis around it (`**@computer-use**`) is no part of the word: the badge drew it the same.
   for (const match of outsideCode.matchAll(
-    /(^|[\s\uFFFC])[@$](computer-use|browser-use)(?=[\s\uFFFC]|$|[,;:!?)]|\.(?:\s|$))/gi,
+    /(^|[\s\uFFFC*_~])[@$](computer-use|browser-use)(?=[\s\uFFFC*_~]|$|[,;:!?)]|\.(?:\s|$))/gi,
   ))
     found.add(match[2]!.toLowerCase());
   return TOOL_MENTIONS.filter((tool) => found.has(tool.id)).map((tool) => tool.id);

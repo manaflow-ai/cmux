@@ -8,6 +8,9 @@ import { rememberPick } from "../lastPick";
 import { translate } from "../i18n";
 import { isStartCancelled, startCancelled } from "../transportErrors";
 
+/// `onAsk`'s arguments, and the visit's marker a checked send took before it waited.
+type AskArgs = [...Parameters<NewTabScreenActions["onAsk"]>, scope?: () => boolean];
+
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
 /// Where a pick opens: in this page's tab (`inPlace`: never the pane on the right or a new split,
@@ -50,10 +53,12 @@ export function newTabScreenActions(deps: {
   // and this page's, so an older harness and model picked elsewhere no longer win over it.
   const remember = (agent: string, model: string | undefined, folder: string | undefined) =>
     rememberPick({ harness: agent, ...(model ? { model } : {}) }, folder, callNative);
-  const ask: NewTabScreenActions["onAsk"] = (harness, text, picked, model, noProject, attachments, saved) => {
+  /// `scope`: the visit's marker, taken before a check the send waited on (`letsSend`), so a visit that
+  /// changed meanwhile (another chat, Cmd-T adoption, another start) cancels this one.
+  const ask = (...[harness, text, picked, model, noProject, attachments, saved, scope]: AskArgs) => {
     const peer = saved?.peer;
     const queuedStart = !!harness && !peer && !noProject;
-    const current = deps.startScope?.(queuedStart) ?? (() => true);
+    const current = scope ?? deps.startScope?.(queuedStart) ?? (() => true);
     // The prompt goes in the same turn as the switch: the switch queues it, and a folder trust
     // refusal then holds it with the send's gesture (holdPrompt), so Trust sends it. Sending
     // after `chat.new` settled lost it: the switch had stopped on the refusal with nothing
@@ -137,8 +142,12 @@ export function newTabScreenActions(deps: {
       // keeps the prompt, and the pane opens the setup page or says why.
       const check = !saved?.peer && deps.startsHere?.() !== false ? deps.letsSend?.(text) : undefined;
       if (!check) return ask(harness, text, picked, model, noProject, attachments, saved);
+      // This visit's marker, taken now: the start runs only if nothing replaced the visit during the check.
+      const scope = deps.startScope?.(!!harness && !noProject) ?? (() => true);
       return check.then((go) =>
-        go ? ask(harness, text, picked, model, noProject, attachments, saved) : Promise.reject(startCancelled()),
+        go && scope()
+          ? ask(harness, text, picked, model, noProject, attachments, saved, scope)
+          : Promise.reject(startCancelled()),
       );
     },
     onFixFromLink: (url, selectedCwd, harness, model) => {

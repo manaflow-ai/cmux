@@ -23,3 +23,12 @@ test("a sent prompt draws each tool word as its badge, and the rest as typed", (
 test("a file named after a tool, or a tool word in another word, stays text", () => {
   expect(draw("review @computer-use.md and me@browser-use")).not.toContain("cv-tool-badge");
 });
+
+test("a prompt drawn as Markdown draws its tool words as badges too, never inside code", () => {
+  const html = draw("Use @browser-use to check `localhost`\n- then **@computer-use**\n- and `@computer-use` literally");
+  expect(html).toContain("cv-user__markdown");
+  expect(html).toContain('data-tool="browser-use"');
+  expect(html.match(/data-tool="computer-use"/g)).toHaveLength(1);
+  expect(html).toContain("<code");
+  expect(html).toContain("@computer-use</code>");
+});
