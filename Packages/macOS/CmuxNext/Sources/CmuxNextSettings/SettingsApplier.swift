@@ -39,6 +39,8 @@ public final class SettingsApplier {
         if design.customDensities != snapshot.customDensities { design.customDensities = snapshot.customDensities }
         let density = snapshot.selectedDensity
         if design.densityTokens != density { design.densityTokens = density }
+        let densityFromThemeFile = snapshot.themeDensity != nil
+        if design.densityFromThemeFile != densityFromThemeFile { design.densityFromThemeFile = densityFromThemeFile }
         let uiScale = DesignSettings.clampedUIScale(CGFloat(snapshot.uiScale))
         if design.uiScale != uiScale { design.uiScale = uiScale }
         let interfaceScale = DesignSettings.clampedInterfaceScale(CGFloat(snapshot.interfaceScale))
