@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 632,
+  "count": 635,
   "sections": [
     {
       "id": "general",
@@ -1939,6 +1939,14 @@
           "group": "Agent Chat"
         },
         {
+          "key": "agentPane.display.font.faces",
+          "title": "Chat Font Files",
+          "help": "A font file for each family, such as \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\".",
+          "kind": "string_map",
+          "default": null,
+          "group": "Agent Chat"
+        },
+        {
           "key": "agentPane.display.font.lineHeight",
           "title": "Chat Line Height",
           "help": "",
@@ -1964,6 +1972,14 @@
             "serif",
             "mono"
           ]
+        },
+        {
+          "key": "agentPane.display.font.proseFamily",
+          "title": "Chat Reply Font Family",
+          "help": "The font of the agent's replies. When set, it replaces the Chat Font.",
+          "kind": "font_family",
+          "default": null,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.display.font.size",
@@ -1999,6 +2015,14 @@
             "hanken",
             "atkinson"
           ]
+        },
+        {
+          "key": "agentPane.display.font.uiFamily",
+          "title": "Chat Interface Font Family",
+          "help": "A font family or a comma list of them. When set, it replaces the Chat Interface Font.",
+          "kind": "font_family",
+          "default": null,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.display.fullWidth",
