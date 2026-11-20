@@ -68,10 +68,13 @@ pub(super) fn resume_after_restore(session: &Session) {
 
 /// The thread owners the hub knows: thread to `(at, owner session)`, the newest subscription
 /// of a thread winning. None until the first pass reads every chat's subscriptions.
-pub(crate) type Subscribers = Option<BTreeMap<String, (u64, String)>>;
+pub(crate) type Subscribers = Option<BTreeMap<String, BTreeMap<String, u64>>>;
 
+/// One subscription record of session `owner`'s journal into `map` (thread to every session
+/// subscribed to it, with when): each session's own latest record decides its own entry only,
+/// so no later self-subscription shadows another's, and an unsubscribe drops only its own.
 fn apply_subscription(
-    map: &mut BTreeMap<String, (u64, String)>,
+    map: &mut BTreeMap<String, BTreeMap<String, u64>>,
     owner: &str,
     msg: &Value,
     at: u64,
@@ -83,13 +86,36 @@ fn apply_subscription(
     if msg.get("ownerSessionId").and_then(Value::as_str) != Some(owner) {
         return;
     }
+    let subscribed = map.entry(thread.to_owned()).or_default();
     if msg.get("active").and_then(Value::as_bool).unwrap_or(true) {
-        if map.get(thread).is_none_or(|(when, _)| *when <= at) {
-            map.insert(thread.to_owned(), (at, owner.to_owned()));
-        }
-    } else if map.get(thread).is_some_and(|(_, o)| o == owner) {
+        subscribed.insert(owner.to_owned(), at);
+    } else {
+        subscribed.remove(owner);
+    }
+    if subscribed.is_empty() {
         map.remove(thread);
     }
+}
+
+/// The owner of each thread among `subscribed` that `authorized` allows: the most recent
+/// authorized subscriber (ties: the smaller session id), so the pick is the same every pass.
+fn authorized_owners(
+    subscribed: &BTreeMap<String, BTreeMap<String, u64>>,
+    authorized: impl Fn(&str, &str) -> bool,
+) -> Owners {
+    let pick = |thread: &str, owners: &BTreeMap<String, u64>| {
+        owners
+            .iter()
+            .filter(|(o, _)| authorized(thread, o))
+            .max_by(|a, b| a.1.cmp(b.1).then(b.0.cmp(a.0)))
+            .map(|(o, _)| o.clone())
+    };
+    Owners(
+        subscribed
+            .iter()
+            .filter_map(|(t, owners)| pick(t, owners).map(|o| (t.clone(), o)))
+            .collect(),
+    )
 }
 /// What answers instead of the small model (tests).
 pub type SurgeTriager = Arc<dyn Fn(String) -> Option<String> + Send + Sync>;
@@ -153,6 +179,16 @@ impl Journal {
 #[cfg(test)]
 pub(super) static FAIL_BEFORE_DELIVERY: std::sync::Mutex<BTreeMap<String, u32>> =
     std::sync::Mutex::new(BTreeMap::new());
+
+/// Tests: journal writes of a chat that fail, by kind (`batch` or `marker`).
+#[cfg(test)]
+pub(super) static FAIL_WRITES: std::sync::Mutex<BTreeMap<(String, &'static str), u32>> =
+    std::sync::Mutex::new(BTreeMap::new());
+
+/// Tests: every digest's acceptance, with the session it went to.
+#[cfg(test)]
+pub(super) static DIGEST_ACCEPTS: std::sync::Mutex<Vec<(String, Value)>> =
+    std::sync::Mutex::new(Vec::new());
 
 /// The owner digest's prompt id under the chat's digest `id`.
 fn owner_digest_id(id: &str, owner: &str) -> String {
@@ -251,14 +287,16 @@ impl Hub {
                 || Some(owner) == parent
                 || Some(owner) == delegator
         };
-        let subscribed = self.surge_subscribed();
-        Owners(subscribed.0.into_iter().filter(|(t, o)| authorized(t, o)).collect())
+        let mut subs = self.surge_subscribers.lock().unwrap_or_else(|e| e.into_inner());
+        authorized_owners(self.surge_subscribed(&mut subs), authorized)
     }
 
-    /// Every session's own thread subscriptions.
-    fn surge_subscribed(&self) -> Owners {
-        let mut subs = self.surge_subscribers.lock().unwrap_or_else(|e| e.into_inner());
-        let map = subs.get_or_insert_with(|| {
+    /// Every session's own thread subscriptions, read once per daemon run under `subs`.
+    fn surge_subscribed<'a>(
+        &self,
+        subs: &'a mut Subscribers,
+    ) -> &'a BTreeMap<String, BTreeMap<String, u64>> {
+        subs.get_or_insert_with(|| {
             let mut map = BTreeMap::new();
             for s in self.session_handles() {
                 let read = self.scan_for_rebuild(&s, &[triage::SUBSCRIPTION_KIND], &mut |e| {
@@ -270,8 +308,26 @@ impl Hub {
                 }
             }
             map
-        });
-        Owners(map.iter().map(|(t, (_, o))| (t.clone(), o.clone())).collect())
+        })
+    }
+
+    /// One journal write of a pass. A failure ends the pass with its error; the pass drops its
+    /// cached projection, so the retry rebuilds it from the log and nothing the failed write
+    /// held counts as done: undecided messages are triaged again, an undelivered digest sent
+    /// again (its prompt id's duplicate if it reached the chat), a missing marker written again.
+    fn surge_persist(&self, session: &Session, msg: Value, open: u64) -> Result<(), RpcError> {
+        #[cfg(test)]
+        {
+            let mut fail = FAIL_WRITES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let kind = if msg.get("digestDelivered").is_some() { "marker" } else { "batch" };
+            if let Some(n) = fail.get_mut(&(session.id.clone(), kind))
+                && *n > 0
+            {
+                *n -= 1;
+                return Err(RpcError::internal("test: a failed journal write"));
+            }
+        }
+        self.persist_surge_triage(session, msg, open)
     }
 
     pub(crate) fn set_surge_triager(&self, triager: Option<SurgeTriager>) {
@@ -356,7 +412,7 @@ impl Hub {
                 let record = triage::triaged_record(batch, d, Some(&id));
                 journal.read(triage::RECORD_KIND, &record);
                 let open = self.surge_open_topics(session, journal);
-                self.persist_surge_triage(session, record, open)?;
+                self.surge_persist(session, record, open)?;
             }
         }
         #[cfg(test)]
@@ -377,7 +433,7 @@ impl Hub {
             let marker = json!({"digestDelivered": id, "items": []});
             journal.read(triage::RECORD_KIND, &marker);
             let open = self.surge_open_topics(session, journal);
-            self.persist_surge_triage(session, marker, open)?;
+            self.surge_persist(session, marker, open)?;
         }
         Ok(if undecided > 0 {
             PassEnd::Undecided
@@ -410,7 +466,8 @@ impl Hub {
         lines: &[Line],
     ) -> Result<(), RpcError> {
         if let Some(text) = triage::digest(&session.id, lines) {
-            self.send_surge_digest(session, id, text, lines).await?;
+            let mine = triage::digest_lines(lines);
+            self.send_surge_digest(session, id, text, &mine).await?;
         }
         let owners: BTreeSet<&str> = lines.iter().filter_map(|l| l.owner.as_deref()).collect();
         for owner in owners {
@@ -420,18 +477,20 @@ impl Hub {
                 tracing::info!(session = %session.id, owner, "surge triage: owner gone");
                 continue;
             };
-            self.send_surge_digest(&to, &owner_digest_id(id, owner), text, lines).await?;
+            let theirs = triage::owner_digest_lines(owner, lines);
+            self.send_surge_digest(&to, &owner_digest_id(id, owner), text, &theirs).await?;
         }
         Ok(())
     }
 
-    /// One digest prompt, accepted (queued, steered or a duplicate) before this returns.
+    /// One digest prompt, accepted (queued, steered or a duplicate) before this returns. Its
+    /// provenance names only `lines`, the ones its text shows its recipient.
     async fn send_surge_digest(
         self: &Arc<Self>,
         to: &Arc<Session>,
         id: &str,
         text: String,
-        lines: &[Line],
+        lines: &[&Line],
     ) -> Result<(), RpcError> {
         let ids: Vec<&str> = lines.iter().map(|l| l.prompt_id.as_str()).collect();
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
@@ -450,7 +509,14 @@ impl Hub {
             hub.prompt_with(&chat, blocks, "acpmux", false, opts).await
         });
         match rx.await {
-            Ok(_) => Ok(()),
+            Ok(_accepted) => {
+                #[cfg(test)]
+                DIGEST_ACCEPTS
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .push((to.id.clone(), _accepted));
+                Ok(())
+            }
             Err(_) => match run.await {
                 Ok(Err(e)) => Err(e),
                 _ => Err(RpcError::internal("surge digest was not accepted")),
