@@ -34,16 +34,26 @@ public struct CloudMachineRoute: Sendable {
     /// The report's bound on the machine: one exec, well under the Cloud API's 5 minutes.
     public static let timeoutMs = 60_000
 
-    private let exec: Exec
+    /// Starts or resumes the machine and returns once its link is up again: what a start does when the exec route
+    /// says the machine does not run (``notRunningCodes``).
+    public typealias Resume = @Sendable () async throws -> Void
 
-    public init(exec: @escaping Exec) {
+    private let exec: Exec
+    private let resume: Resume?
+    /// One resume per route (one start's check): a machine still refused after it ends the start (``notRunning``).
+    private let resumes = ResumeOnce()
+
+    public init(exec: @escaping Exec, resume: Resume? = nil) {
         self.exec = exec
+        self.resume = resume
         machineID = nil
     }
 
-    /// The route of Cloud machine `machineID`, whose commands run through the Cloud API's exec.
-    public init(api: CloudAPIClient, machineID: String) {
+    /// The route of Cloud machine `machineID`, whose commands run through the Cloud API's exec. `resume` starts the
+    /// machine when the exec route refuses it as not running (``Resume``).
+    public init(api: CloudAPIClient, machineID: String, resume: Resume? = nil) {
         exec = { try await api.exec(machineID, command: $0, timeoutMs: $1) }
+        self.resume = resume
         self.machineID = machineID
     }
 
@@ -78,7 +88,13 @@ public struct CloudMachineRoute: Sendable {
     public func prepare(serves: @MainActor () -> Bool = { true }, carriesConnection: Bool = false, family: String? = nil,
                         _ update: @escaping @Sendable () async -> Void) async throws {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
-        if await serves(), let route = try? await read(family: family) {
+        // A machine that does not run and could not be started ends the start with that reason: no update wait,
+        // which would only be refused the same way (cmux#47638).
+        var first: (verdict: Verdict, agent: Agent?)?
+        if await serves() {
+            do { first = try await read(family: family) } catch let stopped as NotStarted { throw stopped.error } catch { first = nil }
+        }
+        if let route = first {
             if Self.starts(route.verdict, agent: route.agent, carriesConnection: carriesConnection) {
                 logger.info("cloud start chat: \(machineID ?? "", privacy: .public) already serves this start (\(route.verdict.rawValue, privacy: .public), \(route.agent?.summary ?? "no agent", privacy: .public)); no update")
                 return
@@ -217,7 +233,8 @@ public struct CloudMachineRoute: Sendable {
     /// Returns when the machine's agents reach models through its edge; throws ``Refused`` otherwise, with `family`'s
     /// ``Agent`` reading. An exec that fails (the machine went away, the route timed out) throws its own error.
     public func verify(family: String? = nil) async throws {
-        let route = try await read(family: family)
+        let route: (verdict: Verdict, agent: Agent?)
+        do { route = try await read(family: family) } catch let stopped as NotStarted { throw stopped.error }
         guard route.verdict == .ready else { throw Refused(verdict: route.verdict, agent: route.agent) }
     }
 
@@ -225,9 +242,57 @@ public struct CloudMachineRoute: Sendable {
     /// in the same output. An exec that fails throws.
     func read(family: String?) async throws -> (verdict: Verdict, agent: Agent?) {
         guard let command = CloudStartCore().call("cloud_machine_route", Request(stdout: nil), as: Reply.self)?.command else { return (.invalid, nil) }
-        let ran = try await exec(command, Self.timeoutMs)
+        let ran = try await runningExec(command)
         let verdict = CloudStartCore().call("cloud_machine_route", Request(stdout: ran.stdout), as: Reply.self)?.verdict ?? .invalid
         return (verdict, await Self.agentReading(ran.stdout, family: family))
+    }
+
+    /// The exec route's refusal codes for a machine that does not run now: paused (an idle pause, or a spare the Cloud
+    /// service paused again after its warm), or still starting. cmux-platform `MachineGuest.ts` (`vm_not_running`: "the
+    /// machine is not running; start it first"), and the Rust start's clone wait resumes on the same ones.
+    public static let notRunningCodes: Set<String> = ["vm_not_running", "vm_state_conflict", "cloud.machine.paused", "cloud.machine.not_running"]
+
+    /// Whether `error` is the exec route's refusal of a machine that does not run (``notRunningCodes``).
+    public nonisolated static func isNotRunning(_ error: any Error) -> Bool {
+        guard case .http(_, let code?, _, _, _) = error as? CloudAPIError else { return false }
+        return notRunningCodes.contains(code)
+    }
+
+    /// The machine did not run and its start could not bring it up: the start ends with `error` (``prepare(serves:carriesConnection:family:_:)``).
+    struct NotStarted: Error { let error: any Error }
+
+    /// `command` on the machine. A refusal of a machine that does not run resumes it once (``Resume``: a start took a
+    /// machine the Cloud service paused, cmux#47638) and asks again; refused again, or with nothing to resume it, the
+    /// start ends with ``notRunning`` and Retry on the same machine.
+    func runningExec(_ command: String) async throws -> CloudExecResult {
+        do {
+            return try await exec(command, Self.timeoutMs)
+        } catch where Self.isNotRunning(error) {
+            let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
+            guard let resume, await resumes.take() else {
+                logger.error("cloud start chat: \(machineID ?? "", privacy: .public) still does not run: \(String(describing: error), privacy: .public)")
+                throw NotStarted(error: CloudMoveFailure(message: Self.notRunning, retry: machineID.map { .move(machineID: $0) }))
+            }
+            logger.info("cloud start chat: \(machineID ?? "", privacy: .public) does not run; starting it")
+            do { try await resume() } catch { throw NotStarted(error: error) }
+            return try await runningExec(command)
+        }
+    }
+
+    /// The single resume a route may make (``runningExec(_:)``).
+    private actor ResumeOnce {
+        private var taken = false
+        func take() -> Bool {
+            defer { taken = true }
+            return !taken
+        }
+    }
+
+    /// A start whose machine does not run, and still did not after the start resumed it: its start card's text, with Retry.
+    public nonisolated static var notRunning: String {
+        String(localized: "cloud.machineRoute.notRunning",
+               defaultValue: "This Cloud machine didn't start. Try again in a moment.",
+               table: "Cloud", bundle: .module)
     }
 
     /// `family`'s ``Agent`` in the machine's output, read off the main actor: the parse splits the whole output and

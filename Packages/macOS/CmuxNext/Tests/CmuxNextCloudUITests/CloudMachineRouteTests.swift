@@ -137,6 +137,69 @@ import Testing
         #expect(await updated.count == 1)
     }
 
+    /// cmux#47638: a new Cloud chat took a reserved spare that the Cloud service paused right after its link came up; the
+    /// check's exec was refused `vm_not_running` and the start ended "Couldn't move the chat. the machine is not running;
+    /// start it first". The check starts the machine once and asks again, with no update wait.
+    @Test func aMachineThatDoesNotRunIsStartedOnceAndCheckedAgain() async throws {
+        let exec = ExecScript([.failure(Self.notRunning), .success(Self.unrouted(variables: ["CLAUDE_CODE_OAUTH_TOKEN"]))])
+        let resumed = UpdateCount(), updated = UpdateCount()
+        let route = CloudMachineRoute(exec: { _, _ in try await exec.next() }, resume: { await resumed.add() })
+        try await route.prepare(family: "claude") { await updated.add() }
+        #expect(await resumed.count == 1)
+        #expect(await updated.count == 0)
+        #expect(await exec.calls == 2)
+    }
+
+    /// A machine still refused after its one start ends the start with its own words and Retry, never "Couldn't move the
+    /// chat" with the route's text, and never runs the update; with nothing to start it, the same at once.
+    @Test func aMachineThatStaysStoppedEndsTheStartWithRetry() async throws {
+        for resumable in [true, false] {
+            let exec = ExecScript([.failure(Self.notRunning), .failure(Self.notRunning), .failure(Self.notRunning)])
+            let resumed = UpdateCount(), updated = UpdateCount()
+            let route = CloudMachineRoute(exec: { _, _ in try await exec.next() }, resume: resumable ? { await resumed.add() } : nil)
+            do {
+                try await route.prepare(family: "claude") { await updated.add() }
+                Issue.record("the start went on with a machine that does not run")
+            } catch let failure as CloudMoveFailure {
+                #expect(failure.message == CloudMachineRoute.notRunning)
+                #expect(failure.retry != nil)
+            }
+            #expect(await resumed.count == (resumable ? 1 : 0))
+            #expect(await updated.count == 0)
+            #expect(await exec.calls == (resumable ? 2 : 1))
+        }
+    }
+
+    /// A start that fails (the plan refused it) ends the start with its own error.
+    @Test func aStartThatFailsEndsTheStartWithItsError() async throws {
+        struct Refused: Error {}
+        let exec = ExecScript([.failure(Self.notRunning)])
+        let route = CloudMachineRoute(exec: { _, _ in try await exec.next() }, resume: { throw Refused() })
+        await #expect(throws: Refused.self) { try await route.prepare(family: "claude") {} }
+    }
+
+    /// Only the exec route's refusals of a machine that does not run start it; any other failure is the check's own.
+    @Test func onlyANotRunningRefusalStartsTheMachine() {
+        #expect(CloudMachineRoute.isNotRunning(Self.notRunning))
+        #expect(CloudMachineRoute.isNotRunning(CloudAPIError.http(status: 409, code: "cloud.machine.paused", message: nil)))
+        #expect(!CloudMachineRoute.isNotRunning(CloudAPIError.http(status: 409, code: "vm_busy", message: nil)))
+        #expect(!CloudMachineRoute.isNotRunning(CloudAPIError.timedOut("/exec")))
+    }
+
+    private static let notRunning = CloudAPIError.http(status: 409, code: "vm_not_running", message: "the machine is not running; start it first")
+
+    /// The exec's answers in order; past the last, the last again.
+    private actor ExecScript {
+        private var answers: [Result<String, CloudAPIError>]
+        private(set) var calls = 0
+        init(_ answers: [Result<String, CloudAPIError>]) { self.answers = answers }
+        func next() throws -> CloudExecResult {
+            calls += 1
+            let answer = answers.count > 1 ? answers.removeFirst() : answers[0]
+            return CloudExecResult(exitCode: 0, stdout: try answer.get(), stderr: "")
+        }
+    }
+
     private actor UpdateCount {
         var count = 0
         func add() { count += 1 }

@@ -121,10 +121,26 @@ extension CloudStartChat {
             timeline?.mark("machine.connect")
             let machineID = session.machineID
             // The chat's agent reaches a model: the machine's edge, its own sign-in there (a `claude setup-token` token), or the chat's own connection with its launch.
-            try await CloudMachineRoute(api: cloud.machineAPI, machineID: machineID).prepare(serves: { services.agentTabs.holdsTabs(session.daemon) && session.daemon.supports(AgentSessionAttachClient.credentialsCapability(harness: start.harness)) }, carriesConnection: connection != nil, family: CloudSetup.family(of: start.harness)) { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(machineID, services: services) } // checked first: updated only when it lacks what a start uses
+            // A machine the Cloud service paused after the link came up (a reserved spare whose warm ended, an idle pause)
+            // is started here, as the Send's own gesture, and the check asks again once its link is back (cmux#47638).
+            let resume: CloudMachineRoute.Resume = { @MainActor [invocation] in try await Self.resumeForStart(session, invocation: invocation, cloud: cloud) }
+            try await CloudMachineRoute(api: cloud.machineAPI, machineID: machineID, resume: resume).prepare(serves: { services.agentTabs.holdsTabs(session.daemon) && session.daemon.supports(AgentSessionAttachClient.credentialsCapability(harness: start.harness)) }, carriesConnection: connection != nil, family: CloudSetup.family(of: start.harness)) { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(machineID, services: services) } // checked first: updated only when it lacks what a start uses
             timeline?.mark("machine.route")
             return (session, plan)
         }
+    }
+
+    /// Starts `session`'s machine, which the Cloud API's exec route refused as not running, and waits for its link
+    /// (``CloudMove/connected(_:_:)``). The route is the platform's word, so the start goes out whatever the app's record
+    /// says (it can still read running); a start the platform refuses because the machine already runs or starts is
+    /// left to the link's wait, which says why when it never comes up.
+    static func resumeForStart(_ session: CloudMachineSession, invocation: ActionInvocation, cloud: CloudService) async throws {
+        do {
+            try await cloud.resumeMachine(session.machineID, origin: .user)
+        } catch {
+            cloud.logger.info("cloud start chat: resuming \(session.machineID, privacy: .public) answered \(String(describing: error), privacy: .public); waiting for its link")
+        }
+        _ = try await CloudMove.connected(session, invocation)
     }
 
     /// `answer`, or its error as the person reads it (``CloudMoveStrings/checked(_:)``).
