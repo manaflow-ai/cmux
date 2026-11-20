@@ -42,14 +42,21 @@ pub static VERBS: &[VerbSpec] = &[
             ("session-name", true),
             ("yes", false),
             ("nightly", false),
+            ("user", false),
         ],
         help: "keep cmux running here as a service (or on ssh://[user@]host[:port], installed there first)",
     },
     VerbSpec {
         path: &["uninstall"],
         positionals: &["ssh://host?"],
-        flags: &[("purge", false), ("no-backup", false), PG_BIN, ("yes", false)],
+        flags: &[("purge", false), ("no-backup", false), PG_BIN, ("yes", false), ("user", false)],
         help: "stop and remove the service, shim and store; keep state unless --purge",
+    },
+    VerbSpec {
+        path: &["logs"],
+        positionals: &[],
+        flags: &[("follow", false), ("lines", true)],
+        help: "show the service's log (--lines N, default 100; --follow to keep reading)",
     },
     VerbSpec {
         path: &["up"],
