@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-20",
+  "row": "app_lines",
+  "allow": 111,
+  "why": "The local Markdown reverse-link bridge must retain originating AgentPane authority while FilePageService owns the native page route; moving it across the target boundary would expose arbitrary session/socket selection. Follow-up extraction belongs with the Pages domain package.",
+  "author": "Codex agent-forum",
+  "owner": "message-sources lane / coordinator",
+  "receipt": "Review (source_protocol): SHIP at 00af08d9a0ed050a3bace326afc6ca1fbaff68e4",
+  "expiry": "2026-12-20"
+}

@@ -33,7 +33,6 @@ import Testing
         #expect(FilePageSourceContext.sourceURI(URL(fileURLWithPath: "/tmp/a%20b.md")) == "file:///tmp/a%2520b.md")
         #expect(FilePageSourceContext.sourceURI(try #require(URL(string: "https://example.test/a.md"))) == nil)
     }
-
     @Test func onlyServedReplyPairsCanOpenAndSessionChangesRevokeThem() async throws {
         let file = URL(fileURLWithPath: "/tmp/source-use.md")
         var current = true
