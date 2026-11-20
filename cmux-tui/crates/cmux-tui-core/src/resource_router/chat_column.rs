@@ -17,13 +17,20 @@
 //! the creation asked for. The focus stays in the chat (the router's
 //! `pane.split` does not take it).
 //!
-//! A retry with the same key finds the split its first attempt made (by
-//! the split's creation record) and sends the same split again, which
-//! replays, also now that the chat is no longer alone. A request that
-//! names a screen or a pane, a screen with a dock, and a chat that runs no
-//! session (the New Tab page) keep the daemon's own placement.
+//! The split runs under the creation's own idempotency and correlation
+//! keys, so the request's creation record (`session.creation.resolve`) is
+//! the split's, and a retry is answered by what that record says: a split
+//! made before is sent again and replays, also now that the chat is no
+//! longer alone; a tab the daemon's own path made before (the chat was not
+//! alone then) is left to that path, which replays it; with no record the
+//! split is made only for a chat that is alone. A retry after the chat
+//! left its place gets the daemon's conflict error, never a second
+//! terminal. One creation decides and splits at a time, so two that arrive
+//! together make one column, not two. A request that names a screen or a
+//! pane, a screen with a dock, and a chat that runs no session (the New
+//! Tab page) keep the daemon's own placement.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
@@ -37,18 +44,13 @@ use crate::mux::PANE_SPLIT_FIT_FIELD;
 use crate::resource::{RequestEnvelope, ResourceError, ResourceOperation};
 
 /// What the split takes from the creation it stands for (`name` goes to the
-/// rename).
-const CARRIED: [&str; 9] = [
-    "machine",
-    "session",
-    "correlation_key",
-    "cwd",
-    "argv",
-    "shell",
-    "cols",
-    "rows",
-    "expected_revision",
-];
+/// rename, `correlation_key` is always set).
+const CARRIED: [&str; 8] =
+    ["machine", "session", "cwd", "argv", "shell", "cols", "rows", "expected_revision"];
+
+/// Held from the decision to the split's answer: the next creation then
+/// sees the column this one made.
+static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
 
 /// The split's reply, when `request` is a terminal for a workspace that
 /// holds only an agent chat; `None` leaves the request to its own path.
@@ -64,13 +66,17 @@ pub(super) fn dispatch(
     else {
         return Ok(None);
     };
+    if !open_url::names_only_workspace(&request.selectors) {
+        return Ok(None);
+    }
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
     let Some(chat) = open_url::undocked_chat(mux, &request.selectors) else { return Ok(None) };
-    let steps = StepKeys::new(key);
-    // The split's creation record is under the caller's correlation key
-    // when the creation names one, else under the split's own key.
-    let correlation =
-        params.get("correlation_key").and_then(Value::as_str).unwrap_or(steps.split.as_str());
-    if !chat.alone && !split_before(mux, correlation)? {
+    let correlation = params.get("correlation_key").and_then(Value::as_str).unwrap_or(key);
+    let record = mux.resource_creation_resolution(correlation).map_err(resource_operation_error)?;
+    // An earlier attempt's path answers this one too; a first attempt goes
+    // right only for a chat that is alone.
+    let split_name = ResourceOperation::PaneSplit.wire_name();
+    if !record["operation"].as_str().map_or(chat.alone, |operation| operation == split_name) {
         return Ok(None);
     }
     let mut split = Map::new();
@@ -79,10 +85,11 @@ pub(super) fn dispatch(
             split.insert(field.to_string(), value.clone());
         }
     }
+    split.insert("correlation_key".to_string(), json!(correlation));
     split.insert("pane".to_string(), json!(chat.pane.as_str()));
     split.insert("direction".to_string(), json!("right"));
     split.insert(PANE_SPLIT_FIT_FIELD.to_string(), json!(true));
-    let created = inner(mux, request, ResourceOperation::PaneSplit, split, &steps.split)?;
+    let mut created = inner(mux, request, ResourceOperation::PaneSplit, split, key)?;
     let name = params.get("name").filter(|name| name.is_string());
     if let (Some(name), Some(tab)) = (name, created["value"]["tab_id"].as_str()) {
         let mut rename = Map::new();
@@ -93,16 +100,17 @@ pub(super) fn dispatch(
         }
         rename.insert("tab".to_string(), json!(tab));
         rename.insert("name".to_string(), name.clone());
-        inner(mux, request, ResourceOperation::TabRename, rename, &steps.name)?;
+        // The terminal is made: a name that cannot be set (its tab closed
+        // meanwhile) does not fail the creation, which a caller would send
+        // again and get a second terminal.
+        if let Ok(renamed) =
+            inner(mux, request, ResourceOperation::TabRename, rename, &name_key(key))
+        {
+            // The revision a caller chains from is the one after the name.
+            created["revision"] = renamed["revision"].clone();
+        }
     }
     Ok(Some(created))
-}
-
-/// Whether an earlier attempt of this request made its split.
-fn split_before(mux: &Arc<Mux>, correlation: &str) -> Result<bool, ResourceError> {
-    let resolution =
-        mux.resource_creation_resolution(correlation).map_err(resource_operation_error)?;
-    Ok(resolution["operation"].as_str() == Some(ResourceOperation::PaneSplit.wire_name()))
 }
 
 /// One step of `request`, as its actor, through the router.
@@ -122,20 +130,10 @@ fn inner(
     dispatch_resource_request(mux, validate_resource_envelope(envelope, request.actor.clone())?)
 }
 
-/// The keys of the steps, derived from the request's key (at most 128
-/// bytes): a retry replays each step.
-struct StepKeys {
-    split: String,
-    name: String,
-}
-
-impl StepKeys {
-    fn new(key: &str) -> Self {
-        let digest = Sha256::digest(key.as_bytes());
-        let hash: String = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect();
-        Self {
-            split: format!("tab-beside-chat-{hash}"),
-            name: format!("tab-beside-chat-name-{hash}"),
-        }
-    }
+/// The rename's key, derived from the request's key (at most 128 bytes): a
+/// retry replays the rename.
+fn name_key(key: &str) -> String {
+    let digest = Sha256::digest(key.as_bytes());
+    let hash: String = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect();
+    format!("tab-beside-chat-name-{hash}")
 }

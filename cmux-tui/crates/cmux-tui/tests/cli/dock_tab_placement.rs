@@ -245,6 +245,21 @@ fn chat_workspace(server: &HeadlessServer, name: &str, session: Option<&str>) ->
     (workspace, chat_pane)
 }
 
+/// One `cmux.protocol/2` read (no key); the whole reply.
+fn read(server: &HeadlessServer, operation: &str, params: Value) -> Value {
+    let mut fields = json!({"machine": "current", "session": "current"});
+    fields.as_object_mut().unwrap().extend(params.as_object().unwrap().clone());
+    let request = json!({"protocol": "cmux.protocol/2", "type": "request", "id": "dock-tab-read",
+                         "operation": operation, "params": fields});
+    let stream = transport::connect(&server.socket).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    writeln!(writer, "{request}").unwrap();
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    serde_json::from_str(&line).unwrap_or_else(|_| panic!("{operation}: no JSON reply: {line}"))
+}
+
 fn pane_count(screen: &Value) -> usize {
     screen["panes"].as_array().unwrap().len()
 }
@@ -323,6 +338,20 @@ fn a_retry_of_a_terminal_opened_right_of_a_lone_chat_replays_it() {
         .to_string();
     assert!(made.contains("\"build log\""), "the new tab lost its name: {made}");
 
+    // The creation's record is under the caller's own key: a caller that
+    // lost the reply learns the terminal was made, and does not make another.
+    let tab = first["result"]["value"]["tab_id"].as_str().unwrap();
+    let resolved = read(
+        &server,
+        "session.creation.resolve",
+        json!({"correlation_key": "dock-tab-lone-retry-1"}),
+    )
+    .to_string();
+    assert!(
+        resolved.contains("\"created\"") && resolved.contains(tab),
+        "the creation is not resolved by the caller's key: {resolved}"
+    );
+
     let again = create();
     assert_eq!(again["ok"], true, "the retry did not replay: {again}");
     assert_eq!(again["result"]["value"]["tab_id"], first["result"]["value"]["tab_id"], "{again}");
@@ -370,4 +399,44 @@ fn a_terminal_made_in_the_chats_pane_by_name_stays_there() {
     let after = screen(&server, name);
     assert_eq!(pane_count(&after), 1, "{after}");
     assert_eq!(tabs(&after, &chat_pane), tabs(&before, &chat_pane) + 1, "{after}");
+}
+
+/// A creation the daemon's own path answered (the chat had a pane on its
+/// right then) is replayed by that path, also when a retry finds the chat
+/// alone: the retry makes no column and no second terminal.
+#[test]
+fn a_retry_of_a_tab_made_beside_the_chat_replays_it_when_the_chat_is_alone_again() {
+    let server = HeadlessServer::start("dock-tab-path-retry");
+    let name = "dock-tab-path-retry";
+    let (workspace, chat_pane) = chat_workspace(&server, name, Some("dock-tab-chat-4"));
+    // A column right of the chat, then a tab the daemon's own path puts there.
+    let column =
+        v2(&server, "tab.create_terminal", json!({"workspace": workspace}), "dock-tab-path-col");
+    assert_eq!(column["ok"], true, "{column}");
+    let create = || {
+        v2(&server, "tab.create_terminal", json!({"workspace": workspace}), "dock-tab-path-retry-1")
+    };
+    let first = create();
+    assert_eq!(first["ok"], true, "{first}");
+    let with_column = screen(&server, name);
+    assert_eq!(pane_count(&with_column), 2, "{with_column}");
+    // The column closes: the chat is alone again.
+    let right = with_column["panes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|pane| pane["id"] != chat_pane)
+        .unwrap()["resource_id"]
+        .clone();
+    let closed = v2(&server, "pane.close", json!({"pane": right}), "dock-tab-path-close");
+    assert_eq!(closed["ok"], true, "{closed}");
+    let alone = screen(&server, name);
+    assert_eq!(pane_count(&alone), 1, "{alone}");
+
+    let again = create();
+    assert_eq!(again["ok"], true, "the retry did not replay: {again}");
+    assert_eq!(again["result"]["value"]["tab_id"], first["result"]["value"]["tab_id"], "{again}");
+    let last = screen(&server, name);
+    assert_eq!(pane_count(&last), 1, "the retry made a column: {last}");
+    assert_eq!(tabs(&last, &chat_pane), tabs(&alone, &chat_pane), "{last}");
 }

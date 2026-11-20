@@ -267,6 +267,16 @@ pub(crate) fn right_pane_beside_focused_dock(
 /// ([`beside_agent_chats`]). `None` for a request that names no workspace or
 /// names a screen, a pane or a tab: its place is the caller's choice.
 fn workspace_side(mux: &Mux, selectors: &ResourceSelectors) -> Option<RightSide> {
+    if !names_only_workspace(selectors) {
+        return None;
+    }
+    let workspace =
+        mux.resolve_resource_path(ResourceTarget::Workspace, selectors).ok()?.workspace?;
+    Some(beside_agent_chats(mux, mux.with_state(|state| right_side(state, &workspace))?))
+}
+
+/// Whether `selectors` name a workspace and nothing below it.
+pub(super) fn names_only_workspace(selectors: &ResourceSelectors) -> bool {
     let below = [
         &selectors.screen,
         &selectors.pane,
@@ -275,12 +285,7 @@ fn workspace_side(mux: &Mux, selectors: &ResourceSelectors) -> Option<RightSide>
         &selectors.browser,
         &selectors.frontend_projection,
     ];
-    if selectors.workspace.is_none() || below.iter().any(|selector| selector.is_some()) {
-        return None;
-    }
-    let workspace =
-        mux.resolve_resource_path(ResourceTarget::Workspace, selectors).ok()?.workspace?;
-    Some(beside_agent_chats(mux, mux.with_state(|state| right_side(state, &workspace))?))
+    selectors.workspace.is_some() && below.iter().all(|selector| selector.is_none())
 }
 
 /// The agent chat that is not docked on the screen a workspace-only request
