@@ -16,6 +16,7 @@ pub mod agent_start_launch;
 mod agent_status;
 pub mod agent_view;
 mod apps;
+pub mod packed_catalogs;
 pub mod route_table;
 /// Daemon primitives; the cmux-tui-util crate, re-exported at the old paths.
 pub use cmux_tui_util::backoff;
