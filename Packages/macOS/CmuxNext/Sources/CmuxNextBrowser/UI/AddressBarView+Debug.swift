@@ -256,3 +256,12 @@ extension AddressBarView {
         return length > 0 && editor.selectedRange() == NSRange(location: 0, length: length)
     }
 }
+
+extension AddressBarView {
+    /// The omnibar edits and holds its window's keyboard: the window's first responder is its field
+    /// (editor), so a key typed now lands in it (benches: `debug.new_tab` `omnibar.focus_ms`).
+    public var editsAsFirstResponder: Bool {
+        guard isEditing, let responder = window?.firstResponder as? NSView else { return false }
+        return responder.isDescendant(of: self)
+    }
+}

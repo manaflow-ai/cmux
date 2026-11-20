@@ -9,10 +9,13 @@ picture of the recording (a later build's rows may carry the same two numbers fo
 
 The zero of a row. frame_strip takes its key time AFTER the send of the key returned (DebugFrameStrip.swift), and
 that send runs the key's own main thread work. So the reply's times count from the END of that work, and its
-opening marks start before its zero. `one_key` moves the zero back to the start of the first key's earliest opening
-mark (`cmdN.start`; `newTab.take` or `newTab.open`): `key_work_ms` is that distance, added to each row's time
-before a frame is numbered, and `zero` names the mark. The time of the key's router before that mark is in no
-number. A reply with no such mark has no known zero: the row is INVALID.
+opening marks start before its zero. `one_key` moves the zero back to the time at which the key went in, when the
+reply says it (`before_send_ms`: how long before the reply's zero the key or gesture went in; the key's router is
+then in the numbers). A reply with no such number (a build from before it) has the start of the first key's
+earliest opening mark as its zero (`cmdN.start`; `newTab.take` or `newTab.open`), and the time of the key's router
+before that mark is then in no number. `key_work_ms` is the distance from the row's zero to the reply's zero, added
+to each row's time before a frame is numbered, and `zero` names which of the two zeros the row has: rows with
+unlike zeros are not one table. A reply with neither has no known zero: the row is INVALID.
 
 For one key (`one_key`), counted in frames of the display after the key (frame 1 = the first frame composited
 after it) and in ms:
@@ -30,7 +33,17 @@ after it) and in ms:
   first_is_final True: each region is at the last picture IN the `content_first` frame
                  (`content_first_is_last_picture`) and in each row after it. False: one is not. None (not known):
                  each is, but a frame of the display from the one before `content_first` on has no row
-                 (`frames_not_seen_from_content`), so a change can be in it.
+                 (`frames_not_seen_from_content`), so a change can be in it, or the strip is not seen.
+  whole_window   True: the regions that the row judges are the whole window. The rows carry the tab strip's
+                 numbers, or the reply says that the strip changed in one step with the content (no frame with the
+                 strip at neither picture, no row with the strip and the content apart). False: the strip did not,
+                 and the rows do not carry it (a build from before the strip's numbers; `strip_not_seen`). Then the
+                 row has no `final`, a row with the page new and the strip old is a changed frame with its number,
+                 and the reply's count of strip frames at neither picture (`strip_intermediate`), less the rows up
+                 to `content_first`, is the lowest count of changed frames after it: a run with no frame number.
+                 With 2 keys the reply counts from the first key: its rows up to the second key's due time (the
+                 strip then has the first key's tab: neither picture) are taken off that count too.
+                 `first_is_final` is then False, or not known when that count is 0: never True.
 
 The frame number of a row is its time over the display's frame time, counted up for the first row and by the rows'
 steps after it. The rows start at the last frame before the reply's zero (frame_strip's `before` picture), so a
@@ -42,8 +55,10 @@ and a recorder that delivers each second frame of the display then gives half of
 
 A key that comes `gap_ms` after another key in the same recording is counted from the time at which that second
 key was due (the first key's zero plus the gap: a person's key waits in the queue while the app works, so the wait
-counts). frame_strip's timer for the second key starts when the first key's work ended, so the second key goes in
-`key_work_ms` after its due time at the earliest, and that wait is in the row's numbers too. The picture before is
+counts). In a build whose reply has `before_send_ms`, frame_strip's timer for the second key counts from the time
+the first key went in, so the second key is late only when the first key's work is longer than the gap. In a build
+from before it the timer starts when the first key's work ended, so the second key goes in `key_work_ms` after its
+due time at the earliest. That wait is in the row's numbers in both (`second_key_late_ms`). The picture before is
 then the one before the FIRST key, so `tab` is the frame at which the tab's region reached the last picture (both
 new tabs or rows drawn), and `content_first` is 1 when the first key's page is on the screen already.
 
@@ -72,6 +87,7 @@ REGIONS = ("content", "outside", "strip")
 # The marks that open a key's own work, by key: the earliest of them is the row's zero.
 OPENING_MARKS = {"n": ("cmdN.start",), "t": ("newTab.take", "newTab.open")}
 ZERO = "the start of the first key's earliest opening mark"
+ZERO_SENT = "the time at which the first key went in (the reply's before_send_ms)"
 # A caret: at most this share of a region, each phase this long (ms), this many phases at least.
 BLINK_SHARE = 0.002
 BLINK_PHASE_MS = (250, 900)
@@ -209,14 +225,17 @@ def input_proof(key, keys_sent, opened, counted, spans):
 def one_key(reply, key, gap_ms=0, tolerance=TOLERANCE, asked_hz=None, settle_ms=SETTLE_MS):
     """One recording's numbers (the module doc). `reply` is frame_strip's; `gap_ms` > 0: two keys that far apart,
     counted from the second one's due time."""
-    work = key_work_of(key, reply.get("spans"))
+    sent = reply.get("before_send_ms")
+    said = _number(sent) and sent >= 0
+    work = sent if said else key_work_of(key, reply.get("spans"))
     out = {"key": key, "gap_ms": gap_ms, "invalid": [], "capture": reply.get("capture"),
            "capture_error": reply.get("capture_error"), "spans": reply.get("spans") or [],
-           "key_work_ms": work, "zero": None if work is None else ZERO}
+           "key_work_ms": work, "zero": ZERO_SENT if said else None if work is None else ZERO}
     if reply.get("capture") != CAPTURE:
         out["invalid"].append(f"capture: the frames are not the screen's ({reply.get('capture')!r}): the page is not in them")
     if work is None:
-        out["invalid"].append("zero: the spans have no opening mark of the first key: the time of the key's own work is not known")
+        out["invalid"].append("zero: the reply does not say when the key went in and the spans have no opening mark of the "
+                              "first key: the time of the key's own work is not known")
     # The rows after the judged key, their ms from it: the reply's zero is the end of the first key's own work, and
     # the judged key is the first one, or the second one at its due time in a gap recording.
     shift = (work or 0) - gap_ms
@@ -260,15 +279,27 @@ def one_key(reply, key, gap_ms=0, tolerance=TOLERANCE, asked_hz=None, settle_ms=
         source = (f"not known: the rows carry no strip numbers; {reply.get('strip_intermediate') or 0:.0f} frames of the "
                   f"strip equal neither picture, {sum(1 for row in after if row.get('desync'))} frames show the strip and the content apart")
     out["tab"], out["tab_source"] = tab, source
+    # The strip in a build whose rows do not carry it: the reply still counts the frames with the strip at neither
+    # picture and marks the rows with the strip and the content apart. A strip with neither changed in one step with
+    # the content and is seen with it. One with either is not seen: the judged regions are then not the whole window.
+    hidden = regions["strip"] is None
+    slid = reply.get("strip_intermediate") if hidden and _number(reply.get("strip_intermediate")) else 0
+    apart = {index for index, (_, row) in enumerate(numbered) if row.get("desync")} if hidden else set()
+    whole = bool(regions["outside"]) and not (slid or apart)
+    out["whole_window"] = whole
+    out["strip_not_seen"] = None if whole or not hidden else {"frames_at_neither_picture": slid, "rows_apart": len(apart)}
     unsettled = sorted(name for name, region in known.items() if not region["settled"])
     finals = [region["final"] for region in known.values() if region["changed"] and region["final"]]
-    out["final"] = None if unsettled else max(finals, key=lambda at: at["frame"], default=_at(numbered, 0))
+    # No `final` when the strip is not seen: the end of the last change is not in the rows.
+    out["final"] = None if unsettled or not whole else max(finals, key=lambda at: at["frame"], default=_at(numbered, 0))
     if unsettled:
         out["invalid"].append(f"frames: {', '.join(unsettled)} still changed at the recording's last frame")
     runs, unseen = [], None
     if first is not None:
         for index in range(first + 1, len(numbered)):
             state = {name: region["states"][index] for name, region in known.items()}
+            if index in apart:
+                state["strip"] = "before"  # the page is new in this row (it is after content_first), so the strip is the old one
             if all(value == "final" for value in state.values()):
                 continue
             frame, row = numbered[index]
@@ -277,6 +308,14 @@ def one_key(reply, key, gap_ms=0, tolerance=TOLERANCE, asked_hz=None, settle_ms=
                 runs[-1]["count"] += 1
             else:
                 runs.append({"frames": [frame, frame], "ms": [row["ms"], row["ms"]], "count": 1, "state": state, "file": row.get("file")})
+        # The strip's frames at neither picture: the rows up to content_first can be `first + 1` of them at most, and
+        # each row from the reply's zero to the judged key (a gap recording: the first key's tab is in the strip) can be one.
+        skipped = sum(1 for f in reply.get("frames") or [] if _number(f.get("ms")) and f["ms"] >= 0 and f["ms"] + shift <= 0)
+        later = max(0, int(slid) - skipped - first - 1)
+        if later:
+            runs.append({"frames": None, "ms": None, "count": later, "state": {"strip": "between"}, "file": None,
+                         "source": "the reply's strip_intermediate, less the rows up to content_first: the rows carry no "
+                                   "strip numbers, so the frames are not known and the count is the lowest one"})
         quiet = after[-1]["ms"] - numbered[first][1]["ms"]
         if quiet < settle_ms:
             out["invalid"].append(f"frames: the take ended before {settle_ms / 1000:g} s after content_first ({quiet:.0f} ms after it)")
@@ -289,10 +328,11 @@ def one_key(reply, key, gap_ms=0, tolerance=TOLERANCE, asked_hz=None, settle_ms=
     out["frames_not_seen_from_content"] = unseen
     # The content_first frame itself: each region that the rows carry is at its last picture in it. A page that is
     # half drawn in that frame, or a sidebar row that comes one frame later, is a change after the first content.
-    at_first = first is not None and all(region["states"][first] == "final" for region in known.values())
-    out["content_first_is_last_picture"] = at_first if first is not None else None
-    # None: not known. No row shows a change, but a frame with no row can hold one.
-    out["first_is_final"] = False if first is None or runs or not at_first else (None if unseen else True)
+    at_first = first is not None and first not in apart and all(region["states"][first] == "final" for region in known.values())
+    # None: no content, or each judged region is at its last picture in that frame and the strip is not seen.
+    out["content_first_is_last_picture"] = None if first is None or (at_first and not whole) else at_first
+    # None: not known. No row shows a change, but a frame with no row can hold one, or the strip is not seen.
+    out["first_is_final"] = False if first is None or runs or not at_first else (None if unseen or not whole else True)
     out["regions"] = {name: ({k: v for k, v in region.items() if k != "states"} if region else None) for name, region in regions.items()}
     out["blinks"] = [region["blink"] for region in known.values() if region["blink"]]
     # The pictures that say what each number means: the picture that the app compares with (its last frame before the
@@ -300,7 +340,7 @@ def one_key(reply, key, gap_ms=0, tolerance=TOLERANCE, asked_hz=None, settle_ms=
     before = max((f for f in reply.get("frames") or [] if _number(f.get("ms")) and f["ms"] <= 0), key=lambda f: f["ms"], default={})
     out["pictures"] = {"before": before.get("file"), "last": after[-1].get("file"),
                        **{name: out[name]["file"] for name in ("tab", "content_first", "content_final", "final") if out[name]},
-                       **{f"changed_{index}": run["file"] for index, run in enumerate(runs[:6])}}
+                       **{f"changed_{index}": run["file"] for index, run in enumerate(runs[:6]) if run["file"]}}
     return out
 
 
@@ -319,11 +359,13 @@ def summarize(rows):
     out = {"n": len(rows), "valid": len(good), "invalid": sorted({reason.split(":")[0] for row in rows for reason in row.get("invalid") or []}),
            "first_is_final": sum(1 for row in good if row.get("first_is_final") is True),
            "first_is_final_not_known": sum(1 for row in good if row.get("first_is_final") is None),
+           "whole_window": sum(1 for row in good if row.get("whole_window") is True),
            "changes_after_content": _spread([row.get("changes_after_content") for row in good]),
            "tab_known": sum(1 for row in good if row.get("tab")), "blinks": sum(1 for row in good if row.get("blinks")),
            "blank_frames": sum(row.get("blank_frames") or 0 for row in good),
            "refresh_ms": _spread([row.get("refresh_ms") for row in good]),
-           "key_work_ms": _spread([row.get("key_work_ms") for row in good])}
+           "key_work_ms": _spread([row.get("key_work_ms") for row in good]),
+           "zero": sorted({row["zero"] for row in good if row.get("zero")})}
     for name in ("tab", "content_first", "content_final", "final"):
         out[name] = {unit: _spread([(row.get(name) or {}).get(unit) for row in good]) for unit in ("frame", "ms")}
     return out
@@ -333,11 +375,14 @@ def cell(summary):
     def said(name):
         frames, ms = summary[name]["frame"], summary[name]["ms"]
         return "none" if not frames else f"frame {frames['p50']:g} (max {frames['max']:g}), {ms['p50']:g} ms (max {ms['max']:g})"
-    changes, work = summary["changes_after_content"], summary["key_work_ms"]
+    changes, work, zeros = summary["changes_after_content"], summary["key_work_ms"], summary.get("zero") or []
     return (f"valid {summary['valid']}/{summary['n']}" + (f" (INVALID: {', '.join(summary['invalid'])})" if summary["invalid"] else "")
             + f"; tab {said('tab')} [known {summary['tab_known']}/{summary['valid']}]; content_first {said('content_first')}; "
             f"content_final {said('content_final')}; final {said('final')}; first=final {summary['first_is_final']}/{summary['valid']} "
-            f"(not known {summary['first_is_final_not_known']}); "
+            f"(not known {summary['first_is_final_not_known']}); whole window seen {summary['whole_window']}/{summary['valid']}"
+            + ("" if summary["whole_window"] == summary["valid"] else " (THE STRIP IS NOT SEEN in the others: their changed frames are a lowest count)")
+            + "; "
             f"frames changed after content p50 {changes['p50'] if changes else 'n/a'} max {changes['max'] if changes else 'n/a'}; "
             f"the key's own work p50 {work['p50'] if work else 'n/a'} ms max {work['max'] if work else 'n/a'}; "
-            f"blank {summary['blank_frames']}; caret rows {summary['blinks']}")
+            f"blank {summary['blank_frames']}; caret rows {summary['blinks']}"
+            + ("" if not zeros else f"; zero: {zeros[0]}" if len(zeros) == 1 else f"; ROWS OF {len(zeros)} ZEROS (their times are not one table): {' / '.join(zeros)}"))

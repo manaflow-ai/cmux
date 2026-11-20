@@ -168,6 +168,7 @@ function TurnEndFoldGallery({ variant, long = false }: { variant: Variant; long?
       }),
     [steps, ended, state, long],
   );
+  // gallery-capture: runs only from Run the turn, which each arm's play clicks and then waits for its end state.
   const start = () => {
     timers.current.forEach((timer) => window.clearTimeout(timer));
     // The long turn starts with its first two runs done and plays only the third, so it ends as soon as
