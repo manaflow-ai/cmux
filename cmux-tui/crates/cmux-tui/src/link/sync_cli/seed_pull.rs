@@ -721,7 +721,7 @@ fn disk_file(
     blob: &str,
 ) -> anyhow::Result<Option<Expected>> {
     let Ok(Some((dir, name))) = place::parent_of(root, relative) else { return Ok(None) };
-    let Entry::File { mode } = dir.entry(&name)? else { return Ok(None) };
+    let Entry::File { mode, .. } = dir.entry(&name)? else { return Ok(None) };
     let mut file = dir.open_file(&name)?;
     // One read: the bytes hashed for the transaction are the bytes checked
     // against the blob the merge planned from (as `git add` would store

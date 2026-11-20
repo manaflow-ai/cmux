@@ -23,6 +23,8 @@ pub(super) enum Entry {
     Missing,
     File {
         mode: u32,
+        /// The stat it was found with ([`super::stat_cache`]).
+        stat: super::stat_cache::Stat,
     },
     Dir,
     Link,
@@ -63,6 +65,19 @@ fn widen<T: TryInto<u32>>(value: T) -> u32 {
 /// A `dev_t` or `ino_t` (their widths and signs vary) as u64.
 fn widen_u64<T: TryInto<u64>>(value: T) -> u64 {
     value.try_into().unwrap_or_default()
+}
+
+/// What a stat cache compares of `stat` ([`super::stat_cache::Stat`]).
+fn stat_of(stat: &libc::stat) -> super::stat_cache::Stat {
+    let nanos = |value: i64| u32::try_from(value).unwrap_or(0);
+    super::stat_cache::Stat {
+        dev: widen_u64(stat.st_dev),
+        ino: widen_u64(stat.st_ino),
+        mode: widen(stat.st_mode),
+        size: widen_u64(stat.st_size),
+        mtime: (stat.st_mtime, nanos(stat.st_mtime_nsec)),
+        ctime: (stat.st_ctime, nanos(stat.st_ctime_nsec)),
+    }
 }
 
 /// A folder's stream ([`Dir::names`]), closed when dropped.
@@ -187,7 +202,7 @@ impl Dir {
             Ok(_) => Ok(match stat.st_mode & libc::S_IFMT {
                 libc::S_IFREG => {
                     // mode_t is u16 on macOS and u32 on Linux.
-                    Entry::File { mode: widen(stat.st_mode & 0o7777) }
+                    Entry::File { mode: widen(stat.st_mode & 0o7777), stat: stat_of(&stat) }
                 }
                 libc::S_IFDIR => Entry::Dir,
                 libc::S_IFLNK => Entry::Link,
@@ -409,6 +424,7 @@ pub(super) fn open_beneath(root: &Path, relative: &str) -> anyhow::Result<Beneat
     let Some((parent, name)) = parent_of(&dir, relative)? else {
         bail!("{relative} is gone from {}", root.display());
     };
+    super::stat_cache::opened();
     let file = parent.open_file(&name)?;
     let meta = file.metadata()?;
     if !meta.is_file() {

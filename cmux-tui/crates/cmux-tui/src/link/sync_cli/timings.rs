@@ -3,7 +3,10 @@
 //! `list` (the folder read and filtered here), `prepare` (each file's hash, and the machine's
 //! folders read and made, one request at a time), `hash` (that hashing alone), `small` (the
 //! store's fetch and the small files' writes), `large` (the big files, one at a time) and
-//! `finish` (links, the manifest and this Mac's record), each in ms.
+//! `finish` (links, the manifest and this Mac's record), each in ms; and counts: `hashed_files`
+//! and `hashed_bytes` (files read to hash them), `cached_files` (files the stat cache answered,
+//! not read, [`super::stat_cache`]) and `opened_files` (files of the folder opened to read for
+//! any reason: hash, write or upload).
 
 use std::time::{Duration, Instant};
 
@@ -31,6 +34,18 @@ impl Stages {
         let now = Instant::now();
         self.marks.insert(name.to_owned(), json!(now.duration_since(self.last).as_millis()));
         self.last = now;
+    }
+
+    /// The files hashed (and their bytes) and the files the stat cache answered.
+    pub(super) fn hashed(&mut self, files: u64, bytes: u64, cached: u64) {
+        self.marks.insert("hashed_files".to_owned(), json!(files));
+        self.marks.insert("hashed_bytes".to_owned(), json!(bytes));
+        self.marks.insert("cached_files".to_owned(), json!(cached));
+    }
+
+    /// The files of the folder this push opened to read.
+    pub(super) fn opened(&mut self, files: u64) {
+        self.marks.insert("opened_files".to_owned(), json!(files));
     }
 
     /// Runs `hash`, counting its time as hashing.

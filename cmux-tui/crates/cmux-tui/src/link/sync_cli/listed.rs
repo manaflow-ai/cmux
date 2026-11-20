@@ -8,6 +8,7 @@ use anyhow::{Context as _, bail};
 use super::local::{LocalFile, LocalSet, Rules, Source, holdable, permissions_of, swapped};
 use super::place;
 use super::skips::{self, Why};
+use super::stat_cache::Stat;
 
 impl LocalFile {
     /// The regular file at `path`, as `meta` (its `symlink_metadata`) found it.
@@ -17,6 +18,17 @@ impl LocalFile {
             source: Source::File(path.to_path_buf()),
             permissions: permissions_of(meta.permissions().mode()),
             id: Some((meta.dev(), meta.ino())),
+            stat: Some(Stat::of(meta)),
+        }
+    }
+
+    /// The regular file at `path`, as its folder's descriptor found it (`stat`), not opened.
+    fn found(path: &Path, mode: u32, stat: Stat) -> Self {
+        Self {
+            source: Source::File(path.to_path_buf()),
+            permissions: permissions_of(mode),
+            id: Some((stat.dev, stat.ino)),
+            stat: Some(stat),
         }
     }
 }
@@ -27,6 +39,7 @@ impl LocalFile {
 /// a symlink that leads out of the folder copied).
 pub(super) fn open_listed(path: &Path, id: Option<(u64, u64)>) -> anyhow::Result<std::fs::File> {
     use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _};
+    super::stat_cache::opened();
     let opened = std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
@@ -77,7 +90,7 @@ pub(super) fn add_entry(
     entry: place::Entry,
 ) -> anyhow::Result<()> {
     match entry {
-        place::Entry::File { mode } => add_in(set, relative, path, dir, name, mode),
+        place::Entry::File { mode, stat } => add_in(set, relative, path, mode, stat),
         place::Entry::Link => link_in(set, &relative, path, dir, name),
         place::Entry::Other => {
             set.skips.note(&relative, Why::Special);
@@ -172,45 +185,26 @@ fn link_in(
     Ok(())
 }
 
-/// [`add`] for the regular file `name` (listed with `mode`) of the folder
-/// `handle` holds open: its identity comes from a descriptor opened there, never
-/// through `path`, so a folder above it swapped since the walk opened it lends
-/// no other file's. One this user cannot read takes its identity from the entry
-/// instead: a sharing rule may leave it out, and a copy fails when it reads it.
+/// [`add`] for the regular file (listed with `mode` and `stat`) at `path`. Its
+/// identity and stat come from the folder's descriptor (`fstatat` of its name,
+/// never following a symlink), never through `path`, so a folder above it
+/// swapped since the walk opened it lends no other file's; it is not opened
+/// (a push reads only what changed, [`super::stat_cache`]), and every read
+/// later refuses a file other than this one ([`open_listed`]). One this user
+/// cannot read is listed too: a sharing rule may leave it out, and a copy fails
+/// when it reads it.
 fn add_in(
     set: &mut LocalSet,
     relative: String,
     path: &Path,
-    handle: &place::Dir,
-    name: &str,
     mode: u32,
+    stat: Stat,
 ) -> anyhow::Result<()> {
     if !holdable(&relative) {
         set.skips.note(&relative, skips::unholdable(&relative));
         return Ok(());
     }
-    match handle.open_file(name) {
-        Ok(file) => {
-            let meta = file.metadata()?;
-            if meta.is_file() {
-                set.add(relative, LocalFile::listed(path, &meta), meta.len())?;
-            } else {
-                set.skips.note_entry(&relative, path, &meta);
-            }
-        }
-        // A symlink there since it was listed: as one, read through `handle`.
-        Err(error) if swapped(&error) => link_in(set, &relative, path, handle, name)?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
-            if let Some(id) = handle.inode(name)? {
-                let source = Source::File(path.to_path_buf());
-                let file = LocalFile { source, permissions: permissions_of(mode), id: Some(id) };
-                set.add(relative, file, 0)?;
-            }
-        }
-        Err(error) => return Err(error).with_context(|| format!("cannot read {}", path.display())),
-    }
-    Ok(())
+    set.add(relative, LocalFile::found(path, mode, stat), stat.size)
 }
 
 /// The bytes of the git file `name` (at `path`) that a copy rewrites before

@@ -114,23 +114,6 @@ impl Skips {
         }
     }
 
-    /// The entry at `path` (`relative` in the folder) is not a regular file
-    /// whose name the machine can hold: noted with why.
-    pub(super) fn note_entry(&mut self, relative: &str, path: &Path, meta: &std::fs::Metadata) {
-        let why = if meta.file_type().is_symlink() {
-            match std::fs::canonicalize(path) {
-                Ok(target) if target.starts_with(&self.top) => Why::SymlinkInside,
-                Ok(_) => Why::SymlinkOutside,
-                Err(_) => Why::SymlinkBroken,
-            }
-        } else if !meta.file_type().is_file() {
-            Why::Special
-        } else {
-            unholdable(relative)
-        };
-        self.note(relative, why);
-    }
-
     /// The folder whose skips these are.
     pub(super) fn top(&self) -> &Path {
         &self.top

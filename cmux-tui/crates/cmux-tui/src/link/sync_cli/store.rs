@@ -199,6 +199,27 @@ pub(super) struct Pending<'a> {
     pub file: &'a LocalFile,
     pub sha256: String,
     pub size: u64,
+    /// Its chunks when already known (cut in the read that hashed it, or kept by
+    /// [`super::stat_cache`]): not cut again.
+    pub pieces: Option<Vec<Piece>>,
+}
+
+/// What [`chunks`] and [`pieces_of`] depend on: a chunk list kept with other values is not
+/// these files' ([`super::stat_cache`]).
+pub(super) fn chunking() -> [u64; 6] {
+    [
+        WHOLE_FILE_MAX,
+        CHUNK_MIN as u64,
+        CHUNK_AVG as u64,
+        CHUNK_MAX as u64,
+        u64::from(MASK_HARD_BITS),
+        u64::from(MASK_EASY_BITS),
+    ]
+}
+
+/// Files up to this size are one blob.
+pub(super) fn whole_file_max() -> u64 {
+    WHOLE_FILE_MAX
 }
 
 /// What the store path did.
@@ -331,6 +352,18 @@ fn pieces_of(pending: &Pending<'_>) -> anyhow::Result<Vec<Piece>> {
             return Ok(Vec::new());
         }
         return Ok(vec![Piece { offset: 0, size: pending.size, sha256: pending.sha256.clone() }]);
+    }
+    // Pieces known already are used only when they cover the file end to end; each one uploaded
+    // is checked against its hash as it is read ([`read_piece`]).
+    if let Some(pieces) = &pending.pieces
+        && pieces.first().is_some_and(|first| first.offset == 0)
+        && pieces.windows(2).all(|pair| match pair {
+            [a, b] => a.offset.checked_add(a.size) == Some(b.offset),
+            _ => false,
+        })
+        && pieces.last().and_then(|last| last.offset.checked_add(last.size)) == Some(pending.size)
+    {
+        return Ok(pieces.clone());
     }
     let mut reader = super::open(pending.file)?;
     Ok(chunks(&mut reader)?)
