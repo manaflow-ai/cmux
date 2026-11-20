@@ -94,8 +94,10 @@ import { composerDockMotion } from "../agent-session/acpmux/composer/dockMotion.
 import { teamAudit } from "../agent-session/acpmux/teamAudit/teamAudit.experiment";
 import { jumpPairLook } from "../agent-session/acpmux/jumpPair.experiment";
 import type { Experiment } from "./experiment";
+import { githubAppName } from "../pages/settings/components/githubAppName.experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
+  githubAppName,
   diffTreeDisclosure,
   treeNameFade,
   sessionReplay,

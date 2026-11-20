@@ -3,6 +3,7 @@ import { Button } from "../../../ui/Button";
 import { SignInButton } from "../../../ui/SignInButton";
 import { useSettingsState, useStore } from "../context";
 import { LOAD_FADE_CLASS, useLoadFade } from "../../../agent-session/shared/loadFade";
+import { GitHubAppNamePreview } from "./GitHubAppNamePreview";
 
 /** The host owns GitHub App authentication; this card never receives a credential. */
 export function GitHubAccountsCard() {
@@ -20,6 +21,7 @@ export function GitHubAccountsCard() {
     >
       <h3 className="group-title">{github.title}</h3>
       <div className="rows">
+        <GitHubAppNamePreview />
         <div className="row accounts-row">
           <div className="row-label">
             <p className="row-help">{github.detail}</p>
