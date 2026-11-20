@@ -76,6 +76,8 @@ on:
       - "schemas/ghostty-shell-features/vectors.json"
       - "schemas/terminal-sizing/fixtures.json"
       - "scripts/ci/init-submodule.sh"
+      - "scripts/ci/apt-ensure.sh"
+      - "tests/test_ci_apt_ensure.py"
       - "scripts/cmux-next/cargo-locks.py"
       - "scripts/install-zig-ci.sh"
       - "webviews/src/agent-session/acpmux/rows/parity/**"
@@ -367,8 +369,7 @@ jobs:
       # As cmux-tui.yml's Linux test job: acpmux's sandbox tests need bubblewrap.
       - name: Install bubblewrap
         run: |
-          sudo apt-get update
-          sudo apt-get install -y bubblewrap
+          bash scripts/ci/apt-ensure.sh bubblewrap
           echo "ACPMUX_REQUIRE_BWRAP=1" >> "$GITHUB_ENV"
 
       - name: Set up pinned Rust
@@ -530,9 +531,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Linux build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+        run: bash scripts/ci/apt-ensure.sh clang libclang-dev pkg-config
 
       # cmux-remote depends on ghostty-vt: ghostty-vt-sys builds libghostty-vt from the
       # ghostty-next gitlink with zig, as the clippy job does.
@@ -687,9 +686,9 @@ jobs:
           echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Install Linux build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+        # Persistent fleet images already carry these packages. Avoid network and
+        # sudo work on that path; cold runners still install every missing package.
+        run: bash scripts/ci/apt-ensure.sh clang libclang-dev pkg-config
 
       - name: Init the ghostty-next submodule (libghostty-vt for ghostty-vt-sys)
         run: bash scripts/ci/init-submodule.sh ghostty-next

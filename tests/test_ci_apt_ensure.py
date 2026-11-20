@@ -27,6 +27,7 @@ TREE_WORKFLOWS = (
     "cmux-tui-artifacts.yml",
     "cmux-tui-build-package.yml",
     "cmux-tui-tree-request.yml",
+    "cmux-tui-spec.yml",
 )
 
 
