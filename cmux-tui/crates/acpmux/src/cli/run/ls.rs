@@ -110,7 +110,8 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
 }
 
 /// What `acpmux ls` prints for `args`, read from `client`'s daemon `via` the v2 list or v1's
-/// pages, with ages as of `now`.
+/// pages, with ages as of `now`. The tests read it; `run` takes [`scoped_output`]'s line too.
+#[cfg(test)]
 pub(crate) async fn output(
     args: LsArgs,
     json_out: bool,
