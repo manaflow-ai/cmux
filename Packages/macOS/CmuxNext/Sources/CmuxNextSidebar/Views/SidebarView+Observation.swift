@@ -193,7 +193,8 @@ extension SidebarViewComponents {
         // Minimal Mode or controls on hover too (``SidebarSectionsPreferences/hidesControlsUntilHover``): its
         // controls fade to the new rule.
         if lastState?.preferences.minimalMode != state.preferences.minimalMode || lastState?.itemInfo != state.itemInfo
-            || lastState?.preferences.hidesControlsUntilHover != state.preferences.hidesControlsUntilHover {
+            || lastState?.preferences.hidesControlsUntilHover != state.preferences.hidesControlsUntilHover
+            || lastState?.preferences.minimal != state.preferences.minimal {
             setChromeRevealed(isChromeRevealed)
         }
         // A selected top item (a workspace's tile, a band item) repaints only itself and the one before it;

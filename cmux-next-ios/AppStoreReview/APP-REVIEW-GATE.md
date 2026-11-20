@@ -42,8 +42,15 @@ the reviewer's path is red on its own pull request, before it merges, instead
 of being found by App Review. A fix removes its entry (the report lists the
 known blockers it no longer sees). A pull request is judged on its base's
 list, and any key it adds to the list is itself a blocker, so a change can
-never pin its own regression. The agent reviewer pass is a model's judgement and can differ run to
-run, so it is listed on every run but fails only a submission.
+never pin its own regression.
+
+Every check is deterministic: the same build gets the same verdict, and no
+check spends model tokens. An agent reviewer pass (Claude following
+`reviewer-setup.md` on the iPad simulator) was removed on 2026-11-17: its
+verdict could differ run to run, and while the shared account's API quota was
+spent (`429`, `usage_limit_reached`) it turned the iPad and iPhone reviewer-path
+checks red on every app change. `reviewer-setup.md` is for Apple's reviewer;
+the scripted walk below covers its path.
 
 ## Checks
 
@@ -54,7 +61,6 @@ run, so it is listed on every run but fails only a submission.
 | Guideline lint | `cmux-next-ios/scripts/app_review_gate.py lint` | the AppStore configuration (bundle `com.cmux.app`), metadata and every URL, account deletion, Sign in with Apple (source, shipping configuration, every entitlements file it can sign with, binary), outside purchase links, the subscription rules (below), purpose strings from `project.yml`, the App Store Connect processing rules (`scripts/cmux-next/check-app-store-rules.py`), privacy manifest, VPN and private APIs, entitlements, extensions, on the source and on the exact IPA |
 | Rejection history | `rejection-history.json` | every past rejection keeps a detector |
 | App Store Connect | `asc validate --strict` on the AppStore configuration's version, `asc metadata validate` | review state Apple will refuse |
-| Agent reviewer pass | `cmux-next-ios/scripts/app_review_agent_pass.py` | what confuses a reviewer who follows `reviewer-setup.md` |
 
 The NEXT app sells cmux Go, cmux Pro and cmux Max as monthly auto-renewable
 App Store subscriptions (products `com.cmux.app.{go,pro,max}.monthly`,
@@ -63,7 +69,7 @@ with App Store prices, "Subscribe", "Restore Purchases", "Manage Subscription"
 (with an App Store subscription), "Terms of Use", "Privacy Policy" and the
 3.1.2 renewal terms. The Plan row exists only in builds that sign in to the
 production account (AppStore, TestFlight); Debug, mock and staging builds have
-none, and the agent pass shows it through the DEBUG billing demo instead. The
+none and show it only through the DEBUG billing demo. The
 lint's subscription rules apply once the judged sources use StoreKit:
 
 | Rule | Guideline | Catches |

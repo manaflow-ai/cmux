@@ -71,6 +71,22 @@ import Testing
         #expect(!readiness.isKeyed("vm_spare", scope: ["user_a", "team_a"], instance: "run-1"), "the stale entry is dropped")
     }
 
+    @Test func aKeyAheadRunningAcrossAResetRecordsNothing() async {
+        let world = World(), readiness = CloudSpareReadiness(world.dependencies())
+        // Cloud is turned off while the keyed start runs: its answer comes back to a store that forgot everything.
+        world.during = { readiness.reset() }
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(world.keys == ["vm_spare"])
+        #expect(!readiness.isKeyed("vm_spare", scope: ["user_a", "team_a"], instance: "run-1"))
+        // And a miss across a reset holds nothing back: the next prime keys at once.
+        world.during = {}
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(world.keys == ["vm_spare", "vm_spare"])
+        #expect(readiness.isKeyed("vm_spare", scope: ["user_a", "team_a"], instance: "run-1"))
+    }
+
     @Test func anotherScopeOrSignedOutReadsAsNotKeyed() async {
         let world = World(), readiness = CloudSpareReadiness(world.dependencies())
         readiness.prime("vm_spare", team: "team_a")
@@ -101,7 +117,27 @@ import Testing
         await readiness.settled("vm_spare")
         #expect(world.keys == ["vm_spare"])
         #expect(!readiness.isKeyed("vm_spare", scope: ["user_a", "team_a"], instance: nil))
-        // The next prime asks again: a daemon that came up meanwhile is keyed then.
+        // A prime right after does not ask again: every app activation primes, and a busy daemon is not read each time.
+        var clock = ContinuousClock.now
+        readiness.now = { clock }
+        world.answer = "run-1"
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(world.keys == ["vm_spare"])
+        // Past the hold the next prime asks again: a daemon that came up meanwhile is keyed then.
+        clock = clock.advanced(by: CloudSpareReadiness.keyRetry + .seconds(1))
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(world.keys == ["vm_spare", "vm_spare"])
+        #expect(readiness.isKeyed("vm_spare", scope: ["user_a", "team_a"], instance: "run-1"))
+    }
+
+    @Test func aResetForgetsAMissedKeySoTheNextAccountIsKeyedAtOnce() async {
+        let world = World(), readiness = CloudSpareReadiness(world.dependencies())
+        world.answer = nil
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        readiness.reset()
         world.answer = "run-1"
         readiness.prime("vm_spare", team: "team_a")
         await readiness.settled("vm_spare")

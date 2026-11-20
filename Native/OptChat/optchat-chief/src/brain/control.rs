@@ -41,6 +41,13 @@ use crate::tools::ControlCall;
 /// A running subagent whose session did not change for this long has its
 /// events read (`sub_tick`).
 pub(super) const QUIET_AFTER: Duration = Duration::from_secs(5 * 60);
+
+/// How often the tick reads a subagent that waits on its own background work.
+pub(super) const WAIT_CHECK_EVERY: Duration = Duration::from_secs(10 * 60);
+
+/// A subagent still waiting on its own background work this long reaches the
+/// Chief once (a fleet step and its queue rarely take longer).
+pub(super) const WAIT_SURFACE_AFTER: Duration = Duration::from_secs(3 * 60 * 60);
 /// Automatic continues of one silent run before the Chief hears of it.
 pub(super) const AUTO_CONTINUES: u32 = 2;
 /// A session idle this long after its run began, with no turn end since its
@@ -82,6 +89,7 @@ pub(super) fn state_name(sub: &SubRecord, now: u64) -> &'static str {
         SubStatus::Running if sub.permission.is_some() => "waiting-on-permission",
         SubStatus::Running if quiet(sub, now) => "quiet",
         SubStatus::Running => "running",
+        SubStatus::Done | SubStatus::Reported if sub.waiting() => "waiting",
         SubStatus::Done | SubStatus::Reported => {
             let report = sub.report.as_deref().unwrap_or("");
             if report.starts_with("(failed") || report.starts_with("(did not start") {
@@ -1148,12 +1156,111 @@ impl Brain {
         for id in quiet_ids {
             self.watch_sub(&id, now);
         }
+        // Held while its goal went on (goal.rs): Codex's own turns change no
+        // session status, so each tick reads it again until it reports.
+        let held: Vec<(String, String)> = self
+            .state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter(|s| Self::running(s) && s.goal_held && !s.paused && !s.cancelled)
+            .filter_map(|s| Some((s.id.clone(), s.session_id.clone()?)))
+            .collect();
+        for (id, session) in held {
+            self.finish_sub(&id, &session);
+        }
+        // Held while it waits on its own background work (tests/subagent_waiting.rs):
+        // read again every WAIT_CHECK_EVERY.
+        let waiting: Vec<(String, String)> = self
+            .state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter(|s| {
+                s.waiting()
+                    && s.stopped
+                    && !s.paused
+                    && now.saturating_sub(s.waiting_checked_ms)
+                        >= WAIT_CHECK_EVERY.as_millis() as u64
+            })
+            .filter_map(|s| Some((s.id.clone(), s.session_id.clone()?)))
+            .collect();
+        for (id, session) in waiting {
+            self.check_waiting(&id, &session, now);
+        }
         let state = &self.state;
         self.watches.retain(|id, _| {
             state
                 .sub(id)
                 .is_some_and(|(_, s)| s.status == SubStatus::Running)
         });
+    }
+
+    /// Subagent `id` reported that it waits on its own background work, and
+    /// its report went in quietly. When that work ended and no notice woke it
+    /// (its harness went away with it), or it still waits after
+    /// [`WAIT_SURFACE_AFTER`], its report reaches the Chief now, once.
+    fn check_waiting(&mut self, id: &str, session: &str, now: u64) {
+        let Some((floor, before, since)) = self
+            .state
+            .sub(id)
+            .map(|(_, s)| (s.floor, s.background.clone(), s.waiting_ms))
+        else {
+            return;
+        };
+        // Running again: that run's end reports.
+        if let Ok(Some(summary)) = self.agents.session(session)
+            && busy(summary.status)
+        {
+            return;
+        }
+        let events = match self.agents.events(session, floor) {
+            Ok(events) => events,
+            Err(e) => {
+                (self.log)(&format!(
+                    "subagent {id}: its background work could not be read: {e}"
+                ));
+                return;
+            }
+        };
+        let background = super::children::background_after(&before, &events);
+        let ended = background.is_empty();
+        let long = now.saturating_sub(since) >= WAIT_SURFACE_AFTER.as_millis() as u64;
+        let Some(spawn) = self.state.sub(id).map(|(s, _)| s.clone()) else {
+            return;
+        };
+        let Some(sub) = self.state.sub_mut(id) else {
+            return;
+        };
+        sub.background = background;
+        sub.waiting_checked_ms = now;
+        if !(ended || long) {
+            self.save();
+            return;
+        }
+        let note = if ended {
+            "(its background work ended, and nothing woke it to go on)".to_owned()
+        } else {
+            format!(
+                "(still waiting after {} on its own background work)",
+                minutes(now.saturating_sub(since))
+            )
+        };
+        let words = sub.report.clone().unwrap_or_default();
+        sub.report = Some(format!("{note} {words}"));
+        sub.stopped = false;
+        sub.status = SubStatus::Done;
+        if ended {
+            sub.waiting_ms = 0;
+            sub.waiting_checked_ms = 0;
+        }
+        self.save();
+        (self.log)(&format!("subagent {id}: {note}"));
+        self.trace.emit(
+            "subagent.waiting_surfaced",
+            json!({"id": id, "ended": ended, "waited_ms": now.saturating_sub(since)}),
+        );
+        self.deliver(&spawn);
     }
 
     fn watch_sub(&mut self, id: &str, now: u64) {
@@ -1290,8 +1397,10 @@ impl Brain {
         let Some((_, sub)) = self.state.sub(id) else {
             return;
         };
+        // One held on its goal reports through finish_sub (goal_goes_on).
         if sub.status != SubStatus::Running
             || sub.awaiting_task
+            || sub.goal_held
             || now.saturating_sub(sub.run_ms) < IDLE_GRACE.as_millis() as u64
         {
             return;
