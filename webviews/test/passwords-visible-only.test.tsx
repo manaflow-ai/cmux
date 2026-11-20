@@ -221,3 +221,61 @@ test("the row being edited and the focused row stay mounted far past the window;
   expect(field.isConnected).toBe(true);
   expect(field.value).toBe("typed");
 });
+
+/** Native Tab, as a test can have it: the next (or previous) element in the document's tab order.
+ *  Every tab stop on this page has the default tab index, so that order is the DOM's. */
+function tabStop(back = false): HTMLElement | undefined {
+  const stops = [
+    ...host.ownerDocument.querySelectorAll<HTMLElement>(
+      "button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])",
+    ),
+  ];
+  const at = stops.indexOf(host.ownerDocument.activeElement as HTMLElement);
+  return stops[back ? at - 1 : at + 1];
+}
+const stopOf = (element: HTMLElement | undefined) =>
+  element && `${element.closest<HTMLElement>("[data-key]")?.dataset.key}|${element.getAttribute("aria-label")}`;
+
+async function scrollPage(scroller: HTMLElement, top: number) {
+  await act(async () => {
+    scroller.scrollTop = top;
+    scroller.dispatchEvent(new dom.window.Event("scroll"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+// A site is 96 px (its 32 px header and two logins, 30 and 34): login p980 is in the 490th site.
+const NEAR_END = 490 * 96;
+
+/** The logins scrolled near their end, login p980's `button` (0 Show Password .. 3 Delete) focused,
+ *  and a wheel scroll back to the top (a wheel moves the list, not the focus). */
+async function focusThenScrollAway(button: number) {
+  const { scroller } = await mount(1_000);
+  await scrollPage(scroller, NEAR_END);
+  await act(async () => host.querySelectorAll<HTMLElement>('[data-key="login:p980"] .pw-row-button')[button]!.focus());
+  await scrollPage(scroller, 0);
+}
+
+test("Tab from a focused login the list scrolled away from reaches the next login, as with every row mounted", async () => {
+  await focusThenScrollAway(3);
+  expect(stopOf(tabStop())).toBe("login:p981|Show Password");
+});
+
+test("Shift-Tab from a focused login the list scrolled away from reaches the login before it", async () => {
+  await focusThenScrollAway(0);
+  expect(stopOf(tabStop(true))).toBe("login:p979|Delete");
+});
+
+test("Tab from the sort menu into logins scrolled far down reaches the first login", async () => {
+  const { scroller } = await mount(1_000);
+  await scrollPage(scroller, 40_000);
+  await act(async () => host.querySelector<HTMLElement>(".pw-search-row select")!.focus());
+  expect(stopOf(tabStop())).toBe("login:p0|Show Password");
+});
+
+test("Shift-Tab from the first passkey into logins scrolled to the top reaches the last login", async () => {
+  const { scroller } = await mount(1_000);
+  await act(async () => host.querySelector<HTMLElement>("[data-key^='passkey:'] .pw-row-button")!.focus());
+  await scrollPage(scroller, 0);
+  expect(stopOf(tabStop(true))).toBe("login:p999|Delete");
+});
