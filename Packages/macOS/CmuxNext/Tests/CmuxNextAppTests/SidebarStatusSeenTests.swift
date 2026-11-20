@@ -13,7 +13,7 @@ import Testing
         StatusReport(id: "status:entry", source: .explicit, state: state, label: label)
     }
 
-    @Test(arguments: [StatusIndicatorState.error, .waiting, .success, .busy(progress: nil), .working])
+    @Test(arguments: [StatusIndicatorState.error, .waiting, .success, .busy(progress: nil), .paused(progress: nil), .working])
     func everyRowStateClearsAfterItIsSeen(_ state: StatusIndicatorState) {
         let store = SidebarStatusSeenStore()
         let report = Self.report(state)

@@ -13,6 +13,7 @@ import Testing
         ("error", .error, .none),
         ("waiting", .waiting, .none),
         ("busy", .busy(progress: nil), .none),
+        ("paused", .paused(progress: nil), .none),
         ("working", .working, .none),
         ("success", .success, .none),
         ("unread", .idle, .dot),
