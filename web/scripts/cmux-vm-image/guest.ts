@@ -116,6 +116,9 @@ export async function deleteLiveVms(): Promise<string[]> {
 /** Network idleness after which Freestyle pauses a harness VM (at most 300 s). */
 export const HARNESS_IDLE_TIMEOUT_SECONDS = 300;
 
+/** Disposable image builders and probe clones: well past the longest bake job (150 minutes). */
+export const HARNESS_TTL_SECONDS = 24 * 3600;
+
 export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: string; snapshotId: string; allowUnprefixed?: boolean }): Promise<{ vm: Vm; vmId: string; createMs: number; t0: number }> {
   assertResourceName(options.name, options.allowUnprefixed);
   const t0 = Date.now();
@@ -128,6 +131,10 @@ export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: s
     // leave a VM running: Freestyle pauses it after this much network idleness
     // (Lawrence, 2026-10-07). Product machines are created by CloudDO with -1.
     idleTimeoutSeconds: HARNESS_IDLE_TIMEOUT_SECONDS,
+    // Idleness only pauses the VM and keeps its disk. Bound a lost harness's
+    // storage too, even when its signal handlers and finally blocks never run.
+    // Kept image snapshots and product machines do not use this VM helper.
+    ttlSeconds: HARNESS_TTL_SECONDS,
   });
   const createMs = Date.now() - t0;
   ledger.record(vmId, "vm", options.name);

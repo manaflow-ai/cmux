@@ -24,8 +24,8 @@ describe("image harness VMs are deleted on a signal (no leak when a local timeou
   });
 });
 
-describe("image harness VMs pause on their own when a run is lost (Lawrence, 2026-10-07)", () => {
-  test("createVm asks Freestyle to pause the VM after at most 300 s of network idleness", async () => {
+describe("image harness VMs pause and expire when a run is lost", () => {
+  test("createVm bounds idle compute and retained disk after a lost run", async () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-guest-idle-"));
     const ledger = new Ledger(path.join(dir, "resources.tsv"));
     let options: Record<string, unknown> | undefined;
@@ -42,6 +42,9 @@ describe("image harness VMs pause on their own when a run is lost (Lawrence, 202
     expect(typeof options?.idleTimeoutSeconds).toBe("number");
     expect(options?.idleTimeoutSeconds as number).toBeGreaterThan(0);
     expect(options?.idleTimeoutSeconds as number).toBeLessThanOrEqual(300);
+    // The workflow can run for 150 minutes. Its lost VM must still be
+    // deleted within a day, including while paused with a retained disk.
+    expect(options?.ttlSeconds).toBe(24 * 3600);
     expect(await deleteLiveVms()).toEqual(["vm-idle"]);
   });
 });
