@@ -186,3 +186,23 @@ button.acpmux-surge-need:hover {
 @media (prefers-reduced-motion: reduce) {
   .acpmux-surge-chevron { transition: none; }
 }
+
+/* More held since the listing: one quiet row over the threads; the list never re-reads on its own. */
+.acpmux-surge-refresh {
+  align-self: flex-start;
+  margin: 0;
+  padding: 0 var(--ds-space-2);
+  min-height: 22px;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: transparent;
+  color: var(--agent-accent, var(--agent-text));
+  font: inherit;
+  font-size: var(--text-detail);
+  cursor: default;
+}
+.acpmux-surge-refresh:hover { background: var(--acpmux-row-hover); }
+.acpmux-surge-refresh:focus-visible {
+  outline: var(--cmux-focus-ring-width) solid var(--cmux-focus-ring-color);
+  outline-offset: calc(-1 * var(--cmux-focus-ring-width));
+}

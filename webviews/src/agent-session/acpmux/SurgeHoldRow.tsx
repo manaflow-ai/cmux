@@ -9,6 +9,7 @@ import {
   HELD_PAGE,
   heldThreads,
   searchThreads,
+  surgeCounts,
   surgeShows,
   type HeldThread,
   type SurgeHold,
@@ -18,7 +19,8 @@ import "./SurgeHoldRow.css";
 /// How the line reads (the gallery's variants; the shipped look is `counts`).
 export type SurgeRowLook = "counts" | "sentence" | "needFirst";
 
-type Listing = { state: "loading" } | { state: "failed" } | { state: "ready"; threads: HeldThread[] };
+/// A ready listing keeps the counts it answered for (`at`): the snapshot it saw.
+type Listing = { state: "loading" } | { state: "failed" } | { state: "ready"; threads: HeldThread[]; at: string };
 
 /// The chat's held surge as one row of the composer hat (conversation/surgeHold.ts): how many
 /// messages its inbox holds without a turn and how many of them need the person, updated in place as
@@ -51,24 +53,42 @@ export function SurgeHoldRow({
   const [query, setQuery] = useState("");
   const [shown, setShown] = useState(HELD_PAGE);
   const [listing, setListing] = useState<Listing>({ state: "loading" });
-  const [attempt, setAttempt] = useState(0);
+  // Each read asked for (a new number reads once): the chat opening, the panel opening on counts the
+  // last read did not see, Refresh, Try again. Never a snapshot arriving while the panel is open.
+  const [wanted, setWanted] = useState(1);
   const panelId = useId();
   const field = useRef<HTMLInputElement>(null);
-  // The listing is read when the panel opens and again when a new snapshot moves the counts while it
-  // is open: one read per change the person can see, never a poll.
   const held = surge?.held ?? 0;
   const needYou = surge?.needYou ?? 0;
+  const counts = `${held}\u0000${needYou}`;
+  const latest = useRef(counts);
   useEffect(() => {
-    if (!open) return;
+    latest.current = counts;
+  }, [counts]);
+  // One read when the chat opens, whatever its page holds: the listing carries acpmux's cumulative
+  // snapshot (direct.ts `inboxThreads`), so a chat reopened past its newest surge event still draws
+  // its row. Then a read only when one is asked for (`wanted`), so a surge of posts while the panel
+  // is open costs no read per post.
+  useEffect(() => {
     let live = true;
+    const at = latest.current;
     listThreads().then(
-      (reply) => live && setListing({ state: "ready", threads: heldThreads(reply) }),
+      (reply) => {
+        if (!live) return;
+        // The reply's own snapshot when it carries one (the row moves to it too), else the counts
+        // the read was asked at.
+        const own = surgeCounts((reply as { surge?: unknown } | null)?.surge);
+        const listedAt = own ? `${own.held}\u0000${own.needYou}` : at;
+        setListing({ state: "ready", threads: heldThreads(reply), at: listedAt });
+      },
       () => live && setListing({ state: "failed" }),
     );
     return () => {
       live = false;
     };
-  }, [open, held, needYou, attempt, listThreads]);
+  }, [wanted, listThreads]);
+  // New messages came since the listing: the open panel offers Refresh rather than reading again.
+  const stale = listing.state === "ready" && listing.at !== counts;
   useEffect(() => {
     if (open)
       focusRoute(field.current, "person", "the held messages panel opened: its search field", { preventScroll: true });
@@ -76,13 +96,15 @@ export function SurgeHoldRow({
   const threads = listing.state === "ready" ? listing.threads : undefined;
   const found = useMemo(() => {
     const all = threads ?? [];
-    return searchThreads(onlyNeed ? all.filter((thread) => thread.blocker) : all, query);
+    return searchThreads(onlyNeed ? all.filter((thread) => thread.needYou) : all, query);
   }, [threads, onlyNeed, query]);
   if (!surgeShows(surge)) return null;
   const toggle = (next: boolean, needOnly = false) => {
     setOpen(next);
     setOnlyNeed(next && needOnly);
     if (next) setShown(HELD_PAGE);
+    // Opening on counts the last listing did not see (or after a failed one) reads once.
+    if (next && (stale || listing.state === "failed")) setWanted(wanted + 1);
   };
   const heldText = t("surge.held", { n: held });
   const needText = t("surge.needYou", { n: needYou });
@@ -126,13 +148,18 @@ export function SurgeHoldRow({
               </button>
             </div>
           )}
+          {stale && (
+            <button type="button" className="acpmux-surge-refresh" onClick={() => setWanted(wanted + 1)}>
+              {t("surge.refresh")}
+            </button>
+          )}
           <div className="acpmux-surge-threads">
             {listing.state === "loading" ? (
               <p className="acpmux-surge-note">{t("surge.loading")}</p>
             ) : listing.state === "failed" ? (
               <p className="acpmux-surge-note" role="alert">
                 {t("surge.loadFailed")}{" "}
-                <button type="button" className="acpmux-surge-retry" onClick={() => setAttempt(attempt + 1)}>
+                <button type="button" className="acpmux-surge-retry" onClick={() => setWanted(wanted + 1)}>
                   {t("surge.retry")}
                 </button>
               </p>
