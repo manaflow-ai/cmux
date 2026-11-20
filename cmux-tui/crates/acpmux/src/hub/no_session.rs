@@ -119,7 +119,7 @@ impl Hub {
             && self.peer(host).is_some()
         {
             let map = self.remote_sessions.read();
-            let mut names = map
+            let mut names: Vec<String> = map
                 .values()
                 .filter(|r| r.peer == host && !super::peers::remote_closed(r))
                 .filter_map(|r| r.summary.name())
