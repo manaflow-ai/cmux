@@ -5,25 +5,24 @@ public import AppKit
 /// A view is a page view when it is a container or inside one: the page's `RenderWidgetHostViewCocoa` (which changes
 /// with each renderer, so it is never named by class) and the `WebContentsViewCocoa` around it.
 @MainActor
+///
+/// It names no pane: the browser knows only its own tab key, never the cmux pane the page shows in, and a tab can move
+/// between panes. The window reads the pane from where the container sits in its view tree (``InTreePageFocus/refuses(_:in:event:focusModelApplies:focusedPane:paneOf:routeTarget:isActive:)``'s
+/// `paneOf`), the same way it classifies every other responder.
 public protocol InTreePageContainer: NSView {
-    /// The pane the page shows in, for the focus model (nil while the page is in no pane).
-    var inTreePagePane: String? { get }
     /// What `debug.layers` reports of the page (its census row).
     var inTreeCensus: InTreePageCensus { get }
 }
 
 /// One in-tree page in `debug.layers` `page_views`.
 public struct InTreePageCensus: Equatable, Sendable {
-    /// The pane the page shows in.
-    public var pane: String?
     /// Whether the page's current `RenderWidgetHostViewCocoa` is in the cmux window (`rwhv_in_window`).
     public var contentInWindow: Bool
     /// `cmux_browser_in_tree_widget_drawing`: 0 the headless widget stopped drawing (expected), 1 it still draws, -1
     /// the page is not in tree.
     public var widgetDrawing: Int
 
-    public init(pane: String?, contentInWindow: Bool, widgetDrawing: Int) {
-        self.pane = pane
+    public init(contentInWindow: Bool, widgetDrawing: Int) {
         self.contentInWindow = contentInWindow
         self.widgetDrawing = widgetDrawing
     }
@@ -106,15 +105,16 @@ public final class InTreePageFocus {
     ///   - event: The input event being dispatched, nil outside one.
     ///   - focusModelApplies: The window's focus model is applying its own move.
     ///   - focusedPane: The pane the focus model has focused.
+    ///   - paneOf: The cmux pane a page container shows in, read from the window's view tree (nil: in no pane).
     ///   - routeTarget: The responder a routed move (`FocusRoute`) names, nil outside one.
     ///   - isActive: Whether the mode is on (``InTreePages/isActive`` by default).
     /// - Returns: True when the move must be refused.
     public func refuses(_ responder: NSResponder?, in window: NSWindow, event: NSEvent?, focusModelApplies: Bool,
-                        focusedPane: () -> String?, routeTarget: NSResponder?,
+                        focusedPane: () -> String?, paneOf: (NSView) -> String?, routeTarget: NSResponder?,
                         isActive: Bool = InTreePages.shared.isActive) -> Bool {
         guard isActive, let view = responder as? NSView, let container = Self.container(of: view) else { return false }
         if let decision = decide(view, container: container, in: window, event: event, focusModelApplies: focusModelApplies,
-                                 focusedPane: focusedPane, routeTarget: routeTarget) {
+                                 focusedPane: focusedPane, paneOf: paneOf, routeTarget: routeTarget) {
             noteRefused(decision)
             return true
         }
@@ -124,13 +124,14 @@ public final class InTreePageFocus {
 
     /// Nil when the move is allowed, else why it is refused.
     private func decide(_ view: NSView, container: any InTreePageContainer, in window: NSWindow, event: NSEvent?,
-                        focusModelApplies: Bool, focusedPane: () -> String?, routeTarget: NSResponder?) -> String? {
+                        focusModelApplies: Bool, focusedPane: () -> String?, paneOf: (NSView) -> String?,
+                        routeTarget: NSResponder?) -> String? {
         // A move to where the keys are already changes nothing.
         if window.firstResponder === view { return nil }
         if isGranting(container) { return nil }
         if let routeTarget, routeTarget === view { return nil }
         if let event, Self.event(event, isAimedAt: container, in: window) { return nil }
-        if focusModelApplies, let pane = container.inTreePagePane, focusedPane() == pane { return nil }
+        if focusModelApplies, let pane = paneOf(container), focusedPane() == pane { return nil }
         if view.isHiddenOrHasHiddenAncestor { return "page not shown" }
         return event == nil ? "no input event or focus route" : "input event aimed elsewhere"
     }

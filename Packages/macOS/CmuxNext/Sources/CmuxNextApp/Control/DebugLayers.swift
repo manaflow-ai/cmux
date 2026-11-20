@@ -90,7 +90,9 @@ enum DebugLayers {
         }
         let pageWindows = WindowOverlayLayer.contentChildWindows(of: window)
         let pageViews = InTreePageFocus.containers(in: window)
-        let censusByPane = Dictionary(pageViews.compactMap { view in view.inTreePagePane.map { ($0, view.inTreeCensus) } }) { a, _ in a }
+        // Each page container's pane comes from where it sits in the window (WindowController.inTreePagePane), never from
+        // the browser, which knows only its own tab key.
+        let censusByPane = Dictionary(pageViews.compactMap { view in controller.inTreePagePane(of: view).map { ($0, view.inTreeCensus) } }) { a, _ in a }
         var pagesInSync = true
         let browsers: [JSONValue] = (controller.content?.panes.values.map { $0 } ?? []).compactMap { pane in
             guard case .browser(let entry)? = pane.currentContent else { return nil }
@@ -162,7 +164,7 @@ enum DebugLayers {
             "page_views": .array(pageViews.map { view in
                 let census = view.inTreeCensus
                 return .object([
-                    "pane": census.pane.map(JSONValue.string) ?? .null,
+                    "pane": controller.inTreePagePane(of: view).map(JSONValue.string) ?? .null,
                     "frame_in_window": rect(view.convert(view.bounds, to: nil)),
                     "rwhv_in_window": .bool(census.contentInWindow),
                     "widget_drawing": .number(Double(census.widgetDrawing)),

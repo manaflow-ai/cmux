@@ -14,7 +14,8 @@ extension ShellWindow {
         let controller = windowController as? WindowController
         let event = (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true ? controller?.services.inputDispatch.event : nil
         return InTreePageFocus.shared.refuses(responder, in: self, event: event, focusModelApplies: focus?.isApplying == true,
-                                               focusedPane: { controller?.focus.currentState().pane }, routeTarget: routeTarget)
+                                               focusedPane: { controller?.focus.currentState().pane },
+                                               paneOf: { controller?.inTreePagePane(of: $0) }, routeTarget: routeTarget)
     }
 
     /// Tab in an in-window modal overlay moves inside it (its panel's key view loop did).
@@ -26,5 +27,15 @@ extension ShellWindow {
     override func selectPreviousKeyView(_ sender: Any?) {
         if WindowOverlayHost.cycleInWindowModal(of: self, forward: false) { return }
         super.selectPreviousKeyView(sender)
+    }
+}
+
+extension WindowController {
+    /// The cmux pane an in-tree page container shows in: the pane whose view holds it, as `FocusResponderClassifier`
+    /// classifies every responder (nil when it is in no pane). The browser cannot say: it knows its own tab key
+    /// (`tab-…`), never the pane (`pane_…`), and a tab moves between panes.
+    func inTreePagePane(of view: NSView) -> String? {
+        guard let panes = content?.panes.values else { return nil }
+        return panes.first { view.isDescendant(of: $0.view) }?.paneKey
     }
 }

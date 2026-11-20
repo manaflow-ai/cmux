@@ -69,14 +69,11 @@ struct CEFInTreeCalls {
 /// It clips the page to the pane's page area, and pins its content to the top-left corner: when a page's frame at a new
 /// size misses the resize fence, its last frame shows clipped at the top-left until the new one comes, never stretched.
 final class CEFInTreePageView: NSView, InTreePageContainer {
-    /// The pane the page shows in (the host's pane key), for the focus model.
-    var paneKey: () -> String? = { nil }
-    var inTreePagePane: String? { paneKey() }
     /// The page's census, from its hosting (set by ``CEFInTreeHosting``).
     var census: () -> (contentInWindow: Bool, widgetDrawing: Int) = { (false, -1) }
     var inTreeCensus: InTreePageCensus {
         let now = census()
-        return InTreePageCensus(pane: inTreePagePane, contentInWindow: now.contentInWindow, widgetDrawing: now.widgetDrawing)
+        return InTreePageCensus(contentInWindow: now.contentInWindow, widgetDrawing: now.widgetDrawing)
     }
 
     /// Where the page shows none of its pixels (the New Tab page's hole, ``CEFPageHole``): the window backdrop shows
@@ -165,10 +162,6 @@ final class CEFInTreeHosting {
     var fallBack: (() -> Void)?
     /// The page came into the tree: a focus ask kept while it was not in tree is granted now.
     var onAttached: (() -> Void)?
-    /// The pane key, for the container's focus rule.
-    var paneKey: () -> String? = { nil } {
-        didSet { container?.paneKey = paneKey }
-    }
 
     init(schedule: @escaping CEFLayerHosting.Scheduler = { CEFLayerHosting.atEndOfTurn($0) },
          resizeFences: CEFResizeFences? = nil) {
@@ -260,7 +253,6 @@ final class CEFInTreeHosting {
 
     private func makeContainer(in view: CEFHostView) -> CEFInTreePageView {
         let made = CEFInTreePageView(frame: view.bounds)
-        made.paneKey = paneKey
         made.census = { [weak self, weak made] in
             guard let self, let made else { return (false, -1) }
             let content = self.contentView

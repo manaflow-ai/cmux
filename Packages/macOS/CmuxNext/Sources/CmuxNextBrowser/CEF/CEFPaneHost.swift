@@ -57,7 +57,6 @@ final class CEFPaneHost {
         self.lifecycleTrace = lifecycleTrace
         self.contextMenus = contextMenus
         hostView.liveResizeWillStart = { [weak self] in self?.visibleTab?.samplePageBackdrop() }
-        hostView.inTree.paneKey = { [weak self] in self?.key.pane.rawValue }
         hostView.inTree.onAttached = { [weak self] in self?.visibleTab?.grantPendingFocusIfShown() }
         hostView.fileDrag.target = { [weak self] in self?.visibleTab }
         // The page holds the keyboard: its window is key, or its focus ask waits (a resize motion keeps it attached).

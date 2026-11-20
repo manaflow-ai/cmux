@@ -9,10 +9,10 @@ import Testing
 /// view inside, as Chromium's `RenderWidgetHostViewCocoa` sits in the fork's `WebContentsViewCocoa`) stands in.
 @MainActor @Suite(.closesItsWindows, .serialized) struct InTreePageFocusTests {
     /// The page container, as `CEFInTreePageView` is to the browser.
+    /// It names no pane (the browser cannot); the window's `paneOf` says where it shows, as the app reads it from its
+    /// view tree.
     final class FakeContainer: NSView, InTreePageContainer {
-        var pane: String?
-        var inTreePagePane: String? { pane }
-        var inTreeCensus: InTreePageCensus { InTreePageCensus(pane: pane, contentInWindow: window != nil, widgetDrawing: 0) }
+        var inTreeCensus: InTreePageCensus { InTreePageCensus(contentInWindow: window != nil, widgetDrawing: 0) }
     }
 
     /// The page's own view: takes the keyboard, like Chromium's.
@@ -30,6 +30,8 @@ import Testing
         let container: FakeContainer
         let page: FakePageView
         let field: Field
+        /// The pane the window's view tree puts the container in.
+        let pane: String
     }
 
     private static func fixture(pane: String = "p1") -> Fixture {
@@ -37,20 +39,20 @@ import Testing
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         let container = FakeContainer(frame: NSRect(x: 400, y: 0, width: 400, height: 500))
-        container.pane = pane
         let page = FakePageView(frame: container.bounds)
         container.addSubview(page)
         let field = Field(frame: NSRect(x: 0, y: 0, width: 400, height: 500))
         window.contentView?.addSubview(field)
         window.contentView?.addSubview(container)
         window.makeFirstResponder(field)
-        return Fixture(window: window, container: container, page: page, field: field)
+        return Fixture(window: window, container: container, page: page, field: field, pane: pane)
     }
 
     private static func refuses(_ f: Fixture, event: NSEvent? = nil, applies: Bool = false, focused: String? = nil,
                                 route: NSResponder? = nil, active: Bool = true) -> Bool {
         InTreePageFocus.shared.refuses(f.page, in: f.window, event: event, focusModelApplies: applies,
-                                       focusedPane: { focused }, routeTarget: route, isActive: active)
+                                       focusedPane: { focused }, paneOf: { $0 === f.container ? f.pane : nil },
+                                       routeTarget: route, isActive: active)
     }
 
     private static func press(_ window: NSWindow, at point: NSPoint) -> NSEvent? {
@@ -115,14 +117,14 @@ import Testing
                                                 windowNumber: f.window.windowNumber, context: nil, characters: "a",
                                                 charactersIgnoringModifiers: "a", isARepeat: false, keyCode: 0))
         #expect(!InTreePageFocus.shared.refuses(inner, in: f.window, event: key, focusModelApplies: false,
-                                                focusedPane: { nil }, routeTarget: nil, isActive: true))
+                                                focusedPane: { nil }, paneOf: { _ in nil }, routeTarget: nil, isActive: true))
     }
 
     @Test func otherViewsAndTheModeOffAreNeverJudged() {
         let f = Self.fixture()
         defer { f.window.close() }
         #expect(!InTreePageFocus.shared.refuses(f.field, in: f.window, event: nil, focusModelApplies: false,
-                                                focusedPane: { nil }, routeTarget: nil, isActive: true))
+                                                focusedPane: { nil }, paneOf: { _ in nil }, routeTarget: nil, isActive: true))
         #expect(!Self.refuses(f, active: false))
     }
 
