@@ -76,7 +76,7 @@ async function mount() {
     });
   });
   mounted.push(chats);
-  const reply = (op: string) => replies.findLast((entry) => entry.op === op)!;
+  const reply = (op: string) => [...replies].reverse().find((entry) => entry.op === op)!;
   return {
     replies,
     send: (block: unknown) => act(async () => streams.get(SidebarChatsOps.block)?.(block)),
