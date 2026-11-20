@@ -72,10 +72,18 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     var generation = "gen-1"
 
     var recorded: [[String: Any]] { lock.withLock { commands } }
+    /// Each write's commands, in order (a batch is one write of several).
+    private var writeLog: [[String]] = []
+    var writes: [[String]] { lock.withLock { writeLog } }
 
     func respond(_ service: String, _ data: Data) -> [Data] {
         // A batch (`DaemonClient.requests`) is several lines in one write.
-        data.split(separator: 0x0A).flatMap { respondLine(service, Data($0)) }
+        let lines = data.split(separator: 0x0A)
+        if service == "daemon" {
+            let cmds = lines.compactMap { (try? JSONSerialization.jsonObject(with: Data($0)) as? [String: Any])?["cmd"] as? String }
+            lock.withLock { writeLog.append(cmds) }
+        }
+        return lines.flatMap { respondLine(service, Data($0)) }
     }
 
     private func respondLine(_ service: String, _ line: Data) -> [Data] {
@@ -1400,6 +1408,9 @@ final class ChannelLog: @unchecked Sendable {
         let sent = daemon.recorded[before...].compactMap { $0["cmd"] as? String }
         #expect(sent.prefix(3) == ["set-client-info", "identify", "attach-surface"], "\(sent)")
         #expect(!sent.contains("resolve-terminal"))
+        // One write on the channel, not three back to back.
+        let write = daemon.writes.first { $0.contains("attach-surface") && $0.contains("identify") }
+        #expect(write == ["set-client-info", "identify", "attach-surface"], "\(daemon.writes.suffix(4))")
         let attach = daemon.recorded[before...].first { $0["cmd"] as? String == "attach-surface" }
         #expect(attach?["expected_generation"] as? String == "gen-1")
         #expect(attach?["expected_terminal_id"] as? String == "term_a")

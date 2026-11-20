@@ -747,12 +747,13 @@ public final class DaemonTerminalSession: TerminalSession {
                 sizing.clear()
                 lastActivityNote = nil
                 heldEvents = []
-                let setupID = try await client.submit("set-client-info", params: info)
-                let identifyID = try await client.submit("identify")
-                let attachID = try await client.submit("attach-surface", params: Self.attachParams(fenced, surface: surface))
-                _ = try? await client.reply(to: setupID)
-                identify = try? await client.reply(to: identifyID)
-                let reply = try await client.reply(to: attachID)
+                let replies = await client.requests([
+                    (cmd: "set-client-info", params: info),
+                    (cmd: "identify", params: [:]),
+                    (cmd: "attach-surface", params: Self.attachParams(fenced, surface: surface)),
+                ])
+                identify = try? replies[1].get()
+                let reply = try replies[2].get()
                 guard self.client === client else { heldEvents = nil; return }
                 if let error = Self.error(in: reply) { throw FencedAttachRefused(reason: error) }
                 fencedReply = reply
