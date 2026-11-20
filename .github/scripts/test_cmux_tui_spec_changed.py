@@ -126,5 +126,33 @@ class Router(unittest.TestCase):
         self.assertEqual(out, "")
 
 
+class WorkflowGateTest(unittest.TestCase):
+    """2026-11-20: a missing path line in another workflow failed `changes`' input check, and every job gated on
+    `needs.changes.result != 'success'` ran, so the required clippy check of pull requests with no Rust line
+    queued for hours on the Linux build pool. The gates read the router's outputs only; the outputs are empty
+    (the jobs run) unless the input check found this workflow's own paths whole."""
+
+    TEXT = (Path(__file__).resolve().parents[1] / "workflows/cmux-tui-spec.yml").read_text(encoding="utf-8")
+
+    def test_no_job_gates_on_the_router_job_result(self) -> None:
+        self.assertNotIn("needs.changes.result", self.TEXT)
+
+    def test_every_routed_output_waits_for_the_input_check(self) -> None:
+        for key, step in (("run", "route"), ("acpmux_protocol_ir", "graph"), ("acpmux_tests", "graph"),
+                          ("acpmux_sim", "graph"), ("carrier_sim", "graph")):
+            with self.subTest(key=key):
+                self.assertIn(f"      {key}: ${{{{ steps.inputs.outputs.whole == 'true' && "
+                              f"steps.{step}.outputs.{key} || '' }}}}\n", self.TEXT)
+
+    def test_the_input_check_names_this_workflow(self) -> None:
+        self.assertIn("        id: inputs\n", self.TEXT)
+        self.assertIn(r"'^::error::\.github/workflows/cmux-tui-spec\.yml'", self.TEXT)
+
+    def test_clippy_skips_only_on_a_routed_false(self) -> None:
+        head = self.TEXT.split("\n  clippy:\n", 1)[1][:400]
+        self.assertIn("name: clippy (changed cmux-tui packages)", head)
+        self.assertIn("if: ${{ !cancelled() && needs.changes.outputs.run != 'false' }}", head)
+
+
 if __name__ == "__main__":
     unittest.main()
