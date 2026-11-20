@@ -139,7 +139,7 @@ the installed one (main's CI has none today); a reviewed `// crash-allow: <reaso
 no baseline to record it in.
 
 Also on every local run (the hook and a plain run; never --commits, never under GitHub Actions, so CI
-gains no gate; Lawrence 2026-10-23): "Guardrails" (guardrails.py, plans/cmux-next/codebase-health.md):
+gains no gate; Lawrence 2026-10-23, since lifted): "Guardrails" (guardrails.py, plans/cmux-next/codebase-health.md):
 refuses NEW unjustified @unchecked Sendable / nonisolated(unsafe) (the crash ratchet's class and escape, which
 its per-module count cannot see before a push), DispatchQueue.main.async, ObservableObject/@Published, store
 references in list rows, generic classes with an implicit deinit, waiting action binds, detached tasks without a

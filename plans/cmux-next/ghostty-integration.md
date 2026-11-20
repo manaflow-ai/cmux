@@ -36,8 +36,8 @@ upstream Ghostty.app built from the SAME upstream commit the ghostty-next pin is
 `c7f68a7f48c6`), in every metric below. "Worse" means: past the upstream arm's own run spread AND past the
 metric's floor. A pin change that makes any metric worse does not land.
 
-**No CI.** This is not a CI gate, job, step or perf-gate row (CLAUDE.md, Lawrence 2026-10-23). The pin
-author runs the bench on the fleet before the pin PR and pastes the parity table into the pin PR
+**No CI.** This is not a CI gate, job, step or perf-gate row (kept off CI under Lawrence's 2026-10-23 rule, since
+lifted). The pin author runs the bench on the fleet before the pin PR and pastes the parity table into the pin PR
 description, with job IDs, host, macOS version and refresh rate. A pin PR without the table is not done.
 Reviewers check the table, not a CI status.
 
