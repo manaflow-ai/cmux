@@ -30,9 +30,8 @@ export function RemoteHostsExperiment() {
       }
     } catch (cause) {
       setError(userMessage(cause, SETTINGS_SENTENCES));
-    } finally {
-      setBusy(false);
     }
+    setBusy(false);
   };
 
   return (
