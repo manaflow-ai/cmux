@@ -106,6 +106,7 @@ mod pane_browser;
 mod pane_move;
 mod pane_tab_moves;
 mod published_screen;
+mod quick_terminal;
 mod rename_focus;
 mod reservations;
 mod screen_create;
