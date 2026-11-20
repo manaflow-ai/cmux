@@ -458,11 +458,9 @@ async fn call_as(daemon: &Arc<Client>, params: &Value, sub: Option<&Value>) -> V
             let Some(name) = arg(&args, "name") else {
                 return error_result("name is required".to_owned());
             };
-            let id = match crate::cli::run::resolve_id(daemon, name).await {
-                Ok(id) => id,
-                Err(e) => return refusal(e),
-            };
-            match daemon.request(method::MUX_INFO, json!({"sessionId": id})).await {
+            // One read: the name's resolve is the session's info, or (a peer's or hub machine's
+            // session slow to answer) its listed row, marked `source`.
+            match crate::cli::run::resolve_info(daemon, name).await {
                 Ok(r) => ok(serde_json::to_string_pretty(&r).unwrap_or_default(), r),
                 Err(e) => refusal(e),
             }

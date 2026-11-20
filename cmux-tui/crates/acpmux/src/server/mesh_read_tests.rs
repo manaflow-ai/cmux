@@ -423,3 +423,147 @@ async fn call_error(hub: &Arc<Hub>, m: &str, params: Value) -> Value {
         }
     }
 }
+
+/// A hub that takes a read and never brings its answer: each wait on the receipt runs its whole
+/// bound and finds it still queued, as a machine that does not answer looks from here.
+struct Silent;
+
+impl Silent {
+    fn queued(id: &str) -> Receipt {
+        serde_json::from_value(json!({"messageId": id, "state": "queued", "createdAt": 1})).unwrap()
+    }
+}
+
+impl MeshHub for Silent {
+    fn inbox(&self, _: Duration, _: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
+    fn ack<'a>(&'a self, _: &'a str, _: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn heartbeat<'a>(
+        &'a self,
+        _: &'a crate::mesh::Heartbeat,
+    ) -> BoxFuture<'a, Result<crate::mesh::HeartbeatReply, HubError>> {
+        Box::pin(async { Err(HubError::unavailable("unused")) })
+    }
+
+    fn send<'a>(&'a self, _: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        Box::pin(async { Ok(Self::queued("msg_silent")) })
+    }
+
+    fn receipt<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        Box::pin(async move { Ok(Self::queued(id)) })
+    }
+
+    fn answer<'a>(
+        &'a self,
+        id: &'a str,
+        wait: Duration,
+    ) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        Box::pin(async move {
+            tokio::time::sleep(wait).await;
+            Ok(Self::queued(id))
+        })
+    }
+}
+
+/// Machine A, whose hub lists `machine-b`'s session `id` named `name`, running.
+fn lists(a: &Arc<Hub>, id: &str, name: &str) {
+    let hosts = std::collections::BTreeMap::from([("machine-b".to_owned(), 1)]);
+    let row = crate::mesh::BookSession {
+        name: name.into(),
+        session_id: id.into(),
+        host: "machine-b".into(),
+        daemon_id: "inst_b".into(),
+        harness: "fake".into(),
+        state: "running".into(),
+        last_seen_at: 1,
+    };
+    a.set_mesh_book(hosts, vec![row]);
+}
+
+/// `acpmux info HOST/NAME` of a session the hub lists, on a machine that does not answer: the
+/// hub's row within a second, marked `source: "hub"`, instead of two 50 s reads (97 s measured
+/// on a lane VM, 2026-11-20, while `acpmux ls` listed the same row in 3.6 s).
+#[tokio::test]
+async fn info_of_a_listed_session_answers_with_the_hub_row_when_the_machine_is_slow() {
+    let id = "019a5d1e-8f00-7000-8000-0000000000b1";
+    let a = machine_b();
+    let mesh: Arc<dyn MeshHub> = Arc::new(Silent);
+    let _ = a.mesh.set(mesh);
+    lists(&a, id, "lane");
+
+    for key in ["machine-b/lane", format!("machine-b/{id}").as_str()] {
+        let started = std::time::Instant::now();
+        let info = call(&a, method::MUX_INFO, with_fallback(key)).await;
+        let took = started.elapsed();
+        assert!(took < Duration::from_secs(1), "{key}: {took:?}");
+        assert_eq!(info["source"], "hub", "{info}");
+        assert_eq!(info["detail"], "late", "{info}");
+        assert_eq!(info["status"], "running", "{info}");
+        assert_eq!(info["sessionId"], id, "{info}");
+        assert_eq!(info["peer"], "machine-b", "{info}");
+        assert_eq!(crate::cli::resolve::routed_id(&info).unwrap(), format!("machine-b/{id}"));
+    }
+}
+
+/// A listed session whose machine the hub cannot reach (or which the hub refuses as unknown):
+/// its row, never `no session`. A session the hub does not list is still `no session`.
+#[tokio::test]
+async fn info_of_a_listed_session_the_hub_cannot_reach_is_its_row_not_no_session() {
+    let b = machine_b();
+    let dir = tempfile::tempdir().unwrap();
+    let id = "019a5d1e-8f00-7000-8000-0000000000b2";
+    let a = machine_b();
+    let mesh: Arc<dyn MeshHub> =
+        Arc::new(Loopback { unknown: true, ..Loopback::new(&b, dir.path(), "person-1") });
+    let _ = a.mesh.set(mesh);
+    lists(&a, id, "lane");
+
+    let ask = with_fallback("machine-b/lane");
+    let info = call(&a, method::MUX_INFO, ask).await;
+    assert_eq!((info["source"].as_str(), info["detail"].as_str()), (Some("hub"), Some("failed")));
+    assert!(info["detailError"].as_str().is_some_and(|e| e.contains("no session")), "{info}");
+    assert_eq!(info["sessionId"], id);
+
+    let ask = with_fallback("machine-b/nobody");
+    let missing = call_error(&a, method::MUX_INFO, ask).await;
+    assert_eq!(missing["code"], json!(RpcError::not_found("").code), "{missing}");
+}
+
+/// A machine that answers in time: its own details, as before, with no `source`.
+#[tokio::test]
+async fn info_of_a_listed_session_on_a_machine_that_answers_is_its_details() {
+    let b = machine_b();
+    let meta = json!({"acpmux": {"harness": "fake", "name": "own-e2e"}});
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap().to_owned();
+    let dir = tempfile::tempdir().unwrap();
+    let a = machine_b();
+    let mesh: Arc<dyn MeshHub> = Arc::new(Loopback::new(&b, dir.path(), "person-1"));
+    let _ = a.mesh.set(mesh);
+    lists(&a, &session, "own-e2e");
+
+    let ask = with_fallback("machine-b/own-e2e");
+    let info = call(&a, method::MUX_INFO, ask).await;
+    assert!(info.get("source").is_none(), "{info}");
+    assert_eq!(info["sessionId"].as_str(), Some(session.as_str()));
+    assert_eq!(info["via"], "hub");
+    // Only the machine's own details hold these.
+    assert!(info.get("turnCount").is_some() && info.get("logsLoading").is_some(), "{info}");
+}
+
+/// An info read of `key` that takes the listed row (`rpc::INFO_ROW_FALLBACK`).
+fn with_fallback(key: &str) -> Value {
+    let mut ask = json!({"sessionId": key});
+    ask[crate::rpc::INFO_ROW_FALLBACK] = json!(true);
+    ask
+}

@@ -119,3 +119,25 @@ async fn a_reconnected_link_answers_from_its_row_only_once_its_new_list_is_appli
     hub.seed_peer_back(&peer, vec![row()]);
     call(&hub, method::MUX_INFO, info).await.expect("the new list is applied");
 }
+
+/// An info read that takes the row (`rpc::INFO_ROW_FALLBACK`, `acpmux info`'s) of a chat whose
+/// peer is down: the row this daemon lists, at once, marked `source: "row"`, never
+/// `peer_unreachable` for a chat the list shows. Without the flag it still hears the peer is down.
+#[tokio::test]
+async fn an_info_that_takes_the_row_of_a_down_peers_chat_is_its_row() {
+    let (hub, _peer) = hub_with_peer();
+    let mut ask = json!({"sessionId": format!("far/{CHAT}")});
+    ask[crate::rpc::INFO_ROW_FALLBACK] = json!(true);
+    let started = std::time::Instant::now();
+    let info = call(&hub, method::MUX_INFO, ask).await.expect("answered from the row");
+    assert!(started.elapsed() < Duration::from_secs(1));
+    assert_eq!((info["source"].as_str(), info["detail"].as_str()), (Some("row"), Some("failed")));
+    assert!(info["detailError"].as_str().is_some_and(|e| e.contains("peer_unreachable")), "{info}");
+    assert_eq!(info["status"], "running");
+    assert_eq!(info["peer"], "far");
+    assert_eq!(crate::cli::resolve::routed_id(&info).unwrap(), format!("far/{CHAT}"));
+
+    let plain = call(&hub, method::MUX_INFO, json!({"sessionId": format!("far/{CHAT}")})).await;
+    let error = plain.expect_err("the peer is asked, and it is down");
+    assert_eq!(error["data"]["reason"], "peer_unreachable", "{error}");
+}

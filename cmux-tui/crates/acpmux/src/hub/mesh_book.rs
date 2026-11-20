@@ -352,6 +352,30 @@ impl Hub {
         found.next().is_none().then_some(id)
     }
 
+    /// The one hub row of machine `host` that `key` names: its session id, or its name (bare or
+    /// as `HOST/NAME`, as the list shows it). What an info read answers with when the machine is
+    /// slow to answer its own details (`server/mesh_read.rs` `info_or_row`).
+    pub(crate) fn mesh_book_named(&self, host: &str, key: &str) -> Option<Arc<RemoteSession>> {
+        let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
+        let start = format!("{host}/");
+        let qualified = format!("{host}/{key}");
+        let mut found = book
+            .rows
+            .range::<str, _>((
+                std::ops::Bound::Included(start.as_str()),
+                std::ops::Bound::Unbounded,
+            ))
+            .take_while(|(k, _)| k.starts_with(&start))
+            .map(|(_, (_, r))| r)
+            .filter(|r| {
+                r.peer == host
+                    && (r.receipt.mux_session_id == key
+                        || r.summary.name().is_some_and(|n| n == qualified || n == key))
+            });
+        let row = found.next()?.clone();
+        found.next().is_none().then_some(row)
+    }
+
     /// Whether the hub lists machine `host` for this person.
     pub(crate) fn mesh_book_has_host(&self, host: &str) -> bool {
         self.mesh_book.lock().unwrap_or_else(|e| e.into_inner()).hosts.contains_key(host)
