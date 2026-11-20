@@ -1570,6 +1570,7 @@ impl Hub {
                         tracing::warn!(session = %session.id, "session/load failed: {e}");
                         if let Some(e) = super::adoption::unavailable_resume(&e) {
                             self.note_load_failed(session, &e);
+                            self.end_cold_start(session).await;
                             return Err(e);
                         }
                         self.note_load_failed(session, &e);

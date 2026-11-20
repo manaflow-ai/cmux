@@ -32,6 +32,41 @@ async fn capacity_during_resume_keeps_the_conversation_and_reports_the_cause_onc
     assert_eq!(hub.session_summary(&session)["retry"], Value::Null);
 }
 
+/// A failed load must not leave an unloaded live child eligible for the fast path.
+#[tokio::test]
+async fn capacity_resume_retries_loading_before_the_next_prompt() {
+    let recovered =
+        std::env::temp_dir().join(format!("acpmux-load-recovered-{}", uuid::Uuid::now_v7()));
+    let env = BTreeMap::from([
+        ("FAKE_LOAD_ERROR".to_owned(), "Selected model is at capacity.".to_owned()),
+        ("FAKE_LOAD_RECOVERED".to_owned(), recovered.to_string_lossy().into_owned()),
+    ]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let id = new_session(&mut c, "resume-capacity-recovery").await;
+    let session = hub.resolve(&id).unwrap();
+    let original = session.meta().agent_session_id;
+    hub.detach_child(&session).await;
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "continue"}]});
+    let error = c.request(method::SESSION_PROMPT, prompt.clone()).await.unwrap_err();
+    assert!(error.contains("at capacity"), "{error}");
+    assert!(session.child.lock().await.is_none(), "an unloaded child cannot serve the next prompt");
+    std::fs::write(&recovered, b"available").unwrap();
+    let answer = c.request(method::SESSION_PROMPT, prompt).await;
+    std::fs::remove_file(&recovered).unwrap();
+    answer.expect("the next prompt must reload the preserved conversation");
+    assert_eq!(session.meta().agent_session_id, original);
+    let events = hub.events(&id, 0, 10_000).unwrap();
+    assert_eq!(
+        events.iter().filter(|e| e.dir == "out" && e.kind == method::SESSION_LOAD).count(),
+        2
+    );
+    assert_eq!(
+        events.iter().filter(|e| e.dir == "out" && e.kind == method::SESSION_NEW).count(),
+        1
+    );
+    assert_eq!(hub.session_summary(&session)["lastTurn"]["status"], "completed");
+}
+
 /// A prompt that arrives while another caller is still loading the
 /// session's respawned agent waits for the load: the agent is not handed
 /// out before `session/load` answered (it would answer "Session not found",
