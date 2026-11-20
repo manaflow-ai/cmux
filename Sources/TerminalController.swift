@@ -4369,12 +4369,16 @@ class TerminalController {
             semaphore.signal()
         }
         if let timeoutSeconds {
-            if semaphore.wait(timeout: .now() + timeoutSeconds) == .timedOut {
+            // Stop waiting when the socket client does: past its stated
+            // deadline the answer goes nowhere, and the wait would hold one of
+            // the control socket's bounded slots (up to 17 min by default).
+            let waitSeconds = CloudRequestBudget.live.workerWaitSeconds(limit: timeoutSeconds)
+            if semaphore.wait(timeout: .now() + waitSeconds) == .timedOut {
                 task.cancel()
                 return v2Error(
                     id: id,
                     code: "timeout",
-                    message: "VM request timed out after \(Int(timeoutSeconds)) seconds"
+                    message: "VM request timed out after \(Int(waitSeconds)) seconds"
                 )
             }
         } else {

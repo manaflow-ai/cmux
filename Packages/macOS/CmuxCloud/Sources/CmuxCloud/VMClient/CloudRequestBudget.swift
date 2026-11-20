@@ -89,6 +89,16 @@ public struct CloudRequestBudget: Sendable {
         return max(Self.minimumTimeout, min(own, remaining))
     }
 
+    /// How long a socket worker should wait for a call limited to `limit`
+    /// seconds: the limit, cut by the bound deadline (the CLI's stated wait),
+    /// never below ``minimumTimeout``. A worker that waits past the client's
+    /// deadline keeps a control-socket slot for an answer nobody reads; enough
+    /// of those starve every other command until the app relaunches.
+    public func workerWaitSeconds(limit: TimeInterval) -> TimeInterval {
+        guard let remaining = remainingSeconds() else { return max(Self.minimumTimeout, limit) }
+        return max(Self.minimumTimeout, min(limit, remaining))
+    }
+
     /// The ``headerField`` value for a timeout: whole milliseconds, rounded down.
     public func headerValue(seconds: TimeInterval) -> String {
         String(Int(max(Self.minimumTimeout, seconds) * 1000))
