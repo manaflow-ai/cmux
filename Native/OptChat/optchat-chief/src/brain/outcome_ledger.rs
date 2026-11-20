@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use cmux_conversation::{Op, Part};
 
 use super::{Brain, Phase, Source, now_ms};
-use crate::state::Untold;
+use crate::state::{SubStatus, Untold};
 
 /// The first word of an outcome retry turn's note.
 pub const UNTOLD_TAG: &str = "[untold]";
@@ -61,6 +61,8 @@ impl Brain {
     /// runs again, and its next report is the one to tell, so this one asks
     /// for no post (persona replay, Oct 28: "this ping is noise").
     pub(super) fn outcome_resumed(&mut self, id: &str) {
+        // Nor does the running turn owe it now (landed_told.rs).
+        self.turn_landed.retain(|(i, _)| i != id);
         let before = self.state.untold.len();
         self.state.untold.retain(|u| u.id != id);
         if self.state.untold.len() != before {
@@ -70,9 +72,6 @@ impl Brain {
 
     /// The owner took Chief post `op`: every subagent it names is told.
     pub(super) fn outcome_posted(&mut self, op: &Op) {
-        if self.state.untold.is_empty() {
-            return;
-        }
         let Op::MessageSend { parts, .. } = op else {
             return;
         };
@@ -84,6 +83,27 @@ impl Brain {
             })
             .collect::<Vec<_>>()
             .join("\n");
+        // Every open subagent it names was told now (`<open-items>`).
+        let now = self.now();
+        let mut told = false;
+        for sub in self
+            .state
+            .spawns
+            .values_mut()
+            .flat_map(|r| r.subs.iter_mut())
+        {
+            let open = sub.at_work() || sub.waiting() || sub.status == SubStatus::Done;
+            if open && names(&text, &sub.id) {
+                sub.told_ms = now;
+                told = true;
+            }
+        }
+        if self.state.untold.is_empty() {
+            if told {
+                self.save();
+            }
+            return;
+        }
         let before = self.state.untold.len();
         self.state.untold.retain(|u| !names(&text, &u.id));
         if self.state.untold.len() != before {
@@ -185,7 +205,7 @@ impl Brain {
 }
 
 /// Whether `text` names subagent `id` as a word (`a1` is not in `a12`).
-fn names(text: &str, id: &str) -> bool {
+pub(super) fn names(text: &str, id: &str) -> bool {
     let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
     text.match_indices(id).any(|(at, _)| {
         !word(text[..at].chars().next_back()) && !word(text[at + id.len()..].chars().next())

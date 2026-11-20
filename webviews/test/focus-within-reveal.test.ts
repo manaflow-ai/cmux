@@ -32,7 +32,6 @@ const KNOWN = new Set([
   "src/agent-session/acpmux/TaskGoalStrip.css: .acpmux-goal[data-look]:is(:focus-within, [data-open]) .acpmux-goal-actions",
   "src/agent-session/acpmux/chips/chips.css: .cv-media__actions:focus-within",
   "src/agent-session/acpmux/composerAttachments.css: .acpmux-attachment:focus-within .acpmux-attachment-remove",
-  "src/agent-session/acpmux/composerLook.css: .acpmux-look-dots:focus-within",
   "src/agent-session/acpmux/conversation/AgentMessageRow.css: .cv-agentmsg__line:is(:hover, :focus-within) .cv-command__ok",
   "src/agent-session/acpmux/conversation/AgentMessageRow.css: .cv-sent-msg.look-hover .cv-agentmsg__open:focus-within .cv-sent__raw > .cv-received__more",
   "src/agent-session/acpmux/conversation/CardCopy.css: .cv-card-copy:focus-within",
