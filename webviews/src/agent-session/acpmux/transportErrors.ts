@@ -94,8 +94,9 @@ export function knownRefusalText(
   const reason = typeof error === "object" && error !== null ? (error as { reason?: unknown }).reason : undefined;
   const reasonKey = typeof reason === "string" ? DAEMON_REASON_TEXT[reason] : undefined;
   if (reasonKey) return translate(reasonKey);
-  const message = typeof error === "object" && error !== null ? (error as { message?: unknown }).message : error;
-  const pool = exhaustedPool(message);
+  const refusal =
+    typeof error === "object" && error !== null ? (error as { message?: unknown; detail?: unknown }) : undefined;
+  const pool = exhaustedPool(refusal?.message ?? error) ?? exhaustedPool(refusal?.detail);
   if (pool) return translate("turn.failure.poolPaused", { pool });
   const code = refusalCode(error);
   const key =

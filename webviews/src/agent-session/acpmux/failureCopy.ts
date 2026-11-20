@@ -239,6 +239,8 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   const typed = code ? TYPED.find(([words]) => words.test(code))?.[1] : undefined;
   // The router types its own limits `insufficient_quota` too: its code in the text makes it a limit.
   if (typed === "no-credit" && message && ROUTER_CODE.test(message)) return "rate-limited";
+  // A wrapper can say the process exited while the provider gives the cause of that exit.
+  if ((typed === "agent-exited" || typed === "spawn-failed") && exhaustedPool(message)) return "rate-limited";
   if (typed) return typed;
   if (!message) return "other";
   if (/\btrust\.pending\b/i.test(message)) return "trust-pending";

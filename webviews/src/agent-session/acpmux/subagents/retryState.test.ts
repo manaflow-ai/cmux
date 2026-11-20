@@ -83,7 +83,12 @@ describe("the adapter reads acpmux's retry", () => {
     const error = "503 no non-exhausted claude accounts available (retry after 2945s)";
     const paused = translate("turn.failure.poolPaused", { pool: "Claude" });
     expect(failureCopy(translate, error)).toBe(paused);
+    expect(failureCopy(translate, error, undefined, "agent.exited")).toBe(paused);
     expect(errorMessage(new Error(error))).toBe(paused);
+    expect(errorMessage({ code: "transport.intent_invalid", method: "session/load", detail: error })).toBe(paused);
+    expect(errorMessage({ code: "transport.intent_invalid", method: "session/load" })).toBe(
+      translate("transport.intentInvalidStart"),
+    );
     expect(autoResumeStatus(null, undefined, error)).toBeUndefined();
     const status = autoResumeStatus(FIXTURE.subagentRetry, undefined, error);
     const retry = sessionEntry({ sessionId: "s", retry: FIXTURE.subagentRetry, lastTurn: { errorText: error } }).retry;
