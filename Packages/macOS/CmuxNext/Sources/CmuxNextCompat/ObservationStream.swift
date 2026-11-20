@@ -324,7 +324,7 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
         /// second time inside one change (``OneObservationCall``), and that call would make one more evaluation.
         @MainActor
         static func track(_ emit: @MainActor @Sendable () -> Element, state: ChangeState) -> Element {
-            let changed = OneObservationCall.once { [state] in
+            let changed: @Sendable () -> Void = { [state] in
                 state.site.woke()
                 ObservationWakes.record(site: state.site, instance: ObjectIdentifier(state))
                 state.changed()
