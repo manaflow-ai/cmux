@@ -66,7 +66,8 @@ public struct CloudPaths: Sendable {
 
     /// Writes `text` atomically with mode 0600.
     func writeSecret(_ text: String, to url: URL) throws {
-        let temporary = url.appendingPathExtension("tmp")
+        // Its own temporary name per call: two first reads writing at once never share one.
+        let temporary = url.appendingPathExtension("\(UUID().uuidString).tmp")
         _ = FileManager.checked.createFile(atPath: temporary.path, contents: Data(text.utf8), attributes: [.posixPermissions: 0o600])
         guard rename(temporary.path, url.path) == 0 else {
             throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: url.path])
