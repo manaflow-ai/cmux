@@ -198,10 +198,15 @@ await requireBrowserLane("new-tab-field-on-art.test.ts", async () => {
                 const popover = document.querySelector(".nt-popover")!;
                 // A lone row's popover (whole-pixel padding and row): never shorter than two of its corners, or the
                 // engine shrinks its corner below the box's.
+                const list = document.querySelector("#rows")!;
+                const padding = () => parseFloat(getComputedStyle(list).paddingTop);
+                const listPadding = padding();
                 popover.classList.add("nt-popover-single");
                 const lone = {
                   height: parseFloat(getComputedStyle(popover).height),
                   corner: parseFloat(getComputedStyle(popover).borderTopLeftRadius),
+                  // In drawn pixels: the lone row's whole-pixel padding less the list's.
+                  extra: (padding() - listPadding) * (parseFloat(getComputedStyle(popover).zoom) || 1),
                 };
                 popover.classList.remove("nt-popover-single");
                 return { box: corner(box, box.closest(".nt-composer")!), popover: corner(popover, popover), lone };
@@ -213,6 +218,7 @@ await requireBrowserLane("new-tab-field-on-art.test.ts", async () => {
             expect(drawn.lone.height, `density ${t}: a lone row's popover holds two corners`).toBeGreaterThanOrEqual(
               2 * drawn.lone.corner - 0.01,
             );
+            expect(drawn.lone.extra, `density ${t}: a lone row rounds its padding up by under a pixel`).toBeLessThan(1);
           }
         }
         await page.close();
