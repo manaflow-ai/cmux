@@ -44,6 +44,23 @@ const message = (e) => (e instanceof Error ? e.message : String(e))
 const refused = (what) => (e) => cmux.toast({ title: `Turn on ${what} for Hosts`, message: message(e), tone: "warning" })
 const run = (id, args) => cmux.actions.run(id, args).catch(refused("Run actions"))
 
+// The look's functions, the same buttons in every demo look: a new session, a remote host, the
+// customize view, the side panel and the sidebar. Each runs an existing catalog action; none of
+// them changes a setting. Session Info needs a focused chat (agentPane.toggleSessionInfo requires
+// it); with none focused the action is refused and the toast says so.
+function functionsRow(harness, compact) {
+  const item = (symbol, label, help, action) =>
+    (compact ? Button(Icon(symbol), action) : Button(HStack({ spacing: 4 }, [Icon(symbol), Text(label)]), action)).help(help)
+  return HStack({ spacing: compact ? 4 : 6 }, [
+    item("square.and.pencil", "New session", "New session", () => run("palette.newAgentChat", harness ? { harness } : undefined)),
+    item("server.rack", "Add Host", "Add a remote host", () => run("server.addServer")),
+    item("paintbrush", "Customize", "Customize view", () => run("customize.open")),
+    item("sidebar.right", "Session Info", "Show or hide Session Info", () => run("agentPane.toggleSessionInfo")),
+    item("sidebar.left", "Sidebar", "Show or hide the sidebar", () => run("toggleSidebar")),
+    Spacer()
+  ])
+}
+
 // Folded hosts are remembered with storage:local; without it they unfold on a reload.
 cmux.storage
   .get("folded")
@@ -189,6 +206,7 @@ function hostHeader(h) {
 function renderHosts() {
   follow()
   return VStack({ spacing: 2 }, [
+    functionsRow(null, true),
     ForEach({ items: () => pageItems(hosts(), hostPage(), HOSTS_PER_PAGE), key: (h) => h.name }, (h) =>
       VStack({ spacing: 1 }, [
         hostHeader(h),
@@ -239,11 +257,7 @@ function renderPicker() {
         const first = chats().filter(matches).sort((a, b) => lastActivity(b) - lastActivity(a))[0]
         if (first) show(first)
       } }),
-      HStack({ spacing: 6 }, [
-        Button(HStack({ spacing: 4 }, [Icon("terminal"), Text("New session")]), () => run("palette.newAgentChat")),
-        Button(HStack({ spacing: 4 }, [Icon("plus"), Text("Add Host")]), () => run("server.addServer")),
-        Spacer()
-      ])
+      functionsRow(null, false)
     ]),
     ForEach({ items: () => pageItems(matchingHosts(), pickerPage(), HOSTS_PER_PAGE), key: (h) => h.name }, (h) =>
       Panel({ title: () => h().name, style: "card" }, [

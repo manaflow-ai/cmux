@@ -3,6 +3,8 @@
   "description": "A hosts look for the whole window, after a terminal multiplexer's: a near-black terminal-first window, rounded panes beside a quiet sidebar, a mint accent, monospaced status lines. The sidebar is a hosts list: This Mac and every machine your sessions run on, each with a leading identity icon and its sessions under it, every session with its program status (working, blocked, done, error, idle) and what it is doing now, plus Add Host. Workspaces are grouped by computer. Every New Tab is a session picker (search every session on every host), each chat's Session Info gets a block card (host, session, status, folder), and the hover card reads like a status line.",
   "settings": {
     "appearance.themeFile": "hosts",
+    "appearance.metrics.chromeFontSize": 13,
+    "sidebar.floatOnHover": true,
     "tabs.newTabApp": "local/customize",
     "tabs.hideLoneChatTab": true,
     "tabs.toolbarButtons": [
@@ -34,7 +36,7 @@
     "agentPane.showContextUsage": true,
     "diff.layout": "unified",
     "focus.inactiveTabStyle": "tonal",
-    "layout.paneCornerRadius": 14,
+    "layout.paneCornerRadius": 12,
     "tabs.plusButton": "always",
     "sidebar.side": "left",
     "sidebar.showProfileControl": true,

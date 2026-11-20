@@ -38,6 +38,7 @@ function host(look: string, source?: string) {
   h.handlers["app.storage.get"] = ok(null)
   h.handlers["app.storage.set"] = ok(null)
   h.handlers["toast.show"] = ok(null)
+  h.handlers["action.run"] = ok(null)
   return { h, manifest }
 }
 
@@ -154,6 +155,36 @@ for (const size of [100, 3000]) {
         expect(h.tree("m").nodes.size).toBeLessThan(700)
         expect(h.logs.filter(([level]) => level === "error")).toEqual([])
       }
+    })
+  }
+}
+
+// Leo: "new session, add remote host, customize view", and the side panels. Every look's
+// New Tab and sidebar section carry the same buttons, and each tap runs the existing catalog action.
+const FUNCTIONS: Array<[string, string]> = [
+  ["New session", "palette.newAgentChat"],
+  ["Add a remote host", "server.addServer"],
+  ["Customize view", "customize.open"],
+  ["Show or hide Session Info", "agentPane.toggleSessionInfo"],
+  ["Show or hide the sidebar", "toggleSidebar"]
+]
+for (const look of ["claude", "codex", "studio", "hosts"]) {
+  const { manifest } = host(look)
+  for (const iface of ["cmux.newtab/1", "cmux.section/1"]) {
+    const exp = manifest.implements[iface].export
+    test(`${look} ${exp} has new session, add host, customize, Session Info and sidebar buttons`, async () => {
+      const { h } = host(look)
+      expect(h.mount("m", exp, {})).toBe("")
+      await h.settle(10)
+      for (const [help, action] of FUNCTIONS) {
+        const button = h.findNode("m", (n) => n.type === "Button" && n.props.help === help)
+        expect(button, `${look} ${exp}: ${help}`).toBeDefined()
+        h.dispatch("m", button!, "tap")
+        await h.settle()
+        const ran = h.calls.filter((c) => c.name === "action.run").map((c) => c.params.id)
+        expect(ran).toContain(action)
+      }
+      expect(h.logs.filter(([level]) => level === "error")).toEqual([])
     })
   }
 }

@@ -16,6 +16,23 @@ const message = (e) => (e instanceof Error ? e.message : String(e))
 const refused = (what) => (e) => cmux.toast({ title: `Turn on ${what} for Codex`, message: message(e), tone: "warning" })
 const run = (id, args) => cmux.actions.run(id, args).catch(refused("Run actions"))
 
+// The look's functions, the same buttons in every demo look: a new session, a remote host, the
+// customize view, the side panel and the sidebar. Each runs an existing catalog action; none of
+// them changes a setting. Session Info needs a focused chat (agentPane.toggleSessionInfo requires
+// it); with none focused the action is refused and the toast says so.
+function functionsRow(harness, compact) {
+  const item = (symbol, label, help, action) =>
+    (compact ? Button(Icon(symbol), action) : Button(HStack({ spacing: 4 }, [Icon(symbol), Text(label)]), action)).help(help)
+  return HStack({ spacing: compact ? 4 : 6 }, [
+    item("square.and.pencil", "New session", "New session", () => run("palette.newAgentChat", harness ? { harness } : undefined)),
+    item("server.rack", "Add Host", "Add a remote host", () => run("server.addServer")),
+    item("paintbrush", "Customize", "Customize view", () => run("customize.open")),
+    item("sidebar.right", "Session Info", "Show or hide Session Info", () => run("agentPane.toggleSessionInfo")),
+    item("sidebar.left", "Sidebar", "Show or hide the sidebar", () => run("toggleSidebar")),
+    Spacer()
+  ])
+}
+
 let reading = false
 let again = false
 async function loadChats() {
@@ -147,6 +164,7 @@ function renderHome() {
         Button(HStack({ spacing: 4 }, [Icon("composer.send"), Text("Send")]), start)
       ])
     ]),
+    functionsRow("codex", false),
     Panel({ title: "Recent threads", style: "card" }, [
       ForEach({ items: () => chats().slice().sort((a, b) => lastActivity(b) - lastActivity(a)).slice(0, 6), key: (c) => c.id }, (c) =>
         Row({
@@ -193,6 +211,7 @@ function thread(c) {
 function renderThreads() {
   follow()
   return VStack({ spacing: 2 }, [
+    functionsRow("codex", true),
     HStack({ spacing: 6 }, [
       Button(HStack({ spacing: 4 }, [Icon("square.and.pencil"), Text("New thread")]), () => run("palette.newAgentChat", { harness: "codex" })),
       Spacer(),

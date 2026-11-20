@@ -103,5 +103,76 @@ class DemoTests(unittest.TestCase):
                     self.assertTrue(all(len(arg) <= 2000 for arg in step.get("cmux", [])))
 
 
+LOOKS = HERE / "looks"
+# Measured from manaflow-ai/cmux-design-references live captures, in points (pixels / capture scale).
+# The PR that set them carries the table: the source file, its scale and the pixel edges of each.
+MEASURED = {
+    "claude": {"appearance.metrics.sidebarWidth": 288, "appearance.metrics.sidebarRowHeight": 26,
+               "appearance.metrics.titlebarHeight": 48, "appearance.metrics.chromeFontSize": 13,
+               "agentPane.display.width": 768, "layout.paneCornerRadius": 12},
+    "codex": {"appearance.metrics.sidebarWidth": 291, "appearance.metrics.sidebarRowHeight": 31,
+              "appearance.metrics.titlebarHeight": 44, "appearance.metrics.chromeFontSize": 14,
+              "agentPane.display.width": 736, "agentPane.display.font.size": 14, "layout.paneCornerRadius": 20},
+    "studio": {"appearance.metrics.sidebarWidth": 256, "appearance.metrics.titlebarHeight": 52,
+               "appearance.metrics.chromeFontSize": 14, "agentPane.display.width": 736,
+               "layout.paneCornerRadius": 8},
+    "hosts": {"appearance.metrics.chromeFontSize": 13, "layout.paneCornerRadius": 12},
+}
+FUNCTIONS = ["palette.newAgentChat", "server.addServer", "customize.open",
+             "agentPane.toggleSessionInfo", "toggleSidebar"]
+
+
+def schema_ranges():
+    """Every settings key's numeric range, from the schema sources."""
+    ranges = {}
+
+    def walk(node):
+        if isinstance(node, dict):
+            if isinstance(node.get("key"), str) and isinstance(node.get("range"), dict):
+                ranges[node["key"]] = node["range"]
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    for source in (HERE.parent.parent / "schemas" / "settings" / "source").glob("*.json"):
+        walk(json.loads(source.read_text()))
+    return ranges
+
+
+class MeasuredLookTests(unittest.TestCase):
+    def test_looks_carry_measured_proportions(self):
+        ranges = schema_ranges()
+        for look, values in MEASURED.items():
+            profile = json.loads((LOOKS / look / "profile.json").read_text())["settings"]
+            bundle = json.loads((LOOKS / f"{look}.json").read_text())["settings"]
+            for key, value in values.items():
+                self.assertEqual(profile.get(key), value, f"{look} {key}")
+                self.assertEqual(bundle.get(key), value, f"{look}.json {key} (run looks/bundle.py)")
+                self.assertIn(key, ranges, f"{key} is not a settings key")
+                self.assertGreaterEqual(value, ranges[key]["min"], key)
+                self.assertLessEqual(value, ranges[key]["max"], key)
+
+    def test_side_panels_open_beside_the_chat(self):
+        for look in MEASURED:
+            settings = json.loads((LOOKS / f"{look}.json").read_text())["settings"]
+            self.assertEqual(settings.get("agentPane.display.sessionInfo.placement"), "push", look)
+            self.assertIs(settings.get("sidebar.floatOnHover"), True, look)
+
+    def test_every_look_wires_its_functions(self):
+        for look in MEASURED:
+            source = (LOOKS / look / "customize" / "main.js").read_text()
+            for action in FUNCTIONS:
+                self.assertIn(f'run("{action}"', source, f"{look} {action}")
+
+    def test_gallery_codex_column_matches_the_look(self):
+        gallery = json.loads((HERE.parent.parent / "webviews/src/gallery/golden/looks.json").read_text())
+        by_id = {look["id"]: look for look in gallery["looks"]}
+        self.assertEqual(by_id["codex"]["settings"]["agentPane.display.width"], MEASURED["codex"]["agentPane.display.width"])
+        self.assertEqual(by_id["claude"]["settings"]["agentPane.display.width"], MEASURED["claude"]["agentPane.display.width"])
+        self.assertEqual(by_id["studio"]["settings"]["agentPane.display.width"], MEASURED["studio"]["agentPane.display.width"])
+
+
 if __name__ == "__main__":
     unittest.main()

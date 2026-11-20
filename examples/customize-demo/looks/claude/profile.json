@@ -3,6 +3,11 @@
   "description": "The window as the Claude app: warm near-black paper with the clay accent, replies in a clean sans in a narrow reading column, your prompt in a soft rounded pill, round tabs and panes, sessions by project with their branch and pull request. Every New Tab is Claude's home (a greeting, one prompt box that starts a Claude chat, your recents), the sidebar carries Claude's usage left, and each chat's Session Info gets a Claude Code status line. Command-N starts a Claude chat.",
   "settings": {
     "appearance.themeFile": "claude-app",
+    "appearance.metrics.sidebarWidth": 288,
+    "appearance.metrics.sidebarRowHeight": 26,
+    "appearance.metrics.titlebarHeight": 48,
+    "appearance.metrics.chromeFontSize": 13,
+    "sidebar.floatOnHover": true,
     "tabs.newTabApp": "local/customize",
     "tabs.hideLoneChatTab": true,
     "tabs.toolbarButtons": [
@@ -23,7 +28,7 @@
     "agentPane.display.font.ui": "system-ui",
     "agentPane.display.font.size": 16,
     "agentPane.display.font.lineHeight": 1.6,
-    "agentPane.display.width": 760,
+    "agentPane.display.width": 768,
     "agentPane.display.minimap": "off",
     "agentPane.display.sessionInfo.placement": "push",
     "agentPane.editedFiles.show": "always",

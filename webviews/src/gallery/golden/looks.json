@@ -14,6 +14,7 @@
       "composerLook": "claude",
       "settings": {
         "agentPane.display.transcriptLook": "claude",
+        "agentPane.display.width": 768,
         "sidebar.density": "compact",
         "sidebar.sectionLook": "quiet"
       },
@@ -34,7 +35,77 @@
     {
       "id": "codex",
       "title": "Codex",
-      "note": "The built-in Codex look: Codex's composer, the codex transcript preset, and the Codex app's white and #181818 pages with a blue accent and a slate sidebar.",
+      "note": "The built-in Codex look, its column measured (736 pt, the thread composer in the Codex app at 2x): Codex's composer, the codex transcript preset, and the Codex app's white and #181818 pages with a blue accent and a slate sidebar.",
+      "composerLook": "codex",
+      "settings": {
+        "agentPane.display.transcriptLook": "codex",
+        "agentPane.display.font.size": 14,
+        "agentPane.display.width": 736,
+        "sidebar.density": "comfortable",
+        "sidebar.showTimestamps": true
+      },
+      "schemes": {
+        "light": {
+          "theme": {
+            "appearance.theme": "Apple System Colors Light",
+            "colors": { "background": "#ffffff", "foreground": "#0d0d0d", "selection": "#dcebff", "accent": "#0285ff" },
+            "appearance.accent": "theme",
+            "appearance.surfaces.sidebar.color": "#f7f7f7",
+            "appearance.surfaces.agentPane.color": "#ffffff",
+            "appearance.density": "comfortable"
+          }
+        },
+        "dark": {
+          "theme": {
+            "appearance.theme": "Apple System Colors",
+            "colors": { "background": "#181818", "foreground": "#f5f5f5", "selection": "#2c2c2c", "accent": "#339cff" },
+            "appearance.accent": "theme",
+            "appearance.surfaces.sidebar.color": "#24303a",
+            "appearance.surfaces.agentPane.color": "#181818",
+            "appearance.density": "comfortable"
+          }
+        }
+      }
+    },
+    {
+      "id": "codex-col-640",
+      "title": "Codex (640 pt column, variant)",
+      "note": "Gallery variant of Codex for the one ambiguous measurement: a 640 pt column, the composer on Codex's empty home (640 pt at 1x), beside the measured 736 pt.",
+      "composerLook": "codex",
+      "settings": {
+        "agentPane.display.transcriptLook": "codex",
+        "agentPane.display.font.size": 14,
+        "agentPane.display.width": 640,
+        "sidebar.density": "comfortable",
+        "sidebar.showTimestamps": true
+      },
+      "schemes": {
+        "light": {
+          "theme": {
+            "appearance.theme": "Apple System Colors Light",
+            "colors": { "background": "#ffffff", "foreground": "#0d0d0d", "selection": "#dcebff", "accent": "#0285ff" },
+            "appearance.accent": "theme",
+            "appearance.surfaces.sidebar.color": "#f7f7f7",
+            "appearance.surfaces.agentPane.color": "#ffffff",
+            "appearance.density": "comfortable"
+          }
+        },
+        "dark": {
+          "theme": {
+            "appearance.theme": "Apple System Colors",
+            "colors": { "background": "#181818", "foreground": "#f5f5f5", "selection": "#2c2c2c", "accent": "#339cff" },
+            "appearance.accent": "theme",
+            "appearance.surfaces.sidebar.color": "#24303a",
+            "appearance.surfaces.agentPane.color": "#181818",
+            "appearance.density": "comfortable"
+          }
+        }
+      }
+    },
+    {
+      "id": "codex-col-820",
+      "title": "Codex (820 pt column, variant)",
+      "note": "Gallery variant of Codex for the one ambiguous measurement: a 820 pt column, the width this gallery used before it was measured, beside the measured 736 pt.",
       "composerLook": "codex",
       "settings": {
         "agentPane.display.transcriptLook": "codex",
