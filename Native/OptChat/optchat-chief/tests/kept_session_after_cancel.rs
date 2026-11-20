@@ -598,3 +598,50 @@ fn a_session_with_moved_work_outlives_its_turn_until_the_work_reports() {
         "the session ends once its work reported"
     );
 }
+
+/// Claude Code's `total_cost_usd` is its process's running total. A turn in
+/// a kept session counts only its rise: before, every reused turn reported
+/// the session's whole total again (bench burst5: $0.50 a probe before kept
+/// sessions, $1.83 after), and the audit, ledger and analytics read it.
+#[test]
+fn a_turn_in_a_kept_session_costs_only_its_own_rise() {
+    let mut h = harness(default_script());
+    let traces_dir = h.dir.path().join("traces");
+    h.brain
+        .set_trace(optchat_chief::trace::Trace::open(&traces_dir, false).unwrap());
+    h.connect();
+    let answer = |total: f64| {
+        Some(
+            serde_json::json!({"stopReason": "end_turn", "_meta": {"claude": {"cost_usd": total}}}),
+        )
+    };
+    h.agents.inner.lock().unwrap().answer = answer(0.40);
+    h.say("user_local", "one");
+    h.settle_posts();
+    h.agents.inner.lock().unwrap().answer = answer(0.90);
+    h.say("user_local", "two");
+    h.settle_posts();
+    assert_eq!(
+        h.agents.inner.lock().unwrap().prompt_sessions,
+        vec!["s1", "s1"]
+    );
+    let costs: Vec<f64> = std::fs::read_dir(&traces_dir)
+        .unwrap()
+        .flatten()
+        .flat_map(|e| {
+            std::fs::read_to_string(e.path())
+                .unwrap()
+                .lines()
+                .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+                .collect::<Vec<_>>()
+        })
+        .filter(|e| e["ev"] == "turn.end")
+        .filter_map(|e| e["cost_usd"].as_f64())
+        .collect();
+    assert_eq!(costs.len(), 2, "{costs:?}");
+    assert!((costs[0] - 0.40).abs() < 1e-9, "{costs:?}");
+    assert!(
+        (costs[1] - 0.50).abs() < 1e-9,
+        "the second turn's own cost: {costs:?}"
+    );
+}
