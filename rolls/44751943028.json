@@ -1,0 +1,445 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44751943028",
+  "recorded_at": "2026-11-20T15:56:06Z",
+  "reason": "cmux-tui f25de852335f changes the image's cmux-tui (pinned 325ccecb4faf)",
+  "dry_run": false,
+  "cmux_tui": "f25de852335f8babc829373aeda940ef94f015d9",
+  "fixes": [
+    {
+      "sha": "e707c8b369fa84094ebc806dd279d6922438bded",
+      "mergedAt": "2026-11-18T21:50:18-08:00",
+      "subject": "acpmux chat text: at its bound, letting the oldest chats go no longer rewrites the saved copy (#46598)"
+    },
+    {
+      "sha": "84d6613a33b9813439a341b67131b505d01cc6e4",
+      "mergedAt": "2026-11-18T21:47:01-08:00",
+      "subject": "cmux-auth-coordinator: AuthCoordinator's session state machine as a pure Rust reducer (auth port step 2 of 6) (#45605)"
+    },
+    {
+      "sha": "52d44642904d169df89273c6d8a55ea5a9a3fcd5",
+      "mergedAt": "2026-11-18T21:34:00-08:00",
+      "subject": "Cloud create: wait two minutes for an approved create, and say why it failed (#46843)"
+    },
+    {
+      "sha": "f33afa63600b5a990039936d43b8df7279ead204",
+      "mergedAt": "2026-11-19T05:19:28+00:00",
+      "subject": "acpmux: the same page of an unchanged chat is answered without reading its log (#46763)"
+    },
+    {
+      "sha": "76e93039a863c1022e6beb561106684453ce7d10",
+      "mergedAt": "2026-11-18T20:21:37-08:00",
+      "subject": "Settings: a change applies over the active theme file; Plain Backgrounds and theme file notes on the rows (#44894) (#44930)"
+    },
+    {
+      "sha": "ae733ab0f78bf269751aca5ddccab0e89f7e05ef",
+      "mergedAt": "2026-11-18T20:04:31-08:00",
+      "subject": "cmux-next iOS: New Task settings from the Mac (model versions, effort, mode, options), one-row composer, setup kept (#46676)"
+    },
+    {
+      "sha": "9209aa3547de55aa2aead7e2a78231b89ea9ef11",
+      "mergedAt": "2026-11-18T19:40:51-08:00",
+      "subject": "Cloud start: a folder the machine can't project opens at its head again (#46459)"
+    },
+    {
+      "sha": "01b95373f630aac406a9bd5171578bc334b0ab4c",
+      "mergedAt": "2026-11-19T03:09:04+00:00",
+      "subject": "Hover rules in Rust, step A2: the Swift hover rules that landed after step A (no Swift change) (#46547)"
+    },
+    {
+      "sha": "41adba8a9c1d52696cda9fc2217c85fe9fcdb2d6",
+      "mergedAt": "2026-11-19T03:04:14+00:00",
+      "subject": "Customize: a try-on that reverts, or a rollback, leaves the library's on-state matching what is live (#46761)"
+    },
+    {
+      "sha": "dc0257d986991efd1eeff0a8b0b355e1c0d8e374",
+      "mergedAt": "2026-11-18T18:43:14-08:00",
+      "subject": "Theme repositories install and apply from any install line (#46115)"
+    },
+    {
+      "sha": "2ab7a46491d80fe15d53cddea4eb870f43527b84",
+      "mergedAt": "2026-11-18T18:40:24-08:00",
+      "subject": "cmux-agent-screen-detection: one redraw of an idle prompt is not a turn (#46473)"
+    },
+    {
+      "sha": "b8c363291d4e25a43a871bdc4ece1f9ee0314d93",
+      "mergedAt": "2026-11-19T02:36:20+00:00",
+      "subject": "acpmux: an indexed read back makes the copies a chat that ran on lacks (#46774)"
+    },
+    {
+      "sha": "b6fff4f6f105357fe84bf946cb960ee43d7bb3f4",
+      "mergedAt": "2026-11-18T18:05:33-08:00",
+      "subject": "cmux Computer Use: a from-scratch Rust engine for macOS, Windows and Linux, hosted in cmux Remote (#37003)"
+    },
+    {
+      "sha": "8b52a311064e9b4be1cac30c80a298a98187eb2e",
+      "mergedAt": "2026-11-19T02:03:23+00:00",
+      "subject": "acpmux tests: scratch folders go with their test (god harness filled pool VMs) (#45788)"
+    },
+    {
+      "sha": "80f4554dc885c1fd69dd838e7d33a1958f7838b6",
+      "mergedAt": "2026-11-18T17:57:43-08:00",
+      "subject": "acpmux: a phone's reconnect and refresh read only the changes (bench and detector) (#46617)"
+    },
+    {
+      "sha": "ae7984b7b8aa4f2282c9b1ba13b5d48ea9f1d550",
+      "mergedAt": "2026-11-18T17:51:00-08:00",
+      "subject": "Screen sharing: keep the helper's pipes so the host answers; 15 s staged connect deadline (#46752)"
+    },
+    {
+      "sha": "b60a250c6f7dcd9a427651ec8543bf240284864c",
+      "mergedAt": "2026-11-18T17:47:12-08:00",
+      "subject": "cmux app try .: copy your nightly and swap your working tree in (#46152)"
+    },
+    {
+      "sha": "f9fe3137f8a81197f5d3ad38cf14b7288538d374",
+      "mergedAt": "2026-11-18T17:47:07-08:00",
+      "subject": "cmux NEXT: a fresh launch's landing goes through the launch rule, and waits for Home (#46526)"
+    },
+    {
+      "sha": "c31f3b05878671a8173d1ac79134f10a37baeb76",
+      "mergedAt": "2026-11-18T17:20:56-08:00",
+      "subject": "projection: make git check only size and mtime in a mount (#46654)"
+    },
+    {
+      "sha": "dc94c02f425edc1914cf4412530a7d2a330eebdf",
+      "mergedAt": "2026-11-18T17:20:14-08:00",
+      "subject": "CLI: Cloud workspace chats take the composer's picks (effort, mode, No folder; agents chat new --on) (#46713)"
+    },
+    {
+      "sha": "d784e67db007985be9f47e459245e0d8a2eb41f9",
+      "mergedAt": "2026-11-18T17:12:30-08:00",
+      "subject": "cmux NEXT dev builds choose their Cloud backend at runtime: shared dev Workers or the tag's tailnet stack (Mac + iPhone) (#45841)"
+    },
+    {
+      "sha": "8fa39ace33de46880a1ca5e701be88b2c2f135fe",
+      "mergedAt": "2026-11-19T01:09:00+00:00",
+      "subject": "acpmux guide: teach agents the find tools (chats search, who-else, ledger) and name every command (#46317)"
+    },
+    {
+      "sha": "1469da87059fb41d78826ef6704cddabe8209032",
+      "mergedAt": "2026-11-19T00:59:24+00:00",
+      "subject": "Customize…: one element map for the big parts of the window, and Customize… on their right-click menus (Rust step) (#43407)"
+    },
+    {
+      "sha": "81b179990aa139b0c68675fda3bfbfb7a1b8af4a",
+      "mergedAt": "2026-11-18T16:54:00-08:00",
+      "subject": "cmux NEXT: app code in CmuxNextApp.framework behind a stub executable, no XProtect rescan per launch (CMUX-629) (#44204)"
+    },
+    {
+      "sha": "b7d98cc8fbd3bc6d15326ca31086b867338be75f",
+      "mergedAt": "2026-11-18T16:44:51-08:00",
+      "subject": "acpmux tests: the ChatGPT sign-in-again test runs on tokio (base red) (#46697)"
+    },
+    {
+      "sha": "5ea14067cf149dba1512b9baf73410ec62c396de",
+      "mergedAt": "2026-11-18T16:41:15-08:00",
+      "subject": "cmux-rd: heal a join signed in before its mark at the host's start (#46477)"
+    },
+    {
+      "sha": "8d6e9b2fbd2fa104bfac06ef88bd947b052b5cc3",
+      "mergedAt": "2026-11-18T15:44:18-08:00",
+      "subject": "launch: the stage-0 window's plan and input hold, in Rust (cmux-launch-shell) (#45089)"
+    },
+    {
+      "sha": "3a611b64940af0aab7f2ff3666b56de023375de4",
+      "mergedAt": "2026-11-18T23:04:20+00:00",
+      "subject": "Sidebar customization stress: constant-cost clicks and regroups, bounded problems (#46136)"
+    },
+    {
+      "sha": "c61ed656a5f106cc8612e5513c51a08b062e7c3e",
+      "mergedAt": "2026-11-18T14:55:50-08:00",
+      "subject": "acpmux: a joined Linux machine's daemon sets up its screen host, with nothing to run on it (#45369)"
+    },
+    {
+      "sha": "c79c4792eaa060b6777922b3ed39f92df8200f4c",
+      "mergedAt": "2026-11-18T13:43:28-08:00",
+      "subject": "Cloud: Sign in with ChatGPT works on a ChatGPT connection that reads Signed out (#46626)"
+    },
+    {
+      "sha": "d3a9c3f101ef0d86848d7a5b132790dc4b553325",
+      "mergedAt": "2026-11-18T13:22:47-08:00",
+      "subject": "acpmux: an old cmux lists the saved MCP servers on their own too"
+    },
+    {
+      "sha": "d136d3c503b23ab1469ec69626017c5c73d5ed8c",
+      "mergedAt": "2026-11-18T13:22:47-08:00",
+      "subject": "MCP Servers: agents.mcpServers.enabled in Settings, how to connect, unavailable without the helper"
+    },
+    {
+      "sha": "014de27012f31257c97f2511a79ac8aed509d2ed",
+      "mergedAt": "2026-11-18T13:22:47-08:00",
+      "subject": "MCP Servers: red tests for the switch, the connect line and a missing helper"
+    },
+    {
+      "sha": "ca73b54c3fdeb43c06fc773299b5076591d0d766",
+      "mergedAt": "2026-11-18T21:13:09+00:00",
+      "subject": "acpmux: auto pick never takes an unread host ahead of one under its lane cap (#46131)"
+    },
+    {
+      "sha": "d8fea451a36687f5c6f1e849808f5064644f85bd",
+      "mergedAt": "2026-11-18T12:10:30-08:00",
+      "subject": "acpmux: the MCP store's file writes compile for Windows (#46422)"
+    },
+    {
+      "sha": "38a83f2729ba2ccccc13dc152feae893366b7bd2",
+      "mergedAt": "2026-11-18T11:45:27-08:00",
+      "subject": "Cloud start-chat: a new machine that never comes up is deleted after 90 s and the chat starts on a fresh one (#46029)"
+    },
+    {
+      "sha": "9a0a05d10a0767e5dfce04e36e49b92fbd1c590e",
+      "mergedAt": "2026-11-18T11:31:25-08:00",
+      "subject": "cmux automation runner install: a systemd user unit on Linux"
+    },
+    {
+      "sha": "edbc6c85fa428d4aabbd8c9116c6807b6f478099",
+      "mergedAt": "2026-11-18T12:56:30-06:00",
+      "subject": "acpmux: a restarted daemon keeps a Cloud chat's launch credential (fixes journey-staging, #45776) (#45887)"
+    },
+    {
+      "sha": "6e89bce46e2b66fca59bea7f9453123e60947226",
+      "mergedAt": "2026-11-18T10:42:35-08:00",
+      "subject": "Customization showcase: the collection (time and weather, usage on every account, an animated chief gacha, an arcade theme) (#44134)"
+    },
+    {
+      "sha": "ba8d7f1bdef507f0e5fc4d9e980e3edef5683c44",
+      "mergedAt": "2026-11-18T09:43:14-08:00",
+      "subject": "Cloud chat: an attachment that stops delivering always closes (acpmux fan-out death, cmux-tui failed push) (#44720)"
+    },
+    {
+      "sha": "10282e64e74c691dca945a7a8cb3611cca423839",
+      "mergedAt": "2026-11-18T09:39:07-08:00",
+      "subject": "GUI chats show no Terminal/Chat toggle and no \"No terminal runs this chat\" banner (#45383)"
+    },
+    {
+      "sha": "5157dcd38cb1e1f1940a558a7d7ee71019b1785e",
+      "mergedAt": "2026-11-18T09:04:20-08:00",
+      "subject": "fix(browser-host): an agent's REPL tab opens in its own workspace, not Home"
+    },
+    {
+      "sha": "aa2f46ab09b0b954430ae5f2c0c3bae2f4083b27",
+      "mergedAt": "2026-11-18T09:04:20-08:00",
+      "subject": "test(browser-host): red: a session's new tab names its caller's workspace and terminal"
+    },
+    {
+      "sha": "4b37d49fe03cb4d06023a2b0c70c6c6f3337b823",
+      "mergedAt": "2026-11-18T08:46:43-08:00",
+      "subject": "Linux: a screen host set up makes the machine viewable (#46030)"
+    },
+    {
+      "sha": "16aa6b9c418df7a1af1369d811396041cd45531d",
+      "mergedAt": "2026-11-18T08:38:45-08:00",
+      "subject": "Scene DSL: gradient fills and SF Symbol rendering modes (scene side) (#45091)"
+    },
+    {
+      "sha": "3a841c21fddbef807dec62d5097629d33e336166",
+      "mergedAt": "2026-11-18T08:29:13-08:00",
+      "subject": "measure: the settle matrix, trigger to truly settled for the page and the sidebar at Leo's scale (#46247)"
+    },
+    {
+      "sha": "9597d46c8a15cfe589075f669661371fee1bf4c9",
+      "mergedAt": "2026-11-18T08:14:35-08:00",
+      "subject": "Saved MCP servers for every agent chat, scope per Chief and chat"
+    },
+    {
+      "sha": "e32b2910f1fe10581c9f6e83453841568271e9f7",
+      "mergedAt": "2026-11-18T07:27:03-08:00",
+      "subject": "fix(chief,acpmux): close Codex's own turns and report a goal subagent after them"
+    },
+    {
+      "sha": "2d10856cded8bd3627a802ec3ec02fa647b6f1de",
+      "mergedAt": "2026-11-18T07:27:03-08:00",
+      "subject": "test(chief,acpmux): a Codex goal subagent's own turns close and report (red)"
+    },
+    {
+      "sha": "345cd53f7d5fa898855ff7efe777aef1f4ed9358",
+      "mergedAt": "2026-11-18T07:27:03-08:00",
+      "subject": "fix(chief,acpmux): a Codex subagent works under the stop condition too"
+    },
+    {
+      "sha": "3fa0a8e3210c1e7ad2e6e5998969b698e3776b12",
+      "mergedAt": "2026-11-18T07:23:19-08:00",
+      "subject": "test(chief,acpmux): a Codex subagent gets the stop condition as its goal (red)"
+    },
+    {
+      "sha": "bc9980e000a8c18dc441d2e44ef5f976a928695f",
+      "mergedAt": "2026-11-18T07:01:56-08:00",
+      "subject": "fix(agents): an agent's cmux open FILE opens in its own workspace"
+    },
+    {
+      "sha": "d825aefc3c80ae510727b31cd6352e3896b36b51",
+      "mergedAt": "2026-11-18T07:01:56-08:00",
+      "subject": "test(agents): red: an agent's cmux open FILE opens in its own workspace, never the focused Home"
+    },
+    {
+      "sha": "baf8f5acbae2590c9475893e551eb9d252764025",
+      "mergedAt": "2026-11-18T14:57:39+00:00",
+      "subject": "acpmux cua bridge: keep the display awake while an agent uses Computer Use (#46137)"
+    },
+    {
+      "sha": "0226b4129d2579590ec31524223a6a791e439a50",
+      "mergedAt": "2026-11-18T06:56:04-08:00",
+      "subject": "acpmux: a cmux without mcp serve no longer takes every agent tool (browser, sessions) with it (#46054)"
+    },
+    {
+      "sha": "b3d88e1d9f819d2570c1d1ab422b196746877e24",
+      "mergedAt": "2026-11-18T06:54:08-08:00",
+      "subject": "cmux-rd-ffi, acpmux-client: private raw-pointer helpers become unsafe fn (#45134)"
+    },
+    {
+      "sha": "16828ae7d572f651702e47df505f01ac7ae0b4f6",
+      "mergedAt": "2026-11-18T06:52:32-08:00",
+      "subject": "daemon: an agent's split with a receipt does not shrink a phone's grid (#46383)"
+    },
+    {
+      "sha": "5f48d201804b1e78e02dc5711643279447c793d2",
+      "mergedAt": "2026-11-18T06:46:47-08:00",
+      "subject": "acpmux god harness: a deterministic attach-flood counter (GOD-FLOOD) (#46122)"
+    },
+    {
+      "sha": "877ffec43fee1989f45a6560b3eeaa62a2da2af1",
+      "mergedAt": "2026-11-18T05:56:24-08:00",
+      "subject": "cmux.watch(\"http.json\"): one shared, cached request per URL for every widget (#44881)"
+    },
+    {
+      "sha": "04ba42ecd57d8a69bccfb2fccb2cbc901492cde8",
+      "mergedAt": "2026-11-18T07:52:51-06:00",
+      "subject": "acpmux and CmuxNext: fix two feat-cmux-next reds (credentialed pool test, CloudMachineRoute main-actor parse) (#45953) (#46072)"
+    },
+    {
+      "sha": "b209afdcf6c37c218d8280d4918533a40837b669",
+      "mergedAt": "2026-11-18T13:27:05+00:00",
+      "subject": "cmux-action-catalog: palette rows for library reset, room follow, terminal project, cloud secret rm (step A) (#46170)"
+    },
+    {
+      "sha": "643df203b99600b0a286944039a2f0373a02676e",
+      "mergedAt": "2026-11-18T05:23:29-08:00",
+      "subject": "Projected folders: a big folder reaches a Cloud chat whole, its bytes read on first use (#45782)"
+    },
+    {
+      "sha": "6c98c3bd0ebdf1dcfd9353ce4e12183b1be87300",
+      "mergedAt": "2026-11-18T05:19:30-08:00",
+      "subject": "daemon: an agent's undo of a resize does not shrink a phone's grid (#46311)"
+    },
+    {
+      "sha": "d718851a20b734657267e075bfe07f1f1c969704",
+      "mergedAt": "2026-11-18T05:16:48-08:00",
+      "subject": "fix(agents): one caller rule places every agent tab in its own workspace"
+    },
+    {
+      "sha": "7adbcfe382b19f908f714e5fda0136077ece3431",
+      "mergedAt": "2026-11-18T05:16:48-08:00",
+      "subject": "test(agents): red: an agent's tabs open in its own workspace, never the focused Home"
+    },
+    {
+      "sha": "0bfb687926a6baf3cd5ceb75e8cf0de6b93094ab",
+      "mergedAt": "2026-11-18T05:00:34-08:00",
+      "subject": "acpmux: a translator panic in an agent host drops one line, not the turn (#46083)"
+    },
+    {
+      "sha": "57863288bc6c5818e7a8a165305c451a154200e6",
+      "mergedAt": "2026-11-18T04:58:45-08:00",
+      "subject": "acpmux: Linux sandbox rebuilds the HOME at every second mount of it (#46251)"
+    },
+    {
+      "sha": "e6cf99a4357360722f9d192f4bdf844030f942ed",
+      "mergedAt": "2026-11-18T04:55:02-08:00",
+      "subject": "cmux-action-catalog: palette rows for the toolbar pin menus and the sidebar notice card (FFI step A) (#46165)"
+    },
+    {
+      "sha": "ab5460830fdb35b2056ac2ec51142d16459403a8",
+      "mergedAt": "2026-11-18T04:40:09-08:00",
+      "subject": "acpmux: pass the store folder to keep_in_shared_store"
+    },
+    {
+      "sha": "732255ec55efcf1aab076c908d48947e8de478ca",
+      "mergedAt": "2026-11-18T04:40:09-08:00",
+      "subject": "acpmux: the connect card reads mcpStore under the async config lock; catalog reload carries mcpStore"
+    },
+    {
+      "sha": "689f778ac99f57ac4d83b4ffc22737a2c74b336f",
+      "mergedAt": "2026-11-18T04:40:09-08:00",
+      "subject": "docs: chief-mcp-hub 2h, one store of connections; test name in the mcp_connect filter"
+    },
+    {
+      "sha": "1f377422309389ad7cdf82c0ad081afd07a7617b",
+      "mergedAt": "2026-11-18T04:40:08-08:00",
+      "subject": "MCP store: per build, in the build's acpmux home (no literal state root)"
+    },
+    {
+      "sha": "3632f547ccf1e81e5da3c4862a54f84866d2f87f",
+      "mergedAt": "2026-11-18T04:40:08-08:00",
+      "subject": "MCP connections: one store for the machine (cmux-mcp-connect shared); the acpmux connect card keeps approved servers there; optchat-chief integrations CLI; Slack via the cmux MCP app (PKCE public client)"
+    },
+    {
+      "sha": "50edd34ea7e8dcbb687d10633ad394e8da0f270d",
+      "mergedAt": "2026-11-18T04:40:08-08:00",
+      "subject": "Chief MCP hub: one store of connections for the machine (~/.cmux/mcp), subagents add known services, pre-registered OAuth clients, refresh once on 401"
+    },
+    {
+      "sha": "37d90ce644f811f9752fa81e41b19b47739defea",
+      "mergedAt": "2026-11-18T12:11:08+00:00",
+      "subject": "cmux-rd: screen-share-netem.py --timing-log prints the per-stage table for a Linux host (#45113)"
+    },
+    {
+      "sha": "73bb81ff286fcd0a7bdece06243a547f74505ac9",
+      "mergedAt": "2026-11-18T03:49:14-08:00",
+      "subject": "daemon: an agent's batch resize does not shrink the grid a phone shows (#46233)"
+    },
+    {
+      "sha": "087fd759fcd3a8d9fd9f48d5e911f59beafd2f57",
+      "mergedAt": "2026-11-18T03:43:52-08:00",
+      "subject": "cmux.widget/1: widgets as an extension place, with a Rust refresh budget and layout (#44828)"
+    },
+    {
+      "sha": "e56c4b80ed0a1f2913ed49b43a707b5dcc137b7b",
+      "mergedAt": "2026-11-18T03:41:17-08:00",
+      "subject": "test(classic import): the newest-channel row sets the nightly file's time (#46187)"
+    },
+    {
+      "sha": "8d622b1d5375029b943ab8f38321e4dfa601956f",
+      "mergedAt": "2026-11-18T03:38:13-08:00",
+      "subject": "customize: experiment layers expire by themselves (#46101)"
+    },
+    {
+      "sha": "a7baf2b36623cafbeed2676fac79d6b431a9aed8",
+      "mergedAt": "2026-11-18T02:49:47-08:00",
+      "subject": "acpmux: a preset may pass --disallowedTools (tool names only), so Chief subagents get their deny list"
+    },
+    {
+      "sha": "279d43ad46e22574f3e0f78cc90856d2746aa977",
+      "mergedAt": "2026-11-18T02:49:47-08:00",
+      "subject": "acpmux: a session's stopCondition, kept as a prompt Stop hook at every Claude Code start"
+    },
+    {
+      "sha": "60541a29af10eea4d741b8a41ca0b0c9f64a5763",
+      "mergedAt": "2026-11-18T02:41:13-08:00",
+      "subject": "cmux-rd: drop the pacer's queue when an outage ends (D12, host half) (#44821)"
+    },
+    {
+      "sha": "b7cae35371e094db72e036b7a3f921febe72e578",
+      "mergedAt": "2026-11-18T02:40:02-08:00",
+      "subject": "Cloud: Sign in with ChatGPT runs Codex on a Cloud machine (Codex's own sign-in, ChatGPT Codex backend) (#45909)"
+    },
+    {
+      "sha": "4c63b11695b96ba50345133999bbdc7e14731009",
+      "mergedAt": "2026-11-18T02:17:16-08:00",
+      "subject": "comment wording (#46022)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-20T15:56:06Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
