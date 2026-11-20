@@ -8,6 +8,17 @@
 //! Linux musl leg that recompile was 209 s of the acpmux group's 213 s (run
 //! 43497362002).
 
+// The Linux musl builds' allocator. Their libc's malloc (zig 0.16's, over
+// std.heap.SmpAllocator) maps 64 KB slabs that it never unmaps, never shares
+// between size classes, and leaves on the list of whichever thread freed them;
+// a thread that finds its own list empty after one look elsewhere maps a fresh
+// slab. Tokio frees on another worker than the one that allocated, so a daemon
+// answering whole-list reads grew at a fixed session count: 7.4 GB in 11 h on one
+// Linux agent VM, 97% of its 33,245 anonymous mappings 64 KB-aligned.
+#[cfg(all(target_os = "linux", target_env = "musl"))]
+#[global_allocator]
+static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 fn main() -> anyhow::Result<()> {
     // Before anything reads `acpmux::hub::build()`. It only sets a OnceLock:
     // still one thread when `process_main` runs.
