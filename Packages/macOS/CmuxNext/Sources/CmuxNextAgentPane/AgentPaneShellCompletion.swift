@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Tab in shell mode (`shell.complete`, webviews `shell/`): the user's own shell lists what can
@@ -105,8 +106,8 @@ public nonisolated struct AgentPaneShellCompletion: Sendable {
     private func invocation(line: String, word: Word) -> (arguments: [String], environment: [String: String]) {
         switch engine {
         case .zsh:
-            let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
-                .appending(path: "cmux-next", directoryHint: .isDirectory)
+            // `~/Library/Caches/cmux-next`, a DEV build's own (BuildStatePaths).
+            let caches: URL? = BuildStatePaths.current.shellCompletionCache
             if let caches { try? FileManager.default.createDirectory(at: caches, withIntermediateDirectories: true) }
             let dump = environment["CMUX_COMPLETE_DUMP"]
                 ?? caches?.appending(path: "zcompdump-shell-mode").path
