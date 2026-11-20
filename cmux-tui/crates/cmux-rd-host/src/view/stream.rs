@@ -446,7 +446,8 @@ fn start_session(net: &Net, config: &Config) -> Res<()> {
         max_datagram: MAX_DATAGRAM_VPC,
         token: None,
         service: SERVICE_DESKTOP.into(),
-        caps: vec![H264_BASELINE.into()],
+        // This viewer's reassembler rebuilds frames in interleaved FEC blocks.
+        caps: vec![H264_BASELINE.into(), cmux_rd_core::service::caps::FEC_BLOCKS.into()],
     };
     net.send_control(serde_json::to_vec(&hello)?);
     let start = Control::Start {
