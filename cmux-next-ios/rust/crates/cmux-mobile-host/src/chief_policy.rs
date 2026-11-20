@@ -138,8 +138,9 @@ enum Pending {
     /// `conversation-search`: keep only hits in scope.
     Search,
     /// `home-inbox`: keep only the local owner's rows in scope, then the
-    /// window the phone asked for, if any.
-    Inbox(Option<InboxWindow>),
+    /// window the phone asked for, if any. A `since` read carries the scope
+    /// generation it was judged under (see `Scope::delta_generation`).
+    Inbox(Option<InboxWindow>, Option<u64>),
 }
 
 /// The most rows one windowed `home-inbox` reply carries.
@@ -170,6 +171,14 @@ struct Scope {
     /// text), with what its reply needs. An id is never reused while it
     /// waits, so a reply cannot be taken for another request's.
     in_flight: HashMap<String, Option<Pending>>,
+    /// Bumped each time `allowed` changes. A `since` delta is narrowed by
+    /// today's scope, so a conversation that left scope would stay on the
+    /// phone and one that joined would never arrive: a `since` read goes to
+    /// the owner as `since: 0` (the whole list) unless the scope is the one
+    /// the phone's last `since` reply was narrowed by.
+    generation: u64,
+    /// The scope generation of the last `since` reply the phone got.
+    delta_generation: Option<u64>,
 }
 
 /// The per-channel policy; clones share one scope (one per direction).
@@ -306,10 +315,21 @@ impl ChiefPolicy {
             return refuse(format!("{command}: {why}"));
         }
         let mut window = None;
+        let mut delta_generation = None;
         if command == "home-inbox" {
             match check_home_inbox(&object) {
                 Ok(asked) => window = asked,
                 Err(why) => return refuse(format!("{command}: {why}")),
+            }
+            if object.contains_key("since") {
+                let (generation, stale) = self
+                    .with_scope(|scope| (scope.generation, scope.delta_generation != Some(scope.generation)));
+                delta_generation = Some(generation);
+                if stale && object.get("since").and_then(Value::as_u64) != Some(0) {
+                    let mut whole = object.clone();
+                    whole.insert("since".into(), Value::from(0u64));
+                    rewrite = serde_json::to_vec(&Value::Object(whole)).ok();
+                }
             }
             if window.is_some() {
                 // The owner reads its whole list; the window is cut from the narrowed reply.
@@ -331,7 +351,7 @@ impl ChiefPolicy {
         let pending = match command {
             "conversation-list" => Some(Pending::List),
             "conversation-search" => Some(Pending::Search),
-            "home-inbox" => Some(Pending::Inbox(window)),
+            "home-inbox" => Some(Pending::Inbox(window, delta_generation)),
             _ => None,
         };
         self.with_scope(|scope| scope.in_flight.insert(key, pending));
@@ -370,12 +390,16 @@ impl ChiefPolicy {
                     .unwrap_or_default();
                 // The owner's whole list: the scope is exactly what it holds now.
                 self.with_scope(|scope| {
-                    scope.allowed = kept
+                    let allowed: HashSet<String> = kept
                         .iter()
                         .filter_map(|summary| summary.get("id").and_then(Value::as_str))
                         .filter(|conversation| plain_id(conversation, "conv_"))
                         .map(str::to_owned)
                         .collect();
+                    if allowed != scope.allowed {
+                        scope.allowed = allowed;
+                        scope.generation += 1;
+                    }
                 });
                 data.insert("conversations".into(), Value::Array(kept));
             }
@@ -397,7 +421,10 @@ impl ChiefPolicy {
                     .unwrap_or_default();
                 data.insert("hits".into(), Value::Array(kept));
             }
-            Pending::Inbox(window) => {
+            Pending::Inbox(window, delta_generation) => {
+                if let Some(generation) = delta_generation {
+                    self.with_scope(|scope| scope.delta_generation = Some(generation));
+                }
                 let allowed = self.with_scope(|scope| scope.allowed.clone());
                 let kept: Vec<Value> = match data.remove("rows") {
                     Some(Value::Array(all)) => all
@@ -489,10 +516,13 @@ impl ChiefPolicy {
         {
             let keep = in_scope(summary) && plain_id(conversation, "conv_");
             self.with_scope(|scope| {
-                if keep {
-                    scope.allowed.insert(conversation.to_owned());
+                let changed = if keep {
+                    scope.allowed.insert(conversation.to_owned())
                 } else {
-                    scope.allowed.remove(conversation);
+                    scope.allowed.remove(conversation)
+                };
+                if changed {
+                    scope.generation += 1;
                 }
             });
             return keep;
@@ -1105,9 +1135,83 @@ mod tests {
     /// reply's changed rows and removed ids are narrowed to the scope, and the
     /// owner's positions (which count rows outside it) go. A `since` that is
     /// not an unsigned integer, or with a window, is refused.
+    /// A `since: 0` read and its reply under the current scope, so the next
+    /// `since` read is a delta.
+    fn read_whole(policy: &ChiefPolicy, id: &str) {
+        assert_eq!(
+            policy.evaluate(&line(
+                serde_json::json!({"cmd": "home-inbox", "id": id, "owners": ["local"], "since": 0})
+            )),
+            Verdict::Forward
+        );
+        let reply = serde_json::json!({"id": id, "ok": true, "data": {"me": "user_local", "cloud": "not_asked",
+            "revision": 1, "full": true, "rows": []}});
+        policy.filter_reply(reply.to_string().as_bytes()).unwrap();
+    }
+
+    fn since_sent(policy: &ChiefPolicy, id: &str, since: u64) -> u64 {
+        let asked = serde_json::json!({"cmd": "home-inbox", "id": id, "owners": ["local"], "since": since});
+        let sent = match policy.evaluate(&line(asked)) {
+            Verdict::Forward => since,
+            Verdict::Rewrite(bytes) => {
+                serde_json::from_slice::<Value>(&bytes).unwrap()["since"].as_u64().unwrap()
+            }
+            other => panic!("{other:?}"),
+        };
+        let reply = serde_json::json!({"id": id, "ok": true, "data": {"me": "user_local", "cloud": "not_asked",
+            "revision": 1, "full": sent == 0, "rows": [], "removed": []}});
+        policy.filter_reply(reply.to_string().as_bytes()).unwrap();
+        sent
+    }
+
+    /// A delta is narrowed by today's scope, so a `since` read goes to the
+    /// owner as `since: 0` (the whole list) whenever the scope changed after
+    /// the phone's last `since` reply: before the first list, after a list
+    /// that differs, and after a conversation joins or leaves the scope.
+    #[test]
+    fn home_inbox_since_reads_the_whole_list_after_the_scope_changes() {
+        let policy = ChiefPolicy::new();
+        assert_eq!(since_sent(&policy, "e1", 7), 0, "no scope seen yet");
+        let policy = listed();
+        assert_eq!(since_sent(&policy, "g1", 7), 0, "first since read");
+        assert_eq!(since_sent(&policy, "g2", 7), 7, "same scope: a delta");
+
+        // A person joins CHIEF: it leaves the scope, and the next read is whole.
+        let left = serde_json::json!({"event": "conversation-changed", "conversation": CHIEF, "change": {
+            "kind": "conversation", "conversation": {"id": CHIEF, "participants": [
+                {"id": "user_local", "kind": "human", "display_name": "A"},
+                {"id": "remote_ab12", "kind": "human", "display_name": "Phone"}]}}});
+        policy.filter_reply(left.to_string().as_bytes());
+        assert_eq!(since_sent(&policy, "g3", 7), 0, "a conversation left the scope");
+        assert_eq!(since_sent(&policy, "g4", 7), 7);
+
+        // An announcement of a conversation already in scope changes nothing.
+        let same = serde_json::json!({"event": "conversation-changed", "conversation": OTHER, "change": {
+            "kind": "conversation", "conversation": {"id": OTHER, "participants": [
+                {"id": "user_local", "kind": "human", "display_name": "A"},
+                {"id": "agent_mux", "kind": "agent", "display_name": "Chief"}]}}});
+        policy.filter_reply(same.to_string().as_bytes());
+        assert_eq!(since_sent(&policy, "g5", 7), 7, "scope unchanged");
+
+        // A scope change while a delta is in flight: that reply does not count.
+        let asked = serde_json::json!({"cmd": "home-inbox", "id": "g6", "owners": ["local"], "since": 7});
+        assert_eq!(policy.evaluate(&line(asked)), Verdict::Forward);
+        let joined = serde_json::json!({"event": "conversation-changed", "conversation": CHIEF, "change": {
+            "kind": "conversation", "conversation": {"id": CHIEF, "participants": [
+                {"id": "user_local", "kind": "human", "display_name": "A"},
+                {"id": "agent_mux", "kind": "agent", "display_name": "Chief"}]}}});
+        policy.filter_reply(joined.to_string().as_bytes());
+        let reply = serde_json::json!({"id": "g6", "ok": true, "data": {"me": "user_local", "cloud": "not_asked",
+            "revision": 1, "full": false, "rows": [], "removed": []}});
+        policy.filter_reply(reply.to_string().as_bytes()).unwrap();
+        assert_eq!(since_sent(&policy, "g7", 7), 0, "a conversation joined the scope mid-read");
+        assert_eq!(since_sent(&policy, "g8", 7), 7);
+    }
+
     #[test]
     fn home_inbox_since_forwards_and_narrows_the_delta() {
         let policy = listed();
+        read_whole(&policy, "s0");
         assert_eq!(
             policy.evaluate(&line(
                 serde_json::json!({"cmd": "home-inbox", "id": "s1", "owners": ["local"], "since": 1_790_000_000_005_u64})
