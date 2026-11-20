@@ -6,14 +6,15 @@ import XCTest
 ///
 /// The terminal demo's attach (`-CmuxMobileTerminalDemoAttach`): the phone
 /// opens a terminal page onto htop already running on a Mac pane of 120x40,
-/// the Mac answering the attach and each resize 60 ms later (LTE). The page
+/// the Mac answering the attach two round trips later (identify, then
+/// attach-surface, as the app makes them) and each resize one, of 60 ms (LTE). The page
 /// traces each step of the attach (``TerminalAttachTrace``) up to the first
 /// frame that shows htop at its final grid with nothing held, replayed,
 /// queued, settling or unanswered. The app is launched `runs` times; each
 /// run's trace and the median go in the `attach-first-frame` attachment (the
 /// PR's phase table reads it).
 final class TerminalAttachFirstFrameUITests: XCTestCase {
-    private let runs = 6
+    private let runs = 8
 
     override func setUp() {
         continueAfterFailure = true

@@ -43,8 +43,8 @@ public final class MockTerminalSession: TerminalSession {
     private var resizeAnswer: Task<Void, Never>?
     private var answers: [(due: ContinuousClock.Instant, columns: Int, rows: Int)] = []
     /// `htop` already running on a Mac pane of this grid when the phone
-    /// attaches (the terminal demo's `attach` phase): the attach answers a
-    /// round trip (`macResize`) after the start, at the grid the phone sent
+    /// attaches (the terminal demo's `attach` phase): the attach answers
+    /// two round trips (`macResize` each) after the start, at the grid the phone sent
     /// before it (`attach-surface {cols, rows}`), or the pane's.
     private let attachesTo: (columns: Int, rows: Int)?
     /// The grid the phone gave before the attach went out.
@@ -160,14 +160,16 @@ public final class MockTerminalSession: TerminalSession {
         }
     }
 
-    /// The attach into `htop` on a pane of `pane`: a round trip later, the
+    /// The attach into `htop` on a pane of `pane`: two round trips later, the
     /// Mac's grid (the phone's, when it sent one), a mirror reset and one
     /// replay (the shell's history, then htop's screen), as
     /// `DaemonTerminalSession` delivers an attach, then `.attached`.
     private func attach(pane: (columns: Int, rows: Int)) {
         attachInFlight = true
         handler?(.connection(.connecting(mac: "Mac")))
-        let delay = macResize ?? .zero
+        // Two round trips, as `DaemonTerminalSession.attach()` makes them in
+        // series: `set-client-info` + `identify`, then `attach-surface`.
+        let delay = (macResize ?? .zero) * 2
         let task = Task { [weak self] in
             try? await ContinuousClock().sleep(for: delay)
             guard let self, !Task.isCancelled else { return }

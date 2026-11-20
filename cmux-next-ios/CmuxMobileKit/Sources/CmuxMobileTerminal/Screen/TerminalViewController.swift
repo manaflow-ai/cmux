@@ -362,6 +362,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var attachProbe: CADisplayLink?
     /// Ghostty presents the probe has seen (the first few are marked).
     private var attachProbePresents = 0
+    private var attachProbeLastTick: CFTimeInterval?
     #endif
 
     /// The cursor's distance from the last row when it was last seen.
@@ -438,7 +439,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     override func viewDidLoad() {
         super.viewDidLoad()
         #if DEBUG
-        if model.demoFinalGrid != nil { attachTrace = TerminalAttachTrace(origin: CACurrentMediaTime()) }
+        if model.demoFinalGrid != nil {
+            attachTrace = TerminalAttachTrace(origin: CACurrentMediaTime())
+            startAttachProbe()
+        }
         #endif
         view.backgroundColor = terminalBackground
         // Chrome, glass and the keyboard follow the terminal theme (its Mac's look).
@@ -1426,11 +1430,18 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         traceOnce("layout")
         #endif
         measured("layout-terminal") { layoutTerminal() }
+        #if DEBUG
+        traceOnce("layout-end")
+        if surface.surface != nil { traceOnce("surface") }
+        #endif
         if !started, surface.surface != nil, cell.height > 0 {
             started = true
             #if DEBUG
             trace("start")
-            startAttachProbe()
+            if attachTrace != nil {
+                // When the layout pass that started the session reaches the screen.
+                CATransaction.setCompletionBlock { [weak self] in self?.trace("commit") }
+            }
             #endif
             model.session.start { [weak self] event in self?.sessionEvent(event) }
         }
@@ -1460,6 +1471,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     private func attachProbeTick() {
         guard attachTrace != nil, let final = model.demoFinalGrid?() else { return }
+        // A display frame the main thread missed: how long it was busy.
+        let now = CACurrentMediaTime()
+        if let last = attachProbeLastTick, now - last > 0.03, (attachTrace?.marks.count ?? 0) < TerminalAttachTrace.capacity - 8 {
+            trace("stall\(Int(((now - last) * 1000).rounded()))")
+        }
+        attachProbeLastTick = now
+        guard attachTrace?.startedAt != nil else { return }
         if surface.presents != attachProbePresents {
             attachProbePresents = surface.presents
             if attachProbePresents <= 12 { trace("present\(attachProbePresents)") }
