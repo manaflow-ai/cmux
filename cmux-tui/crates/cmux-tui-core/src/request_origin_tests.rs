@@ -190,3 +190,29 @@ fn the_token_clock_is_monotonic_and_the_wall_reading_is_separate() {
     assert_eq!(clock.monotonic_ms(), monotonic + CONFIRMATION_TTL_MS);
     assert_eq!(clock.wall_ms(), wall.saturating_sub(7_200_000) + CONFIRMATION_TTL_MS);
 }
+
+/// The Settings page reaches the settings owner only through its host (the
+/// app's SettingsController writes with origin `app`): its own connection
+/// gets no `settings.*` operation, the history's undo, restore and
+/// reset_group included, even on the person's gesture.
+#[test]
+fn the_settings_page_calls_no_settings_operation_itself() {
+    let params = json!({});
+    for operation in [
+        ResourceOperation::SettingsEdit,
+        ResourceOperation::SettingsSet,
+        ResourceOperation::SettingsReset,
+        ResourceOperation::SettingsResetAll,
+        ResourceOperation::SettingsHistory,
+        ResourceOperation::SettingsUndo,
+        ResourceOperation::SettingsRestore,
+        ResourceOperation::SettingsResetGroup,
+    ] {
+        for origin in [RequestOrigin::Page, RequestOrigin::User] {
+            assert!(
+                page_access::page_refusal("cmux.settings", operation, &params, origin).is_some(),
+                "{operation:?} from the Settings page as {origin:?}"
+            );
+        }
+    }
+}
