@@ -207,7 +207,7 @@ nonisolated final class MacScreenRdHost: Sendable {
         // follows that list within `CaptureExcludedWindows.recheck` while this session lasts.
         let host = ScreenStreamHost(name: session.name, viewOnly: session.viewOnly, backend: { [weak self] in
             let backend = ScreenCaptureBackend(log: log)
-            backend.excludedWindowIDs = { CaptureExcludedWindows.windowIDs() }
+            backend.excludedWindowIDs = { CaptureExcludedWindows().windowIDs }
             let watch = Self.watchExcludedWindows { [weak backend] _ in backend?.exclusionsChanged() }
             self?.webRTCExclusions.withLock { previous in
                 previous?.cancel()
@@ -240,7 +240,7 @@ nonisolated final class MacScreenRdHost: Sendable {
         }
     }
 
-    /// Reads the app's windows that ask not to be shared every ``CaptureExcludedWindows/recheck`` until
+    /// Reads the app's windows that ask not to be shared every `CaptureExcludedWindows.recheck` until
     /// cancelled, and calls `changed` with the list at once and on every change, in order.
     private static func watchExcludedWindows(_ changed: @escaping @Sendable (Set<CGWindowID>) -> Void) -> Task<Void, Never> {
         // task-owner: a capture's exclusion watch; cancelled when its session's capture ends
@@ -250,7 +250,7 @@ nonisolated final class MacScreenRdHost: Sendable {
             // never idle; cancelled when the session's capture ends. No event says a window's sharing changed.
             // concurrency-allow: an unstructured task off the main actor; each pass is one window-list read.
             while !Task.isCancelled {
-                let ids = CaptureExcludedWindows.windowIDs()
+                let ids = CaptureExcludedWindows().windowIDs
                 if ids != last {
                     changed(ids)
                     last = ids

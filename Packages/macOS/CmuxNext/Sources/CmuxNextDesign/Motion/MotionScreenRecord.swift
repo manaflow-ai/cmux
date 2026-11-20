@@ -226,7 +226,7 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
             }
             // Every on-screen window of this app on that display: page child windows and panels show as on screen.
             // Never a window only the person may see (CaptureExcludedWindows: the join consent ask).
-            let excluded = CaptureExcludedWindows.windowIDs()
+            let excluded = CaptureExcludedWindows().windowIDs
             let own = content.value.windows.filter { $0.isOnScreen && $0.frame.intersects(display.frame) && !excluded.contains($0.windowID) }
             filter = SCContentFilter(display: display, including: own.isEmpty ? [target] : own)
         } else {

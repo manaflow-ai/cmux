@@ -17,7 +17,7 @@ struct CaptureExcludedWindowsTests {
             window(4, pid: 100, sharing: .none),
             [kCGWindowNumber as String: 5, kCGWindowOwnerPID as String: 100], // no sharing state: shared
         ]
-        #expect(CaptureExcludedWindows.excluded(windows, of: 100) == [1, 4])
-        #expect(CaptureExcludedWindows.excluded(windows, of: 300).isEmpty)
+        #expect(CaptureExcludedWindows(pid: 100).excluded(windows) == [1, 4])
+        #expect(CaptureExcludedWindows(pid: 300).excluded(windows).isEmpty)
     }
 }

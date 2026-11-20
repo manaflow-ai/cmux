@@ -213,8 +213,8 @@ import Testing
         guard panel.windowNumber > 0 else { return }
         let id = CGWindowID(panel.windowNumber)
         // The window server takes the new window in its own time.
-        for _ in 0..<40 where !CaptureExcludedWindows.windowIDs().contains(id) { try await Task.sleep(for: .milliseconds(50)) }
-        #expect(CaptureExcludedWindows.windowIDs().contains(id), "left out of cmux's captures")
+        for _ in 0..<40 where !CaptureExcludedWindows().windowIDs.contains(id) { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(CaptureExcludedWindows().windowIDs.contains(id), "left out of cmux's captures")
     }
 
     /// The sheet's Allow refuses a click that is not the person's own (a remote driver's posted click) and a
