@@ -9,7 +9,9 @@ fn zoom_aliases() -> &'static [cmux_action_catalog::Binding] {
 
 #[test]
 fn the_diff_viewer_owns_its_zoom_keys_while_it_has_the_keyboard() {
-    for (id, key) in [("diffViewerZoomIn", "="), ("diffViewerZoomOut", "-"), ("diffViewerZoomReset", "0")] {
+    for (id, key) in
+        [("diffViewerZoomIn", "="), ("diffViewerZoomOut", "-"), ("diffViewerZoomReset", "0")]
+    {
         let action = find(id).unwrap_or_else(|| panic!("{id} is in the catalog"));
         let shortcut = action.default_shortcut.unwrap_or_else(|| panic!("{id} has a default key"));
         assert_eq!((shortcut.key, shortcut.modifiers), (key, CMD), "{id}");
