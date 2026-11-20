@@ -353,6 +353,37 @@ pub(crate) async fn output(
             })
             .collect();
         merged = crate::cli::send_relay::merge_rows(&mut sessions, far);
+        // A down `ssh://` peer's rows are the ones its link left: read again over ssh, at most
+        // `ls_ssh::LS_DEADLINE`, and put in their place (`cli/ls_ssh.rs`).
+        let known = match status_read.as_ref() {
+            Some(read) => read.clone(),
+            None => tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                client.request(method::MUX_STATUS, json!({})),
+            )
+            .await
+            .ok()
+            .and_then(Result::ok),
+        };
+        let peers = known
+            .as_ref()
+            .and_then(|s| s.get("peers"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let (hosts, far) = crate::cli::ls_ssh::rows(&peers, false).await;
+        if !hosts.is_empty() {
+            let far: Vec<Value> = far
+                .into_iter()
+                .filter(|s| {
+                    keeps(s)
+                        && cutoff.is_none_or(|at| {
+                            s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0) >= at
+                        })
+                })
+                .collect();
+            merged += crate::cli::ls_ssh::replace_rows(&mut sessions, &hosts, far).max(1);
+        }
     }
     if leads {
         sessions = super::ls_leads::leaders(&sessions);
