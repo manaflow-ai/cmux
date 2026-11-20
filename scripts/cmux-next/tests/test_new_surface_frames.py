@@ -528,6 +528,24 @@ class ScreenTests(unittest.TestCase):
         self.assertNotIn("new-surface-screen/cmd-n-idle-1-content_first-frame-003.png", names)  # --keep-keys 1, no change
         self.assertEqual(json.loads(Path(self.folder, "report.json").read_text())["display_hz_asked"], 120.0)
 
+    def test_a_run_with_no_asked_display_rate_has_no_valid_row(self):
+        # With no asked rate the frame time is the median step of the recording's rows, and a frame with no row
+        # directly before the page is then not seen: the same pictures that are valid at an asked rate are not valid.
+        report, _ = self.run_mode(FakeApp(self.folder, [(NEW, ROW_NEW)] * 240), display_hz=0, runs=1)
+        self.assertEqual([[reason.split(":")[0] for reason in row["invalid"]] for row in report["rows"]], [["display"]] * 2)
+        self.assertEqual([(case["valid"], case["invalid"]) for case in report["cases"].values()], [(0, ["display"])] * 2)
+        self.assertIsNone(report["display_hz_asked"])
+
+    def test_the_asked_display_rate_gets_to_the_reader_of_a_key(self):
+        # Frame 2 has no row and the page is in frame 3; after it the recorder gives a row for each third frame of the
+        # display. Only the asked rate's frame time sees frame 2: by the rows' own median step (25 ms) the page's
+        # row is frame 1 and no frame is before it.
+        pictures = [(OLD, ROW_OLD), None, (NEW, ROW_NEW)] + [None, None, (NEW, ROW_NEW)] * 79
+        report, _ = self.run_mode(FakeApp(self.folder, pictures), keys="t", runs=1)
+        row = report["rows"][0]
+        self.assertEqual((row["refresh_ms"], row["content_first"]["frame"]), (round(STEP, 3), 3))
+        self.assertEqual([reason.split(":")[0] for reason in row["invalid"]], ["no-row"])
+
     def test_a_key_that_opened_nothing_is_an_invalid_row(self):
         report, _ = self.run_mode(FakeApp(self.folder, [(NEW, ROW_NEW)] * 240, opens=1), keys="n", gaps="100", runs=1)
         # The proof is the count of workspaces (and the marks); 1 record for 2 Cmd-N is a fact and no fault.
@@ -860,8 +878,19 @@ class FirstFrameSpanTests(unittest.TestCase):
         blank = dict(content=(0.9, 0.9), outside=ROW_OLD, blank=True)
         got = nsf.one_key(take([(OLD, ROW_OLD), None, blank] + [(NEW, ROW_NEW)] * 237), "n", asked_hz=120)
         span = got.get("first_frame_span") or {}
-        self.assertEqual((got["content_first"]["frame"], span.get("no_row_frames"), span.get("early_ms_at_most")), (4, [2], 8.3))
+        # How early: from frame 2 to the page's row in frame 4 = 2 frame times of 8.33 ms = 16.7 ms. It is not the
+        # count of the frames with no row (1 frame = 8.3 ms): the blank row between them does not rule frame 2 out.
+        self.assertEqual((got["content_first"]["frame"], span.get("no_row_frames"), span.get("early_ms_at_most")), (4, [2], 16.7))
         self.assertEqual([reason.split(":")[0] for reason in got["invalid"]], ["no-row"])
+        # 3 blank rows between them: from frame 2 to the page's row in frame 6 = 4 frame times = 33.3 ms.
+        later = nsf.one_key(take([(OLD, ROW_OLD), None, blank, blank, blank] + [(NEW, ROW_NEW)] * 235), "n", asked_hz=120)
+        span = later.get("first_frame_span") or {}
+        self.assertEqual((later["content_first"]["frame"], span.get("no_row_frames"), span.get("early_ms_at_most")), (6, [2], 33.3))
+        self.assertEqual([reason.rsplit(": ", 1)[1] for reason in later["invalid"]], ["content_first can be at most 33.3 ms early"])
+        # 2 frames with no row, one of them directly before the page: from the first one (frame 2) = 3 frame times.
+        both = nsf.one_key(take([(OLD, ROW_OLD), None, blank, None] + [(NEW, ROW_NEW)] * 236), "n", asked_hz=120)
+        span = both.get("first_frame_span") or {}
+        self.assertEqual((both["content_first"]["frame"], span.get("no_row_frames"), span.get("early_ms_at_most")), (5, [2, 4], 25.0))
 
     def test_the_still_part_of_a_recording_is_not_judged_by_the_step_of_its_rows(self):
         # A row for each of the first 8 frames (the page comes in frame 3 and is whole in frame 4); in the still part

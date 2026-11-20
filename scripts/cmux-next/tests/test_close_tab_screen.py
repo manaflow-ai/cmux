@@ -150,6 +150,11 @@ class CloseFactTests(unittest.TestCase):
         self.assertEqual((summary["shows"], summary["closed"]), ({"the tab to the left of the closed tab": 2}, {"the shown tab (newTab)": 2}))
         self.assertEqual(summary["content_gone"], {"frame": {"p50": 3.0, "max": 3}, "ms": {"p50": 19.0, "max": 19.0}})
         self.assertEqual(summary["content_shown"]["frame"], {"p50": 4.5, "max": 6})
+        # An INVALID row is counted in `n` only: its frames (the second row's, 6) are not in the case's numbers.
+        rows[1]["invalid"] = ["input: a made reason"]
+        valid_only = nsf.close_summary(rows)
+        self.assertEqual((valid_only["n"], valid_only["valid"], valid_only["shows"]), (2, 1, {"the tab to the left of the closed tab": 1}))
+        self.assertEqual(valid_only["content_shown"]["frame"], {"p50": 3, "max": 3})
         said = nsf.close_cell(summary)
         self.assertIn("shows after the close: the tab to the left of the closed tab 2/2", said)
         self.assertIn("closed tab's content gone frame 3 (max 3), 19 ms (max 19)", said)
@@ -300,6 +305,32 @@ class CloseScreenTests(unittest.TestCase):
         # Each recording's tabs are closed again, and no more of them than the tool opened.
         self.assertEqual((app.closed, app.ids), ([1, 1, 6, 6], ["tab-0"]))
         self.assertEqual(report["cases"]["cmd-w/idle"]["close"]["shows"], {"the tab to the left of the closed tab": 1})
+
+    def test_a_close_tab_row_of_a_run_with_no_asked_display_rate_is_invalid(self):
+        # The same pictures as the test above, which are valid at an asked rate.
+        report, _ = self.run_mode(CloseApp(self.folder), display_hz=0)
+        self.assertEqual([[reason.split(":")[0] for reason in row["invalid"]] for row in report["rows"]], [["display"]] * 4)
+
+    def test_the_asked_display_rate_gets_to_the_reader_of_a_close_tab_key(self):
+        # The closed tab's content is gone in the third row; after it the recorder gives a row for each third frame of
+        # the display. The frame's number is the asked rate's, not that of the rows' own median step (25 ms).
+        report, _ = self.run_mode(CloseApp(self.folder, [OLD_ROW, OLD_ROW, GONE] + [None, None, GONE] * 79), close_cases="idle")
+        row = report["rows"][0]
+        self.assertEqual((row["refresh_ms"], row["close_tab"]["content_gone"]["frame"]), (round(base.STEP, 3), 4))
+
+    def test_a_close_tab_row_of_a_launch_that_is_not_clean_or_of_a_session_with_a_fault_is_invalid(self):
+        def make(socket_path, count, live, url, deadline, out):
+            return {"asked_more": count, "live_shells": live, "maker_exit": 0, "maker_said_made": count, "seed_s": 0.0}
+        app = CloseApp(self.folder)
+        screen = new_surface_screen.Screen(options(self.folder, close_cases="idle"), app.rpc, app.tools(), sleep=app.pause, make_session=make,
+                                           clock=app.clock, start=app.start)
+        screen.launch_fault = "launch: the app did not start from a clean state"
+        with contextlib.redirect_stdout(io.StringIO()):
+            report = screen.run()
+        self.assertEqual(report["rows"][0]["invalid"], ["launch: the app did not start from a clean state"])
+        # A session that is not the asked one: the maker made no workspace, so the app lists fewer than were asked.
+        report, _ = self.run_mode(CloseApp(self.folder), close_cases="idle", workspaces=400)
+        self.assertEqual([reason.split(":")[0] for reason in report["rows"][0]["invalid"]], ["session"])
 
     def test_the_new_tab_keys_are_one_key_down_for_each_call_at_the_times_of_a_held_key(self):
         app = CloseApp(self.folder)
