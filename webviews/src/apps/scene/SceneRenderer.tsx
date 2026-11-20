@@ -13,7 +13,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { useVirtualizer, type Range } from "@tanstack/react-virtual";
+import { measureElement as measureBox, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { Spinner } from "../../agent-session/acpmux/conversation/icons";
 import { Switch } from "../../ui/Switch";
 import { offsetRange, sliceBand, type VisibleSlice } from "../../ui/visibleSlice";
@@ -489,13 +489,41 @@ function scrollParent(element: HTMLElement | null): HTMLElement | null {
 
 // While the host scrolls the scene, the stack's range comes from the slice (`rangeExtractor`); TanStack only
 // needs a viewport to ask for one, and never scrolls anything.
+// The same rect from the first render (`initialRect`): with none, TanStack has no range until its layout effect
+// runs, and the first windowed commit would unmount every child (the focused one too) before the band mounts.
+const HOST_RECT = { width: 1, height: 1 };
 const hostRect = (_instance: unknown, cb: (rect: { width: number; height: number }) => void) => {
-  cb({ width: 1, height: 1 });
+  cb(HOST_RECT);
 };
 const hostOffset = (_instance: unknown, cb: (offset: number, isScrolling: boolean) => void) => {
   cb(0, false);
 };
 const noScroll = () => {};
+
+/** The wrappers that draw no box of their own (`display: contents`, scene.css): a Group, a ForEach and a
+ * context menu's. Their children are the stack's flex items, so the wrapper itself measures 0. */
+const CONTENTS_WRAPPER = ".cmux-app-scene-group, .cmux-app-scene-foreach, .cmux-app-scene-context";
+
+/** A stack child's height in a column whose items are `gap` apart. A `display: contents` wrapper spans its
+ * boxes (through nested wrappers) and the gaps between them, as the column lays them out; walking its
+ * own children only, never the list. */
+function childHeight(element: HTMLElement, gap: number): number {
+  if (!element.matches(CONTENTS_WRAPPER)) return element.offsetHeight;
+  let height = 0;
+  let boxes = 0;
+  const walk = (parent: Element) => {
+    for (const child of parent.children as HTMLCollectionOf<HTMLElement>) {
+      if (child.hidden) continue;
+      if (child.matches(CONTENTS_WRAPPER)) walk(child);
+      else {
+        height += child.offsetHeight;
+        boxes++;
+      }
+    }
+  };
+  walk(element);
+  return height + Math.max(0, boxes - 1) * gap;
+}
 
 /** Holds the place of unmounted children (their heights and the gaps between them). */
 function LazySpacer({ height }: { height: number }) {
@@ -570,10 +598,10 @@ function LazyStackChildren({
     const wanted = new Set(items);
     for (const element of stack.current.querySelectorAll<HTMLElement>("[data-app-node]")) {
       const id = element.dataset.appNode!;
-      if (wanted.delete(id)) sizes.current.set(id, element.offsetHeight);
+      if (wanted.delete(id)) sizes.current.set(id, childHeight(element, gap));
     }
     setSeeded(true);
-  }, [scroll.host, overCap, slice, seeded, stack, items]);
+  }, [scroll.host, overCap, slice, seeded, stack, items, gap]);
 
   const drawnWholeOverCap = overCap && mode === "whole" && !(scroll.host && slice);
   useEffect(() => {
@@ -604,19 +632,10 @@ function LazyStackChildren({
     setMargin((previous) => (previous === next ? previous : next));
   }, [windowed, stack, frame, scroll.host]);
   useLayoutEffect(measureMargin);
-  // Content above the stack can move it: watch each box from the stack up to the frame (no per-child observer).
-  useLayoutEffect(() => {
-    const viewport = frame();
-    if (!windowed || !viewport || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measureMargin);
-    for (let element: HTMLElement | null = stack.current; element; element = element.parentElement) {
-      observer.observe(element);
-      if (element === viewport) break;
-    }
-    return () => observer.disconnect();
-  }, [windowed, frame, measureMargin, stack]);
 
   const indexOf = useMemo(() => new Map(items.map((id, index) => [id, index])), [items]);
+  // Tracked from mount, not from the first slice: a child focused while the stack draws whole must stay
+  // mounted when the first slice windows it.
   // A row a render just added enters (scene motion); one that only scrolled into the window does not. The rows
   // drawn before: null until the stack first draws rows, which may enter only if the stack itself came after the
   // scene's first frame (as a new stack's children do; a page scroller's stack draws its rows a pass late).
@@ -635,12 +654,16 @@ function LazyStackChildren({
   const focused = useRef<string | undefined>(undefined);
   useEffect(() => {
     const element = stack.current;
-    if (!windowed || !element) return;
+    if (!element) return;
+    // The outermost of the stack's items around the target (a child drawn whole has no `data-index`, and an
+    // inline Group's children are items of their own).
     const childOf = (target: EventTarget | null) => {
-      let child: HTMLElement | undefined;
-      for (let at = target as HTMLElement | null; at && at !== element; at = at.parentElement)
-        if (at.dataset.index !== undefined) child = at;
-      return child?.dataset.appNode;
+      let child: string | undefined;
+      for (let at = target as HTMLElement | null; at && at !== element; at = at.parentElement) {
+        const id = at.dataset?.appNode;
+        if (id !== undefined && indexOf.has(id)) child = id;
+      }
+      return child;
     };
     const focusIn = (event: FocusEvent) => {
       focused.current = childOf(event.target);
@@ -654,7 +677,7 @@ function LazyStackChildren({
       element.removeEventListener("focusin", focusIn);
       element.removeEventListener("focusout", focusOut);
     };
-  }, [windowed, stack]);
+  }, [stack, indexOf]);
 
   const itemKey = useCallback((index: number) => items[index]!, [items]);
   // react-doctor-disable-next-line react-hooks-js/incompatible-library -- TanStack Virtual returns functions the React Compiler cannot memoize safely, so this stack stays uncompiled on purpose; its range comes from the host slice and it measures each child itself, so ui/VirtualList does not fit.
@@ -670,15 +693,32 @@ function LazyStackChildren({
     gap,
     scrollMargin: margin,
     overscan: 0,
-    ...(scroll.host && { observeElementRect: hostRect, observeElementOffset: hostOffset, scrollToFn: noScroll }),
+    measureElement: (element, entry, self) =>
+      element.matches(CONTENTS_WRAPPER) ? childHeight(element, gap) : measureBox(element, entry, self),
+    ...(scroll.host && {
+      initialRect: HOST_RECT,
+      observeElementRect: hostRect,
+      observeElementOffset: hostOffset,
+      scrollToFn: noScroll,
+    }),
     rangeExtractor: (range: Range) => {
       // Called only from the virtualizer's own reads (it draws and scrolls after the hook returns), never
       // from inside the hook, so `virtualizer` is always set here: the hook keeps one for the stack's life.
       const self = virtualizer;
       const measured = self.measurementsCache;
       let band: { low: number; high: number } | null;
-      if (scroll.host) band = slice ? sliceBand(slice) : null;
-      else {
+      if (scroll.host) {
+        // A slice holds until the host's next one, so it carries over to later revisions by design. When a
+        // later revision ends above the slice, the host shows the scene's end: the band follows (its top
+        // clamped to one slice height above the stack's end), so the view never comes up blank.
+        const end = measured && measured.length === range.count ? measured[range.count - 1]?.end : undefined;
+        band =
+          slice && end !== undefined && slice.top + slice.height > end
+            ? sliceBand({ ...slice, top: Math.max(0, end - slice.height) })
+            : slice
+              ? sliceBand(slice)
+              : null;
+      } else {
         const height = self.scrollRect?.height ?? 0;
         const offset = self.scrollOffset ?? 0;
         band = height > 0 ? { low: offset - height, high: offset + 2 * height } : null;
@@ -701,16 +741,37 @@ function LazyStackChildren({
       return indexes;
     },
   });
+  // The mounted `display: contents` children: no observer sees them resize (they have no box), so they are
+  // measured again whenever the stack's own box resizes (a row in one grew, or the width changed).
+  const wrappers = useRef(new Set<HTMLElement>());
+  // Content above the stack can move it: watch each box from the stack up to the frame (no per-child observer).
+  useLayoutEffect(() => {
+    const viewport = frame();
+    if (!windowed || !viewport || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      measureMargin();
+      for (const wrapper of wrappers.current) {
+        if (!wrapper.isConnected) wrappers.current.delete(wrapper);
+        else virtualizer.resizeItem(Number(wrapper.dataset.index), childHeight(wrapper, gap));
+      }
+    });
+    for (let element: HTMLElement | null = stack.current; element; element = element.parentElement) {
+      observer.observe(element);
+      if (element === viewport) break;
+    }
+    return () => observer.disconnect();
+  }, [windowed, frame, measureMargin, stack, virtualizer, gap]);
   const measure = useCallback(
     (element: HTMLElement | null) => {
       const type = element?.dataset.appType;
       if (element && type && !learned.current.has(type)) {
-        const height = element.offsetHeight;
+        const height = childHeight(element, gap);
         if (height > 0) learned.current.set(type, height);
       }
+      if (element?.matches(CONTENTS_WRAPPER)) wrappers.current.add(element);
       virtualizer.measureElement(element);
     },
-    [virtualizer],
+    [virtualizer, gap],
   );
 
   const drawn: ReactNode[] = [<span key="probe" ref={probe} hidden />];
