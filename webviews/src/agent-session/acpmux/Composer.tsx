@@ -49,7 +49,7 @@ import { chatHasFirstSend, showsLocationRow, stripSlot, type StripSlot } from ".
 import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDraftThrottle";
 import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
-import { BuildIcon, ContextRing, PlanIcon } from "./ComposerPickers";
+import { BuildIcon, LiveContextRing, PlanIcon } from "./ComposerPickers";
 import { type Choice } from "./composerPickerModel";
 import { SendSlotGlyph } from "./composer/SendSlotGlyph";
 import { SendMenu } from "./composer/SendMenu";
@@ -169,7 +169,6 @@ import {
   slashScrollForActive,
   slashViewport,
 } from "./slashViewport";
-import { compactingUsage } from "./usageStats";
 import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
 import { cloudStartComposerLook } from "./cloudStartComposer.experiment";
@@ -766,11 +765,6 @@ function ComposerFrame({
   // 2026-11-04: "our codex style composer should look like codex's/chatgpt's").
   const look = useComposerLook();
   const quietActions = plainFooter && look !== "codex";
-  const usage = compactingUsage(
-    snapshot.summary?.usage,
-    snapshot.summary?.usageStats,
-    snapshot.summary?.contextBreakdown,
-  );
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
   /// `sending`, as Send's look reads it during render.
@@ -3085,14 +3079,11 @@ function ComposerFrame({
           showContextUsage &&
           chatHasFirstSend(snapshot) && (
             <UsageRingMenu>
-              <ContextRing
+              <LiveContextRing
+                // A usage update renders this ring alone, not the composer (liveSummary.ts).
+                summary={snapshot.summary}
                 // The chat the reading is of: switching chats shows the new one's at once, uneased.
                 chat={snapshot.summary?.sessionId || sessionId}
-                used={usage?.used}
-                size={usage?.size}
-                setup={usage?.setup}
-                cacheExpiresAt={usage?.cacheExpiresAt}
-                breakdown={snapshot.summary?.contextBreakdown}
                 onOpenDetails={onOpenContext}
                 {...(composerRing === "planUsage"
                   ? {

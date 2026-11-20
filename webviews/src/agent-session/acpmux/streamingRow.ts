@@ -5,11 +5,11 @@
 // frame with 2,000 rows. Chrome's model: a change repaints what it damages.
 //
 // When a snapshot differs from the one the pane drew only in that row's text (`textOnly`), the
-// pane keeps its snapshot and the row's newer value goes here; the transcript reads it
-// (`useStreamingRow`) and draws that one row. Any other change goes through the pane as before and
+// pane keeps its snapshot and the row's newer value goes here; the reply's row reads it
+// (`useStreamingRowFor`) and draws alone. Any other change goes through the pane as before and
 // clears this store in the same turn, so the pane's own rows are the truth again. The store holds
 // one value; nothing else owns it.
-import { startTransition, useLayoutEffect, useState } from "react";
+import { startTransition, useLayoutEffect, useMemo, useState } from "react";
 import type { AcpmuxRow } from "./model";
 import { keptPrefix } from "./conversation/prefixFlatMap";
 
@@ -59,8 +59,8 @@ export function drawsAsIs(row: AcpmuxRow): boolean {
   return drawn !== undefined && drawn.id === row.id && drawn.text === row.text;
 }
 
-/// The streaming row the transcript draws ahead of the pane's snapshot, if any. Only the pane's
-/// live transcript (`active`) subscribes; a replay, guest or other transcript never re-renders for it.
+/// The streaming row the reply's row draws ahead of the pane's snapshot, if any. Only the pane's
+/// live transcript's reply (`active`) subscribes; a replay, guest or other transcript never re-renders for it.
 ///
 /// Each streamed frame's draw is a transition: React renders it in 5 ms slices and a key goes
 /// between them, so a key waits for at most one slice, not for the whole transcript's render. As
@@ -79,6 +79,52 @@ export function useStreamingRow(active: boolean): StreamingRow | undefined {
     return streamingRow.subscribe(() => startTransition(() => setLive(current)));
   }, [active]);
   return active ? live : undefined;
+}
+
+/// The streaming reply's row as the transcript draws it now: the store's newer text while it moved
+/// on from the text the row was drawn with. The row reads the store itself, so a chunk renders that
+/// row, not the transcript: nothing copies the transcript's rows per chunk (Leo, 2026-11-16: "the
+/// dream is infinite chats of infinite length with flat or no growth in cpu/memory/even disk"). The
+/// live line under it hears the chunk through the transcript's pulse (VirtualTranscript
+/// `lineDrawnNow`, conversation/liveLinePulse.ts) and draws for none of them. Only the pane's live
+/// transcript (`active`) subscribes, and only a streaming reply.
+/// Its draw is a transition (`useStreamingRow`), so a key still goes between its slices.
+export function useStreamingRowFor(row: AcpmuxRow, active: boolean): AcpmuxRow {
+  const live = useStreamingRow(active && row.kind === "assistant" && row.streaming === true);
+  return useMemo(() => (live ? streamedRow(row, live) : row), [row, live]);
+}
+
+/// `row` drawn with `live`: the reply's newer text and version, or the line's `quietKey` naming the
+/// reply's newer version (turns.ts `quietKey`: the line stays quiet while the reply's text moves).
+export function streamedRow(row: AcpmuxRow, live: StreamingRow): AcpmuxRow {
+  if (row.kind === "assistant") {
+    if (row.id !== live.row.id || row.text !== live.drawnText) return row;
+    return { ...row, text: live.row.text, version: row.version + live.ahead };
+  }
+  const key = row.quietKey;
+  if (typeof key !== "string") return row;
+  const at = key.lastIndexOf(":");
+  if (at < 0 || key.slice(0, at) !== live.row.id) return row;
+  const version = Number(key.slice(at + 1));
+  if (!Number.isFinite(version)) return row;
+  return { ...row, quietKey: `${live.row.id}:${version + live.ahead}`, version: row.version + live.ahead };
+}
+
+/// `rows` with the streaming reply's newer text (`streamedRow`), the same array when there is none.
+/// For what reads the rows at a person's action (copy), not per chunk.
+export function rowsWithStreamingRow(rows: readonly AcpmuxRow[]): readonly AcpmuxRow[] {
+  const live = current;
+  if (!live) return rows;
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index]!;
+    if (row.id !== live.row.id) continue;
+    const next = streamedRow(row, live);
+    if (next === row) return rows;
+    const copy = rows.slice();
+    copy[index] = next;
+    return copy;
+  }
+  return rows;
 }
 
 /// Whether the pane may draw a streamed chunk through the row alone: false while a view that reads

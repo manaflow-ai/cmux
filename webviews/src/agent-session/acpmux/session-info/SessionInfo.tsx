@@ -116,6 +116,7 @@ import {
   openOutputFile,
 } from "./sessionInfoModel";
 import { tooltipProps } from "../shortcuts";
+import { useLiveSummary } from "../liveSummary";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 /// A chat with no folders beside its own (one shared empty list, so the section's props keep their identity).
@@ -336,7 +337,7 @@ export const MemoSessionInfoSections = memo(function MemoSessionInfoSections(pro
 
 /// The sections for one chat.
 export function SessionInfo({
-  summary,
+  summary: drawnSummary,
   machineName,
   peerKinds,
   place,
@@ -526,6 +527,8 @@ export function SessionInfo({
   imessage?: IMessageView | false;
 }) {
   const t = useT();
+  // A usage update reaches the sections without the pane (liveSummary.ts).
+  const summary = useLiveSummary(drawnSummary);
   const liveIMessage = useIMessage(imessageFixture === undefined);
   const imessage = imessageFixture || liveIMessage;
   const language = usePaneLanguage();
