@@ -89,7 +89,16 @@ fn a_panic_in_a_fully_stripped_bundle_binary_names_its_frames() {
     let resources = dir.join("cmux.app/Contents/Resources");
     std::fs::create_dir_all(resources.join("bin")).unwrap();
     let copy = resources.join("bin/cmux");
-    std::fs::copy(std::env::current_exe().unwrap(), &copy).unwrap();
+    // A child writes the copy: a write descriptor held here would reach a sibling test's child until its exec
+    // and fail running the copy with ETXTBSY (check-test-determinism.py exec-of-a-file-written-in-process).
+    assert!(
+        Command::new("cp")
+            .arg(std::env::current_exe().unwrap())
+            .arg(&copy)
+            .status()
+            .unwrap()
+            .success()
+    );
     write_map(&copy, &resources.join(cmux_panic_log::backtrace::SYMBOL_MAP_NAME));
     assert!(Command::new("strip").arg(&copy).status().unwrap().success());
     let signed = Command::new("codesign").args(["-s", "-", "-f"]).arg(&copy).status().unwrap();
