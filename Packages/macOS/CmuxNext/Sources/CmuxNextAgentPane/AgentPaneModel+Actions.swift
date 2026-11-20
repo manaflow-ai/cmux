@@ -22,6 +22,9 @@ extension AgentPaneModel {
     /// commandPlace.ts). It opens a tab, so it spends the person's gesture; its `handoff` is the page's
     /// one-time token, handed to the new tab's page unread (the page keeps what it names).
     static let cloudStartActions: Set<String> = ["palette.newCloudChat"]
+    /// Set Up Computer Use from the chat's "Computer use is not set up" notice (`@computer-use`,
+    /// ``AgentPaneComputerUseState``). It opens the onboarding step, so it spends the person's gesture.
+    static let setupActions: Set<String> = [AgentPaneComputerUseState.setupAction]
 
     /// A model the person cannot use (Leo 2026-10-26: "if user picks a model they don't have api key,
     /// we offer them to add credits or add their own api key"): Add Credits… takes the one paid-plan
@@ -43,7 +46,7 @@ extension AgentPaneModel {
     /// (its own toast).
     func runAction(_ id: String, session: String? = nil, environment: String? = nil, handoff: String? = nil) -> [String: Any] {
         let screenShare = id == "session.screenShare"
-        let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id) || Self.cloudStartActions.contains(id) || screenShare
+        let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id) || Self.cloudStartActions.contains(id) || Self.setupActions.contains(id) || screenShare
         guard id == "newTab.page" || Self.paletteActions.contains(id) || gated, let onRunAction else {
             return Self.unsupported("action.run")
         }

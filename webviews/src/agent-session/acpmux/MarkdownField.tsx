@@ -35,6 +35,8 @@ import { spacedAfterDeeplink } from "./composer/deeplinks";
 import { deeplinkTitlesPlugin, type DeeplinkTitles } from "./composer/deeplinkTitles";
 import { CMUX_LINK_ICONS, knownCmuxLink, subscribeCmuxLinks } from "./chips/cmuxLinkResolve";
 import { iconMaskUrl } from "./icons/iconMask";
+import { toolOfHref } from "./toolMentions";
+import { translate } from "./i18n";
 import { subscribeIconFamily } from "./icons/iconPack";
 import { cmuxLinkLook } from "./chips/cmuxLinkLook.experiment";
 import { experimentArm } from "../../experiments/experiment";
@@ -73,7 +75,11 @@ function draftLinkTitles(): DeeplinkTitles | undefined {
   const look = experimentArm(cmuxLinkLook);
   if (look === "link") return undefined;
   return {
-    known: knownCmuxLink,
+    // A built-in tool's word (`@computer-use`) is its badge in every look: the tool's name and icon.
+    known: (href) => {
+      const tool = toolOfHref(href);
+      return tool ? { kind: "chat", title: translate(tool.label), tool: tool.icon } : knownCmuxLink(href);
+    },
     // The page's icon family too: a pooled page learns it when claimed, and the icon follows it.
     subscribe: (listener) => {
       const offLinks = subscribeCmuxLinks(listener);
@@ -85,7 +91,8 @@ function draftLinkTitles(): DeeplinkTitles | undefined {
     },
     label: (info) => (look === "icon-title-host" && info.host ? `${info.title} · ${info.host}` : info.title),
     // The sent chip's kind icon (chips/CmuxLinkChip.tsx), in the looks that draw one.
-    icon: (info) => (look === "kind-title" ? undefined : iconMaskUrl(CMUX_LINK_ICONS[info.kind])),
+    icon: (info) =>
+      info.tool ? iconMaskUrl(info.tool) : look === "kind-title" ? undefined : iconMaskUrl(CMUX_LINK_ICONS[info.kind]),
   };
 }
 

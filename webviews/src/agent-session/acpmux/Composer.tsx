@@ -61,10 +61,10 @@ import { FileSearch } from "./FileSearch";
 import { PromptFocusProvider } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
 import { MentionMenu } from "./MentionMenu";
+import { Icon } from "./icons/Icon";
 import { markdownOffset, mentionQuery, mentionResults, useMentionSearch } from "./mentionMenuModel";
 import { wantAllSessions } from "./sessionPages";
 import {
-  hasOtherChats,
   loadRecentMentionPaths,
   mentionInsert,
   mentionItems,
@@ -321,6 +321,9 @@ type Props = {
   /// Binds the person's current key press or click to one prompt (`transport.gesture`), for a send
   /// the composer holds until its files are ready (attachmentIntake.tsx `useSendWhenAttached`).
   onBindSendGesture?(): SendGesture | undefined;
+  /// A built-in tool picked from the @ menu (toolMentions.ts): the pane reads Computer Use's state
+  /// again, so the send that follows holds or goes on a fresh answer.
+  onToolMention?(): void;
   /// Binds the person's key press or click to `/side`'s prompt, held for its files, bound to no chat:
   /// the side chat it goes to does not exist yet (#40066). The prompt redeems it by its prompt id.
   onBindSideGesture?(): SendGesture | undefined;
@@ -541,6 +544,7 @@ function ComposerFrame({
   turnQueue,
   chips: Chips,
   onSend,
+  onToolMention,
   onBindSendGesture,
   onBindSideGesture,
   transcriptFollowing,
@@ -1382,11 +1386,9 @@ function ComposerFrame({
   // Typing @ at a word start lists other chats, then the chat's folders and files that match what
   // follows (cx-ncc.68, mentionItems.ts).
   const chatId = snapshot.summary?.sessionId;
-  const otherChats = useMemo(() => hasOtherChats(snapshot.sessions, chatId), [snapshot.sessions, chatId]);
+  // Computer use and browser use are always offered (toolMentions.ts), so the menu always has rows.
   const mentionTyped =
-    !open && !recalling && (searchFiles || otherChats || snapshot.catalog.length > 0) && mentionDismissed !== text
-      ? mentionQuery(text, markdownOffset(text, caret))
-      : undefined;
+    !open && !recalling && mentionDismissed !== text ? mentionQuery(text, markdownOffset(text, caret)) : undefined;
   const mentionWord = mentionTyped?.query;
   // The @ picker finds any chat by name, not only the first page's: the pane reads the rest once
   // it opens (sessionPages.ts `wantAllSessions`), and follows the list from then on.
@@ -1411,8 +1413,9 @@ function ComposerFrame({
             sessions: snapshot.sessions,
             chatId,
             harnesses: guestHarnesses,
+            toolName: (tool) => t(tool.label),
           }),
-    [mentionWord, mentionFiles, snapshot.sessions, guestHarnesses, chatId, recentScope],
+    [mentionWord, mentionFiles, snapshot.sessions, guestHarnesses, chatId, recentScope, t],
   );
   // A chat whose folder cannot be searched (a remote chat) opens the picker only on a matching
   // chat; it never hints at a file search.
@@ -1533,6 +1536,7 @@ function ComposerFrame({
   /// Writes the picked chat, folder or file over the `@word` being typed.
   const pickMention = (item: MentionItem) => {
     if (!mentionAt) return;
+    if (item.kind === "tool") onToolMention?.();
     rememberMentionPath(recentScope, item);
     const { markdown, shown } = mentionInsert(item);
     // Markdown doesn't show trailing whitespace, so what follows an end-of-prompt caret is dropped.
@@ -2979,6 +2983,7 @@ function ComposerFrame({
               <ComposerListLayer>
                 <SlashMenu
                   key={query}
+                  mark={typedSlash?.mark ?? "/"}
                   matches={matches}
                   active={selected}
                   empty={!commands?.length ? t(COMPOSER_LABELS.noCommands) : t(COMPOSER_LABELS.noMatchingCommands)}
@@ -3132,7 +3137,10 @@ function SlashMenu({
   fast,
   onHover,
   onPick,
+  mark = "/",
 }: {
+  /** What the rows' names start with: `/`, or Codex's `$` for a `$word` (slashCommands.ts slashTrigger). */
+  mark?: "/" | "$";
   matches: SlashMatch[];
   active: number;
   empty: string;
@@ -3198,7 +3206,7 @@ function SlashMenu({
       shellRef={escape}
       items={matches}
       getKey={(match) => `${match.command.source ?? "agent"}:${match.command.name}`}
-      textValue={(match) => shownName(match.command)}
+      textValue={(match) => match.command.label ?? shownName(match.command)}
       label={t(COMPOSER_LABELS.commands)}
       autoFocus={false}
       activeIndex={active}
@@ -3236,8 +3244,15 @@ function SlashMenu({
                 <BoltIcon size={14} />
               </span>
             )}
+            {match.command.icon && (
+              <span className="acpmux-mention-icon" aria-hidden="true">
+                <Icon name={match.command.icon} size={14} />
+              </span>
+            )}
             <span className="acpmux-slash-name">
-              {fastRow ? (
+              {match.command.label ? (
+                match.command.label
+              ) : fastRow ? (
                 // The typed letters stay bold where the shown name spells the command (English).
                 fastName.toLowerCase() === match.command.name.toLowerCase() ? (
                   <Highlighted name={fastName} ranges={match.ranges} />
@@ -3246,12 +3261,13 @@ function SlashMenu({
                 )
               ) : (
                 <>
-                  /<Highlighted name={shownName(match.command)} ranges={match.ranges} />
+                  {mark}
+                  <Highlighted name={shownName(match.command)} ranges={match.ranges} />
                 </>
               )}
             </span>
             {!fastRow && match.command.hint && <span className="acpmux-slash-hint">{match.command.hint}</span>}
-            {match.command.source && match.command.source !== "agent" && (
+            {!match.command.label && match.command.source && match.command.source !== "agent" && (
               <span className="acpmux-slash-source">
                 {match.command.source === "skill"
                   ? t("composer.slashSkill")

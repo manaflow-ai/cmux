@@ -16,6 +16,7 @@ import type { MarkdownFieldElement } from "../MarkdownField";
 import { proseMirrorGlobals } from "../promptFieldTesting";
 import { inlineToken, type ComposerAttachment } from "../attachments";
 import { translate } from "../i18n";
+import { toolSlashCommands } from "../toolMentions";
 import { CMUX_PASS_THROUGH } from "../cmuxCommands";
 import { seedLastPicks } from "../lastPick";
 import { EMPTY_OMNIBAR } from "../omnibar";
@@ -850,6 +851,55 @@ test("with a remembered pick and no catalog, the Ask row leads and Return asks i
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   expect(searched).toEqual([]);
   expect(asked).toEqual(["claude claude-opus-5-5: look at the ios connection failures"]);
+});
+
+test("an @ word opens the plugin menu (computer use, browser use) in place of the address rows", async () => {
+  const snapshot = noChat([], {
+    catalog: [],
+    commands: [{ name: "review-pr", description: "", source: "skill" }, ...toolSlashCommands((key) => key)],
+  });
+  await act(async () => {
+    root!.render(<NewTabScreen {...firstRunProps} snapshot={snapshot} />);
+  });
+  const names = () =>
+    [...container.querySelectorAll("#acpmux-slash-menu [role='option'] .acpmux-slash-name")].map((row) =>
+      row.textContent?.trim(),
+    );
+  await typePrompt("@");
+  // Only the rows that write their own text: the plugins, never a skill or the address rows.
+  expect(names()).toEqual(["mention.computerUse", "mention.browserUse"]);
+  expect(container.querySelector(".nt-row")).toBeNull();
+  const field = await typePrompt("open the settings app with @comp");
+  expect(names()).toEqual(["mention.computerUse"]);
+  await press(field, "Enter");
+  expect(promptValue()).toBe("open the settings app with @computer-use ");
+  expect(container.querySelector("#acpmux-slash-menu")).toBeNull();
+  // An email address is not an @ word.
+  await typePrompt("mail me@example.com");
+  expect(names()).toEqual([]);
+});
+
+test("a prompt that names a plugin lists only its Ask rows: no web search for it", async () => {
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+      />,
+    );
+  });
+  const types = () => [...document.querySelectorAll(".nt-row")].map((row) => row.getAttribute("data-type"));
+  await typePrompt("open the settings app");
+  expect(types()).toContain("search");
+  await typePrompt("open the settings app with @computer-use ");
+  expect(types()).not.toContain("search");
+  expect(types().every((type) => type === "ask")).toBe(true);
 });
 
 test("the `/` menu opens mid-prompt with the skills and writes the pick in place, as in chat", async () => {

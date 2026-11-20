@@ -264,6 +264,9 @@ import {
   useComputerUsePreviewRoom,
 } from "./computerUse/computerUsePreview";
 import { ComputerUsePreviewCard } from "./computerUse/ComputerUsePreviewCard";
+import { ComputerUseSetupNotice } from "./computerUse/ComputerUseSetupNotice";
+import { computerUseGate, holdsForComputerUse, useComputerUseState } from "./computerUse/computerUseState";
+import { toolMentionsIn, toolSlashCommands } from "./toolMentions";
 import { askOnSingleCard, cardTakesShortcuts, heldOnCard } from "./permissionKeys";
 import { agentName } from "./agents";
 import { isStartSuperseded, startFailureNotice } from "./startFailure";
@@ -1898,6 +1901,38 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => paneNotices({ transcript: () => directClient.current, toasts: paneToasts, native: postNativePaneToast }),
     [paneToasts],
   );
+  /// Computer Use on this Mac, for a send that names `@computer-use` (toolMentions.ts, CMUX-682), and
+  /// the "not set up" notice such a send raised (computerUse/ComputerUseSetupNotice.tsx).
+  const computerUse = useComputerUseState();
+  const [computerUseAsked, setComputerUseAsked] = useState(false);
+  // Set up since (in onboarding, then back here): the notice has nothing left to say.
+  const computerUseAsk = computerUseAsked && holdsForComputerUse(computerUse.state) ? computerUse.state : undefined;
+  const setUpComputerUse = () => {
+    setComputerUseAsked(false);
+    computerUse.setupRan();
+    void callNative("action.run", { id: "palette.computerUse.setup" }).catch(sayActionRefusal(notices.transient));
+  };
+  /// Whether a send of `text` from this Mac waits for Computer Use setup (`@computer-use` with the last
+  /// answer `needs_setup` or `disabled`). Not set up: the send's own Enter or click opens the Computer
+  /// Use setup page (Lucas 2026-11-21: "when they hit send, we want to show the computer use setup
+  /// page"), the message stays, and the page reads the state again once it is back in front. Turned
+  /// off by the organization, or a host that did not open the page: the chat's notice says why.
+  const holdsForComputerUseSetup = (text: string): boolean => {
+    if (!toolMentionsIn(text).includes("computer-use")) return false;
+    const gate = computerUseGate(text, computerUse.current());
+    // Read again on every such send, so the next one follows a change made meanwhile (turned off in
+    // Settings, a grant taken back), whichever way this one went.
+    void computerUse.refresh();
+    if (gate === "free") return false;
+    if (gate === "notice") {
+      setComputerUseAsked(true);
+      return true;
+    }
+    setComputerUseAsked(false);
+    computerUse.setupRan();
+    void callNative("action.run", { id: "palette.computerUse.setup" }).catch(() => setComputerUseAsked(true));
+    return true;
+  };
   /// The pane's connected clients, one after another: a prompt a connection lost waits on the next
   /// one for the host's journal to send it again there (lostPrompt.ts).
   const [connectedClients] = useState(() => clientWaiter<AcpmuxDirectClient>());
@@ -7638,6 +7673,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   // Extension slash commands (`cmux.composer.command/1`), as the daemon lists them.
   const extensionCommands = useExtensionCommands();
+  // Computer use and browser use in the `/` and `$` menus (toolMentions.ts), beside the skills.
+  const toolCommands = useMemo(() => toolSlashCommands(t), [t]);
   const composerSnapshot = useMemo(() => {
     const enabledCmuxActions = new Set<CmuxCommand["action"]>([
       "import",
@@ -7659,7 +7696,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (snapshot.sessionId && !isSideSession && !quick) enabledCmuxActions.add("btw");
     const withCommands = {
       ...snapshot,
-      commands: withExtensionCommands(mergedCommands(snapshot.commands, enabledCmuxActions), extensionCommands),
+      commands: withExtensionCommands(
+        withExtensionCommands(mergedCommands(snapshot.commands, enabledCmuxActions), toolCommands),
+        extensionCommands,
+      ),
       ...(keptStopping && { stopping: true as const }),
       // The Quick Composer's send never forks (it has no review to show), so its model menu
       // holds no pick of another harness either (review of #37196: it drew the hold, then sent
@@ -7703,6 +7743,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudPicked,
     cloudModePick,
     extensionCommands,
+    toolCommands,
   ]);
   // What the composer draws from: the same object while nothing it shows changed (composer/composerView.ts),
   // so a tool call or another row added to the transcript does not draw the composer again.
@@ -12550,6 +12591,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       <>
         <PaneNotices onAction={(id) => void callNative("pane.noticeAction", { id }).catch(() => undefined)} />
         <PlanScopeDriftNotice sessionId={snapshot.sessionId} />
+        <Notice id="computer-use-setup" tier="error" when={computerUseAsk}>
+          {computerUseAsk && (
+            <ComputerUseSetupNotice
+              state={computerUseAsk}
+              onSetUp={setUpComputerUse}
+              onDismiss={() => setComputerUseAsked(false)}
+            />
+          )}
+        </Notice>
         <Notice id="dictation" tier="error" when={dictation.notice?.message}>
           <DictationNotice dictation={dictation} />
         </Notice>
@@ -12864,6 +12914,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               return client && bindsHeldSendNow(route) ? client.bindSendGesture() : undefined;
             }}
             transcriptFollowing={transcriptFollowing}
+            onToolMention={() => void computerUse.refresh()}
             onSend={(text, chips, steer, gesture) => {
               // A Sandboxed new chat: the message runs once on a throwaway VM, through the
               // host, and the chat shows its receipt; no acpmux chat starts.
@@ -12872,6 +12923,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               // The Trust continuation uses ComposerHandle.send(force), but never bypasses auth.
               if (authBlock) return false;
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
+              // `@computer-use` while Computer Use is not set up on this Mac: the chat says so with Set
+              // Up Computer Use, and the composer keeps the message (CMUX-682). A chat on another machine
+              // (a peer, a Cloud VM, a Sandboxed run) uses that machine's Computer Use, which this Mac
+              // cannot see.
+              const onThisMac =
+                !cloudPicked &&
+                !sandboxing &&
+                snapshot.summary?.hostKind !== "cloud" &&
+                !snapshot.summary?.host &&
+                !machinePeer &&
+                !snapshot.summary?.peer;
+              if (onThisMac && holdsForComputerUseSetup(text)) return false;
+              setComputerUseAsked(false);
               if (cloudPicked) {
                 // The project picked for this chat, else the folder the chip names, copied to the machine; none: the
                 // machine's own folder (composerCloudStartFolder). Never the tab's inherited folder, which no chip shows.
@@ -13941,7 +14005,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   {...(newTab.suggestionOrder ? { suggestionOrder: newTab.suggestionOrder } : {})}
                   snapshot={
                     commandSession
-                      ? { ...newTabSnapshot, commands: withExtensionCommands(pendingCommands ?? [], extensionCommands) }
+                      ? {
+                          ...newTabSnapshot,
+                          commands: withExtensionCommands(
+                            withExtensionCommands(pendingCommands ?? [], toolCommands),
+                            extensionCommands,
+                          ),
+                        }
                       : newTabSnapshot
                   }
                   {...(newTabFixError ? { fixError: newTabFixError } : {})}
@@ -13990,6 +14060,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       chatCwd: startFolder,
                       requestFolder,
                       startsHere: () => !directClient.current?.startsOnSend,
+                      holdsSend: holdsForComputerUseSetup,
                       // A start belongs to this New Tab visit. Cmd-T adoption, chat selection,
                       // or another start advances the marker and fences every late completion.
                       // Harness starts may reconnect their client while the queued prompt waits;

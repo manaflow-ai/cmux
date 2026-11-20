@@ -7,6 +7,7 @@ import { Listbox } from "../../ui/Listbox";
 import { useT } from "./i18n";
 import { FileSearchLoading } from "./FileSearchLoading";
 import { type MentionState } from "./mentionMenuModel";
+import { TOOL_MENTIONS, type ToolMentionId } from "./toolMentions";
 /// The picker under the prompt, styled as the slash menu: other chats, folders, then files
 /// (mentionItems.ts), each with its icon, its name with the matched letters bold and its project or
 /// folder muted beside it. The prompt keeps focus and its keys (Composer.tsx): arrows move, Return
@@ -69,13 +70,24 @@ export function MentionMenu({
         renderItem={(item) => (
           <>
             <span className="acpmux-mention-icon" data-mention-icon={item.kind}>
-              <Icon name={item.kind === "session" || item.kind === "harness" ? "agent.chat" : item.kind} size={14} />
+              <Icon
+                name={
+                  item.kind === "session" || item.kind === "harness"
+                    ? "agent.chat"
+                    : item.kind === "tool"
+                      ? item.icon
+                      : item.kind
+                }
+                size={14}
+              />
             </span>
             <span className="acpmux-slash-name">{runs(item.name)}</span>
             {item.kind === "session" ? (
               item.project && <span className="acpmux-slash-description">{item.project}</span>
             ) : item.kind === "harness" ? (
               <span className="acpmux-slash-description">{t("mention.readOnlyGuest")}</span>
+            ) : item.kind === "tool" ? (
+              <span className="acpmux-slash-description">{t(toolHint(item.toolId))}</span>
             ) : (
               item.dir.length > 0 && <span className="acpmux-slash-description">{runs(item.dir)}</span>
             )}
@@ -89,3 +101,5 @@ export function MentionMenu({
 function runs(parts: readonly Run[]) {
   return parts.map((part, index) => (part.matched ? <b key={index}>{part.text}</b> : part.text));
 }
+
+const toolHint = (id: ToolMentionId) => TOOL_MENTIONS.find((tool) => tool.id === id)!.hint;

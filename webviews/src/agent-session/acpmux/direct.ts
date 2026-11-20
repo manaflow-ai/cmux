@@ -197,6 +197,7 @@ import {
 } from "./hiddenTools";
 import { SubagentFold, subagentsLeft, subagentStops, type SubagentStopReason } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
+import { toolMentionContext, toolMentionsIn } from "./toolMentions";
 import { promptContext } from "./composer/videoTranscript";
 import { promptSurfaceMeta } from "./surfaces/promptSurface";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
@@ -11986,7 +11987,10 @@ export class AcpmuxDirectClient {
     const workspace = this.host.workspaceContext && !this.contextInFlight ? WORKSPACE_CONTEXT : undefined;
     if (workspace) this.contextInFlight = true;
     // Each attached video's speech, as the host heard it, goes beside it (composer/videoTranscript.ts).
-    const context = promptContext(workspace, carried);
+    // A prompt that names `@computer-use` or `@browser-use` tells the agent which cmux tool it means
+    // (toolMentions.ts), every time it names one.
+    const tools = toolMentionContext(toolMentionsIn(text));
+    const context = promptContext(workspace || tools ? `${workspace ?? ""}${tools ?? ""}` : undefined, carried);
     /// The sender (the composer) lets go of the prompt.
     const release = () => {
       if (released) return;
@@ -13087,7 +13091,11 @@ export class AcpmuxDirectClient {
         sessionId,
         prompt: promptBlocks(text, carried),
         _meta: {
-          acpmux: { promptId: gesture?.promptId ?? crypto.randomUUID() },
+          acpmux: {
+            promptId: gesture?.promptId ?? crypto.randomUUID(),
+            // `@computer-use` / `@browser-use` say which cmux tool they mean, as a send's do (toolMentions.ts).
+            ...(toolMentionsIn(text).length ? { context: toolMentionContext(toolMentionsIn(text)) } : {}),
+          },
           ...(ticket ? { cmuxGesture: ticket } : {}),
         },
       }),

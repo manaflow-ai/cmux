@@ -136,14 +136,42 @@ test("@proje lists other chats, then folders, then files, each with its icon, bo
   expect(file!.querySelector("[data-mention-icon]")?.getAttribute("data-mention-icon")).toBe("file");
 });
 
-test("a bare @ offers the most recent other chats before anything is typed", async () => {
+test("a bare @ offers the most recent other chats, then computer use and browser use", async () => {
   const container = installDom();
-  const items = mentionItems({ query: "", files: [], sessions: SESSIONS, chatId: SESSIONS[0]!.sessionId });
+  const items = mentionItems({
+    query: "",
+    files: [],
+    sessions: SESSIONS,
+    chatId: SESSIONS[0]!.sessionId,
+    toolName: (tool) => (tool.id === "computer-use" ? "Computer use" : "Browser use"),
+  });
   await render(container, items);
   expect(rows(container).map((row) => row.querySelector(".acpmux-slash-name")?.textContent)).toEqual([
     "Fix the dock",
     "Resume: projects-70 coordinator (0cfd5322)",
+    "Computer use",
+    "Browser use",
   ]);
+});
+
+test("computer use and browser use are always offered, found by their name's start, and write one word", () => {
+  const keys = (query: string) => mentionItems({ query, files: [], sessions: [] }).map((item) => item.key);
+  expect(keys("")).toEqual(["tool:computer-use", "tool:browser-use"]);
+  expect(keys("comp")).toEqual(["tool:computer-use"]);
+  expect(keys("BROW")).toEqual(["tool:browser-use"]);
+  expect(keys("cu")).toEqual(["tool:computer-use"]);
+  // A word that names neither (a file's) lists no tool, and a path never does.
+  expect(keys("app")).toEqual([]);
+  expect(keys("computer-use/")).toEqual([]);
+  const [computer] = mentionItems({ query: "comp", files: [], sessions: [], toolName: () => "Computer use" });
+  expect(computer?.name).toEqual([
+    { text: "Comp", matched: true },
+    { text: "uter use", matched: false },
+  ]);
+  expect(mentionInsert(computer!).shown).toBe("@computer-use ");
+  // Typed toward a file, the file the host found still comes after the tool it also names.
+  const files = mentionItems({ query: "bro", files: [{ path: "src/broker.ts", matches: [4, 5, 6] }], sessions: [] });
+  expect(files.map((item) => item.key)).toEqual(["tool:browser-use", "file:src/broker.ts"]);
 });
 
 test("a harness mention is offered as a read-only guest and inserts its target token", () => {
@@ -193,7 +221,12 @@ test("a bare @ also offers recently picked files, and a query fuzzy-matches them
     ],
     sessions: [],
   });
-  expect(recent.map((item) => item.key)).toEqual(["file:docs/README.md", "file:src/app.ts"]);
+  expect(recent.map((item) => item.key)).toEqual([
+    "tool:computer-use",
+    "tool:browser-use",
+    "file:docs/README.md",
+    "file:src/app.ts",
+  ]);
   expect(
     mentionItems({ query: "rmd", files: [], recent: [{ kind: "file", path: "docs/README.md" }], sessions: [] }).map(
       (item) => item.key,
@@ -230,7 +263,9 @@ test("recent picks are kept per project and host, and a picked folder is remembe
     const [folder] = mentionItems({ query: "sr", files: [{ path: "src/app.ts" }], sessions: [] });
     expect(folder?.kind).toBe("folder");
     rememberMentionPath(here, folder!);
-    const [file] = mentionItems({ query: "", files: [{ path: "src/app.ts" }], sessions: [] });
+    const file = mentionItems({ query: "", files: [{ path: "src/app.ts" }], sessions: [] }).find(
+      (item) => item.kind === "file",
+    );
     rememberMentionPath(here, file!);
     expect(loadRecentMentionPaths(here)).toEqual([
       { kind: "file", path: "src/app.ts" },
@@ -242,8 +277,9 @@ test("recent picks are kept per project and host, and a picked folder is remembe
     rememberMentionPath(recentMentionScope(undefined, undefined), file!);
     expect(loadRecentMentionPaths(undefined)).toEqual([]);
     const bare = mentionItems({ query: "", files: [], recent: loadRecentMentionPaths(here), sessions: [] });
-    expect(bare.map((item) => item.key)).toEqual(["folder:src", "file:src/app.ts"]);
-    expect(mentionInsert(bare[0]!).shown).toBe(mentionInsert(folder!).shown);
+    const paths = bare.filter((item) => item.kind !== "tool");
+    expect(paths.map((item) => item.key)).toEqual(["folder:src", "file:src/app.ts"]);
+    expect(mentionInsert(paths[0]!).shown).toBe(mentionInsert(folder!).shown);
   } finally {
     if (had) scope.localStorage = saved;
     else delete scope.localStorage;
@@ -281,7 +317,9 @@ test("a long history lists its five best chats, best first and ties in history o
     updatedAt: index % 700,
   }));
   const names = (query: string) =>
-    mentionItems({ query, files: [], sessions: history }).map((item) => (item.kind === "session" ? item.title : ""));
+    mentionItems({ query, files: [], sessions: history }).flatMap((item) =>
+      item.kind === "session" ? [item.title] : [],
+    );
   expect(names("")).toEqual(["Chat 699", "Chat 1399", "Chat 698", "Chat 1398", "Chat 697"]);
   // The composer never sends a space (it ends the @word), so a chat is found by one word of it.
   expect(names("1999")).toEqual(["Chat 1999"]);
