@@ -79,6 +79,33 @@ final class GlassParityHostLayer: NSView {
             views[id] = nil
         }
     }
+    /// The App's chip glass (the web tooltip's), for the measure's diagnostics.
+    var tooltipSurface: NSView? { views.values.first { $0.level == .chip && $0.role == nil }?.view }
+}
+
+/// A view's tree as the measure reports it (class, frame, alpha, layer fill, filters, shadow), so two surfaces
+/// that should be the same name where they differ.
+@MainActor
+func glassParityTree(_ view: NSView, depth: Int = 0) -> JSONValue {
+    let layer = view.layer
+    var node: [String: JSONValue] = [
+        "class": .string(String(describing: type(of: view))),
+        "frame": .array([view.frame.minX, view.frame.minY, view.frame.width, view.frame.height].map { .number($0) }),
+        "alpha": .number(view.alphaValue), "hidden": .bool(view.isHidden),
+        "appearance": .string(view.effectiveAppearance.name.rawValue),
+    ]
+    if let layer {
+        node["bg"] = .string(layer.backgroundColor.map { color in NSColor(cgColor: color)?.usingColorSpace(.sRGB).map { String(describing: $0) } ?? String(describing: color) } ?? "nil")
+        node["opacity"] = .number(Double(layer.opacity))
+        node["shadow"] = .number(Double(layer.shadowOpacity))
+        node["filters"] = .number(Double((layer.filters?.count ?? 0) + (layer.backgroundFilters?.count ?? 0)))
+        node["masks"] = .bool(layer.masksToBounds)
+    }
+    if view.responds(to: NSSelectorFromString("tintColor")), let tinted = view.value(forKey: "tintColor") as? NSColor {
+        node["tint"] = .string(String(describing: tinted.usingColorSpace(.sRGB) ?? tinted))
+    }
+    if depth < 4 { node["children"] = .array(view.subviews.map { glassParityTree($0, depth: depth + 1) }) }
+    return .object(node)
 }
 
 final class GlassParityFlippedView: NSView {
@@ -91,12 +118,24 @@ final class GlassParityFlippedView: NSView {
 /// ascent), with no text field cell insets.
 final class GlassParityTextView: NSView {
     private let lines: [(String, NSColor)]
+    private let smoothing: Bool
     static let lineHeight: CGFloat = 18
     static let origin = CGPoint(x: 12, y: 8)
 
-    init(frame: NSRect, title: String, detail: String) {
+    init(frame: NSRect, title: String, detail: String, smoothing: Bool = true) {
         lines = [(title, Palette.textPrimary), (detail, Palette.textSecondary)]
+        self.smoothing = smoothing
         super.init(frame: frame)
+    }
+
+    /// The baseline of line `index`, as a CSS line box of ``lineHeight`` places it in WebKit and Chromium:
+    /// the font's ascent and descent rounded to whole pixels, the half leading floored. AppKit's fractional
+    /// metrics put it at 21.62 pt for the 13 pt system font where both engines put 21 (fleet step e573c84a:
+    /// every native line a pixel below the web one).
+    static func baseline(line index: Int, ascender: CGFloat, descender: CGFloat) -> CGFloat {
+        let ascent = ascender.rounded(), descent = (-descender).rounded()
+        let halfLeading = ((lineHeight - ascent - descent) / 2).rounded(.down)
+        return origin.y + CGFloat(index) * lineHeight + halfLeading + ascent
     }
 
     @available(*, unavailable)
@@ -112,11 +151,48 @@ final class GlassParityTextView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let font = NSFont.systemFont(ofSize: TypeScale.body)
-        let halfLeading = (Self.lineHeight - (font.ascender - font.descender)) / 2
+        NSGraphicsContext.current?.cgContext.setShouldSmoothFonts(smoothing)
         for (index, (text, color)) in lines.enumerated() {
-            let top = Self.origin.y + CGFloat(index) * Self.lineHeight + halfLeading
+            // draw(at:) takes the line's top; its baseline is that plus the font's ascender.
+            let top = Self.baseline(line: index, ascender: font.ascender, descender: font.descender) - font.ascender
             NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color])
                 .draw(at: CGPoint(x: Self.origin.x, y: top))
+        }
+    }
+}
+
+/// The native menu row's highlight in the Liquid Glass Parity playground's menu: what ``PopupRowView``
+/// draws for a highlighted row (the theme's hover fill) or a pressed one (its pressed fill), at
+/// `row` (flipped, in the menu's points) in the row's corner radius; nothing at rest.
+final class GlassParityRowFill: NSView {
+    var state: GlassParityPlayground.RowState = .rest {
+        didSet { if state != oldValue { needsDisplay = true } }
+    }
+    private let row: CGRect
+    private let radius: CGFloat
+
+    init(frame: NSRect, row: CGRect, radius: CGFloat) {
+        self.row = row
+        self.radius = radius
+        super.init(frame: frame)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard state != .rest else { return }
+        performWithTheme {
+            (state == .pressed ? Palette.pressedFill : Palette.hoverFill).setFill()
+            NSBezierPath(roundedRect: row, xRadius: radius, yRadius: radius).fill()
         }
     }
 }
