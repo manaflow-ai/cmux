@@ -240,7 +240,7 @@
     "cmux-tui/crates/acpmux/src/server/stream.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/server/trigger_chat.rs": {"count": 3, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/server/ws_peek.rs": {"count": 1, "reason": "safe: a DoS guard on an unauthenticated connection's HTTP request head before routing; message bodies and WebSocket frames are not bounded by it"},
-    "cmux-tui/crates/acpmux/src/store/deferred.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
+    "cmux-tui/crates/acpmux/src/store/deferred.rs": {"count": 2, "reason": "safe: a bound that never refuses a send: MAX_HELD_BYTES and MAX_HELD_FILES (#47166) only decide whether a tool output snapshot is held back or stored whole in the chat log; every snapshot is stored either way"},
     "cmux-tui/crates/acpmux/src/tui/mod.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/tui/skills.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/vault/pull.rs": {"count": 1, "reason": "safe: the hub's vault answer body (8 MiB) bounds a machine pull of the person's env; nothing a person sends goes through it"},
