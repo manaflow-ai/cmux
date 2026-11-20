@@ -53,6 +53,18 @@ struct AgentCursorNameTagTests {
         #expect(cursor.caption.frame.minY >= cursor.nameTag.frame.maxY, "caption below the tag, never over it")
     }
 
+    /// A caption re-arms the idle fade, so a cursor that had faded shows again: the window's glass must wake
+    /// (`AgentCursorCarrierView.syncGlassActivity` runs on this signal).
+    @Test func aCaptionSignalsTheWindowLikeAnyShowingCommand() {
+        let host = AgentCursorLayerHost(hostLayer: CALayer(), color: { _ in CGColor(gray: 1, alpha: 1) })
+        var signals = 0
+        host.onTagsChange = { signals += 1 }
+        host.apply(.place(session: "s", point: CGPoint(x: 100, y: 100)))
+        #expect(signals == 1)
+        host.apply(.caption(session: "s", text: "hello"))
+        #expect(signals == 2, "a caption wakes a faded cursor, so the window hears of it")
+    }
+
     @Test func theTagHidesWithTheArrowForAHiddenTarget() throws {
         let layer = CALayer()
         let host = AgentCursorLayerHost(hostLayer: layer, color: { _ in CGColor(gray: 1, alpha: 1) })
