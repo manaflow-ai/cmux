@@ -1157,7 +1157,10 @@ export const SubagentTray = memo(function SubagentTray({
                 )
               }
               cardClassName={peek}
-              disclose={detailsButton(Boolean(canReadTail || read.link || openTerminal))}
+              // Its own details button only where the row opens something else (its terminal) and the
+              // details hold more than that: a row that only expands keeps today's one chevron, so no two
+              // controls do the same thing.
+              disclose={detailsButton(Boolean(openTerminal && (canReadTail || read.link || item.owner)))}
               after={
                 stopProcess &&
                 processId && (
@@ -1234,7 +1237,8 @@ export const SubagentTray = memo(function SubagentTray({
             )
           }
           cardClassName={peek}
-          disclose={detailsButton(Boolean(item.session.doing))}
+          // As a command's: a details button only where the row opens the chat and there is a step to show.
+          disclose={detailsButton(Boolean(onOpenSession && item.session.doing))}
         />
         <TrayLineFold open={isOpen}>
           <TrayAgentDetail
