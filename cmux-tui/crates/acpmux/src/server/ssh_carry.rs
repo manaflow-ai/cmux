@@ -193,7 +193,7 @@ pub(super) async fn carry(hub: &Arc<Hub>, delivery: &Delivery) -> Option<Carry> 
 fn run(argv: Vec<String>, text: Vec<u8>) -> Carry {
     let mut cmd = cmux_process::Command::new("ssh");
     cmd.args(argv);
-    match crate::bounded_child::owned(&mut cmd, Some(text), CARRY_DEADLINE, "the ssh carry") {
+    match crate::cli::owned_child::owned(&mut cmd, Some(text), CARRY_DEADLINE, "the ssh carry") {
         Ok(done) => outcome(
             done.status.code(),
             &String::from_utf8_lossy(&done.stdout),

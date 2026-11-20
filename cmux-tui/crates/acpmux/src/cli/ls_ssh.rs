@@ -89,7 +89,7 @@ fn read(destination: &str, deadline: Instant) -> Result<Vec<Value>, String> {
     let mut cmd = cmux_process::Command::new("ssh");
     cmd.args(argv);
     let limit = deadline.saturating_duration_since(Instant::now());
-    let done = crate::bounded_child::owned(&mut cmd, None, limit, "the ssh listing")
+    let done = crate::cli::owned_child::owned(&mut cmd, None, limit, "the ssh listing")
         .map_err(|e| e.to_string())?;
     if !done.status.success() {
         let stderr = String::from_utf8_lossy(&done.stderr);
