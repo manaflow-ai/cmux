@@ -18,6 +18,8 @@ import {
   type FamilyPreview,
 } from "../fontPreviewModel";
 
+const NO_CHOICES: NonNullable<SchemaRow["choices"]> = [];
+
 /** The value a number row draws at now: a slider's drag, else the stored or resolved value. */
 function useNumber(key: string | null, fallback: number): number {
   const row = key ? rowsByKey.get(key) : undefined;
@@ -54,7 +56,8 @@ function FontTiles({
   const markdownPreset = useRowState("markdown.font.preset").value;
   const values = (key: string) => (key === "markdown.font.preset" ? markdownPreset : undefined);
   const current = value ?? row.default;
-  const choices = row.choices ?? [];
+  // The schema row's own list: the same array every render, so the load below runs once per row.
+  const choices = row.choices ?? NO_CHOICES;
   // Every bundled face loads once, when its picture first shows; until then the stack's next face draws.
   useEffect(() => {
     for (const choice of choices) void preview.load?.(choice.value).catch(() => undefined);
