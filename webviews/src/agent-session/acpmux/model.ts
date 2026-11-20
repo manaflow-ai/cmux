@@ -38,6 +38,7 @@ import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
 import type { NextStepAsk } from "./conversation/nextStepAsk";
 import { webSources } from "./conversation/webSourceList";
+import { outputTail, stripAnsi } from "./conversation/toolOutputModel";
 import type { WatchedAsk } from "./needsYou/model";
 import type { PermissionDecision } from "./permissions/record";
 import type { HandoffClientState } from "./handoff/client";
@@ -1532,6 +1533,9 @@ export type AcpmuxSnapshot = {
     icon?: string;
     /** `_acpmux/harnesses` `iconSpec`: the one icon acpmux resolved for the harness. */
     iconSpec?: HarnessIconSpec;
+    /** Its chats report no permission modes (`_acpmux/harnesses` `reported`, permissionModes.ts):
+     * Pi's ACP modes only copy its thinking levels. Absent while unknown. */
+    modeless?: true;
     /** `_acpmux/harnesses` `start`: the model and effort acpmux starts a new chat here on (the
      * person's saved pick, else the catalog's default; acpmux start_defaults.rs). */
     start?: {
@@ -1643,6 +1647,11 @@ export type ConversationLayout = {
 /// text font, its line and the code sizes follow the user's chat look (chatDisplay.ts), 14px
 /// system-ui on 22.75px lines and 12px code on 20px lines by default.
 const metrics = () => currentChatMetrics();
+/// Whether the row being measured is the agent's reply, whose prose a font pack can set apart
+/// (chatDisplay.ts `replyMeasureFont`, conversation.css `.cv-reply`); layoutConversation sets it around each row.
+let measuringReply = false;
+/// The canvas font of the text being measured: the reply's while a reply is, else the chat's.
+const proseFont = () => (measuringReply ? metrics().replyMeasureFont : metrics().measureFont);
 /// Codex's user bubble keeps 10px padding on each side, at the chat's density text scale (`.cv-user__bubble`:
 /// the grid's Interface Size scale times the bubble's own, which together are the text scale).
 const userBubblePadding = () => 5 * gridLength("base") * chatDensityTextScale();
@@ -1907,7 +1916,9 @@ function openThoughtBody(text: string, width: number): number {
 /// card (ShellBlock.tsx, conversation.css `.cv-shell`): 4px above and 8px below it, 12px of padding,
 /// the 20px "Shell" label, the command's 18px lines 8px under it (8px and the rule below them), the
 /// exit code's 20px line 8px under that when it failed, and its output's 18px lines 8px under that,
-/// at most PREVIEW_LINES of them before the box scrolls. Closed, nothing.
+/// at most PREVIEW_LINES of them before the box scrolls; a long output's Show all under the box
+/// (toolOutputModel.ts `outputTail`, ShellBlock.tsx `OutputMore`), 4px over a 16px detail line, its
+/// height the same shown or not. Closed, nothing.
 const SHELL_LINE = 18;
 function openShellBody(tool: NonNullable<AcpmuxActivity["tool"]>, width: number, sessionId?: string): number {
   if (!tool.command || !disclosureOpen(sessionId, callDisclosureKey(tool.id))) return 0;
@@ -1921,7 +1932,8 @@ function openShellBody(tool: NonNullable<AcpmuxActivity["tool"]>, width: number,
   const lines = output ? Math.min(PREVIEW_LINES, output.split("\n").length) : 0;
   const failed = tool.exitCode !== undefined && tool.exitCode !== 0;
   const card = 12 + 20 + 8 + command * SHELL_LINE + 9 + (failed ? 28 : 0) + (lines ? 8 + lines * SHELL_LINE : 0) + 12;
-  return (gridLength("base") + 4 + 8) * chromeScale + card;
+  const more = output && outputTail(stripAnsi(output)) !== undefined ? gridLength("base") + 16 : 0;
+  return (gridLength("base") + 4 + 8 + more) * chromeScale + card;
 }
 
 /// An `acpmux send` the reader opened (SentMessageLine.tsx, its `send:` disclosure): the message whole
@@ -2012,7 +2024,7 @@ function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[], width: num
 /// gap, held inside the fold (conversation.css `.cv-tools > * + .cv-fold::before`), over its steps,
 /// which the default arm keeps to a 56-unit (224px) scroll box (RunScroll.tsx `.cv-run-scroll`).
 const RUN_SCROLL_UNITS = 56;
-function openRunBody(steps: number): number {
+export function openRunBody(steps: number): number {
   const base = gridLength("base") * chromeScale;
   return base + (experimentArm(runScroll) === "box" ? Math.min(steps, RUN_SCROLL_UNITS * base) : steps);
 }
@@ -2863,9 +2875,12 @@ export function measuredText(tokens: Token[] | undefined, fallback: string): str
 }
 
 /// The prepared text cache is per row, so its key is the text revision (and the font that measured
-/// it). Keep enough entries for the current blocks plus a bounded tail of older streaming revisions.
-const PREPARED_CACHE_MIN = 64;
-const PREPARED_CACHE_PER_BLOCK = 4;
+/// it). A streamed tail never goes back to an earlier text, so a revision the row's last measure did
+/// not use is dead: the cache keeps the ones it used and this many more, the most recent (a font or
+/// look that flips back). It kept max(64, 4 x blocks) before, each a whole prepared block, in every
+/// row of every chat in the renderer the chats share, and a session of streaming agents grew that
+/// renderer's live heap until it stopped answering input (cmux#45888).
+export const PREPARED_CACHE_SPARE = 4;
 
 /// The rows whose prepared text (PreparedRow) the transcript keeps, the most recently measured: the
 /// rows around the view and the live ones, which every pass measures, and a short tail of the rest.
@@ -2934,12 +2949,8 @@ function trimPreparedRows(cache: Map<string, PreparedRow>): void {
   }
 }
 
-function trimPreparedCache(
-  prepared: Map<string, PreparedText | null>,
-  blockCount: number,
-  used: ReadonlySet<string>,
-): void {
-  const limit = Math.max(PREPARED_CACHE_MIN, PREPARED_CACHE_PER_BLOCK * blockCount, used.size);
+function trimPreparedCache(prepared: Map<string, PreparedText | null>, used: ReadonlySet<string>): void {
+  const limit = used.size + PREPARED_CACHE_SPARE;
   if (prepared.size <= limit) return;
   for (const key of prepared.keys()) {
     if (prepared.size <= limit) break;
@@ -2955,7 +2966,7 @@ function textHeight(
   /// The rows' line height when it is not the prose's (a folded note's 20px lines).
   lineHeight = metrics().lineHeight,
 ): number {
-  const { measureFont } = metrics();
+  const measureFont = proseFont();
   // Keyed by font too: a new chat font measures the text again.
   const key = `${measureFont}\n${text}`;
   used?.add(key);
@@ -3268,9 +3279,8 @@ function measuredRowHeight(
   const entry = preparedRow(cache, row.id);
   const pasted = row.kind === "user" && Boolean(row.pasted?.length);
   // Whether the reader opened the prompt's fold (PromptText.tsx `prompt:${rowId}`): open, a paste in it
-  // draws whole. The bubble draws under no chat's disclosure provider (rows/MessageRow.tsx), so its fold
-  // is on the shared key in every view, and is read there.
-  const promptOpen = row.kind === "user" && disclosureOpen(undefined, `prompt:${row.id}`);
+  // draws whole.
+  const promptOpen = row.kind === "user" && disclosureOpen(sessionId, `prompt:${row.id}`);
   // A huge prompt opens collapsed to its first lines whatever it holds (conversation/PromptText.tsx):
   // its height is those lines and Show more, never a lex or measure of megabytes of text.
   // A prompt recorded in parts is huge by its typed parts alone (a pasted block is a chip).
@@ -3359,7 +3369,7 @@ function measuredRowHeight(
   // A stream changes only its tail block. Preserve prepared entries for the unchanged blocks and
   // trim stale revisions once per row, never once per token or across the transcript. `usedPrepared`
   // includes list items, whose text count can be much larger than the block count.
-  trimPreparedCache(entry.prepared, entry.blocks.length, usedPrepared);
+  trimPreparedCache(entry.prepared, usedPrepared);
   // A long prompt opens collapsed to its first lines over Show more (conversation/UserBubble.tsx); a
   // Chief's draws its own bubble (ChiefPromptBubble.tsx). One the reader opened (PromptText.tsx, its
   // `prompt:` disclosure) draws whole over the same line, Show less.
@@ -3398,12 +3408,13 @@ function preparedLines(
   prepared: PreparedRow["prepared"],
   used: Set<string>,
 ): PreparedTextWithSegments | null {
-  const key = `lines\n${metrics().measureFont}\n${text}`;
+  const font = proseFont();
+  const key = `lines\n${font}\n${text}`;
   used.add(key);
   let measured = prepared.get(key) as PreparedTextWithSegments | null | undefined;
   if (measured === undefined) {
     try {
-      measured = prepareWithSegments(text, metrics().measureFont, {
+      measured = prepareWithSegments(text, font, {
         whiteSpace: "pre-wrap",
       });
       notePreparedText(text.length);
@@ -3759,20 +3770,26 @@ export function layoutConversation(
         height = kept.height;
         remembered = true;
       } else {
-        height = custom
-          ? customHeight
-          : edge === LIVE_STEP_EDGE
-            ? TRANSCRIPT_LIVE_STEP_HEIGHT * chromeScale
-            : measuredRowHeight(
-                row,
-                width,
-                cache,
-                edge?.startsWith("footer") === true,
-                edge?.startsWith("last-turn") === true,
-                sessionId,
-                edge?.startsWith("continuation") === true,
-                edge?.endsWith(ACTIONS_EDGE) === true,
-              );
+        // A reply's text measures in the reply's face (`proseFont`).
+        measuringReply = row.kind === "assistant";
+        try {
+          height = custom
+            ? customHeight
+            : edge === LIVE_STEP_EDGE
+              ? TRANSCRIPT_LIVE_STEP_HEIGHT * chromeScale
+              : measuredRowHeight(
+                  row,
+                  width,
+                  cache,
+                  edge?.startsWith("footer") === true,
+                  edge?.startsWith("last-turn") === true,
+                  sessionId,
+                  edge?.startsWith("continuation") === true,
+                  edge?.endsWith(ACTIONS_EDGE) === true,
+                );
+        } finally {
+          measuringReply = false;
+        }
         // A row that draws nothing stays at 0; a custom renderer's height is its own.
         if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
         known?.set(row, { width, height, edge, scale });

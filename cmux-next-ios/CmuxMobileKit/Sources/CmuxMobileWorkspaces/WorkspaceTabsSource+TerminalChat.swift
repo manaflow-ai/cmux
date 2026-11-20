@@ -60,6 +60,19 @@ extension WorkspaceTabsSource {
         chatPairing(tab, in: workspace)?.chat
     }
 
+    /// The face the person chose for `tab` in an earlier launch (kept per account and Mac).
+    private func keptFace(_ tab: WorkspaceTab) -> TabFace? {
+        guard let macID = workspaceSnapshot?.macID,
+              let showsChat = terminalChatBackend?.keptTerminalChatFace(tabID: tab.id, on: macID) else { return nil }
+        return showsChat ? .chat : .terminal
+    }
+
+    /// The person chose `face` for tab `tabID`: shown now, and kept for the next launch.
+    private func choose(_ face: TabFace, for tabID: String, on macID: String) {
+        chosenFaces[tabID] = face
+        terminalChatBackend?.keepTerminalChatFace(face == .chat, tabID: tabID, on: macID)
+    }
+
     /// `tab`'s facts, as Rust reads them.
     /// Off (Settings → Terminal → Terminal and Chat Toggle, the default), no tab offers the toggle
     /// and nothing below reads the Mac's chats for it.
@@ -89,9 +102,10 @@ extension WorkspaceTabsSource {
         terminalChatFaces(facts: terminalChatFacts(tab, in: workspace))
     }
 
-    /// The face `tab` shows: the person's choice while it is enabled, else Rust's default.
+    /// The face `tab` shows: the person's choice (this launch's, else the one kept from an earlier
+    /// launch) while it is enabled, else Rust's default.
     func face(of tab: WorkspaceTab, faces: TerminalChatFaces) -> TabFace {
-        guard faces.offered, let chosen = chosenFaces[tab.id] else { return faces.defaultFace }
+        guard faces.offered, let chosen = chosenFaces[tab.id] ?? keptFace(tab) else { return faces.defaultFace }
         switch chosen {
         case .chat: return faces.chatEnabled ? .chat : faces.defaultFace
         case .terminal: return faces.terminalEnabled ? .terminal : faces.defaultFace
@@ -185,7 +199,7 @@ extension WorkspaceTabsSource {
             return
         case .show(let face):
             ConnectTimeline.shared.event("terminal_chat_swap", detail: face == .chat ? "chat" : "terminal")
-            chosenFaces[tabID] = face
+            choose(face, for: tabID, on: workspace.macID)
             if face == .terminal { terminal.focusInput(for: tab, in: workspace) }
             CmuxMobileTheme.standard.haptics.selection()
         case .revealTerminal(let harness, let session):
@@ -194,7 +208,7 @@ extension WorkspaceTabsSource {
                 return
             }
             let (home, running) = found
-            chosenFaces[running.id] = .terminal
+            choose(.terminal, for: running.id, on: home.macID)
             if home.id == workspace.id {
                 activate(running.id)
             } else {
