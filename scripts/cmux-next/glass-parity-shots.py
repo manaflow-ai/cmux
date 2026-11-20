@@ -200,6 +200,7 @@ app = subprocess.Popen([BINARY], env=ENV,
 print(f"app pid {app.pid}, scratch {SCRATCH}, out {opts.out}", flush=True)
 
 results, rows, failures, skipped, frames = [], [], [], [], []
+app_inactive = True  # the app launches in the background until the first active cell opens it
 
 
 def pct(values, q):
@@ -262,9 +263,16 @@ try:
                 params.setdefault("opacity", 1)
                 params.setdefault("row", "rest")
                 params.update({"scale": scale, "measure": True, "dir": opts.out})
-                if opts.activate and not params["active"]:
-                    # Another app takes activation (the Finder opens no window), so the playground is inactive.
-                    subprocess.run(["open", "-a", "Finder"], capture_output=True)
+                if opts.activate:
+                    # Activation is the system's to give: an app started by a process that is no app (this harness) is
+                    # never made active by its own request (fleet run b44f5987: every active cell came back with the app
+                    # inactive). LaunchServices activates the running app at this bundle path, as a Dock click would,
+                    # and the playground then makes its window key; an inactive cell gives activation to the Finder
+                    # (it opens no window).
+                    # Only when activation is elsewhere: reopening an active app lets its main window take key.
+                    if not params["active"] or app_inactive:
+                        subprocess.run(["open", "-a", opts.app if params["active"] else "Finder"], capture_output=True)
+                    app_inactive = not params["active"]
                 reply = rpc("debug.glass_parity", params) or {}
                 status = reply.get("status") or {}
                 if status.get("scale") is not None and abs(float(status["scale"]) - scale) > 0.01:
@@ -272,7 +280,10 @@ try:
                     print("skip", skipped[-1], flush=True)
                     continue
                 active = params["active"]
-                real = status.get("key") is True if active else status.get("app_active") is False
+                # Active: the window key at every capture of the cell (the measure's snapshots say so per renderer).
+                shots_key = [v.get("key_at_capture") for v in (reply.get("snapshots") or {}).values()]
+                real = (status.get("key") is True and all(k is not False for k in shots_key)) if active \
+                    else status.get("app_active") is False
                 if opts.activate and not real:
                     failures.append(f"{label}: the window is not {'key' if active else 'inactive'} (key={status.get('key')}, "
                                     f"app_active={status.get('app_active')})")
