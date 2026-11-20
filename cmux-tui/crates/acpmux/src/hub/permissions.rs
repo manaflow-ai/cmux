@@ -395,6 +395,7 @@ impl Hub {
         let mut mark_cleared = false;
         let mut breakdown_changed = false;
         let mut limits_changed = false;
+        let mut retitled = false;
         let background = kind == "agent_message_chunk" && self.background_message(session, update);
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         match kind {
@@ -497,6 +498,7 @@ impl Hub {
                 if let Some(title) = update.get("title").and_then(Value::as_str) {
                     let title = cmux_chat_index::without_client_context(title).trim_end();
                     if !title.is_empty() {
+                        retitled = m.title.as_deref() != Some(title);
                         m.title = Some(title.to_owned());
                         m.title_source = Some(super::titles::HARNESS.to_owned());
                         // The ledger's copy (one map entry; a line only when a field changed).
@@ -540,8 +542,10 @@ impl Hub {
         }
         let limits = limits_changed.then(|| m.usage_limits.clone().unwrap_or(Value::Null));
         drop(m);
-        // Goal state must survive a daemon restart even when the turn has not settled yet.
-        if goal_write || breakdown_changed || limits.is_some() {
+        // Goal state must survive a daemon restart even when the turn has not settled yet. So
+        // must a title the harness gave: the chat shows it now, and before it waited for the
+        // turn's end or the stop's flush, so a hard exit in between took it back.
+        if goal_write || breakdown_changed || retitled || limits.is_some() {
             self.save_meta(session);
         }
         // The plan limits as merged above, whole (null once Codex reports none): an open pane

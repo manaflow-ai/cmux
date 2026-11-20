@@ -231,6 +231,7 @@ import { markOneRowChange } from "./rowChanges";
 import { noteKeptPrefix } from "./conversation/prefixFlatMap";
 import { RowUpdates } from "./rowUpdates";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
+import { permissionModes, reportsNoModes } from "./permissionModes";
 import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
 import { STALL_CHECK_MS, type StallCause, quietDelay, stallLine, stallTiming } from "./stallLog";
 import { hostTurn, hostTurnState } from "./hostTurnState";
@@ -11296,7 +11297,8 @@ export class AcpmuxDirectClient {
           status: summary.status,
           ...stuckAttention(summary),
           enforcement: sessionEnforcement(summary.enforcement),
-          modes: summary.modes,
+          // Modes that only copy a non-mode config option (Pi's thinking levels) are none (permissionModes.ts).
+          modes: permissionModes(summary.modes, summary.configOptions),
           configOptions: summary.configOptions,
           tools: chatTools(summary.tools),
           toolsMutable: summary.toolsMutable === true,
@@ -16789,6 +16791,8 @@ function catalogEntry(harness: any): AcpmuxSnapshot["catalog"][number] {
       ? { pickable: false }
       : {}),
     ...(harnessStart(harness.start) ? { start: harnessStart(harness.start) } : {}),
+    // Its chats report no permission modes (`reported`): a new chat on it draws no Mode chip.
+    ...(reportsNoModes(harness.reported) ? { modeless: true as const } : {}),
     ...(typeof harness.auth?.login === "string" && harness.auth.login.trim()
       ? { auth: { login: harness.auth.login.trim() } }
       : {}),
