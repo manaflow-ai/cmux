@@ -11,7 +11,7 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../model";
 import { NextStepCard } from "./NextStepCard";
 import { nextStepAsk } from "./nextStepAsk";
-import { answerThrough } from "./turnActions";
+import { answerThrough, cardAnswerInFlight } from "./turnActions";
 import { NEXT_STEP, turnViewFrom, waitingAsks } from "./turns";
 import { askKey, bottomAsks, claimAnswer, dismissAsk, dismissedAsks, resetAnswerClaims } from "./waitingAskStore";
 import { settleReact } from "../../../../test/support/domTeardown";
@@ -166,6 +166,26 @@ test("F3: a send acpmux already took counts as sent; one it never took still say
   await expect(taken).resolves.toBeUndefined();
   const refused = answerThrough(() => Promise.reject(new Error("refused")))("Yes");
   await expect(refused).rejects.toThrow("refused");
+});
+
+// Leo, 2026-11-19: a click on a "Needs your input" answer left "> Claude Code: [trust] ..." in his
+// composer instead of sending ("plus it's not instant yet"). The pane's send gives a refused prompt
+// back to the composer; a card's answer is marked on its way so that send keeps it out, and the card
+// says it was not sent instead.
+test("a refused card answer is marked on its way while the send gives prompts back", async () => {
+  const reply = "> Claude Code: Let our pool's results count?\n\nYes, add the controller App";
+  const restored: string[] = [];
+  // The pane's send as it handles a refusal: the composer takes the prompt back, unless a card sent it.
+  const send = (_method: string, params: Record<string, unknown>) => {
+    const text = String(params.text);
+    if (!cardAnswerInFlight(text)) restored.push(text);
+    return Promise.reject(new Error("refused"));
+  };
+  await expect(answerThrough(send)(reply)).rejects.toThrow("refused");
+  expect(restored).toEqual([]);
+  // Once settled the mark is gone: the same words typed and refused go back to the composer as before.
+  await expect(send("chat.send", { text: reply })).rejects.toThrow("refused");
+  expect(restored).toEqual([reply]);
 });
 
 test("dismissals without local storage: a second one keeps the first", () => {
