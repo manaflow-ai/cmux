@@ -2421,7 +2421,7 @@ impl Store for LocalStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_kinds_in(id, kinds, false, &mut |rec| rec.seq <= after || visit(rec))
+        self.scan_kinds_past(id, after, kinds, false, visit)
     }
 
     fn scan_kinds_after_strict(
@@ -2431,7 +2431,7 @@ impl Store for LocalStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_kinds_in(id, kinds, true, &mut |rec| rec.seq <= after || visit(rec))
+        self.scan_kinds_past(id, after, kinds, true, visit)
     }
 
     fn scan_kinds_keyed(
