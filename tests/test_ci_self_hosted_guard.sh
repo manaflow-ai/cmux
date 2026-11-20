@@ -1149,6 +1149,13 @@ SIGNER_BUILD_ROUTE
     # dSYMs incl. sentry-dsyms-nightly, deltas) take this ephemeral route too: the signing-secret rules
     # (tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py rule 7) keep them off reused minis.
     "nightly.yml:$signer_route"
+    # The nightly signing jobs outside nightly.yml (notarization polls and publish, the iOS nightly's previous-build,
+    # the nightly-next train): they hold signing secrets, so they need an ephemeral runner, and nightlies never
+    # run on Blacksmith (Lawrence, 2026-10-30), so they take the same hosted Ubuntu route. Until 2026-11-19 they
+    # read vars.LINUX_RUNNER, which now names our own Linux runners.
+    "auto-resume-nightly-notarization.yml:$signer_route"
+    "ios-internal-nightly.yml:$signer_route"
+    "nightly-next-train.yml:$signer_route"
     "nightly.yml:$publish_route"
     "nightly.yml:$signer_build_route"
     # republish-nightly-deltas: nightly-next takes the trusted signing runner (the whole Mac); the other tracks
