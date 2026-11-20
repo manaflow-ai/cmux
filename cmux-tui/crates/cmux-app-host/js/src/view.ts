@@ -48,6 +48,8 @@ export class ViewNode {
   secondary() { return this.set("color", "secondary") }
   lineLimit(v: Bindable<number>) { return this.set("lineLimit", v) }
   truncation(v: Bindable<"head" | "middle" | "tail">) { return this.set("truncation", v) }
+  /** Draws a line through the text (a done reminder, a struck price). */
+  strikethrough(v: Bindable<boolean> = true) { return this.set("strikethrough", v) }
   marquee(delaySeconds = 0.5) { return this.set("marquee", delaySeconds) }
   fade(width: Bindable<number>) { return this.set("fade", width) }
   // Layout
@@ -58,19 +60,33 @@ export class ViewNode {
   layoutPriority(v: Bindable<number>) { return this.set("layoutPriority", v) }
   fixedSize(axis: "both" | "horizontal" | "vertical" = "both") { return this.set("fixedSize", axis) }
   // Surface
-  background(v: Bindable<string | null>) { return this.set("background", v) }
+  /** A color token, `#RRGGBB[AA]`, or a gradient (`linearGradient(...)`, `radialGradient(...)`). */
+  background(v: Bindable<SceneFill | null>) { return this.set("background", v) }
   hoverBackground(v: Bindable<string | null>) { return this.set("hoverBackground", v) }
   cornerRadius(v: Bindable<number>) { return this.set("cornerRadius", v) }
   borderColor(v: Bindable<string | null>) { return this.set("borderColor", v) }
   borderWidth(v: Bindable<number>) { return this.set("borderWidth", v) }
   opacity(v: Bindable<number>) { return this.set("opacity", v) }
-  fill(v: Bindable<string | null>) { return this.set("fill", v) }
+  /** A shape's fill: a color token, `#RRGGBB[AA]`, or a gradient. */
+  fill(v: Bindable<SceneFill | null>) { return this.set("fill", v) }
   stroke(v: Bindable<string | null>) { return this.set("stroke", v) }
   strokeWidth(v: Bindable<number>) { return this.set("strokeWidth", v) }
   size(v: Bindable<number>) { return this.set("size", v) }
   rotation(degrees: Bindable<number>) { return this.set("rotation", degrees) }
   cursor(v: "pointer" | "default") { return this.set("cursor", v) }
   help(v: Bindable<string>) { return this.set("help", v) }
+  // Motion: the host animates these (the app never runs a timer for them). Reduce Motion and
+  // cmux's calm motion turn each movement into a crossfade; motion off draws the end state.
+  /** How the node comes in and goes out when a render adds or removes it: `opacity` fades,
+   * `slide` comes up from below and leaves upward, `scale` grows from 90 %, `move` slides in
+   * from the leading edge and out to the trailing one. A node the first scene draws does not animate in. */
+  transition(v: "opacity" | "slide" | "scale" | "move") { return this.set("transition", v) }
+  /** How a Text's new content replaces the old: `numericText` rolls the changed digits (up when
+   * the number grows, down when it shrinks), `opacity` crossfades. */
+  contentTransition(v: "numericText" | "opacity") { return this.set("contentTransition", v) }
+  /** Animates this node's own prop changes (opacity, colors, rotation, strikethrough) with a
+   * curve: `smooth` (the motion scale's standard step), `snappy` (its micro step), `none`. */
+  animation(v: "smooth" | "snappy" | "none" = "smooth") { return this.set("animation", v) }
   // Behavior
   fixed() { return this.set("fixed", true) }
   destructive() { return this.set("destructive", true) }
@@ -83,6 +99,52 @@ export class ViewNode {
     this.menu = items
     return this
   }
+  // Symbols
+  /** How an `Icon`'s layers take color, as SF Symbols draw them: `monochrome` (the default: all in
+   * `color`), `hierarchical` (the layers in `color` at falling opacity), `palette` (the layers in
+   * `colors`, 1 to 3 tokens or `#RRGGBB[AA]`, in order) or `multicolor` (the symbol's own colors,
+   * a sun yellow and rain blue, with `color` where it has none). */
+  symbolRendering(mode: SymbolRendering, colors?: readonly string[]) {
+    if (!SYMBOL_RENDERINGS.includes(mode)) throw new TypeError(`symbolRendering: unknown mode ${JSON.stringify(mode)}`)
+    this.set("symbolRendering", mode)
+    if (colors === undefined) return this
+    if (!Array.isArray(colors) || colors.length < 1 || colors.length > 3 || !colors.every(isSceneColor))
+      throw new TypeError(`symbolRendering: colors must be 1 to 3 color tokens or #RRGGBB[AA], got ${JSON.stringify(colors)}`)
+    return this.set("symbolColors", [...colors])
+  }
+}
+
+// Fills: a color, or a gradient value the renderers validate the same way the builders below do.
+
+const SCENE_COLOR_TOKENS: readonly string[] = ["primary", "secondary", "tertiary", "accent", "separator", "success", "warning", "danger", "hover", "selected", "badge", "clear"]
+const HEX_COLOR = /^#[\da-f]{6}([\da-f]{2})?$/i
+const isSceneColor = (value: unknown): value is string => typeof value === "string" && (SCENE_COLOR_TOKENS.includes(value) || HEX_COLOR.test(value))
+
+/** A gradient for `background` and a shape's `fill`. */
+export type SceneGradient = { linear: { colors: string[]; angle?: number } } | { radial: { colors: string[] } }
+/** A color token, `#RRGGBB[AA]`, or a gradient. */
+export type SceneFill = string | SceneGradient
+export type SymbolRendering = "monochrome" | "hierarchical" | "palette" | "multicolor"
+const SYMBOL_RENDERINGS: readonly string[] = ["monochrome", "hierarchical", "palette", "multicolor"]
+
+function gradientStops(name: string, colors: readonly string[]): string[] {
+  if (!Array.isArray(colors) || colors.length < 2 || colors.length > 8 || !colors.every(isSceneColor))
+    throw new TypeError(`${name}: colors must be 2 to 8 color tokens or #RRGGBB[AA], got ${JSON.stringify(colors)}`)
+  return [...colors]
+}
+
+/** A linear gradient for `.background(...)` or a shape's `.fill(...)`: 2 to 8 stops (tokens or
+ * `#RRGGBB[AA]`) spaced evenly along `angle` degrees, the CSS way (0 up, 90 right, 180 down, the default). */
+export function linearGradient(colors: readonly string[], angle?: number): SceneGradient {
+  const stops = gradientStops("linearGradient", colors)
+  if (angle === undefined) return { linear: { colors: stops } }
+  if (typeof angle !== "number" || !Number.isFinite(angle)) throw new TypeError("linearGradient: angle must be a finite number of degrees")
+  return { linear: { colors: stops, angle } }
+}
+
+/** A radial gradient, an ellipse from the center out to the box's edges: 2 to 8 stops (tokens or `#RRGGBB[AA]`). */
+export function radialGradient(colors: readonly string[]): SceneGradient {
+  return { radial: { colors: gradientStops("radialGradient", colors) } }
 }
 
 type Children = Array<ViewNode | (() => unknown) | null | undefined | false>

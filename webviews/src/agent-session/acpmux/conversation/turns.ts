@@ -9,6 +9,7 @@
 // a field-for-field mapping of them and nothing else in the pane changes.
 import {
   isLineRow,
+  onlyQuietThoughts,
   pathKey,
   SINCE_DIVIDER,
   TURN_RETRY,
@@ -1775,8 +1776,12 @@ function shapeTurn(
   // The agent's own wrap-up call (wrapUp.ts) is the card, not a row of its work.
   const worked = turn.slice(0, end);
   const wrapUp = summary.status === "completed" ? lastWrapUp(worked) : undefined;
-  // A run of nothing but hidden discovery (ToolSearch) is no work: it opens no "Worked for".
-  const body = withoutWrapUp(worked).filter((row) => !isVisiblyEmptyMessage(row) && !hidesEveryCall(row));
+  // A run of nothing but hidden discovery (ToolSearch) is no work: it opens no "Worked for". Nor is a
+  // step that draws no row once the turn ends (`drawsNoWork`): a turn that died on an API error after
+  // only an omitted thought folded it under a "Worked for" that opened to nothing (c-763204aef8).
+  const body = withoutWrapUp(worked).filter(
+    (row) => !isVisiblyEmptyMessage(row) && !hidesEveryCall(row) && !drawsNoWork(row),
+  );
   // Each harness family ends a turn as its own app does (Leo, 2026-11-01: "separate it per
   // harness/model family. claude gets claude behaviour, codex gets codex"). Codex and ChatGPT fold
   // the whole turn's work under one "Worked for". Claude, as Claude desktop: no "Worked for"; each
@@ -2208,8 +2213,31 @@ function shapeTurn(
     shaped.push(
       ...liveTurn({ ...summary, at: since }, answered, clockOffset, sessionStatus, trayAgents, turnStartedAtMs),
     );
-  else shaped.push(...(live ? answered : answered.flatMap(withoutDrafts).map(endedPlan)));
+  else shaped.push(...(live ? answered : endedTail(answered)));
   return shaped;
+}
+
+/// An ended tail (the turns the agent ran on its own after the prompt's turn, with no turn running now)
+/// as the running turn's shape draws its ended part (`codexRuns`): each run folded into its summary
+/// line. While any later turn ran, `liveTurn` folded these runs; once the chat stopped they drew
+/// unfolded, every group of calls on its own line, and folded again when the next background turn
+/// started. A coordinator woken by background tasks every few seconds read its earlier turns
+/// collapse and expand, the rows under them jumping and the turn's end fold drawing its copies over
+/// them (cmux#45943: "content loads/unloads and blinks while the agent writes or thinks"; the
+/// doubled, overlapping paragraphs of the same report). A run whose own row stays (a change awaiting
+/// its permission, a call that keeps its own row while it runs) stays as `codexRuns` keeps it.
+function endedTail(rows: readonly AcpmuxRow[]): AcpmuxRow[] {
+  const out: AcpmuxRow[] = [];
+  for (const row of rows) {
+    const items = row.items ?? [];
+    // A row with no calls (a background turn's bare activity) has no run to fold and draws as it came.
+    const folds =
+      row.kind === "activity" &&
+      items.length > 0 &&
+      !items.some((item) => awaitsPermission(item.tool) || (keepsOwnRow(item.tool) && isRunning(item.tool!)));
+    for (const drawn of folds ? earlierRun(row, undefined) : withoutDrafts(row)) out.push(endedPlan(drawn));
+  }
+  return out;
 }
 
 /// `tail` with each of its summaries carrying the reply of the turn it ends and the turn to copy, as
@@ -3533,6 +3561,14 @@ export function mergeShortNotes(
   close();
   return out.length === rows.length ? (rows as AcpmuxRow[]) : out;
 }
+
+/// A finished step with nothing in it to draw: no items, or only thoughts that draw no row once done
+/// (model.ts `onlyQuietThoughts`: Claude's omitted or redacted thinking reaches the pane empty). A
+/// fold over such steps alone opens to nothing (c-763204aef8, "API-error turn shows an empty 'Worked
+/// for Ns'"), whether the turn failed, was stopped, was steered or completed: it is no work. A step
+/// that counts calls (`toolCount`) stands for them even when its items were not kept, so it stays.
+const drawsNoWork = (row: AcpmuxRow) =>
+  row.kind === "activity" && !row.live && (row.items?.length ? onlyQuietThoughts(row) : !row.toolCount);
 
 /// An agent message with no visible text: it draws no row (visibleMessage.ts), so it splits nothing.
 const drawsNothing = (row: AcpmuxRow | undefined) =>

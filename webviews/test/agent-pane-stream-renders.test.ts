@@ -16,6 +16,12 @@
 // updates alone. Over the stream the pane root renders no more often than the turn's own structural
 // changes (its prompt, its start and its end), however many chunks land; the transcript renders for
 // a row's height (a new line), not per chunk; the row that streams renders once per drawn chunk.
+//
+// The transcript itself gets the same bound, one render per chunk: a chunk gives it new rows, so it
+// draws, but it must not draw that chunk twice. It did, about 2.6 times per streamed event
+// (`transcript_per_stream_event`, composer-typing.bench.ts, cmux#45237), because a render-phase
+// setState took a row snapshot on every row change; a keystroke's frame then queued behind both
+// passes (Leo, 2026-11-17: "slow and sad comparatively on the latter").
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";

@@ -161,7 +161,12 @@ build_arm() {  # build_arm ARM SHA: checks the commit out here and builds its ta
   fi
   # Its progress goes to the step's log as well: a silent step looks hung.
   if [ -n "$client_local" ]; then export CMUX_TUI_CLIENT_LOCAL="$client_local"; else unset CMUX_TUI_CLIENT_LOCAL; fi
-  CMUX_DEV_BACKEND_MODE=local \
+  # The web bundles need the bun this commit's webviews/package.json pins; a host's ~/.bun may hold another.
+  # Each arm gets its own checked copy, first on PATH (as action-signposts.sh and cef-helpers.sh).
+  RUNNER_TEMP="$scratch" GITHUB_PATH="$scratch/bun-path-$arm" ./scripts/cmux-next/private-bun.sh || return 3
+  local bun_path
+  bun_path="$(tail -n 1 "$scratch/bun-path-$arm")"
+  CMUX_DEV_BACKEND_MODE=local PATH="$bun_path:$PATH" \
     ./scripts/reload.sh --tag "idleab-$arm" --config bench --no-global-cli-links 2>&1 | tee "$log" | grep -E '^(==>|error:|App path)' || true
   local app
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$log" | tail -n 1)"

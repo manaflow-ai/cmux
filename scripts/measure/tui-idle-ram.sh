@@ -39,7 +39,7 @@ here="$root/scripts/measure"
 scratch="$(mktemp -d)"
 trees=()
 cleanup() {
-  for tree in "${trees[@]}"; do git -C "$root" worktree remove --force "$tree" >/dev/null 2>&1; done
+  for tree in ${trees[@]+"${trees[@]}"}; do git -C "$root" worktree remove --force "$tree" >/dev/null 2>&1; done
   rm -rf "$scratch"
 }
 trap cleanup EXIT
@@ -66,7 +66,7 @@ resolve() {
   local want="$1" full
   if full="$(git -C "$root" rev-parse -q --verify "$want^{commit}" 2>/dev/null)"; then echo "$full"; return 0; fi
   if [[ ${#want} -eq 40 ]]; then
-    git -C "$root" fetch -q --no-tags --no-recurse-submodules "${depth[@]}" origin "$want" || return 1
+    git -C "$root" fetch -q --no-tags --no-recurse-submodules ${depth[@]+"${depth[@]}"} origin "$want" || return 1
   else
     git -C "$root" fetch -q --no-tags --no-recurse-submodules --shallow-since="${since_days} days ago" \
       origin feat-cmux-next || return 1
@@ -76,14 +76,14 @@ resolve() {
 [[ ${#shas[@]} -eq 0 ]] && shas=(HEAD)
 status=0
 [[ "$arenas" != 0 ]] && export MALLOC_ARENA_MAX="$arenas"
-for sha in "${shas[@]}"; do
+for sha in ${shas[@]+"${shas[@]}"}; do
   if [[ "$sha" == HEAD ]]; then
     tree="$root"
     full="$(git -C "$root" rev-parse HEAD)"
   else
     full="$(resolve "$sha")" || { echo "TUI-IDLE-ERROR $sha: not a commit here or on feat-cmux-next's last ${since_days} days"; status=1; continue; }
     # A prefix resolved from commits only: fetch the commit itself for its tree.
-    git -C "$root" fetch -q --no-tags --no-recurse-submodules "${depth[@]}" origin "$full" 2>/dev/null || true
+    git -C "$root" fetch -q --no-tags --no-recurse-submodules ${depth[@]+"${depth[@]}"} origin "$full" 2>/dev/null || true
     tree="$scratch/${full:0:12}"
     git -C "$root" worktree add -q --detach "$tree" "$full" && trees+=("$tree") || { status=1; continue; }
   fi
@@ -114,7 +114,7 @@ for sha in "${shas[@]}"; do
       locked=()
       echo "DHAT injected: ${full:0:12}"
     fi
-    (cd "$tree/cmux-tui" && CARGO_TARGET_DIR="$CARGO_TARGET_DIR_DHAT" cargo build "${locked[@]}" --profile "$dhat_profile" -p cmux-tui "${bins[@]}" --features dhat-heap 2>&1 | tail -n 2) || { status=1; continue; }
+    (cd "$tree/cmux-tui" && CARGO_TARGET_DIR="$CARGO_TARGET_DIR_DHAT" cargo build ${locked[@]+"${locked[@]}"} --profile "$dhat_profile" -p cmux-tui "${bins[@]}" --features dhat-heap 2>&1 | tail -n 2) || { status=1; continue; }
     prof="$scratch/dhat-${full:0:12}.json"
     CMUX_TUI_DHAT_OUT="$prof" python3 "$here/tui-idle-ram.py" --tui "$CARGO_TARGET_DIR_DHAT/$dhat_profile/cmux-tui" \
       --workspaces "$workspaces" --settle "$settle" --label "${full:0:12}-dhat" || status=1

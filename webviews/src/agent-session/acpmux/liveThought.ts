@@ -33,7 +33,7 @@ const listeners = new Map<string, Set<() => void>>();
 let seq = 0;
 let epoch = 0;
 /// Thought chunks drawn without the pane since it last drew, and who hears them: the live line,
-/// whose "Waiting" clock counts from the turn's last event (`useLiveThoughtLine`).
+/// whose "Waiting" clock counts from the turn's last event (`liveThoughtHeard`).
 let heard = 0;
 const lineListeners = new Set<() => void>();
 
@@ -203,21 +203,20 @@ export function rowsDrawnNow(rows: readonly AcpmuxRow[]): readonly AcpmuxRow[] {
   return rowsWithLiveThoughts(rowsWithLiveOutput(rowsWithStreamingRow(rows)));
 }
 
-const subscribeLine = (listener: () => void): (() => void) => {
-  lineListeners.add(listener);
-  return () => void lineListeners.delete(listener);
+/// Thought chunks drawn without the pane since it last drew, for the live line (turns.ts `THINKING`):
+/// each is an event the turn heard. The transcript's live line pulse (conversation/liveLinePulse.ts)
+/// listens here, so the line never reads "Waiting" while a thought streams and draws for none of them.
+export const liveThoughtHeard = {
+  subscribe(listener: () => void): () => void {
+    lineListeners.add(listener);
+    return () => void lineListeners.delete(listener);
+  },
+  get: (): number => heard,
 };
-const readHeard = (): number => heard;
 
-/// The live line (turns.ts `THINKING`) as it is now: a thought chunk drawn without the pane is an
-/// event the turn heard, so its `heardKey` moves on with each one and the line never reads
-/// "Waiting" while a thought streams (Thinking.tsx `useChangedAt(heardKey)`). Only the pane's live
-/// transcript's line subscribes.
-export function useLiveThoughtLine(row: AcpmuxRow, active: boolean): AcpmuxRow {
-  const listens = active && row.kind === "thinking" && typeof row.heardKey === "string";
-  const count = useSyncExternalStore(listens ? subscribeLine : noSubscribe, listens ? readHeard : zero, zero);
-  return useMemo(
-    () => (count === 0 ? row : { ...row, heardKey: `${row.heardKey}~${count}`, version: row.version + count }),
-    [row, count],
-  );
+/// The live line as it is now: a thought chunk drawn without the pane moves its `heardKey` on
+/// (Thinking.tsx reads a new key as an event heard). The same row while none was.
+export function lineHeardNow(row: AcpmuxRow): AcpmuxRow {
+  if (heard === 0 || row.kind !== "thinking" || typeof row.heardKey !== "string") return row;
+  return { ...row, heardKey: `${row.heardKey}~${heard}`, version: row.version + heard };
 }
