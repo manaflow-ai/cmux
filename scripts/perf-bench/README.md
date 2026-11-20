@@ -341,7 +341,7 @@ $BH selftest               # the safety rules with 4 to 6 threads for at most 10
 
 ## The shared `real` session (`session_real.py`)
 
-One bench session of the size of the person who uses the app (read from his session daemon on
+One bench session of the size of a large session of real use (read from one session daemon on
 2026-11-10): 826 workspaces, 858 panes, 1600 tabs, 798 terminals, 170 agents, 13 clients. Every
 bench that has a session-size arm uses this script; the count tests use the same mix rule
 (`SessionFixtureSize.real`, the test fixture size of #40488). Fleet minis only.
@@ -350,7 +350,7 @@ bench that has a session-size arm uses this script; the count tests use the same
 S=scripts/perf-bench/session_real.py
 # The saved session of one bench app, made by the bundle's own daemon with no app (1 to 3 minutes):
 python3 $S build --app "/path/cmux DEV <tag>.app" --to /path/saved/<tag>
-# One launch on it: restore time, read-back counts, agents and clients as his, then your steps:
+# One launch on it: restore time, read-back counts, agents and clients as in the `real` session, then your steps:
 python3 $S launch --app "/path/cmux DEV <tag>.app" --saved /path/saved/<tag> --out /path/out \
   --steps "counts,agents,clients:13,measure:--seconds 30,map"
 # Or with your own bench driver: install, launch with BENCH_LAUNCH_KEEP_STATE=1, uninstall.
@@ -406,10 +406,10 @@ python3 $S make --app-socket /tmp/cmux-debug-<tag>.sock
   `terminal-resources`), not every program of that name on the host, and refuses counts that are
   not the session's. A daemon without that command (no `terminal-resources-v1` in `identify`) gives a
   lower bound that is not judged; an error reply of the command is exit 1.
-- A RESTORED session: the product's "Resume Agents After Restart" (`sessions.resumeAgents`, default on, as on his Mac)
+- A RESTORED session: the product's "Resume Agents After Restart" (`sessions.resumeAgents`, default on, as in real use)
   types the stored resume command, so on a host with `claude` on its PATH an agent terminal runs the real
   `claude --resume session-real-real-NNNN` (measured 2026-11-10, aws-m4pro-3: 157 of 170 terminals, 12.6 GB footprint,
-  1273 wakeups/s in `measure`, group `daemon_other`). The launch pays for those starts, as his does. `agents` then makes
+  1273 wakeups/s in `measure`, group `daemon_other`). The launch pays for those starts, as one of real use does. `agents` then makes
   the session the bench one: it ends each such CLI by its exact PIDs (the daemon's `terminal-resources` of that terminal,
   the same start time, the session id that this tool gave that terminal; SIGTERM, SIGKILL after 5 s), types nothing into
   it, and types the start line when only the shell is left and that shell is 25 s old (the product types its resume

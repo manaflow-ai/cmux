@@ -119,7 +119,9 @@ import Testing
 
     /// The tab cmux adopted for `browser`, once the deferred adoption ran (a main-actor turn).
     static func adopted(_ browser: Int32, _ runtime: CEFRuntime) async throws -> CEFTab {
-        for _ in 0..<50 {
+        // Bounded by time, not by a yield count: a busy runner takes more turns to reach the adoption.
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
             if let tab = runtime.tabsByBrowser[browser] { return tab }
             await Task.yield()
         }

@@ -41,7 +41,7 @@ const SECTIONS: Record<ScreenTemplate, ScreenSections> = {
   // window's middle, with no greeting (Leo 2026-10-22) and no widgets (Lawrence 2026-11-09: "remove
   // widgets completely"): NewTabScreen draws none of its lists. What an unset template shows
   // (shownTemplate).
-  minimal: { chats: "list", allChats: false, recent: 5, prompt: false, closed: false, stage: false },
+  minimal: { chats: "none", allChats: false, recent: 0, prompt: false, closed: false, stage: false },
   // Cards (u2851, from a scrawl of Aside's New Tab page): one rounded field, the project and
   // the agent's chips in a row under it, then three chat cards.
   cards: { chats: "cards", allChats: false, recent: 3, prompt: false, closed: false, stage: false },
