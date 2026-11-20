@@ -185,17 +185,22 @@ export function PlainEnglishView({ files, store, label, codeOptions, onOpenInDif
     else runs.push({ file, items: [placed] });
   }
   // A file's section keeps its key as the window moves, so its rows stay mounted, not drawn anew.
-  // Only while the focused row is kept apart from the window in the same file are there two: the
-  // focused row's keeps the file's key (its row keeps focus), the window's is the file's second.
+  // When focus keeps a row in a second run of the same file, the run intersecting the virtualizer's
+  // range remains the file's primary section. The other run gets a pinned key. This key assignment
+  // is independent of which row is focused, so moving focus between runs never swaps their keys.
   const split = focusedItem >= 0 ? model.items[focusedItem]!.file : undefined;
-  const runKey = (file: string, first: number, last: number) =>
-    file === split &&
-    (focusedItem < first || focusedItem > last) &&
-    runs.some(
-      (run) => run.file === file && run.items[0]!.index <= focusedItem && run.items.at(-1)!.index >= focusedItem,
-    )
-      ? `${file}~window`
-      : file;
+  const splitRuns = split === undefined ? [] : runs.filter((run) => run.file === split);
+  const visibleRun =
+    splitRuns.length > 1
+      ? (splitRuns.find((run) => {
+          const first = run.items[0]!.index;
+          const last = run.items.at(-1)!.index;
+          const range = virtualizer.range;
+          return range !== null && first <= range.endIndex && last >= range.startIndex;
+        }) ?? splitRuns.find((run) => run.items.some((item) => item.index === focusedItem)))
+      : undefined;
+  const runKey = (file: string, run: { items: VirtualItem[] }) =>
+    file === split && visibleRun !== undefined && run !== visibleRun ? `${file}~pinned` : file;
 
   return (
     <div
@@ -210,15 +215,15 @@ export function PlainEnglishView({ files, store, label, codeOptions, onOpenInDif
       }}
     >
       <div className="plain-english-space" style={{ height: virtualizer.getTotalSize() }}>
-        {runs.map(({ file, items }) => {
+        {runs.map((run) => {
+          const { file, items } = run;
           const first = items[0]!;
-          const last = items.at(-1)!;
           const head = model.items[first.index]!;
           const hunks = head.kind === "path" ? items.slice(1) : items;
           const firstHunk = hunks[0] ? model.items[hunks[0].index] : undefined;
           return (
             <section
-              key={runKey(file, first.index, last.index)}
+              key={runKey(file, run)}
               className="plain-english-file"
               style={{ transform: `translateY(${first.start}px)` }}
             >

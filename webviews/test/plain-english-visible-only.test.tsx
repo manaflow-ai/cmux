@@ -103,7 +103,7 @@ function files(count: number, hunks: number): PlainEnglishFile[] {
 const label = ((key: string) => key) as never;
 const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 
-async function mount(fileCount: number) {
+async function mount(fileCount: number, hunks = 10) {
   const asks: { ref: string; answer: (text: string) => void }[] = [];
   const store = new SummaryStore(
     (path, patch) => new Promise((resolve) => asks.push({ ref: `${path}|${patch}`, answer: resolve })),
@@ -116,7 +116,7 @@ async function mount(fileCount: number) {
   };
   host = dom.window.document.getElementById("root")!;
   root = createRoot(host);
-  await act(async () => root!.render(<PlainEnglishView files={files(fileCount, 10)} store={store} label={label} />));
+  await act(async () => root!.render(<PlainEnglishView files={files(fileCount, hunks)} store={store} label={label} />));
   await settle();
   await settle();
   return { asks, wanted, view: host.querySelector<HTMLElement>(".plain-english")! };
@@ -209,4 +209,22 @@ test("an unfolded row and a focused row keep their state far past the window", a
   expect(again.getAttribute("aria-expanded")).toBe("true");
   expect(again.closest("li")!.getAttribute("aria-posinset")).toBe("1");
   expect(again.closest("li")!.getAttribute("aria-setsize")).toBe("10");
+});
+
+test("moving focus between same-file runs keeps the newly focused row", async () => {
+  const { view } = await mount(1, 100);
+  const first = host.querySelector<HTMLButtonElement>('[data-hunk-id="item-0#0"] .plain-english-row')!;
+  await act(async () => first.focus());
+  await act(async () => view.scrollTo({ top: 54 * 50 }));
+  await settle();
+
+  const visible = [...host.querySelectorAll<HTMLButtonElement>(".plain-english-row")].find(
+    (row) => row.closest("[data-hunk-id]")?.getAttribute("data-hunk-id") !== "item-0#0",
+  )!;
+  expect(visible).toBeDefined();
+  await act(async () => visible.focus());
+  await settle();
+
+  expect(visible.isConnected).toBe(true);
+  expect(dom.window.document.activeElement).toBe(visible);
 });
