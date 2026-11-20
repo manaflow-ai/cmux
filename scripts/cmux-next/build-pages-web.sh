@@ -56,6 +56,7 @@ settings
 setup-card
 stash
 stats
+glass-parity
 task-manager
 tasks
 "

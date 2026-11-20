@@ -4,8 +4,8 @@ public import CmuxNextSettings
 /// The floating Chief's "sees your screen" eye (`home.chiefPanel.seesScreen`, user 2026-11-07): whether it is on,
 /// its click, and the one look at the screen when the panel opens (``ChiefScreenShare/glance(app:window:)``,
 /// through Share Screen with Chief's helper and its Screen Recording grant, never a prompt). The look happens only
-/// while Computer Use is on (`computerUse.enabled`): its helper then runs by the person's choice, and opening the
-/// panel never starts it.
+/// while Computer Use is on (`computerUse.mode` not off): it then runs by the person's choice, and opening the
+/// panel never turns it on.
 ///
 /// ```swift
 /// let look = ChiefPanelScreenLook(share: { [weak services] in services?.chiefScreenShare }, settings: { services.settings })
@@ -38,7 +38,7 @@ public struct ChiefPanelScreenLook {
     /// kept for the Chief's next turn.
     public func panelOpened(window: String?) {
         // Computer Use off, a look would start its helper (or wait on a gone one) at every open.
-        guard seesScreen, settings()?.snapshot.computerUse.enabled == true, let share = share() else { return }
+        guard seesScreen, let mode = settings()?.snapshot.computerUse.mode, mode != .off, let share = share() else { return }
         // task-owner: one look per open; the share model owns the capture and the journal.
         Task { _ = await share.glance(app: "cmux", window: window) }
     }
