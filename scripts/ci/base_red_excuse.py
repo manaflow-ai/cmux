@@ -4650,9 +4650,11 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
 
 
 def tip_suite_verdicts(repo: str, workflow, name: str, github, base_jobs: dict[int, list[dict] | None],
-                       evidence: "Evidence", suites: SuiteChecks | None = None):
+                       evidence: "Evidence", suites: SuiteChecks | None = None, job_reads: dict | None = None):
     """(run, job) for each completed suite run of EVIDENCE's base with a verdict for job NAME, newest first, read
-    lazily (Evidence.dispatches: none for a stacked parent)."""
+    lazily (Evidence.dispatches: none for a stacked parent). Its live job-list reads are the judgement's
+    (budgeted_run_jobs, CALL_JOB_READS)."""
+    job_reads = {} if job_reads is None else job_reads
     runs = evidence.dispatches(workflow)
     deferred = deferred_first_runs(runs) if name in TREE_JOBS else set()
     suites = suites or SuiteChecks(github, repo)
@@ -4665,7 +4667,10 @@ def tip_suite_verdicts(repo: str, workflow, name: str, github, base_jobs: dict[i
         if base_jobs.get(run["id"]) is None:
             if not may_hold(suites, candidates, index, name, verdict=True):
                 continue
-            base_jobs[run["id"]] = base_run_jobs(repo, run, github)
+            listed = budgeted_run_jobs(repo, run, github, workflow, name, job_reads)
+            if listed is None:
+                return  # runs left unread (search_cut)
+            base_jobs[run["id"]] = listed
         found = next((found for found in base_jobs[run["id"]] if found.get("name") == name), None)
         if found is not None and found.get("conclusion") in VERDICTS and not refused_at_setup(found):
             yield run, found
@@ -4719,6 +4724,18 @@ def replaced_while_waiting(repo: str, jobs: list[dict], found: dict, github, cac
 # rule out every run left had no read cut and must not inherit another job's cut).
 SEARCH_CUT = "search-cut"
 CUT_RETRY_S = 600
+# The judgement's own budget, under glaeda-gh's sweep guard (2026-11-20, cmux#47687 and cmuxterm-hq#14535): the guard
+# (gh_sweep_refusal) refuses a caller past GH_SWEEP_MAX = 30 distinct run or job lists read in GH_SWEEP_WINDOW = 600 s,
+# and the land queue judges every PR as one caller. Two workflows each searched to BASE_JOB_READS (40) read past it
+# halfway through, the guard refused the next list, and the judgement ended "unreadable" instead of this search's timed
+# "incomplete". Now every live base job-list read of a judgement, whatever its workflow or job, is counted in
+# job_reads[CALL_READS] and stops at CALL_JOB_READS, leaving room under the guard for the head's own reads; a list
+# already kept costs nothing and is read first (kept_run_jobs), so each retry gets further. A guard refusal that comes
+# anyway (another judgement of the same caller spent the window) cuts the search the same way: a read that never
+# happened is a timed retry, never a verdict. Cold, a search that needs N live lists finishes within ceil(N / 24) calls.
+CALL_JOB_READS = 24
+CALL_READS = "call-job-reads"
+SWEEP_GUARD_REFUSED = re.compile(r"glaeda-gh: refused: this caller read the jobs of \d+ different runs or jobs")
 INCOMPLETE = "incomplete: read"  # cut_refusal's words; merge_hold reads them as a timed retry, never a red
 
 
@@ -4747,6 +4764,40 @@ def kept_run_jobs(repo: str, run: dict) -> list[dict] | None:
     return jobs
 
 
+def search_reads(name: str) -> int:
+    """The live job lists one judgement's search of the base's runs for job NAME may read: CALL_JOB_READS, less
+    TIP_SUITE_JOB_READS for a suite job (SUITE_JOBS), whose push runs never build it and whose verdict is a dispatched
+    tip suite run's, so tip_suite_verdicts still reads those in the same judgement. Cold, a search that needs N live
+    lists finishes within ceil(N / search_reads(NAME)) judgements, since each one's lists are kept."""
+    return CALL_JOB_READS - (TIP_SUITE_JOB_READS if name in SUITE_JOBS else 0)
+
+
+def budgeted_run_jobs(repo: str, run: dict, github, workflow, name: str, job_reads: dict,
+                      reserve: int = 0) -> list[dict] | None:
+    """RUN's job list for a base search for job NAME in WORKFLOW: a kept one first (kept_run_jobs: no read, not
+    counted), else one live read counted toward the workflow's BASE_JOB_READS and the judgement's CALL_JOB_READS
+    (job_reads[CALL_READS]), less RESERVE kept back for a later search of the same judgement (a suite job's
+    dispatched tip suite runs, tip_suite_verdicts, after its push runs). None when either is spent, or when glaeda-gh's sweep guard refused the read (then no live
+    list is read again this judgement), with the search's cut recorded for search_cut: a timed retry, never a verdict."""
+    kept = kept_run_jobs(repo, run)
+    if kept is not None:
+        return kept
+    if job_reads.get(workflow, 0) >= BASE_JOB_READS or job_reads.get(CALL_READS, 0) >= CALL_JOB_READS - reserve:
+        job_reads[(SEARCH_CUT, workflow, name)] = job_reads.get(workflow, 0)
+        return None
+    try:
+        listed = base_run_jobs(repo, run, github)
+    except Refused as why:
+        if not SWEEP_GUARD_REFUSED.search(str(why)):
+            raise
+        job_reads[CALL_READS] = CALL_JOB_READS
+        job_reads[(SEARCH_CUT, workflow, name)] = job_reads.get(workflow, 0)
+        return None
+    job_reads[workflow] = job_reads.get(workflow, 0) + 1
+    job_reads[CALL_READS] = job_reads.get(CALL_READS, 0) + 1
+    return listed
+
+
 def search_cut(job_reads: dict, name: str, *workflows) -> int | None:
     """The job lists read before the cap cut a base search for job NAME in any of WORKFLOWS short, or None when none
     was cut."""
@@ -4757,8 +4808,9 @@ def search_cut(job_reads: dict, name: str, *workflows) -> int | None:
 
 def cut_refusal(name: str, base: str, read: int) -> str:
     at = (datetime.now(timezone.utc) + timedelta(seconds=CUT_RETRY_S)).strftime("%H:%MZ")
-    return (f"'{name}': {INCOMPLETE} {read} job lists of {base} runs of its workflow (at most {BASE_JOB_READS} a "
-            f"judgement) and none had a verdict for it, with older runs still unread; not a verdict: retry after {at}")
+    return (f"'{name}': {INCOMPLETE} {read} job lists of {base} runs of its workflow (at most {CALL_JOB_READS} a "
+            f"judgement, {BASE_JOB_READS} a workflow, besides the kept ones) and none had a verdict for it, with older "
+            f"runs still unread; not a verdict: retry after {at}")
 
 
 def base_verdicts(repo: str, workflow, name: str, github, evidence: "Evidence", base_jobs: dict,
@@ -4777,13 +4829,11 @@ def base_verdicts(repo: str, workflow, name: str, github, evidence: "Evidence", 
         if base_jobs.get(candidate_run["id"]) is None:
             if not may_hold(suites, runs, index, name, verdict=True):
                 continue  # its suite has no verdict for NAME: no job read, so none counted (the sweep limit's note)
-            kept = kept_run_jobs(repo, candidate_run)
-            if kept is None and job_reads.get(workflow, 0) >= BASE_JOB_READS:
-                job_reads[(SEARCH_CUT, workflow, name)] = job_reads.get(workflow, 0)  # runs left unread (search_cut)
-                break
-            if kept is None:
-                job_reads[workflow] = job_reads.get(workflow, 0) + 1
-            base_jobs[candidate_run["id"]] = kept if kept is not None else base_run_jobs(repo, candidate_run, github)
+            listed = budgeted_run_jobs(repo, candidate_run, github, workflow, name, job_reads,
+                                       reserve=CALL_JOB_READS - search_reads(name))
+            if listed is None:
+                break  # runs left unread (search_cut)
+            base_jobs[candidate_run["id"]] = listed
         found = next((found for found in base_jobs[candidate_run["id"]] if found.get("name") == name), None)
         if found is not None and replaced_while_waiting(repo, base_jobs[candidate_run["id"]], found, github,
                                                         REPLACED_READS):
@@ -4792,7 +4842,7 @@ def base_verdicts(repo: str, workflow, name: str, github, evidence: "Evidence", 
             seen.add(candidate_run["id"])
             yield candidate_run, found
     if name in SUITE_JOBS:
-        for run, found in tip_suite_verdicts(repo, workflow, name, github, base_jobs, evidence, suites):
+        for run, found in tip_suite_verdicts(repo, workflow, name, github, base_jobs, evidence, suites, job_reads):
             if run["id"] not in seen:
                 seen.add(run["id"])
                 yield run, found
