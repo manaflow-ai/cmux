@@ -78,17 +78,34 @@ struct ChatSendSettle {
 
     /// Starts the glide on the first layout with the rows in: it travels what they added to the
     /// content (the keyboard going down moves the resting place on its own). False when nothing grew.
-    mutating func begin(contentHeight: Double, at time: Double) -> Bool {
+    ///
+    /// A start outside a display frame (the Send tap lays the rows out in its own turn) waits for
+    /// the first frame: the main thread may stay busy for a few frames after it (the keyboard going
+    /// down), and a clock started in the tap would have the spring part way through when the rows
+    /// are first drawn, a jump.
+    mutating func begin(contentHeight: Double, at time: Double, inFrame: Bool = true) -> Bool {
         let travel = contentHeight - fromHeight
         guard travel > 0.5 else { return false }
         start = time
+        startsAtFirstFrame = !inFrame
         reach = travel
         self.contentHeight = contentHeight
         return true
     }
 
+    /// True from a start outside a display frame until ``firstFrame(at:)``: the rows stay where
+    /// they are until then.
+    private(set) var startsAtFirstFrame = false
+
+    /// The first display frame of a glide begun outside one: its clock starts at `time`.
+    mutating func firstFrame(at time: Double) {
+        guard startsAtFirstFrame else { return }
+        start = time
+        startsAtFirstFrame = false
+    }
+
     func progress(at time: Double) -> Double {
-        guard let start else { return 0 }
+        guard let start, !startsAtFirstFrame else { return 0 }
         return ChatSendSpring.progress(time - start)
     }
 
@@ -121,7 +138,7 @@ struct ChatSendSettle {
     }
 
     func isDone(at time: Double) -> Bool {
-        guard let start else { return false }
+        guard let start, !startsAtFirstFrame else { return false }
         return time - start >= ChatSendSpring.settleTime || remaining(at: time) < 0.25
     }
 }

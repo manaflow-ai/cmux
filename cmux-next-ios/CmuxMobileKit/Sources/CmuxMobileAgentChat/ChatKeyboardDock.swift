@@ -625,7 +625,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         guard var settle = sendSettle else { return resting }
         let now = settleClock
         if settle.start == nil {
-            guard settle.begin(contentHeight: Double(contentHeight), at: now) else {
+            // Begun here, outside a display frame: the clock starts at the first one.
+            guard settle.begin(contentHeight: Double(contentHeight), at: now, inFrame: false) else {
                 // A pass before the rows are laid out (the keyboard going down): wait for them,
                 // a bounded while.
                 if now - settle.armedAt > ChatSendSpring.settleTime {
@@ -650,6 +651,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// A display frame of the glide: the offset (and the bubble, for A and B) at this frame's time.
     fileprivate func settleFrame() {
         guard var settle = sendSettle else { return endSendSettle() }
+        // The frame before this one (the link's `timestamp`) is where the glide's clock starts, so
+        // this frame draws one frame of its spring.
+        if let link = settleLink { settle.firstFrame(at: link.timestamp) }
         settle.noteFrame(at: settleClock)
         sendSettle = settle
         if settle.isDone(at: settleClock) || !surface.following || scrollView.isTracking {
