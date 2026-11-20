@@ -105,6 +105,8 @@ const transcript = Array.from({ length: 400 }, (_, i) => {
 });
 
 class FakeAcpmux {
+  sessions = Array.from({ length: SESSIONS }, (_, n) => summary(n + 1));
+  watches = 0;
   readyState = 0;
   onopen: (() => void) | null = null;
   onerror: (() => void) | null = null;
@@ -119,11 +121,12 @@ class FakeAcpmux {
   send(raw: string): void {
     const message = JSON.parse(raw) as { id?: number; method: string; params?: Record<string, unknown> };
     if (message.id === undefined) return;
+    if (message.method === "_acpmux/watch") this.watches += 1;
     const result =
       message.method === "initialize"
         ? { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [] } } }
         : message.method === "_acpmux/watch"
-          ? { sessions: Array.from({ length: SESSIONS }, (_, n) => summary(n + 1)) }
+          ? { sessions: this.sessions }
           : message.method === "_acpmux/attach"
             ? { session: summary(1), lastSeq: transcript.length, events: transcript, hasMore: false }
             : message.method === "_acpmux/events"
@@ -139,9 +142,15 @@ class FakeAcpmux {
   }
 }
 
-async function openPane(): Promise<{ socket: FakeAcpmux; client: AcpmuxDirectClient; snapshots: () => number }> {
+async function openPane(): Promise<{
+  socket: FakeAcpmux;
+  client: AcpmuxDirectClient;
+  snapshots: () => number;
+  latest: () => any;
+}> {
   const socket = new FakeAcpmux();
   let count = 0;
+  let latest: any;
   const client = await AcpmuxDirectClient.connect(
     {
       protocolVersion: 1,
@@ -151,7 +160,10 @@ async function openPane(): Promise<{ socket: FakeAcpmux; client: AcpmuxDirectCli
       sessionId: SELECTED,
     },
     (message: any) => {
-      if (message?.type === "snapshot") count += 1;
+      if (message?.type === "snapshot") {
+        count += 1;
+        latest = message;
+      }
     },
     undefined,
     () => socket as unknown as WebSocket,
@@ -161,7 +173,7 @@ async function openPane(): Promise<{ socket: FakeAcpmux; client: AcpmuxDirectCli
     await new Promise((resolve) => setTimeout(resolve, 0));
     flushFrames();
   }
-  return { socket, client, snapshots: () => count };
+  return { socket, client, snapshots: () => count, latest: () => latest };
 }
 
 /// One change of each of `chats` other running chats, as acpmux sends them.
@@ -242,6 +254,39 @@ test("a hidden pane draws other chats' changes only when it shows again", async 
     setVisibility("visible");
     flushFrames();
     expect(snapshots() - before).toBe(1);
+  } finally {
+    client.close();
+    setVisibility("visible");
+  }
+});
+
+test("showing a hidden pane refreshes discarded summaries on its existing connection", async () => {
+  const { socket, client, snapshots, latest } = await openPane();
+  try {
+    const watches = socket.watches;
+    const before = snapshots();
+    setVisibility("hidden");
+    socket.sessions[1] = { ...summary(2, "running"), title: "Renamed while hidden" };
+    socket.notify("_acpmux/session_changed", {
+      sessionId: id(2),
+      session: socket.sessions[1],
+      kind: "renamed",
+      seq: 401,
+    });
+    flushFrames();
+    expect(snapshots()).toBe(before);
+    expect(socket.watches).toBe(watches);
+    setVisibility("visible");
+    for (let i = 0; i < 5; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      flushFrames();
+    }
+    expect(socket.watches).toBe(watches + 1);
+    expect(latest().sessions.find((session: { sessionId: string }) => session.sessionId === id(2))?.title).toBe(
+      "Renamed while hidden",
+    );
+    setVisibility("visible");
+    expect(socket.watches).toBe(watches + 1);
   } finally {
     client.close();
     setVisibility("visible");

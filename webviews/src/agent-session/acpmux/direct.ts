@@ -6245,6 +6245,9 @@ export class AcpmuxDirectClient {
     }
     if (this.listChangedWhileHidden && pageShown() && !this.closed) {
       this.listChangedWhileHidden = false;
+      // Hidden notices were deliberately not reduced into the list. Read from its last cursor
+      // once on return so the next visible list includes those changes, even on a live socket.
+      void this.refreshSessions().catch(() => this.rereadSessionsLater());
       this.emitInFrame("session changed");
     }
     if (this.closed) return;
