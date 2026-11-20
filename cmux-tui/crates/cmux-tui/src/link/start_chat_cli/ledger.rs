@@ -113,7 +113,15 @@ pub(crate) struct PendingCreate {
     pub(crate) refused: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) create_key: Option<String>,
+    /// How the sent create reached the server: `direct` (as the signed-in person) or `relay` (the
+    /// Mac's install; also what a create sent before routes were kept took). The server keeps a
+    /// key per caller, so a retry on the other route would be a second machine.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) route: Option<String>,
 }
+
+/// The route of a sent create that names none: the relay, the only route before they were kept.
+pub(crate) const RELAY: &str = "relay";
 
 impl PendingCreate {
     fn is(&self, send: &Send) -> bool {
@@ -180,13 +188,22 @@ impl Ledger {
             sent: false,
             refused: false,
             create_key: None,
+            route: None,
         });
         let over = self.pending_creates.len().saturating_sub(LIMIT);
         self.pending_creates.drain(..over);
         true
     }
 
-    pub(crate) fn mark_create_sent(&mut self, send: &Send, team: &str, key: &str) -> bool {
+    /// The create with `key` goes out to `team` on `route` (none: the relay). A key that went out
+    /// once keeps its first team and route: a send to another team or on the other route is refused.
+    pub(crate) fn mark_create_sent(
+        &mut self,
+        send: &Send,
+        team: &str,
+        key: &str,
+        route: Option<&str>,
+    ) -> bool {
         let Some(pending) = self.pending_creates.iter_mut().rev().find(|pending| pending.is(send))
         else {
             return false;
@@ -194,11 +211,13 @@ impl Ledger {
         if pending.refused
             || pending.create_key.as_deref().unwrap_or(&super::Keys::of(send.key()).create) != key
             || (pending.sent && pending.team.as_deref() != Some(team))
+            || (pending.sent && pending.route.as_deref().unwrap_or(RELAY) != route.unwrap_or(RELAY))
         {
             return false;
         }
         if !pending.sent {
             pending.team = Some(team.to_string());
+            pending.route = route.map(str::to_string);
             pending.sent = true;
         }
         true
@@ -219,6 +238,7 @@ impl Ledger {
         pending.refused = true;
         pending.sent = false;
         pending.team = None;
+        pending.route = None;
         true
     }
 

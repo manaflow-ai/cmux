@@ -131,8 +131,13 @@ const INITIAL: GitHubPickerState = { query: null, truncated: false, loading: fal
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
 /// The host's word that GitHub changed under this page (the app finished an install GitHub handed back to it, #46018):
-/// `cmux-github-changed` on the window. Returns the unwatch.
-export function watchGitHubChanged(run: () => void, view: Window = window): () => void {
+/// `cmux-github-changed` on the window. Returns the unwatch. With no window (a store a module builds when it loads, read
+/// by bun with no DOM: the gallery's manifest and a server render) there is no host to hear, and nothing to watch.
+export function watchGitHubChanged(
+  run: () => void,
+  view: Window | undefined = typeof window === "undefined" ? undefined : window,
+): () => void {
+  if (!view) return () => undefined;
   view.addEventListener("cmux-github-changed", run);
   return () => view.removeEventListener("cmux-github-changed", run);
 }

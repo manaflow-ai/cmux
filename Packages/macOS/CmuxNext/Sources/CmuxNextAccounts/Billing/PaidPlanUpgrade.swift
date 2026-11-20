@@ -44,10 +44,10 @@ package struct PaidPlanUpgrade {
 
     /// cmux NEXT's own plans: their checkout is cmux.com's page for the plan (`URL.billingCheckout(plan:)`),
     /// which signs the person in first.
-    package static let nextPlans = ["next_pro", "next_max"]
+    package static let nextPlans = ["next_plus", "next_pro", "next_max"]
 
-    /// The plan an upgrade action names (the pricing card's Subscribe, `cloud.plan.subscribe`): `max`, `next_pro` or
-    /// `next_max`, else `pro`.
+    /// The plan an upgrade action names (the pricing card's Subscribe, `cloud.plan.subscribe`): `max`, `next_plus`,
+    /// `next_pro` or `next_max`, else `pro`.
     package static func plan(_ named: String?) -> String {
         guard let named, named == "max" || nextPlans.contains(named) else { return "pro" }
         return named
