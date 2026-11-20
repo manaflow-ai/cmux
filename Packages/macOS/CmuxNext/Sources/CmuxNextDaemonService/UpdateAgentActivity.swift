@@ -24,7 +24,7 @@ public final class UpdateAgentActivity {
         // No acpmux environment means this app has no Home Chief to protect.
         self.chiefInTurn = environment == nil ? false : nil
         // No acpmux: no agent works and no chat keeps a draft there.
-        self.census = environment == nil ? AcpmuxSessionCensus() : nil
+        self.census = environment == nil ? AcpmuxSessionCensus.parse(["sessions": [[String: Any]]()]) : nil
     }
 
     /// Adds Home Chief activity to a daemon relaunch snapshot, conservatively holding unknown state.
@@ -49,12 +49,16 @@ public final class UpdateAgentActivity {
         guard refreshTask == nil,
               refreshedAt.map({ now.timeIntervalSince($0) >= 1 }) ?? true else { return }
         refreshedAt = now
+        // A refresh in flight cannot authorize a relaunch using the previous answer.
+        chiefInTurn = nil
+        census = nil
         let environment = environment
         refreshTask = Task { [weak self] in
             let census = await AcpmuxQuit.census(environment, deadline: .seconds(1))
             guard !Task.isCancelled else { return }
             self?.chiefInTurn = census?.chiefInTurn
             self?.census = census
+            self?.refreshedAt = Date()
             self?.refreshTask = nil
         }
     }

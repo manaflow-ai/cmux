@@ -312,17 +312,17 @@
         },
         {
           "key": "updates.installWhenIdle",
-          "note": "Optional longer idle window for automatic installs (Leo 2026-11-19: \"maybe even having it as an opt-in option would be pretty interesting. Yeah, like update when idle\"): when on, a downloaded update waits for updates.installWhenIdleMinutes, never while an agent works or a draft is unsent; the relaunch keeps every terminal and agent.",
+          "note": "Automatic installation while idle (Leo 2026-11-19: \"maybe even having it as an opt-in option would be pretty interesting. Yeah, like update when idle\"): when on, a downloaded update waits for updates.installWhenIdleMinutes, never while an agent works or a draft is unsent; the relaunch keeps every terminal and agent.",
           "title": {
             "key": "settings.updates.installWhenIdle",
             "text": "Update When Idle"
           },
           "help": {
             "key": "settings.updates.installWhenIdle.help",
-            "text": "When on, waits for the idle time below before installing. Automatic updates otherwise use Quiet Time Before Installing and never interrupt active work."
+            "text": "Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running."
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "keywords": [
             "update",
             "install",
@@ -333,14 +333,14 @@
         },
         {
           "key": "updates.installWhenIdleMinutes",
-          "note": "How long cmux must be idle when the longer idle install window is enabled.",
+          "note": "How long cmux must be idle before an automatic install.",
           "title": {
             "key": "settings.updates.installWhenIdleMinutes",
             "text": "Idle Time Before Updating"
           },
           "help": {
             "key": "settings.updates.installWhenIdleMinutes.help",
-            "text": "How long cmux waits before an automatic install when the longer idle window is on."
+            "text": "How long cmux must be idle before Update When Idle installs."
           },
           "kind": "number",
           "range": {

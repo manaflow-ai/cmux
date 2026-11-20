@@ -2,7 +2,7 @@ import CmuxNextSettings
 import Testing
 
 /// `updates.installWhenIdle` and `updates.installWhenIdleMinutes` (Leo 2026-11-19: "like update when
-/// idle"): an opt-in, off by default, that installs a downloaded update once cmux has been idle 15
+/// idle"): on by default, that installs a downloaded update once cmux has been idle 15
 /// minutes. Only the person sets them; they show on the Updates card right after Install Updates When
 /// Quitting.
 struct UpdatesInstallWhenIdleSettingTests {
@@ -10,12 +10,16 @@ struct UpdatesInstallWhenIdleSettingTests {
         CmuxConfigSnapshot.parse(.object(["updates": .object(updates)]), validDensities: [], validMetrics: [])
     }
 
-    @Test func offAndFifteenMinutesWhenUnset() {
+    @Test func onAndFifteenMinutesWhenUnset() {
         let snapshot = Self.parse([:])
-        #expect(snapshot.updates.installWhenIdle == false)
+        #expect(snapshot.updates.installWhenIdle == true)
         #expect(snapshot.updates.installWhenIdleMinutes == 15)
         #expect(UpdatesSettings.installWhenIdleMinutesRange == 1...240)
         #expect(snapshot.diagnostics.isEmpty)
+    }
+
+    @Test func explicitOptOutLoads() {
+        #expect(!Self.parse(["installWhenIdle": .bool(false)]).updates.installWhenIdle)
     }
 
     @Test func valuesInRangeLoad() {

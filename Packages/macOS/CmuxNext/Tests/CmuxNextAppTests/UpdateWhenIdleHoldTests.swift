@@ -58,7 +58,7 @@ import Testing
         #expect(!hold.hold {})
     }
 
-    /// The updater wires the gate for the optional longer idle setting, and the gate is the App's.
+    /// The updater wires the gate for automatic installation, and the gate is the App's.
     @Test func configureTurnsTheGateOnAndOff() {
         let updater = UpdaterService(enableSparkle: false, recordsUpdates: false)
         updater.idleInstallGate = { .notIdle }
@@ -74,17 +74,13 @@ import Testing
         #expect(updater.relaunchMomentHold.surfaceAfter == .seconds(600))
     }
 
-    /// Signed tracks use the normal quiet window for automatic installs even when the optional
-    /// longer idle setting is off; an explicit download opt-out disables the gate.
-    @Test func signedTrackDefaultUsesTheQuietWindow() {
+    /// Automatic downloads never override an explicit install opt-out.
+    @Test func downloadEnabledRespectsInstallOptOut() {
         let updater = UpdaterService(enableSparkle: false, recordsUpdates: false)
         updater.idleInstallGate = { .notIdle }
         updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: true,
                           idleInstall: (600, 60), installWhenIdleMinutes: nil)
-        #expect(updater.installWhenIdle == nil)
-        #expect(updater.relaunchMomentHold.idleGate != nil)
-        updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: false,
-                          idleInstall: (600, 60), installWhenIdleMinutes: nil)
+        #expect(updater.downloadsFoundUpdates)
         #expect(updater.relaunchMomentHold.idleGate == nil)
     }
 }

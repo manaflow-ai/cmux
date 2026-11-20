@@ -287,20 +287,13 @@ extension UpdaterService {
         // Update When Idle installs what it downloaded: it downloads found updates too.
         downloadSetting = (downloadAutomatically || installWhenIdle != nil, metered)
         settingsApplied = true
-        // Signed tracks install downloaded updates automatically. The relaunch still waits on
-        // ``UpdateRelaunchMomentHold/idleGate`` (the app's Rust rule), so no draft or active work
-        // is interrupted. DEV/staging builds have no public feed and keep this disabled.
-        let installsWhenIdle = (downloadAutomatically || installWhenIdle != nil) && idleInstallGate != nil
-        relaunchMomentHold.idleGate = installsWhenIdle ? idleInstallGate : nil
-        if let controller, controller.installsUpdatesWhenIdle != installsWhenIdle { controller.installsUpdatesWhenIdle = installsWhenIdle }
         stagedRefresh.reschedule(automatic: checkAutomatically, interval: checkInterval, updater: self)
         tipCheck.reschedule(automatic: checkAutomatically, updater: self)
         refreshReleasePush()
         let automaticDownloads = downloadAutomatically || installWhenIdle != nil
         if automaticUpdates != automaticDownloads { automaticUpdates = automaticDownloads }
-        guard let controller else { return }
-        controller.setSchedule(automaticChecks: checkAutomatically, interval: checkInterval)
-        followNetwork()
+        controller?.setSchedule(automaticChecks: checkAutomatically, interval: checkInterval)
+        if controller != nil { followNetwork() }
         applyDownloadPolicy()
     }
 
@@ -344,7 +337,7 @@ extension UpdaterService {
         }
         let resumed = downloads && !downloadsFoundUpdates
         downloadsFoundUpdates = downloads
-        let installsWhenIdle = downloads && idleInstallGate != nil
+        let installsWhenIdle = installWhenIdle != nil && idleInstallGate != nil && !isOffManagedChannel && !policy.disablesUpdates
         relaunchMomentHold.idleGate = installsWhenIdle ? idleInstallGate : nil
         if let controller, controller.installsUpdatesWhenIdle != installsWhenIdle {
             controller.installsUpdatesWhenIdle = installsWhenIdle

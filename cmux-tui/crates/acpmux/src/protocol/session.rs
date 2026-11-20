@@ -171,16 +171,16 @@ pub struct SessionSummary {
     pub last_message: Option<LastMessage>,
     pub queued: u64,
     /// Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update
-    /// that installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from
-    /// a peer on an older acpmux.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    /// that installs when idle (`updates.installWhenIdle`) waits for it. Always sent, including false,
+    /// so the app can distinguish an older daemon with unknown draft state.
+    #[serde(default)]
     #[schemars(default)]
     pub has_draft: bool,
     /// Work runs below it with no turn open: a background subagent, a harness background process,
     /// or a sub-session at work (what keeps the idle pass from ending it, `hub/idle.rs`). An app
-    /// update that installs when idle waits for it. Absent otherwise, and from a peer on an older
-    /// acpmux.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    /// update that installs when idle waits for it. Always sent, including false, so older daemons
+    /// with unknown background activity never authorize an automatic relaunch.
+    #[serde(default)]
     #[schemars(default)]
     pub working_below: bool,
     /// A turn failed: the prompts behind it wait for a client to resume them.

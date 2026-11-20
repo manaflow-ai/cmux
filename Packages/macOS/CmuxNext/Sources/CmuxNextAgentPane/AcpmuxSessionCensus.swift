@@ -20,6 +20,8 @@ public nonisolated struct AcpmuxSessionCensus: Sendable, Equatable {
     /// Sessions with no turn open whose background work runs (acpmux's `workingBelow`): a background subagent,
     /// a harness background process or a sub-session at work. Update When Idle counts them as working.
     public var workingBelow = 0
+    /// Every row reported draft and background-work state; lock-only fallback is unknown.
+    public var updateActivityKnown = false
 
     /// The tag key on every Home Chief turn and compactor session (value:
     /// the home id), agreed with the chief lane. Untagged Chief sessions are
@@ -38,9 +40,13 @@ public nonisolated struct AcpmuxSessionCensus: Sendable, Equatable {
     /// The census of one `_acpmux/sessions` result.
     public static func parse(_ result: [String: Any]) -> AcpmuxSessionCensus {
         var census = AcpmuxSessionCensus()
+        census.updateActivityKnown = result["sessions"] is [[String: Any]]
         var busy: [(startedAt: Double, name: String)] = []
         for summary in summaries(result) {
             let status = summary["status"] as? String ?? ""
+            if summary["hasDraft"] as? Bool == nil || summary["workingBelow"] as? Bool == nil || status.isEmpty {
+                census.updateActivityKnown = false
+            }
             let live = ["ready", "running", "waiting"].contains(status)
             let working = status == "running" || status == "waiting"
             if summary["hasDraft"] as? Bool == true { census.drafts += 1 }
