@@ -463,7 +463,11 @@ mod tests {
             assert!(!policy.typed(&[key]).claims, "{}", key as char);
             assert!(!policy.typed(b"a").claims, "{}", key as char);
             let fit = policy.typed(b"b");
-            assert!(fit.claims && fit.changed, "Esc, {}, a, b: three typed characters", key as char);
+            assert!(
+                fit.claims && fit.changed,
+                "Esc, {}, a, b: three typed characters",
+                key as char
+            );
         }
     }
 
