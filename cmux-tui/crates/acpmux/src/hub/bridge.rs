@@ -344,7 +344,9 @@ impl Hub {
         };
         match self.hold_surge_message(session, &prompt_id, client, blocks, opts) {
             Ok(Some(receipt)) => {
-                let thread = receipt["threadId"].as_str().expect("held inbox receipt has a thread");
+                let Some(thread) = receipt["threadId"].as_str() else {
+                    return Some(Err(RpcError::internal("held inbox receipt has no thread")));
+                };
                 let arrival = Arrival::Inbox(thread.to_owned());
                 if let Some(ids) = delivered_ids().get_mut(&session.id) {
                     ids.insert(prompt_id.clone(), arrival.clone());
