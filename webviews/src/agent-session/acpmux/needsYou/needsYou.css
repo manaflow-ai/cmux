@@ -338,7 +338,7 @@
 }
 .acpmux-needs-you-answer:first-child,
 .acpmux-needs-you-answer:hover:not(:disabled) {
-  background: var(--ds-color-hover);
+  background: var(--ds-surface-hover);
 }
 .acpmux-needs-you-answer[data-tone="deny"] .acpmux-needs-you-answer-label {
   color: var(--agent-soft, var(--agent-muted));
