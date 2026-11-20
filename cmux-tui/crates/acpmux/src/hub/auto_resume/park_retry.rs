@@ -24,10 +24,16 @@ impl Hub {
         let _harness =
             session.harness_use.try_write().map_err(|_| refused(session, "retry.busy"))?;
         let _spawn = session.spawn_lock.try_lock().map_err(|_| refused(session, "retry.busy"))?;
+        // Background completion can make the harness start its own turn. Share Stop's
+        // work checks before taking journal locks; the revision below catches new events.
+        if self.background_busy_with(session).is_some() {
+            return Err(refused(session, "retry.busy"));
+        }
         let mut pending = session.auto_resume.lock();
         // Queue mutations append while holding their queue lock. Take it before append,
         // without waiting, so their pending write cannot deadlock a conditional park.
         let queue = session.queue.try_lock().map_err(|_| refused(session, "retry.busy"))?;
+        let mut rate = session.rate_hold.lock_for_retry_park();
         let _append = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
         self.catch_up_locked(session);
         if session.replaced.load(Ordering::SeqCst)
@@ -41,6 +47,7 @@ impl Hub {
         }
         if session.turn().is_some()
             || session.harness_turn.load(Ordering::SeqCst)
+            || session.queued() > 0
             // Held prompts can retry themselves too (`digest.rs`), independently of
             // auto_resume. A handoff must not overlook that second source of work.
             || !queue.is_empty()
@@ -65,7 +72,7 @@ impl Hub {
         )?;
         // A rate-limit timer also owns the queue: its reset must not release that queue
         // after the continuation is removed. Persist its park before acknowledging either.
-        self.park_retry_hold_locked(session)?;
+        rate.persist(self, session)?;
         pending.replace(Mark::Stopped(turn.to_owned()));
         Ok(ParkRetryResult {
             session_id: session.id.clone(),

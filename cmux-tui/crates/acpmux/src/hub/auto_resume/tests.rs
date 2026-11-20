@@ -183,6 +183,15 @@ fn park_retry_refuses_moved_revision_and_running_or_firing_work_without_mutation
         assert_eq!(hub.store.events(&session.id, 0, 100).unwrap().len(), before);
     };
     check(revision.saturating_sub(1));
+    session.agent_requests.store(1, std::sync::atomic::Ordering::SeqCst);
+    check(revision);
+    session.agent_requests.store(0, std::sync::atomic::Ordering::SeqCst);
+    session.asks_in_flight.store(1, std::sync::atomic::Ordering::SeqCst);
+    check(revision);
+    session.asks_in_flight.store(0, std::sync::atomic::Ordering::SeqCst);
+    *session.work_below_since.lock().unwrap() = 1;
+    check(revision);
+    *session.work_below_since.lock().unwrap() = 0;
     let queued_writer = session.queue.lock().unwrap();
     check(revision);
     drop(queued_writer);
@@ -207,6 +216,36 @@ fn park_retry_refuses_moved_revision_and_running_or_firing_work_without_mutation
         session.auto_resume.lock().replace(mark);
         check(revision);
     }
+}
+
+#[tokio::test]
+async fn park_retry_fences_a_late_scheduler_without_an_installed_wait() {
+    let (hub, session) = retry_chat();
+    waiting_for_park(&hub, &session);
+    session.auto_resume.lock().take();
+    hub.park_retry(&session, Hub::revision(&session)).unwrap();
+    hub.schedule_auto_resume(
+        &session,
+        "workflow-turn",
+        Some(CutTurn {
+            from: None,
+            prompt_id: "workflow",
+            turn_id: "workflow-turn",
+            control: Control::Local,
+            trust_gate: false,
+            error: "HTTP 503 no non-exhausted claude accounts",
+            not_before: None,
+        }),
+    );
+    assert!(!hub.continuation_pending(&session));
+    assert!(hub.fire_pending(&session, "workflow-turn").is_err());
+    assert!(
+        !hub.store
+            .events(&session.id, 0, 100)
+            .unwrap()
+            .iter()
+            .any(|e| e.kind == "auto_resume_scheduled")
+    );
 }
 
 #[tokio::test]
