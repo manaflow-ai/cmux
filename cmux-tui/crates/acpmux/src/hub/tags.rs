@@ -49,7 +49,7 @@ impl Hub {
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
                         .tags
                         .get(crate::spoken_handle::TAG)
-                        .is_some_and(|tag| tag.value == value)
+                        .is_some_and(|tag| tag.value.eq_ignore_ascii_case(value))
                 });
             if duplicate {
                 return Err(RpcError::invalid_params(format!(

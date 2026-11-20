@@ -62,28 +62,21 @@ pub fn allocate(id: &str, existing: impl IntoIterator<Item = impl AsRef<str>>) -
     let digest = crate::sha256::sha256_hex(id.as_bytes());
     let start = usize::from(digest.as_bytes()[0]) % WORDS.len();
     let used: std::collections::HashSet<String> =
-        existing.into_iter().map(|value| value.as_ref().to_owned()).collect();
+        existing.into_iter().map(|value| value.as_ref().to_ascii_lowercase()).collect();
     for offset in 0..WORDS.len() {
         let word = WORDS[(start + offset) % WORDS.len()];
-        if !used.contains(word) {
+        if !used.contains(&word.to_ascii_lowercase()) {
             return word.to_owned();
         }
-        let mut suffix = 2;
-        loop {
-            let candidate = format!("{word}-{suffix}");
-            if !used.contains(&candidate) {
-                return candidate;
-            }
-            suffix += 1;
-        }
     }
-    let mut suffix = used.len().saturating_add(2);
+    let word = WORDS[start];
+    let mut suffix = 2;
     loop {
-        let candidate = format!("Mango-{suffix}");
-        if !used.contains(&candidate) {
+        let candidate = format!("{word}-{suffix}");
+        if !used.contains(&candidate.to_ascii_lowercase()) {
             return candidate;
         }
-        suffix = suffix.saturating_add(1);
+        suffix += 1;
     }
 }
 
