@@ -308,7 +308,7 @@ fn state_rows_and_default_screenshot_paths() {
     );
 
     let path = screenshot_path(None, "Leo's Studio / 2").unwrap();
-    let name = std::path::Path::new(&path).file_name().unwrap().to_string_lossy().into_owned();
+    let name = Path::new(&path).file_name().unwrap().to_string_lossy().into_owned();
     assert!(name.starts_with("cmux-rd-leo-s-studio---2-") && name.ends_with(".png"), "{name}");
     assert_eq!(screenshot_path(Some("/tmp/a.png"), "x").unwrap(), "/tmp/a.png");
     assert!(screenshot_path(Some("rel.png"), "x").unwrap().ends_with("/rel.png"));

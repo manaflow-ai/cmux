@@ -21,7 +21,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use cmux_computer_use::keys::{Key, KeyCombo, Modifier};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode, parse_globals};
 
@@ -687,8 +687,13 @@ fn drive(global: &GlobalArgs, device: &str, verb: &Verb, json: bool) -> Result<V
         pick_tab(&rows, device, verb).cloned()
     };
     let row = read_tab(&mut stream)?;
-    let answer_base =
-        |row: &TabRow| json!({"device": row.device, "device_id": row.device_id, "tab": row.tab});
+    let answer_base = |row: &TabRow| {
+        let mut base = Map::new();
+        base.insert("device".into(), json!(row.device));
+        base.insert("device_id".into(), json!(row.device_id));
+        base.insert("tab".into(), json!(row.tab));
+        base
+    };
     if let Verb::Screenshot { out } = verb {
         let path = screenshot_path(out.as_deref(), &row.device)?;
         if let Some(parent) = Path::new(&path).parent() {
@@ -710,10 +715,10 @@ fn drive(global: &GlobalArgs, device: &str, verb: &Verb, json: bool) -> Result<V
             json,
         )?;
         let mut value = answer_base(&row);
-        value["path"] = json!(path);
-        value["width"] = answer.get("width").cloned().unwrap_or(Value::Null);
-        value["height"] = answer.get("height").cloned().unwrap_or(Value::Null);
-        return Ok(value);
+        value.insert("path".into(), json!(path));
+        value.insert("width".into(), answer.get("width").cloned().unwrap_or(Value::Null));
+        value.insert("height".into(), answer.get("height").cloned().unwrap_or(Value::Null));
+        return Ok(Value::Object(value));
     }
     // Input: map against the picture's size; the app refuses a changed size, and one fresh read retries.
     let mut row = row;
@@ -737,16 +742,19 @@ fn drive(global: &GlobalArgs, device: &str, verb: &Verb, json: bool) -> Result<V
         match call(&mut stream, INPUT_METHOD, params, CALL_TIMEOUT, device, verb, json) {
             Ok(answer) => {
                 let mut value = answer_base(&row);
-                value["sent"] = answer.get("sent").cloned().unwrap_or(json!(events.len()));
-                value["frame"] = json!({"width": size.0, "height": size.1});
+                value.insert(
+                    "sent".into(),
+                    answer.get("sent").cloned().unwrap_or(json!(events.len())),
+                );
+                value.insert("frame".into(), json!({"width": size.0, "height": size.1}));
                 if let Verb::Click { x, y, .. } = verb {
                     let (px, py) = to_stream_pixels(*x, *y, size.0, size.1);
-                    value["pixel"] = json!({"x": px, "y": py});
+                    value.insert("pixel".into(), json!({"x": px, "y": py}));
                 }
-                return Ok(value);
+                return Ok(Value::Object(value));
             }
             Err(error) if error.error == "frame_changed" && attempt == 0 => {
-                row = read_tab(&mut stream)?
+                row = read_tab(&mut stream)?;
             }
             Err(error) => return Err(error),
         }
