@@ -1,4 +1,4 @@
-//! `cmux device add HOST --yes`'s second half: this Mac on the hub mesh, so a chat starts on the
+//! `cmux device add HOST --yes --hub`'s second half: this Mac on the hub mesh, so a chat starts on the
 //! machine it just added (cmuxterm-hq docs/design/remote-spin-up.md, section 2.1: "A Door A join
 //! writes the same-person grant for the Mac that ran it ... the check in section 6 starts a chat
 //! right after the join to prove it").

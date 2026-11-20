@@ -3,8 +3,8 @@
 //! (acpmux peers and pairings, remote hosting), with the overlay network
 //! behind one seam (`network.rs`). `cmux device add` with no `--yes` is the
 //! app's Add Device card (the app action `device.add`); with `--yes` it is
-//! the one-command hub join over ssh (acpmux `cli/ssh_join.rs`), or the
-//! direct ssh enroll with `--enroll` or no cmux sign-in.
+//! the direct ssh enroll, and with `--yes --hub` the one-command hub join
+//! over ssh (acpmux `cli/ssh_join.rs`).
 
 use cmux_json::JsonSet as _;
 
@@ -35,7 +35,7 @@ use network::{Choice, TailscaleNetwork, WeftNetwork};
 
 const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
        cmux device list [--json [--probe]] [--no-probe] [--network auto|tailscale|weft] [--platform URL] [--cloud-token-file PATH | --cloud-token-stdin]
-       cmux device add HOST --yes [--name NAME] [--enroll] [--json]
+       cmux device add HOST --yes [--name NAME] [--hub] [--json]
        cmux device invite [--role client|read-only] [--ttl 15m] [--label TEXT] [--json]
        cmux device remove ID|NAME|ADDRESS [--yes] [--json]
        cmux device audit [--limit N] [--json]
@@ -50,9 +50,9 @@ const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
        cmux device revoke|rotate ID|NAME       (a machine that joined with a pasted line)
        cmux device doctor [MACHINE] [--fix]    (check an SSH machine and fix what it can)
 
-  cmux device add HOST (no --yes) opens Add Device in the cmux app. With --yes, signed in to cmux,
-  it joins HOST through the hub over key-only ssh (macOS or Linux, any arch, from any computer);
-  --enroll (or no sign-in) adds it as a direct ssh peer instead, which copies this cmux.
+  cmux device add HOST (no --yes) opens Add Device in the cmux app. With --yes it adds HOST as a
+  direct ssh peer, which copies this cmux. With --yes --hub, signed in to cmux, it joins HOST
+  through the hub over key-only ssh instead (macOS or Linux, any arch, from any computer).
   `cmux machine` is the old name of `cmux device`; `cmux machine add` still prints a join line.
   Cloud VMs (new, run, pause, resume, rm) are `cmux vm`: `cmux vm --help`.";
 
@@ -680,31 +680,44 @@ pub(crate) fn record(event: &str, fields: Value) {
     audit::append(&entry);
 }
 
-/// `cmux device add HOST --yes`: the hub join over key-only ssh when this computer is signed in to
-/// cmux (`hub_join`: the join script downloads the far machine's own build, so a Mac sets up a
-/// Linux box), else, and with `--enroll`, the direct ssh enroll that copies this binary.
+/// `cmux device add HOST --yes`: the direct ssh enroll that copies this binary, as before. With
+/// `--hub`, the hub join over key-only ssh (`hub_join`: the join script downloads the far
+/// machine's own build, so a Mac sets up a Linux box), which needs a cmux sign-in.
 fn add(args: &[String]) -> anyhow::Result<()> {
     // The whole command's time, from before the sign-in token is read (the app may mint one).
     let started = std::time::Instant::now();
     let flags = Flags::parse(
         args,
         &["name", JOIN_VALUES[0], JOIN_VALUES[1]],
-        &["json", "yes", "enroll", "cloud-token-stdin"],
+        &["json", "yes", "hub", "cloud-token-stdin"],
     )?;
     let [host] = flags.positional.as_slice() else {
         return Err(usage("needs exactly one HOST (a name, an address or user@host)"));
     };
-    if flags.has("enroll") {
-        return enroll(host, &flags);
+    match AddRoute::of(flags.has("hub")) {
+        AddRoute::Enroll => enroll(host, &flags),
+        AddRoute::HubJoin => match access_token(&flags)? {
+            Some(access) => hub_join(host, &flags, access, started),
+            None => bail!(
+                "not signed in to cmux here, so {host} cannot join through the hub\nnext: cmux login, then add it again, or drop --hub to add it as a direct ssh peer"
+            ),
+        },
     }
-    match access_token(&flags)? {
-        Some(access) => hub_join(host, &flags, access, started),
-        None => {
-            eprintln!(
-                "cmux device add: not signed in to cmux here, so {host} is added as a direct ssh peer; sign in (cmux login) for the hub join"
-            );
-            enroll(host, &flags)
-        }
+}
+
+/// Which way `cmux device add HOST --yes` adds a machine. The direct ssh enroll is the default
+/// (interim-coord, 2026-11-20: no default flip); the hub join only with `--hub`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AddRoute {
+    /// `cmux acp host enroll`: this binary copied to HOST, a peer of this computer's daemon.
+    Enroll,
+    /// The hub join over key-only ssh (acpmux `cli/ssh_join.rs`); needs a cmux sign-in.
+    HubJoin,
+}
+
+impl AddRoute {
+    fn of(hub: bool) -> Self {
+        if hub { Self::HubJoin } else { Self::Enroll }
     }
 }
 

@@ -159,7 +159,7 @@ pub fn machine_name() -> String {
 
 /// This machine's name on the mesh hub: what its heartbeat lists and the host other machines
 /// address (`cmux chat --on NAME`). A machine joined by a pasted line or by Door A
-/// (`cmux device add HOST --yes --name NAME`, which runs that line over ssh) uses the name it
+/// (`cmux device add HOST --yes --hub --name NAME`, which runs that line over ssh) uses the name it
 /// joined with, so two fresh VMs whose host names are both `ubuntu` are two hosts. A sign-in
 /// join, which names itself after the host name ([`machine_name`]), and no join keep the host
 /// name.

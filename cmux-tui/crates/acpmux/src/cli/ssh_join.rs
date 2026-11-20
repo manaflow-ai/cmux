@@ -17,7 +17,7 @@
 //!    script's environment, as the pasted line does.
 //! 4. `connect`: the hub's machine list until the machine's daemon reports in.
 //!
-//! `cmux device add HOST --yes` runs this in its own process, and the daemon's
+//! `cmux device add HOST --yes --hub` runs this in its own process, and the daemon's
 //! `_acpmux/machine_join_ssh` runs it for the app with the same steps sent as progress
 //! notifications. Every failure names its next step in one line ([`Failure::next`]).
 
