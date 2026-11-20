@@ -1767,7 +1767,6 @@ CmuxNextApp	enum	FindInDirectoryStrings	0	MIXED	41	0	Packages/macOS/CmuxNext/Sou
 CmuxNextDesign	class	FirstFrameGate	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/FirstFrameGate.swift	from class FirstFrameGate:11: AppKit/SwiftUI view, host or thin daemon call site (moved to CmuxNextDesign)
 CmuxNextApp	extension	AppServices	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/AppServices+Focus.swift	composition-root wiring: one-line forwards to owners
 CmuxNextApp	enum	BrowserChordTable	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/BrowserChordTable.swift	browser reserved chord table and page-editing chords
-CmuxNextApp	struct	BrowserFocusModeEscapeExit	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/BrowserFocusModeEscapeExit.swift	browser focus-mode Escape exit state machine
 CmuxNextApp	struct	ChordTracker	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/ChordTracker.swift	chord tracker state machine (armed keys, mismatch, dismiss)
 CmuxNextApp	class	CreationInputCoordinator	0	MIXED	74	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/CreationInputCoordinator.swift	from class CreationInputCoordinator:25: held-key buffering and replay during creation (logic ~230); responder glue platform
 CmuxNextApp	extension	CreationInputCoordinator	0	MIXED	74	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/CreationInputCoordinator.swift	held-key buffering and replay during creation (logic ~230); responder glue platform

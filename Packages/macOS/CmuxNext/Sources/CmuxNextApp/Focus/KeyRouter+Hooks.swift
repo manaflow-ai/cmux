@@ -10,7 +10,7 @@ extension KeyRouter {
     // MARK: Window hook (a key the dispatcher never saw)
 
     /// Runs the content action `event` resolves to when the focus allows it
-    /// (not in a text field, not in browser focus mode), then a Chrome
+    /// (not in a text field), then a Chrome
     /// extension shortcut. Only for a key the dispatcher never saw (a
     /// synthetic event): the dispatcher already decided every real key-down.
     func routeContentKeyEquivalent(_ event: NSEvent, focus: FocusState, facts: Facts = Facts()) -> Bool {
@@ -36,7 +36,7 @@ extension KeyRouter {
     /// cmux hides, and never sees keys while the omnibar or find bar has the
     /// keyboard, so cmux routes them for the focused Chromium tab.
     func runExtensionShortcut(_ event: NSEvent, focus: FocusState) -> Bool {
-        guard !focus.isBrowserFocusModeActive, let pane = focus.resolved.pane,
+        guard let pane = focus.resolved.pane,
               let paneController = services?.windows.controllers.lazy.compactMap({ $0.content?.paneController(key: pane) }).first,
               case .browser(let entry)? = paneController.currentContent,
               let tab = entry.tab as? CEFTab,
@@ -171,17 +171,15 @@ extension KeyRouter {
         runUnhandledPageKey(event, from: ObjectIdentifier(tab))
     }
 
-    func pageOwnsAllKeys(_ tab: any BrowserTab) -> Bool {
-        window(showing: tab)?.focus.state.isBrowserFocusModeActive ?? false
-    }
-
     /// Chromium's pre-key hook (`CEFTab.keyRouter`): a key the dispatcher
     /// decided in `sendEvent` goes to the page; a key that reached Chromium
     /// without passing `sendEvent` runs the whole dispatcher here, in the
     /// same order (chord, binding table, tier, extension shortcut).
     func browserTab(_ tab: any BrowserTab, keyEquivalent event: NSEvent) -> BrowserKeyDisposition {
         guard !decided.contains(event), let controller = window(showing: tab), let window = controller.window else { return .passToPage }
-        return dispatch(event, in: window, controller: controller, facts: Facts()) ? .handledByHost : .passToPage
+        // The key is in Chromium already: a Chromium page reports it if left unhandled, so a shared shortcut goes to it first.
+        let facts = Facts(pageReportsUnhandledKeys: tab is CEFTab)
+        return dispatch(event, in: window, controller: controller, facts: facts) ? .handledByHost : .passToPage
     }
 
     /// Before a docked or undocked DevTools sees a key: only the DevTools

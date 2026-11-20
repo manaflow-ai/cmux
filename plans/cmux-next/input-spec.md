@@ -79,8 +79,8 @@ Allowed transitions, by event (the reducer, `FocusReducer.swift`):
 | Id | Rule |
 | --- | --- |
 | K1 | Tier 0 keys always reach the router, whatever has the keyboard. |
-| K2 | Tier 1 keys reach the router unless the focused page is in browser focus mode. |
-| K3 | Tier 2 never runs while a text input (address bar, find bar, sidebar field, sheet, rename) has the keyboard or in browser focus mode. |
+| K2 | Tier 1 keys always reach the router. On a Chromium page the router offers a shared shortcut to the page first, outside cmux mode (the browser focus mode flag), and runs it only if the page leaves it unhandled (`PageShortcutRoute`, CMUX-641). |
+| K3 | Tier 2 never runs while a text input (address bar, find bar, sidebar field, sheet, rename) has the keyboard. |
 | K4 | Main-menu key equivalents follow the same tier rules (`allowsMenu`); over a text panel tier 2 never runs. |
 
 Tab keys that a creation hold keeps (`CreationInputBuffer.reduceTabKeys`, `CreationInputBuffer.closeKeyActsNow`;

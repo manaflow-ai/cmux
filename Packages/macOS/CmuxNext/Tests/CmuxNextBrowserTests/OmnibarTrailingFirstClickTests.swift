@@ -25,7 +25,7 @@ struct OmnibarTrailingFirstClickTests {
         bar.setBookmarkStar(.off)
         bar.setProfileBadge(BrowserProfileBadge(monogram: "A", color: nil, name: "Austin"))
         bar.setMachineBadge("cmux-lawrence", help: "cmux-lawrence")
-        bar.setFocusModeBadge(armed: false)
+        bar.setFocusModeBadge(shown: true)
         window.contentView!.layoutSubtreeIfNeeded()
         return (bar, window)
     }

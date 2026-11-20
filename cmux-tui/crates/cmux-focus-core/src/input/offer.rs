@@ -1,9 +1,14 @@
 //! Page-first chords (DESIGN.md section 4.7; the app's
-//! `KeyRouter+PageFirstKeys.swift`): a web page keeps the shortcuts it handles,
-//! as Chrome gives a page every key but its reserved window keys. A chord bound
-//! to a cmux action that a page may own goes first to a page that reports the
-//! keys it leaves unhandled (a Chromium page with the keys; a WebKit page never
-//! reports, so its chords run at once). The action runs only when the page
+//! `KeyRouter+PageFirstKeys.swift` and `PageShortcutRoute.swift`, CMUX-641): a
+//! web page keeps the shortcuts it handles, as Chrome gives a page every key
+//! but its reserved window keys. A chord bound to a cmux action goes first to
+//! a page that reports the keys it leaves unhandled (a Chromium page with the
+//! keys; a WebKit page never reports, so its chords run at once), unless the
+//! action is a system action or one of [`CMUX_KEPT_ACTIONS`]. cmux mode (the
+//! browser focus mode flag) offers only Find and its neighbors. The app also
+//! sends a key to a Chromium page whose window does not have the keys yet (a
+//! relaunch, a tab bar click; `KeyRouter.givesPageFirst`); here such a key
+//! runs its action now (`takes_now`). The action runs only when the page
 //! reports the key unhandled ([`InputEvent::PageUnhandled`] names the key's
 //! id): then with the key as its input, aimed at the tab the key was typed
 //! for, at most once.
@@ -24,12 +29,43 @@ use super::{InputEffect, InputId, OfferEnd, Via};
 use crate::state::{FocusState, Resolved};
 use std::sync::Arc;
 
-/// The actions a page may own: Find and its neighbors (Google Sheets' own
-/// Cmd-F). Every other cmux shortcut runs before the page unless browser
-/// focus mode is on (Lawrence 2026-11-11: Linear's Cmd-B swallowed Toggle
-/// Sidebar; the app's `KeyRouter.pageOwnableActions`).
+/// The actions a page gets first in cmux mode too: Find and its neighbors
+/// (Google Sheets' own Cmd-F; the app's `PageShortcutRoute.pageOwnable`).
 const PAGE_OWNABLE_ACTIONS: [&str; 5] =
     ["find", "findNext", "findPrevious", "browser.findPrevious", "useSelectionForFind"];
+
+/// The actions that never wait for a page (the app's
+/// `PageShortcutRoute.cmuxKept` and `KeyRouter.nativePaletteActions`): Chrome's
+/// reserved tab keys, the address bar (Cmd-L, always the omnibar), Cmd-1 to
+/// Cmd-9, Ghostty's pane keys and the native palettes.
+const CMUX_KEPT_ACTIONS: [&str; 26] = [
+    "newTab",
+    "newTab.default",
+    "newBrowserWorkspace",
+    "openBrowser",
+    "reopenClosedBrowserPanel",
+    "nextSurface",
+    "prevSurface",
+    "nextSidebarTab",
+    "prevSidebarTab",
+    "selectWorkspaceByNumber",
+    "selectSurfaceByNumber",
+    "focusLeft",
+    "focusRight",
+    "focusUp",
+    "focusDown",
+    "splitRight",
+    "splitDown",
+    "resizePaneLeft",
+    "resizePaneRight",
+    "resizePaneUp",
+    "resizePaneDown",
+    "toggleSplitZoom",
+    "focusBrowserAddressBar",
+    "focusLocation",
+    "commandPalette",
+    "goToWorkspace",
+];
 
 /// A key offered to a page, with the action its unhandled report runs.
 pub(super) struct Offer {
@@ -56,11 +92,7 @@ impl InputRouter {
         let page = aim?;
         let Sink::Content(aimed) = page else { return None };
         let Resolved::BrowserPage { tab, .. } = &focus.derived.resolved else { return None };
-        if aimed.as_ref() != tab.as_str()
-            || !key.page_reports_unhandled
-            || focus.derived.browser_focus_mode_active
-            || binding.ghostty
-        {
+        if aimed.as_ref() != tab.as_str() || !key.page_reports_unhandled || binding.ghostty {
             return None;
         }
         let action: &str = &binding.action;
@@ -68,7 +100,10 @@ impl InputRouter {
         if DEV_TOOLS_ACTIONS.contains(&action) {
             return None;
         }
-        let owns = binding.tier != Tier::System && PAGE_OWNABLE_ACTIONS.contains(&action);
+        let cmux_mode = focus.derived.browser_focus_mode_active;
+        let owns = binding.tier != Tier::System
+            && (PAGE_OWNABLE_ACTIONS.contains(&action)
+                || (!cmux_mode && !CMUX_KEPT_ACTIONS.contains(&action)));
         let takes_now = key.reaches.as_ref() == Some(page)
             && !self.lanes.contains_key(page)
             && self.deliverable(page, key.reaches.as_ref(), false) == Ok(Via::Responder);

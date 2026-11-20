@@ -332,7 +332,7 @@ fn a_creation_done_before_its_tab_shows_keeps_the_keys_for_its_terminal() {
     s.open("w1", topology("ws", panes.clone()), "p2");
     s.send(InputEvent::Ready { sink: content("b1") });
     s.reaches(Some(content("b1")));
-    s.press(chord("w1", 50, "newTerminalTab", Tier::Navigation, Some(content("b1"))));
+    s.press(chord("w1", 50, "newTab", Tier::Navigation, Some(content("b1"))));
     s.create("w1", "s9", terminal("T9"));
     s.send(InputEvent::Created { key: ExpectationKey::Tab { id: "s9".into() } });
     let typed = s.press(key("w1", B, Some(content("b1"))));

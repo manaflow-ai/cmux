@@ -143,7 +143,36 @@ const CHROME: [&str; 7] = [
     "browser.copyURL",
     "browser.findPrevious",
 ];
-const KEPT: [&str; 2] = ["toggleBrowserFocusMode", "quit"];
+/// The actions that never wait for a page (the app's `PageShortcutRoute.cmuxKept`
+/// and native palette keys).
+const CMUX_KEPT: [&str; 26] = [
+    "newTab",
+    "newTab.default",
+    "newBrowserWorkspace",
+    "openBrowser",
+    "reopenClosedBrowserPanel",
+    "nextSurface",
+    "prevSurface",
+    "nextSidebarTab",
+    "prevSidebarTab",
+    "selectWorkspaceByNumber",
+    "selectSurfaceByNumber",
+    "focusLeft",
+    "focusRight",
+    "focusUp",
+    "focusDown",
+    "splitRight",
+    "splitDown",
+    "resizePaneLeft",
+    "resizePaneRight",
+    "resizePaneUp",
+    "resizePaneDown",
+    "toggleSplitZoom",
+    "focusBrowserAddressBar",
+    "focusLocation",
+    "commandPalette",
+    "goToWorkspace",
+];
 
 impl Model {
     /// A model whose lanes (and each page's waiting offers) hold `limit`
@@ -740,12 +769,11 @@ impl Model {
             && let Some(focus) = self.focus(&key.window)
         {
             let seen = aimed.seen;
-            let mode = focus.derived.browser_focus_mode_active;
             // Copy mode is the focused terminal's, never a new terminal's.
             let copy_mode = key.terminal_copy_mode && !aimed.expected;
             let to_view =
                 binding.ghostty && ((seen.terminal && !copy_mode) || binding.tier == Tier::Content);
-            if !to_view && runs(&binding.action, binding.tier, seen, mode) {
+            if !to_view && runs(&binding.action, binding.tier, seen) {
                 if dialog.is_none()
                     && let Some(page) = self.page_first(binding, key, focus, aimed.sink.as_ref())
                 {
@@ -991,7 +1019,8 @@ impl Model {
     /// The page a bound chord goes to first (the app's `offersToPage`): the
     /// page the key is aimed at, when it is the window's focused browser page,
     /// it reports the keys it leaves unhandled, its window has the keys and it
-    /// takes them now.
+    /// takes them now; every action but a system or kept one, and in cmux mode
+    /// (the browser focus mode flag) Find and its neighbors only.
     fn page_first(
         &self,
         binding: &Binding,
@@ -1004,15 +1033,17 @@ impl Model {
         let action: &str = &binding.action;
         if aimed != Some(&page)
             || !key.page_reports_unhandled
-            || focus.derived.browser_focus_mode_active
             || binding.ghostty
             || DEV_TOOLS.contains(&action)
         {
             return None;
         }
-        let page_may_own = binding.tier != Tier::System
-            && ["find", "findNext", "findPrevious", "browser.findPrevious", "useSelectionForFind"]
+        let find =
+            ["find", "findNext", "findPrevious", "browser.findPrevious", "useSelectionForFind"]
                 .contains(&action);
+        let cmux_mode = focus.derived.browser_focus_mode_active;
+        let page_may_own =
+            binding.tier != Tier::System && (find || (!cmux_mode && !CMUX_KEPT.contains(&action)));
         let reached = key.reaches.as_ref() == Some(&page);
         let takes = self.waits(&page) == 0
             && self.via(&page, key.reaches.as_ref(), false) == Ok(Via::Responder);
@@ -1104,13 +1135,11 @@ fn by_person(event: &FocusEvent) -> bool {
 
 /// The tier rule (plans/cmux-next/focus.md section 5), as the app's
 /// `KeyRouter.allows` states it, on what the rules see of the key's target.
-fn runs(action: &str, tier: Tier, seen: Seen, mode: bool) -> bool {
+fn runs(action: &str, tier: Tier, seen: Seen) -> bool {
     match tier {
-        Tier::System if mode => KEPT.contains(&action),
-        Tier::System => true,
-        Tier::Navigation => !mode,
-        Tier::Content if DEV_TOOLS.contains(&action) && seen.browser && !mode => true,
+        Tier::System | Tier::Navigation => true,
+        Tier::Content if DEV_TOOLS.contains(&action) && seen.browser => true,
         Tier::Content if CHROME.contains(&action) && seen.chrome_field => true,
-        Tier::Content => !mode && !seen.text_input && !seen.dev_tools,
+        Tier::Content => !seen.text_input && !seen.dev_tools,
     }
 }

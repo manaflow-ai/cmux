@@ -67,7 +67,7 @@ public nonisolated struct KeyContext: Hashable, Sendable {
     /// A text field has the keyboard (address bar, find bar, sidebar
     /// field, rename sheet, other fields).
     public static let textInputFocus = "textInputFocus"
-    /// The focused page is in browser focus mode.
+    /// The focused page is in cmux mode (the browser focus mode flag): cmux shortcuts win over its own.
     public static let browserFocusMode = "browserFocusMode"
     /// The focused terminal is in copy mode.
     public static let terminalCopyMode = "terminal.copyMode"

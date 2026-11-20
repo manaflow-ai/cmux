@@ -40,6 +40,8 @@ public final class BrowserChromeTabState: Sendable {
     public var pageInfoCommandRouter: ((PageInfoCommand) -> Bool)? { didSet { chrome?.pageInfoCommandRouter = pageInfoCommandRouter } }
     public var extensionMenuHandler: (any ExtensionMenuHandling)? { didSet { chrome?.extensionMenuHandler = extensionMenuHandler } }
     public var onFocusModeBadgePress: (() -> Void)? { didSet { chrome?.onFocusModeBadgePress = onFocusModeBadgePress } }
+    /// The cmux mode toggle's keys (the badge's tooltip).
+    public var cmuxModeKeys: String? { didSet { chrome?.cmuxModeKeys = cmuxModeKeys } }
     public var history: (any BrowserHistoryStore)? {
         get { loads.history }
         set { loads.history = newValue }
@@ -74,7 +76,6 @@ public final class BrowserChromeTabState: Sendable {
     // MARK: Per-tab presentation
 
     public var showsFocusModeIndicator = false { didSet { chrome?.showsFocusModeIndicator = showsFocusModeIndicator } }
-    public var focusModeExitArmed = false { didSet { chrome?.focusModeExitArmed = focusModeExitArmed } }
     /// The bar under the toolbar (the bookmarks bar) and its height.
     public var accessory: (view: NSView, height: CGFloat)? {
         didSet { chrome?.setAccessoryView(accessory?.view, height: accessory?.height ?? 0) }

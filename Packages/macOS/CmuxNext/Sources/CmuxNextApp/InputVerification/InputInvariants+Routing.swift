@@ -13,10 +13,9 @@ nonisolated extension InputInvariants {
             out.append(InputViolation(invariant: invariant, window: window, detail: detail))
         }
         if !KeyRouter.allows(.system, focus: state) { fail(.systemTierAlways, "tier 0 refused at \(state.resolved.kind)") }
-        if KeyRouter.allows(.navigation, focus: state) == state.isBrowserFocusModeActive {
-            fail(.navigationTier, "tier 1 \(state.isBrowserFocusModeActive ? "ran in" : "refused outside") browser focus mode")
-        }
-        if KeyRouter.allows(.content, focus: state), state.resolved.isTextInput || state.isBrowserFocusModeActive {
+        // A page's own shortcuts win by its page-first offer (`PageShortcutRoute`), not by the tier: tier 1 always reaches the router.
+        if !KeyRouter.allows(.navigation, focus: state) { fail(.navigationTier, "tier 1 refused at \(state.resolved.kind)") }
+        if KeyRouter.allows(.content, focus: state), state.resolved.isTextInput {
             fail(.contentTierGuarded, "tier 2 allowed at \(state.resolved.kind)")
         }
         for tier in ActionKeyTier.allCases {
