@@ -50,10 +50,12 @@ public struct WorkstreamToolJSONLimiter: Sendable {
         let total = scalarCount(0..<bytes.count)
         guard total > limit, let values = Self.stringValueRanges(in: bytes) else { return nil }
         // Where a value longer than `valueLimit` bytes ends once shortened,
-        // leaving room for the "..." that marks the cut.
+        // leaving room for the "..." that marks the cut. A value the cut
+        // would not make shorter is left alone.
         func cutIndex(_ range: Range<Int>, valueLimit: Int) -> Int? {
             guard range.count > valueLimit else { return nil }
-            return Self.cutIndex(in: bytes, range: range, keeping: valueLimit - 3)
+            let end = Self.cutIndex(in: bytes, range: range, keeping: valueLimit - 3)
+            return scalarCount(end..<range.upperBound) > 3 ? end : nil
         }
         func length(valueLimit: Int) -> Int {
             values.reduce(total) { length, range in
