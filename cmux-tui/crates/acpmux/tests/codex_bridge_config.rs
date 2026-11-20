@@ -125,6 +125,53 @@ async fn the_bridge_runs_the_codex_path_the_family_configures() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
+/// A CLI client changes the advertised speed without changing the model or its effort.
+#[tokio::test]
+async fn cli_changes_codex_speed_without_switching_model() {
+    let d = dir("cli-speed");
+    let codex = shim(&d, "codex", FAKE_APP_SERVER);
+    let model = "gpt-6.2-astra";
+    let catalog = d.join("models.json");
+    std::fs::write(
+        &catalog,
+        json!([{
+            "id": model, "model": model, "displayName": "GPT-6.2 Astra", "isDefault": true,
+            "serviceTiers": [{"id": "priority", "name": "Fast"}],
+            "supportedReasoningEfforts": [{"reasoningEffort": "high"}],
+            "defaultReasoningEffort": "high"
+        }])
+        .to_string(),
+    )
+    .unwrap();
+    let hub = hub_with(json!({
+        "harnesses": {"codex": {
+            "argv": [codex, "app-server"],
+            "env": {"FAKE_CODEX_CATALOG": catalog},
+        }},
+        "defaultHarness": "codex",
+        "permissionPolicy": "ask",
+    }));
+    let mut client = Client::local(&hub);
+    let (session, _) = harness_of_new(&mut client, &d, "codex").await;
+    for tier in ["priority", "default"].into_iter().cycle().take(10) {
+        let reply = client
+            .call(
+                "session/set_config_option",
+                json!({"sessionId": session, "configId": "fast-mode", "value": tier}),
+            )
+            .await;
+        let options =
+            reply["result"]["configOptions"].as_array().unwrap_or_else(|| panic!("{reply}"));
+        for (id, expected) in [("model", model), ("fast-mode", tier)] {
+            assert!(
+                options.iter().any(|o| o["id"] == id && o["currentValue"] == expected),
+                "{reply}"
+            );
+        }
+    }
+    let _ = std::fs::remove_dir_all(&d);
+}
+
 /// A chat's Codex starts with its agent-thread limits lifted (Leo
 /// 2026-10-14, no caps on subagents): `-c` overrides before `app-server`,
 /// so a new chat has them without a restart. A key the profile's command
