@@ -734,6 +734,23 @@ takes --snapshot SNAPSHOT_ID, --image IMAGE_ID --image-revision REV,
 --public-egress, --idle-timeout SECONDS and --idempotency-key KEY.
 ";
 
+/// What a person reads when a Cloud verb (`cmux vm fork`, `new`, `resize`, `rm`, a restore)
+/// answered `pending` because the app is waiting for them to allow it: the app's own sentence
+/// saying so, not the field table, whose `ran: true` and `created: []` read as done, nor
+/// `vm new`'s "still starting". An agent's fork waited on that sheet unseen and made nothing
+/// (2026-11-11). `None` for any other answer.
+pub(super) fn waiting_line(params: &Value, result: &Value) -> Option<String> {
+    params.get("action")?.as_str()?.strip_prefix("cloud ")?;
+    let result = result.get("result")?;
+    if result.get("pending").and_then(Value::as_bool) != Some(true)
+        || result.get("awaiting").and_then(Value::as_str) != Some("allow")
+    {
+        return None;
+    }
+    let text = result.get("text").and_then(Value::as_str).filter(|text| !text.is_empty())?;
+    Some(format!("{text}\n"))
+}
+
 /// What a person reads after `cmux vm new` (the app's `cloud new-machine`)
 /// made a machine: its name and target, then the three things one does next,
 /// each with the `--socket` / `--app-socket` this command was routed through so

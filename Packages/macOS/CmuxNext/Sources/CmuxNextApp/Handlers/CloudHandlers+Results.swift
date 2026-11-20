@@ -42,34 +42,33 @@ extension CloudHandlers {
         }
     }
 
-    /// Runs Cloud work that produces `action.run`'s `result` fields, and shows
-    /// nothing. A refusal (``ActionFailure``) reaches the caller as one. Work
-    /// that outlasts `pendingAfter` answers `pending` (plus `pending: true`)
-    /// and keeps running. A run nobody captures shows a failure as a sheet.
+    /// Runs Cloud work that produces `action.run`'s `result` fields, and shows nothing. A refusal (``ActionFailure``)
+    /// reaches the caller as one. Work that outlasts `pendingAfter` answers `pending`, with what it waits for
+    /// (``CloudRunProgress``), and keeps running. A run nobody captures shows a failure as a sheet, and so does one
+    /// whose failure comes after its `pending` answer (as a notice), unless it is the person's own No.
     static func result(_ label: String, _ context: AppActionContext,
                        pendingAfter: Duration? = nil, pending: [String: ActionResultValue] = [:],
                        _ work: @escaping @MainActor () async throws -> [String: ActionResultValue]) {
-        let logger = context.services.cloud.logger
-        let captured = context.services.registry.isCapturingWork
+        let logger = context.services.cloud.logger, registry = context.services.registry, progress = CloudRunProgress()
+        let captured = registry.isCapturingWork
         // task-owner: the Cloud work itself; it runs to its end even after a `pending` answer.
         let inner: ActionResultWork = Task { @MainActor in
             do {
-                return .success(try await work())
+                return .success(try await progress.running(work))
             } catch let failure as ActionFailure {
-                if !captured { CloudPresenter.failure(failure, in: window(context)) }
+                if !captured { CloudPresenter.failure(failure, in: window(context)) } else if let late = progress.lateFailure(failure.message, label: label) { registry.refuse(failure: late) }
                 return .failure(ActionWorkFailure(refusal: failure.isNotFound ? .notFound : .unavailable, reason: failure.message))
             } catch {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-                if !captured { CloudPresenter.failure(error, in: window(context)) }
+                if !captured { CloudPresenter.failure(error, in: window(context)) } else if (error as? CloudMachineCreateFlow.Failure) != .declined,
+                    let late = progress.lateFailure(CloudStrings.errorText(error), label: label) { registry.refuse(failure: late) }
                 return .failure((error as? ActionWorkFailure).flatMap { $0.code == nil ? nil : $0 } ?? ActionWorkFailure(log: "\(label): \(CloudStrings.errorText(error))", reason: CloudStrings.errorText(error))) // a coded refusal (`agent.limit_reached`) keeps its code
             }
         }
-        guard let pendingAfter else { return context.services.registry.track(result: inner) }
-        // task-owner: the action run's answer: the work's, or `pending` once the wait ends.
-        let task: ActionResultWork = Task { @MainActor in
-            await inner.firstAnswer(within: pendingAfter) ?? .success(pending.merging(["pending": .bool(true)]) { field, _ in field })
-        }
-        context.services.registry.track(result: task)
+        guard let pendingAfter else { return registry.track(result: inner) }
+        // task-owner: the action run's answer: the work's, or `pending` (what it waits for) once the wait ends.
+        let task: ActionResultWork = Task { @MainActor in await inner.firstAnswer(within: pendingAfter) ?? .success(progress.pendingAnswer(pending)) }
+        registry.track(result: task)
     }
 
     /// `cloud new-machine` from a CLI or MCP: the run answers once the server
