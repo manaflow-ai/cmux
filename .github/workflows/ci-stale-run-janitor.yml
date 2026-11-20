@@ -46,7 +46,10 @@ jobs:
       actions: write
       contents: read
       pull-requests: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted Actions control-plane token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    # Freestyle first: a one-job fsr-* VM (JIT config, deleted when the job ends) that no CI job competes for, so
+    # the janitor never waits behind the queue it clears (cmux run 44667204709 sat 13 min on blacksmith-4vcpu with 0
+    # jobs). CI_JANITOR_RUNNER=blacksmith is the fallback: it restores the Blacksmith selector after the Freestyle term.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_JANITOR_RUNNER != 'blacksmith' && 'cmux-freestyle-linux-x64' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted Actions control-plane token; Freestyle one-job VM (default), CI_JANITOR_RUNNER=blacksmith picks CI_TRUSTED_RUNNER's Blacksmith or GitHub-hosted
     timeout-minutes: 15
     steps:
       - name: Check out trusted workflow code

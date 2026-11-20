@@ -171,6 +171,12 @@ BOUNDED_SELECTOR_JOBS = {
     ("required-checks-drift.yml", "reconcile"),
     ("sdk-release-cut.yml", "cut-tags"), ("test-e2e.yml", "runner"), ("test-ios.yml", "runner"),
 }
+# The Freestyle one-job runner label (cmuxterm-hq tools/fleet-reconcilers/freestyle_runners.py LABEL): each runner
+# registers with a JIT config for one job on a fresh fsr-* VM, which powers off and is deleted when the job ends,
+# and the reconciler never makes a VM for a fork's run. Ephemeral like a Blacksmith VM, so a key or trusted
+# token may run there; the janitors take it first so they never wait behind the queue they clear.
+FREESTYLE_LABEL = "cmux-freestyle-linux-x64"
+EPHEMERAL_SELF_HOSTED_LABEL = re.compile(r"blacksmith-[a-z0-9-]+|" + re.escape(FREESTYLE_LABEL), re.IGNORECASE)
 HOSTED_LITERAL_LABEL = re.compile(r"ubuntu-latest|ubuntu-\d{2}\.\d{2}(?:-arm)?|macos-\d+(?:-intel)?|windows-\d{4}")
 # Values the selector test tries for LINUX_RUNNER: owned and hosted labels, case and list forms.
 ADVERSARIAL_VARIABLE_VALUES = (
@@ -286,14 +292,14 @@ def runner_label_errors(runs_on: str) -> list[str]:
         return []
     expression = re.fullmatch(r"\$\{\{(.*)\}\}", runs_on.strip(), re.DOTALL)
     if expression is None:
-        if re.fullmatch(r"blacksmith-[a-z0-9-]+", runs_on) or HOSTED_LITERAL_LABEL.fullmatch(runs_on):
-            return []  # One fixed ephemeral label: a Blacksmith VM or a GitHub-hosted one.
+        if EPHEMERAL_SELF_HOSTED_LABEL.fullmatch(runs_on) or HOSTED_LITERAL_LABEL.fullmatch(runs_on):
+            return []  # One fixed ephemeral label: a Blacksmith or Freestyle VM, or a GitHub-hosted one.
         return [f"{runs_on!r} is not an ephemeral label"]
     try:
         chain = _alternatives(parse_expression(expression.group(1)))
     except ExpressionSyntaxError as error:
         return [f"cannot parse {runs_on!r}: {error}"]
-    blacksmith = re.compile(r"blacksmith-[a-z0-9-]+", re.IGNORECASE)
+    blacksmith = EPHEMERAL_SELF_HOSTED_LABEL  # a Blacksmith label, or the Freestyle one-job label
     errors: list[str] = []
     for index, operand in enumerate(chain):
         conditions, result = (operand[1][:-1], operand[1][-1]) if operand[0] == "and" else ([], operand)
