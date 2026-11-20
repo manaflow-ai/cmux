@@ -67,7 +67,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     }
 
     /// The listed Macs (one per computer, whatever builds run on it: ``MacRoster``).
-    private var macs: [MacDevice] { macText.roster(store.activeTeam?.macs ?? []).visible }
+    private var macs: [MacDevice] { macText.roster(store.activeTeam).visible }
 
     private var labels: HomeMacLabels {
         HomeMacLabels(macs: macs, scope: macFilter.scope(in: store.activeTeam),
@@ -1067,7 +1067,8 @@ struct MacConversationScreen: View {
         Group {
             // One branch for the kept and the live session: the screen stays as it goes live.
             // A failed first open shows the conversation too (its title, what this phone kept and
-            // the composer) under its bar's "Not connected" and Try Again, never a full-screen error.
+            // the composer), never a full-screen error; a normal reconnect says nothing over it, and
+            // only past the quiet bound is it marked not live (``MacConversationLoader``).
             if let session = loader.session ?? shownKept {
                 ChiefConversationScreen(session: session)
             } else {

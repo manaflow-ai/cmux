@@ -63,6 +63,19 @@ public enum CloudGitHubApp: String, Equatable, Sendable {
         return gitHubPage(raw, path: #"^(/organizations/[A-Za-z0-9-]+)?/settings/installations/[0-9]+$"#)
     }
 
+    /// Settings' Reconfigure for a ready connection: its installation settings (``configureURL(status:body:)``), where
+    /// the person changes which repositories the App reaches, else the App's own installation chooser on GitHub
+    /// (https://github.com/apps/<slug>/installations/new, no `state`), which lists each account and org the App is on
+    /// with Configure. Nil when not ready, or when the answer names no usable App slug.
+    public static func reconfigureURL(status: Int, body: Data) -> URL? {
+        if let page = configureURL(status: status, body: body) { return page }
+        guard CloudGitHubApp(status: status, body: body) == .ready,
+              let object = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any],
+              let slug = object["app_slug"] as? String,
+              slug.range(of: #"^[A-Za-z0-9-]{1,100}$"#, options: .regularExpression) != nil else { return nil }
+        return installationURL("https://github.com/apps/\(slug)/installations/new")
+    }
+
     /// The `exp` of the signed `state` an installation page carries; nil when it carries none. Only a cache hint:
     /// the API verifies the state on completion.
     public static func authorizationExpiry(_ url: URL) -> Date? {
