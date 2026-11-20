@@ -885,6 +885,8 @@ fn a_workspace_commit_prepared_before_another_lands_states_every_workspace() {
 /// PROBE (temporary, ask-bdd706af47): the cost of one create at 10 and at 2000 workspaces.
 #[test]
 fn probe_create_cost_at_10_and_2000_workspaces() {
+    // The daemon never builds the whole tree per entity: a test does, to check each one.
+    crate::server::skip_tree_entity_check();
     let mut table = String::new();
     for count in [10usize, 2000] {
         let seeded = std::time::Instant::now();
@@ -893,9 +895,15 @@ fn probe_create_cost_at_10_and_2000_workspaces() {
         let mut samples = Vec::new();
         for index in 0..8 {
             let key = format!("018f6e21-7b70-7e70-9000-{index:012}");
+            let phases = index == 7;
+            crate::workspace_registry::PROBE_PHASES.with(|on| on.set(phases));
+            if phases {
+                eprintln!("PHASES at {count}:");
+            }
             let started = std::time::Instant::now();
             mux.create_empty_workspace(None, Some(key), None).unwrap();
             samples.push(started.elapsed().as_secs_f64() * 1e3);
+            crate::workspace_registry::PROBE_PHASES.with(|on| on.set(false));
         }
         samples.sort_by(f64::total_cmp);
         table.push_str(&format!(

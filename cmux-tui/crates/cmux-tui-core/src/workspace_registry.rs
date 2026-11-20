@@ -2479,3 +2479,24 @@ mod workspace_name_tests;
 
 #[cfg(test)]
 mod projection_size_tests;
+
+/// PROBE (temporary, ask-bdd706af47): times `body` under `name` on stderr while `PROBE_PHASES` is set on this thread.
+#[cfg(test)]
+pub(crate) fn probe_phase<T>(name: &str, body: impl FnOnce() -> T) -> T {
+    if !PROBE_PHASES.with(Cell::get) {
+        return body();
+    }
+    let started = std::time::Instant::now();
+    let value = body();
+    eprintln!("PHASE {name} {:.3} ms", started.elapsed().as_secs_f64() * 1e3);
+    value
+}
+#[cfg(not(test))]
+#[inline(always)]
+pub(crate) fn probe_phase<T>(_name: &str, body: impl FnOnce() -> T) -> T {
+    body()
+}
+#[cfg(test)]
+thread_local! {
+    pub(crate) static PROBE_PHASES: Cell<bool> = const { Cell::new(false) };
+}

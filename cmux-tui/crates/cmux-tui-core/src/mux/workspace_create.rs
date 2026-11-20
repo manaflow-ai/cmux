@@ -156,7 +156,9 @@ impl Mux {
             }
             let name_source =
                 crate::resource_name::NameSource::for_requested_workspace_name(name.as_deref());
-            let name = name.unwrap_or_else(|| self.default_workspace_name(&state));
+            let name = crate::workspace_registry::probe_phase("mux.default_name", || {
+                name.unwrap_or_else(|| self.default_workspace_name(&state))
+            });
             let index = state.workspaces.len();
             let selection_resync = !state.workspaces.is_empty();
             // Without focus, the workspace that was focused stays focused.
@@ -168,7 +170,9 @@ impl Mux {
                 .as_ref()
                 .map_or(&workspace_public_id, |(_, public_id)| public_id)
                 .clone();
-            let mut desired = self.registry_projection(&state);
+            let mut desired = crate::workspace_registry::probe_phase("mux.projection", || {
+                self.registry_projection(&state)
+            });
             desired.push(RegistryWorkspace {
                 id: ws_id,
                 public_id: workspace_public_id.clone(),
@@ -184,6 +188,7 @@ impl Mux {
                 "key": key,
                 "index": index,
             });
+            let commit_started = std::time::Instant::now();
             let commit = if project_resource {
                 registry.commit_with_active_workspace(
                     mutation,
@@ -217,6 +222,15 @@ impl Mux {
                     ),
                 )?
             };
+            #[cfg(test)]
+            if crate::workspace_registry::PROBE_PHASES.with(std::cell::Cell::get) {
+                eprintln!(
+                    "PHASE mux.commit_total {:.3} ms",
+                    commit_started.elapsed().as_secs_f64() * 1e3
+                );
+            }
+            #[cfg(not(test))]
+            let _ = commit_started;
             let committed_workspace = commit.result["workspace"]
                 .as_u64()
                 .ok_or_else(|| anyhow::anyhow!("stored create result is missing workspace"))?;
@@ -286,10 +300,14 @@ impl Mux {
                 selection_resync,
             )
         };
-        self.emit_committed_workspace_delta(&registry, delta, selection_resync);
+        crate::workspace_registry::probe_phase("mux.emit_delta", || {
+            self.emit_committed_workspace_delta(&registry, delta, selection_resync)
+        });
         drop(registry);
         if project_resource {
-            self.publish_resource_event();
+            crate::workspace_registry::probe_phase("mux.publish_resource_event", || {
+                self.publish_resource_event()
+            });
         }
         Ok(placement)
     }

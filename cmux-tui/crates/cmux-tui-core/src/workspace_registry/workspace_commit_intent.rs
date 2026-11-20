@@ -79,7 +79,14 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<WorkspaceCommitIntent> {
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
-        let stated_workspaces = if project_resource { self.stated_workspaces() } else { None };
+        let stated_workspaces = probe_phase("prepare.stated_workspaces", || {
+            if project_resource { self.stated_workspaces() } else { None }
+        });
+        let previous_topology = probe_phase("prepare.topology", || {
+            project_resource
+                .then(|| self.resource_topology_for_workspace_commit(workspaces, active_workspace))
+                .transpose()
+        })?;
         Ok(WorkspaceCommitIntent {
             mutation: mutation.clone(),
             fingerprint: canonical_json(fingerprint)?,
@@ -93,9 +100,7 @@ impl WorkspaceRegistry {
             result: result.clone(),
             result_json: canonical_json(result)?,
             project_resource,
-            previous_topology: project_resource
-                .then(|| self.resource_topology_for_workspace_commit(workspaces, active_workspace))
-                .transpose()?,
+            previous_topology,
             stated_workspaces,
             session_id: self.session_id.clone(),
             extra: None,
@@ -223,16 +228,18 @@ impl WorkspaceCommitIntent {
                 "active workspace is absent from the desired registry: {active_workspace}"
             );
         }
-        let (revision, _, written) = commit_workspace_rows_in_transaction(
-            tx,
-            mutation,
-            fingerprint,
-            expected_revision,
-            event_kind,
-            workspace_key,
-            workspaces,
-            result_json,
-        )?;
+        let (revision, _, written) = probe_phase("apply.rows", || {
+            commit_workspace_rows_in_transaction(
+                tx,
+                mutation,
+                fingerprint,
+                expected_revision,
+                event_kind,
+                workspace_key,
+                workspaces,
+                result_json,
+            )
+        })?;
         // Presentation rows land before the resource batch, so its restated
         // workspaces carry the new identity fields.
         let mut extra_ran = false;
@@ -303,11 +310,13 @@ impl WorkspaceCommitIntent {
             resource_changes.push(ResourceChange::SetActiveWorkspace {
                 workspace_id: active_workspace.cloned(),
             });
-            apply_resource_patch(
-                tx,
-                &ResourcePatch { changes: resource_changes },
-                sqlite_resource_revision,
-            )?;
+            probe_phase("apply.resource_patch", || {
+                apply_resource_patch(
+                    tx,
+                    &ResourcePatch { changes: resource_changes },
+                    sqlite_resource_revision,
+                )
+            })?;
         }
         if project_resource {
             if let Some(active_workspace) = active_workspace {
@@ -345,12 +354,14 @@ impl WorkspaceCommitIntent {
                 result_json,
                 sqlite_resource_revision,
             )?;
-            let resource_deltas = normalized_workspace_resource_deltas(
-                &self.session_id,
-                workspaces,
-                active_workspace.map(WorkspacePublicId::as_str),
-                previous_topology,
-            )?;
+            let resource_deltas = probe_phase("apply.normalized_deltas", || {
+                normalized_workspace_resource_deltas(
+                    &self.session_id,
+                    workspaces,
+                    active_workspace.map(WorkspacePublicId::as_str),
+                    previous_topology,
+                )
+            })?;
             // Only what the journal does not state already (#32408): each upsert is compared, decorated as the
             // journal writes it, with the public fold read at prepare. The commit's own workspace always goes
             // when extra rows ran (a metadata commit changes only its decorations). With no fold, or one
@@ -394,22 +405,26 @@ impl WorkspaceCommitIntent {
                                 .map(WorkspacePublicId::as_str),
                         );
                     }
-                    prune_stated_workspace_upserts(tx, &resource_deltas, stated, &changed, keep)?
+                    probe_phase("apply.prune_stated", || {
+                        prune_stated_workspace_upserts(tx, &resource_deltas, stated, &changed, keep)
+                    })?
                 }
                 None => resource_deltas,
             };
-            append_resource_journal_record(
-                tx,
-                resource_revision,
-                previous_resource_revision,
-                &mutation.origin,
-                &mutation.id,
-                event_kind,
-                None,
-                result,
-                &resource_deltas,
-            )?;
-            resource_store::prune_resource_mutations(tx)?;
+            probe_phase("apply.journal_append", || {
+                append_resource_journal_record(
+                    tx,
+                    resource_revision,
+                    previous_resource_revision,
+                    &mutation.origin,
+                    &mutation.id,
+                    event_kind,
+                    None,
+                    result,
+                    &resource_deltas,
+                )
+            })?;
+            probe_phase("apply.prune_mutations", || resource_store::prune_resource_mutations(tx))?;
         }
         Ok(WorkspaceCommitReceipt {
             commit: RegistryCommit { revision, result: result.clone(), replayed: false },
