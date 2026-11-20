@@ -23,6 +23,8 @@ pub struct Cursor {
     pub permission_wakes: std::collections::BTreeSet<String>,
     pub await_fresh: bool,
     pub forum: Option<ForumSelector>,
+    /// None migrates pre-reconciliation watches without replaying historical posts.
+    pub forum_heads: Option<std::collections::BTreeMap<String, String>>,
 }
 /// An explicit opt-in to receipt events in the recipient's own forum.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -82,6 +84,11 @@ impl ForumSelector {
 pub fn seed_forum(hub: &Hub, key: &str, selector: ForumSelector) -> Cursor {
     Cursor {
         seq: summary(hub, key)["lastSeq"].as_u64().unwrap_or(0),
+        forum_heads: Some(hub.forum().work_heads(
+            key,
+            &selector.channel,
+            selector.thread.as_deref(),
+        )),
         forum: Some(selector),
         ..Default::default()
     }
@@ -131,7 +138,6 @@ pub const WATCH_KINDS: &[&str] = &[
     "permission_decision",
     "turn_result",
     "status",
-    "forum_work",
 ];
 
 /// The most a watch's page from a peer may hold, and the most one record in it may: a page
@@ -168,6 +174,30 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
         .cursors
         .get_mut(key)
         .ok_or_else(|| RpcError::internal("watch source has no saved cursor"))?;
+    // The forum journal is authoritative. Session events only trigger reconciliation:
+    // a crash between durable work_post and its forum_work projection cannot lose a wake.
+    if let Some(selector) = &c.forum {
+        let heads = hub.forum().work_heads(key, &selector.channel, selector.thread.as_deref());
+        let mut found = Vec::new();
+        if let Some(previous) = &c.forum_heads {
+            for (thread, post_id) in &heads {
+                if previous.get(thread) != Some(post_id)
+                    && let Some(receipt) = selector.receipt(
+                        key,
+                        &json!({
+                            "stored": true, "duplicate": false, "channel": selector.channel,
+                            "thread": thread, "postId": post_id
+                        }),
+                    )
+                {
+                    found.push(receipt);
+                }
+            }
+        }
+        // Cursor and owed wake commit together in watches::commit, including after restart.
+        c.forum_heads = Some(heads);
+        return Ok((found, false));
+    }
     let mut found = Vec::new();
     let mut candidates = Vec::new();
     let mut end = None;
@@ -206,15 +236,6 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
                 initial(&w.until, w.match_text.is_some(), key, c, &mut found);
             }
             c.seq = e.seq;
-            if let Some(selector) = &c.forum {
-                if e.dir == "mux"
-                    && e.kind == "forum_work"
-                    && let Some(receipt) = selector.receipt(key, &e.msg)
-                {
-                    found.push(receipt);
-                }
-                continue;
-            }
             match (e.dir.as_str(), e.kind.as_str()) {
                 ("mux", "turn_started") => {
                     c.reply_open = false;
@@ -387,20 +408,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn forum_watch_skips_history_and_resumes_saved_cursor_without_reply_text() {
+    async fn forum_watch_recovers_post_without_event_and_ignores_source_only_changes() {
         let cfg: crate::config::Config =
             serde_json::from_value(json!({"store":{"mode":"memory"}})).unwrap();
         let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
         let meta = serde_json::from_value(json!({"schema": crate::store::META_SCHEMA, "id":"s1", "name":"s1", "harness":"codex", "cwd":"/tmp", "status":"idle", "createdAt":1, "updatedAt":1})).unwrap();
         store.save(&meta).unwrap();
         let hub = Hub::new(cfg, store);
-        let session = hub.resolve("s1").unwrap();
-        let event = json!({"stored":true, "duplicate":false, "channel":"ops", "thread":"runner", "postId":"old"});
-        hub.append(&session, "mux", "forum_work", event.clone());
-        hub.wait_logs().await;
+        let post = |key: &str, source: &str| crate::forum::work::Input {
+            channel: "ops".into(),
+            thread: "runner".into(),
+            kind: crate::forum::work::Kind::Status,
+            key: key.into(),
+            body: "untrusted post content".into(),
+            source: source.into(),
+        };
+        hub.forum().work_post("s1", post("old", "host-a"), json!({}), 1).unwrap();
         let selector = ForumSelector { channel: "ops".into(), thread: Some("runner".into()) };
         let cursor = seed_forum(&hub, "s1", selector);
-        assert!(cursor.seq > 0);
         let mut watch = Watch {
             id: "w1".into(),
             to: "s1".into(),
@@ -413,20 +438,26 @@ mod tests {
             cursors: std::collections::BTreeMap::from([("s1".into(), cursor)]),
             offline: Default::default(),
         };
-        assert!(collect(&hub, &mut watch, "s1").await.unwrap().0.is_empty());
-        // The durable watch file uses the same serialization across daemon restarts.
-        let mut watch: Watch =
-            serde_json::from_value(serde_json::to_value(&watch).unwrap()).unwrap();
-        let mut fresh = event;
-        fresh["postId"] = json!("new");
-        fresh["body"] = json!("untrusted post content");
-        hub.append(&session, "mux", "forum_work", fresh);
-        hub.append(&session, "mux", "turn_result", json!({"turnId":"t1", "unread":true}));
-        hub.wait_logs().await;
+        assert!(
+            collect(&hub, &mut watch, "s1").await.unwrap().0.is_empty(),
+            "registration replayed history"
+        );
+        hub.forum().work_post("s1", post("old", "host-b"), json!({}), 2).unwrap();
+        assert!(
+            collect(&hub, &mut watch, "s1").await.unwrap().0.is_empty(),
+            "source-only update woke the watch"
+        );
+        // Simulate crash after forum storage but before session-event projection. The saved
+        // watch is loaded by startup reconciliation; it must not depend on forum_work.
+        let saved = serde_json::to_value(&watch).unwrap();
+        let fresh = hub.forum().work_post("s1", post("new", "host-a"), json!({}), 3).unwrap();
+        let mut watch: Watch = serde_json::from_value(saved).unwrap();
         let rows = collect(&hub, &mut watch, "s1").await.unwrap().0;
         assert_eq!(rows.len(), 1);
-        assert!(rows[0].contains("new"));
+        assert!(rows[0].contains(fresh["postId"].as_str().unwrap()));
         assert!(!rows[0].contains("untrusted"));
+        assert!(collect(&hub, &mut watch, "s1").await.unwrap().0.is_empty());
+        hub.forum().work_post("s1", post("new", "host-b"), json!({}), 4).unwrap();
         assert!(collect(&hub, &mut watch, "s1").await.unwrap().0.is_empty());
         hub.shutdown_all().await;
     }

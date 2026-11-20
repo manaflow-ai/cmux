@@ -367,6 +367,25 @@ impl Forum {
         Ok(receipt)
     }
 
+    /// IDs only for durable watch reconciliation; never clone post bodies or provenance.
+    pub fn work_heads(
+        &self,
+        recipient: &str,
+        channel: &str,
+        thread: Option<&str>,
+    ) -> BTreeMap<String, String> {
+        let state = self.lock();
+        state
+            .work
+            .recipients
+            .get(recipient)
+            .into_iter()
+            .flat_map(|r| &r.threads)
+            .filter(|((c, t), _)| c == channel && thread.is_none_or(|want| t == want))
+            .filter_map(|((_, t), v)| v.posts.back().map(|post| (t.clone(), post.id.clone())))
+            .collect()
+    }
+
     pub fn work_threads(
         &self,
         recipient: &str,
