@@ -1221,8 +1221,8 @@ members; `tests/test_ci_runner_pools_copy.py` keeps the copy equal to main's).
 | Pool | Members (first is preferred) |
 | --- | --- |
 | `linux` | Blacksmith 4 vCPU, 16 vCPU (may gain the fleet Linux label) |
-| `linux_2` | Blacksmith 2 vCPU, then 4 vCPU |
-| `linux_4` | Blacksmith 4 vCPU, then 16 vCPU (ephemeral only, unlike `linux`) |
+| `linux_2` | Fleet light (`cmux-fleet-linux-x64-light`, 4 vCPU one-job VMs), fleet Linux, then Blacksmith 2 vCPU, 4 vCPU |
+| `linux_4` | Fleet light (`cmux-fleet-linux-x64-light`), fleet Linux, then Blacksmith 4 vCPU, 16 vCPU (ephemeral only, unlike `linux`) |
 | `linux_8` | Blacksmith 8 vCPU, then 16 vCPU |
 | `linux_16` | Blacksmith 16 vCPU, then 32 vCPU |
 | `linux_32` | Blacksmith 32 vCPU, then 16 vCPU |

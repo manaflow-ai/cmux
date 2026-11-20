@@ -77,16 +77,18 @@
       ]
     },
     "linux_2": {
-      "why": "One-minute control and comment jobs measured at 2 vCPU. A job that used to end in a literal 2 vCPU label reads this pool, so a stalled 2 vCPU size moves it to 4 vCPU by declaration, not by a YAML edit (Leo, 2026-10-28: \"Where the f***ing are the generalized solution to all these problems that these incessant pins?\")",
+      "why": "One-minute control and comment jobs measured at 2 vCPU, first on cmux-fleet-linux-x64-light (one 4 vCPU VM per job: a JIT runner takes any job on its label, so only a job that names the light label gets a small VM). A job that used to end in a literal 2 vCPU label reads this pool, so a stalled 2 vCPU size moves it to 4 vCPU by declaration, not by a YAML edit (Leo, 2026-10-28: \"Where the f***ing are the generalized solution to all these problems that these incessant pins?\")",
       "members": [
+        "cmux-fleet-linux-x64-light",
         "cmux-fleet-linux-x64",
         "blacksmith-2vcpu-ubuntu-2404",
         "blacksmith-4vcpu-ubuntu-2404"
       ]
     },
     "linux_4": {
-      "why": "Jobs measured at 4 vCPU that must stay on an ephemeral machine (secret-bearing and write-token jobs, which the linux pool may one day not be). A stalled 4 vCPU size moves them to 16 vCPU",
+      "why": "Jobs measured at 4 vCPU that must stay on an ephemeral machine (secret-bearing and write-token jobs, which the linux pool may one day not be), first on cmux-fleet-linux-x64-light (one 4 vCPU VM per job). A stalled 4 vCPU size moves them to 16 vCPU",
       "members": [
+        "cmux-fleet-linux-x64-light",
         "cmux-fleet-linux-x64",
         "blacksmith-4vcpu-ubuntu-2404",
         "blacksmith-16vcpu-ubuntu-2404"
