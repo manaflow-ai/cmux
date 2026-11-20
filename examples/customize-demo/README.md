@@ -115,6 +115,9 @@ searches the whole inventory before paging. The regression suite reverses activi
 to ensure hosts stay on the same page. Hosts are
 ordered by name with This Mac first. The Hosts profile uses the thin sidebar rail; open its full
 sidebar with `cmux action run toggleSidebar` to exercise the sidebar's own paging controls.
+Sidebar session pagers use compact chevrons with `Previous sessions`/`Next sessions` help labels,
+and a count that keeps its intrinsic width. In the sidebar, the pager sits below the host header
+before its session rows, so it remains reachable in a short section.
 The regression detector in
 `looks/check/views.test.ts` mounts all four app looks and exercises Hosts with 100 and 3,000
 sessions, navigation, search, and a shrinking inventory. To compare scene counts and fixture

@@ -22,12 +22,18 @@ const pageItems = (items, page, size) => {
   return items.slice(start, start + size)
 }
 
-function pager(items, page, setPage, size, label) {
+function pager(items, page, setPage, size, label, compact = false) {
   const current = () => pageIndex(page(), items().length, size)
   return () => items().length > size ? HStack({ spacing: 6 }, [
-    Button(`Previous ${label}`, () => setPage(current() - 1)).disabled(() => current() === 0),
-    Text(() => `${current() + 1} / ${Math.ceil(items().length / size)}`).font("caption"),
-    Button(`Next ${label}`, () => setPage(current() + 1)).disabled(() => (current() + 1) * size >= items().length)
+    (compact
+      ? Button(Icon("chevron.left"), () => setPage(current() - 1)).help(`Previous ${label}`)
+      : Button(`Previous ${label}`, () => setPage(current() - 1))
+    ).disabled(() => current() === 0),
+    Text(() => `${current() + 1} / ${Math.ceil(items().length / size)}`).font("caption").monospaced().fixedSize("horizontal"),
+    (compact
+      ? Button(Icon("chevron.right"), () => setPage(current() + 1)).help(`Next ${label}`)
+      : Button(`Next ${label}`, () => setPage(current() + 1))
+    ).disabled(() => (current() + 1) * size >= items().length)
   ]) : null
 }
 
@@ -186,8 +192,8 @@ function renderHosts() {
     ForEach({ items: () => pageItems(hosts(), hostPage(), HOSTS_PER_PAGE), key: (h) => h.name }, (h) =>
       VStack({ spacing: 1 }, [
         hostHeader(h),
+        pager(() => folded()[h().name] ? [] : h().sessions, () => sessionPage(h().name), (page) => setSessionPage(h().name, page), SESSIONS_PER_PAGE, "sessions", true),
         ForEach({ items: () => pageItems(folded()[h().name] ? h().sessions.filter(isOpen) : h().sessions, sessionPage(h().name), SESSIONS_PER_PAGE), key: (c) => c.id }, session),
-        pager(() => folded()[h().name] ? [] : h().sessions, () => sessionPage(h().name), (page) => setSessionPage(h().name, page), SESSIONS_PER_PAGE, "sessions"),
         () => (h().sessions.length || folded()[h().name] ? null : Text("No sessions").font("caption").color(cmux.theme.text.tertiary).paddingHorizontal(30))
       ])
     ),
@@ -250,7 +256,7 @@ function renderPicker() {
             accessory: () => age(lastActivity(c()))
           }).onTap(() => show(c()))
         ),
-        pager(() => h().sessions, () => sessionPage(h().name), (page) => setSessionPage(h().name, page), SESSIONS_PER_PAGE, "sessions")
+        pager(() => h().sessions, () => sessionPage(h().name), (page) => setSessionPage(h().name, page), SESSIONS_PER_PAGE, "sessions", true)
       ])
     ),
     pager(matchingHosts, pickerPage, setPickerPage, HOSTS_PER_PAGE, "hosts"),

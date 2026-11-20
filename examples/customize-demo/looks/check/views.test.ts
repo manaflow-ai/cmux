@@ -110,11 +110,19 @@ for (const size of [100, 3000]) {
         expect(h.logs.filter(([level]) => level === "error")).toEqual([])
         expect(nodes).toBeLessThan(700)
         // Later sessions are accessible through the actual rendered controls.
-        const nextSessions = h.findNode("m", (n) => n.type === "Button" && n.props.title === "Next sessions")!
+        const nextSessions = h.findNode("m", (n) => n.type === "Button" && (n.props.title === "Next sessions" || n.props.help === "Next sessions"))!
         expect(nextSessions).toBeDefined()
         h.dispatch("m", nextSessions, "tap")
         await h.settle()
         expect(texts(h, "m")).toContain("Chat 6")
+        expect(texts(h, "m")).toContain("2 / 4")
+        const previousSessions = h.findNode("m", (n) => n.type === "Button" && n.props.help === "Previous sessions")!
+        expect(previousSessions).toBeDefined()
+        h.dispatch("m", previousSessions, "tap")
+        await h.settle()
+        expect(texts(h, "m")).toContain("Chat 0")
+        expect(texts(h, "m")).not.toContain("Chat 6")
+        expect(h.tree("m").nodes.get(previousSessions)!.props.disabled).toBe(true)
         if (size === 3000) {
           const nextHosts = h.findNode("m", (n) => n.type === "Button" && n.props.title === "Next hosts")!
           expect(nextHosts).toBeDefined()
