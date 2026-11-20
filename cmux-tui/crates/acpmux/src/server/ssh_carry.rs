@@ -175,7 +175,7 @@ pub(super) async fn carry(hub: &Arc<Hub>, delivery: &Delivery) -> Option<Carry> 
         session = %route.key,
         delivery = %delivery.id,
         outcome = label,
-        ms = started.elapsed().as_millis() as u64,
+        ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
         "ssh carry: {why}"
     );
     Some(match outcome {
