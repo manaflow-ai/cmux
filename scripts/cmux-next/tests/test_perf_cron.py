@@ -3357,6 +3357,72 @@ class PartRowsStoredAtOnceTests(unittest.TestCase):
             self.assertEqual(cron.stale_parts(state, at(2 + cron.STALE_HOURS)), ["stress"])
 
 
+class ReplayControllerResultsTests(unittest.TestCase):
+    """A reader's copy of the state (synthetic-probes.yml perf-tabs, after fetch-state) stores the controller's done
+    results (GET /perf-cron/results.json) with the cron's own report, at the time each step ended: on 2026-11-19 each
+    result run waited ~16 h for a runner and the probe tabs-keep-speed read no Mac row for 2 days while the bench had
+    measured them."""
+
+    class Answer(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def replay(self, d, results):
+        path = os.path.join(d, "results.json")
+        with open(path, "w") as f:
+            json.dump({"results": results}, f)
+        report = json.dumps(PartRowsStoredAtOnceTests.STRESS).encode()
+        with mock.patch.object(cron.urllib.request, "urlopen", lambda req, timeout=0: self.Answer(report)), \
+                mock.patch.object(cron, "now_utc", lambda: at(30)):
+            cron.cmd_replay_results(argparse.Namespace(dir=d, url="", file=path))
+        with open(os.path.join(d, "state.json")) as f:
+            return json.load(f)
+
+    def result(self, **kw):
+        return {"run": 7, "attempt": 1, "sha": "a" * 40, "part": "stress", "step_id": "s1", "state": "done",
+                "worker": cron.BENCH_WORKER, "artifact_url": "https://store.example/x",
+                "ended_at": cron.iso(at(2)).replace("Z", ".123456789Z"), **kw}
+
+    def test_a_done_result_is_stored_at_its_end_and_only_once(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = PartRowsStoredAtOnceTests().state_with(["stress", "motion"])
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump(state, f)
+            results = [self.result(), self.result(sha="b" * 40, step_id="s0"), self.result(part="motion", state="failed",
+                                                                                           step_id="s2")]
+            state = self.replay(d, results)
+            rows = state.get("part_rows") or {}
+            self.assertTrue(rows, "the controller's done part is stored with no result run")
+            for name, row in rows.items():
+                self.assertTrue(name.endswith("@" + cron.BENCH_WORKER), name)
+                self.assertEqual((row["sha"], row["part"], row["at"]), ("a" * 40, "stress", cron.iso(at(2))),
+                                 "at the time the step ended, not the time of the read")
+            self.assertEqual(state["current"]["parts_todo"], ["motion"], "the failed part is the cron's to judge")
+            self.assertEqual(state["current"]["parts"]["stress"]["step_id"], "s1")
+            again = self.replay(d, results)
+            self.assertEqual(again["part_stored"], state["part_stored"], "a step stored already is not stored again")
+
+    def test_an_unreadable_list_leaves_the_state_as_fetched(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = PartRowsStoredAtOnceTests().state_with(["stress"])
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump(state, f)
+            cron.cmd_replay_results(argparse.Namespace(dir=d, url="", file=os.path.join(d, "missing.json")))
+            with open(os.path.join(d, "state.json")) as f:
+                self.assertEqual(json.load(f), state)
+
+    def test_a_result_without_its_end_time_is_not_stored(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = PartRowsStoredAtOnceTests().state_with(["stress"])
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump(state, f)
+            state = self.replay(d, [self.result(ended_at="")])
+            self.assertFalse(state.get("part_rows"), "a row is never dated by its read")
+
+
 class StalePartFirstTests(unittest.TestCase):
     """A part whose newest stored rows (part_stored) are older than PART_STALE_HOURS runs ahead of the PARTS order, so
     every row the cron feeds gets a pass within 24 h (2026-11-19: throughput, the last Mac part, went 38 h without one

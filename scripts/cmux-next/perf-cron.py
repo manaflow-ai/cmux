@@ -33,8 +33,8 @@ lower: a creep of a little under 10 % per run does not ratchet the baseline up),
 perf-budgets.json budget). A candidate regresses only when consecutive tip measurements show a shift
 (confirm_regressions).
 
-Subcommands: fetch-state, plan, fleet-check, run-part, part-cleanup, run-linux-part, report, dispatch-next (see each
---help). Tests: scripts/cmux-next/tests/test_perf_cron.py (decisions) and test_perf_cron_io.py (GitHub, git, the
+Subcommands: fetch-state, plan, fleet-check, run-part, part-cleanup, run-linux-part, report, dispatch-next,
+replay-results (see each --help). Tests: scripts/cmux-next/tests/test_perf_cron.py (decisions) and test_perf_cron_io.py (GitHub, git, the
 fleet client and multi-tick runs, faked) (run them yourself; no CI job runs them).
 """
 import argparse, collections, datetime, hashlib, importlib.util, io, json, os, random, re, subprocess, sys, time, urllib.error
@@ -3655,8 +3655,8 @@ def stale_parts(state, now):
     return [n for _, n in sorted(old)]
 
 
-def report(o):
-    t = now_utc()
+def report(o, t=None):
+    t = t or now_utc()
     state = load_state(o.dir, t)
     changed = not state.get("persisted") or bool(state.pop("dirty", False))
     state["persisted"] = True
@@ -3894,20 +3894,29 @@ def controller_result(raw):
     return value
 
 
-def result_plan(o, state, t):
-    """A run the controller started with a part's result: plan nothing new; the report job stores the part. A
-    result for another measurement, or for a part not to do, is dropped (a late result after an abandon)."""
-    value = controller_result(o.perf_result)
+def result_refusal(state, value):
+    """Why the controller's result (controller_result) is not stored into state, or None (pure). A result for another
+    measurement, or for a part not to do, is dropped (a late result after an abandon); so is a step stored already
+    (the controller may send a result twice: a lost answer, a restart; replay-results reads it again)."""
     cur = state.get("current") or {}
-    out = {"action": "none", "sha": "", "part": "", "linux_part": "", "frame_pacing": "false", "stale_hours": round(stale_hours(state, t), 1)}
     if value is None:
-        out["reason"] = "the controller's perf_result is not a result"
-    elif value.get("step_id") and value["step_id"] in {(e or {}).get("step_id") for e in (cur.get("parts") or {}).values()}:
-        # The controller may send a result twice (a lost answer, a restart): the step was stored already.
-        out["reason"] = f"the controller's result of step {value['step_id']} was stored already; dropped"
-    elif value["sha"] != cur.get("sha") or value["part"] not in (cur.get("parts_todo") or []):
-        out["reason"] = (f"the controller's {value['part']} result for {value['sha'][:12]} is not for the measurement in "
-                         f"flight ({str(cur.get('sha') or 'none')[:12]}); dropped")
+        return "the controller's perf_result is not a result"
+    if value.get("step_id") and value["step_id"] in {(e or {}).get("step_id") for e in (cur.get("parts") or {}).values()}:
+        return f"the controller's result of step {value['step_id']} was stored already; dropped"
+    if value["sha"] != cur.get("sha") or value["part"] not in (cur.get("parts_todo") or []):
+        return (f"the controller's {value['part']} result for {value['sha'][:12]} is not for the measurement in "
+                f"flight ({str(cur.get('sha') or 'none')[:12]}); dropped")
+    return None
+
+
+def result_plan(o, state, t):
+    """A run the controller started with a part's result: plan nothing new; the report job stores the part
+    (result_refusal says which results it drops)."""
+    value = controller_result(o.perf_result)
+    out = {"action": "none", "sha": "", "part": "", "linux_part": "", "frame_pacing": "false", "stale_hours": round(stale_hours(state, t), 1)}
+    why = result_refusal(state, value)
+    if why:
+        out["reason"] = why
     else:
         out.update({"action": "result", "sha": value["sha"], "part": value["part"],
                     "reason": f"the controller's {value['state']} result of part {value['part']} at {value['sha'][:12]}"
@@ -3950,6 +3959,52 @@ def cmd_fetch_result(o):
     with open(os.path.join(o.out, "result.json"), "w") as f:
         json.dump(result, f)
     print(f"perf-cron fetch-result: part {value['part']} at {value['sha'][:12]}: {result['state']}")
+
+
+# The controller also serves its done results itself (cmuxterm-hq perf_cron.go servePerfCronResults: GET
+# /perf-cron/results.json, the last 24 h): a result run waits for a runner on the shared Linux queue (each tick took
+# ~16 h on 2026-11-19, and no Mac row was stored for 2 days), so a reader of the state replays them into its copy.
+CONTROLLER_RESULTS_URL = "https://gh-events.cmux.com/perf-cron/results.json"
+GO_TIME_RE = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?Z$")
+
+
+def controller_ended_at(value):
+    """When the controller's step ended (its ended_at, Go's RFC 3339 with nanoseconds), or None (pure)."""
+    m = GO_TIME_RE.match(str(value.get("ended_at") or ""))
+    return parse_iso(m.group(1) + "Z") if m else None
+
+
+def cmd_replay_results(o):
+    """A reader's copy of the state (the probe's, after fetch-state): store the controller's done results whose result
+    run has not stored them yet, oldest first, each with this script's own report (no issue, no GitHub call) at the
+    time its step ended, so a row reads as old as its measurement. The cron's own state is not touched: its result
+    run stores the same part when it runs. Prints what it stored; never fails for a result it cannot read."""
+    try:
+        if o.file:
+            raw = json.load(open(o.file))
+        else:
+            with urllib.request.urlopen(urllib.request.Request(o.url, headers={"User-Agent": "cmux-perf-cron"}), timeout=60) as r:
+                raw = json.load(r)
+    except (OSError, ValueError, urllib.error.URLError) as error:
+        print(f"perf-cron replay-results: the controller's results were not read ({error!r}); the state is as fetched")
+        return
+    values = [v for v in (raw.get("results") if isinstance(raw, dict) else None) or [] if isinstance(v, dict)]
+    stored = 0
+    for value in sorted(values, key=lambda v: str(v.get("ended_at") or "")):
+        value = controller_result(json.dumps(value))
+        at = controller_ended_at(value) if value else None
+        if value is None or value["state"] != "done" or at is None:
+            continue
+        why = result_refusal(load_state(o.dir, at), value)
+        if why:
+            print(f"perf-cron replay-results: {why}")
+            continue
+        part_dir = os.path.join(o.dir, "replay", str(value.get("step_id") or value["part"]))
+        cmd_fetch_result(argparse.Namespace(result=json.dumps(value), out=part_dir))
+        report(argparse.Namespace(repo="", dir=o.dir, result=[f"{value['part']}={part_dir}"], run_url="", finish=False,
+                                  issues=False, output=os.path.join(o.dir, "replay", "report.out")), t=at)
+        stored += 1
+    print(f"perf-cron replay-results: {stored} of {len(values)} controller result(s) stored into this copy")
 
 
 def cmd_dispatch_next(o):
@@ -4017,12 +4072,17 @@ def main(argv=None):
     s = sub.add_parser("fetch-result", help="write a controller result's result.json and report.json (report job)")
     s.add_argument("--result", required=True, help="the perf_result JSON")
     s.add_argument("--out", required=True)
+    s = sub.add_parser("replay-results", help="store the controller's done results into a reader's copy of the state")
+    s.add_argument("--dir", required=True, help="fetch-state's directory")
+    s.add_argument("--url", default=CONTROLLER_RESULTS_URL)
+    s.add_argument("--file", help="read the results from this file instead of --url")
     s = sub.add_parser("dispatch-next", help="start the next tick now (report, when a measure host stayed idle)")
     s.add_argument("--repo", required=True)
     o = ap.parse_args(argv)
     {"fetch-state": cmd_fetch_state, "plan": cmd_plan, "fleet-check": cmd_fleet_check, "run-part": cmd_run_part,
      "part-cleanup": cmd_part_cleanup, "run-linux-part": cmd_run_linux_part,
-     "report": cmd_report, "dispatch-next": cmd_dispatch_next, "fetch-result": cmd_fetch_result}[o.cmd](o)
+     "report": cmd_report, "dispatch-next": cmd_dispatch_next, "fetch-result": cmd_fetch_result,
+     "replay-results": cmd_replay_results}[o.cmd](o)
 
 
 if __name__ == "__main__":
