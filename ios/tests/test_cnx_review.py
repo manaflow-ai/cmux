@@ -685,6 +685,24 @@ fleet_start_sim; fleet_finish_sim; echo "STEP=$SIM_STEP"''', {'CMUX_CI': str(ci)
         self.assertNotIn('--label', args)
         self.assertNotIn('--detach', args)
 
+    def test_a_superseded_simulator_step_is_not_reported_as_a_failed_build(self):
+        # A newer head of the same tag cancels this head's step; the report said "the fleet iPhone build
+        # failed (exit 76)" for step f06392e4d16521e2f9762f4b (2026-11-19), though nothing failed.
+        with tempfile.TemporaryDirectory() as temp:
+            ci = Path(temp) / 'cmux-ci'
+            ci.write_text('#!/bin/sh\n'
+                          'if [ "$1" = status ]; then echo \'{"id": "f06392e4d16521e2f9762f4b", "state": "cancelled"}\'; exit 0; fi\n'
+                          'echo "cmux-ci: step f06392e4d16521e2f9762f4b (simulator, key k)" >&2\n'
+                          'echo "cmux-ci: step f06392e4d16521e2f9762f4b superseded by cda830322e8883a86b11d74f (a newer head of this lane)" >&2\n'
+                          'exit 76\n')
+            ci.chmod(0o755)
+            r = bash(f'''source "{REVIEW}"; SLUG={TAG} TAG={TAG} SHA={SHA} STATE="{temp}" CMUX_CI="{ci}"
+fleet_start_sim; fleet_finish_sim || echo "SIM=$REPORT_SIM"''', {'CMUX_CI': str(ci)})
+            self.assertIn('SIM=BLOCKED: not a failure', r.stdout, r.stderr)
+            self.assertIn('superseded by cda830322e8883a86b11d74f', r.stdout)
+            self.assertNotIn('build failed', r.stdout)
+            self.assertEqual((Path(temp) / 'sim-attempt').read_text().strip(), '1')
+
     def test_a_rerun_after_a_failed_simulator_step_sends_a_new_step(self):
         # The controller answers a --key with the step it already names, finished or not (hq
         # controller main.go archivedStep), so a rerun at the same head re-attached to the cancelled
