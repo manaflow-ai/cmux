@@ -371,6 +371,7 @@ function CatalogList({
   const kind = grid ? `grid:${card}:${columns}` : "list";
   const sizes = useRef(new Map<string, number>());
   const itemKey = useCallback((index: number) => rows[index]![0]!.id, [rows]);
+  // react-doctor-disable-next-line react-hooks-js/incompatible-library -- TanStack Virtual returns functions the React Compiler cannot memoize safely, so the catalog stays uncompiled on purpose; it lays out rows of columns, keeps its own anchor and remeasures on resize, so ui/VirtualList does not fit.
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: scrollElement,
