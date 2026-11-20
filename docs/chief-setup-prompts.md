@@ -57,7 +57,7 @@ What only you can do: signing in to cmux, and allowing the new machine on the ca
 ## Work in cmux Cloud: start an agent there, move a chat over and bring it back
 
 ```text
-Get me working in cmux Cloud from this folder: run `cmux cloud diagnostics`; if it says I am signed out, run `cmux login` and tell me to finish it in the browser. Run `cmux cloud list-machines`; if I have none, run `cmux setup cloud-machine` and tell me which card to click (it costs money every hour it runs). Then run `cmux cloud start-session --name dev --agent AGENT --from-folder .` and give me the chat it opens. To move a chat I already have, run `cmux cloud move` in it; to bring it back to this Mac, `cmux cloud bring-back`. If a step fails, show me its error and the command to retry; never guess.
+Get me working in cmux Cloud from this folder: run `cmux cloud diagnostics`; if it says I am signed out, run `cmux login` and tell me to finish it in the browser. Run `cmux cloud list-machines`; if I have none, run `cmux setup cloud-machine` and tell me which card to click (it costs money every hour it runs). Then run `cmux cloud start-session --target machine:<id> --agent AGENT --from-folder .` with that machine's id from the list (or the one you just made), and give me the chat it opens. To move a chat I already have, run `cmux cloud move` in it; to bring it back to this Mac, `cmux cloud bring-back`. If a step fails, show me its error and the command to retry; never guess.
 ```
 
 What only you can do: signing in to cmux in the browser, and saying yes to a machine that costs money.
