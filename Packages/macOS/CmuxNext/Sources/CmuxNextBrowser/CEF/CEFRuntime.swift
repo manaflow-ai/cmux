@@ -62,7 +62,19 @@ final class CEFRuntime {
     private(set) var pageSpareWindow: CEFSpareWindow?
     /// Agent chat pages draw a key's frame at once (fork API 35, Debug Settings; `CEFDrawOnInput`). Made at the first
     /// browser, once the shim is loaded.
-    private(set) lazy var drawOnInput = CEFDrawOnInput(shim: shim, apiVersion: forkAPIVersion)
+    ///
+    /// Kept only once the shim is there: it binds the fork's calls at init, so one built before the library loaded
+    /// would hold no call and, cached, would leave the mode inert for the whole process however the setting reads —
+    /// the trap this PR is about. A read before then (an early `debug.cef`, which the typing bench does make) gets an
+    /// unbound one that is not kept, so the real one is still built when CEF starts.
+    var drawOnInput: CEFDrawOnInput {
+        if let made = madeDrawOnInput { return made }
+        let made = CEFDrawOnInput(shim: shim, apiVersion: forkAPIVersion)
+        if shim != nil { madeDrawOnInput = made }
+        return made
+    }
+
+    private var madeDrawOnInput: CEFDrawOnInput?
     /// Collects the garbage closed cmux pages leave in the renderer they shared (`CEFPageRendererGC`).
     private(set) lazy var pageRendererGC = CEFPageRendererGC(
         pages: { [weak self] in
