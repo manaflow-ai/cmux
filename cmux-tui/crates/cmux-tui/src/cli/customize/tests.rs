@@ -360,6 +360,64 @@ fn two_asks_that_do_not_wait_share_one_chat() {
     assert_eq!(calls[1][..6], words(&["--json", "chat", "send", "sess-9", "--on", "here"])[..]);
 }
 
+/// Records the words it was run with and answers as `cmux open` does.
+struct Opener {
+    calls: RefCell<Vec<Vec<String>>>,
+}
+
+impl Chat for Opener {
+    fn run(&self, words: &[String]) -> Result<ChatResult, String> {
+        self.calls.borrow_mut().push(words.to_vec());
+        Ok(ChatResult { ok: true, stdout: String::new(), stderr: String::new() })
+    }
+}
+
+/// `recipes` writes each recipe as a profile `use` previews, and `--open`
+/// shows the guide in cmux; trying one is `use`, a draft like any other.
+#[test]
+fn recipes_are_profiles_to_use_and_open_shows_their_guide() {
+    assert_eq!(parse(&words(&["recipes"])), Ok(Request::Recipes { open: false }));
+    assert_eq!(parse(&words(&["recipes", "--open"])), Ok(Request::Recipes { open: true }));
+    assert!(parse(&words(&["recipes", "glass"])).is_err());
+
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("config")).unwrap();
+    fs::write(dir.path().join("config/cmux-next.json"), "{}\n").unwrap();
+    let customize = Customize::open(Roots::under(dir.path()));
+    let opener = Opener { calls: RefCell::new(Vec::new()) };
+    let answer =
+        execute(&customize, Request::Recipes { open: true }, "cli", 1_000, &opener).ok().unwrap();
+    let json = answer.json();
+    let recipes = json["recipes"].as_array().unwrap();
+    assert_eq!(recipes.len(), cmux_customize_recipes::RECIPES.len());
+    let guide = json["guide"].as_str().unwrap().to_owned();
+    assert_eq!(json["opened"], true);
+    assert_eq!(*opener.calls.borrow(), vec![vec!["open".to_owned(), guide.clone()]]);
+    assert!(fs::read_to_string(&guide).unwrap().contains("cmux customize use "));
+    let human = answer.human(1_000);
+    assert!(human.contains("compact-sidebar"), "{human}");
+    assert!(human.contains("the guide is open in cmux"), "{human}");
+
+    let compact = recipes.iter().find(|recipe| recipe["name"] == "compact-sidebar").unwrap();
+    let path = compact["path"].as_str().unwrap().to_owned();
+    assert_eq!(compact["try"], format!("cmux customize use '{path}'"));
+    let used = execute(
+        &customize,
+        Request::Use { source: path, watch: false },
+        "cli",
+        2_000,
+        &super::ask::NoChat,
+    )
+    .ok()
+    .unwrap();
+    assert_eq!(used.json()["profile"], "compact-sidebar");
+    let settings = fs::read_to_string(dir.path().join("config/cmux-next.json")).unwrap();
+    assert!(settings.contains("sidebarRowHeight"), "{settings}");
+    execute(&customize, Request::Discard, "cli", 3_000, &super::ask::NoChat).ok().unwrap();
+    let back = fs::read_to_string(dir.path().join("config/cmux-next.json")).unwrap();
+    assert_eq!(back, "{}\n");
+}
+
 #[test]
 fn try_parses_a_profile_and_minutes_and_keep_and_revert_take_nothing() {
     let tried = |source: Option<&str>, ms: u64| {

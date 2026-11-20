@@ -26,6 +26,38 @@ fn openh264_from_source_encodes_an_idr_on_request() {
     assert!(enc.name().starts_with("openh264 2.6"));
 }
 
+/// Screen usage makes an IDR of every frame that moves most of the picture, whatever the
+/// settings say; the adapter moves to camera usage for that motion and back when it ends.
+#[cfg(feature = "openh264-source")]
+#[test]
+fn openh264_full_screen_motion_is_not_all_idrs() {
+    use cmux_encode::openh264::{CALM_FRAMES_TO_SCREEN, OpenH264, OpenH264Api};
+    use cmux_encode::{EncCfg, H264Encoder};
+    let cfg =
+        EncCfg { width: 320, height: 192, fps: 30, kbps: 4000, threads: 1, screen_content: true };
+    let mut enc = OpenH264::new(&cfg, OpenH264Api::from_source()).expect("encoder");
+    let mut pic = I420::new(320, 192);
+    let mut seed = 1u32;
+    let mut au = Vec::new();
+    let mut idrs = 0;
+    let mut pts = 0;
+    for i in 0..60 {
+        for y in &mut pic.y {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            *y = 16 + (seed >> 24) as u8 % 200;
+        }
+        pts += 33_000;
+        idrs += u32::from(enc.encode(&pic, i == 0, pts, &mut au).expect("encode"));
+    }
+    assert!(idrs <= 3, "{idrs} IDRs in 60 frames of full-screen motion");
+    assert!(enc.name().contains("camera-for-motion"), "{}", enc.name());
+    for _ in 0..=CALM_FRAMES_TO_SCREEN {
+        pts += 33_000;
+        enc.encode(&pic, false, pts, &mut au).expect("encode");
+    }
+    assert!(!enc.name().contains("camera"), "{}", enc.name());
+}
+
 #[cfg(feature = "openh264-runtime")]
 mod runtime {
     use cmux_encode::openh264::{CiscoBinary, LoadError, Platform, load_verified};

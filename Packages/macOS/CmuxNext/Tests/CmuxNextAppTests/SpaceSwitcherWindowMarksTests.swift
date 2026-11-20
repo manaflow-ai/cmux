@@ -48,8 +48,10 @@ import Testing
         #expect(click(.plain, Self.keys[1]) == .switchHere, "plain is today's strip")
         #expect(click(.plain, Self.keys[1], option: true) == .switchHere)
         #expect(click(.ring, Self.keys[0], elsewhere: nil) == .none)
-        #expect(click(.ring, Self.keys[0]) == .offer([.goToWindow, .moveHere]), "a ringed current space offers the choices too")
-        #expect(click(.ring, Self.keys[0], option: true) == .goToWindow)
+        #expect(click(.ring, Self.keys[0]) == .none, "the space shown here asks nothing, also when another window shows it")
+        #expect(click(.ring, Self.keys[0], option: true) == .none)
+        #expect(click(.ring, Self.keys[1], elsewhere: SpaceElsewhere(windowID: "incognito", incognito: true)) == .goToWindow,
+                "one choice is no menu")
         #expect(click(.menu, Self.keys[0]) == .spaceMenu)
         #expect(SpaceSwitcherStyle.tunable.defaultValue == .ring, "the gallery's pick is the default for the new marker only")
     }
@@ -137,12 +139,29 @@ import Testing
         #expect(plain.intents == [.switchProfile(Self.keys[1])] && plain.menus.isEmpty)
     }
 
-    @Test func anIncognitoSpaceOffersOnlyGoToWindow() throws {
+    /// One choice is no menu: a click on an incognito window's space goes to that window (Leo 2026-11-16:
+    /// "What is go to window and move here?").
+    @Test func anIncognitoSpaceGoesToItsWindowWithNoMenu() {
         let bar = Bar(style: .ring)
         defer { bar.window.closeAfterTest() }
         bar.view.windowMarks.elsewhere = [Self.keys[1]: SpaceElsewhere(windowID: "incognito", incognito: true)]
         bar.click(1)
-        #expect(try #require(bar.menus.first).items.map(\.title) == [Strings.goToSpaceWindow])
+        #expect(bar.menus.isEmpty, "a menu with one row opened")
+        #expect(bar.actions == [.goToWindow(Self.keys[1])] && bar.intents.isEmpty)
+    }
+
+    /// The space this window shows asks nothing, also when another window shows it too: no Go to Window menu.
+    @Test func thisWindowsOwnSpaceOpensNoMenu() {
+        let bar = Bar(style: .ring)
+        defer { bar.window.closeAfterTest() }
+        bar.view.windowMarks.elsewhere = [Self.keys[0]: SpaceElsewhere(windowID: "other", incognito: false)]
+        bar.click(0)
+        #expect(bar.menus.isEmpty && bar.actions.isEmpty && bar.intents.isEmpty, "a click on the space shown here did something")
+    }
+
+    @Test func theMenuLabelsSayWhatTheyDo() {
+        #expect(Strings.goToSpaceWindow == "Switch to That Window")
+        #expect(Strings.moveSpaceHere == "Move to This Window")
     }
 
     @Test func theSpaceMenuListsEverySpaceAndEndsWithNewSpaces() throws {

@@ -926,9 +926,11 @@ async fn a_copy_takes_a_running_turns_records_while_it_runs() {
 
 /// What B's agent is asked to hold its turn on (`FAKE_UNTIL_CANCEL_IN`): the fresh machine's
 /// agent is not, so the prompt B was running when it went runs to its end there.
+#[cfg(unix)]
 const HOLD: &str = "hold-the-turn";
 
 /// The bytes of the document the attachment prompt carries.
+#[cfg(unix)]
 const NOTES: &[u8] = b"the notes say forty-two";
 
 /// Review of #37284 at 4bce04df, F1: a prompt with an inline document starts its turn at once
@@ -940,6 +942,7 @@ const NOTES: &[u8] = b"the notes say forty-two";
 /// settled turn: it runs there once, with the document saved and named to the agent. 4bce04df
 /// continued it with its text alone and answered the resend as a duplicate, so the document
 /// never reached the fresh machine's agent.
+#[cfg(unix)] // the stand-in agent's `gate:` turn waits on a FIFO (make_fifo)
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_attachment_prompt_cut_mid_turn_runs_again_whole_on_the_fresh_machine() {
     attachment_prompt_cut_mid_turn(false).await;
@@ -950,12 +953,14 @@ async fn an_attachment_prompt_cut_mid_turn_runs_again_whole_on_the_fresh_machine
 /// machine goes mid-turn. Its old `queued` record proves nothing once it started: A delivers it
 /// again, and it runs once on the fresh machine, whole. fd33a65b took any `queued` record as
 /// proof: A checked and released the delivery, and the document never reached the agent.
+#[cfg(unix)] // make_fifo, as above
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_queued_attachment_prompt_cut_mid_turn_runs_again_whole_on_the_fresh_machine() {
     attachment_prompt_cut_mid_turn(true).await;
 }
 
 /// Makes a FIFO at `path`: a `gate:` turn of the stand-in agent blocks until it is written.
+#[cfg(unix)]
 fn make_fifo(path: &Path) {
     let c = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
     // SAFETY: valid NUL-terminated path.
@@ -964,6 +969,7 @@ fn make_fifo(path: &Path) {
 
 /// The attachment journey; `queued_first`: the attachment prompt waits in the queue first,
 /// behind a turn held at a gate, and starts once that turn ends.
+#[cfg(unix)]
 async fn attachment_prompt_cut_mid_turn(queued_first: bool) {
     let _one = ONE_AT_A_TIME.lock().await;
     acpmux::hub::peer_snapshot_reads_fail("b", 0);

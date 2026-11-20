@@ -290,7 +290,7 @@ pub struct SessionSummary {
     /// attach read and omitted from census rows until then (`hub/time_breakdown.rs`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(default)]
-    pub time_breakdown: Option<crate::hub::time_breakdown::TimeBreakdown>,
+    pub time_breakdown: Option<crate::time_breakdown::TimeBreakdown>,
 }
 
 /// The bounded diagnosis shown beside a looping chat. The daemon emits one event when this

@@ -165,6 +165,7 @@ fn handle<W: Write>(vm: &mut AppVm, message: ToHost, write: &mut W) -> Result<()
         ToHost::Dispatch { mount, node, event, payload } => {
             vm.dispatch(&mount, &node, &event, &payload)
         }
+        ToHost::Tick { mount, now_ms } => vm.tick(&mount, now_ms),
         ToHost::Resolve { cb, ok, body } => vm.resolve(cb, ok, &body),
         ToHost::Event { sub, body } => vm.event(sub, &body),
         ToHost::Settings { values } => vm.set_settings(&values),

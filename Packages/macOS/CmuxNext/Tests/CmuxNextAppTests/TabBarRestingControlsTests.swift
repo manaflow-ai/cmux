@@ -241,9 +241,9 @@ import Testing
         #expect(!toolbar.view.reveal.isRevealed)
     }
 
-    /// The chevron (Search Tabs) is gone from the bar, and so is "…": the tab bar's right-click runs it with no tab
-    /// target (a tab target only reveals that tab). With nothing pinned the bar keeps no room at all.
-    @Test func searchTabsIsInTheTabBarMenu() throws {
+    /// The chevron (Search Tabs) is gone from the bar; "…"'s menu runs it with no tab target (a tab target
+    /// only reveals that tab). The bar keeps room for "…" alone, so the tabs get the chevron's width.
+    @Test func searchTabsMovesFromTheBarIntoMoresMenu() throws {
         let registry = ActionRegistry.standard()
         var invocations: [ActionInvocation] = []
         registry.bind("tab.search", invoke: { invocations.append($0) })
@@ -251,15 +251,18 @@ import Testing
         toolbar.update(target: "tab0", kind: .terminal)
         #expect(!toolbar.view.items.map(\.id).contains("tab.search"), "no chevron in the bar")
         #expect(toolbar.view.buttons.isEmpty)
-        #expect(toolbar.view.reservedCount == 0, "no \"…\" either")
-        let row = try #require(toolbar.tabBarMenuRows().joined().first { ActionRegistry.menuRun(of: $0)?.id == "tab.search" },
-                               "Search Tabs in the tab bar's right-click")
+        #expect(toolbar.view.reservedCount == 1, "\"…\" only")
+        let menu = try #require(toolbar.view.moreMenu?())
+        let row = try #require(menu.items.first { ActionRegistry.menuRun(of: $0)?.id == "tab.search" }, "Search Tabs in \"…\"")
         #expect(ActionRegistry.menuRun(of: row)?.target == nil)
         _ = row.target?.perform(row.action, with: row)
         #expect(invocations.count == 1)
         #expect(invocations.first?.target == nil)
+        // A chat selected in a pane with terminals keeps "…"'s room; a pane of chats only has no bar.
         toolbar.update(target: "chat", kind: nil, paneKinds: [.terminal])
         #expect(toolbar.view.items.isEmpty)
+        #expect(toolbar.view.reservedCount == 1)
+        toolbar.update(target: "chat", kind: nil)
         #expect(toolbar.view.reservedCount == 0)
     }
 

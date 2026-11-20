@@ -2,7 +2,8 @@ public import CmuxNextDesign
 
 /// Debug Settings > Focus and Scroll: the switch for the focus log (``FocusLog``).
 /// English developer text, as every Debug Settings section (plans/cmux-next/debug-settings.md).
-public enum FocusLogTunables {
+public struct FocusLogTunables {
+    public init() {}
     /// Off by default. On: every keyboard focus change of every cmux window (first responder,
     /// key window, a page's text input losing focus) is appended with its cause and call stack to
     /// `~/Library/Logs/cmux-next/<tag or release>/focus-log.jsonl`. Turn on from a terminal with
