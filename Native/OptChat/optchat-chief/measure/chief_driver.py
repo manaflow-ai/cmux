@@ -340,6 +340,7 @@ try:
         # and, for the brains' homes, at the host start.
         choice = {k: v for k, v in (("harness", opts.engine_harness), ("model", opts.engine_model),
                                     ("brain_base_url", opts.brain_base_url)) if v}
+        os.makedirs(os.path.join(MUX, "optchat"), exist_ok=True)
         json.dump(choice, open(os.path.join(MUX, "optchat", "engine.json"), "w"))
         run["engine_choice"] = choice
     daemon_log = open(os.path.join(OUT, "daemon.log"), "w")

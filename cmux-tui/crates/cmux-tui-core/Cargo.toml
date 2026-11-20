@@ -18,6 +18,8 @@ hotpatch = ["dep:subsecond"]
 [dependencies]
 cmux-build-space.workspace = true
 cmux-json.workspace = true
+# Names a crash sidecar's backtrace in a stripped release binary.
+cmux-panic-log.workspace = true
 # Locks that unlock before they close (a forked child keeps none).
 cmux-file-lock.workspace = true
 cmux-agent-pane-policy.workspace = true
@@ -81,6 +83,8 @@ regex.workspace = true
 jsonschema.workspace = true
 flate2.workspace = true
 zstd.workspace = true
+# The JSON catalogs compiled in compressed (src/packed_catalogs.rs).
+cmux-embed.workspace = true
 wait-timeout.workspace = true
 tungstenite.workspace = true
 cmux-local-auth.workspace = true
