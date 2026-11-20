@@ -67,6 +67,10 @@ name = "cmux-tui-host"
 path = "src/bin/cmux-tui-host.rs"
 
 [dependencies]
+# The build identity (daemon skew, SSH re-bootstrap, `cmux server install`). Only this crate reads
+# it, so an edit does not recompile cmux-remote (cmux-build-identity docs). Every target: cli/server_remote.rs
+# reads it on Windows too.
+cmux-build-identity.workspace = true
 tempfile = "3"
 cmux-json.workspace = true
 cmux-build-space.workspace = true
@@ -199,9 +203,6 @@ tar.workspace = true
 cmux-host.workspace = true
 # Reads the enclosing app bundle's Info.plist (app_identity.rs).
 plist = "1.10"
-# The build identity (daemon skew, SSH re-bootstrap). Only this crate reads
-# it, so an edit does not recompile cmux-remote (cmux-build-identity docs).
-cmux-build-identity.workspace = true
 cmux-remote.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-wg.workspace = true
