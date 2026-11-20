@@ -98,6 +98,12 @@ def _strip_rust_test_modules(masked: str) -> str:
     return "".join(out)
 
 
+def _rust_test_file(rel: str) -> bool:
+    """A file of only Rust test code: `x_tests.rs`, or the `tests.rs`/`test.rs` an out-of-line `#[cfg(test)] mod tests;`
+    loads, which holds what _strip_rust_test_modules cuts from an inline module."""
+    return rel.endswith("_tests.rs") or Path(rel).name in ("tests.rs", "test.rs")
+
+
 def _value(number: str, unit: str) -> float:
     value = float(number.replace("_", ""))
     return value if unit in {"milliseconds", "millis"} else value * 1000
