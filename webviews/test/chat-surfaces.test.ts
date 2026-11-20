@@ -129,9 +129,9 @@ test("every content card in the transcript paints the card level and its line", 
   }
 });
 
-test("the levels are card, inset and control, the page's ink over clear, in desktop.css", () => {
+test("the levels are card, inset, hover and control, the page's ink over clear, in desktop.css", () => {
   const levels = designScale.surfaces.levels;
-  expect(levels.map((level) => level.name)).toEqual(["card", "inset", "control"]);
+  expect(levels.map((level) => level.name)).toEqual(["card", "inset", "hover", "control"]);
   const desktop = source("pages/shared/desktop.css");
   for (const level of levels) {
     if ("fill" in level)
@@ -181,4 +181,20 @@ test("a hover or press never paints over a filled rest with a quieter fill", () 
 // toggle showed nothing. On is the checked segment: the selection fill.
 test("a toggle that is on shows the selection fill, not the press", () => {
   expect(togglesOnWithPressedFill()).toEqual([]);
+});
+
+// The scripted move put every chat hover (ink 4 to 12%, most 6%) on the host's chrome hover: ink 4% in a
+// light theme, a step of ΔL* 3.1 over an opaque page and 2.2 over a wallpaper on a fleet Mac (6% read
+// 4.5 and 3.2), so Undo and View changes all but lost their hover in light. A control in the page hovers
+// at the hover level, half way from clear to the press, and never at the host's chrome share.
+test("a control in the page hovers at the hover level, between clear and the press", () => {
+  const share = (name: string) => designScale.surfaces.levels.find((level) => level.name === name)?.fill ?? 0;
+  expect(share("hover")).toBeGreaterThan(share("card"));
+  expect(share("hover")).toBeLessThan(share("inset"));
+  const edited = source("agent-session/acpmux/styles.css");
+  for (const selector of [".acpmux-edited-undo:hover:not(:disabled)", ".acpmux-review-changes:hover"])
+    expect(edited).toContain(`${selector}{background:var(--ds-surface-hover)`);
+  expect(source("pages/shared/desktop.css")).toContain(
+    "--ds-surface-hover-layer: linear-gradient(var(--ds-surface-hover), var(--ds-surface-hover));",
+  );
 });
