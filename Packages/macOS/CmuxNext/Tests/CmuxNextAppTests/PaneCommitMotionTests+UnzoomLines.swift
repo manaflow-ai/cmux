@@ -201,4 +201,31 @@ extension PaneCommitMotionTests {
         print("LINES ROW: \(scene), \(speed): \(frames) frames of a move read, \(read) reads of a divider with a line's colour")
         #expect(faults.isEmpty, "\(faults.count) reads of a \(scene) show a divider's line that waits; the first: \(faults.prefix(3))")
     }
+
+    /// An unzoom in a window that gives the pane that closes a ground (one still picture, an opaque window) holds no
+    /// line back: the ground covers each line under the pane. In the frame that shows the unzoom, in each frame of its
+    /// move and at rest, no divider that the screen shows has a colour for its line and draws nothing, and the motion
+    /// keeps no divider.
+    @Test(arguments: ["still", "opaque"], movingSpeeds)
+    func anUnzoomOverAGroundHoldsNoDividersLineBack(_ kind: String, _ speed: MotionSpeed) throws {
+        let look = Look(kind: kind, scene: "unzoom", speed: speed)
+        let over = try Self.overPicture(look.scene, panes: 6, gap: look.gap, speed: look.speed, configure: { $0.followsDesignMetrics = false })
+        defer { over.harness.window.closeAfterTest() }
+        try #require(over.harness.model.style.showsDividerLine, "SETUP: the row's style draws no line between split panes")
+        try Self.requireKind(look.kind, of: over)
+        let screen = over.screen, motion = screen.zoomDim.motion
+        try #require(Self.inFlight(screen), "SETUP: no pane moves in the frame that shows the unzoom")
+        var faults: [String] = [], read = 0, kept = 0
+        let frames = try Self.eachTick(of: look, over) { frame, _, _ in
+            let lines = Self.dividers(on: screen).filter { Self.hasLine($0) }
+            read += lines.count
+            kept += motion.lateLines.count
+            let waits = lines.filter { Self.lineWaits($0) }.count
+            if waits > 0 { faults.append("\(frame): \(waits) of \(lines.count) lines") }
+        }
+        try #require(read > 0, "SETUP: in no frame of the unzoom does the screen show a divider with a colour for its line")
+        print("LINES ROW: unzoom, \(kind), \(speed): \(frames) frames of a move read, \(read) reads of a divider with a line's colour")
+        #expect(faults.isEmpty, "\(faults.count) reads of an unzoom over a ground show a divider's line that waits; the first: \(faults.prefix(3))")
+        #expect(kept == 0, "in an unzoom over a ground the motion keeps a divider in \(kept) reads")
+    }
 }
