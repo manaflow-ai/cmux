@@ -155,6 +155,58 @@ fn the_rollback_check_does_not_take_the_folder_of_a_session_reset_that_did_not_e
     );
 }
 
+/// The name of a reset's folder is exact: the start `.reset-`, a kind
+/// (`session` or `terminal-hosts`), a UUID of version 4, the end
+/// `.deleting`. A folder whose name is near one and is not one is a folder
+/// as each other for the check: with a store at 16 and no guard file of its
+/// name, the check gives no number, and its error names that folder. The
+/// folder of the `terminal-hosts` kind is a reset's folder: the check does
+/// not take it.
+#[test]
+fn the_rollback_check_takes_a_folder_whose_name_is_near_a_resets_name_and_is_not_one() {
+    let id = new_uuid_v4();
+    // What the folder's name has after the session's part, the folders that
+    // the reset's own list has then (the control), and what the check gives:
+    // its number, or an error that names the folder.
+    let cases = [
+        ("an id that is no UUID", "-session-not-a-uuid.deleting".to_string(), 0_usize, Err(true)),
+        ("no `.deleting` at the end", format!("-session-{id}"), 0, Err(true)),
+        (
+            "the `terminal-hosts` kind",
+            format!("-terminal-hosts-{id}.deleting"),
+            1,
+            Ok(Some(15_i64)),
+        ),
+    ];
+    let mut got = Vec::new();
+    let mut wanted = Vec::new();
+    for (case, (what, end, listed, number)) in cases.into_iter().enumerate() {
+        let crashed = crashed(&format!("rollback-near-reset-name-{case}"));
+        let root = &crashed.store.root;
+        let folder = crashed.database.parent().unwrap();
+        let session = folder.file_name().unwrap().to_str().unwrap();
+        let name = format!(".reset-{session}{end}");
+        let near = root.join(&name);
+        copy_the_files(folder, &near);
+        let store = near.join(crashed.database.file_name().unwrap());
+        let before = file_state(&store, crashed.head);
+        assert_eq!(before.2, DUE_NUMBER, "{what}: the store of the folder is at 16");
+        let left = pending_session_reset_dirs(root, SESSION).unwrap().len();
+        let given = stored_numbers(root)
+            .map(|found| found.get("workspace_registry").copied())
+            .map_err(|error| format!("{error:#}").contains(&name));
+        got.push((what, left, given, file_state(&store, crashed.head) == before));
+        wanted.push((what, listed, number, true));
+    }
+    assert_eq!(
+        got, wanted,
+        "beside a session at 16 with no owner, a folder with a store at 16 and a name that is \
+         near a reset's name: the case, the folders that the reset's own list has, the check's \
+         number for the registry (or: its error names the folder), the folder's store is as \
+         before"
+    );
+}
+
 /// The write of the check is one transaction. The test fails its last
 /// statement, after the subject rows and the mark: the check reads 16, and
 /// the file has the mark, the number and the subject rows of before. Then

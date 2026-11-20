@@ -202,7 +202,9 @@ owns, the check takes the session's guard and makes the same commit, so one
 session that ended with no stop does not refuse a rollback. For a store at
 16 whose guard is held (a daemon owns the session, or a host sweep or a
 reset holds the guard for a short time), the check reads 15 and writes
-nothing: the owner's stop writes the rows. That check makes no file; a
+nothing: the owner's stop writes the rows when its journal writer ends in
+time; a short holder writes none, and the next check or open does. That
+check makes no file; a
 write that fails leaves the store as it was and reads 16. When the check
 cannot ask the guard (a lock file is not there, or the lock of the
 session-locks directory stays busy past its bound), or when another

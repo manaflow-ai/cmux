@@ -11,9 +11,12 @@
 //! `late_subject_rows` line with the time of the stop: a measurement for a
 //! reader, no test asserts on it.
 
-use std::time::Instant;
+use std::sync::Arc;
+use std::sync::mpsc::sync_channel;
+use std::time::{Duration, Instant};
 
 use super::*;
+use crate::journal_ingress::JournalIngressSender;
 use crate::workspace_registry::new_uuid_v4;
 use crate::workspace_registry::session_journal::tests::late_subject_rows::{
     DUE_NUMBER, PERIOD, file_state, fixture_subjects, lose_rows, ms, records, stopped_file_problem,
@@ -159,5 +162,39 @@ fn the_release_of_the_session_writes_nothing_when_the_journals_writer_did_not_en
         at_the_release, at_the_stop,
         "the release of the session after a stop whose journal writer did not end: (the mark, \
          the journal rows after it, the number) after the release, and before it"
+    );
+}
+
+/// A stop that runs on the journal writer's own thread cannot wait for that
+/// thread: another thread takes the thread's end, and the close comes back
+/// at once. The writer has not ended then. For the release of the session it
+/// has not ended until its thread ended, so the release writes nothing
+/// before that.
+#[test]
+fn a_journal_writer_that_closes_itself_has_not_ended_until_its_thread_ended() {
+    let (ingress, _receivers) = JournalIngressSender::new(true);
+    let ingress = Arc::new(ingress);
+    let (seen, seen_in_the_writer) = sync_channel(1);
+    let (release, released) = sync_channel::<()>(1);
+    let writer = ingress.clone();
+    ingress
+        .spawn_writer("late-subject-rows-writer-closes-itself", move || {
+            let closed = writer.close_and_join().is_ok();
+            let _ = seen.send((closed, writer.writer_ended()));
+            // The thread runs on until the test drops `release`.
+            let _ = released.recv();
+        })
+        .unwrap();
+    let in_the_writer = seen_in_the_writer.recv_timeout(Duration::from_secs(10)).unwrap();
+    let while_the_thread_runs = ingress.writer_ended();
+    drop(release);
+    // A second close waits for the result of the thread's end.
+    let joined = ingress.close_and_join().is_ok();
+    assert_eq!(
+        (in_the_writer, while_the_thread_runs, joined, ingress.writer_ended()),
+        ((true, false), false, true, true),
+        "a journal writer that closes itself: (its own close came back with no error, the \
+         writer ended) on the writer's thread; the writer ended while its thread runs on; a \
+         second close after the thread's end came back with no error; the writer ended after it"
     );
 }
