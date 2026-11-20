@@ -23,7 +23,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "chat-disk"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "web-ui-typing", "chat-disk"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -760,6 +760,17 @@ class WebUiTests(unittest.TestCase):
         argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-flat")["suite"]
         self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat"])
         self.assertEqual(cwd, "/r/webviews")
+
+    def test_the_composer_typing_rows_have_their_own_part(self):
+        self.assertTrue(cron.is_linux_part("web-ui-typing"))
+        self.assertEqual(cron.part_for_row("webui.composer_typing.l1.webkit.rows60.to_paint@linux"), "web-ui-typing")
+        self.assertEqual(cron.part_for_row("webui.composer_typing.l3.chromium.rows60.invalid@linux"), "web-ui-typing")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-typing")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "composer-typing"])
+        self.assertEqual(cwd, "/r/webviews")
+        # The suite names the bench the part asks for (web-ui-suite.ts), as its own part outside the suite's cap.
+        suite = open(os.path.join(cron.ROOT, "webviews/bench/web-ui-suite.ts"), encoding="utf-8").read()
+        self.assertRegex(suite, r'name: "composer-typing",\s*file: "composer-typing\.bench\.ts"')
 
     def test_the_chat_disk_rows_have_their_own_linux_part(self):
         self.assertTrue(cron.is_linux_part("chat-disk"))
@@ -3355,6 +3366,103 @@ class PartRowsStoredAtOnceTests(unittest.TestCase):
                                                          self.STRESS)])
             self.assertEqual(cron.stale_parts(state, at(2)), [])
             self.assertEqual(cron.stale_parts(state, at(2 + cron.STALE_HOURS)), ["stress"])
+
+
+class ReplayControllerResultsTests(unittest.TestCase):
+    """A reader's copy of the state (synthetic-probes.yml perf-tabs, after fetch-state) stores the controller's done
+    results (GET /perf-cron/results.json) with the cron's own report, at the time each step ended: on 2026-11-19 each
+    result run waited ~16 h for a runner and the probe tabs-keep-speed read no Mac row for 2 days while the bench had
+    measured them."""
+
+    class Answer(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def replay(self, d, results):
+        path = os.path.join(d, "results.json")
+        with open(path, "w") as f:
+            json.dump({"results": results}, f)
+        report = json.dumps(PartRowsStoredAtOnceTests.STRESS).encode()
+        with mock.patch.object(cron.urllib.request, "urlopen", lambda req, timeout=0: self.Answer(report)), \
+                mock.patch.object(cron, "now_utc", lambda: at(30)):
+            cron.cmd_replay_results(argparse.Namespace(dir=d, url="", file=path))
+        with open(os.path.join(d, "state.json")) as f:
+            return json.load(f)
+
+    def result(self, **kw):
+        return {"run": 7, "attempt": 1, "sha": "a" * 40, "part": "stress", "step_id": "s1", "state": "done",
+                "worker": cron.BENCH_WORKER, "artifact_url": "https://store.example/x",
+                "ended_at": cron.iso(at(2)).replace("Z", ".123456789Z"), **kw}
+
+    def test_a_done_result_is_stored_at_its_end_and_only_once(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = PartRowsStoredAtOnceTests().state_with(["stress", "motion"])
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump(state, f)
+            results = [self.result(), self.result(sha="b" * 40, step_id="s0"), self.result(part="motion", state="failed",
+                                                                                           step_id="s2")]
+            state = self.replay(d, results)
+            rows = state.get("part_rows") or {}
+            self.assertTrue(rows, "the controller's done part is stored with no result run")
+            for name, row in rows.items():
+                self.assertTrue(name.endswith("@" + cron.BENCH_WORKER), name)
+                self.assertEqual((row["sha"], row["part"], row["at"]), ("a" * 40, "stress", cron.iso(at(2))),
+                                 "at the time the step ended, not the time of the read")
+            self.assertEqual(state["current"]["parts_todo"], ["motion"], "the failed part is the cron's to judge")
+            self.assertEqual(state["current"]["parts"]["stress"]["step_id"], "s1")
+            again = self.replay(d, results)
+            self.assertEqual(again["part_stored"], state["part_stored"], "a step stored already is not stored again")
+
+    def test_an_unreadable_list_leaves_the_state_as_fetched(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = PartRowsStoredAtOnceTests().state_with(["stress"])
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump(state, f)
+            cron.cmd_replay_results(argparse.Namespace(dir=d, url="", file=os.path.join(d, "missing.json")))
+            with open(os.path.join(d, "state.json")) as f:
+                self.assertEqual(json.load(f), state)
+
+    def test_a_result_without_its_end_time_is_not_stored(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = PartRowsStoredAtOnceTests().state_with(["stress"])
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump(state, f)
+            state = self.replay(d, [self.result(ended_at="")])
+            self.assertFalse(state.get("part_rows"), "a row is never dated by its read")
+
+    def test_a_step_id_never_names_a_path_outside_the_copy(self):
+        # review of cmux#47673 (F1): the feed's step_id named the part's directory, so "../x" or "/abs" wrote
+        # result.json and report.json outside --dir.
+        for bad in ("../../escaped", "ABSOLUTE"):
+            with tempfile.TemporaryDirectory() as outer:
+                d = os.path.join(outer, "copy")
+                os.mkdir(d)
+                state = PartRowsStoredAtOnceTests().state_with(["stress"])
+                with open(os.path.join(d, "state.json"), "w") as f:
+                    json.dump(state, f)
+                step_id = os.path.join(outer, "escaped") if bad == "ABSOLUTE" else bad
+                state = self.replay(d, [self.result(step_id=step_id)])
+                self.assertTrue(state.get("part_rows"), "the part is still stored")
+                self.assertEqual(sorted(os.listdir(outer)), ["copy"], f"nothing is written outside the copy ({bad})")
+
+    def test_a_malformed_feed_or_entry_stores_the_rest(self):
+        # review of cmux#47673 (F4): a non-list results, or an entry whose ended_at is not a real time, aborted the
+        # replay before the valid results.
+        with tempfile.TemporaryDirectory() as d:
+            state = PartRowsStoredAtOnceTests().state_with(["stress"])
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump(state, f)
+            path = os.path.join(d, "results.json")
+            with open(path, "w") as f:
+                json.dump({"results": {"not": "a list"}}, f)
+            cron.cmd_replay_results(argparse.Namespace(dir=d, url="", file=path))
+            with open(os.path.join(d, "state.json")) as f:
+                self.assertEqual(json.load(f), state, "a non-list results is no result")
+            state = self.replay(d, [self.result(step_id="bad", ended_at="2026-13-45T99:99:99.1Z"), self.result()])
+            self.assertTrue(state.get("part_rows"), "the valid result after a bad one is stored")
 
 
 class StalePartFirstTests(unittest.TestCase):
