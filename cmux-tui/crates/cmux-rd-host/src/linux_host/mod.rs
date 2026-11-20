@@ -643,8 +643,8 @@ fn mark_join_from_before_marker(
     mark: Option<&machine::Joined>,
 ) -> Res<()> {
     let (Some(before), Some(mark)) = (before, mark) else { return Ok(()) };
-    // 1a6056a2's rule, before sign-in: a readable consent.json for the same machine.
-    let from_before = before.same_machine(mark) && LocalConsent::load(dir).is_ok();
+    let from_before = !before.consent_tracked
+        && (before.same_machine(mark) || before.unmarked_from(&mark.acpmux_home));
     if from_before && consent_join(dir)?.is_none() {
         write_consent_join(dir, mark)?;
     }

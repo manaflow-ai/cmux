@@ -162,8 +162,14 @@ impl Joined {
         acpmux_home: &Path,
         credential: &MachineCredential,
     ) -> Self {
-        let _ = previous;
-        Self { consent_tracked: true, ..Self::of(acpmux_home, credential) }
+        let of = Self::of(acpmux_home, credential);
+        let consent_tracked = match previous {
+            Some(previous) if previous.same_machine(&of) || previous.unmarked_from(acpmux_home) => {
+                previous.consent_tracked
+            }
+            _ => true,
+        };
+        Self { consent_tracked, ..of }
     }
 
     /// Whether this record and `other` are the same joined machine from the same acpmux home,
