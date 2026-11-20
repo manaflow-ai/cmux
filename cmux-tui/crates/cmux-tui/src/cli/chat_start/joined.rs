@@ -29,7 +29,7 @@ use std::io::Write as _;
 use std::time::{Duration, Instant};
 
 use cmux_json::{JsonGet as _, JsonSet as _};
-use cmux_process::{Command, Stdio};
+use cmux_process::Command;
 use serde_json::{Value, json};
 
 use super::super::agents::turn::Outcome;
@@ -905,58 +905,20 @@ pub(in crate::cli) fn acp_command(mut command: Command, words: &[&str]) -> Comma
 /// process group (dropping its `Child` sends SIGTERM, then SIGKILL) and the answer is
 /// `acpmux.timeout`.
 pub(in crate::cli) fn run_acp(
-    mut command: Command,
+    command: Command,
     words: &[&str],
     stdin: Option<&str>,
     limit: Duration,
 ) -> Result<Value, Value> {
-    // Its own process group: at the limit the group is ended, with anything it started that
-    // still holds its pipes.
-    command
-        .process_group(0)
-        .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let mut child = command
-        .spawn()
-        .map_err(|e| error("acpmux.unreachable", &format!("cannot run cmux acp: {e}"), true))?;
-    let stdin_pipe = child.stdin.take();
-    // The prompt is written and both pipes are read on threads this scope owns, so the wait is
-    // the only thing bounded: a child that never reads its stdin cannot hold a prompt larger
-    // than a pipe (about 64 KiB) past the limit (#38355 review), and a full pipe never stalls
-    // the child. At the limit the child's whole group is ended (it leads one), its pipes close
-    // and the writer and the readers end with it.
-    let finished = std::thread::scope(|scope| {
-        let writer = stdin.zip(stdin_pipe).map(|(text, mut pipe)| {
-            scope.spawn(move || {
-                // Its end closes when the thread does: the child reads to the end of the prompt.
-                let _ = pipe.write_all(text.as_bytes());
-            })
-        });
-        let read = |pipe: Option<Box<dyn std::io::Read + Send>>| {
-            scope.spawn(move || {
-                let mut bytes = Vec::new();
-                if let Some(mut pipe) = pipe {
-                    let _ = std::io::Read::read_to_end(&mut pipe, &mut bytes);
-                }
-                bytes
-            })
-        };
-        let stdout = read(child.stdout.take().map(|pipe| Box::new(pipe) as _));
-        let stderr = read(child.stderr.take().map(|pipe| Box::new(pipe) as _));
-        let status = child.wait_timeout(limit);
-        if !matches!(status, Ok(Some(_))) {
-            drop(child);
-        }
-        if let Some(writer) = writer {
-            let _ = writer.join();
-        }
-        (status, stdout.join().unwrap_or_default(), stderr.join().unwrap_or_default())
-    });
-    let (out_bytes, err_bytes) = match finished {
-        (Ok(Some(status)), out, err) if status.success() => (out, Ok(err)),
-        (Ok(Some(_)), out, err) => (out, Err(err)),
-        (Ok(None), _, _) => {
+    let (out_bytes, err_bytes) = match super::acp_io::output(command, stdin, limit) {
+        Ok(output) if output.status.success() => (output.stdout, Ok(output.stderr)),
+        Ok(output) => (output.stdout, Err(output.stderr)),
+        Err(e)
+            if matches!(
+                e.kind(),
+                std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+            ) =>
+        {
             return Err(error(
                 "acpmux.timeout",
                 &format!(
@@ -967,7 +929,7 @@ pub(in crate::cli) fn run_acp(
                 true,
             ));
         }
-        (Err(e), _, _) => {
+        Err(e) => {
             return Err(error(
                 "acpmux.unreachable",
                 &format!("cmux acp did not finish: {e}"),

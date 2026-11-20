@@ -1275,6 +1275,19 @@ fn a_cmux_acp_that_hangs_ends_with_a_timeout_error() {
     assert!(began.elapsed() < Duration::from_secs(20), "{:?}", began.elapsed());
 }
 
+/// The launcher may already have exited successfully while a background process still owns
+/// both output descriptors. A JSON fragment before EOF is not a confirmed response.
+#[test]
+fn a_descendant_holding_launch_output_cannot_extend_the_deadline() {
+    let mut command = cmux_process::Command::new("/bin/sh");
+    command.args(["-c", "sleep 6 & echo '{}'"]);
+    let began = std::time::Instant::now();
+    let error =
+        joined::run_acp(command, &["host", "ls"], None, Duration::from_millis(300)).unwrap_err();
+    assert_eq!(error["code"], "acpmux.timeout", "{error}");
+    assert!(began.elapsed() < Duration::from_secs(3));
+}
+
 /// #38355 review 2a: without the account's list nothing says a machine the hub lists is still
 /// the person's (the hub may list a revoked one), so it is refused as unverified, never started
 /// on with no id.

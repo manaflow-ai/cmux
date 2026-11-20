@@ -51,6 +51,7 @@ use super::cloud_start_chat::{self, Machine};
 use super::{GlobalArgs, OutputMode, UsageError};
 use cmux_cloud_start_core::machine_repo::Repo;
 
+mod acp_io;
 mod launch_speed;
 mod local_repo;
 mod named_launch;
