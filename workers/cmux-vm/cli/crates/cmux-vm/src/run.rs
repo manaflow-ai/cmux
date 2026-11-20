@@ -458,7 +458,7 @@ fn settled(status: &Value) -> Option<Recovered> {
     }
 }
 
-async fn wait_running(client: &Client, vm_id: &str) -> Result<(), CliError> {
+pub(crate) async fn wait_running(client: &Client, vm_id: &str) -> Result<(), CliError> {
     let start = Instant::now();
     loop {
         let body = retrying(|| fetch_body(client.vms_get_vm(vm_id, None))).await?;
@@ -837,10 +837,10 @@ async fn finish(client: &Client, vm_id: &str, keep: bool) -> Result<&'static str
     }
 }
 
-struct ExecResult {
-    code: Option<i32>,
-    stdout: Vec<u8>,
-    stderr: String,
+pub(crate) struct ExecResult {
+    pub(crate) code: Option<i32>,
+    pub(crate) stdout: Vec<u8>,
+    pub(crate) stderr: String,
 }
 
 async fn exec(
@@ -884,7 +884,7 @@ async fn exec_stdin(
     Ok(())
 }
 
-async fn send_exec(
+pub(crate) async fn send_exec(
     client: &Client,
     vm_id: &str,
     body: &types::ExecRequest,
@@ -915,7 +915,7 @@ async fn send_exec(
 /// Retries a call the server refused for load (429, 503) with backoff. Only
 /// for calls that are safe to repeat: reads, and creates under one
 /// idempotency key.
-async fn retrying<T, F, Fut>(call: F) -> Result<T, CliError>
+pub(crate) async fn retrying<T, F, Fut>(call: F) -> Result<T, CliError>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<T, CliError>>,

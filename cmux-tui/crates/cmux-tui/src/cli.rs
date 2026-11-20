@@ -168,6 +168,8 @@ mod vm;
 #[cfg(unix)]
 mod vm_cleanup;
 #[cfg(unix)]
+mod vm_bootstrap;
+#[cfg(unix)]
 mod vm_ready;
 #[cfg(unix)]
 mod vm_short;
