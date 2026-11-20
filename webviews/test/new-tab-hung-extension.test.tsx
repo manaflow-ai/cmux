@@ -7,9 +7,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { PageClient } from "../src/pages/shared/pageClient";
-import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
-import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import { teardownDom } from "./support/domTeardown";
 import { until } from "./support/until";
 
@@ -39,7 +37,7 @@ const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let window: JSDOM["window"];
 let host: HTMLElement;
 
-beforeAll(() => {
+beforeAll(async () => {
   window = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "http://localhost/" })
     .window;
   Object.assign(window, {
@@ -66,6 +64,10 @@ beforeAll(() => {
     KeyboardEvent: window.KeyboardEvent,
     InputEvent: window.InputEvent,
     FocusEvent: window.FocusEvent,
+  });
+  // src/ loads after the DOM is in place (test/import-order-lint.test.ts).
+  const { proseMirrorGlobals } = await import("../src/agent-session/acpmux/promptFieldTesting");
+  Object.assign(scope, {
     ...proseMirrorGlobals(window as unknown as Window & typeof globalThis),
   });
   // Pierre's registered elements (App's diff view) read their own DOM constructors at import time.
@@ -113,6 +115,7 @@ for (const mode of ["hang", "throws"] as const)
     const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
     const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
     const { NewTabAppSlot } = await import("../src/agent-session/acpmux/newtab/NewTabAppSlot");
+    const { noChat } = await import("../src/gallery/fixtures/acpmux");
     const extension = extensionHost(mode);
     const gone: string[] = [];
     const asks: unknown[][] = [];
