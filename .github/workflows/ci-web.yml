@@ -178,7 +178,7 @@ jobs:
           name: fixit-compile-${{ github.job }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/fixit-compile
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   web-production-build:
     needs: web-subarea-scope
@@ -633,7 +633,7 @@ jobs:
           name: fixit-compile-${{ github.job }}-${{ matrix.shard }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/fixit-compile
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       # The browser-lane suites (test/support/requireBrowserLane.ts) fail in CI
       # without these engines; before, they skipped themselves and passed.
