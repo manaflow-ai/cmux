@@ -346,6 +346,10 @@ def runner_label_errors(runs_on: str) -> list[str]:
         if label is not None and (blacksmith.fullmatch(label) or label in FLEET_EPHEMERAL_LABELS
                                   or label in OWNED_EPHEMERAL_LABELS):
             continue
+        # A fork pull request's branch to a GitHub-hosted label: a one-job VM, and outside every
+        # label the persistent pool registers (POOL_REGISTERED_LABELS).
+        if label is not None and HOSTED_LITERAL_LABEL.fullmatch(label) and _is_fork_pull_request_branch(operand):
+            continue
         if (label is not None and index == 0 and HOSTED_LITERAL_LABEL.fullmatch(label) and len(conditions) == 1
                 and conditions[0][0] == "cmp" and conditions[0][1] == "!="
                 and sorted((side[0], _refs(side)[0] if side[0] == "ref" else _string(side))
@@ -486,6 +490,29 @@ FORK_PULL_REQUEST_LABEL = re.compile(
 # CI_SIDE_LANE_RUNNER and CI_LIGHT_LANE_RUNNER name owned side labels outright
 # (runner_label_policy.side_lane_reason), so every read of them is gated too.
 OWNED_RUNNER_NAME = r"(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER|CI_SIDE_LANE_RUNNER|CI_SIDE_LANE_LABELS|CI_LIGHT_LANE_RUNNER)"
+# A literal label served by persistent (reused) machines; gated like a runner variable. Quoted in an
+# expression or bare (`runs-on: cmux-linux`), so a bare label outside any expression fails the gate.
+PERSISTENT_POOL_LITERAL = r"'cmux-linux'|(?<![\w'.-])cmux-linux(?![\w'.-])"
+# Every label the persistent Linux pool's runners register with: cmuxterm-hq
+# skills/infra/linux-runner-pool/pool.sh (POOL_LABELS, hq#15393) registers each pool VM with
+# cmux-linux, cmux-fleet-linux-x64 and blacksmith-{2,4,8,16,32}vcpu-ubuntu-2404 (Leo, 2026-11-20
+# 11:32Z: "4V CPU, 8, 16, 32, who gives a shit? Just send it somewhere."). A job naming any of them
+# can land on a reused VM, so a Blacksmith label is no longer ephemeral by name. A fork pull
+# request takes a label outside this set (GitHub-hosted ubuntu-24.04), #47956 review.
+POOL_REGISTERED_LABELS = frozenset(
+    {"cmux-linux", "cmux-fleet-linux-x64"} | {f"blacksmith-{n}vcpu-ubuntu-2404" for n in (2, 4, 8, 16, 32)}
+)
+# (workflow, job) -> (the `if` clause that keeps a fork pull request out of the job, why). The job
+# may name a pool label after its owner branch because no fork PR ever evaluates its runs-on.
+FORK_UNREACHABLE_JOBS = {
+    ("labels-sync.yml", "apply"): ("github.event_name != 'pull_request'", "pull requests only plan"),
+    ("nightly-next-canary.yml", "verdict"): ("github.event_name == 'schedule'", "scheduled runs only"),
+    ("nightly-next-canary.yml", "failed"): ("github.event_name != 'pull_request'", "never on a pull request"),
+    ("nightly-next-launch-smoke.yml", "pick"): (
+        "(github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)",
+        "same-repository pull requests only",
+    ),
+}
 OWNED_RUNNER_VARIABLE = re.compile(
     rf"\bvars(?:\.{OWNED_RUNNER_NAME}\b|\[\s*'{OWNED_RUNNER_NAME}'\s*\])", re.IGNORECASE
 )
@@ -493,7 +520,10 @@ OWNED_RUNNER_SELECTOR = re.compile(
     OWNED_RUNNER_VARIABLE.pattern
     + r"|\bmatrix(?:\.pr_runner\b|\[\s*'pr_runner'\s*\])"
     + r"|\binputs(?:\.pr_runner\b|\[\s*'pr_runner'\s*\])"
-    + r"|\bneeds\.changes\.outputs\.macos_pr_runner\b",
+    + r"|\bneeds\.changes\.outputs\.macos_pr_runner\b"
+    # The persistent Linux pool's label: its machines outlive a job, so fork PR code never reaches
+    # them. Gated like a runner variable: only after a fork pull-request branch.
+    + r"|" + PERSISTENT_POOL_LITERAL,
     re.IGNORECASE,
 )
 # (workflow, stripped line) -> why a runner variable read there picks no runner.
@@ -710,6 +740,8 @@ def _refs(node: tuple) -> list[str]:
         return _refs(node[2]) + _refs(node[3])
     if kind == "call":
         return [ref for arg in node[2] for ref in _refs(arg)]
+    if kind == "literal" and re.fullmatch(PERSISTENT_POOL_LITERAL, node[1]):
+        return [node[1]]
     return []
 
 
@@ -857,6 +889,85 @@ def fork_pull_request_gate_error(
         if error:
             return error
     return None
+
+
+def _labels_in(node: tuple) -> list[str]:
+    """Every string literal under NODE, with the items of a JSON list literal ('["a","b"]')."""
+    if node[0] == "literal":
+        value = _string(node)
+        if value is None:
+            return []
+        try:
+            items = json.loads(value)
+        except ValueError:
+            return [value]
+        return [str(item) for item in items] if isinstance(items, list) else [value]
+    if node[0] in ("or", "and"):
+        return [label for child in node[1] for label in _labels_in(child)]
+    if node[0] == "not":
+        return _labels_in(node[1])
+    if node[0] == "cmp":
+        return _labels_in(node[2]) + _labels_in(node[3])
+    if node[0] == "call":
+        return [label for arg in node[2] for label in _labels_in(arg)]
+    return []
+
+
+def fork_pull_request_labels(runs_on: str) -> list[str]:
+    """The literal labels a fork pull request into manaflow-ai could take from RUNS_ON.
+
+    A bare label is itself. In one `${{ }}`, the top-level || chain is read in order: the
+    owner branch (`github.repository_owner != 'manaflow-ai' && ...`) never runs in manaflow-ai,
+    and the first fork pull-request branch is where a fork stops, so only its label counts.
+    Every literal in an operand before that branch (or in the whole chain, with no fork branch)
+    is reachable. Text outside one expression counts every literal in it, so it fails closed.
+    """
+    text = runs_on.strip()
+    expression = re.fullmatch(r"\$\{\{(.*)\}\}", text, re.DOTALL)
+    if "${{" not in text:
+        return [word for word in re.split(r"[\s,\[\]]+", text) if word]
+    # Every quoted word, for a form the chain reading below does not cover: fails closed.
+    every_literal = re.findall(r"[\"']([A-Za-z0-9._-]+)[\"']", text) + [
+        word for word in re.split(r"[\s,\[\]]+", EXPRESSION.sub(" ", text)) if word
+    ]
+    if expression is None or "${{" in expression.group(1):
+        return every_literal
+    try:
+        chain = _alternatives(parse_expression(expression.group(1)))
+    except ExpressionSyntaxError:
+        return every_literal
+    labels: list[str] = []
+    for operand in chain:
+        guarded = _guarded_literal(operand)
+        if guarded and len(guarded[0]) == 1 and _condition_key(guarded[0][0]) in (
+            ("!=", "github.repository_owner", "'manaflow-ai'"),
+            ("!=", "'manaflow-ai'", "github.repository_owner"),
+        ):
+            continue
+        if _is_fork_pull_request_branch(operand):
+            return labels + (_labels_in(operand[1][-1]) if operand[0] == "and" else _labels_in(operand))
+        labels.extend(_labels_in(operand))
+    return labels
+
+
+def pool_label_errors(runs_on: str) -> list[str]:
+    """Pool-registered labels (POOL_REGISTERED_LABELS) a fork pull request could reach in RUNS_ON."""
+    return [label for label in fork_pull_request_labels(runs_on) if label.lower() in POOL_REGISTERED_LABELS]
+
+
+def _job_runner_values(job: dict) -> list[str]:
+    """runs-on as strings: a scalar, each item of a list, or a group/labels mapping's values."""
+    runs_on = job.get("runs-on")
+    if isinstance(runs_on, str):
+        return [runs_on]
+    if isinstance(runs_on, list):
+        return [str(item) for item in runs_on]
+    if isinstance(runs_on, dict):
+        values = []
+        for value in runs_on.values():
+            values.extend(str(item) for item in (value if isinstance(value, list) else [value]))
+        return values
+    return []
 
 
 def pull_request_workflows() -> list[Path]:
@@ -1121,6 +1232,9 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 " || vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26', 'tart-') }}"
             ),
             "no selector": "runs-on: ${{ inputs.runner || 'macos-15' }}",
+            "persistent pool after the fork branch": (
+                "runs-on: ${{ " + owner + " || " + clause + " && 'ubuntu-24.04' || 'cmux-linux' }}"
+            ),
         }
         rejected = {
             "linux ungated": (
@@ -1151,6 +1265,13 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 "runs-on: ${{ github.repository_owner == 'manaflow-ai' && 'tart-macos-15' || "
                 + clause + " && 'macos-26' || vars.MACOS_RUNNER_26 }}"
             ),
+            "persistent pool behind the owner branch only": (
+                "runs-on: ${{ " + owner + " || 'cmux-linux' }}"
+            ),
+            # Bare YAML: unconditional persistent routing, outside any gated expression (CodeRabbit, #47956).
+            "persistent pool as a bare label": "runs-on: cmux-linux",
+            "persistent pool bare after an expression": "runs-on: ${{ " + clause + " && 'ubuntu-24.04' || 'x' }} cmux-linux",
+            "persistent pool in a bare list": "runs-on: [self-hosted, cmux-linux]",
             "second expression on the line": (
                 "run-name: ${{ " + clause + " && 'macos-26' || vars.MACOS_RUNNER_26 }}"
                 " on ${{ vars.MACOS_RUNNER_26 }}"
@@ -1223,6 +1344,75 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                     failures.append(f"{path.name}:{number} {error}: {line.strip()}")
         self.assertEqual(failures, [])
         self.assertGreater(checked, 0)
+
+    def test_fork_pull_requests_never_name_a_label_the_persistent_pool_registers(self) -> None:
+        """A fork PR's code never reaches a reused pool VM through a label alias (#47956 review).
+
+        The pool registers Blacksmith size labels too (POOL_REGISTERED_LABELS), so a fork branch
+        naming blacksmith-4vcpu-ubuntu-2404 could land on a VM that keeps its disk for the next
+        trusted job. Every runs-on a fork pull request can evaluate must leave that set.
+        """
+        checked = 0
+        failures = []
+        seen_exempt = set()
+        for path in fork_exercised_workflows():
+            jobs = (yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader) or {}).get("jobs") or {}
+            for name, job in jobs.items():
+                if not isinstance(job, dict):
+                    continue
+                exempt = FORK_UNREACHABLE_JOBS.get((path.name, name))
+                if exempt is not None:
+                    seen_exempt.add((path.name, name))
+                    # The reason holds only while the job's `if` still says it.
+                    self.assertIn(exempt[0], str(job.get("if", "")), f"{path.name}:{name}")
+                    continue
+                for value in _job_runner_values(job):
+                    checked += 1
+                    errors = pool_label_errors(value)
+                    if errors:
+                        failures.append(f"{path.name}:{name} can take {sorted(set(errors))}: {value}")
+        self.assertEqual(failures, [], "\n" + "\n".join(failures))
+        self.assertEqual(seen_exempt, set(FORK_UNREACHABLE_JOBS), "stale FORK_UNREACHABLE_JOBS entry")
+        self.assertGreater(checked, 100)
+
+    def test_pool_label_reading_follows_the_fork_branch(self) -> None:
+        owner = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'"
+        fork = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name"
+                " != github.repository")
+        accepted = (
+            "ubuntu-24.04",
+            "blacksmith-6vcpu-macos-26",
+            "${{ " + owner + " || " + fork + " && 'ubuntu-24.04' || 'cmux-linux' }}",
+            "${{ " + owner + " || " + fork + " && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
+            "${{ " + owner + " || " + fork + " && !contains(fromJSON(inputs.owned_head_repos), "
+            "github.event.pull_request.head.repo.full_name) && 'ubuntu-24.04' || 'cmux-linux' }}",
+            "${{ github.repository_owner != 'manaflow-ai' && 'blacksmith-4vcpu-ubuntu-2404' || "
+            + fork + " && 'ubuntu-24.04' || 'cmux-linux' }}",
+        )
+        rejected = {
+            "bare pool label": "cmux-linux",
+            "bare Blacksmith alias": "blacksmith-4vcpu-ubuntu-2404",
+            "owner branch only": "${{ " + owner + " || 'cmux-linux' }}",
+            "fork branch names a Blacksmith alias": (
+                "${{ " + owner + " || " + fork + " && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}"
+            ),
+            "fork branch names the fleet label": "${{ " + owner + " || " + fork + " && 'cmux-fleet-linux-x64' || 'x' }}",
+            "pool label ahead of the fork branch": (
+                "${{ " + owner + " || vars.X == '1' && 'cmux-linux' || " + fork + " && 'ubuntu-24.04' || 'x' }}"
+            ),
+            "trusted selector, no fork branch": TRUSTED_RUNNER_EXPRESSION,
+            "upper-case alias": "${{ " + owner + " || 'BLACKSMITH-8VCPU-UBUNTU-2404' }}",
+            "two expressions": "${{ " + owner + " }}-${{ 'cmux-linux' }}",
+            "list form": "[self-hosted, cmux-linux]",
+        }
+        for runs_on in accepted:
+            with self.subTest(accepted=runs_on):
+                self.assertEqual(pool_label_errors(runs_on), [])
+        for case, runs_on in rejected.items():
+            with self.subTest(rejected=case):
+                self.assertNotEqual(pool_label_errors(runs_on), [])
+        self.assertEqual(_job_runner_values({"runs-on": ["self-hosted", "cmux-linux"]}), ["self-hosted", "cmux-linux"])
+        self.assertEqual(_job_runner_values({"runs-on": {"group": "g", "labels": ["cmux-linux"]}}), ["g", "cmux-linux"])
 
     def test_pull_request_xcode_pin_follows_the_same_repository_lane(self) -> None:
         """A fork PR leaves MACOS_RUNNER_PR, so it must leave its Xcode pin too.
