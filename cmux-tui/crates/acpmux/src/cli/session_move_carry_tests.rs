@@ -294,13 +294,22 @@ fn index_and_worktree_snapshots_match_independently_for_every_change_kind() {
         assert_eq!(std::fs::read(src.path().join(".git/index")).unwrap(), index_before, "{name}");
         assert_eq!(sh(src.path(), "git show-ref --head"), refs_before, "{name}");
         assert_eq!(sh(dst.path(), "git rev-parse HEAD").trim(), carry.base, "{name}");
-        // Retrying an already-applied carry must fail without changing either target snapshot.
+        // A repeated carry refuses even when only intent flags differ from HEAD:
+        // both index views protect staging already present on the target.
+        let target_index_before_retry = std::fs::read(dst.path().join(".git/index")).unwrap();
+        let target_refs_before_retry = sh(dst.path(), "git show-ref --head");
         let retry = apply(dst.path(), &carry);
-        if !carry.patch.is_empty() || !carry.staged_patch.is_empty() {
-            assert!(!retry.ok, "{name}: repeated patch apply must refuse");
-        } else {
-            assert!(retry.ok, "{name}: replaying only flags is idempotent");
-        }
+        assert!(!retry.ok, "{name}: repeated carry must refuse");
+        assert_eq!(
+            std::fs::read(dst.path().join(".git/index")).unwrap(),
+            target_index_before_retry,
+            "{name}: retry index bytes"
+        );
+        assert_eq!(
+            sh(dst.path(), "git show-ref --head"),
+            target_refs_before_retry,
+            "{name}: retry refs"
+        );
         for (cmd, expected) in [index_entries, staged_diff, unstaged_diff].iter().zip(&source_state)
         {
             assert_eq!(&sh(dst.path(), cmd), expected, "{name}: retry {cmd}");

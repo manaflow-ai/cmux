@@ -94,6 +94,9 @@ as nested file-to-directory transitions.
 The target conflict guard checks both visible and invisible intent-to-add index
 views, including an intent replacement of a committed empty blob. The intent
 conflict matrix compares target index bytes before and after that refusal.
+Replaying an applied carry also refuses when intent flags are the only change;
+the independent snapshot matrix verifies that retry preserves target index bytes,
+refs, both diffs and file contents, including an empty tracked intent replacement.
 Recovery archives non-recursive directory headers as well as file contents, so
 restoring a directory cannot widen its permissions under the destination umask.
 Both real-write and publication-failure regressions restore nested directory
