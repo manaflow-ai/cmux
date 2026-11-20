@@ -11,7 +11,12 @@ import Testing
     /// A pane that records the scrolls it gets and where.
     final class Pane: NSView {
         var scrolls: [NSPoint] = []
-        override func scrollWheel(with event: NSEvent) { scrolls.append(event.locationInWindow) }
+        // Where the scroll is in this pane's window, as a view reads it (a test event has no window of its own, so
+        // AppKit gives its location in screen coordinates).
+        override func scrollWheel(with event: NSEvent) {
+            guard let window else { return }
+            scrolls.append(DividerHandleView.windowPoint(of: event, in: window))
+        }
     }
 
     struct Fixture {

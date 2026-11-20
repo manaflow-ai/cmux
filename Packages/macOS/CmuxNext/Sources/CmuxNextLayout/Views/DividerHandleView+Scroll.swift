@@ -35,10 +35,18 @@ extension DividerHandleView {
         let band = handle.convert(handle.bounds, to: nil)
         // The line runs down the middle of the band.
         let mid = handle.axis == .horizontal ? band.midX : band.midY
-        let point = sidePoint(of: event.locationInWindow, bandInWindow: band, lineMid: mid, axis: handle.axis)
+        let point = sidePoint(of: windowPoint(of: event, in: window), bandInWindow: band, lineMid: mid, axis: handle.axis)
         guard let hit = frameView.hitTest(frameView.convert(point, from: nil)), !(hit is DividerHandleView),
               !hit.isDescendant(of: handle) else { return nil }
         return (hit, point)
+    }
+
+    /// `event`'s pointer in `window`'s coordinates. An event with no window (one made from a `CGEvent`, which AppKit
+    /// gives in screen coordinates) or of another window is converted through the screen.
+    static func windowPoint(of event: NSEvent, in window: NSWindow) -> NSPoint {
+        if event.window === window { return event.locationInWindow }
+        let screen = event.window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? event.locationInWindow
+        return window.convertPoint(fromScreen: screen)
     }
 
     /// `event` with its pointer at `windowPoint` of `window` (its deltas, phases and momentum kept); nil when it has no
@@ -47,6 +55,9 @@ extension DividerHandleView {
         guard let copy = event.cgEvent?.copy(), let primary = NSScreen.screens.first else { return nil }
         let screen = window.convertPoint(toScreen: windowPoint)
         copy.location = CGPoint(x: screen.x, y: primary.frame.maxY - screen.y)
+        // The window under the pointer is the window the scroll goes to.
+        copy.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.windowNumber))
+        copy.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window.windowNumber))
         return NSEvent(cgEvent: copy)
     }
 }

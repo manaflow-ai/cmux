@@ -103,14 +103,19 @@ final class OverlayRootView: NSView {
         let takes = acceptsMouse(local)
         for view in subviews.reversed() where !view.isHidden {
             if view is OverlayContainerView {
-                guard takes, let hit = view.hitTest(local) else { continue }
+                // An empty container answers for itself (its whole frame), which in the panel was the panel's
+                // own swallow: here only an overlay inside it counts, so a toast in the window container is not
+                // hidden by the empty modal container above it.
+                guard takes, let hit = view.hitTest(local), hit !== view else { continue }
                 return hit
             }
             // The planes draw only; any other view (the agent cursor carrier) answers for itself.
             if view.identifier == Self.planeContainerID { continue }
             if let hit = view.hitTest(local) { return hit }
         }
-        return nil
+        // Where an overlay takes the mouse but none of its views did (a card's margin), the root swallows it, as the
+        // panel did: nothing under the overlay sees it.
+        return takes ? self : nil
     }
 
     static let planeContainerID = NSUserInterfaceItemIdentifier("overlay-plane-container")
