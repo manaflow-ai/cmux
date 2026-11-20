@@ -298,6 +298,7 @@ pub(crate) use shutdown::{
 mod caller_registry;
 mod history_timing;
 pub(crate) mod inbox;
+pub(crate) mod inbox_subscription;
 mod spawn;
 mod start_defaults;
 pub(crate) mod start_mode;
