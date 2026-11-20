@@ -24,6 +24,24 @@ import UIKit
         #expect(ids.contains("u-\(AgentChatStore.localTurnKey(id))"), "shown in the same turn as Send: \(before) → \(ids)")
     }
 
+    /// The rows are laid out in that turn too, so the transcript's glide starts in the frame the
+    /// composer clears in, not at the next layout pass (behind the keyboard's resign).
+    @Test func theSentRowsAreLaidOutBeforeSendReturns() throws {
+        let source = SentPromptShownTests.Recorder()
+        let store = AgentChatStore(source: source)
+        let list = ChatTranscriptList(store: store, surface: AgentChatSurface())
+        list.collectionView.frame = CGRect(x: 0, y: 0, width: 390, height: 800)
+        list.boundsMayHaveChanged()
+        list.collectionView.layoutIfNeeded()
+        var laidOut = 0
+        list.collectionView.didLayout = { laidOut += 1 }
+        let before = list.collectionView.contentSize.height
+
+        store.send(prompt: "run the tests")
+        #expect(laidOut > 0, "laid out before Send returns")
+        #expect(list.collectionView.contentSize.height > before, "the bubble's height is in the content")
+    }
+
     @Test func aHeldTranscriptWaitsForItsRelease() throws {
         let source = SentPromptShownTests.Recorder()
         let store = AgentChatStore(source: source)
