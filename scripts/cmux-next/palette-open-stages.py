@@ -56,6 +56,9 @@ parser.add_argument("--no-gate", action="store_true", help="report only; exit 0 
 parser.add_argument("--search-keys", help="time typed keys of this word on Search (Cmd-Shift-A), not palette opens")
 parser.add_argument("--seed-chats", type=int, default=0, help="stored chats in the app's acpmux store (--search-keys)")
 parser.add_argument("--stress", action="store_true", help="build the STRESS session before typing (--search-keys)")
+parser.add_argument("--sample-file", help="after the timed opens, /usr/bin/sample the app (1 ms) over --sample-opens more "
+                    "Cmd-Shift-P opens on the first surface and write the report here")
+parser.add_argument("--sample-opens", type=int, default=40, help="Cmd-Shift-P opens during --sample-file")
 parser.add_argument("--vdisplay", type=float, help="run on a 1920x1200 virtual main display at this refresh rate (Hz)")
 opts = parser.parse_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
@@ -530,6 +533,19 @@ def main():
                 key_p90 = line.get("key", {}).get("p90", 1e9)
                 row(name, f"key-down to frame p90 <= {opts.budget_ms} ms, {opts.rounds} opens",
                     f"p90 {key_p90} ms, {len(samples)} timed", (opts.no_gate or key_p90 <= opts.budget_ms) and missed == 0)
+    if opts.sample_file and tabs:
+        # The opens' main-thread work, by function: one sample of the app over more Cmd-Shift-P opens on the first surface.
+        rpc("debug.mouse", {"action": "click", "x": tabs[0][1][0], "y": tabs[0][1][1]})
+        time.sleep(1.0)  # test harness: the tab shows and takes focus
+        params = next(p for label, p in KEYS if label == "Cmd-Shift-P")
+        seconds = max(3, int(opts.sample_opens * (opts.interval + 0.15)) + 2)
+        sampler = subprocess.Popen(["/usr/bin/sample", str(app.pid), str(seconds), "1", "-mayDie", "-file", opts.sample_file],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(0.5)  # test harness: sample attaches before the first open
+        timed = sum(one_open(params)[0] is not None for _ in range(opts.sample_opens))
+        sampler.wait(timeout=seconds + 60)
+        row("sample", f"{opts.sample_opens} Cmd-Shift-P opens sampled", f"{timed} timed, report {os.path.exists(opts.sample_file)}",
+            os.path.exists(opts.sample_file))
     if opts.json:
         with open(opts.json, "w") as handle:
             json.dump(report, handle, indent=1)
