@@ -200,10 +200,6 @@ final class PagedListCollectionView: UICollectionView {
     var willLayout: (() -> Void)?
     var didLayout: (() -> Void)?
 
-    /// Runs a move of the offset that the screen makes on purpose (``PullDownSearch``'s tuck of the
-    /// search drawer at launch): the frame-shift measure counts it as explained, as the list's own.
-    var deliberately: ((() -> Void) -> Void)?
-
     /// While a set of the offset runs, what it asked for (each outermost set numbered): UIKit may
     /// move the offset further inside it (rows above it sized as they came into view, with the
     /// content moved by as much), which is its correction, not the finger's or the fling's move.
@@ -438,9 +434,6 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         newest.jump = { [weak self] in self?.jumpToNewest() }
         collectionView.willLayout = { [weak self] in self?.willLayout() }
         collectionView.didLayout = { [weak self] in self?.didLayout() }
-        collectionView.deliberately = { [weak self] move in
-            if let self { self.ownMove(move) } else { move() }
-        }
         collectionView.registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { [weak self] (_: PagedListCollectionView, _: UITraitCollection) in
             self?.textSizeChanged()
         }
@@ -748,13 +741,6 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
 
     /// A move the list makes on purpose (following the newest row, riding the bottom edge): the
     /// frame-shift measure counts it as explained.
-    /// A screen's own move of the list (``PagedListCollectionView/deliberately``), counted as the list's.
-    func ownMove(_ move: () -> Void) {
-        ownMoves += 1
-        move()
-        ownMoves -= 1
-    }
-
     private func moveOffset(to y: CGFloat) {
         guard abs(collectionView.contentOffset.y - y) > 0.01 else { return }
         ownMoves += 1
