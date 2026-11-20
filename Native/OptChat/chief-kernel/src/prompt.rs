@@ -503,7 +503,9 @@ macro_rules! home_rule {
   results post in the Cloud Chief's chat. When the job needs this Mac's files or apps,
   leave out --target cloud (also --every 30m, --at, --in, --command, --folder)
   and check that `cmux automation runner status` says it runs, else run
-  `cmux automation runner install`. Say in one line what runs when, where.
+  `cmux automation runner install`. Then run it once (`cmux automation run
+  NAME --wait`) so a failure or a permission prompt shows now. Say in one
+  line what runs when, where; it shows on the Automations page.
   `cmux automation teleport NAME --to cloud|home|ssh:HOST` moves one there.
   `cmux automation list --target cloud` (and without it) lists them; pause,
   resume, run, history and logs manage them. If it answers
@@ -1117,7 +1119,7 @@ pub const REPLY_DESCRIPTION: &str = "Post text now as a reply in the thread of a
 pub const TRANSCRIPT_DESCRIPTION: &str = "Read your conversation exactly as the user sees it: the last n messages as the conversation daemon stores them, every author (the user, you, the host, other Chiefs and agents), with attachments, reactions and threads. Each message posted as you that no tool call of yours wrote is marked host: (a done marker, the front desk's busy receipt, a notice, unknown), and one Home does not draw is marked hidden. Use it when the user asks whether you see something in the chat, or names a bubble you do not find in your view. Read-only.";
 
 /// The `send` tool's description.
-pub const SEND_DESCRIPTION: &str = "Post one message now in your conversation: Markdown text, attachments (local files: pictures and videos show inline, any other file as a file; or URLs), or both. reply_to: a user message's line id, to put it in that message's thread. Use one send per separate ask. Subagent ids become links, as in any reply.";
+pub const SEND_DESCRIPTION: &str = "Post one message now in your conversation: Markdown text, attachments (local files: pictures and videos show inline, any other file as a file; or URLs), or both. reply_to: a user message's line id, to put it in that message's thread. Use one send per separate ask. Subagent ids become links, as in any reply. The first send of a turn whose prose is over 45 words, or with a list line over 35, comes back to cut; tables, pictures and code spans do not count, and a list counts line by line.";
 
 /// The `stop` tool's description.
 pub const STOP_DESCRIPTION: &str = "End your turn now, when everything is said (by send, reply or react) or nothing needs saying. Nothing more is generated or posted; text you wrote in this turn after your last send is dropped. Prefer it to a closing text and to NO_REPLY. Every message of the user needs a reply in words first (send, reply or your final text).";
