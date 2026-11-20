@@ -26,6 +26,7 @@ fn item(
     text: &str,
 ) -> Item {
     Item {
+        surge_held: false,
         prompt_id: prompt_id.to_owned(),
         notice: None,
         answered: None,

@@ -123,6 +123,8 @@
 use super::*;
 #[path = "inbox_topic.rs"]
 mod topics;
+#[path = "inbox_surge.rs"]
+mod surge;
 use crate::prompt_class::PromptClass;
 use std::sync::Weak;
 use std::sync::atomic::Ordering;
@@ -164,6 +166,8 @@ const CLIENT: &str = "acpmux";
 
 /// One message in the inbox.
 pub(super) struct Item {
+    /// Archived for batch triage. An ordinary notice must never carry this item.
+    pub(super) surge_held: bool,
     pub(super) prompt_id: String,
     /// The notice that carried it, once one went in: a resend answers with its outcome.
     pub(super) notice: Option<String>,
@@ -208,6 +212,7 @@ impl Item {
     /// Message `prompt_id` from agent `from`, that a notice carries now.
     pub(super) fn carried(prompt_id: &str, from: &str, text: &str) -> Self {
         Self {
+            surge_held: false,
             prompt_id: prompt_id.to_owned(),
             notice: None,
             answered: None,
@@ -236,6 +241,7 @@ type Waiter = tokio::sync::watch::Sender<Option<super::queue::Answer>>;
 /// A session's inbox (`Session::inbox`).
 #[derive(Default)]
 pub struct Inbox {
+    surge_rate: surge::SurgeRate,
     pub(super) items: Vec<Item>,
     /// Replies to questions no caller waits for: due under the prompt that carries them until
     /// its turn is known, then sent to their askers when that turn ends (`question_replies.rs`).
@@ -1321,6 +1327,7 @@ impl Hub {
                     None => {
                         held = strands;
                         inbox.items.push(Item {
+                            surge_held: false,
                             prompt_id: prompt_id.to_owned(),
                             notice: None,
                             answered: None,
@@ -1443,6 +1450,7 @@ impl Hub {
                 false
             } else {
                 inbox.items.push(Item {
+                    surge_held: false,
                     prompt_id: prompt_id.to_owned(),
                     notice: None,
                     answered: None,
@@ -1482,7 +1490,7 @@ impl Hub {
             crate::prompt_provenance::marked(msg, opts.provenance.as_ref()),
         );
         if let Some(message) = message.as_ref() {
-            super::message_events::record_message_context(self, &session.id, message);
+            super::message_events::record_message_context(self, &session.id, message, &Value::Null);
         }
         // Existing readers can replay these marks without knowing the new deliveredRead flag.
         self.append(
@@ -2105,6 +2113,7 @@ impl Hub {
                         thread
                     };
                     items.push(Item {
+                        surge_held: e.msg.get("surgeHeld") == Some(&Value::Bool(true)),
                         prompt_id: field("promptId").to_owned(),
                         notice: None,
                         answered: None,
@@ -2172,6 +2181,10 @@ impl Hub {
             item.notice = noticed.get(&item.prompt_id).cloned().filter(|n| !n.is_empty());
             item.answered = item.notice.as_ref().and_then(|n| answered.get(n).cloned());
             item.noticed |= noticed.contains_key(&item.prompt_id);
+            if item.surge_held {
+                item.noticed = true;
+                inbox.surge_rate.restore(item.at);
+            }
             item.read |= read.contains(&item.prompt_id);
             inbox.items.push(item);
         }
@@ -2251,6 +2264,7 @@ impl Hub {
             ids.is_some_and(|ids| ids.iter().any(|v| v.as_str() == Some(prompt_id)))
         };
         let (mut found, mut removed, mut noticed) = (false, false, false);
+        let mut surge_thread = None;
         let mut answer: Option<super::queue::Answer> = None;
         let kinds = ["inbox", "inbox_noticed", "inbox_answered", "inbox_removed"];
         // Only the records naming it are read whole: by `promptId`, or in a list of prompts
@@ -2261,7 +2275,12 @@ impl Hub {
         let _ = self.scan_for_rebuild_keyed(session, &kinds, keep, &mut |e: EventRecord| {
             let own = e.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id);
             match e.kind.as_str() {
-                "inbox" if own => found = true,
+                "inbox" if own => {
+                    found = true;
+                    if e.msg.get("surgeHeld") == Some(&Value::Bool(true)) {
+                        surge_thread = e.msg.get("threadId").cloned();
+                    }
+                }
                 "inbox_removed" if own => removed = true,
                 "inbox_noticed" if names(&e.msg) => noticed = true,
                 "inbox_answered" if names(&e.msg) => answer = answered_record(&e.msg).map(|a| a.1),
@@ -2274,6 +2293,11 @@ impl Hub {
         }
         if removed {
             return Some(Ok(super::queue::withdrawn_reply(prompt_id, "")));
+        }
+        if let Some(thread) = surge_thread {
+            return Some(Ok(json!({"stopReason":"end_turn","_meta":{"acpmux":{
+                "promptId":prompt_id,"threadId":thread,"inbox":true,"duplicate":true,"surgeHeld":true
+            }}})));
         }
         let meta = json!({"promptId": prompt_id, "inbox": true, "duplicate": true});
         match answer {
@@ -2363,7 +2387,7 @@ impl Hub {
                     "sender": item.sender,
                     "class": item.class, "kind": kind_of(item.class), "at": item.at,
                     "text": item.text, "read": item.read, "details": item.details,
-                    "notice": item.tool_notice,
+                    "notice": item.tool_notice, "surgeHeld": item.surge_held,
                 }));
                 if mark_read && !item.read {
                     item.read = true;
