@@ -44,10 +44,28 @@ fn an_app_that_does_not_answer_refuses_instead_of_the_home_default() {
 }
 
 #[test]
-fn an_explicit_config_file_wins_over_the_app_socket() {
+fn the_variable_alone_names_the_file_and_asks_no_app() {
     let environment = env(&[("HOME", "/home/me"), ("CMUX_NEXT_CONFIG_FILE", "/tmp/mine.json")]);
-    let file = path_with(&app_socket("/side/control.sock"), environment, never_asked);
+    let file = path_with(&GlobalArgs::default(), environment, never_asked);
     assert_eq!(file, Ok(PathBuf::from("/tmp/mine.json")));
+}
+
+#[test]
+fn with_both_the_app_is_still_asked_and_must_agree() {
+    let both = || env(&[("HOME", "/home/me"), ("CMUX_NEXT_CONFIG_FILE", "/side/cmux-next.json")]);
+    let socket = app_socket("/side/control.sock");
+    let agreed = path_with(&socket, both(), |_| Ok("/side/cmux-next.json".into()));
+    assert_eq!(agreed, Ok(PathBuf::from("/side/cmux-next.json")));
+
+    // The reported case: the variable names a side file, the socket answers nothing.
+    let error = path_with(&socket, both(), |_| Err("no such file".into())).expect_err("refused");
+    assert_eq!(error["code"], "settings.app_unanswered");
+
+    let error = path_with(&socket, both(), |_| Ok("/home/me/.config/cmux/cmux-next.json".into()))
+        .expect_err("refused");
+    assert_eq!(error["code"], "settings.file_conflict");
+    let message = error["message"].as_str().unwrap_or_default();
+    assert!(message.contains("/side/cmux-next.json") && message.contains("/home/me"), "{message}");
 }
 
 #[test]
@@ -107,10 +125,18 @@ fn a_settings_write_for_the_app_socket_is_pinned_to_its_file() {
 }
 
 #[test]
-fn only_settings_writes_with_an_app_socket_are_pinned() {
+fn only_settings_writes_for_a_named_file_are_pinned() {
+    let home = || env(&[("HOME", "/home/me")]);
+    let named = || env(&[("HOME", "/home/me"), ("CMUX_NEXT_CONFIG_FILE", "/side/cmux-next.json")]);
     let set = plan(&["settings", "set", "appearance.themeFile", "tokyo"]);
-    assert!(!pins(&GlobalArgs::default(), &set));
+    assert!(!pins_with(&GlobalArgs::default(), &set, home()));
     let socket = GlobalArgs { socket: Some("/tmp/d.sock".into()), ..GlobalArgs::default() };
-    assert!(!pins(&socket, &set));
-    assert!(!pins(&app_socket("/side/control.sock"), &plan(&["settings", "get", "a.b"])));
+    assert!(!pins_with(&socket, &set, home()));
+    assert!(pins_with(&app_socket("/side/control.sock"), &set, home()));
+    // The variable alone pins too: the daemon this terminal reaches may serve another file.
+    assert!(pins_with(&GlobalArgs::default(), &set, named()));
+    assert!(pins_with(&socket, &set, named()));
+    assert!(!pins_with(&GlobalArgs::default(), &set, env(&[("CMUX_NEXT_CONFIG_FILE", "")])));
+    let get = plan(&["settings", "get", "a.b"]);
+    assert!(!pins_with(&app_socket("/side/control.sock"), &get, named()));
 }

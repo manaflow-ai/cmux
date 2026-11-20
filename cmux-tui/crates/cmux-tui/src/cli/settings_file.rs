@@ -1,15 +1,18 @@
-//! The settings file a `cmux theme` or `cmux settings` write is for. With
-//! no app socket named it is this process's (`cmux_config::config_path`).
-//! `--app-socket` names another app, which may run on another file (a side
-//! instance has its own `CMUX_NEXT_CONFIG_FILE`): the file is the one that
-//! app says it reads and writes (its `settings.get` `file`), and an app that
-//! does not say refuses the verb, never the home default. An explicit
-//! `CMUX_NEXT_CONFIG_FILE` wins over both.
+//! The settings file a `cmux theme`, `cmux settings` or `cmux customize`
+//! write is for. With no app socket named it is this process's
+//! (`CMUX_NEXT_CONFIG_FILE`, else the home default). `--app-socket` names
+//! another app, which may run on another file (a side instance has its own
+//! `CMUX_NEXT_CONFIG_FILE`): the file is the one that app says it reads and
+//! writes (its `settings.get` `file`). An app that does not answer refuses
+//! the verb, never the home default, and so does an app whose file is not
+//! the one `CMUX_NEXT_CONFIG_FILE` names: the two must agree.
 //!
-//! A daemon write (`settings set|reset|unset|edit`) is pinned to that file:
-//! it goes as `settings.edit` with `file`, which a daemon serving another
-//! file refuses (`settings.file_mismatch`), so a write meant for the named
-//! app never lands in the settings of the app this terminal belongs to.
+//! A daemon write (`settings set|reset|unset|edit`) for a named file (either
+//! way) is pinned to it: it goes as `settings.edit` with `file`, which a
+//! daemon serving another file refuses (`settings.file_mismatch`), so a write
+//! meant for another app never lands in the settings of the app this
+//! terminal belongs to. On 2026-11-19 a write with both set went to Leo's
+//! own NIGHTLY settings, because neither was carried to the daemon.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -20,10 +23,22 @@ use serde_json::{Map, Value, json};
 use super::GlobalArgs;
 use super::command::{RequestPlan, WireOperation};
 
-/// The settings file for this run: `CMUX_NEXT_CONFIG_FILE`, else the file
-/// the `--app-socket` app reports, else the default.
+fn process_env(name: &str) -> Option<OsString> {
+    std::env::var_os(name).filter(|value| !value.is_empty())
+}
+
+/// The settings file for this run: the file the `--app-socket` app
+/// reports (which must be `CMUX_NEXT_CONFIG_FILE` when that is set), else
+/// `CMUX_NEXT_CONFIG_FILE`, else the default.
 pub(super) fn path(global: &GlobalArgs) -> Result<PathBuf, Value> {
-    path_with(global, |name| std::env::var_os(name).filter(|value| !value.is_empty()), ask_app)
+    path_with(global, process_env, ask_app)
+}
+
+/// `CMUX_NEXT_CONFIG_FILE` as an absolute path, when set.
+fn named(env: &impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+    env(cmux_config::CONFIG_OVERRIDE).filter(|value| !value.is_empty())?;
+    let file = cmux_config::location::config_path_from(env);
+    Some(std::path::absolute(&file).unwrap_or(file))
 }
 
 /// [`path`] with an injected environment and app (tests).
@@ -32,26 +47,43 @@ pub(super) fn path_with(
     env: impl Fn(&str) -> Option<OsString>,
     ask: impl FnOnce(&Path) -> Result<PathBuf, String>,
 ) -> Result<PathBuf, Value> {
-    if env(cmux_config::CONFIG_OVERRIDE).is_some_and(|value| !value.is_empty()) {
-        let file = cmux_config::location::config_path_from(&env);
-        return Ok(std::path::absolute(&file).unwrap_or(file));
-    }
+    let named = named(&env);
     let Some(socket) = &global.app_socket else {
-        return Ok(cmux_config::location::config_path_from(&env));
+        return Ok(named.unwrap_or_else(|| cmux_config::location::config_path_from(&env)));
     };
-    ask(socket).map_err(|why| {
+    // The named app is asked even when the variable names a file: a socket
+    // that answers nothing refuses, so a typo never writes anywhere.
+    let reported = ask(socket).map_err(|why| {
         json!({
             "code": "settings.app_unanswered",
             "message": format!(
                 "the app at --app-socket {} did not say which settings file it uses ({why}), so \
-                 nothing was read or written; open that app, or name the file with \
-                 CMUX_NEXT_CONFIG_FILE",
+                 nothing was read or written; open that app, or leave out --app-socket",
                 socket.display()
             ),
             "details": { "socket": socket.display().to_string() },
             "retryable": true,
         })
-    })
+    })?;
+    match named {
+        Some(named) if named != reported => Err(json!({
+            "code": "settings.file_conflict",
+            "message": format!(
+                "CMUX_NEXT_CONFIG_FILE is {} but the app at --app-socket {} reads and writes {}, \
+                 so nothing was read or written; drop one, or make them the same file",
+                named.display(),
+                socket.display(),
+                reported.display()
+            ),
+            "details": {
+                "socket": socket.display().to_string(),
+                "named": named.display().to_string(),
+                "reported": reported.display().to_string(),
+            },
+            "retryable": false,
+        })),
+        _ => Ok(reported),
+    }
 }
 
 /// The app's settings file: the `file` of its `settings.get` answer.
@@ -76,9 +108,19 @@ fn reported_file(answer: &Value) -> Result<PathBuf, String> {
         .ok_or_else(|| "its settings.get answer names no settings file".to_owned())
 }
 
-/// Whether `plan` is a daemon settings write that `--app-socket` pins.
+/// Whether `plan` is a daemon settings write for a named file
+/// (`--app-socket` or `CMUX_NEXT_CONFIG_FILE`), which is pinned to it.
 pub(super) fn pins(global: &GlobalArgs, plan: &RequestPlan) -> bool {
-    global.app_socket.is_some()
+    pins_with(global, plan, process_env)
+}
+
+/// [`pins`] with an injected environment (tests).
+pub(super) fn pins_with(
+    global: &GlobalArgs,
+    plan: &RequestPlan,
+    env: impl Fn(&str) -> Option<OsString>,
+) -> bool {
+    (global.app_socket.is_some() || named(&env).is_some())
         && matches!(
             plan.operation,
             WireOperation::Typed(
