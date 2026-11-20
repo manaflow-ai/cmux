@@ -801,6 +801,10 @@ class WorkflowShapeTests(unittest.TestCase):
         triggers = workflow[True] if True in workflow else workflow["on"]
         self.assertEqual(triggers["workflow_run"], {"workflows": ["CI"], "types": ["requested"]})
         steps = workflow["jobs"]["sweep"]["steps"]
+        # Retry tooling is prepared before API work; its order is checked by
+        # test_scheduled_workflow_gh_retry.py.
+        tooling = {"Checkout the GitHub API wait", "Wait through GitHub API rate limits and 5xx in this job"}
+        steps = [step for step in steps if step.get("name") not in tooling]
         # Only the glaeda-route App mint comes first (it spends the App's budget, not
         # GITHUB_TOKEN's), so the freshness probe's one read is on the App's budget too.
         self.assertEqual(steps[0]["id"], "glaeda-token")
@@ -850,7 +854,7 @@ class WorkflowShapeTests(unittest.TestCase):
         # when a requested run has just swept for it. A manual dispatch always
         # sweeps.
         workflow = yaml.safe_load(self.text)
-        fresh = workflow["jobs"]["sweep"]["steps"][1]
+        fresh = next(step for step in workflow["jobs"]["sweep"]["steps"] if step.get("id") == "fresh")
         self.assertEqual(fresh["if"], "github.event_name != 'workflow_dispatch'")
         self.assertEqual(fresh["env"]["FRESH_SECONDS"],
                          "${{ github.event_name == 'workflow_run' && '600' || '300' }}")
