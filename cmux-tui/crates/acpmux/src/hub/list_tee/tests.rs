@@ -958,7 +958,7 @@ async fn a_queued_family_prompt_marks_once_per_wait_edge() {
         replaced: &replaced,
         no_queue: false,
         admitted: false,
-        after_turn: false,
+        after_turn: None,
         steer_on_start: false,
     };
     let mut accepted = |value: Value| assert_eq!(value.get("waitsForSlot"), Some(&json!(true)));
