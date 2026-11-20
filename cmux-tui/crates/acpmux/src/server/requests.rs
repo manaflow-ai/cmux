@@ -1870,7 +1870,7 @@ async fn dispatch_request_with_identity(
             }
             Ok(json!({
                 "sessionId": s.id,
-                "modes": meta.modes,
+                "modes": crate::hub::permission_modes::of_session(&meta),
                 "configOptions": meta.config_options,
                 "_meta": {"acpmux": summary},
             }))
@@ -2418,7 +2418,7 @@ async fn dispatch_request_with_identity(
                 summary.set("admission", w);
             }
             Ok(
-                json!({"sessionId": new.id, "modes": meta.modes, "configOptions": meta.config_options, "_meta": {"acpmux": summary}}),
+                json!({"sessionId": new.id, "modes": crate::hub::permission_modes::of_session(&meta), "configOptions": meta.config_options, "_meta": {"acpmux": summary}}),
             )
         }
         method::SESSION_SET_MODE => {

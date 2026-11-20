@@ -1287,11 +1287,12 @@ export interface RetryParams {
 
 /**
  * Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no
- * capacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, the
- * agent process died mid-turn, or the chat outgrew its model's context window (`context`: it
- * is compacted, then continued at once).
+ * capacity (HTTP 503 or 529, overloaded, no account free), the account hit its usage or rate
+ * limit (`rate_limit`, HTTP 429: the chat holds every turn until the reset, `hub/rate_hold.rs`),
+ * the connection dropped, the agent process died mid-turn, or the chat outgrew its model's
+ * context window (`context`: it is compacted, then continued at once).
  */
-export type RetryReason = "capacity" | "transport" | "agent_exited" | "context";
+export type RetryReason = "capacity" | "rate_limit" | "transport" | "agent_exited" | "context";
 
 /**
  * What `_acpmux/retry` sent: the prompt `promptId` (for the chat's turn `P~resume-n`, the next
@@ -1348,12 +1349,6 @@ export interface SeenParams {
 }
 
 /**
- * Whose credential a sign-in refusal is about, so a client names that party and offers the one
- * fix that works: sign in to the agent, replace the provider's key, or sign in to cmux.
- */
-export type SessionAuthCredential = ("login" | "apiKey" | "cmux");
-
-/**
  * `terminal`: run `command` in a terminal on `host` (null: this machine). `route`: edit or
  * sign in again to the route `routeId`.
  */
@@ -1382,12 +1377,6 @@ export interface SessionAuthParams {
  * or `routeAuthNeeded`; `unknown` never blocks.
  */
 export type SessionAuthResult = {
-  /**
-   * Whose credential refused the chat, for `signedOut`, `expired` and `routeAuthNeeded`: the
-   * agent's own login, an API key a provider issued, or the person's cmux account. Absent when
-   * the evidence does not say (a route of another kind names it by `routeId`).
-   */
-  credential?: (SessionAuthCredential | null);
   /** One sentence: the probe's status, the turn's error, or the check that ran. */
   detail: string;
   /** When the evidence was observed (ms since the epoch); null when `source` is `none`. */
@@ -1402,12 +1391,6 @@ export type SessionAuthResult = {
   host?: (string | null);
   /** How to sign in: only for `signedOut`, `expired` and `routeAuthNeeded`. */
   login?: (SessionAuthLogin | null);
-  /**
-   * The provider that issued a refused API key, by its id as the chat's model names it
-   * (`opencode-go` in `opencode-go/deepseek-v4.1-flash`) or as the agent's family implies it
-   * (`anthropic` for Claude Code); only with `credential` `apiKey`.
-   */
-  provider?: (string | null);
   /** The route the chat is bound to; null when it is not routed. */
   routeId?: (string | null);
   source: SessionAuthSource;
@@ -1594,6 +1577,19 @@ export type SessionDetail = {
   /** A turn failed: the prompts behind it wait for a client to resume them. */
   queuePaused: boolean;
   queued: number;
+  /**
+   * Since when (Unix ms) this chat is parked on the rate limit: six turns in a row failed on
+   * it, or Stop came while the limit had it, so it starts nothing by itself until `acpmux
+   * retry` or the person's own prompt (`hub/rate_hold.rs`). Absent otherwise, and from a peer
+   * on an older acpmux.
+   */
+  rateLimitParked?: (number | null);
+  /**
+   * The account's rate limit holds every turn of this chat until this time (Unix ms): what
+   * comes in queues and goes in as one turn at the reset (`hub/rate_hold.rs`). `acpmux ls` shows
+   * "rate-limited until HH:MMZ". Absent otherwise, and from a peer on an older acpmux.
+   */
+  rateLimitedUntil?: (number | null);
   /**
    * The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):
    * a Codex chat's earlier roots, which its older records still name, so a client folding
@@ -1916,6 +1912,19 @@ export type SessionSummary = {
   /** A turn failed: the prompts behind it wait for a client to resume them. */
   queuePaused: boolean;
   queued: number;
+  /**
+   * Since when (Unix ms) this chat is parked on the rate limit: six turns in a row failed on
+   * it, or Stop came while the limit had it, so it starts nothing by itself until `acpmux
+   * retry` or the person's own prompt (`hub/rate_hold.rs`). Absent otherwise, and from a peer
+   * on an older acpmux.
+   */
+  rateLimitParked?: (number | null);
+  /**
+   * The account's rate limit holds every turn of this chat until this time (Unix ms): what
+   * comes in queues and goes in as one turn at the reset (`hub/rate_hold.rs`). `acpmux ls` shows
+   * "rate-limited until HH:MMZ". Absent otherwise, and from a peer on an older acpmux.
+   */
+  rateLimitedUntil?: (number | null);
   /**
    * The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):
    * a Codex chat's earlier roots, which its older records still name, so a client folding
