@@ -282,6 +282,14 @@
 .ui-popup.ui-glass {
   background: var(--glass-tint);
 }
+/* A hover card the same way: desktop.css's bare .ui-card is the solid popup surface with no blur, one
+   class, so whichever sheet loads last won a .ui-card.ui-glass that is not also a tooltip (the chat
+   header's tool preview drew solid where desktop.css came after this sheet). */
+.ui-card.ui-glass {
+  background: var(--glass-tint);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  backdrop-filter: var(--glass-backdrop);
+}
 
 /* GLASS MATERIAL (Leo 2026-11-05, the Dock beside our composer: "the glass is a pretty big deal ...
    Ours is not f***ing pretty"). The one look web glass takes to read as macOS's own Liquid Glass,

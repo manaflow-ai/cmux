@@ -323,7 +323,10 @@
   color: var(--agent-text);
 }
 
-/* The morph's hover preview (HeaderToolPreview.tsx): what a click opens, under the icon. */
+/* The morph's hover preview (HeaderToolPreview.tsx): what a click opens, under the icon. It is the
+   shared glass hover card (.ui-card.ui-glass: desktop.css, ui/glass/glass.css), the hover card
+   level's tint and frost under the one glass edge, so it sets no fill or ring of its own (it was the
+   solid elevated surface under a 14% ring). Reduce Transparency draws the opaque surface. */
 .acpmux-header-preview {
   position: fixed;
   z-index: var(--layer-tooltip, 1000);
@@ -334,9 +337,7 @@
   overflow: hidden;
   padding: calc(8 * var(--ui-px, 1px));
   border-radius: 8px;
-  background: var(--agent-surface-elevated, Canvas);
   color: var(--agent-text);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--agent-text) 14%, transparent);
   font-size: var(--text-caption);
   line-height: 1.3;
   pointer-events: none;
