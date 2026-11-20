@@ -2100,6 +2100,23 @@ pre.cv-math-source {
    bottom stack lies over the scroller's foot (bottomStack.css): VirtualTranscript keeps its height
    as room under the last row, and keeps a followed view at its end before the frame paints as it
    changes. Focus and Find scroll a row into view above it. */
+/* The trajectory's type steps (its tool rows, meta lines, captions) follow the chat's text scale, not the page's
+   density: the chat's text is one size at Compact, Default and Spacious, and a density changes only its spacing
+   (user 2026-11-19: "chat trajectory size should be same at normal and compact and spacious densities"). The
+   chat's own size (--cv-font-size) already reads the same scale (chatDisplay.ts drawnFontSize). */
+.acpmux-scroll {
+  --cv-text-scale: var(--cmux-chat-text-scale, var(--cmux-interface-scale, 1));
+  --text-caption: calc(11px * var(--cv-text-scale));
+  --text-caption--line-height: calc(14px * var(--cv-text-scale));
+  --text-detail: calc(12px * var(--cv-text-scale));
+  --text-detail--line-height: calc(16px * var(--cv-text-scale));
+  --text-body: calc(13px * var(--cv-text-scale));
+  --text-body--line-height: calc(18px * var(--cv-text-scale));
+  --text-control: var(--text-body);
+  --text-control--line-height: var(--text-body--line-height);
+  --text-title: calc(15px * var(--cv-text-scale));
+  --text-title--line-height: calc(20px * var(--cv-text-scale));
+}
 .acpmux-scroll {
   scroll-padding-bottom: var(--acpmux-dock-space, 0px);
   font-family: var(--cv-font);
@@ -8121,4 +8138,20 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 }
 .cv-tool__file:hover {
   text-decoration-color: currentColor;
+}
+
+/* A running call's time at its row's edge (RunningTime.tsx): in sight at rest, not on hover only as a
+   finished call's was, since while it runs how long it has run is the row's news. The edge's dim
+   tone and size (`.cv-command__meta`); `Clock` keeps its width while it ticks. */
+.cv-command__elapsed {
+  color: var(--cv-text-dim);
+}
+/* How long a finished command took, in its opened Shell card beside the label and folder. */
+.cv-shell__time {
+  flex: none;
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+  white-space: nowrap;
 }

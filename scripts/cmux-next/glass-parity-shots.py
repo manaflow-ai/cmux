@@ -99,6 +99,11 @@ BASE = [
     {"backdrop": "wallpaper", "row": "pressed"},
     {"backdrop": "plain", "ic": True},                    # Increase Contrast (the Mac's setting)
     {"backdrop": "wallpaper", "ic": True},
+    # The text axis (GlassParityPlayground.TextRendering): which rasterization pairing matches the text.
+    {"backdrop": "plain", "text": "flat"},
+    {"backdrop": "wallpaper", "text": "flat"},
+    {"backdrop": "plain", "text": "smooth"},
+    {"backdrop": "wallpaper", "text": "smooth"},
 ]
 CSS = [{"backdrop": "plain", "mode": "css"}, {"backdrop": "wallpaper", "mode": "css"}]
 QUICK = [{"backdrop": "plain"}, {"backdrop": "wallpaper"}, {"backdrop": "terminal", "opacity": 0.6}]
@@ -262,6 +267,7 @@ try:
                 params.setdefault("active", True)
                 params.setdefault("opacity", 1)
                 params.setdefault("row", "rest")
+                params.setdefault("text", "standard")
                 params.update({"scale": scale, "measure": True, "dir": opts.out})
                 if opts.activate:
                     # Activation is the system's to give: an app started by a process that is no app (this harness) is
@@ -359,7 +365,18 @@ with open(os.path.join(opts.out, "summary.md"), "w") as f:
     f.write(f"Gate (glass: the box and its margin, text box left out): mean <= {GATE['mean']}, p99 <= {GATE['p99']} "
             f"(8-bit worst-channel error). {sum(r['pass'] for r in gated)}/{len(gated)} gated cells pass, "
             f"{sum(r['exact'] for r in gated)} exact (max 0). Text included (not gated; mean <= {TEXT_TOLERANCE['mean']}, "
-            f"p99 <= {TEXT_TOLERANCE['p99']}): {sum(r['text_ok'] for r in gated)}/{len(gated)}.\n\n")
+            f"p99 <= {TEXT_TOLERANCE['p99']}): {sum(r['text_ok'] for r in gated)}/{len(gated)}.\n")
+    # Text, per rasterization pairing and engine: the mean of the cells' with-text mean and p99.
+    by = {}
+    for r in gated:
+        after = r["stem"].split("-text-")
+        axis = after[1].split("-")[0] if len(after) > 1 else "standard"
+        by.setdefault((axis, r["engine"]), []).append(r["full"])
+    for (axis, engine), fulls in sorted(by.items()):
+        mean = sum(full.get("mean") or 0 for full in fulls) / len(fulls)
+        p99 = sum(full.get("p99") or 0 for full in fulls) / len(fulls)
+        f.write(f"Text {axis} {engine}: {len(fulls)} cells, with-text mean {mean:.3f}, p99 {p99:.1f}.\n")
+    f.write("\n")
     f.write("| scenario | surface | engine | glass pass | glass mean | glass p99 | glass max | text ok | with text mean | with text p99 |\n"
             "|---|---|---|---|---|---|---|---|---|---|\n")
     for r in rows:
