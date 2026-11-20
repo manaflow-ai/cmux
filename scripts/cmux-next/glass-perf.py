@@ -38,7 +38,7 @@ them from the test agent, one echoed turn per two messages) scrolled fast (the t
 frame, top to bottom and back, inside the page) for --load seconds, once per glass mode (the `glass.lens` Debug choice,
 Debug Settings > Glass and Overlays > Liquid Glass: `plain` blurs, `lens` refracts). On today's builds the lens bends a
 still of the wallpaper (cmuxTheme.backdrop), not the live chat under the composer; the rows say so (`lens_source`:
-`wallpaper-still`). Rows: frame p50/p95 (the page's frames), GPU %, CPU %, RSS, energy.
+`wallpaper-still`); a build whose composer bends the live chat (`[data-composer-lens]`, cmux#47802) says `live-content`. Rows: frame p50/p95 (the page's frames), GPU %, CPU %, RSS, energy.
 
 --attach SOCKET --app-pid PID measures an app someone else runs (a person's NIGHTLY), by its control socket only: it
 never launches, quits, restarts or ends that app, opens nothing but the chat --session names (with --open; else the
@@ -274,7 +274,8 @@ class Run:
   const composer = document.querySelector('textarea, [contenteditable="true"]');
   const glass = document.querySelectorAll('.ui-glass').length;
   return JSON.stringify({scroll_height: sc.scrollHeight, client_height: sc.clientHeight, composer: !!composer, glass,
-    lens: document.documentElement.getAttribute('data-glass') || null});
+    lens: document.documentElement.getAttribute('data-glass') || null,
+    composer_lens: !!document.querySelector('[data-composer-lens]')});
 })()""")
         try:
             info = json.loads(probe or "{}")
@@ -291,7 +292,8 @@ class Run:
         page = self.page_intervals()
         util = moving["gpu"].get("device_utilization_pct")
         return {"state": "composer-scroll", "mode": mode, "surfaces": info.get("glass"), "probe": info, **moving,
-                "lens_source": "wallpaper-still" if mode == "lens" else None, "gpu_pct": util,
+                "lens_source": (("live-content" if info.get("composer_lens") else "wallpaper-still")
+                                if mode == "lens" else None), "gpu_pct": util,
                 "gpu_ms_per_frame": round(util / 100 * moving["seconds"] * 1000 / len(page), 3)
                 if isinstance(util, (int, float)) and page else None,
                 "frame": {"page_frames": len(page), "page_p50_ms": pct(page, 0.5), "page_p95_ms": pct(page, 0.95),
