@@ -16,11 +16,10 @@ import Testing
     enum Variant: String, CaseIterable {
         /// `sidebar.sessionTree` off (the default): today's flat list.
         case off
-        /// On: the chat's sessions under it (working, waiting on you, finished unread); the session that
-        /// started two of its own is folded by default, its count and state chips showing.
+        /// On: all parents start open, with working, waiting and finished sessions at every level.
         case open
-        /// That nested session opened too: every level drawn.
-        case opened
+        /// The person folded the nested parent: its count and state chips show.
+        case nestedFolded
         /// The chat folded: one row, its chevron, the count of every session under it and a chip per state.
         case folded
     }
@@ -33,7 +32,7 @@ import Testing
         let billing = WorkspaceID("w-billing"), rollout = WorkspaceID("w-rollout")
         tree.state = variant == .off ? nil : SidebarSessionTreeState(parents: fixture.parents)
         let toggled: WorkspaceID? = switch variant {
-        case .opened where tree.isFolded(rollout): rollout
+        case .nestedFolded where !tree.isFolded(rollout): rollout
         case .folded where !tree.isFolded(billing): billing
         default: nil
         }

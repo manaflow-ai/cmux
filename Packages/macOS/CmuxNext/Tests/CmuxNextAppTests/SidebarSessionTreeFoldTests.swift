@@ -4,10 +4,8 @@ import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// design/sidebar.md, "Fold defaults", with `sidebar.sessionTree` on (Leo: "Claude Code (and the Claude desktop
-/// app's Code tab) shows subagents and sub-sessions nested under the parent chat"): a top-level parent starts
-/// open, a parent at depth 1 or deeper starts folded, a folded parent shows a count chip of every session it
-/// hides (idle ones included) beside one chip per state, and the person's folds persist per parent.
+/// With `sidebar.sessionTree` on, parents remain open at every depth until the person folds them.
+/// Explicit folds persist per parent; a folded parent counts every hidden session, including idle ones.
 @MainActor @Suite(.serialized) struct SidebarSessionTreeFoldTests {
     private static func defaults() -> UserDefaults {
         UserDefaults(testSuiteName: "SidebarSessionTreeFoldTests.\(UUID().uuidString)") ?? .standard
@@ -25,41 +23,40 @@ import Testing
 
     private static func id(_ name: String) -> WorkspaceID { WorkspaceID("w-\(name)") }
 
-    @Test func aTopLevelParentStartsOpenAndANestedOneStartsFolded() throws {
+    @Test func parentsAtEveryDepthStartOpen() throws {
         let tree = SidebarSessionTree(defaults: Self.defaults())
         tree.state = SidebarSessionTreeState(parents: SidebarNestedFixture(scenario: .sessionTree).parents)
         let rows = Self.rows(tree)
-        #expect(rows.map(\.0) == ["billing", "explore", "migration", "review", "rollout", "flaky", "notes"].map(Self.id))
-        #expect(rows.map(\.1.treeDepth) == [0, 1, 1, 1, 1, 0, 0])
+        #expect(rows.map(\.0) == ["billing", "explore", "migration", "review", "rollout", "changelog", "dashboards", "flaky", "notes"].map(Self.id))
+        #expect(rows.map(\.1.treeDepth) == [0, 1, 1, 1, 1, 2, 2, 0, 0])
         let content = Dictionary(uniqueKeysWithValues: rows)
         #expect(content[Self.id("billing")]?.treeFold == .expanded)
         #expect(content[Self.id("billing")]?.rollUp == nil)
-        // Plan the rollout started two sessions: folded by default, its count chip says 2, one of them runs.
-        #expect(content[Self.id("rollout")]?.treeFold == .collapsed)
-        #expect(content[Self.id("rollout")]?.rollUp == SidebarTreeRollUp(running: 1, hidden: 2))
-        #expect(tree.isFolded(Self.id("rollout")))
+        #expect(content[Self.id("rollout")]?.treeFold == .expanded)
+        #expect(content[Self.id("rollout")]?.rollUp == nil)
+        #expect(!tree.isFolded(Self.id("rollout")))
         #expect(!tree.isFolded(Self.id("billing")))
         #expect(tree.isParent(Self.id("rollout")) && !tree.isParent(Self.id("explore")))
     }
 
-    @Test func openingANestedParentPersistsAndFoldingItAgainForgetsIt() {
+    @Test func foldingANestedParentPersistsAndOpeningItAgainForgetsIt() {
         let store = Self.defaults()
         let tree = SidebarSessionTree(defaults: store)
         let parents = SidebarNestedFixture(scenario: .sessionTree).parents
         tree.state = SidebarSessionTreeState(parents: parents)
         tree.toggle(Self.id("rollout"))
-        #expect(!tree.isFolded(Self.id("rollout")))
-        #expect(tree.drawn?.collapsed == [])
-        #expect(Self.rows(tree).map(\.0).contains(Self.id("changelog")))
-        #expect(store.stringArray(forKey: SidebarSessionTree.openedKey) == ["w-rollout"])
-        // The next launch keeps it open.
+        #expect(tree.isFolded(Self.id("rollout")))
+        #expect(tree.drawn?.collapsed == [Self.id("rollout")])
+        #expect(!Self.rows(tree).map(\.0).contains(Self.id("changelog")))
+        let content = Dictionary(uniqueKeysWithValues: Self.rows(tree))
+        #expect(content[Self.id("rollout")]?.rollUp == SidebarTreeRollUp(running: 1, hidden: 2))
+        #expect(store.stringArray(forKey: SidebarSessionTree.collapsedKey) == ["w-rollout"])
         let launched = SidebarSessionTree(defaults: store)
         launched.state = SidebarSessionTreeState(parents: parents)
-        #expect(!launched.isFolded(Self.id("rollout")))
-        // Folding it again goes back to the default: nothing saved for it.
-        launched.toggle(Self.id("rollout"))
         #expect(launched.isFolded(Self.id("rollout")))
-        #expect(store.stringArray(forKey: SidebarSessionTree.openedKey) == [])
+        launched.toggle(Self.id("rollout"))
+        #expect(!launched.isFolded(Self.id("rollout")))
+        #expect(Self.rows(launched).map(\.0).contains(Self.id("changelog")))
         #expect(store.stringArray(forKey: SidebarSessionTree.collapsedKey) == [])
     }
 
@@ -90,13 +87,14 @@ import Testing
         #expect(CmuxNextSidebar.Strings.rollUp(SidebarTreeRollUp(hidden: 2)).contains("2"))
     }
 
-    /// Selecting a session a default fold hides opens that fold and remembers it, as a person's own open would.
-    @Test func revealingASessionUnderADefaultFoldOpensIt() {
+    /// Selecting a hidden session opens its explicitly folded ancestors and persists that choice.
+    @Test func revealingASessionUnderAnExplicitFoldOpensIt() {
         let tree = SidebarSessionTree(defaults: Self.defaults())
         tree.state = SidebarSessionTreeState(parents: SidebarNestedFixture(scenario: .sessionTree).parents)
+        tree.toggle(Self.id("rollout"))
         #expect(tree.drawn?.hidesInFold(Self.id("changelog")) == true)
         tree.reveal(Self.id("changelog"))
-        #expect(tree.opened == [Self.id("rollout")])
+        #expect(tree.collapsed.isEmpty)
         #expect(tree.drawn?.hidesInFold(Self.id("changelog")) == false)
     }
 

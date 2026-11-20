@@ -4,7 +4,7 @@ import CmuxNextDesign
 /// A folded tree parent's roll-up (`sidebar.sessionTree`): a count chip of every session the fold
 /// hides (idle ones included, no dot), then one small chip per state its hidden sessions are in, a
 /// dot and a count each, in a fixed order (waiting on you, failed, running, finished unread). Only
-/// chips with a count draw. Hidden without a roll-up (design/sidebar.md, "Fold defaults").
+/// chips with a count draw. Hidden without a roll-up.
 final class SidebarTreeRollUpView: NSView {
     private struct Chip {
         let state: SidebarAgentState

@@ -3,14 +3,13 @@
 - 2026-11-19 (lane/claude-nested-sessions): Sidebar-Look: Leo, via the coordinator: "Claude Code (and the Claude
   desktop app's Code tab) shows subagents and sub-sessions nested under the parent chat. Build: the Claude look turns
   on nested sessions in the sidebar (children under the parent, foldable, with status)". With `sidebar.sessionTree`
-  on (default off, unchanged), the fold defaults of design/sidebar.md now hold: a top-level parent starts open and a
-  parent at depth 1 or deeper starts folded; the person's opens of those persist per parent
-  (`sidebar.sessionTree.opened`, beside `.collapsed`), pruned to live parents; selecting a hidden session opens and
-  remembers the folds above it. A folded parent's roll-up starts with a count chip of every session it hides, idle
+  on (default off, unchanged), parents remain open at every depth until the person folds them. Explicit folds
+  persist per parent (`sidebar.sessionTree.collapsed`), pruned to live parents; selecting a hidden session opens
+  and remembers the folds above it. A folded parent's roll-up starts with a count chip of every session it hides, idle
   ones included (no dot, secondary text), before the per-state chips. Row heights and widths are unchanged (the
   chips sit in the trailing run). Capture fixture `debug.sidebar_nested_fixture {scenario: "sessionTree"}`.
   Regression: `SidebarSessionTreeFoldTests`; gallery `AAClaudeSessionTreeGalleryTests.renderGallery` (off, open,
-  opened, folded; Clay Orange light and dark).
+  nested-folded, folded; Clay Orange light and dark).
 
 - 2026-11-19 (lane/needs-you-glow): Sidebar-Look: Leo, 2026-11-19, on eight new features: "all of them" and "some of
   them maybe just as customizations lol if it affects default looks". "Needs you" as motion, off by default: with
