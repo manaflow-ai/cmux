@@ -348,6 +348,18 @@ class ApiTests(unittest.TestCase):
         text = (ROOT / "cmux-next-ios/project.yml").read_text(encoding="utf-8")
         self.assertIn(f"MARKETING_VERSION: {VERSION}", text)
 
+    def test_the_appstore_configuration_version_wins_over_the_base_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            yml = Path(tmp) / "project.yml"
+            yml.write_text("settings:\n  base:\n    MARKETING_VERSION: 1.2.0\n  configs:\n"
+                           "    TestFlight:\n      CMUX_MOBILE_TAG: \"\"\n"
+                           "    AppStore:\n      CMUX_MOBILE_APP_BUNDLE_ID: com.cmux.app\n      MARKETING_VERSION: 1.0.0\n"
+                           "packages:\n  X:\n    path: X\n", encoding="utf-8")
+            self.assertEqual(pkg.marketing_version(yml), "1.0.0")
+            yml.write_text("settings:\n  base:\n    MARKETING_VERSION: 1.2.0\n  configs:\n"
+                           "    AppStore:\n      CMUX_MOBILE_APP_BUNDLE_ID: com.cmux.app\n", encoding="utf-8")
+            self.assertEqual(pkg.marketing_version(yml), "1.2.0")
+
 
 class CheckoutTests(unittest.TestCase):
     """A workflow on another branch runs the script from a feat-cmux-next checkout at any path."""

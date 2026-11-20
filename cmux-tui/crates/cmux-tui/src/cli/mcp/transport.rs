@@ -442,14 +442,18 @@ pub(super) fn browser_host_socket() -> std::path::PathBuf {
     base.join("browser-host.sock")
 }
 
-/// `params` with the server's own terminal (`CMUX_TUI_TERMINAL_ID`) on the
-/// operations that can open a session, so the app draws the session's lease
-/// in that agent's presence colour. Display only; the agent cannot name it.
+/// `params` with the server's own terminal (`CMUX_TUI_TERMINAL_ID`) and
+/// workspace (`CMUX_WORKSPACE_ID`) on the operations that can open a
+/// session, so the app draws the session's lease in that agent's presence
+/// colour and opens its tabs in the agent's own workspace, never the focused
+/// one. The agent cannot name either.
 fn with_caller_terminal(method: &str, mut params: Value) -> Value {
     let opens = matches!(method, "browser.repl.open" | "browser.repl.eval" | "browser.repl.reset");
-    let terminal = std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| !id.is_empty());
-    if let (true, Some(terminal), Some(fields)) = (opens, terminal, params.as_object_mut()) {
-        fields.insert("terminal".into(), Value::String(terminal));
+    let Some(fields) = params.as_object_mut().filter(|_| opens) else { return params };
+    for (key, name) in [("terminal", "CMUX_TUI_TERMINAL_ID"), ("workspace", "CMUX_WORKSPACE_ID")] {
+        if let Some(value) = std::env::var(name).ok().filter(|id| !id.is_empty()) {
+            fields.insert(key.into(), Value::String(value));
+        }
     }
     params
 }

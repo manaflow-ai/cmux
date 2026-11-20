@@ -27,6 +27,7 @@ import { diffItemKind, orderItemsByKind } from "./diff-kind-groups";
 import { filterDiffItems, isDiffFileFilterActive } from "./file-filter";
 import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "./labels";
 import { codeViewOptions, workerHighlighterOptions, type DiffViewerOptions } from "./pierre-options";
+import { useDiffCodeLineHeight } from "./diff-viewer/useDiffCodeLineHeight";
 import { applyDiffViewerStatusToDocument, createDiffViewerStatus } from "./status";
 import { NO_HOST_CAPABILITIES, UNCOMMITTED_BASE_REF } from "./toolbar-model";
 import {
@@ -253,8 +254,10 @@ export function App({ config, initialStatus }: ConfigProps) {
   // The auto layout draws unified while the viewer is too narrow for two readable sides.
   const fits = splitFits(state.viewerWidth);
   const drawnOptions = useMemo(() => drawnDiffOptions(state.options, fits), [state.options, fits]);
+  // The code line at the tab's zoom (Cmd-= / Cmd-- / Cmd-0): the virtualizer's row metric follows it.
+  const codeLineHeight = useDiffCodeLineHeight();
   const renderedCodeViewOptions = useMemo(() => {
-    const options = codeViewOptions(drawnOptions, appearance);
+    const options = codeViewOptions(drawnOptions, appearance, codeLineHeight);
     options.onGutterUtilityClick = ((range: SelectedLineRange, context: { item: DiffItem }) =>
       gutterClick.current(range, context)) as any;
     Object.assign(options, hunkHoverCallbacks(hunkHover));
@@ -267,7 +270,7 @@ export function App({ config, initialStatus }: ConfigProps) {
         reportFirstHunk(diffPageClient(), latestState.current.items.length);
     }) as any;
     return options;
-  }, [appearance, gutterClick, lineClick, drawnOptions, bulkBarRoom, latestState]);
+  }, [appearance, gutterClick, lineClick, drawnOptions, bulkBarRoom, latestState, codeLineHeight]);
   const closeActiveSession = useCallback(() => {
     const activeSession = activeSessionRef.current;
     if (!transport) {

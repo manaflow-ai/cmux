@@ -1,10 +1,19 @@
 name: cmux-rd Windows host
 
-# On landings and dispatch, not pull requests: no PR job runs Windows to take the selftest as a step;
-# the live proof needs the ios-e2e environment, which pull request events do not reach. Listed in
-# .github/post-merge-checks.json; manaflow-ai/cmuxterm-hq#10846 tracks moving the selftest onto PRs.
+# The selftest (`host`) runs on landings, dispatch and, as an advisory check, on pull requests into feat-cmux-next
+# that touch its paths (manaflow-ai/cmuxterm-hq#10846): no ruleset requires it and its name ends "(advisory)" on a
+# pull request, so a red there is a follow-up, never a merge block. The live proof stays on landings and dispatch:
+# it needs the ios-e2e environment, which pull request events do not reach.
 on:
   push:
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-tui/crates/cmux-rd-host/**"
+      - "cmux-tui/crates/cmux-encode/**"
+      - "cmux-tui/crates/cmux-rd-core/**"
+      - "cmux-tui/crates/cmux-rd-proto/**"
+      - ".github/workflows/cmux-rd-windows.yml"
+  pull_request:
     branches: [feat-cmux-next]
     paths:
       - "cmux-tui/crates/cmux-rd-host/**"
@@ -23,7 +32,8 @@ concurrency:
 
 jobs:
   host:
-    name: Windows capture and encode selftest
+    name: Windows capture and encode selftest${{ github.event_name == 'pull_request' && ' (advisory)' || '' }}
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || fromJSON(vars.RUNNER_POOLS).windows }}
     timeout-minutes: 20
     # A runs-on expression hides the OS from actionlint; the steps are PowerShell, the Windows default.
