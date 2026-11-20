@@ -437,7 +437,7 @@ extension AgentTabStore {
             // and the machine holds no provider login, so its chats offer no on-machine sign-in.
             host.servesLogin = host.cloudMachineID == nil && daemon.supports(DaemonCapability.agentSessionLogin.rawValue)
             (host.cloudAccount, host.personName) = host.cloudMachineID == nil ? (nil, nil) : (services.cloud.account, services.cloud.auth.user?.displayName)
-            // A chat on one of the account's Cloud machines names each turn's hand-off, behind Labs,
+            // A chat on one of the account's Cloud machines names each turn's hand-off (not behind Labs)
             // once the machine list loaded for the account signed in now (never a previous team's).
             host.cloudHandoffs = host.cloudMachineID != nil && CloudHandoffTurnOpener.refusal(services) == nil
             if host.cloudMachineID != nil, services.cloudTurnRewindHost.offered {

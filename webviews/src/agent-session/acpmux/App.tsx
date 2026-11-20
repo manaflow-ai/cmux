@@ -13503,6 +13503,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       relinkingSince={relinkingSince}
       restoring={hostRestoring}
       failureShown={hostErrorSaid}
+      // "Reconnecting…" stays until the waiting line, whose wait starts a moment later, replaces it.
+      waitingSince={hostWaitingSince}
       otherwise={hostWaitOrError}
     />
   );
