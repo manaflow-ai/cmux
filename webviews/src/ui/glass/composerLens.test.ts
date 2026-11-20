@@ -27,9 +27,8 @@ describe("composer lens map", () => {
 
   test("the field is neutral in the middle and points inward at each edge", () => {
     const field = buildLensField(200, 60, 1, 18);
-    const at = (x: number, y: number) => [
-      ...field.data.slice((y * field.width + x) * 4, (y * field.width + x) * 4 + 2),
-    ];
+    const at = (x: number, y: number) =>
+      Array.from(field.data.subarray((y * field.width + x) * 4, (y * field.width + x) * 4 + 2));
     expect(at(100, 30)).toEqual([128, 128]);
     // Left edge: pulled right (red over 128); right edge: pulled left; top: pulled down.
     expect(at(2, 30)[0]!).toBeGreaterThan(160);
