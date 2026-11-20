@@ -55,7 +55,7 @@ import WebKit
 /// bridge as a native row click (DEBUG capture tours only).
 @MainActor
 enum DebugAgentPane {
-    static let deadline = AgentPaneDebugVerb.deadline
+    static let deadline = AgentPaneView.debugVerbDeadline
 
     private static let functions: [String: String] = [
         "seed_rows": "seedRows", "fling": "startFling", "fling_stats": "flingStats",
@@ -217,7 +217,7 @@ enum DebugAgentPane {
             return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, tick_watch, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, compose_send, run_mode, toast, answer_permission, open_changes, set_model, models, stream, layout_watch, idle_probe, readiness, cloud_auth, engine, focus_composer, composer_focused, click, query, open_subagent, resize_probe, pid, full_rate, gesture_state, session_info_action or inspector")])
         }
         do {
-            let result = try await AgentPaneDebugVerb.call(function, args: AgentPaneDebugAutomationArguments(action: action, parameters: params).values) {
+            let result = try await AgentPaneView.callDebugVerb(function, args: AgentPaneDebugAutomationArguments(action: action, parameters: params).values) {
                 try await view.callPageScript($0, arguments: $1, timeout: $2)
             }
             guard let text = result as? String,

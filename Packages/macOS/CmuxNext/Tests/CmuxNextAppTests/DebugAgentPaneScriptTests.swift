@@ -33,12 +33,12 @@ struct DebugAgentPaneScriptTests {
         #expect(took.map { $0 < .seconds(7) } == true, "a page without the hook held the call \(String(describing: took)) on its own clock")
     }
 
-    /// `AgentPaneDebugVerb.script` as it runs, with the page's own time for it (`performance.now`).
+    /// `AgentPaneView.debugVerbScript` as it runs, with the page's own time for it (`performance.now`).
     private static var timed: String {
         """
         const started = performance.now();
         const answer = await (async () => {
-        \(AgentPaneDebugVerb.script)
+        \(AgentPaneView.debugVerbScript)
         })();
         return JSON.stringify({ answer, ms: performance.now() - started });
         """
@@ -104,7 +104,7 @@ struct DebugAgentPaneVerbDeadlineTests {
     @Test func aPageVerbRunsUnderTheVerbsDeadline() async throws {
         var timeout: Duration?
         var function: String?
-        _ = try await AgentPaneDebugVerb.call("seedRows", args: [2800]) { _, arguments, given in
+        _ = try await AgentPaneView.callDebugVerb("seedRows", args: [2800]) { _, arguments, given in
             function = arguments["fn"] as? String
             timeout = given
             return nil
