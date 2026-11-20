@@ -472,6 +472,21 @@ mod tests {
     }
 
     #[test]
+    fn an_alt_chord_is_one_key_and_the_typing_after_it_counts() {
+        // A hardware keyboard sends Alt-x as `ESC x` in one send (emacs's M-} is `ESC ]`): a
+        // command, never a CSI, SS3 or string left open to swallow the keys after it.
+        for chord in [&b"\x1b]"[..], b"\x1bP", b"\x1b_", b"\x1b^", b"\x1b[", b"\x1bO", b"\x1bx"] {
+            let mut policy = FitPolicy::new([]);
+            policy.observe(alt("emacs notes.org"));
+            assert!(!policy.typed(chord).claims, "{chord:?}");
+            assert!(!policy.typed(b"a").claims, "{chord:?}");
+            assert!(!policy.typed(b"b").claims, "{chord:?}");
+            let fit = policy.typed(b"c");
+            assert!(fit.claims && fit.changed, "{chord:?} then a, b, c: three typed characters");
+        }
+    }
+
+    #[test]
     fn a_new_tui_run_starts_outside_an_escape_sequence() {
         let mut policy = FitPolicy::new([]);
         policy.observe(alt("vim notes.md"));
