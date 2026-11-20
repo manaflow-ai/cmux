@@ -225,9 +225,9 @@ fn a_retired_key_is_a_deprecated_warning_whose_fix_is_the_row_that_replaced_it()
 
 #[test]
 fn edit_distance_counts_the_fewest_single_letter_edits() {
-    assert_eq!(super::edit_distance("kitten", "sitting"), 3);
-    assert_eq!(super::edit_distance("", "abc"), 3);
-    assert_eq!(super::edit_distance("abc", ""), 3);
-    assert_eq!(super::edit_distance("theme", "theme"), 0);
-    assert_eq!(super::edit_distance("flaw", "lawn"), 2);
+    assert_eq!(edit_distance("kitten", "sitting"), 3);
+    assert_eq!(edit_distance("", "abc"), 3);
+    assert_eq!(edit_distance("abc", ""), 3);
+    assert_eq!(edit_distance("theme", "theme"), 0);
+    assert_eq!(edit_distance("flaw", "lawn"), 2);
 }
