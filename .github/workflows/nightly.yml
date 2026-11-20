@@ -7064,6 +7064,8 @@ jobs:
       feed_written: ${{ steps.upload_next_appcasts.outputs.feed_written }}
       feed_check: ${{ steps.feedcheck.outcome }}
       left: ${{ steps.one-leave.outputs.superseded }}
+      # Left before nightly-next moved: wake-nightly-next-tick retries this commit unless it moves.
+      left_pending: ${{ steps.one-leave.outputs.pending }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -7098,7 +7100,8 @@ jobs:
       - *claim-publication-mac
       # Before the leave step's gh calls (tests/test_publish_app_token_workflow.py).
       - *x12
-      # Latest wins at the slot too. Why: docs/ci/nightly-workflow-notes.md#note-16
+      # Latest wins at the slot too, with no wait on this Mac: it asks main's tick and leaves; bounded gh calls,
+      # never a rate-limit wait. Why: docs/ci/nightly-workflow-notes.md#note-16
       - name: Leave the push slot to a newer nightly-next push
         id: one-leave
         if: github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '')
@@ -7109,6 +7112,7 @@ jobs:
           LOOP_RETRY: ${{ inputs.nightly_next_loop_retry }}
           SUPERSEDE_SKIP: ${{ vars.NIGHTLY_NEXT_SUPERSEDE_SKIP }}
           IN_SLOT: 1
+          GH_BUDGET_WAIT_MAX_SECONDS: "0"
         run: bash "$PUBLISH_TOOLING/ci/nightly-steps/resolve-leave-build-slot.sh"
       - name: Point the signing steps at the build products
         if: ${{ !env.LEFT_SLOT }}
@@ -7462,12 +7466,23 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          sparse-checkout: scripts/ci
+          sparse-checkout: |
+            scripts/ci
+            scripts/cmux-next/lib
       - *wait-through-github-api-rate-l
       - name: Ask main's nightly-next tick
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run nightly-next-tick.yml --repo "$GITHUB_REPOSITORY" --ref main
+      # nightly-next-one left without waiting for the promotion on the signing Mac; the wait is the retry's, off it.
+      - name: Retry the commit that left the slot unless nightly-next moved
+        if: "!cancelled() && needs.nightly-next-one.outputs.left_pending == 'true'"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TIP_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.tip_sha }}
+          REPOSITORY: ${{ github.repository }}
+          RETRY: ${{ inputs.nightly_next_loop_retry }}
+        run: bash scripts/ci/nightly-steps/slot-left-retry.sh
       # The detector (hq#13299): the build this run published must reach the feed with its deltas, each
       # served at its length; a newer build already live passes with a notice. Red here names a feed
       # where every Mac downloads the full 243 MB DMG.
