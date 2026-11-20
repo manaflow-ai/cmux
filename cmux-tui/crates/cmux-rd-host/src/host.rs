@@ -145,6 +145,9 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
         // stream moving while that measurement is still unknown.
         frames_in_flight: 2,
         input_frame_now: opts.flag("input-frame-now"),
+        // Off by default: `--fast-ramp 1` lets the target grow per feedback until the
+        // first overuse (CcConfig::fast_ramp).
+        fast_ramp: opts.flag("fast-ramp"),
         max_width: opts
             .get("max-width")
             .map(|w| w.parse().map_err(|_| format!("--max-width {w}: a pixel count")))

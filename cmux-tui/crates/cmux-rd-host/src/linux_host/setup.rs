@@ -348,7 +348,10 @@ fn net_client_list(conn: &impl x11rb::connection::Connection, root: u32) -> Opti
     if reply.type_ == 0 {
         return None;
     }
-    Some(reply.value32()?.collect())
+    // A local: the iterator borrows `reply`, and edition 2021 drops a tail expression's
+    // temporaries after the block's locals (E0597).
+    let windows = reply.value32()?.collect();
+    Some(windows)
 }
 
 /// Whether `window`'s `WM_CLASS` names the session's terminal ([`SESSION_TERMINAL_CLASS`]).

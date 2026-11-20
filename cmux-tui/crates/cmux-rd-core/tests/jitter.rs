@@ -372,6 +372,106 @@ fn a_capacity_that_rises_is_found() {
     assert!(targets.iter().any(|&t| t >= 35_000_000), "never found the new capacity");
 }
 
+// D4's fast ramp (`CcConfig::fast_ramp`, off by default): multiplicative per feedback
+// until the first overuse.
+
+fn ramp_controller(fast_ramp: bool) -> CongestionController {
+    CongestionController::new(CcConfig { fast_ramp, ..CcConfig::default() }, PathKind::DirectWan)
+}
+
+/// 18 ms round trip (9 ms each way), as the netem `rtt18` profile.
+fn rtt18(capacity_bps: f64) -> Path {
+    Path { capacity_bps, base_us: 9_000, jitter: Jitter::Wired, buffer_us: 300_000.0 }
+}
+
+fn first_at_or_over(targets: &[u64], bps: u64) -> Option<usize> {
+    targets.iter().position(|&t| t >= bps)
+}
+
+#[test]
+fn fast_ramp_reaches_the_motion_rate_within_a_second_over_an_18_ms_round_trip() {
+    let mut off = Sim::new(ramp_controller(false));
+    let off_targets = off.run(&rtt18(50e6), 40e6, 3_000_000);
+    let mut on = Sim::new(ramp_controller(true));
+    let on_targets = on.run(&rtt18(50e6), 40e6, 3_000_000);
+    println!("rtt18 off (Mbps): {:?}", off_targets.iter().map(|&t| mbps(t)).collect::<Vec<_>>());
+    println!("rtt18 on  (Mbps): {:?}", on_targets.iter().map(|&t| mbps(t)).collect::<Vec<_>>());
+    let on_15 = first_at_or_over(&on_targets, 15_000_000).expect("fast ramp never reached 15");
+    let off_15 = first_at_or_over(&off_targets, 15_000_000).expect("never reached 15");
+    println!("15 Mbps at: on {} ms, off {} ms", on_15 * 100, off_15 * 100);
+    // Off: 2x per second from the 8 Mbps start, so about 1 s to 15 and 16 at most at 1 s.
+    assert!(off_targets[10] <= 20_000_000, "off at 1 s: {}", mbps(off_targets[10]));
+    // On: 15 Mbps in half a second, and the motion rate's neighbourhood by 1 s.
+    assert!(on_15 <= 5, "fast ramp reached 15 Mbps only at {} ms", on_15 * 100);
+    assert!(on_15 < off_15, "fast ramp {} ms is no faster than {} ms", on_15 * 100, off_15 * 100);
+    assert!(on_targets[10] >= 30_000_000, "on at 1 s: {}", mbps(on_targets[10]));
+    // It never falls under the time-based ramp before reaching the motion rate.
+    for (i, (&a, &b)) in on_targets.iter().zip(&off_targets).take(on_15 + 1).enumerate() {
+        assert!(a >= b, "{} ms: on {} under off {}", i * 100, mbps(a), mbps(b));
+    }
+    assert_eq!(on.dropped, 0);
+}
+
+#[test]
+fn fast_ramp_off_is_the_default() {
+    assert!(!CcConfig::default().fast_ramp);
+}
+
+#[test]
+fn fast_ramp_onto_a_bottleneck_cuts_once_and_holds_the_queue_short() {
+    let mut sim = Sim::new(ramp_controller(true));
+    let path = rtt18(10e6);
+    let targets = sim.run(&path, 40e6, 30_000_000);
+    println!(
+        "fast ramp congestion (Mbps): {:?}",
+        targets.iter().step_by(5).map(|&t| mbps(t)).collect::<Vec<_>>()
+    );
+    // The same bounds as `real_congestion_cuts_to_the_bottleneck_and_holds_the_queue_short`.
+    assert!(targets[..=20].iter().any(|&t| t <= 13_000_000), "{:?}", &targets[..=20]);
+    let steady = &targets[50..];
+    let mean = steady.iter().sum::<u64>() as f64 / steady.len() as f64;
+    assert!((6e6..=11.5e6).contains(&mean), "steady mean {} Mbps", mean / 1e6);
+    // No overshoot collapse: once found, the target stays near the capacity.
+    let low = targets[20..].iter().copied().min().unwrap();
+    assert!(low >= 5_000_000, "collapsed to {} Mbps", mbps(low));
+    let mut delays = sim.queue_delays_us[sim.queue_delays_us.len() / 3..].to_vec();
+    delays.sort_unstable();
+    let p95 = delays[delays.len() * 95 / 100];
+    println!("fast ramp congestion: steady mean {} Mbps, queue p95 {p95} us", mean / 1e6);
+    assert!(p95 < 100_000, "queue p95 {p95} us");
+}
+
+#[test]
+fn fast_ramp_over_wifi_jitter_does_not_cascade_cuts() {
+    // A radio 18 ms away (no LAN start): the ramp and then a minute of jitter and stalls.
+    let mut sim = Sim::new(ramp_controller(true));
+    let path = Path { base_us: 9_000, ..wifi() };
+    let targets = sim.run(&path, 25e6, 60_000_000);
+    let reached = first_at_or_over(&targets, 20_000_000).expect("never reached 20 Mbps");
+    let low = targets[reached..].iter().copied().min().unwrap();
+    let after_warmup = &targets[20..];
+    let mean = after_warmup.iter().sum::<u64>() as f64 / after_warmup.len() as f64;
+    println!(
+        "fast ramp wifi: 20 Mbps at {} ms, min after {} mean {} Mbps, dropped {}",
+        reached * 100,
+        mbps(low),
+        mean / 1e6,
+        sim.dropped
+    );
+    assert!(reached <= 10, "20 Mbps only at {} ms", reached * 100);
+    assert!(low >= 15_000_000, "Wi-Fi jitter cut the target to {} Mbps", mbps(low));
+    assert!(mean >= 22e6, "mean target {} Mbps", mean / 1e6);
+    assert_eq!(sim.dropped, 0);
+}
+
+#[test]
+fn fast_ramp_never_grows_on_a_quiet_screen() {
+    let mut sim = Sim::new(ramp_controller(true));
+    let start = CcConfig::default().start_bps;
+    let targets = sim.run(&rtt18(50e6), 2e6, 3_000_000);
+    assert!(targets.iter().all(|&t| t <= start), "{targets:?}");
+}
+
 // Older single-packet traces, kept: bounded jitter must not ratchet the rate.
 
 fn trace(
