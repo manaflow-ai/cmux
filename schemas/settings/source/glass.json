@@ -1,0 +1,1474 @@
+{
+  "$comment": "HAND-EDITED source of Appearance > Glass: the material, tint, tint strength and veil of each glass surface role (schemas/surface-roles/surface-roles.json), the agent pane composer and chrome (cmuxterm-hq docs/design/customization-api-state.md section 4). Every default is today's look: an unset key changes nothing. cmux-config's glass module (cmux-tui/crates/cmux-config/src/glass/mod.rs) embeds this file and resolves and clamps the values; scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and parser constants. Row fields: see schemas/settings/source/updates.json.",
+  "lists": [
+    {
+      "name": "glass",
+      "section": "appearance",
+      "group": {
+        "key": "settings.group.glass",
+        "text": "Glass"
+      },
+      "note": "Off the page: set from theme files, the palette, cmux settings and MCP.",
+      "rows": [
+        {
+          "key": "appearance.glass.popover.material",
+          "name": "popoverMaterial",
+          "note": "The material the popover role (popovers, hover cards, the palette, find and prompt bars) draws. Unset keeps the built-in pick (OverlayGlassVariant.picked; the chrome's own material). Reduce Transparency wins over it.",
+          "title": {
+            "key": "settings.appearance.glass.popover.material",
+            "text": "Popover Glass Material"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "plain",
+              "title": {
+                "key": "settings.appearance.glass.material.plain",
+                "text": "Plain Glass"
+              },
+              "note": "the glass the role draws today: Liquid Glass on macOS 26 (the blur before it) natively, the blur on web pages (GlassLensMode.plain)"
+            },
+            {
+              "value": "glass-clear",
+              "title": {
+                "key": "settings.appearance.glass.material.glass-clear",
+                "text": "Clear Glass"
+              },
+              "note": "Liquid Glass's clear variant: more of the backdrop shows through"
+            },
+            {
+              "value": "frosted",
+              "title": {
+                "key": "settings.appearance.glass.material.frosted",
+                "text": "Frosted"
+              },
+              "note": "the frosted blur (NSVisualEffectView) with the role's veil and rim, on every macOS"
+            },
+            {
+              "value": "translucent",
+              "title": {
+                "key": "settings.appearance.glass.material.translucent",
+                "text": "Translucent"
+              },
+              "note": "no blur: the tint alone over the backdrop"
+            },
+            {
+              "value": "lens",
+              "title": {
+                "key": "settings.appearance.glass.material.lens",
+                "text": "Lens"
+              },
+              "note": "opt-in, web surfaces: refracts the backdrop at the rim (GlassLensMode.lens, the glass engine); a native surface draws plain glass for it. Never a default"
+            },
+            {
+              "value": "spectrum",
+              "title": {
+                "key": "settings.appearance.glass.material.spectrum",
+                "text": "Spectrum"
+              },
+              "note": "opt-in, web surfaces: the lens with a chromatic split at the rim (GlassLensMode.spectrum); a native surface draws plain glass for it"
+            }
+          ],
+          "default": null,
+          "default_label": {
+            "key": "settings.default.builtInGlass",
+            "text": "Built-in glass"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "popover"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.popover.tint",
+          "name": "popoverTint",
+          "note": "The popover role's glass tint. Unset is the theme's glass tint (Palette.glassTint), as before.",
+          "title": {
+            "key": "settings.appearance.glass.popover.tint",
+            "text": "Popover Glass Tint"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.themeGlassTint",
+            "text": "Theme's glass tint"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "popover"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.popover.tintStrength",
+          "name": "popoverTintStrength",
+          "note": "How much denser than the tint's own alpha the popover role's tint is (GlassLevel.tintStrength: chrome 1, popover and menu 1.25, chip 1.5). The default is today's level, so an unset key changes nothing.",
+          "title": {
+            "key": "settings.appearance.glass.popover.tintStrength",
+            "text": "Popover Glass Tint Strength"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 3,
+            "step": 0.05,
+            "unit": "count"
+          },
+          "default": 1.25,
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "popover"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.popover.veil",
+          "name": "popoverVeil",
+          "note": "The alpha of the veil the popover role lays over its glass for legible text, in light and dark alike. Unset keeps the role's own light and dark veils (FloatingGlassStyle).",
+          "title": {
+            "key": "settings.appearance.glass.popover.veil",
+            "text": "Popover Glass Veil"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.01,
+            "unit": "fraction"
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.roleVeil",
+            "text": "The role's veil"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "popover"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.menu.material",
+          "name": "menuMaterial",
+          "note": "The material the menu role (menus, context menus and dropdowns cmux draws) draws. Unset keeps the built-in pick (OverlayGlassVariant.picked; the chrome's own material). Reduce Transparency wins over it.",
+          "title": {
+            "key": "settings.appearance.glass.menu.material",
+            "text": "Menu Glass Material"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "plain",
+              "title": {
+                "key": "settings.appearance.glass.material.plain",
+                "text": "Plain Glass"
+              },
+              "note": "the glass the role draws today: Liquid Glass on macOS 26 (the blur before it) natively, the blur on web pages (GlassLensMode.plain)"
+            },
+            {
+              "value": "glass-clear",
+              "title": {
+                "key": "settings.appearance.glass.material.glass-clear",
+                "text": "Clear Glass"
+              },
+              "note": "Liquid Glass's clear variant: more of the backdrop shows through"
+            },
+            {
+              "value": "frosted",
+              "title": {
+                "key": "settings.appearance.glass.material.frosted",
+                "text": "Frosted"
+              },
+              "note": "the frosted blur (NSVisualEffectView) with the role's veil and rim, on every macOS"
+            },
+            {
+              "value": "translucent",
+              "title": {
+                "key": "settings.appearance.glass.material.translucent",
+                "text": "Translucent"
+              },
+              "note": "no blur: the tint alone over the backdrop"
+            },
+            {
+              "value": "lens",
+              "title": {
+                "key": "settings.appearance.glass.material.lens",
+                "text": "Lens"
+              },
+              "note": "opt-in, web surfaces: refracts the backdrop at the rim (GlassLensMode.lens, the glass engine); a native surface draws plain glass for it. Never a default"
+            },
+            {
+              "value": "spectrum",
+              "title": {
+                "key": "settings.appearance.glass.material.spectrum",
+                "text": "Spectrum"
+              },
+              "note": "opt-in, web surfaces: the lens with a chromatic split at the rim (GlassLensMode.spectrum); a native surface draws plain glass for it"
+            }
+          ],
+          "default": null,
+          "default_label": {
+            "key": "settings.default.builtInGlass",
+            "text": "Built-in glass"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "menu"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.menu.tint",
+          "name": "menuTint",
+          "note": "The menu role's glass tint. Unset is the theme's glass tint (Palette.glassTint), as before.",
+          "title": {
+            "key": "settings.appearance.glass.menu.tint",
+            "text": "Menu Glass Tint"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.themeGlassTint",
+            "text": "Theme's glass tint"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "menu"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.menu.tintStrength",
+          "name": "menuTintStrength",
+          "note": "How much denser than the tint's own alpha the menu role's tint is (GlassLevel.tintStrength: chrome 1, popover and menu 1.25, chip 1.5). The default is today's level, so an unset key changes nothing.",
+          "title": {
+            "key": "settings.appearance.glass.menu.tintStrength",
+            "text": "Menu Glass Tint Strength"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 3,
+            "step": 0.05,
+            "unit": "count"
+          },
+          "default": 1.25,
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "menu"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.menu.veil",
+          "name": "menuVeil",
+          "note": "The alpha of the veil the menu role lays over its glass for legible text, in light and dark alike. Unset keeps the role's own light and dark veils (FloatingGlassStyle).",
+          "title": {
+            "key": "settings.appearance.glass.menu.veil",
+            "text": "Menu Glass Veil"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.01,
+            "unit": "fraction"
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.roleVeil",
+            "text": "The role's veil"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "menu"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.card.material",
+          "name": "cardMaterial",
+          "note": "The material the card role (the sidebar's cards (update, notices, tips)) draws. Unset keeps the built-in pick (OverlayGlassVariant.picked; the chrome's own material). Reduce Transparency wins over it.",
+          "title": {
+            "key": "settings.appearance.glass.card.material",
+            "text": "Card Glass Material"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "plain",
+              "title": {
+                "key": "settings.appearance.glass.material.plain",
+                "text": "Plain Glass"
+              },
+              "note": "the glass the role draws today: Liquid Glass on macOS 26 (the blur before it) natively, the blur on web pages (GlassLensMode.plain)"
+            },
+            {
+              "value": "glass-clear",
+              "title": {
+                "key": "settings.appearance.glass.material.glass-clear",
+                "text": "Clear Glass"
+              },
+              "note": "Liquid Glass's clear variant: more of the backdrop shows through"
+            },
+            {
+              "value": "frosted",
+              "title": {
+                "key": "settings.appearance.glass.material.frosted",
+                "text": "Frosted"
+              },
+              "note": "the frosted blur (NSVisualEffectView) with the role's veil and rim, on every macOS"
+            },
+            {
+              "value": "translucent",
+              "title": {
+                "key": "settings.appearance.glass.material.translucent",
+                "text": "Translucent"
+              },
+              "note": "no blur: the tint alone over the backdrop"
+            },
+            {
+              "value": "lens",
+              "title": {
+                "key": "settings.appearance.glass.material.lens",
+                "text": "Lens"
+              },
+              "note": "opt-in, web surfaces: refracts the backdrop at the rim (GlassLensMode.lens, the glass engine); a native surface draws plain glass for it. Never a default"
+            },
+            {
+              "value": "spectrum",
+              "title": {
+                "key": "settings.appearance.glass.material.spectrum",
+                "text": "Spectrum"
+              },
+              "note": "opt-in, web surfaces: the lens with a chromatic split at the rim (GlassLensMode.spectrum); a native surface draws plain glass for it"
+            }
+          ],
+          "default": null,
+          "default_label": {
+            "key": "settings.default.builtInGlass",
+            "text": "Built-in glass"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "card"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.card.tint",
+          "name": "cardTint",
+          "note": "The card role's glass tint. Unset is the theme's glass tint (Palette.glassTint), as before.",
+          "title": {
+            "key": "settings.appearance.glass.card.tint",
+            "text": "Card Glass Tint"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.themeGlassTint",
+            "text": "Theme's glass tint"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "card"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.card.tintStrength",
+          "name": "cardTintStrength",
+          "note": "How much denser than the tint's own alpha the card role's tint is (GlassLevel.tintStrength: chrome 1, popover and menu 1.25, chip 1.5). The default is today's level, so an unset key changes nothing.",
+          "title": {
+            "key": "settings.appearance.glass.card.tintStrength",
+            "text": "Card Glass Tint Strength"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 3,
+            "step": 0.05,
+            "unit": "count"
+          },
+          "default": 1.0,
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "card"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.card.veil",
+          "name": "cardVeil",
+          "note": "The alpha of the veil the card role lays over its glass for legible text, in light and dark alike. Unset keeps the role's own light and dark veils (FloatingGlassStyle).",
+          "title": {
+            "key": "settings.appearance.glass.card.veil",
+            "text": "Card Glass Veil"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.01,
+            "unit": "fraction"
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.roleVeil",
+            "text": "The role's veil"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "card"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.group.material",
+          "name": "groupMaterial",
+          "note": "The material the group role (the sidebar's group headers and group panes) draws. Unset keeps the built-in pick (OverlayGlassVariant.picked; the chrome's own material). Reduce Transparency wins over it.",
+          "title": {
+            "key": "settings.appearance.glass.group.material",
+            "text": "Group Glass Material"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "plain",
+              "title": {
+                "key": "settings.appearance.glass.material.plain",
+                "text": "Plain Glass"
+              },
+              "note": "the glass the role draws today: Liquid Glass on macOS 26 (the blur before it) natively, the blur on web pages (GlassLensMode.plain)"
+            },
+            {
+              "value": "glass-clear",
+              "title": {
+                "key": "settings.appearance.glass.material.glass-clear",
+                "text": "Clear Glass"
+              },
+              "note": "Liquid Glass's clear variant: more of the backdrop shows through"
+            },
+            {
+              "value": "frosted",
+              "title": {
+                "key": "settings.appearance.glass.material.frosted",
+                "text": "Frosted"
+              },
+              "note": "the frosted blur (NSVisualEffectView) with the role's veil and rim, on every macOS"
+            },
+            {
+              "value": "translucent",
+              "title": {
+                "key": "settings.appearance.glass.material.translucent",
+                "text": "Translucent"
+              },
+              "note": "no blur: the tint alone over the backdrop"
+            },
+            {
+              "value": "lens",
+              "title": {
+                "key": "settings.appearance.glass.material.lens",
+                "text": "Lens"
+              },
+              "note": "opt-in, web surfaces: refracts the backdrop at the rim (GlassLensMode.lens, the glass engine); a native surface draws plain glass for it. Never a default"
+            },
+            {
+              "value": "spectrum",
+              "title": {
+                "key": "settings.appearance.glass.material.spectrum",
+                "text": "Spectrum"
+              },
+              "note": "opt-in, web surfaces: the lens with a chromatic split at the rim (GlassLensMode.spectrum); a native surface draws plain glass for it"
+            }
+          ],
+          "default": null,
+          "default_label": {
+            "key": "settings.default.builtInGlass",
+            "text": "Built-in glass"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "group"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.group.tint",
+          "name": "groupTint",
+          "note": "The group role's glass tint. Unset is the theme's glass tint (Palette.glassTint), as before.",
+          "title": {
+            "key": "settings.appearance.glass.group.tint",
+            "text": "Group Glass Tint"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.themeGlassTint",
+            "text": "Theme's glass tint"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "group"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.group.tintStrength",
+          "name": "groupTintStrength",
+          "note": "How much denser than the tint's own alpha the group role's tint is (GlassLevel.tintStrength: chrome 1, popover and menu 1.25, chip 1.5). The default is today's level, so an unset key changes nothing.",
+          "title": {
+            "key": "settings.appearance.glass.group.tintStrength",
+            "text": "Group Glass Tint Strength"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 3,
+            "step": 0.05,
+            "unit": "count"
+          },
+          "default": 1.0,
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "group"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.group.veil",
+          "name": "groupVeil",
+          "note": "The alpha of the veil the group role lays over its glass for legible text, in light and dark alike. Unset keeps the role's own light and dark veils (FloatingGlassStyle).",
+          "title": {
+            "key": "settings.appearance.glass.group.veil",
+            "text": "Group Glass Veil"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.01,
+            "unit": "fraction"
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.roleVeil",
+            "text": "The role's veil"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "group"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.toast.material",
+          "name": "toastMaterial",
+          "note": "The material the toast role (toasts) draws. Unset keeps the built-in pick (OverlayGlassVariant.picked; the chrome's own material). Reduce Transparency wins over it.",
+          "title": {
+            "key": "settings.appearance.glass.toast.material",
+            "text": "Toast Glass Material"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "plain",
+              "title": {
+                "key": "settings.appearance.glass.material.plain",
+                "text": "Plain Glass"
+              },
+              "note": "the glass the role draws today: Liquid Glass on macOS 26 (the blur before it) natively, the blur on web pages (GlassLensMode.plain)"
+            },
+            {
+              "value": "glass-clear",
+              "title": {
+                "key": "settings.appearance.glass.material.glass-clear",
+                "text": "Clear Glass"
+              },
+              "note": "Liquid Glass's clear variant: more of the backdrop shows through"
+            },
+            {
+              "value": "frosted",
+              "title": {
+                "key": "settings.appearance.glass.material.frosted",
+                "text": "Frosted"
+              },
+              "note": "the frosted blur (NSVisualEffectView) with the role's veil and rim, on every macOS"
+            },
+            {
+              "value": "translucent",
+              "title": {
+                "key": "settings.appearance.glass.material.translucent",
+                "text": "Translucent"
+              },
+              "note": "no blur: the tint alone over the backdrop"
+            },
+            {
+              "value": "lens",
+              "title": {
+                "key": "settings.appearance.glass.material.lens",
+                "text": "Lens"
+              },
+              "note": "opt-in, web surfaces: refracts the backdrop at the rim (GlassLensMode.lens, the glass engine); a native surface draws plain glass for it. Never a default"
+            },
+            {
+              "value": "spectrum",
+              "title": {
+                "key": "settings.appearance.glass.material.spectrum",
+                "text": "Spectrum"
+              },
+              "note": "opt-in, web surfaces: the lens with a chromatic split at the rim (GlassLensMode.spectrum); a native surface draws plain glass for it"
+            }
+          ],
+          "default": null,
+          "default_label": {
+            "key": "settings.default.builtInGlass",
+            "text": "Built-in glass"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "toast"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.toast.tint",
+          "name": "toastTint",
+          "note": "The toast role's glass tint. Unset is the theme's glass tint (Palette.glassTint), as before.",
+          "title": {
+            "key": "settings.appearance.glass.toast.tint",
+            "text": "Toast Glass Tint"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.themeGlassTint",
+            "text": "Theme's glass tint"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "toast"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.toast.tintStrength",
+          "name": "toastTintStrength",
+          "note": "How much denser than the tint's own alpha the toast role's tint is (GlassLevel.tintStrength: chrome 1, popover and menu 1.25, chip 1.5). The default is today's level, so an unset key changes nothing.",
+          "title": {
+            "key": "settings.appearance.glass.toast.tintStrength",
+            "text": "Toast Glass Tint Strength"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 3,
+            "step": 0.05,
+            "unit": "count"
+          },
+          "default": 1.25,
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "toast"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.toast.veil",
+          "name": "toastVeil",
+          "note": "The alpha of the veil the toast role lays over its glass for legible text, in light and dark alike. Unset keeps the role's own light and dark veils (FloatingGlassStyle).",
+          "title": {
+            "key": "settings.appearance.glass.toast.veil",
+            "text": "Toast Glass Veil"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.01,
+            "unit": "fraction"
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.roleVeil",
+            "text": "The role's veil"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "toast"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.sheet.material",
+          "name": "sheetMaterial",
+          "note": "The material the sheet role (dialogs, confirms and sheets) draws. Unset keeps the built-in pick (OverlayGlassVariant.picked; the chrome's own material). Reduce Transparency wins over it.",
+          "title": {
+            "key": "settings.appearance.glass.sheet.material",
+            "text": "Sheet Glass Material"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "plain",
+              "title": {
+                "key": "settings.appearance.glass.material.plain",
+                "text": "Plain Glass"
+              },
+              "note": "the glass the role draws today: Liquid Glass on macOS 26 (the blur before it) natively, the blur on web pages (GlassLensMode.plain)"
+            },
+            {
+              "value": "glass-clear",
+              "title": {
+                "key": "settings.appearance.glass.material.glass-clear",
+                "text": "Clear Glass"
+              },
+              "note": "Liquid Glass's clear variant: more of the backdrop shows through"
+            },
+            {
+              "value": "frosted",
+              "title": {
+                "key": "settings.appearance.glass.material.frosted",
+                "text": "Frosted"
+              },
+              "note": "the frosted blur (NSVisualEffectView) with the role's veil and rim, on every macOS"
+            },
+            {
+              "value": "translucent",
+              "title": {
+                "key": "settings.appearance.glass.material.translucent",
+                "text": "Translucent"
+              },
+              "note": "no blur: the tint alone over the backdrop"
+            },
+            {
+              "value": "lens",
+              "title": {
+                "key": "settings.appearance.glass.material.lens",
+                "text": "Lens"
+              },
+              "note": "opt-in, web surfaces: refracts the backdrop at the rim (GlassLensMode.lens, the glass engine); a native surface draws plain glass for it. Never a default"
+            },
+            {
+              "value": "spectrum",
+              "title": {
+                "key": "settings.appearance.glass.material.spectrum",
+                "text": "Spectrum"
+              },
+              "note": "opt-in, web surfaces: the lens with a chromatic split at the rim (GlassLensMode.spectrum); a native surface draws plain glass for it"
+            }
+          ],
+          "default": null,
+          "default_label": {
+            "key": "settings.default.builtInGlass",
+            "text": "Built-in glass"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "sheet"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.sheet.tint",
+          "name": "sheetTint",
+          "note": "The sheet role's glass tint. Unset is the theme's glass tint (Palette.glassTint), as before.",
+          "title": {
+            "key": "settings.appearance.glass.sheet.tint",
+            "text": "Sheet Glass Tint"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.themeGlassTint",
+            "text": "Theme's glass tint"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "sheet"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.sheet.tintStrength",
+          "name": "sheetTintStrength",
+          "note": "How much denser than the tint's own alpha the sheet role's tint is (GlassLevel.tintStrength: chrome 1, popover and menu 1.25, chip 1.5). The default is today's level, so an unset key changes nothing.",
+          "title": {
+            "key": "settings.appearance.glass.sheet.tintStrength",
+            "text": "Sheet Glass Tint Strength"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 3,
+            "step": 0.05,
+            "unit": "count"
+          },
+          "default": 1.25,
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "sheet"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.sheet.veil",
+          "name": "sheetVeil",
+          "note": "The alpha of the veil the sheet role lays over its glass for legible text, in light and dark alike. Unset keeps the role's own light and dark veils (FloatingGlassStyle).",
+          "title": {
+            "key": "settings.appearance.glass.sheet.veil",
+            "text": "Sheet Glass Veil"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.01,
+            "unit": "fraction"
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.roleVeil",
+            "text": "The role's veil"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "sheet"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.tooltip.material",
+          "name": "tooltipMaterial",
+          "note": "The material the tooltip role (tooltips and shortcut hint chips) draws. Unset keeps the built-in pick (OverlayGlassVariant.picked; the chrome's own material). Reduce Transparency wins over it.",
+          "title": {
+            "key": "settings.appearance.glass.tooltip.material",
+            "text": "Tooltip Glass Material"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "plain",
+              "title": {
+                "key": "settings.appearance.glass.material.plain",
+                "text": "Plain Glass"
+              },
+              "note": "the glass the role draws today: Liquid Glass on macOS 26 (the blur before it) natively, the blur on web pages (GlassLensMode.plain)"
+            },
+            {
+              "value": "glass-clear",
+              "title": {
+                "key": "settings.appearance.glass.material.glass-clear",
+                "text": "Clear Glass"
+              },
+              "note": "Liquid Glass's clear variant: more of the backdrop shows through"
+            },
+            {
+              "value": "frosted",
+              "title": {
+                "key": "settings.appearance.glass.material.frosted",
+                "text": "Frosted"
+              },
+              "note": "the frosted blur (NSVisualEffectView) with the role's veil and rim, on every macOS"
+            },
+            {
+              "value": "translucent",
+              "title": {
+                "key": "settings.appearance.glass.material.translucent",
+                "text": "Translucent"
+              },
+              "note": "no blur: the tint alone over the backdrop"
+            },
+            {
+              "value": "lens",
+              "title": {
+                "key": "settings.appearance.glass.material.lens",
+                "text": "Lens"
+              },
+              "note": "opt-in, web surfaces: refracts the backdrop at the rim (GlassLensMode.lens, the glass engine); a native surface draws plain glass for it. Never a default"
+            },
+            {
+              "value": "spectrum",
+              "title": {
+                "key": "settings.appearance.glass.material.spectrum",
+                "text": "Spectrum"
+              },
+              "note": "opt-in, web surfaces: the lens with a chromatic split at the rim (GlassLensMode.spectrum); a native surface draws plain glass for it"
+            }
+          ],
+          "default": null,
+          "default_label": {
+            "key": "settings.default.builtInGlass",
+            "text": "Built-in glass"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "tooltip"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.tooltip.tint",
+          "name": "tooltipTint",
+          "note": "The tooltip role's glass tint. Unset is the theme's glass tint (Palette.glassTint), as before.",
+          "title": {
+            "key": "settings.appearance.glass.tooltip.tint",
+            "text": "Tooltip Glass Tint"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.themeGlassTint",
+            "text": "Theme's glass tint"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "tooltip"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.tooltip.tintStrength",
+          "name": "tooltipTintStrength",
+          "note": "How much denser than the tint's own alpha the tooltip role's tint is (GlassLevel.tintStrength: chrome 1, popover and menu 1.25, chip 1.5). The default is today's level, so an unset key changes nothing.",
+          "title": {
+            "key": "settings.appearance.glass.tooltip.tintStrength",
+            "text": "Tooltip Glass Tint Strength"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 3,
+            "step": 0.05,
+            "unit": "count"
+          },
+          "default": 1.5,
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "tooltip"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.tooltip.veil",
+          "name": "tooltipVeil",
+          "note": "The alpha of the veil the tooltip role lays over its glass for legible text, in light and dark alike. Unset keeps the role's own light and dark veils (FloatingGlassStyle).",
+          "title": {
+            "key": "settings.appearance.glass.tooltip.veil",
+            "text": "Tooltip Glass Veil"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.01,
+            "unit": "fraction"
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.roleVeil",
+            "text": "The role's veil"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "tooltip"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.composer.material",
+          "name": "composerMaterial",
+          "note": "The material the composer role (the agent pane composer (a web surface: the page reads it as --ds-glass-composer-* and data-glass-composer)) draws. Unset keeps the built-in pick (OverlayGlassVariant.picked; the chrome's own material). Reduce Transparency wins over it.",
+          "title": {
+            "key": "settings.appearance.glass.composer.material",
+            "text": "Composer Glass Material"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "plain",
+              "title": {
+                "key": "settings.appearance.glass.material.plain",
+                "text": "Plain Glass"
+              },
+              "note": "the glass the role draws today: Liquid Glass on macOS 26 (the blur before it) natively, the blur on web pages (GlassLensMode.plain)"
+            },
+            {
+              "value": "glass-clear",
+              "title": {
+                "key": "settings.appearance.glass.material.glass-clear",
+                "text": "Clear Glass"
+              },
+              "note": "Liquid Glass's clear variant: more of the backdrop shows through"
+            },
+            {
+              "value": "frosted",
+              "title": {
+                "key": "settings.appearance.glass.material.frosted",
+                "text": "Frosted"
+              },
+              "note": "the frosted blur (NSVisualEffectView) with the role's veil and rim, on every macOS"
+            },
+            {
+              "value": "translucent",
+              "title": {
+                "key": "settings.appearance.glass.material.translucent",
+                "text": "Translucent"
+              },
+              "note": "no blur: the tint alone over the backdrop"
+            },
+            {
+              "value": "lens",
+              "title": {
+                "key": "settings.appearance.glass.material.lens",
+                "text": "Lens"
+              },
+              "note": "opt-in, web surfaces: refracts the backdrop at the rim (GlassLensMode.lens, the glass engine); a native surface draws plain glass for it. Never a default"
+            },
+            {
+              "value": "spectrum",
+              "title": {
+                "key": "settings.appearance.glass.material.spectrum",
+                "text": "Spectrum"
+              },
+              "note": "opt-in, web surfaces: the lens with a chromatic split at the rim (GlassLensMode.spectrum); a native surface draws plain glass for it"
+            }
+          ],
+          "default": null,
+          "default_label": {
+            "key": "settings.default.builtInGlass",
+            "text": "Built-in glass"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "composer"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.composer.tint",
+          "name": "composerTint",
+          "note": "The composer role's glass tint. Unset is the theme's glass tint (Palette.glassTint), as before.",
+          "title": {
+            "key": "settings.appearance.glass.composer.tint",
+            "text": "Composer Glass Tint"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.themeGlassTint",
+            "text": "Theme's glass tint"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "composer"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.composer.tintStrength",
+          "name": "composerTintStrength",
+          "note": "How much denser than the tint's own alpha the composer role's tint is (GlassLevel.tintStrength: chrome 1, popover and menu 1.25, chip 1.5). The default is today's level, so an unset key changes nothing.",
+          "title": {
+            "key": "settings.appearance.glass.composer.tintStrength",
+            "text": "Composer Glass Tint Strength"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 3,
+            "step": 0.05,
+            "unit": "count"
+          },
+          "default": 1.25,
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "composer"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.composer.veil",
+          "name": "composerVeil",
+          "note": "The alpha of the veil the composer role lays over its glass for legible text, in light and dark alike. Unset keeps the role's own light and dark veils (FloatingGlassStyle).",
+          "title": {
+            "key": "settings.appearance.glass.composer.veil",
+            "text": "Composer Glass Veil"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.01,
+            "unit": "fraction"
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.roleVeil",
+            "text": "The role's veil"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "composer"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.chrome.material",
+          "name": "chromeMaterial",
+          "note": "The material the chrome role (glass docked on the window: the tab strip, panels on the chrome, drag ghosts) draws. Unset keeps the built-in pick (OverlayGlassVariant.picked; the chrome's own material). Reduce Transparency wins over it.",
+          "title": {
+            "key": "settings.appearance.glass.chrome.material",
+            "text": "Chrome Glass Material"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "plain",
+              "title": {
+                "key": "settings.appearance.glass.material.plain",
+                "text": "Plain Glass"
+              },
+              "note": "the glass the role draws today: Liquid Glass on macOS 26 (the blur before it) natively, the blur on web pages (GlassLensMode.plain)"
+            },
+            {
+              "value": "glass-clear",
+              "title": {
+                "key": "settings.appearance.glass.material.glass-clear",
+                "text": "Clear Glass"
+              },
+              "note": "Liquid Glass's clear variant: more of the backdrop shows through"
+            },
+            {
+              "value": "frosted",
+              "title": {
+                "key": "settings.appearance.glass.material.frosted",
+                "text": "Frosted"
+              },
+              "note": "the frosted blur (NSVisualEffectView) with the role's veil and rim, on every macOS"
+            },
+            {
+              "value": "translucent",
+              "title": {
+                "key": "settings.appearance.glass.material.translucent",
+                "text": "Translucent"
+              },
+              "note": "no blur: the tint alone over the backdrop"
+            },
+            {
+              "value": "lens",
+              "title": {
+                "key": "settings.appearance.glass.material.lens",
+                "text": "Lens"
+              },
+              "note": "opt-in, web surfaces: refracts the backdrop at the rim (GlassLensMode.lens, the glass engine); a native surface draws plain glass for it. Never a default"
+            },
+            {
+              "value": "spectrum",
+              "title": {
+                "key": "settings.appearance.glass.material.spectrum",
+                "text": "Spectrum"
+              },
+              "note": "opt-in, web surfaces: the lens with a chromatic split at the rim (GlassLensMode.spectrum); a native surface draws plain glass for it"
+            }
+          ],
+          "default": null,
+          "default_label": {
+            "key": "settings.default.builtInGlass",
+            "text": "Built-in glass"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "chrome"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.chrome.tint",
+          "name": "chromeTint",
+          "note": "The chrome role's glass tint. Unset is the theme's glass tint (Palette.glassTint), as before.",
+          "title": {
+            "key": "settings.appearance.glass.chrome.tint",
+            "text": "Chrome Glass Tint"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.themeGlassTint",
+            "text": "Theme's glass tint"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "chrome"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.chrome.tintStrength",
+          "name": "chromeTintStrength",
+          "note": "How much denser than the tint's own alpha the chrome role's tint is (GlassLevel.tintStrength: chrome 1, popover and menu 1.25, chip 1.5). The default is today's level, so an unset key changes nothing.",
+          "title": {
+            "key": "settings.appearance.glass.chrome.tintStrength",
+            "text": "Chrome Glass Tint Strength"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 3,
+            "step": 0.05,
+            "unit": "count"
+          },
+          "default": 1.0,
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "chrome"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        },
+        {
+          "key": "appearance.glass.chrome.veil",
+          "name": "chromeVeil",
+          "note": "The alpha of the veil the chrome role lays over its glass for legible text, in light and dark alike. Unset keeps the role's own light and dark veils (FloatingGlassStyle).",
+          "title": {
+            "key": "settings.appearance.glass.chrome.veil",
+            "text": "Chrome Glass Veil"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.01,
+            "unit": "fraction"
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.roleVeil",
+            "text": "The role's veil"
+          },
+          "keywords": [
+            "glass",
+            "material",
+            "blur",
+            "tint",
+            "veil",
+            "translucent",
+            "chrome"
+          ],
+          "page_hidden": "glass roles are set from theme files, the palette, cmux settings and MCP (docs/cmux-next/theme-recipes.md); 36 rows do not fit a card",
+          "palette_shown": true
+        }
+      ]
+    }
+  ]
+}

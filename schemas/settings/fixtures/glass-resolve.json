@@ -1,0 +1,53 @@
+{
+  "$comment": "HAND-EDITED parity cases for the glass look (schemas/settings/source/glass.json): each case's settings document and what one role resolves to. cmux-config's glass tests (cmux-tui/crates/cmux-config/src/glass/tests.rs) and the app's GlassResolverTests read this one file, so the daemon and the app resolve and clamp the same way. null keeps the built-in value.",
+  "cases": [
+    {
+      "name": "unset is today's look",
+      "settings": {},
+      "role": "popover",
+      "resolved": {"material": null, "tint": null, "tintStrength": 1.25, "veil": null}
+    },
+    {
+      "name": "the chip level's strength is the tooltip default",
+      "settings": {},
+      "role": "tooltip",
+      "resolved": {"material": null, "tint": null, "tintStrength": 1.5, "veil": null}
+    },
+    {
+      "name": "chrome defaults to strength 1",
+      "settings": {},
+      "role": "chrome",
+      "resolved": {"material": null, "tint": null, "tintStrength": 1.0, "veil": null}
+    },
+    {
+      "name": "every field set",
+      "settings": {"appearance": {"glass": {"menu": {"material": "frosted", "tint": "#203040CC", "tintStrength": 2.0, "veil": 0.3}}}},
+      "role": "menu",
+      "resolved": {"material": "frosted", "tint": "#203040CC", "tintStrength": 2.0, "veil": 0.3}
+    },
+    {
+      "name": "out of range numbers clamp",
+      "settings": {"appearance": {"glass": {"card": {"tintStrength": 9, "veil": -1}}}},
+      "role": "card",
+      "resolved": {"material": null, "tint": null, "tintStrength": 3.0, "veil": 0.0}
+    },
+    {
+      "name": "an unknown material, a bad colour and a string number keep the defaults",
+      "settings": {"appearance": {"glass": {"toast": {"material": "regular", "tint": "red", "tintStrength": "2", "veil": true}}}},
+      "role": "toast",
+      "resolved": {"material": null, "tint": null, "tintStrength": 1.25, "veil": null}
+    },
+    {
+      "name": "the composer takes the lens (GlassLensMode.lens), opt-in",
+      "settings": {"appearance": {"glass": {"composer": {"material": "lens"}}}},
+      "role": "composer",
+      "resolved": {"material": "lens", "tint": null, "tintStrength": 1.25, "veil": null}
+    },
+    {
+      "name": "one role's value leaves the others alone",
+      "settings": {"appearance": {"glass": {"popover": {"material": "translucent"}}}},
+      "role": "group",
+      "resolved": {"material": null, "tint": null, "tintStrength": 1.0, "veil": null}
+    }
+  ]
+}
