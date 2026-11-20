@@ -219,9 +219,18 @@ fleet_submit_mac() {
       return 0
     fi
   fi
-  local out
+  local out builder=()
+  # A head whose app FFI sources are ahead of app-ffi-pin.json (the normal state for up to an hour
+  # after every FFI commit, until app-ffi-release.yml re-pins) builds only on a Mac: `--builder auto`
+  # sends it to the Linux pool, which cannot build the FFI from source and fails ("stale FFI", job
+  # 9fa436759cd7bb0f72e3e928 at 0e6e7019af, 2026-11-19). The check is a git diff, no build.
+  if ! "${CNX_REVIEW_FFI_PIN_CHECK:-$REPO_ROOT/scripts/cmux-next/check-app-ffi-pin.sh}" >/dev/null 2>&1; then
+    echo "==> Mac build: the app FFI pin is behind its sources at ${SHA:0:12}, so it builds on a Mac (--builder mac)"
+    builder=(--builder mac --reason "review.sh: the app FFI pin is behind its sources; the Linux pool cannot build the FFI")
+  fi
   # cmux-next needs no shared dev backend (AGENTS.md): the tag's own local mode.
-  out="$(cmux_ci build cmux --ref "$SHA" --tag "$SLUG" --workspace "$WORKSPACE" --backend-mode local)" || { REPORT_MAC="BLOCKED: cmux-ci build cmux was refused"; return 1; }
+  out="$(cmux_ci build cmux --ref "$SHA" --tag "$SLUG" --workspace "$WORKSPACE" --backend-mode local ${builder[@]+"${builder[@]}"})" ||
+    { REPORT_MAC="BLOCKED: cmux-ci build cmux was refused"; return 1; }
   MAC_JOB="$(printf '%s' "$out" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')" ||
     { REPORT_MAC="BLOCKED: cmux-ci build cmux printed no job id"; return 1; }
   printf '%s\n' "$MAC_JOB" >"$STATE/cmux-job"
