@@ -109,6 +109,55 @@ extension NewTabCommandListKeptTests {
         }
     }
 
+    /// The reads of the pages by a row's fills, as a count.
+    @MainActor private final class PageReads { var count = 0 }
+
+    /// A web page that no person used goes back to the prepared pages, and each later New Tab key gives it an empty list
+    /// and then the kept one. Three such turns, then the page's first input: one fill reads the actions again, not one for
+    /// each turn. A fill that reads again reads the pages 2 times: at the listing's first task and at its hand-over.
+    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+    func aPageThatTookTheKeptListThreeTimesIsFilledOnceAtItsFirstInput() async throws {
+        try await Self.web("cn-list-kept-web-turns") { web in
+            let services = web.services, lister = services.newTabActions, view = web.first, frames = services.mainWork.frames
+            let reads = PageReads()
+            let pages: @MainActor @Sendable () -> [AgentPaneNewTabActions.Page] = {
+                reads.count += 1
+                return [AgentPaneNewTabActions.Page(view: view, stored: AgentPaneNewTab(kind: .agent), store: { _ in })]
+            }
+            try #require(!view.model.userTouched, "the row did not make its case: the first page has an input already")
+            let before = lister.counts
+            let limit = Self.frameLimit(services)
+            for turn in 1...3 {
+                // No ask of the app is in the air when the page loses its list: the row's fill is the first one that hands it a list.
+                var fired = 0
+                while frames.activeClients.contains(Self.lister), fired < limit {
+                    services.mainWork.frameDidFire()
+                    fired += 1
+                    await Task.yield()
+                }
+                try #require(!frames.activeClients.contains(Self.lister), "the row did not make its case: the lister has a task before turn \(turn)")
+                var empty = try #require(view.model.newTab, "the first page is no New Tab page any more")
+                empty.omnibar.actions = []
+                view.model.adoptNewTab(empty)
+                lister.fill(pages)
+                _ = await Self.listed(services)
+                try #require(view.model.newTab?.omnibar.actions == web.list.actions && lister.counts == before,
+                             "the row did not make its case: turn \(turn) did not take the kept list (\(lister.counts.started - before.started) listings started)")
+            }
+            let asked = reads.count
+            _ = await view.model.respond(to: .touched)
+            // The write of the page's flag asks in the main queue's next turn.
+            await withCheckedContinuation { turn in DispatchQueue.main.async { turn.resume() } }
+            let read = await Self.listed(services)
+            let end = lister.counts
+            let more = reads.count - asked
+            print("new-tab-list: the first input in a web page that took the kept list 3 times: \(more) reads of the pages (2 for each fill), "
+                + "\(end.started - before.started) listings started")
+            #expect(more == 2, "the first input made \(more / 2) fills (\(more) reads of the pages) where 1 fill is wanted")
+            #expect(read.list != nil && end.started == before.started + 1, "the first input started \(end.started - before.started) listings where 1 is wanted")
+        }
+    }
+
     // MARK: - A key from a terminal
 
     /// The focus contexts that the slices of one listing read under, in their order (one value while it holds).

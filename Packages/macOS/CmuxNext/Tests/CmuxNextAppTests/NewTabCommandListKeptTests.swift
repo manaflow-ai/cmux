@@ -252,14 +252,14 @@ struct NewTabCommandListKeptTests {
 
     // MARK: - The app
 
-    @MainActor private struct App {
+    @MainActor struct App {
         let services: AppServices
         let pane: PaneController
         let close: @MainActor () -> Void
     }
 
     /// A window of this Mac with one pane, with the native New Tab page on.
-    private static func shown() async throws -> App {
+    static func shown() async throws -> App {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
@@ -310,7 +310,7 @@ struct NewTabCommandListKeptTests {
     }
 
     /// Cmd-T with a page prepared: the page shows in the open's own turn. Returns the page's model.
-    private static func openPage(_ app: App) throws -> NativeNewTabModel {
+    static func openPage(_ app: App) throws -> NativeNewTabModel {
         let pool = app.services.newTabSpares
         pool.warmNative()
         let spare = try #require(pool.nativeSpare, "no native New Tab page was prepared")
@@ -336,10 +336,10 @@ struct NewTabCommandListKeptTests {
     }
 
     /// One waiter of the lister, as a page is one: its stream gets the list at the hand-over.
-    private typealias Waiter = (lists: AsyncStream<Listed>, feed: AsyncStream<Listed>.Continuation)
+    typealias Waiter = (lists: AsyncStream<Listed>, feed: AsyncStream<Listed>.Continuation)
 
     /// Asks for the list as a page does.
-    private static func ask(_ services: AppServices) -> Waiter {
+    static func ask(_ services: AppServices) -> Waiter {
         let (lists, feed) = AsyncStream.makeStream(of: Listed.self)
         services.newTabActions.list(wanted: { true }) { list in
             feed.yield(list)
@@ -355,7 +355,7 @@ struct NewTabCommandListKeptTests {
 
     /// Is the display until the lister hands the list to `waiter`: one frame after another, with no clock. No hand-over
     /// in ``frameLimit(_:)`` frames with a lister task is an issue. `inFrame` runs before each of those frames.
-    private static func handOver(to waiter: Waiter, _ services: AppServices, inFrame: @escaping @MainActor @Sendable () -> Void = {}) async -> Asked {
+    static func handOver(to waiter: Waiter, _ services: AppServices, inFrame: @escaping @MainActor @Sendable () -> Void = {}) async -> Asked {
         let (lists, feed) = waiter
         let limit = frameLimit(services)
         // The row's display link: it ends only when the row cancels it.

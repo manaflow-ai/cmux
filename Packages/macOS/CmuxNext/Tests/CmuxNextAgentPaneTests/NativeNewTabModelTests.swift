@@ -98,6 +98,19 @@ struct NativeNewTabModelTests {
         #expect(model.highlighted == nil, "the highlight stayed at \(String(describing: model.highlighted)) with its row gone")
     }
 
+    /// A run of a row that is no palette action asks for no list: the page goes away with the run. A run of an action
+    /// row is a first use of the page: it asks for the actions again.
+    @Test func onlyARunOfAnActionRowAsksForTheActionsAgain() throws {
+        var asks = 0
+        let model = NativeNewTabModel(page: Self.page(actions: 3), actions: NativeNewTabActions(submit: { _, _, _ in }, jump: { _, _ in }),
+                                      paletteRefresh: { _, _ in asks += 1 })
+        model.activate(.run("ls"))
+        #expect(asks == 0, "a run of a terminal row asked for the palette's actions \(asks) times")
+        let action = try #require(model.page.omnibar.actions.first, "the page has no action")
+        model.activate(.action(action))
+        #expect(asks == 1, "a run of an action row asked for the palette's actions \(asks) times where 1 is wanted")
+    }
+
     @Test func everyPaletteActionIsReachable() {
         let omnibar = Self.page().omnibar
         #expect(omnibar.actions.count == 301, "the 40-entry cap no longer drops palette actions")
