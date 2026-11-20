@@ -855,8 +855,7 @@ jobs:
       actions: read
       contents: read
       id-token: write
-    # crates.io trusted publishing: GitHub-hosted only (the runners.json provenance pool), never the persistent cmux-linux pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).provenance }}
+    runs-on: ubuntu-latest # github-hosted-required: crates.io trusted publishing needs a GitHub-hosted runner
     timeout-minutes: 30
     environment:
       name: crates-io
@@ -954,8 +953,7 @@ jobs:
       actions: read
       contents: read
       id-token: write
-    # crates.io trusted publishing: GitHub-hosted only (the runners.json provenance pool), never the persistent cmux-linux pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).provenance }}
+    runs-on: ubuntu-latest # github-hosted-required: crates.io trusted publishing needs a GitHub-hosted runner
     timeout-minutes: 30
     environment:
       name: crates-io
@@ -1192,8 +1190,7 @@ jobs:
       id-token: write
     # PyPI trusted publishers cannot authenticate a reusable workflow, so the
     # OIDC publish job stays directly in this top-level release workflow.
-    # PyPI trusted publishing: GitHub-hosted only (the runners.json provenance pool), never the persistent cmux-linux pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).provenance }}
+    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner
     timeout-minutes: 30
     environment:
       name: pypi
@@ -1316,8 +1313,7 @@ jobs:
       id-token: write
     # PyPI trusted publishers cannot authenticate a reusable workflow, so the
     # OIDC publish job stays directly in this top-level release workflow.
-    # PyPI trusted publishing: GitHub-hosted only (the runners.json provenance pool), never the persistent cmux-linux pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).provenance }}
+    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner
     timeout-minutes: 30
     environment:
       name: pypi
