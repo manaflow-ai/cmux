@@ -42,14 +42,30 @@ public struct ProviderDetector: Sendable {
     /// A provider whose only credential is an API key: the environment, or
     /// a key saved in cmux's Keychain item.
     func detectAPIKey(_ provider: AIProvider) -> ProviderDetection {
-        var sources = provider.apiKeyEnvironmentKeys.filter { environment.value($0) != nil }.map(DetectionSource.environment)
-        if environment.savedKeys.contains(provider) { sources.append(.cmuxKeychain) }
+        let environmentKeys = provider.apiKeyEnvironmentKeys.compactMap { key -> (String, String)? in
+            guard let raw = environment.environment[key] else { return nil }
+            return (key, raw.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        let hasSavedKey = environment.savedKeys.contains(provider)
+        let allSources = environmentKeys.map { DetectionSource.environment($0.0) }
+            + (hasSavedKey ? [.cmuxKeychain] : [])
         // Presence alone used to make a typo in the shell look ready until the
         // first prompt. Mark it unknown so Accounts can offer a replacement key
         // before the user starts a chat. Only the key Connect would send is
         // judged, by Connect's own format rule (`CredentialResolver`).
-        let malformed = CredentialResolver.environmentKey(provider, in: environment)
-            .map { !CredentialResolver.isWellFormedKey($0.value, for: provider) } ?? false
+        // Connect chooses the first non-empty environment key, then Keychain. If
+        // every configured alias is empty and no saved key exists, surface that
+        // explicit value as malformed instead of reporting a missing credential.
+        let selectedEnvironmentKey = environmentKeys.first(where: { !$0.1.isEmpty })
+        let malformed = if let selectedEnvironmentKey {
+            !CredentialResolver.isWellFormedKey(selectedEnvironmentKey.1, for: provider)
+        } else {
+            !environmentKeys.isEmpty && !hasSavedKey
+        }
+        let selectedSource = selectedEnvironmentKey.map { DetectionSource.environment($0.0) }
+            ?? (hasSavedKey ? .cmuxKeychain : allSources.first)
+        var sources = allSources.filter { $0 != selectedSource }
+        if let selectedSource { sources.insert(selectedSource, at: 0) }
         let status: LocalAuthStatus = malformed ? .unknown : (sources.isEmpty ? .missing : .signedIn)
         return ProviderDetection(provider: provider, status: status, sources: sources)
     }
