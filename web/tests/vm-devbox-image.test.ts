@@ -1763,7 +1763,6 @@ test "$daemon_pid" = fixture
     expect(readScript("build-devbox-freestyle.ts")).toContain('step("claude-settings-defaults", devboxClaudeSettingsDefaultsCommand())');
     expect(readScript("cmux-vm-image/bake.ts")).toContain('L.step(vm, "claude-settings-defaults", devboxClaudeSettingsDefaultsCommand())');
     expect(readScript("verify-devbox-image.ts")).toContain("devboxClaudeSettingsDefaultsCheckCommand()");
-    expect(devboxClaudeSettingsDefaultsCheckCommand()).toContain("managed-settings.d/*.json");
     expect(devboxClaudeSettingsDefaultsCommand()).toContain(`sudo -n -u ${DEVBOX_WORK_USER} python3 -I /etc/cmux/claude-onboarding.py --settings-default ${DEVBOX_WORK_HOME}/.claude/settings.json`);
   });
 
@@ -1828,6 +1827,26 @@ test "$daemon_pid" = fixture
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  for (const managedFile of ["managed-settings.json", "managed-settings.d/50-cross-session.json"]) {
+    test(`Claude settings verifier rejects a managed override in ${managedFile}`, async () => {
+      const root = mkdtempSync(path.join(tmpdir(), "claude-settings-managed-"));
+      try {
+        const file = path.join(root, "settings.json");
+        writeFileSync(file, '{"crossSessionInbound":"refuse"}');
+        const managedRoot = path.join(root, "managed");
+        const managed = path.join(managedRoot, managedFile);
+        mkdirSync(path.dirname(managed), { recursive: true });
+        const command = devboxClaudeSettingsDefaultsCheckCommand([file], null).replaceAll("/etc/claude-code", managedRoot);
+        writeFileSync(managed, "{}");
+        expect((await runChild("/bin/sh", ["-c", command])).status).toBe(0);
+        writeFileSync(managed, '{"crossSessionInbound":"accept"}');
+        expect((await runChild("/bin/sh", ["-c", command])).status).not.toBe(0);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+  }
 
   test("never installs docker (deliberate image-scope choice)", () => {
     // This began as a hard limit: the old sandbox providers could not run
