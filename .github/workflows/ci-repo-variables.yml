@@ -137,6 +137,8 @@ jobs:
           LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}
           CI_CLOUD_OVERFLOW_SAVED: ${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
           CI_LINUX_HOSTED_RUNNER: ${{ vars.CI_LINUX_HOSTED_RUNNER }}
+          # Blacksmith is off unless this is exactly '0' (runner_pools.blacksmith_off()); --check judges with it.
+          CI_BLACKSMITH_OFF: ${{ vars.CI_BLACKSMITH_OFF }}
         run: python3 scripts/ci/runner_pools.py --check
 
       # No runs-on waits on one machine through a variable's value

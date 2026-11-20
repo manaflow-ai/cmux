@@ -69,7 +69,9 @@ jobs:
     # linux_16 and linux_32 sat on a 32 vCPU label that started nothing for hours
     # because no probe asked for it.
     name: Blacksmith probe (${{ matrix.label }})
-    if: github.repository_owner == 'manaflow-ai'
+    # Only while Blacksmith is on (CI_BLACKSMITH_OFF is '0'; unset is off, runner_pools.blacksmith_off()), or for a
+    # drill: with Blacksmith off there is nothing to probe, and a probe is itself a job on Blacksmith.
+    if: github.repository_owner == 'manaflow-ai' && (vars.CI_BLACKSMITH_OFF == '0' || github.event_name == 'workflow_dispatch' && inputs.probe_label != '')
     strategy:
       fail-fast: false
       matrix:
@@ -160,6 +162,8 @@ jobs:
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.probe_label != '') && 'true' || 'false' }}
           PROBE_LABEL_DRILL: ${{ github.event_name == 'workflow_dispatch' && inputs.probe_label || '' }}
           PROBE_MINUTES: ${{ vars.CI_CLOUD_PROBE_MINUTES }}
+          # Unset or anything but '0': Blacksmith is off, and the switch probes and moves nothing.
+          CI_BLACKSMITH_OFF: ${{ vars.CI_BLACKSMITH_OFF }}
           SIGNING_WORKFLOW_DIRS: .signing-workflows/feat-cmux-next/.github/workflows
           # Live values from the expression context; '' is unset. Runner labels
           # only, as in ci-repo-variables.yml: a step's env is in its public log.
@@ -230,8 +234,13 @@ jobs:
           # The Blacksmith Linux outage override (runner_pools.HOSTED_OVERRIDE): unset in normal running.
           CI_LINUX_HOSTED_RUNNER: ${{ vars.CI_LINUX_HOSTED_RUNNER }}
           SPILL_TOOLING: ${{ steps.spill-tooling.outcome == 'success' && '.runner-pool-tooling/scripts/ci/linux_pool_spill.py' || '' }}
+          # Unset or anything but exactly '0': Blacksmith is off, every x64 pool stays on the owned fleet
+          # (runner_pools.py), and no spill moves linux onto a Blacksmith member. Compared exactly, as Python does.
+          CI_BLACKSMITH_OFF: ${{ vars.CI_BLACKSMITH_OFF }}
         run: |
-          if [ -n "$SPILL_TOOLING" ] && [ -f "$SPILL_TOOLING" ]; then
+          if [ "$CI_BLACKSMITH_OFF" != "0" ]; then
+            python3 scripts/ci/runner_pools.py
+          elif [ -n "$SPILL_TOOLING" ] && [ -f "$SPILL_TOOLING" ]; then
             python3 "$SPILL_TOOLING" --policy-root "$GITHUB_WORKSPACE" && exit 0
             echo "::warning title=Runner pools::the linux pool spill failed; main's runner_pools.py runs alone"
             python3 scripts/ci/runner_pools.py
@@ -256,8 +265,10 @@ jobs:
       # edit of RUNNER_POOLS) strands its queued jobs the same way (2026-11-19: cmux#45502 run
       # 44476854382 queued on 16 vCPU from 07:04Z), so any label no pool and no raw runner variable
       # names counts too, after MOVED_MINUTES (cloud_overflow_switch.stranded_labels).
+      # Only while Blacksmith is on (router-review F2 on cmux#47829): while it is off, Blacksmith labels are
+      # left only to fork runs, whose fork branch keeps them there, and re-running those moves nothing.
       - name: Re-run runs stranded on a dead label
-        if: always() && steps.switch.outcome != 'skipped' && steps.pools.outcome == 'success'
+        if: always() && steps.switch.outcome != 'skipped' && steps.pools.outcome == 'success' && vars.CI_BLACKSMITH_OFF == '0'
         continue-on-error: true
         timeout-minutes: 5
         env:

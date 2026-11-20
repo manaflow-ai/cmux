@@ -57,6 +57,14 @@ wait for Blacksmith), an override that names a reused machine for one is
 refused, and an older record that still names one as switched to an owned
 pool is not re-applied. Turning overflow back on still puts back the value a
 record names.
+
+Blacksmith is off by default (Leo, 2026-11-20: "i thought i already told you
+guys to route off blacksmith"; runner_pools.blacksmith_off(), so unset is off
+and only CI_BLACKSMITH_OFF='0' turns it back on). While it is off this switch
+probes nothing (the workflow skips the probe jobs), never writes a Blacksmith
+label to a Linux variable (no failover, no restore: LINUX_RUNNER follows the
+linux pool onto the owned fleet through runner_pools.py), and leaves its
+record as it is, so the macOS variables stay on the owned pools it names.
 """
 
 from __future__ import annotations
@@ -214,6 +222,17 @@ def probe_minutes(raw: str | None) -> int:
     except ValueError:
         return DEFAULT_PROBE_MINUTES
     return max(MIN_PROBE_MINUTES, min(MAX_PROBE_MINUTES, value))
+
+
+# Blacksmith is off unless this is exactly '0' (runner_pools.blacksmith_off(), the one rule).
+OFF_VARIABLE = "CI_BLACKSMITH_OFF"
+
+
+def blacksmith_off(env: Mapping[str, str]) -> bool:
+    """Whether Blacksmith is off: always, unless CI_BLACKSMITH_OFF is exactly '0' (runner_pools.blacksmith_off()).
+
+    Exact, untrimmed, as the workflow's `vars.CI_BLACKSMITH_OFF == '0'` compares it, so ' 0 ' is off everywhere."""
+    return env.get(OFF_VARIABLE) != "0"
 
 
 def cloud_label(label: str | None) -> bool:
@@ -1109,6 +1128,17 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         labels, args.dry_run = (drill,), True
         log(f"drill: probing {drill} instead; a dry run whatever it finds")
     label = ", ".join(labels)
+    if blacksmith_off(env) and not drill:
+        # Blacksmith is off (the default): no probe ran, so there is nothing to decide, and no Linux variable gets a
+        # Blacksmith failover or restore. The record, if any, stays: its macOS entries keep the owned pools.
+        log(f"Blacksmith is off ({OFF_VARIABLE} is not '0'): no probe, no failover, no restore; LINUX_RUNNER "
+            "follows the linux pool (runner_pools.py)")
+        out = env.get("GITHUB_OUTPUT")
+        if out:
+            with open(out, "a", encoding="utf-8") as handle:
+                handle.write("outcome=off\nall_started=true\n")
+        write_summary(env, lines)
+        return 0
     state = f"off since {record.get('since')}" if record else "on"
     log(f"Blacksmith overflow is {state}; probing {label} (a stall is every probe queued {minutes} min with no "
         "runner)")

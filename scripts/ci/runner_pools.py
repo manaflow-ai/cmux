@@ -80,6 +80,15 @@ Blacksmith macOS), never through a pool, and signing jobs move through the signi
 that must run GitHub-hosted (npm and PyPI provenance accept only GitHub's OIDC) says
 `"hosted": true` with its reason; no other pool may name a GitHub-hosted label.
 
+Blacksmith is off by default (Leo, 2026-11-20: "i thought i already told you guys to route off blacksmith", after
+ask-373debe932 and ask-9d2a31e55d). While it is off (blacksmith_off(): CI_BLACKSMITH_OFF is anything but exactly '0',
+unset included), a pool with an OWNED_LINUX member points at it whatever the evidence says: a fleet backlog or a
+starved mark never sends an x64 pool, or LINUX_RUNNER behind it, to its Blacksmith sizes, and the overflow record
+never holds LINUX_RUNNER there. Only CI_BLACKSMITH_OFF='0' lets the Blacksmith sizes take overflow again. Pools with
+no owned member (linux_arm64, windows, macOS) keep their Blacksmith members: we have no owned arm64 Linux or Windows
+runner, GitHub-hosted is not a fallback here (check_no_github_hosted_runners), and a pool never names a reused Mac
+(CI_BLACKSMITH_MACOS routes macOS jobs instead).
+
 --check validates a RUNNER_POOLS value (every pool set, each to one of its own members) and the
 MIRRORS variables (each a member of its pool unless the overflow record changed it).
 """
@@ -112,6 +121,10 @@ HEALTH_VARIABLE = "CI_CLOUD_LABEL_HEALTH"
 # jobs sat queued on it, the oldest for over an hour. Each pass now writes the pool's live member to
 # them too (mirror_writes()), and --check fails while one names a label outside its pool.
 MIRRORS = {"LINUX_RUNNER": "linux"}
+# Blacksmith is off unless this repository variable is exactly '0' (blacksmith_off()). Leo asked three times
+# (ask-373debe932, ask-9d2a31e55d, ask-7dcf8a6ea6); an opt-in switch left unset kept every pool on Blacksmith. The
+# value is compared exactly, as the workflow's `vars.CI_BLACKSMITH_OFF == '0'` does, so every reader agrees.
+OFF_VARIABLE = "CI_BLACKSMITH_OFF"
 # Variables that hold one raw Blacksmith Linux label and that runs-on reads ahead of a Linux pool or literal
 # (`vars.X || ... fromJSON(vars.RUNNER_POOLS).linux_16`, `vars.X || 'blacksmith-...-ubuntu-2404'`), on main or
 # feat-cmux-next. They follow no pool, so moving a pool off a dead label left them on it: on 2026-11-18
@@ -205,6 +218,11 @@ def hosted_override(env: Mapping[str, str] | None = None) -> str | None:
     """The hosted Ubuntu label CI_LINUX_HOSTED_RUNNER names, or None when it is unset or not one."""
     raw = ((os.environ if env is None else env).get(HOSTED_OVERRIDE) or "").strip()
     return raw if HOSTED_OVERRIDE_LABEL.match(raw) else None
+
+
+def blacksmith_off(env: Mapping[str, str] | None = None) -> bool:
+    """Whether Blacksmith is off: always, unless CI_BLACKSMITH_OFF is exactly '0'. Unset is off."""
+    return (os.environ if env is None else env).get(OFF_VARIABLE) != "0"
 
 
 def pool_member(label: str) -> bool:
@@ -419,7 +437,7 @@ def value_problems(value: Mapping[str, Any], pools: Mapping[str, Mapping[str, An
     return found
 
 
-def switch_owned(record: str | None) -> frozenset[str] | None:
+def switch_owned(record: str | None, *, off: bool = False) -> frozenset[str] | None:
     """The MIRRORS variables the overflow switch's record says it changed (and so puts back), or None for all.
 
     No record: none. A record whose `changed` cannot be read: all of them, as before, so an unreadable
@@ -433,26 +451,32 @@ def switch_owned(record: str | None) -> frozenset[str] | None:
     try:
         changed = json.loads(str(record)).get("changed")
     except (ValueError, AttributeError):
-        return None
+        return frozenset(RAW_LABEL_VARS) if off else None
     if not isinstance(changed, dict):
-        return None
-    return frozenset(name for name in (*MIRRORS, *RAW_LABEL_VARS) if name in changed)
+        return frozenset(RAW_LABEL_VARS) if off else None
+    # While Blacksmith is off (`off`) the MIRRORS variables are never the switch's: its record's Linux failover is a
+    # Blacksmith size, and the switch leaves Linux alone while off (cloud_overflow_switch.py).
+    return frozenset(name for name in (RAW_LABEL_VARS if off else (*MIRRORS, *RAW_LABEL_VARS)) if name in changed)
 
 
 def mirror_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
-                  record: str | None) -> list[tuple[str, str]]:
+                  record: str | None, off: bool = False) -> list[tuple[str, str]]:
     """(variable, label) for each MIRRORS variable that does not hold its pool's live member.
 
     Not a variable the overflow switch's record changed (switch_owned()): the switch moved it and puts
     it back. A variable is moved only when it is unset or holds a pool member label (pool_member()); any other value is
     a deliberate choice, left alone here and named by --check (mirror_problems()).
     """
-    owned = switch_owned(record)
+    owned = switch_owned(record, off=off)
     if owned is None:
         return []
     writes = []
     for name, pool in MIRRORS.items():
-        if name in owned:
+        current = (live.get(name) or "").strip()
+        # The switch never writes OWNED_LINUX, so a variable holding it is this writer's own footprint, record or not:
+        # turning Blacksmith back on (CI_BLACKSMITH_OFF=0) with a record kept still lets it follow the pool
+        # (router-review F3 on cmux#47829).
+        if name in owned and current not in OWNED_LINUX:
             continue
         want = value.get(pool)
         current = (live.get(name) or "").strip()
@@ -567,9 +591,9 @@ def raw_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
 
 
 def mirror_problems(live: Mapping[str, str | None], pools: Mapping[str, Mapping[str, Any]], *,
-                    record: str | None) -> list[str]:
+                    record: str | None, off: bool = False) -> list[str]:
     """Why a MIRRORS variable misroutes its jobs: it names no member of its pool (and the switch did not move it)."""
-    owned = switch_owned(record)
+    owned = switch_owned(record, off=off)
     if owned is None:
         return []
     found = []
@@ -736,10 +760,12 @@ def recently_started(snapshot: Mapping[str, Any], *, now: dt.datetime) -> set[st
 
 def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]], *,
               dead_now: Iterable[str], served_now: Iterable[str], now: dt.datetime,
-              covered: Iterable[str] | None = None) -> tuple[dict[str, Any], list[str]]:
+              covered: Iterable[str] | None = None, off: bool = False) -> tuple[dict[str, Any], list[str]]:
     """The next RUNNER_POOLS value and a line per change. `current` is parse_value()'s output.
 
-    `covered` (evidence_covers()) names the labels whose marks may expire; None lets every mark expire."""
+    `covered` (evidence_covers()) names the labels whose marks may expire; None lets every mark expire.
+    `off` (blacksmith_off()) points every pool with an OWNED_LINUX member at it, dead or starved mark or not; the
+    marks are kept as they are, so CI_BLACKSMITH_OFF=0 resumes from the evidence."""
     lines: list[str] = []
     marks: dict[str, str] = {}
     known_now = None if covered is None else set(covered)
@@ -766,7 +792,12 @@ def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
     for name, spec in sorted(pools.items()):
         candidates = members(spec)
         chosen = next((label for label in candidates if label not in marks), None)
-        if chosen is None:
+        owned_member = next((label for label in candidates if label in OWNED_LINUX), None)
+        if off and owned_member:
+            # Blacksmith is off: our own fleet takes the pool's jobs even while it is backed up or starved; they wait
+            # for a fleet VM rather than go to Blacksmith (Leo, 2026-11-20).
+            chosen = owned_member
+        elif chosen is None:
             # Every member is dead: the release valve, the next smaller x64 size with no mark, instead of
             # leaving the pool on a label that starts nothing. With none, the first member, as before.
             chosen = next((label for label in valve_labels(spec, pools) if label not in marks), candidates[0])
@@ -834,6 +865,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     args = parser.parse_args(argv)
     now = now or dt.datetime.now(UTC)
     pools = load_pools(env=env)
+    off = blacksmith_off(env)
+    if off:
+        print(f"Blacksmith is off ({OFF_VARIABLE} is not '0'): every pool with an owned Linux member points at it, "
+              "and LINUX_RUNNER follows the linux pool")
     if hosted_override(env):
         print(f"::notice title=Runner pools::{HOSTED_OVERRIDE}={hosted_override(env)}: the x64 Linux pools lead with it "
               f"(Blacksmith outage override); delete the variable to return them to Blacksmith")
@@ -849,7 +884,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if args.check:
         mirrored = {name: env.get(name) for name in MIRRORS}
         found = dropped + value_problems(current, pools) + mirror_problems(
-            mirrored, pools, record=env.get(OVERFLOW_RECORD))
+            mirrored, pools, record=env.get(OVERFLOW_RECORD), off=off)
         for problem in found:
             print(f"::error title=Runner pools::{problem}")
         return 1 if found else 0
@@ -892,7 +927,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     for note in notes:
         print(note)
     value, lines = reconcile(current, pools, dead_now=dead, served_now=started, now=now,
-                             covered=evidence_covers(health, snapshot, pools, now=now))
+                             covered=evidence_covers(health, snapshot, pools, now=now), off=off)
     # The mirrored and raw-label variables and the switch's record, read live: the switch step just before this
     # one may have moved them, so the job-start values could undo its failover.
     live, record, readable = _live(switch, env)
@@ -920,7 +955,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     else:
         writes.append((VARIABLE, render(value)))
     if readable:
-        writes += mirror_writes(value, live, record=record)
+        writes += mirror_writes(value, live, record=record, off=off)
     if owned is not None:
         # Every raw-label move is a warning, so the run's annotations say which variables left which label.
         for name, target, was, why in raw_writes(value, live, owned=owned):
