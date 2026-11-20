@@ -23,14 +23,22 @@ public struct TerminalDemoRoot: View {
                 palette: ["#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5"],
                 accent: "blue")), keep: false)
         }
-        let session: any TerminalSession = TerminalHostGridDemoSession.requestedSpec
+        // `-CmuxMobileTerminalDemoAttach`: the phone attaches into htop
+        // already running on a Mac pane of 120x40, the Mac answering the
+        // attach and each resize a round trip later (TerminalAttachFirstFrameUITests).
+        let attach = Self.attachRequested
+            ? MockTerminalSession(playsIntro: false, macResize: Self.macResize ?? .milliseconds(60), attachesTo: (120, 40)) : nil
+        let session: any TerminalSession = attach ?? TerminalHostGridDemoSession.requestedSpec
             .flatMap(TerminalHostGridDemoSession.init(spec:)) ?? MockTerminalSession(macResize: Self.macResize)
         let model = TerminalModel(session: session, artifactSource: MockArtifactSource(), title: "zsh — cmux-next")
+        if let attach { model.demoFinalGrid = { attach.macState } }
         _model = State(initialValue: model)
         _host = State(initialValue: TerminalTabHost(model: model))
     }
 
     public static var isRequested: Bool { CommandLine.arguments.contains("-CmuxMobileTerminalDemo") }
+
+    static var attachRequested: Bool { CommandLine.arguments.contains("-CmuxMobileTerminalDemoAttach") }
 
     /// `-CmuxMobileTerminalDemoMac`: the mock answers a resize as the Mac does
     /// (its grid, a mirror reset and a replay, a round trip later:
@@ -64,6 +72,19 @@ public struct TerminalDemoRoot: View {
                 .accessibilityIdentifier("debug.terminal-demo")
         }
         .task {
+            // The attach demo: its trace goes in the step label once the
+            // page's probe ended (5 s after the start), for UI tests.
+            if Self.attachRequested {
+                for _ in 0..<100 {
+                    try? await ContinuousClock().sleep(for: .milliseconds(100))
+                    guard let trace = model.controller?.attachTrace else { continue }
+                    let ended = trace.marks.contains { $0.name == "probe-end" }
+                    model.demoNote = "attach.\(ended ? "done" : "running") first=\(trace.firstRightMs ?? -1) "
+                        + "fromstart=\(trace.firstRightFromStartMs ?? -1) marks=\(trace.line)"
+                    if ended { return }
+                }
+                return
+            }
             // The host grid demo is a still: no scripted phases. Its page's
             // layout goes in the step label, for UI tests.
             guard TerminalHostGridDemoSession.requestedSpec == nil else {

@@ -42,6 +42,15 @@ public final class MockTerminalSession: TerminalSession {
     private var transcriptBytes = 0
     private var resizeAnswer: Task<Void, Never>?
     private var answers: [(due: ContinuousClock.Instant, columns: Int, rows: Int)] = []
+    /// `htop` already running on a Mac pane of this grid when the phone
+    /// attaches (the terminal demo's `attach` phase): the attach answers a
+    /// round trip (`macResize`) after the start, at the grid the phone sent
+    /// before it (`attach-surface {cols, rows}`), or the pane's.
+    private let attachesTo: (columns: Int, rows: Int)?
+    /// The grid the phone gave before the attach went out.
+    private var attachSize: (columns: Int, rows: Int)?
+    /// The attach went out and its answer has not come yet.
+    private var attachInFlight = false
 
     private enum Program {
         case shell
@@ -51,11 +60,19 @@ public final class MockTerminalSession: TerminalSession {
 
     /// `playsIntro`: run `ls -la`, `git log` and a build when the session starts.
     public init(clock: any Clock<Duration> = ContinuousClock(), playsIntro: Bool = true, roundTrip: Duration = .zero,
-                macResize: Duration? = nil) {
+                macResize: Duration? = nil, attachesTo: (columns: Int, rows: Int)? = nil) {
         self.clock = clock
         self.playsIntro = playsIntro
         self.roundTrip = roundTrip
         self.macResize = macResize
+        self.attachesTo = attachesTo
+    }
+
+    /// The Mac's grid now, and whether an attach or a resize answer is still
+    /// on its way (the demo's `attach` phase: the grid the page must end at).
+    public var macState: (columns: Int, rows: Int, inFlight: Bool) {
+        let grid = macGrid ?? attachSize ?? attachesTo ?? (columns, rows)
+        return (grid.columns, grid.rows, attachInFlight || !answers.isEmpty)
     }
 
     public var remoteRows: Int? { macGrid?.rows }
@@ -63,6 +80,7 @@ public final class MockTerminalSession: TerminalSession {
 
     public func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void) {
         self.handler = handler
+        if let pane = attachesTo { return attach(pane: pane) }
         handler(.title("zsh — cmux-next"))
         let intro = playsIntro
         run { session in
@@ -100,6 +118,11 @@ public final class MockTerminalSession: TerminalSession {
     }
 
     public func resize(columns: Int, rows: Int) {
+        if attachesTo != nil, handler == nil || attachInFlight {
+            // Before the attach answered: the attach carries it.
+            if columns > 0, rows > 0 { attachSize = (columns, rows) }
+            return
+        }
         if let macResize {
             answerResize(columns: columns, rows: rows, after: macResize)
             return
@@ -135,6 +158,41 @@ public final class MockTerminalSession: TerminalSession {
             }
             self?.resizeAnswer = nil
         }
+    }
+
+    /// The attach into `htop` on a pane of `pane`: a round trip later, the
+    /// Mac's grid (the phone's, when it sent one), a mirror reset and one
+    /// replay (the shell's history, then htop's screen), as
+    /// `DaemonTerminalSession` delivers an attach, then `.attached`.
+    private func attach(pane: (columns: Int, rows: Int)) {
+        attachInFlight = true
+        handler?(.connection(.connecting(mac: "Mac")))
+        let delay = macResize ?? .zero
+        let task = Task { [weak self] in
+            try? await ContinuousClock().sleep(for: delay)
+            guard let self, !Task.isCancelled else { return }
+            let grid = self.attachSize ?? pane
+            self.columns = grid.columns
+            self.rows = grid.rows
+            self.macGrid = grid
+            var history = "Last login: Mon Oct 12 09:41:07 on ttys004\r\n"
+            for line in 1...60 { history += "history \(line): \(String(repeating: "=", count: 40))\r\n" }
+            history += "\u{1B}[32m❯\u{1B}[0m htop\r\n"
+            self.transcript = [history]
+            self.transcriptBytes = history.utf8.count
+            self.program = .htop(tick: 0)
+            self.isAlternateScreen = true
+            self.programName = "htop"
+            self.attachInFlight = false
+            self.handler?(.hostGrid(columns: grid.columns, rows: grid.rows))
+            self.handler?(.output(Data("\u{1B}c".utf8)))
+            self.handler?(.alternateScreen(true))
+            self.handler?(.output(Data((history + "\u{1B}[?1049h\u{1B}[H\u{1B}[2J" + Self.htopMouse
+                + MockHtop.render(columns: grid.columns, rows: grid.rows, tick: 0)).utf8)))
+            self.handler?(.title("htop — cmux-next"))
+            self.handler?(.connection(.attached))
+        }
+        tasks.append(task)
     }
 
     /// The mouse reporting htop turns on (and the Mac's replay keeps).
