@@ -176,4 +176,21 @@ import Testing
         let passed = try swipe(dx: 160, steps: 16).map { c.swipe.monitored($0, at: outside) != nil }
         #expect(passed.allSatisfy { $0 }, "a gesture outside this pane was held or taken: \(passed)")
     }
+
+    /// The swiped rows that are going back to rest (the return animation is on).
+    private func returning(_ c: ChatController) -> Int {
+        (c.demo?.collection.visibleCells ?? []).filter { $0.layer.animation(forKey: "swipe.back") != nil }.count
+    }
+
+    @Test func theRowGoesBackWithMessagesReturnAndWithoutOneUnderReduceMotion() async throws {
+        let (r, c, p) = try await rig()
+        defer { r.stop() }
+        c.swipe.reduceMotion = { false }
+        feed(c, p, try swipe(dx: 40, steps: 8, dt: 0.3 / 8, releaseAfter: 0.3))
+        #expect(returning(c) == 1, "no row runs the return after a swipe")
+        c.swipe.reduceMotion = { true }
+        feed(c, p, try swipe(dx: 40, steps: 8, dt: 0.3 / 8, from: 2, releaseAfter: 0.3))
+        #expect(returning(c) == 0, "Reduce Motion: the row still animates back")
+        #expect(c.swipe.rowOffset == 0)
+    }
 }
