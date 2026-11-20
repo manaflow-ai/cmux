@@ -964,9 +964,19 @@ def main():
         if opts.input == "debug":
             hid_key("escape")
 
+        def bars_row(name):
+            # INFO: where the page's bars are now (which step left an in-tree page blank before resize.top).
+            b = capture_bars(name)
+            row(name, True, {"red_rows": [min(b[0]), max(b[0])] if b and b[0] else None,
+                               "rows": b[2] if b else None, "census": page_census()})
+
+        bars_row("bars.before_select")
         check_select(app.pid)
+        bars_row("bars.after_select")
         check_popup()
+        bars_row("bars.after_popup")
         check_devtools()
+        bars_row("bars.after_devtools")
 
         # The page gets shorter: its red bar must stay at the top edge while Chromium catches up and after.
         action("splitDown")
