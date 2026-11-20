@@ -1985,9 +1985,7 @@ struct ContentView: View {
                 #endif
                 _ = AppDelegate.shared?.closeRightSidebarInActiveMainWindow(preferredWindow: observedWindow)
             },
-            customSidebarDataContext: { now in
-                rightSidebarCustomSidebarDataContext(now: now)
-            }
+            sidebarUnread: sidebarUnread
         )
         .frame(width: rightSidebarWidth)
         .clipped()
@@ -11603,34 +11601,6 @@ struct VerticalTabsSidebar: View, Equatable {
         )
     }
 
-    /// Live, read-only projection of workspace state handed to custom
-    /// sidebars so interpreted Swift can bind to it (e.g.
-    /// `ForEach(workspaces) { w in Text(w.title) }`) and re-render when it
-    /// changes. A value snapshot built fresh each render, never the store
-    /// itself, so it respects the sidebar snapshot-boundary rule.
-    private func customSidebarDataContext(
-        now: Date,
-        unreadSnapshot: SidebarUnreadSnapshot
-    ) -> [String: SwiftValue] {
-        let selectedId = tabManager.selectedTabId
-        let workspaces = tabManager.tabs.enumerated().map { index, workspace in
-            workspace.customSidebarWorkspaceSnapshot(
-                index: index,
-                selectedId: selectedId,
-                unreadCount: unreadSnapshot.unreadCount(forWorkspaceId: workspace.id)
-            )
-        }
-        let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
-        return ContentView.customSidebarDataContext(
-            workspaces: workspaces,
-            workspaceGroups: tabManager.workspaceGroups,
-            selectedWorkspaceId: selectedId,
-            selectedWorkspaceTitle: selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? "",
-            totalUnreadCount: unreadSnapshot.totalUnreadCount,
-            now: now
-        )
-    }
-
     @AppStorage("sidebarMatchTerminalBackground")
     private var sidebarMatchTerminalBackground = SidebarAppearanceCatalogSection().matchTerminalBackground.defaultValue
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
@@ -13082,9 +13052,9 @@ struct VerticalTabsSidebar: View, Equatable {
                   let customSidebarURL = inMemoryTemplatePreview == nil
                     ? CmuxExtensionSidebarSelection.customSidebarFileURL(forProviderId: effectiveExtensionSidebarProviderId)
                     : URL(fileURLWithPath: "/__cmux-in-memory-sidebar-preview.js") {
-            // Periodic tick so the custom sidebar re-renders live (clock,
-            // countdowns, and refreshed workspace/data context), mirroring the
-            // default sidebar's TimelineView. No banned timers involved.
+            // The data context re-renders the sidebar when workspace state it
+            // projects changes, and ticks once a second only for sidebars
+            // whose source reads `clock` (see CustomSidebarLiveDataContext).
             // The surface mounts the in-process renderer by default (native
             // hover/focus/keyboard, same-frame resize); the
             // `customSidebars.renderer` setting switches it to the
@@ -13094,24 +13064,24 @@ struct VerticalTabsSidebar: View, Equatable {
             // can mount the other renderer for one tick before flipping;
             // harmless (the host shuts the short-lived client down on
             // unmount).
-            SidebarUnreadSnapshotReader(source: sidebarUnread) { unreadSnapshot in
-                TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                    CustomSidebarSurface(
-                        fileURL: customSidebarURL,
-                        sourceOverride: inMemoryTemplatePreview,
-                        dataContext: customSidebarDataContext(
-                            now: timeline.date,
-                            unreadSnapshot: unreadSnapshot
-                        ),
-                        dispatch: makeCmuxSidebarActionDispatch(),
-                        contentInsets: CustomSidebarContentInsets(
-                            top: SidebarWorkspaceScrollInsets.workspaceList.top,
-                            bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
-                        ),
-                        rendersInProcess: inMemoryTemplatePreview != nil || customSidebarRenderer == .inProcess,
-                        client: $sidebarRenderWorkerClient
-                    )
-                }
+            CustomSidebarLiveDataContext(
+                tabManager: tabManager,
+                sidebarUnread: sidebarUnread,
+                fileURL: customSidebarURL,
+                sourceOverride: inMemoryTemplatePreview
+            ) { dataContext in
+                CustomSidebarSurface(
+                    fileURL: customSidebarURL,
+                    sourceOverride: inMemoryTemplatePreview,
+                    dataContext: dataContext,
+                    dispatch: cmuxSidebarActionDispatch,
+                    contentInsets: CustomSidebarContentInsets(
+                        top: SidebarWorkspaceScrollInsets.workspaceList.top,
+                        bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
+                    ),
+                    rendersInProcess: inMemoryTemplatePreview != nil || customSidebarRenderer == .inProcess,
+                    client: $sidebarRenderWorkerClient
+                )
             }
             .mask(
                 SidebarWorkspaceScrollEdgeFadeMask(

@@ -4,6 +4,7 @@ import Bonsplit
 import CMUXAgentLaunch
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxNotifications
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSidebarInterpreterClient
@@ -76,9 +77,9 @@ struct RightSidebarPanelView: View {
     let onClose: () -> Void
     let cloudActivationCoordinator: CloudActivationCoordinator = AppDelegate.shared?.cloudActivationCoordinator
         ?? CloudActivationCoordinator.unconfigured()
-    /// Live data context for the Custom mode's JS/Swift sidebar (built by the
-    /// window's ContentView, which owns the unread model this view never sees).
-    let customSidebarDataContext: (Date) -> [String: SwiftValue]
+    /// The window's unread model, for the Custom mode's JS/Swift sidebar
+    /// data context (see ``CustomSidebarLiveDataContext``).
+    let sidebarUnread: SidebarUnreadModel
 
     @State private var modeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOrControl) { window in
         guard let responder = window.firstResponder else { return false }
@@ -503,11 +504,15 @@ struct RightSidebarPanelView: View {
     private var customSidebarPanel: some View {
         if let name = fileExplorerState.customSidebarName,
            let fileURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forName: name) {
-            TimelineView(.periodic(from: .now, by: 1)) { timeline in
+            CustomSidebarLiveDataContext(
+                tabManager: tabManager,
+                sidebarUnread: sidebarUnread,
+                fileURL: fileURL
+            ) { dataContext in
                 CustomSidebarSurface(
                     fileURL: fileURL,
-                    dataContext: customSidebarDataContext(timeline.date),
-                    dispatch: makeCmuxSidebarActionDispatch(),
+                    dataContext: dataContext,
+                    dispatch: cmuxSidebarActionDispatch,
                     contentInsets: CustomSidebarContentInsets(top: 8, bottom: 8),
                     rendersInProcess: customSidebarRenderer == .inProcess,
                     client: $customSidebarWorkerClient

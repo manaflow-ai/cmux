@@ -31,21 +31,7 @@ public struct CustomSidebarDataContextBuilder {
     /// `unreadTotal`, and `clock`.
     public func dataContext(for snapshot: CustomSidebarContextSnapshot) -> [String: SwiftValue] {
         let workspaces: [SwiftValue] = snapshot.workspaces.map(workspaceValue(_:))
-        let components = calendar.dateComponents(
-            [.hour, .minute, .second, .weekday],
-            from: snapshot.now
-        )
-        let hour = components.hour ?? 0
-        let minute = components.minute ?? 0
-        let second = components.second ?? 0
-        let clock: SwiftValue = .object([
-            "time": .string(String(format: "%02d:%02d:%02d", hour, minute, second)),
-            "hour": .int(hour),
-            "minute": .int(minute),
-            "second": .int(second),
-            "weekday": .int(components.weekday ?? 0),
-            "epoch": .int(Int(snapshot.now.timeIntervalSince1970)),
-        ])
+        let clock = CustomSidebarClock.value(at: snapshot.now, calendar: calendar)
         return [
             "workspaces": .array(workspaces),
             "groups": .array(snapshot.groups.map(groupValue(_:))),

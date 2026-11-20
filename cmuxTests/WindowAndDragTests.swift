@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import CmuxAppKitSupportUI
+import CmuxNotifications
 import CmuxFoundation
 import Carbon.HIToolbox
 import Darwin
@@ -2207,7 +2208,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             onOpenFilePreview: { _ in },
             onOpenAsPane: { _ in },
             onClose: {},
-            customSidebarDataContext: { _ in [:] }
+            sidebarUnread: SidebarUnreadModel()
         )
         let hostingView = NSHostingView(rootView: rootView)
         hostingView.frame = window.contentRect(forFrameRect: window.frame)

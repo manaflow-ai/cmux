@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAppKitSupportUI
+import CmuxNotifications
 import CmuxSettings
 import SwiftUI
 import Testing
@@ -75,7 +76,7 @@ struct HiddenRightSidebarContentMountingTests {
             onOpenFilePreview: { _ in },
             onOpenAsPane: { _ in },
             onClose: {},
-            customSidebarDataContext: { _ in [:] }
+            sidebarUnread: SidebarUnreadModel()
         )
         let hostingView = NSHostingView(rootView: rootView)
         hostingView.frame = window.contentRect(forFrameRect: window.frame)

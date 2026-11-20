@@ -282,26 +282,6 @@ extension ContentView {
         return mode.shortcutAction
     }
 
-    func rightSidebarCustomSidebarDataContext(now: Date) -> [String: SwiftValue] {
-        let selectedId = tabManager.selectedTabId
-        let workspaces = tabManager.tabs.enumerated().map { index, workspace in
-            workspace.customSidebarWorkspaceSnapshot(
-                index: index,
-                selectedId: selectedId,
-                unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id)
-            )
-        }
-        let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
-        return Self.customSidebarDataContext(
-            workspaces: workspaces,
-            workspaceGroups: tabManager.workspaceGroups,
-            selectedWorkspaceId: selectedId,
-            selectedWorkspaceTitle: selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? "",
-            totalUnreadCount: sidebarUnread.totalUnreadCount,
-            now: now
-        )
-    }
-
     static func customSidebarDataContext(
         workspaces: [CustomSidebarWorkspaceSnapshot],
         workspaceGroups: [WorkspaceGroup],

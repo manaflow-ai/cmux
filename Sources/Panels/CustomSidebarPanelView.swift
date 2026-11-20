@@ -28,11 +28,15 @@ struct CustomSidebarPanelView: View {
     var body: some View {
         Group {
             if isVisibleInUI {
-                TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                CustomSidebarLiveDataContext(
+                    tabManager: tabManager,
+                    sidebarUnread: sidebarUnread,
+                    fileURL: panel.fileURL
+                ) { dataContext in
                     CustomSidebarSurface(
                         fileURL: panel.fileURL,
-                        dataContext: customSidebarDataContext(now: timeline.date),
-                        dispatch: makeCmuxSidebarActionDispatch(),
+                        dataContext: dataContext,
+                        dispatch: cmuxSidebarActionDispatch,
                         contentInsets: CustomSidebarContentInsets.zero,
                         rendersInProcess: customSidebarRenderer == .inProcess,
                         client: $renderWorkerClient
@@ -93,36 +97,6 @@ struct CustomSidebarPanelView: View {
         guard let client = renderWorkerClient else { return }
         renderWorkerClient = nil
         Task { await client.shutdown() }
-    }
-
-    private func customSidebarDataContext(now: Date) -> [String: SwiftValue] {
-        CustomSidebarPaneDataContextCache.shared.dataContext(
-            now: now,
-            tabManager: tabManager,
-            sidebarUnread: sidebarUnread
-        ) {
-            buildCustomSidebarDataContext(now: now)
-        }
-    }
-
-    private func buildCustomSidebarDataContext(now: Date) -> [String: SwiftValue] {
-        let selectedId = tabManager.selectedTabId
-        let workspaces = tabManager.tabs.enumerated().map { index, workspace in
-            workspace.customSidebarWorkspaceSnapshot(
-                index: index,
-                selectedId: selectedId,
-                unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id)
-            )
-        }
-        let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
-        return ContentView.customSidebarDataContext(
-            workspaces: workspaces,
-            workspaceGroups: tabManager.workspaceGroups,
-            selectedWorkspaceId: selectedId,
-            selectedWorkspaceTitle: selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? "",
-            totalUnreadCount: sidebarUnread.totalUnreadCount,
-            now: now
-        )
     }
 
     private func requestPanelFocusIfNeeded() {

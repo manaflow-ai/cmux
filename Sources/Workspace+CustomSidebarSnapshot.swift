@@ -1,14 +1,20 @@
 import CmuxAgentChat
+import CmuxMobileHost
 import CmuxSidebar
 import Foundation
 
 @MainActor
 extension Workspace {
     /// Projects live workspace state into the custom-sidebar interpreter input snapshot.
+    ///
+    /// - Parameter agentRecords: The agent-chat session records to bind, when
+    ///   the caller already fetched them for several workspaces; `nil` reads
+    ///   them from the registry.
     func customSidebarWorkspaceSnapshot(
         index: Int,
         selectedId: UUID?,
-        unreadCount: Int
+        unreadCount: Int,
+        agentRecords: [AgentChatSessionRecord]? = nil
     ) -> CustomSidebarWorkspaceSnapshot {
         let focusedPanelId = focusedPanelId
         let displayTitle = customTitle ?? title
@@ -46,7 +52,7 @@ extension Workspace {
             latestSubmittedMessage: latestSubmittedMessage,
             latestSubmittedAt: latestSubmittedAt,
             remote: remote,
-            agents: customSidebarAgentSnapshots(),
+            agents: customSidebarAgentSnapshots(records: agentRecords ?? Self.customSidebarAgentRecords()),
             groupId: groupId,
             taskStatus: effectiveTaskStatus.rawValue,
             emoji: Self.customSidebarLeadingEmoji(in: displayTitle)
@@ -64,6 +70,12 @@ extension Workspace {
         return String(first)
     }
 
+    /// Every agent-chat session record, most recent first, for
+    /// ``customSidebarWorkspaceSnapshot(index:selectedId:unreadCount:agentRecords:)``.
+    static func customSidebarAgentRecords() -> [AgentChatSessionRecord] {
+        TerminalController.shared.agentChatTranscriptService?.sessionRecords(workspaceID: nil) ?? []
+    }
+
     /// At most this many agent sessions are projected per workspace; the
     /// registry returns most-recent-first, so the cap drops the oldest.
     private static let customSidebarAgentLimit = 24
@@ -77,9 +89,7 @@ extension Workspace {
     /// to a panel that lives elsewhere (or was closed) are excluded even when
     /// their stored workspace id matches, because that stored id goes stale
     /// across relaunches while the panel binding stays authoritative.
-    private func customSidebarAgentSnapshots() -> [CustomSidebarAgentSnapshot] {
-        guard let service = TerminalController.shared.agentChatTranscriptService else { return [] }
-        let records = service.sessionRecords(workspaceID: nil)
+    private func customSidebarAgentSnapshots(records: [AgentChatSessionRecord]) -> [CustomSidebarAgentSnapshot] {
         guard !records.isEmpty else { return [] }
         var surfaceIdByPanelId: [UUID: UUID] = [:]
         for paneId in bonsplitController.allPaneIds {

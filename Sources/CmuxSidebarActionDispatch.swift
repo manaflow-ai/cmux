@@ -31,6 +31,14 @@ private let sidebarSelectCoalescer = SidebarSelectCoalescer()
 /// gesture-gated `clipboard.write` goes through the same plain-text pasteboard
 /// helper as the built-in Copy Workspace ID / Link commands.
 @MainActor
+let cmuxSidebarActionDispatch = makeCmuxSidebarActionDispatch()
+
+/// Builds the action sink behind ``cmuxSidebarActionDispatch``.
+///
+/// Surfaces use the shared constant rather than calling this per render: the
+/// dispatch rides the SwiftUI environment, and a fresh closure each render
+/// reads as a changed environment value that invalidates every sidebar node.
+@MainActor
 func makeCmuxSidebarActionDispatch() -> SidebarActionDispatch {
     SidebarActionDispatch(run: { action in
         // Capture the controller on the main actor, then run the whole command

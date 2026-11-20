@@ -1972,7 +1972,8 @@
 		7657BE6E69D9F4E6DAE62072 /* CurrentWorkQueryServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAE3881629F4AAF8553CF302 /* CurrentWorkQueryServiceTests.swift */; };
 		513FF6AFB6D63DEBD363D289 /* CurrentWorkReducer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C860B4F547303C9178D9AE11 /* CurrentWorkReducer.swift */; };
 		A229999BB6C8A757F54AB35F /* CurrentWorkReducerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE4672716DA1806FE100CC7D /* CurrentWorkReducerTests.swift */; };
-		C57B00080000000000000001 /* CustomSidebarPaneDataContextCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00080000000000000002 /* CustomSidebarPaneDataContextCache.swift */; };
+		C57B00080000000000000001 /* CustomSidebarDataContextFeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00080000000000000002 /* CustomSidebarDataContextFeed.swift */; };
+		7B2C6C866DEAA157FE5BDC33 /* CustomSidebarDataContextFeedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0128852AF3D89D6005D161F /* CustomSidebarDataContextFeedTests.swift */; };
 		C57B00010000000000000001 /* CustomSidebarPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00010000000000000002 /* CustomSidebarPanel.swift */; };
 		C57B00090000000000000001 /* CustomSidebarPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00090000000000000002 /* CustomSidebarPanelView.swift */; };
 		DEBDADADADADADADAD000001 /* DebugDogfoodCredentialResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEBDADADADADADADAD000002 /* DebugDogfoodCredentialResolver.swift */; };
@@ -6680,7 +6681,8 @@
 		BAE3881629F4AAF8553CF302 /* CurrentWorkQueryServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CurrentWorkQueryServiceTests.swift"; sourceTree = "<group>"; };
 		C860B4F547303C9178D9AE11 /* CurrentWorkReducer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CurrentWorkReducer.swift"; sourceTree = "<group>"; };
 		DE4672716DA1806FE100CC7D /* CurrentWorkReducerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CurrentWorkReducerTests.swift"; sourceTree = "<group>"; };
-		C57B00080000000000000002 /* CustomSidebarPaneDataContextCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CustomSidebarPaneDataContextCache.swift; sourceTree = "<group>"; };
+		C57B00080000000000000002 /* CustomSidebarDataContextFeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CustomSidebarDataContextFeed.swift; sourceTree = "<group>"; };
+		E0128852AF3D89D6005D161F /* CustomSidebarDataContextFeedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CustomSidebarDataContextFeedTests.swift"; sourceTree = "<group>"; };
 		C57B00010000000000000002 /* CustomSidebarPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CustomSidebarPanel.swift; sourceTree = "<group>"; };
 		C57B00090000000000000002 /* CustomSidebarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CustomSidebarPanelView.swift; sourceTree = "<group>"; };
 		DEBDADADADADADADAD000002 /* DebugDogfoodCredentialResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DebugDogfoodCredentialResolver.swift; sourceTree = "<group>"; };
@@ -12033,7 +12035,7 @@
 				A5001424 /* PDFPreviewChromeDebugWindowController.swift */,
 				A5001426 /* FilePreviewPDFSizing.swift */,
 				C0DE86520000000000000008 /* FilePreviewPDFZoomChromeView.swift */,
-				C57B00080000000000000002 /* CustomSidebarPaneDataContextCache.swift */,
+				C57B00080000000000000002 /* CustomSidebarDataContextFeed.swift */,
 				C57B00010000000000000002 /* CustomSidebarPanel.swift */,
 				C57B00090000000000000002 /* CustomSidebarPanelView.swift */,
 				C51A710000000000000000A2 /* SimulatorPanel.swift */,
@@ -14353,6 +14355,7 @@
 				4189B3FB78ACEE79AE12B1AA /* ChiefDisabledHomeTests.swift */,
 				2E93DBA33C7287FE3D7FA1BB /* NotificationPopoverRowLayoutTests.swift */,
 				C0C7EE23B232921D28CA56FD /* NotificationsPopoverDrawnRowsTests.swift */,
+				E0128852AF3D89D6005D161F /* CustomSidebarDataContextFeedTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16092,7 +16095,7 @@
 				4968BF255B858F36FB675B22 /* CurrentWorkPalettePresentation.swift in Sources */,
 				A83CEB14BF353C5152590A0E /* CurrentWorkQueryService.swift in Sources */,
 				513FF6AFB6D63DEBD363D289 /* CurrentWorkReducer.swift in Sources */,
-				C57B00080000000000000001 /* CustomSidebarPaneDataContextCache.swift in Sources */,
+				C57B00080000000000000001 /* CustomSidebarDataContextFeed.swift in Sources */,
 				C57B00010000000000000001 /* CustomSidebarPanel.swift in Sources */,
 				C57B00090000000000000001 /* CustomSidebarPanelView.swift in Sources */,
 				DEBDADADADADADADAD000001 /* DebugDogfoodCredentialResolver.swift in Sources */,
@@ -18971,6 +18974,7 @@
 				46FF4C2573735348394EB428 /* CurrentWorkCommandPaletteTests.swift in Sources */,
 				7657BE6E69D9F4E6DAE62072 /* CurrentWorkQueryServiceTests.swift in Sources */,
 				A229999BB6C8A757F54AB35F /* CurrentWorkReducerTests.swift in Sources */,
+				7B2C6C866DEAA157FE5BDC33 /* CustomSidebarDataContextFeedTests.swift in Sources */,
 				DEBDADADADADADADAD000003 /* DebugDogfoodCredentialResolverTests.swift in Sources */,
 				C0DE31410000000000000103 /* DebugEventLogSerializedAppendTests.swift in Sources */,
 				917300000000000000000001 /* DeferredActionReplacementStackTests.swift in Sources */,
