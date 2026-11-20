@@ -103,7 +103,10 @@ public final class OnboardingWindowPresenter {
     public enum LaunchSteps: Sendable, Equatable {
         /// Capture builds, the showcase, `CMUX_NEXT_SKIP_ONBOARDING=1` or `--skip-onboarding`: nothing.
         case none
-        /// First-run onboarding off (Lawrence 2026-11-09): no first-run windows, card or history page.
+        /// First-run onboarding off (Lawrence 2026-11-09), the default: no first-run windows, card or history page,
+        /// but the cmux Tools question still comes once. It is no first-run step: until it is answered, agents cmux
+        /// starts get no cmux MCP server (`agents.cmuxMcp` stays `ask`), and a NIGHTLY that never asked left a
+        /// teammate's Codex with no `cmux` (2026-11-19).
         case agentToolsOnly
         /// `CMUX_NEXT_ONBOARDING=1` or `--onboarding`: the first-run steps, the cmux Tools question among them.
         case firstRun
@@ -115,7 +118,7 @@ public final class OnboardingWindowPresenter {
             } else if environment["CMUX_NEXT_ONBOARDING"] == "1" || arguments.contains("--onboarding") {
                 self = .firstRun
             } else {
-                self = .none
+                self = .agentToolsOnly
             }
         }
 
