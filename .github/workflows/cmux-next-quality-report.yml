@@ -205,17 +205,12 @@ jobs:
             --ci-branches "feat-cmux-next,main" --ci-commits 50 --ci-repo "$GITHUB_REPOSITORY" --speed "${journey[@]}" \
             --json "$out/quality-metrics-full.json" --public-json "$out/quality-metrics.json" \
             --md "$out/quality-report.md" --public-md "$out/quality-summary.md")
-          # God-vs-small rows from the v2 bench and the degenerate lab, merged into one input.
+          # God-vs-small rows and errors from the v2 bench and the degenerate lab, merged into one input.
           god_inputs=()
           [[ -f "$out/v2-god-small.json" ]] && god_inputs+=("$out/v2-god-small.json")
           [[ -f "$RUNNER_TEMP/god-small/god-small.json" ]] && god_inputs+=("$RUNNER_TEMP/god-small/god-small.json")
           if (( ${#god_inputs[@]} )); then
-            python3 -I -c 'import json, sys
-          rows = []
-          for path in sys.argv[2:]:
-              data = json.load(open(path))
-              rows += data["rows"] if isinstance(data, dict) else data
-          json.dump({"rows": rows}, open(sys.argv[1], "w"))' "$out/god-small.json" "${god_inputs[@]}"
+            python3 -I scripts/cmux-next/quality-report.py merge-god-small --out "$out/god-small.json" "${god_inputs[@]}"
             report_args+=(--god-small "$out/god-small.json")
           else
             echo "no god-small input (v2 bench or degenerate lab); report records no input given" >&2

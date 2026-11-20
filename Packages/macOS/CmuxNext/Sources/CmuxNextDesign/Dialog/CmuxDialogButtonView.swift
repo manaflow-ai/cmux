@@ -25,8 +25,8 @@ public final class CmuxDialogButtonView: ClickableButton {
     private let focusGap = CALayer()
     /// The key drawn on a plate at the trailing end (a cmux dialog's card), instead of as text after the title.
     private let keycapView: CmuxDialogKeycapView?
-    /// How a keyed button draws its key (``CmuxDialogKeycapStyle``): today's plate unless the Keycap Playground
-    /// shows another.
+    /// How a keyed button draws its key (``CmuxDialogKeycapStyle``): the Linear-style hint every dialog draws
+    /// (Lawrence 2026-11-16) unless the Keycap Playground shows another.
     let keycapStyle: CmuxDialogKeycapStyle
     /// Draws the button in this state whatever the pointer does (the Keycap Playground's hover and pressed rows).
     var previewState: CmuxDialogButtonLook.State? { didSet { refresh() } }
@@ -41,7 +41,7 @@ public final class CmuxDialogButtonView: ClickableButton {
     /// button's trailing end (the cmux dialog card, ``CmuxDialogView``), on a taller, rounder button.
     public convenience init(_ button: CmuxDialogButton, hint: CmuxDialogKeyHint?, quiet: Bool = false, keycap: Bool = false,
                             target: AnyObject?, action: Selector) {
-        self.init(button, hint: hint, quiet: quiet, keycap: keycap, keycapStyle: .plate, target: target, action: action)
+        self.init(button, hint: hint, quiet: quiet, keycap: keycap, keycapStyle: .linearKbd, target: target, action: action)
     }
 
     /// A keyed button drawing its key in `keycapStyle` (the Keycap Playground); a style that shows no key for this

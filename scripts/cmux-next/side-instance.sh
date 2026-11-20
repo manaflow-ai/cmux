@@ -3,11 +3,14 @@
 # that app with its own data, socket, daemon, settings and web overlay, never touching the original's.
 # try-pr.sh opens pull requests in one by default (docs/cmux-next/hot-reload.md, "Try a pull request").
 #
-#   side-instance.sh make NAME [--from APP] [--label TEXT] [--live-code]
+#   side-instance.sh make NAME [--from APP] [--label TEXT] [--live-code] [--neutral-shell]
 #                                   copy APP (default /Applications/cmux NEXT.app) as NAME; remade
 #                                   from another app, it clears the state of the identity it replaces.
 #                                   --live-code: a live code build's copy watches live-code/ for
 #                                   Swift patches (docs/cmux-next/live-code.md)
+#                                   --neutral-shell: its terminals show a `$ ` prompt, never the
+#                                   account's `user@host` (hot-verify.py's looks, whose shots and
+#                                   video a privacy check reads)
 #   side-instance.sh launch NAME [--front] [-- ARGS...]
 #                                   open it (behind the front app unless --front); records its pid
 #   side-instance.sh stop NAME      quit it: the pid launch recorded, then what still runs from the copy
@@ -108,12 +111,13 @@ clear_state() {
 
 case "$cmd" in
   make)
-    from="/Applications/cmux NEXT.app" label="cmux $name" live=""
+    from="/Applications/cmux NEXT.app" label="cmux $name" live="" neutral=""
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --from) [[ $# -ge 2 ]] || usage 1; from="${2%/}"; shift 2 ;;
         --label) [[ $# -ge 2 ]] || usage 1; label="$2"; shift 2 ;;
         --live-code) live=1; shift ;;
+        --neutral-shell) neutral=1; shift ;;
         *) usage 1 ;;
       esac
     done
@@ -191,6 +195,19 @@ PY
     if [[ -n "$live" ]]; then
       mkdir -p "$dir/live-code"
       plist_set "$plist" LSEnvironment:CMUX_LIVE_CODE_DIR "$dir/live-code"
+    fi
+    # A neutral shell: zsh's default prompt `%n@%m %1~ %#` reads "cmux@cmux23 ~ %" on a fleet mini, and a
+    # look's privacy check withholds every shot and the video that shows it. The app points its terminals'
+    # zsh at the folder CMUX_CAPTURE_SHELL_HOME names (ZDOTDIR, AppEnvironment.terminalEnvironment), the same
+    # hook PR capture slots use (cmuxterm-hq build-fleet/capture-host); the files read no other file.
+    rm -rf "$dir/shell-home"
+    if [[ -n "$neutral" ]]; then
+      mkdir -p "$dir/shell-home"
+      printf '%s\n' "# side-instance.sh --neutral-shell: present so zsh never reads the account's ~/.zshenv." \
+        >"$dir/shell-home/.zshenv"
+      printf '%s\n' "# side-instance.sh --neutral-shell: a prompt with no account or host name." \
+        "PROMPT='\$ '" "PS1='\$ '" "RPROMPT=''" "RPS1=''" >"$dir/shell-home/.zshrc"
+      plist_set "$plist" LSEnvironment:CMUX_CAPTURE_SHELL_HOME "$dir/shell-home"
     fi
     # The seal covers Info.plist: re-sign the outer bundle ad hoc (nested code keeps its own
     # signatures), and check it. An ad hoc signature may carry only unrestricted entitlements: one

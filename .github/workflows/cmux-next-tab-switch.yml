@@ -61,6 +61,10 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
           filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
       - name: Gate tests
         run: python3 tests/test_cmux_next_tab_switch_gate.py
       - name: Does this change touch a tab, a pane or the chat pane?

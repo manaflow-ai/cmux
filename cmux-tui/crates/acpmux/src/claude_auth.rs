@@ -388,7 +388,7 @@ pub fn is_expired_credential(message: &str) -> bool {
 pub fn is_revoked_token(message: &str) -> bool {
     let m = message.to_lowercase();
     (m.contains("oauth token revoked") || m.contains("token has been revoked"))
-        && !crate::hub::turn_errors::says_unreachable(message)
+        && !crate::turn_errors::says_unreachable(message)
 }
 
 /// Whether [`explain`] rewrites `original`: a sign-in failure it has not explained yet, and not
@@ -396,7 +396,7 @@ pub fn is_revoked_token(message: &str) -> bool {
 /// stays as the agent said it, so its turn is retried and typed as the outage it is.
 fn explains(original: &str) -> bool {
     is_sign_in_failure(original)
-        && !crate::hub::turn_errors::says_unreachable(original)
+        && !crate::turn_errors::says_unreachable(original)
         && !original.starts_with("Claude is not signed in here")
 }
 

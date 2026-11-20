@@ -106,6 +106,7 @@ public nonisolated enum MotionTunables {
         .hibernateIcon: (MotionScale.large, "Hibernated tab favicon shrinks into its ring, and grows back on wake (Chrome: 250 ms)."),
         .hibernateRing: (1.0, "Hibernated tab dotted ring fades in (Chrome: 1 s)."),
         .settle: (MotionScale.standard, "A finished mark settles in once: a sidebar row's spinner turning into its done mark grows from 60% and an accent tint."),
+        .omniboxPopup: (MotionScale.quick, "The omnibox suggestion card fading in and out with its bar's card top (Helium: 82 ms)."),
     ]
 
     package static let fades: [MotionFade: Tunable<Double>] = Dictionary(uniqueKeysWithValues: MotionFade.allCases.map { token in

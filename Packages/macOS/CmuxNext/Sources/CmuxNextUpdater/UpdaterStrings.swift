@@ -166,11 +166,11 @@ nonisolated enum UpdaterStrings {
     static var preparingDetail: String { text("updater.notice.preparingDetail", "Verifying and unpacking the update.") }
     static var installingUpdate: String { text("updater.notice.installingTitle", "Installing Update") }
     static var relaunchingDetail: String {
-        text("updater.notice.relaunchingDetail", "cmux relaunches in a moment. Your terminals and agents keep running.")
+        text("updater.notice.relaunchingDetail", "cmux relaunches in a moment.")
     }
     static func checkingNewVersion(seconds: Int) -> String {
         format("updater.notice.checkingNewVersion",
-               "The installer checks the new version (%lld s). cmux relaunches when it is done. Your terminals and agents keep running.",
+               "The installer checks the new version (%lld s).",
                seconds)
     }
     static var installStalled: String { text("updater.notice.stalledTitle", "Update Did Not Relaunch") }

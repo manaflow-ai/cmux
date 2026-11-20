@@ -40,7 +40,8 @@ public nonisolated enum SidebarWorkspaceKind: String, Codable, Hashable, Sendabl
         switch self {
         case .harness: .agentChat
         case .terminal: .terminal
-        case .browser: .browser
+        // The browser tab's own globe (Lucas 2026-11-14: one icon on the tab and its sidebar row).
+        case .browser: .tabBrowser
         }
     }
 }

@@ -685,7 +685,8 @@
       "remote-host-status",
       "remote-host-call",
       "remote-host-config",
-      "remote-host-app"
+      "remote-host-app",
+      "device-setup"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
@@ -1141,6 +1142,12 @@
     },
     {
       "name": "url-open",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "device-setup-step",
       "streams": [
         "control"
       ]

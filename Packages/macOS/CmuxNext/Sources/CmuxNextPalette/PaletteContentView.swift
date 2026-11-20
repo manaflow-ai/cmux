@@ -28,7 +28,6 @@ final class PaletteContentView: NSView {
     /// are hidden there.
     private lazy var listHost = ScrollEdgeFadeView(scrollView: list)
     private let emptyTitle = PaletteText.label(Typography.bodyEmphasized, tone: .secondary)
-    private let emptyHint = PaletteText.label(Typography.caption, tone: .tertiary)
     /// The page's line under the field (`PaletteModel.fieldHint`).
     private let fieldHint = PaletteText.label(Typography.caption, tone: .tertiary)
     private let footer = PaletteFooterView()
@@ -57,12 +56,10 @@ final class PaletteContentView: NSView {
         glass.translatesAutoresizingMaskIntoConstraints = true
         glass.contentView.addSubview(body)
         emptyTitle.stringValue = PaletteStrings.noResults
-        emptyHint.stringValue = PaletteStrings.noResultsHint
         emptyTitle.alignment = .center
-        emptyHint.alignment = .center
         [topRule, bottomRule].forEach { $0.wantsLayer = true }
         fieldHint.isHidden = true
-        [searchBar, fieldHint, topRule, listHost, emptyTitle, emptyHint, bottomRule, footer].forEach(body.addSubview)
+        [searchBar, fieldHint, topRule, listHost, emptyTitle, bottomRule, footer].forEach(body.addSubview)
         stage.addSubview(glass)
         stage.addSubview(actionsMenuView)
         stage.addSubview(recorderView)
@@ -160,12 +157,6 @@ final class PaletteContentView: NSView {
         let showEmpty = sections.isEmpty && !model.isLoading && !model.awaitsRank
         listHost.isHidden = showEmpty
         emptyTitle.isHidden = !showEmpty
-        // The hint is about the typed search; a page that is empty with nothing typed shows only its title.
-        let hintHidden = !showEmpty || model.query.isEmpty
-        if emptyHint.isHidden != hintHidden {
-            emptyHint.isHidden = hintHidden
-            needsLayout = true
-        }
 
         searchBar.update(
             query: model.query,
@@ -261,11 +252,8 @@ final class PaletteContentView: NSView {
         listHost.frame = listFrame
         list.contentInsets = NSEdgeInsets(top: PaletteLayout.listInset, left: 0, bottom: PaletteLayout.listInset, right: 0)
         let titleHeight = PaletteText.height(emptyTitle)
-        // With the hint hidden the title alone is centered (the negative height cancels its gap).
-        let hintHeight = emptyHint.isHidden ? -Metrics.space2 : PaletteText.height(emptyHint)
-        let emptyTop = listFrame.midY - (titleHeight + Metrics.space2 + hintHeight) / 2
+        let emptyTop = listFrame.midY - titleHeight / 2
         emptyTitle.frame = body.pixelAligned(NSRect(x: 0, y: emptyTop, width: width, height: titleHeight))
-        emptyHint.frame = body.pixelAligned(NSRect(x: 0, y: emptyTop + titleHeight + Metrics.space2, width: width, height: max(0, hintHeight)))
         y += PaletteLayout.listHeight - fieldHintHeight
         bottomRule.frame = NSRect(x: 0, y: y, width: width, height: Metrics.dividerThickness)
         y += Metrics.dividerThickness

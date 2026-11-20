@@ -325,7 +325,7 @@ pub fn run(opts: &Opts) -> Res<()> {
     #[cfg(target_os = "linux")]
     say(linux_displays(capture, &display));
     #[cfg(target_os = "macos")]
-    match crate::desktop::displays() {
+    match crate::mac::capture::displays() {
         Ok((sizes, current)) => {
             say(AppLine { displays: Some(sizes), current: Some(current), ..AppLine::default() })
         }
@@ -502,7 +502,7 @@ fn serve_session(
         codec: opts.str_or("codec", crate::host::DEFAULT_CODEC),
         content: "screen".into(),
         openh264_lib: None,
-        threads: 2,
+        threads: crate::encoder::default_threads(),
         stats_every_ms: 1000,
         settle_us: crate::host::DEFAULT_SETTLE_US,
         upstream_record: None,

@@ -51,6 +51,14 @@ import {
   rdStartScript,
   rdTmpfiles,
   rdUnit,
+  AGENT_DISPLAY_SIZE,
+  DESKTOP_CHECK_SCRIPT,
+  DESKTOP_CHECK_SECONDS,
+  DESKTOP_SESSION_SCRIPT,
+  DESKTOP_SESSION_UNIT,
+  desktopCheckScript,
+  desktopSessionScript,
+  desktopSessionUnit,
 } from "../scripts/cmux-vm-image/agent-tools";
 import { bakeOptionsFromArgv, daemonUnit, desktopRecord, refusedFirstUsePackages } from "../scripts/cmux-vm-image/bake";
 import { CURRENT_BIN, type InputsLock, type LockedProgram, readInputsLock, rolesManifest, storeEntry } from "../scripts/cmux-vm-image/lock";
@@ -159,7 +167,19 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     await bashSyntax(agentToolsProfileScript());
     for (const file of agentToolsFiles(rdLock).filter((f) => f.path.endsWith("cmux-cua"))) await bashSyntax(file.text);
     const phases = browserRoleBakePhases(lock);
-    expect(phases.map((p) => p.name)).toEqual(["agent-tools-browser-apt-update", "agent-tools-browser-apt-install", "agent-tools-browser-program-chrome-for-testing", "agent-tools-browser-program-cmux-browser-host", "agent-tools-browser-lists"]);
+    expect(phases.map((p) => p.name)).toEqual([
+      "agent-tools-browser-apt-fetch",
+      "agent-tools-browser-apt-install",
+      "agent-tools-browser-program-chrome-for-testing",
+      "agent-tools-browser-program-cmux-browser-host",
+      "agent-tools-display-wm-apt-fetch",
+      "agent-tools-display-wm-apt-install",
+      "agent-tools-browser-lists",
+    ]);
+    // The desktop session's closure, pinned from the lock like the browser's: each .deb by its locked sha256.
+    const wm = phases.find((p) => p.name === "agent-tools-display-wm-apt-fetch")!.command;
+    for (const [name, version] of Object.entries(lock.apt.ubuntu.firstUse["display-wm"])) expect(wm).toContain(lock.apt.ubuntu.debs[`${name}=${version}`]!.sha256);
+    expect(lock.roles["display-wm"].apt).toEqual(["openbox", "xterm"]);
     for (const phase of phases) await bashSyntax(phase.command);
     await bashSyntax(staticCheckCommand());
   });
@@ -292,7 +312,8 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
 
   test("per-display units (cx-ncc.5): Xvfb on :%i with its own cookie and -noreset, the a11y bus needs its display, both ship off", () => {
     const display = displayTemplateUnit();
-    expect(display).toContain(`ExecStart=/usr/bin/Xvfb :%i -screen 0 1280x800x24 -nolisten tcp -auth ${agentXauthority("%i")} -s 0 -dpms -noreset\n`);
+    expect(AGENT_DISPLAY_SIZE).toBe("1920x1080");
+    expect(display).toContain(`ExecStart=/usr/bin/Xvfb :%i -screen 0 1920x1080x24 -nolisten tcp -auth ${agentXauthority("%i")} -s 0 -dpms -noreset\n`);
     expect(display).toContain(`xauth -q -f ${agentXauthority("%i")} add :%i . "$(mcookie)"`);
     expect(display).toContain("[ -S /tmp/.X11-unix/X%i ]");
     expect(display).toContain("User=cmux");
@@ -388,6 +409,90 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     }
   });
 
+  test("the desktop session (ask-da398bba67): openbox and a terminal on :99 as the work user, bound to the display, its start checked", async () => {
+    const unit = desktopSessionUnit();
+    expect(DESKTOP_SESSION_UNIT).toBe("cmux-agent-desktop-session.service");
+    expect(unit).toContain(`BindsTo=${DISPLAY_UNIT}\nAfter=${DISPLAY_UNIT}\n`);
+    expect(unit).toContain("User=cmux\nGroup=cmux\n");
+    expect(unit).toContain("Environment=DISPLAY=:99\n");
+    expect(unit).toContain(`Environment=XAUTHORITY=${AGENT_XAUTHORITY}\n`);
+    expect(unit).toContain(`ExecStart=${DESKTOP_SESSION_SCRIPT}\n`);
+    // The start check: a session that shows nothing fails the unit, it does not pass quietly.
+    expect(unit).toContain(`ExecStartPost=${DESKTOP_CHECK_SCRIPT} --wait ${DESKTOP_CHECK_SECONDS}\n`);
+    expect(unit).toContain("Restart=on-failure\n");
+    // No [Install]: the remote desktop host's unit wants it, so nothing runs while nobody looks.
+    expect(unit).not.toContain("[Install]");
+    const script = desktopSessionScript();
+    await bashSyntax(script);
+    expect(script).toContain("openbox --sm-disable &");
+    expect(script).toMatch(/\nxterm .*&\n/);
+    expect(script).toContain('wait "$wm"');
+    const files = new Map(agentToolsFiles(rdLock).map((f) => [f.path, f]));
+    expect(files.get(`/etc/systemd/system/${DESKTOP_SESSION_UNIT}`)).toEqual({ path: `/etc/systemd/system/${DESKTOP_SESSION_UNIT}`, text: unit, mode: 0o644 });
+    expect(files.get(DESKTOP_SESSION_SCRIPT)?.mode).toBe(0o755);
+    expect(files.get(DESKTOP_CHECK_SCRIPT)).toEqual({ path: DESKTOP_CHECK_SCRIPT, text: desktopCheckScript(), mode: 0o755 });
+    const setup = rdSetupCommand();
+    expect(setup).toContain(`/etc/systemd/system/${DESKTOP_SESSION_UNIT}`);
+    expect(setup).toContain("command -v openbox >/dev/null && command -v xterm >/dev/null");
+    expect(setup).toContain(`! systemctl is-active --quiet ${DESKTOP_SESSION_UNIT}`);
+    // The host's start also checks, in the background, and names a black display in its own journal.
+    const start = rdStartScript("/store/cmux-rd");
+    expect(start).toContain(`DISPLAY=:99 ${DESKTOP_CHECK_SCRIPT} --wait ${DESKTOP_CHECK_SECONDS + 10} >/dev/null || echo "<3>cmux-rd-start: display :99 has no windows`);
+    expect(start.indexOf(DESKTOP_CHECK_SCRIPT)).toBeLessThan(start.indexOf("exec '/store/cmux-rd' host"));
+    const parsed = await runChild("python3", ["-I", "-c", "import ast, sys; ast.parse(sys.stdin.read())"], { input: desktopCheckScript(), timeout: 20_000 });
+    expect(parsed.stderr).toBe("");
+    expect(parsed.status).toBe(0);
+  });
+
+  const haveXvfbAlone = ["/usr/bin/Xvfb", "/usr/bin/xauth", "/usr/bin/mcookie"].every((f) => existsSync(f));
+  (haveXvfbAlone ? test : test.skip)("the desktop check fails loudly on a black display and passes once a window is mapped (runs where Xvfb is installed)", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-desktop-check-"));
+    const display = `:${200 + Math.floor(Math.random() * 500)}`;
+    const auth = path.join(dir, "Xauthority");
+    const cookie = (await runChild("/usr/bin/mcookie", [])).stdout.trim();
+    expect((await runChild("/usr/bin/xauth", ["-q", "-f", auth, "add", display, ".", cookie])).status).toBe(0);
+    const xvfb = spawn("/usr/bin/Xvfb", [display, "-screen", "0", `${AGENT_DISPLAY_SIZE}x24`, "-nolisten", "tcp", "-auth", auth, "-noreset"], { stdio: "ignore" });
+    let client: ReturnType<typeof spawn> | undefined;
+    try {
+      const sock = `/tmp/.X11-unix/X${display.slice(1)}`;
+      for (let i = 0; i < 100 && !existsSync(sock); i++) await new Promise((resolve) => setTimeout(resolve, 100));
+      writeFileSync(path.join(dir, "check"), desktopCheckScript());
+      const env = { ...process.env, DISPLAY: display, XAUTHORITY: auth };
+      const black = await runChild("python3", ["-I", path.join(dir, "check"), "--wait", "1"], { env, timeout: 20_000 });
+      expect(black.status).toBe(1);
+      expect(black.stdout.trim()).toBe(`windows=0 viewable=0 nonblack=0 size=${AGENT_DISPLAY_SIZE}`);
+      // Error level in the journal (systemd reads the <3> prefix), naming the display.
+      expect(black.stderr).toContain(`<3>cmux-agent-desktop-check: display ${display} shows a black screen`);
+      // A client maps one white 400x300 window: the X11 helpers of the check, then CreateWindow and MapWindow.
+      const mapWindow = `${desktopCheckScript().split("\ndef connect():")[0].replace(/^#!.*\n/, "")}
+number = os.environ["DISPLAY"].split(":", 1)[1]
+an, ad = cookie(number)
+s = socket.socket(socket.AF_UNIX); s.connect("/tmp/.X11-unix/X" + number)
+s.sendall(struct.pack("<BxHHHHxx", 0x6C, 11, 0, len(an), len(ad)) + pad(an) + pad(ad))
+head = recv(s, 8); body = recv(s, 4 * struct.unpack_from("<H", head, 6)[0])
+vendor = struct.unpack_from("<H", body, 16)[0]
+root = struct.unpack_from("<I", body, 32 + len(pad(b"v" * vendor)) + 8 * body[21])[0]
+wid = struct.unpack_from("<I", body, 4)[0] | 1
+s.sendall(struct.pack("<BBHIIhhHHHHII", 1, 0, 9, wid, root, 50, 50, 400, 300, 0, 1, 0, 2) + struct.pack("<I", 0xFFFFFF))
+s.sendall(struct.pack("<BxHI", 8, 2, wid))
+s.sendall(struct.pack("<BxH", 43, 1)); reply(s)
+print("mapped", flush=True)
+sys.stdin.read()
+`;
+      writeFileSync(path.join(dir, "window"), mapWindow);
+      client = spawn("python3", ["-I", path.join(dir, "window")], { env, stdio: ["pipe", "pipe", "inherit"] });
+      await new Promise<void>((resolve) => client!.stdout!.once("data", () => resolve()));
+      const lit = await runChild("python3", ["-I", path.join(dir, "check"), "--wait", "5"], { env, timeout: 20_000 });
+      expect(lit.stderr).toBe("");
+      expect(lit.status).toBe(0);
+      expect(lit.stdout).toMatch(new RegExp(`^windows=1 viewable=1 nonblack=[1-9]\\d* size=${AGENT_DISPLAY_SIZE}\\n$`));
+    } finally {
+      client?.kill();
+      xvfb.kill();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   describe("desktop (cmux.rd/1 on the agent display over the owner's Native link, service desktop)", () => {
     const rd = rdLock.programs.find((p) => p.name === "cmux-rd")!;
     const hostBin = `${storeEntry(rd.sha256)}/bin/cmux-rd`;
@@ -442,6 +547,8 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
       expect(deps).toEqual([
         `BindsTo=${DISPLAY_UNIT}`,
         `Wants=${RD_OPENH264_UNIT}`,
+        // The person's desktop on the display, wanted and not waited for (ask-da398bba67).
+        `Wants=${DESKTOP_SESSION_UNIT}`,
         `After=${RD_OPENH264_UNIT} ${RD_SOCKET_UNIT}`,
         `Requires=${RD_SOCKET_UNIT}`,
       ]);
@@ -726,15 +833,17 @@ describe("refusedFirstUsePackages", () => {
     expect(refusedFirstUsePackages(lock, false)).toEqual(all);
   });
 
-  test("with agent tools, the browser closure the bake installs is not refused, the rest still is", () => {
+  test("with agent tools, the browser and display-wm closures the bake installs are not refused, the rest still is", () => {
     const refused = refusedFirstUsePackages(lock, true);
-    for (const name of Object.keys(closures.browser)) expect(refused).not.toContain(name);
+    for (const name of [...Object.keys(closures.browser), ...Object.keys(closures["display-wm"])]) expect(refused).not.toContain(name);
     // The layered bake's agents layer failed on this one: browser and display-wm both carry it.
     expect(closures.browser.fontconfig).toBeDefined();
     expect(closures["display-wm"].fontconfig).toBeDefined();
     expect(refused).not.toContain("fontconfig");
-    expect(refused).toContain("openbox");
+    // The desktop session's window manager and terminal are baked with the agent tools.
+    expect(refused).not.toContain("openbox");
+    expect(refused).not.toContain("xterm");
     expect(refused).toContain("ffmpeg");
-    expect(refused).toEqual(all.filter((name) => !(name in closures.browser)));
+    expect(refused).toEqual(all.filter((name) => !(name in closures.browser) && !(name in closures["display-wm"])));
   });
 });

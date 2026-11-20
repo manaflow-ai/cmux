@@ -156,6 +156,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         observeWorkspace()
         observeRoom()
         observeSidebarHidden()
+        observeWindowTitle()
         followContentChanges()
     }
 
@@ -223,6 +224,24 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
+    /// Native titles follow window state even before content mounts or while a top page covers it.
+    private func observeWindowTitle() {
+        titleObservation?.cancel()
+        titleObservation = WindowListTitleObservation.start(values: { [weak self] in
+            guard let self else { return (nil, nil, false, false) }
+            let workspace = self.state.workspaceID.flatMap { self.services.machines.workspace(id: $0)?.0 }
+            let names = WorkspaceAutoNameWiring(services: self.services, workspace: workspace)
+            let title = workspace.map { names.reader.titlebarName($0) { self.state.selection.selection(in: $0.id) } }
+            return (spaceName: self.services.machines.local.store.profile(self.state.profileID)?.name,
+                    workspaceName: title, incognito: workspace.map { self.services.windows.isIncognito(workspace: $0) }
+                        ?? self.services.windows.isIncognito(window: self.state.id),
+                    showsWorkspaceChrome: self.state.page == nil && self.content != nil)
+        }, fallbackName: Strings.appName, incognitoName: RoomStrings.incognitoName) { [weak self] title, workspace, showsChrome in
+            self?.window?.title = title
+            if showsChrome, let workspace { self?.root.titlebar.title = workspace }
+        }
+    }
+
     /// Reads what `showWorkspace` depends on (the request, each machine's workspace list): O(machines), no id list.
     private static func readShowInputs(_ state: WindowState, cloud: CloudService, machines: MachineRegistry, windows: WindowManager) {
         _ = (state.workspaceID, state.page, state.machineID, cloud.hasLoadedMachines, multiViewEnabled, LayoutTunables.dockedWorkspaces.value)
@@ -242,7 +261,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let machines = services.machines
         // A parked workspace that closed, whose machine left, or that moved to another window goes now.
         let unlisted = services.windows.registry.unlisted(parked.keys, in: state.id) // O(parked), never the window's whole list
-        for (id, controller) in parked where unlisted.contains(id) || machines.workspace(id: id)?.0 !== controller.workspace {
+        let guests = services.windows.registry.value.window(state.id)?.guests ?? [] // a guest that became this window's own, or the reverse, is built again
+        if let content, content.isGuestView != guests.contains(content.workspace.id) { self.content = nil; content.teardown() }
+        for (id, controller) in parked where unlisted.contains(id) || machines.workspace(id: id)?.0 !== controller.workspace || controller.isGuestView != guests.contains(id) {
             parked[id] = nil
             controller.teardown()
         }
@@ -318,12 +339,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if connectingView != nil { DebugTimings.markLaunch("connecting_view_left") }
         connectingView = nil
         DebugTimings.markLaunch("workspace_content_shown")
-        titleObservation?.cancel()
-        // Named as its sidebar row is (`WorkspaceAutoNameReader.titlebarName`): a workspace on the
-        // daemon's default name reads as its front tab (a torn-off chat's window read "workspace-41").
-        titleObservation = Task { [weak self, names = WorkspaceAutoNameWiring(services: services), selection = state.selection] in
-            for await title in ObservationStream({ names.reader.titlebarName(workspace) { selection.selection(in: $0.id) } }) { self?.root.titlebar.title = title }
-        }
+        observeWindowTitle()
         // The new workspace's panes: the coordinator restores its pane and, now that the content is installed, re-applies it.
         controller.didShow()
         DebugWorkspaceSwitch.mark(self, "did_show")
@@ -341,7 +357,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     /// Parks the shown workspace (mounted, paused) while a top page fills the content area.
     func parkContentForPage() {
-        titleObservation?.cancel()
         if let current = content { park(current) }
         content = nil
         arrangeOnScreen()
@@ -349,7 +364,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     // MARK: NSWindowDelegate
-
 
     func windowDidBecomeKey(_ notification: Notification) {
         services.windows.didActivate(self)
@@ -393,7 +407,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     func windowDidChangeOcclusionState(_ notification: Notification) { BackdropImageStore.shared.desktop.windowDidChange(); if let window { services.browserHost?.tabs.windowDidChangeOcclusion(window) } }
 
     var sidebarObservation: Task<Void, Never>?
-
 
     /// Set once closing this incognito window was confirmed (or needed no
     /// confirmation).

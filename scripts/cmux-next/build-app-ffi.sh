@@ -56,7 +56,7 @@ headers_in=("$crates/acpmux-client/include/acpmux_client.h:CAcpmuxClientFFI"
 # Also available on Linux so the header/export contract needs no macOS build.
 list_exports() {
   for entry in "${headers_in[@]}"; do
-    grep -oE '\b(cmux_|acpmux_client_)[a-z0-9_]+\(' "${entry%%:*}" | tr -d '(' | sort -u | sed 's/^/_/'
+    grep -oE '\b(cmux_|acpmux_client_|acpmux_page_driver_)[a-z0-9_]+\(' "${entry%%:*}" | tr -d '(' | sort -u | sed 's/^/_/'
   done | sort -u
 }
 if [[ "${1:-}" == --list-exports ]]; then

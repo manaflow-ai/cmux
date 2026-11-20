@@ -294,6 +294,52 @@ Each target also leaves its raw files under
 `fail`. The row includes the exact source-results SHA-256, host/viewer/link/revision, and motion FPS
 observations. It never invents a comparison number from a one-Mac loopback run.
 
+## Linux, kernel netem jitter (no Mac)
+
+`rd-netem-linux.py` builds `cmux-rd` at each `--commit` and runs the Linux host (Xvfb,
+`cmux-rd testapp --workload motion`, `--profile baseline`) and `cmux-rd bench --carrier udp` in two
+network namespaces joined by a veth, with `tc netem` on each direction: clean, 5±5 ms,
+15±15 ms with 1 % burst loss (Gilbert-Elliott, bursts of about 4 packets), 30±30 ms with 2 % loss.
+Per commit and profile it writes one JSON line (`cmux.rd-netem-linux/1`): key-to-frame p50/p95 and
+lost, received Mbps for every second of a 20 s passive session, the host's target kbps for every
+second (its stats message), IDRs from the host's timing records, and the bench line's
+`stage_ledger` (`cmux.rd-stage-ledger/1`) when that commit has one. `results.md` is the table;
+`rd-netem-linux.py table results.jsonl` redraws it.
+
+It needs root for `ip netns` and `tc` and a kernel with `sch_netem`, so on the fleet it runs through
+HQ's netem route (cmuxterm-hq `docs/handbook/netem-route-without-host-module.md`), from an HQ checkout:
+
+```
+cmux-ci test --setup netem --timeout 7200 --artifact DIR -- 'set -e; d=$(mktemp -d);
+  git -C "$d" init -q; git -C "$d" fetch -q --depth=1 https://github.com/manaflow-ai/cmux.git DRIVER_SHA;
+  git -C "$d" checkout -q FETCH_HEAD -- scripts/measure/screen-stream-eval/rd-netem-linux.py;
+  python3 "$d/scripts/measure/screen-stream-eval/rd-netem-linux.py" --deps --out "$FAST_CHECKS_OUT" \
+    --commit FULL_SHA [--commit FULL_SHA ...]'
+```
+
+DRIVER_SHA is any commit with this script; each `--commit` is the cmux revision measured. A
+prebuilt binary runs with `--bin LABEL=PATH` instead of `--commit`.
+
+Hosts encode with Cisco's OpenH264 binary, the one shipped hosts load: the measured binary's own
+`cmux-rd openh264-install` fetches it and checks its pinned SHA-256. `--openh264 PATH` uses a copy
+you already have. `--openh264 source` keeps OpenH264 compiled from source by the `bench` feature.
+That build has no assembly and encodes about 3x slower (`cmux-rd encode-selftest` at 1080p on the
+pool: a typed glyph costs 15 to 20 ms from source and 6 ms with Cisco's binary). The tables mark
+its rows "source-built, about 3x slower". They mark rows from before this flag the same way,
+because those were all source-built, including #44486's 14.9 and 9.8 ms encode rows.
+
+The build controller's Linux pool has `sch_netem` too and runs it from this repository directly
+(the script exits 3 before measuring when `modprobe sch_netem` fails):
+
+```
+cmux-ci submit --kind fast-checks --label cmux-next-linux --repo https://github.com/manaflow-ai/cmux.git \
+  --ref DRIVER_SHA --command 'set -e; out=${FAST_CHECKS_OUT:-$PWD/rd-netem-out}; mkdir -p "$out";
+  python3 -u scripts/measure/screen-stream-eval/rd-netem-linux.py --deps --out "$out" --commit FULL_SHA'
+cmux-ci wait JOB && cmux-ci log JOB
+```
+
+The JSON lines and the table are in the job's log.
+
 ## Two Macs
 
 By default host and viewer run on one Mac, so the network leg is loopback. For the LAN row, run two

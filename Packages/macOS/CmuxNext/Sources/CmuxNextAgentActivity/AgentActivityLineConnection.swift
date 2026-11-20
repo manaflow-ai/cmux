@@ -38,10 +38,14 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
     /// the Developer ID signed helper, so an impostor never receives a token.
     let acceptsServer: (@Sendable (UnixSocketPeer) -> Bool)?
     let path: String
+    /// The most one read takes (1 MiB unless the caller passes less): a raw consumer holds at most
+    /// one read it has not acknowledged.
+    let readLimit: Int
 
-    public init(path: String, acceptsServer: (@Sendable (UnixSocketPeer) -> Bool)? = nil) {
+    public init(path: String, acceptsServer: (@Sendable (UnixSocketPeer) -> Bool)? = nil, readLimit: Int = 1 << 20) {
         self.path = path
         self.acceptsServer = acceptsServer
+        self.readLimit = max(1, min(readLimit, 1 << 20))
     }
 
     public func start(send: Data, onLine: @escaping @Sendable (Data) -> Void, onClose: @escaping @Sendable () -> Void) {
@@ -162,7 +166,7 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
 
     private func readable() {
         guard !closed, descriptor >= 0 else { return }
-        var chunk = [UInt8](repeating: 0, count: 1 << 20)
+        var chunk = [UInt8](repeating: 0, count: readLimit)
         let count = Darwin.recv(descriptor, &chunk, chunk.count, 0)
         guard count > 0 else {
             if count < 0, errno == EINTR || errno == EAGAIN { return }
@@ -170,7 +174,7 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
         }
         if rawMode {
             // A raw consumer must acknowledge this chunk before the next read.
-            // `recv` is capped at 1 MiB, so one suspended chunk is the byte queue cap.
+            // `recv` is capped at `readLimit` (1 MiB at most), so one suspended chunk is the byte queue cap.
             source?.suspend()
             rawReadSuspended = true
             onBytes?(Data(chunk[0..<count]))

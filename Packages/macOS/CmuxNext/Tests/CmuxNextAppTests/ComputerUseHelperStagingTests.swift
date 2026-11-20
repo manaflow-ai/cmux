@@ -95,7 +95,7 @@ struct ComputerUseHelperStagingTests {
         let elsewhere = fixture.root.appending(path: "elsewhere")
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
-        try FileManager.default.createSymbolicLink(at: support.appending(path: "cmux"), withDestinationURL: elsewhere)
+        try FileManager.default.createSymbolicLink(at: support.appending(path: "cmux-next"), withDestinationURL: elsewhere)
         #expect(await fixture.staging.stage(fixture.source) == nil)
         #expect(await fixture.staging.existingCopy(named: StagingFixture.appName) == nil)
         #expect(fixture.recorder.copies == 0)
@@ -105,9 +105,9 @@ struct ComputerUseHelperStagingTests {
     @Test func aWritableAncestorIsRefused() async throws {
         let fixture = try StagingFixture()
         defer { fixture.remove() }
-        let cmux = fixture.root.appending(path: "Library/Application Support/cmux")
-        try FileManager.default.createDirectory(at: cmux, withIntermediateDirectories: true)
-        try #require(chmod(cmux.path, 0o770) == 0)
+        let next = fixture.root.appending(path: "Library/Application Support/cmux-next")
+        try FileManager.default.createDirectory(at: next, withIntermediateDirectories: true)
+        try #require(chmod(next.path, 0o770) == 0)
         #expect(await fixture.staging.stage(fixture.source) == nil)
         #expect(fixture.recorder.copies == 0)
     }
@@ -115,7 +115,7 @@ struct ComputerUseHelperStagingTests {
     @Test func aForeignAncestorIsRefused() async throws {
         let fixture = try StagingFixture(fileSystem: .init(inspect: { url in
             guard var entry = ComputerUseHelperStaging.FileSystem.Entry.read(url) else { return nil }
-            if url.lastPathComponent == "cmux" { entry.owner = geteuid() + 1 }
+            if url.lastPathComponent == "cmux-next" { entry.owner = geteuid() + 1 }
             return entry
         }))
         defer { fixture.remove() }
@@ -186,8 +186,8 @@ struct ComputerUseHelperStagingTests {
         let legacy = ComputerUseHelperStaging.legacy(bundleID: "com.cmuxterm.app.nightly", home: home)
         let upstream = ComputerUseHelperStaging.upstream(bundleID: "com.cmuxterm.app.nightly", home: home)
         let scope = ComputerUseHelperDaemon.scope("com.cmuxterm.app.nightly")
-        #expect(legacy.folder.path == "/Users/someone/Library/Application Support/cmux/cmux-cua/helper/next-\(scope)")
-        #expect(upstream.folder.path == "/Users/someone/Library/Application Support/cmux/cmux-cua/helper/next-v2-\(scope)")
+        #expect(legacy.folder.path == "/Users/someone/Library/Application Support/cmux-next/cmux-cua/helper/next-\(scope)")
+        #expect(upstream.folder.path == "/Users/someone/Library/Application Support/cmux-next/cmux-cua/helper/next-v2-\(scope)")
         #expect(!legacy.folder.path.contains(".app"))
     }
 }
@@ -306,14 +306,14 @@ struct ComputerUseHelperStagingTestsLaunch {
         #expect(argv.contains("--dwell-ms") == listed, "\(argv)")
     }
 
-    /// `~/Library/Application Support/cmux` made under umask 002 is 0775. The
+    /// `~/Library/Application Support/cmux-next` made under umask 002 is 0775. The
     /// group is the person's primary group, `staff` on macOS, which holds every
     /// local user, so another user could swap the copy: it stays refused, but
     /// as a failure with Restart Helper, not as a build without a helper.
     @Test func aGroupWritableAncestorIsAFailureNotAMissingHelper() async throws {
         let fixture = try StagingFixture()
         defer { fixture.remove() }
-        let shared = fixture.root.appending(path: "Library/Application Support/cmux", directoryHint: .isDirectory)
+        let shared = fixture.root.appending(path: "Library/Application Support/cmux-next", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: shared, withIntermediateDirectories: true)
         #expect(chmod(shared.path, 0o775) == 0)
         let launcher = RecordingHelperLauncher()
@@ -340,7 +340,7 @@ private struct StagingFixture {
         // A short real path (no /var -> /private/var link in the way).
         root = URL(fileURLWithPath: "/private/tmp/cua-staging-\(UUID().uuidString.prefix(8))", isDirectory: true)
         source = root.appending(path: "cmux NIGHTLY.app/Contents/Library/\(Self.appName)", directoryHint: .isDirectory)
-        folder = root.appending(path: "Library/Application Support/cmux/cmux-cua/helper/next-0123456789abcdef", directoryHint: .isDirectory)
+        folder = root.appending(path: "Library/Application Support/cmux-next/cmux-cua/helper/next-0123456789abcdef", directoryHint: .isDirectory)
         let recorder = recorder
         staging = ComputerUseHelperStaging(folder: folder, home: root, operations: .init(
             copy: { source, destination in

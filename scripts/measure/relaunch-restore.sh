@@ -61,13 +61,13 @@ if [[ "$dmg" == build ]]; then
 else
   if [[ "$dmg" == nightly ]]; then
     feed="https://files-next.cmux.com/nightly-next/appcast-arm64.xml"  # the one feed since #36287
-    curl -fsSL --proto '=https' --retry 3 -A cmux-relaunch-restore/1 -H "Cache-Control: no-cache" -o "$out/feed.xml" "$feed" || { echo "L5 feed download failed"; exit 3; }
+    curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-relaunch-restore/1 -H "Cache-Control: no-cache" -o "$out/feed.xml" "$feed" || { echo "L5 feed download failed"; exit 3; }
     picked="$(python3 scripts/ci/nightly_next_launch_smoke.py pick --feed "$out/feed.xml")" || { echo "L5 no nightly build on the feed"; exit 3; }
     echo "$picked" | sed 's/^/L5 pick /'
     dmg="$(sed -n 's/^url=//p' <<<"$picked")"
   fi
   echo "L5 dmg $dmg"
-  curl -fsSL --proto '=https' --retry 3 -A cmux-relaunch-restore/1 -o "$out/in.dmg" "$dmg" || { echo "L5 download failed"; exit 3; }
+  curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-relaunch-restore/1 -o "$out/in.dmg" "$dmg" || { echo "L5 download failed"; exit 3; }
   python3 scripts/ci/relaunch_restore_check.py --dmg "$out/in.dmg" --out "$out/run" ${extra[@]+"${extra[@]}"} 2>&1 | tee "$out/run.log"
   rc=${PIPESTATUS[0]}
   rm -f "$out/in.dmg"

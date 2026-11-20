@@ -26,60 +26,69 @@ import Testing
         return chrome
     }
 
-    /// The buttons are the window's one chrome row (a sidebar row, a tab pill: Lawrence 2026-11-09,
-    /// in place of Helium's `kToolbarButtonHeight` 28), and the glyph's ink is a tab icon's side.
-    /// toolbar.patch: the hover shape is a rounded square, not Chrome's circle (`kMaximum`). Its corner is
-    /// the tab's (Lawrence 2026-11-12: "roundness of all buttons should match roundness of tabs/workspaces"),
-    /// Helium's `Emphasis::kHigh` 8 at Default, 6 at a compact row.
-    @Test func toolbarButtonsAreHeliumsSquareWithATabCornerHover() {
-        let window = window(CGSize(width: 1000, height: 600))
-        defer { window.close() }
-        let chrome = chrome(in: window)
-        let reload = chrome.reloadButton.convert(chrome.reloadButton.bounds, to: nil)
-        let row = Metrics.chromeRowHeight
-        #expect(reload.width == row && reload.height == row, "the reload button is \(reload.size), the row \(row)")
-        // The hover corner is the buttons' one corner, a tab's (`Metrics.buttonCornerRadius`), and the glyph's ink a
-        // point under the small icon (Helium's 13 pt at Default; Lucas 2026-11-13).
-        #expect(chrome.reloadButton.layer?.cornerRadius == Metrics.tabCornerRadius, "hover corner \(String(describing: chrome.reloadButton.layer?.cornerRadius))")
-        #expect(abs(OmnibarStyle.toolbarIconSize * DensityTokens.toolbarGlyphInkRatio
-            - DensityTokens.toolbarGlyphInk(smallIcon: Metrics.smallIconSize)) < 0.001)
+    /// Toolbar buttons scale Default's 29 pt square and keep the tab's hover shape.
+    @Test(arguments: DensityPreset.allCases)
+    func toolbarButtonsScaleDefaultsSquareAndHover(preset: DensityPreset) {
+        DensityTokens.$scoped.withValue(preset.tokens) {
+            let window = window(CGSize(width: 1000, height: 600))
+            defer { window.close() }
+            let chrome = chrome(in: window)
+            let reload = chrome.reloadButton.convert(chrome.reloadButton.bounds, to: nil)
+            let row = (29 * CGFloat(preset.scaleFactor) * 2).rounded() / 2
+            #expect(reload.width == row && reload.height == row, "the reload button is \(reload.size), the bar \(row)")
+            // The hover corner is the buttons' one corner, a tab's (`Metrics.buttonCornerRadius`), and the glyph's ink a
+            // point under the small icon (Helium's 13 pt at Default; Lucas 2026-11-13).
+            // Lucas 2026-11-15: the tab's ratio on the button's own side, one shape at every density.
+            #expect(chrome.reloadButton.layer?.cornerRadius == Metrics.buttonCornerRadius(proportionalTo: row),
+                    "hover corner \(String(describing: chrome.reloadButton.layer?.cornerRadius))")
+            #expect(abs(OmnibarStyle.toolbarIconSize * DensityTokens.toolbarGlyphInkRatio
+                - Metrics.tokens.toolbarGlyphSize * DensityTokens.toolbarGlyphInkRatio) < 0.001)
+        }
     }
 
-    /// layout-constants.patch: `kToolbarElementPadding` and `kToolbarIconDefaultMargin` are the
-    /// base padding, 3; the toolbar's FlexLayout collapses margins, so neighbors sit 3 pt apart.
-    @Test func toolbarButtonsSitThreePointsApart() {
-        let window = window(CGSize(width: 1000, height: 600))
-        defer { window.close() }
-        let chrome = chrome(in: window)
-        let back = chrome.backButton.convert(chrome.backButton.bounds, to: nil)
-        let forward = chrome.forwardButton.convert(chrome.forwardButton.bounds, to: nil)
-        let reload = chrome.reloadButton.convert(chrome.reloadButton.bounds, to: nil)
-        #expect(!chrome.forwardButton.isHidden)
-        #expect(abs(forward.minX - back.maxX - 3) <= 0.01, "back to forward \(forward.minX - back.maxX)")
-        #expect(abs(reload.minX - forward.maxX - 3) <= 0.01, "forward to reload \(reload.minX - forward.maxX)")
+    /// The gap is Default's 3 pt scaled to the nearest Retina pixel.
+    @Test(arguments: DensityPreset.allCases)
+    func toolbarButtonsScaleDefaultsThreePointGap(preset: DensityPreset) {
+        DensityTokens.$scoped.withValue(preset.tokens) {
+            let window = window(CGSize(width: 1000, height: 600))
+            defer { window.close() }
+            let chrome = chrome(in: window)
+            let back = chrome.backButton.convert(chrome.backButton.bounds, to: nil)
+            let forward = chrome.forwardButton.convert(chrome.forwardButton.bounds, to: nil)
+            let reload = chrome.reloadButton.convert(chrome.reloadButton.bounds, to: nil)
+            #expect(!chrome.forwardButton.isHidden)
+            let gap = (3 * CGFloat(preset.scaleFactor) * 2).rounded() / 2
+            #expect(OmnibarStyle.buttonSpacing == gap)
+            #expect(abs(forward.minX - back.maxX - gap) <= 0.01, "back to forward \(forward.minX - back.maxX)")
+            #expect(abs(reload.minX - forward.maxX - gap) <= 0.01, "forward to reload \(reload.minX - forward.maxX)")
+        }
     }
 
     /// layout-constants.patch: `kLocationBarTrailingIconSize` 18 (Chrome 20),
     /// `kLocationBarMargin` 6 (twice the base padding). The bar is the chrome row (in place of
-    /// `kLocationBarHeight` 28), rounded as Chrome rounds its tab (Lawrence 2026-11-11), so the chip
-    /// nests in it: the bar's radius less its 2 pt inset, in place of `kLocationBarChildCornerRadius` 6.
+    /// `kLocationBarHeight` 28), with the chip's corner proportional to its own side.
     @Test func omnibarKeepsHeliumsLocationBarMetrics() {
-        // 18 pt, or what a short bar leaves (Compact's 20 pt bar: 14).
-        #expect(OmnibarStyle.trailingIconSize == min(18, OmnibarStyle.barHeight - 6))
-        #expect(OmnibarStyle.barHeight == Metrics.chromeRowHeight)
-        #expect(OmnibarStyle.chipButtonCornerRadius == max(0, OmnibarStyle.cardCornerRadius - OmnibarStyle.chipLeading))
-        #expect(OmnibarStyle.barMargin == 6)
-        #expect(OmnibarStyle.buttonSpacing == 3)
+        DensityTokens.$scoped.withValue(DensityPreset.cozy.tokens) {
+            // 18 pt, or what a short bar leaves (Compact's 20 pt bar: 14).
+            #expect(OmnibarStyle.trailingIconSize == Metrics.densityToken("omnibarTrailingIconSize"))
+            // Helium's `kLocationBarHeight` (28 at Default; Lucas 2026-11-14), else a tab's height.
+            #expect(OmnibarStyle.barHeight == (Metrics.densityToken("omnibarHeight") ?? Metrics.tabHeight))
+            #expect(OmnibarStyle.chipButtonCornerRadius == (OmnibarStyle.chipSize * 8 / 28 * 2).rounded() / 2)
+            #expect(OmnibarStyle.barMargin == 2 * OmnibarStyle.buttonSpacing)
+            #expect(OmnibarStyle.buttonSpacing == 3)
+        }
     }
 
     /// tabs.patch: `kMinimumContentsWidthForCloseButtons` 56 (Chromium 68). A selected tab with 60 pt
     /// of contents is roomy, so at rest it hides its x (cmux shows the x on hover, nxdog9).
     @Test func tabsTakeHeliumsCloseButtonThreshold() {
-        let metrics = TabStripMetrics.standard
-        #expect(metrics.closeMinContentsWidth == 56)
-        let width = metrics.contentLeadingInset + metrics.contentTrailingInset + 60
-        let rest = TabChromeVisibility.resolve(width: width, isPinned: false, isSelected: true, isHovered: false, style: .chrome, metrics: metrics)
-        #expect(!rest.showsClose, "a selected tab with 60 pt of contents shows its x at rest")
+        DensityTokens.$scoped.withValue(DensityPreset.cozy.tokens) {
+            let metrics = TabStripMetrics.standard
+            #expect(metrics.closeMinContentsWidth == 56)
+            let width = metrics.contentLeadingInset + metrics.contentTrailingInset + 60
+            let rest = TabChromeVisibility.resolve(width: width, isPinned: false, isSelected: true, isHovered: false, style: .chrome, metrics: metrics)
+            #expect(!rest.showsClose, "a selected tab with 60 pt of contents shows its x at rest")
+        }
     }
 
     /// tabs.patch (tab_close_button.cc): the x's hover is a rounded rect, not Chrome's circle, with Helium's own 4 pt
@@ -87,8 +96,10 @@ import Testing
     /// "need to match the X icon on helium in terms of hover too (like roundness of it), should be applied to all
     /// densities"; `HeliumTabCloseButtonTests` checks every density).
     @Test func tabCloseHoverIsHeliumsRoundedSquare() {
-        let metrics = TabStripMetrics.standard
-        #expect(metrics.closeCornerRadius == (metrics.closeButtonSize * 4 / 14 * 2).rounded() / 2)
-        #expect(metrics.closeCornerRadius < metrics.closeButtonSize / 2, "a rounded square, not a circle")
+        DensityTokens.$scoped.withValue(DensityPreset.cozy.tokens) {
+            let metrics = TabStripMetrics.standard
+            #expect(metrics.closeCornerRadius == (metrics.closeButtonSize * 4 / 14 * 2).rounded() / 2)
+            #expect(metrics.closeCornerRadius < metrics.closeButtonSize / 2, "a rounded square, not a circle")
+        }
     }
 }

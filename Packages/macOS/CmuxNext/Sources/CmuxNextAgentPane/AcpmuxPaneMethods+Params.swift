@@ -28,7 +28,8 @@ nonisolated extension AcpmuxPaneMethods {
         "session/set_model": (["sessionId", "modelId"], []),
         "session/cancel": (["sessionId"], []),
         // `limit`: the newest page of the session list, the rest by `_acpmux/sessions` `cursor` (cx-2lv1k).
-        "_acpmux/watch": (["enabled", "limit"], []),
+        // `afterSeq`, `listEpoch`: a reconnect follows the list from the cursor it last read (#41889).
+        "_acpmux/watch": (["enabled", "limit", "afterSeq", "listEpoch"], []),
         // `usage`: each chat's usage read first (SessionSummary.usageStats), for Session Info's Usage.
         "_acpmux/sessions": (["limit", "cursor", "usage"], []),
         // `maxBytes`: the most one page downloads, opening a chat or paging older turns in (cx-2lv1k).

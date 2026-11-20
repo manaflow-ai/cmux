@@ -25,6 +25,14 @@ export interface Env {
   /** Provisional window (ms) for socket-close end reasons; default 3000. */
   CLOSE_GRACE_MS?: string;
   TURN_KEY_API_TOKEN?: string;
+  /**
+   * cmux-platform per Stack project, asked who a joined machine's credential belongs to
+   * (`POST /v1/auth/machine`): comma list of `<stackProjectId>=<https origin>`. Empty: the
+   * route answers 503. src/machine.ts.
+   */
+  MACHINE_ORIGINS?: string;
+  /** Deadline (ms) for that lookup; default 5000. */
+  MACHINE_TIMEOUT_MS?: string;
 }
 
 export function csv(value: string | undefined): string[] {

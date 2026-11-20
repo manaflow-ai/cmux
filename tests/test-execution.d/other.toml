@@ -511,6 +511,10 @@ path = "tests/test_pairing_scheme_lint.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_payload_advisories.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_playwright_system_chrome.py"
 lane = "manual"
 reason = "Static check run by the author on the fleet; no new CI tests (CLAUDE.md, 2026-10-23)."

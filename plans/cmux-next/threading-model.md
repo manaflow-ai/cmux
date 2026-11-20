@@ -208,7 +208,11 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `cmux.next.agent-pane.acpmux-socket-wait` (one person-socket exchange's readiness wait, userInitiated, serial, one
   queue per wait: a dispatch source wakes it, nothing blocks it; it ends at readiness, the daemon's close or the
   caller's cancel),
-  `cmux.agent-activity.socket`, `cmux.acpmux-client`, `cmux.acpmux-client.driver`, `com.cmuxterm.app.next.chief-settle`, `com.cmuxterm.app.next.tasks.socket`,
+  `cmux.agent-activity.socket`, `cmux.acpmux-client`, `cmux.acpmux-client.driver`,
+  `cmux.acpmux-chat-rows` (a pane's chat rows host, AcpmuxChatRowsHost, utility, serial: the page's `chat.rows.*`
+  calls and each batch the driver hands it; it builds the page's one call per batch and hops to main once for it; the
+  page's `taken` is its back-pressure, one batch of at most 64 KiB out at a time, and it blocks only on the client
+  handle's own queue), `com.cmuxterm.app.next.chief-settle`, `com.cmuxterm.app.next.tasks.socket`,
   `cua-helper-v2-reap`, `cua-helper-v2-stdout`, `cmux-remote-device` (one per open channel to cmux Remote's Screen
   Sharing worker: a blocking read(2) that ends at the channel's EOF; answers and hub pushes go to their waiters, pushes
   bounded at 256, docs/cmux-remote.md)

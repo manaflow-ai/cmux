@@ -66,6 +66,18 @@ pub fn sign_in(
     within: Duration,
     show: impl FnOnce(&str),
 ) -> Res<String> {
+    sign_in_keeping_refresh(config_url, poll_every, within, show).map(|(access, _)| access)
+}
+
+/// [`sign_in`], also returning the refresh token, for a viewer that keeps it (`cmux-rd
+/// view`: the hub refuses a viewer's sessions to a device-key session, so each run needs an
+/// account session, and a kept refresh token spares the person a browser sign-in per run).
+pub fn sign_in_keeping_refresh(
+    config_url: &str,
+    poll_every: Duration,
+    within: Duration,
+    show: impl FnOnce(&str),
+) -> Res<(String, String)> {
     let config = load_config(config_url)?;
     let started = stack_post(
         &config,
@@ -77,10 +89,21 @@ pub fn sign_in(
     let login_code = text_field(&started, "login_code")?;
     show(&confirmation_url(&config.confirm_url, &login_code)?);
     let refresh_token = wait_for_confirmation(&config, &polling_code, poll_every, within)?;
+    let access = access_from_refresh(&config, &refresh_token)?;
+    Ok((access, refresh_token))
+}
+
+/// A fresh access token from a kept refresh token (`cmux-rd view` keeps one).
+#[cfg(all(feature = "openh264", target_os = "linux"))]
+pub fn refresh(config_url: &str, refresh_token: &str) -> Res<String> {
+    access_from_refresh(&load_config(config_url)?, refresh_token)
+}
+
+fn access_from_refresh(config: &AuthConfig, refresh_token: &str) -> Res<String> {
     let tokens = stack_post(
-        &config,
+        config,
         "/auth/sessions/current/refresh",
-        &[("x-stack-refresh-token".to_owned(), refresh_token)],
+        &[("x-stack-refresh-token".to_owned(), header_safe(refresh_token)?)],
         &json!({}),
     )?;
     text_field(&tokens, "access_token")

@@ -41,6 +41,11 @@ public final class AgentPaneLaunchImages {
     private var read: LaunchRead<[String: Page]>?
     /// The saved pages handed out (each once per launch).
     private var taken: Set<String> = []
+    /// The read's pages once its end reached the main thread (``MainDelivery``): a pane told then gets its page
+    /// even before ``LaunchRead/value`` is set on that turn.
+    private var delivered: [String: Page]?
+    /// What runs once the read ends, by key: the panes that asked before it did (``whenReadEnds(_:_:)``).
+    private var readWaiters: [String: @MainActor () -> Void] = [:]
     /// Records a launch mark.
     private var mark: @Sendable (String) -> Void = { _ in }
     /// Whether the read's results were dropped (``prefetch(on:keep:mark:)`` then starts no new read).
@@ -82,9 +87,11 @@ public final class AgentPaneLaunchImages {
         guard let directory, read == nil, !readDropped else { return nil }
         self.mark = mark
         let reader = reader
-        let read = LaunchRead(on: work) {
+        let read = LaunchRead(on: work) { [weak self] in
             let pages = Self.readAll(in: directory, reader)
             mark("agent_pane.launch_images_read")
+            // The panes that asked too early hear of it on the main thread's next turn.
+            MainDelivery().run { self?.readEnded(pages) }
             return pages
         }
         self.read = read
@@ -97,7 +104,30 @@ public final class AgentPaneLaunchImages {
     /// Drops the read's results that no pane took.
     private func dropRead() {
         read = nil
+        delivered = nil
+        readWaiters = [:]
         readDropped = true
+    }
+
+    /// The read ended: each pane that asked before it did asks again (``whenReadEnds(_:_:)``).
+    private func readEnded(_ pages: [String: Page]) {
+        guard read != nil else { return }
+        delivered = pages
+        let waiting = readWaiters
+        readWaiters = [:]
+        for body in waiting.values { body() }
+    }
+
+    /// When a pane asked for `key`'s page before the launch read ended (``take(_:size:appearance:)`` gave nil and
+    /// marked `agent_pane.launch_image_missed`), runs `body` on the main thread once the read ends, so the pane can
+    /// ask again and draw its page then instead of its loading state until the live page paints. One waiter per
+    /// key: a later call for a waiting key keeps the first. False, and `body` never runs, when no read is under
+    /// way (it ended, was dropped, or never started).
+    @discardableResult
+    public func whenReadEnds(_ key: String, _ body: @escaping @MainActor () -> Void) -> Bool {
+        guard read != nil, delivered == nil else { return false }
+        if readWaiters[key] == nil { readWaiters[key] = body }
+        return true
     }
 
     /// `key`'s last page for its pane's first frame, at once, never waiting. A released page's frame
@@ -114,7 +144,7 @@ public final class AgentPaneLaunchImages {
             return image
         }
         guard let read else { return nil }
-        guard let pages = read.value else {
+        guard let pages = delivered ?? read.value else {
             mark("agent_pane.launch_image_missed")
             return nil
         }
@@ -193,5 +223,12 @@ public final class AgentPaneLaunchImages {
     /// Tab keys are `tab_<hex>`; anything else never becomes a path.
     private nonisolated static func isFileSafe(_ key: String) -> Bool {
         !key.isEmpty && key.count <= 128 && key.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_" || $0 == "-") }
+    }
+}
+
+extension NSView {
+    /// The light or dark look this pane's saved pages are taken in (``AgentPaneLaunchImages/take(_:size:appearance:)``).
+    public var launchImageAppearance: NSAppearance.Name? {
+        effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
     }
 }

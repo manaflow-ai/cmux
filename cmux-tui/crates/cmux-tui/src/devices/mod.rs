@@ -13,6 +13,7 @@ mod model;
 mod network;
 mod removal;
 pub(crate) mod removed;
+pub(crate) mod setup;
 #[cfg(test)]
 mod tests;
 
@@ -34,6 +35,8 @@ const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
        cmux device remove ID|NAME|ADDRESS [--yes] [--json]
        cmux device audit [--limit N] [--json]
        cmux device network [--json]
+       cmux device setup DEVICE|--all [--json] [--dry-run] [--allow-agents]   (install, keep running and start cmux NIGHTLY on a Mac of yours)
+       cmux device start DEVICE [--json]                       (start cmux NIGHTLY on a Mac of yours)
        cmux device SELECTOR show [--json]      (one device of `cmux device list`, by id, name or
                                                address; else the machine catalog, `cmux machine ls`)
        cmux device SELECTOR show --catalog     (the machine catalog only)
@@ -45,8 +48,10 @@ const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
   Cloud VMs (new, run, pause, resume, rm) are `cmux vm`: `cmux vm --help`.";
 
 /// The verbs this module runs; `add` only with `--yes`.
-const VERBS: &[&str] =
-    &["list", "ls", "remove", "rm", "audit", "network", "invite", "help", "-h", "--help"];
+const VERBS: &[&str] = &[
+    "list", "ls", "remove", "rm", "audit", "network", "invite", "setup", "start", "help", "-h",
+    "--help",
+];
 
 /// The output flags a device verb takes anywhere: before `device`, before the verb or after.
 fn output_flag(word: &str) -> bool {
@@ -111,6 +116,8 @@ pub(crate) fn run(rest: &[String]) -> i32 {
         "remove" | "rm" => remove(args),
         "audit" => show_audit(args),
         "network" => show_network(args),
+        "setup" => setup::verb(args, setup::Mode::Setup),
+        "start" => setup::verb(args, setup::Mode::Start),
         _ => {
             // Asked-for help also lists the cmux app's `device …` verbs (cli/app_action_help.rs).
             match crate::cli::app_action_help::append("device", USAGE) {
@@ -603,7 +610,7 @@ fn actor() -> String {
         .unwrap_or_else(|_| "unknown".into())
 }
 
-fn record(event: &str, fields: Value) {
+pub(crate) fn record(event: &str, fields: Value) {
     let mut entry = json!({"event": event, "by": actor(), "via": "cli"});
     if let (Some(map), Some(extra)) = (entry.as_object_mut(), fields.as_object()) {
         map.extend(extra.clone());

@@ -5,6 +5,9 @@ import CmuxNextDesign
 /// (`OmnibarFieldEditor`) and is the only `OmnibarFieldSurface`: the effect
 /// applier writes it, nothing else does.
 final class AddressField: ChromeTextField, OmnibarFieldSurface {
+    /// The omnibar's own size, so the base field's density binding sets the same font as the address bar's.
+    override var densityFont: NSFont { OmnibarStyle.font }
+
     var onFocus: (() -> Void)?
     var onPasteAndGo: (() -> Void)?
     var pasteAndGoTitle: (() -> String?)?
@@ -161,9 +164,19 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
             return
         }
         if let storage = editor.textStorage {
+            storage.beginEditing()
             storage.addAttribute(.font, value: font, range: NSRange(location: 0, length: storage.length))
+            storage.endEditing()
         }
         editor.typingAttributes[.font] = font
+        // TextKit 2 keeps the laid-out glyphs at the old size until their layout is invalidated: the typed text kept the
+        // previous density's size after a density change while editing (Lucas 2026-11-16: "after switching densities it
+        // got smaller").
+        if let layout = editor.textLayoutManager {
+            layout.invalidateLayout(for: layout.documentRange)
+            layout.ensureLayout(for: layout.documentRange)
+        }
+        editor.needsDisplay = true
     }
 
     // theme-scoped: called only inside performWithTheme

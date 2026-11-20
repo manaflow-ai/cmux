@@ -106,7 +106,7 @@ frames_main() {
   local app_args=() label=""
   if [[ "$build" == nightly ]]; then
     if [[ -z "$dmg" ]]; then
-      dmg="$(curl -fsSL --proto '=https' --retry 3 -H "Cache-Control: no-cache" https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
+      dmg="$(curl -fsSL --proto '=https' --retry 3 --retry-all-errors --connect-timeout 20 -H "Cache-Control: no-cache" https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
         | grep -oE 'url="https://[^"]+-macos-arm64-[0-9]+\.dmg"' | head -1 | cut -d'"' -f2)"
     fi
     [[ "$dmg" == https://* ]] || { echo "TSW no nightly DMG in the feed"; exit 3; }

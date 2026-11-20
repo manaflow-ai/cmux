@@ -88,7 +88,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_live_code_variant.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_nightly_live_code_variant.py"
 
 [[test]]
 path = "tests/test_nightly_mini_gate_timeouts.py"
@@ -173,7 +174,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_notary_receipt.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_nightly_next_notary_receipt.py"
 
 [[test]]
 path = "tests/test_nightly_next_one_feed_readers.py"
@@ -341,7 +343,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_spm_artifact_preflight.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_nightly_spm_artifact_preflight.py"
 
 [[test]]
 path = "tests/test_nightly_step_coverage.py"

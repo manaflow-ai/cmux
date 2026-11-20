@@ -313,6 +313,12 @@ export function chatDisplayVariables(
     ...chatUiFontVariables(display.uiFont),
     "--cv-font": isDefault("font") ? null : FONT_STACKS[display.font],
     "--cv-font-size": isDefault("fontSize") ? null : `${fontSize}px`,
+    // New Tab applies density with zoom, so its prompt needs the unscaled preference.
+    "--cv-base-font-size": display.fontSize === DEFAULT_CHAT_DISPLAY.fontSize ? null : `${display.fontSize}px`,
+    "--cv-base-line-height":
+      display.fontSize === DEFAULT_CHAT_DISPLAY.fontSize && isDefault("lineHeight")
+        ? null
+        : `${round(display.fontSize * display.lineHeight)}px`,
     "--cv-line-height": isDefault("fontSize") && isDefault("lineHeight") ? null : `${metrics.lineHeight}px`,
     "--cv-code-size": isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.inlineCodeSize}px`,
     "--cv-codeblock-size": isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.blockCodeSize}px`,

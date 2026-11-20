@@ -155,6 +155,11 @@ def literal_reads(source_dir: Path) -> list[str]:
                 continue
             if any(ch.isspace() for ch in literal):
                 continue
+            # A "." segment ("./web") is a fixture about path handling (AppWebPaneTests'
+            # rejected roots), not how a test names a repository file: "./web" made every web/ edit a
+            # CmuxNextAppsTests read and every web pull request a Mac one.
+            if "." in literal.split("/"):
+                continue
             if "*" in literal:
                 pattern = glob_read(literal, source_dir, source)
                 if pattern is not None:

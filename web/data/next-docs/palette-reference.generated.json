@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1409,
+    "entries": 1415,
     "shortcuts": 192
   },
   "sections": [
@@ -3838,6 +3838,12 @@
           "command": null
         },
         {
+          "id": "terminal.fixLastCommand",
+          "title": "Fix Last Command with Agent",
+          "shortcut": null,
+          "command": "cmux terminal fix-last-command"
+        },
+        {
           "id": "focusTextBoxInput",
           "title": "Focus TextBox",
           "shortcut": "⌥⌘A",
@@ -3948,6 +3954,18 @@
         {
           "id": "sendCtrlFToTerminal",
           "title": "Send Ctrl-F to Terminal",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "terminal.sendLastOutputToChat",
+          "title": "Send Last Output to Chat",
+          "shortcut": null,
+          "command": "cmux terminal send-last-output-to-chat"
+        },
+        {
+          "id": "terminal.sendSelectionToChat",
+          "title": "Send Selection to Chat",
           "shortcut": null,
           "command": null
         },
@@ -7420,6 +7438,12 @@
           "command": "cmux machine add"
         },
         {
+          "id": "machine.joined.check",
+          "title": "Check Joined Machine",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "machine.doctor",
           "title": "Check Machine",
           "shortcut": null,
@@ -7550,6 +7574,18 @@
           "title": "Remove Remote Group",
           "shortcut": null,
           "command": "cmux remote remove-group"
+        },
+        {
+          "id": "machine.joined.revoke",
+          "title": "Revoke Joined Machine…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "machine.joined.rotate",
+          "title": "Rotate Joined Machine's Credential",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "macScreen.deviceAccess",

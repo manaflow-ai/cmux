@@ -48,6 +48,9 @@ public final class AgentTranscriptCache: @unchecked Sendable {
     public let memoryEntries: Int
     let writeDelay: DispatchTimeInterval
     let queue = DispatchQueue(label: "dev.cmux.mobile.agent-transcript-cache", qos: .utility)
+    /// Which chat shows each terminal agent session, kept beside the transcripts
+    /// (`<directory>-pairings.json`) so an offline relaunch reaches them; deleted with them.
+    public let terminalChats: KeptTerminalChats
     /// Entries waiting for their write, by key; the queue takes the newest.
     private let pending = OSAllocatedUnfairLock(initialState: [String: AgentTranscriptEntry]())
     /// This run's entries by key, most recently used last. Main actor only.
@@ -64,6 +67,8 @@ public final class AgentTranscriptCache: @unchecked Sendable {
         self.totalBytes = totalBytes
         self.memoryEntries = memoryEntries
         self.writeDelay = writeDelay
+        terminalChats = KeptTerminalChats(
+            file: directory.deletingLastPathComponent().appending(path: "\(directory.lastPathComponent)-pairings.json"), queue: queue)
     }
 
     public static func inApplicationSupport(_ name: String) -> AgentTranscriptCache {
@@ -132,6 +137,7 @@ public final class AgentTranscriptCache: @unchecked Sendable {
         recent = []
         generation += 1
         pending.withLock { $0 = [:] }
+        terminalChats.removeAll()
         let directory = directory
         queue.async { try? FileManager.default.removeItem(at: directory) }
     }

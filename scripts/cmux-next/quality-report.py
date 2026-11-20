@@ -47,6 +47,7 @@ cmuxterm-hq). The section says which source answered and why the other did not.
                              --v2-home-output FILE] --json OUT [--md OUT] [--public-md OUT]
     quality-report.py fetch-journey --repo OWNER/NAME --workflow FILE.yml --artifact NAME --dir DIR [--tries 5]
     quality-report.py sticky --report OUT.json --md OUT.md [--repo manaflow-ai/cmuxterm-hq]
+    quality-report.py merge-god-small --out FILE INPUT.json...
 
 `report` writes the metrics JSON (--json), the full report with signature names (--md, for the private sticky
 issue) and the numbers only (--public-md, for this public repository's step summary). `sticky` puts the report in
@@ -54,8 +55,11 @@ the one open cmuxterm-hq issue titled STICKY_TITLE (opening it the first time) a
 it, so the three numbers can be read over time in one place. A source that cannot be read leaves its metric null
 with a `why`; nothing here fails a build. Input slots that other checks fill, by shape:
 
-  --god-small      {"rows": [{"name": str, "small_p95": num, "god_p95": num}, ...]} (or a bare list of those rows;
-                   `small`/`god` are accepted for the two numbers, and a given `ratio` is used as is)
+  --god-small      {"rows": [{"name": str, "small_p95": num, "god_p95": num}, ...], "errors": [str, ...]} (or a
+                   bare list of those rows; `small`/`god` are accepted for the two numbers, and a given `ratio` is
+                   used as is). `errors` are the v2 gate home's lines it could not place on a row; the report lists
+                   them. `merge-god-small` merges the v2 home's and the degenerate lab's inputs into one, rows and
+                   errors both.
   --anim-coverage  {"coverage": 0..1} or {"covered": int, "total": int} (`animated` for total is accepted)
   --first-user-journey  {"schema": 1, "surface": "web"|"mac"|"ios", "generated_at", "build", "run_url",
                    "cells": [{"cell", "harness", "state", "outcome": "pass"|"red"|"needs-account"|"skip", "steps",
@@ -451,11 +455,32 @@ def interaction_p95(state: Any, why: Optional[str]) -> Dict[str, Any]:
             "why": None if rows else "the perf cron state has no interaction rows"}
 
 
+def god_small_errors(doc: Any) -> List[str]:
+    """The input's `errors`: the v2 gate home's lines that no row holds (an unknown row name)."""
+    raw = doc.get("errors") if isinstance(doc, dict) else None
+    return [e for e in raw if isinstance(e, str)] if isinstance(raw, list) else []
+
+
+def merge_god_small(paths: List[str]) -> Dict[str, Any]:
+    """One --god-small input from several (the v2 gate home's, the degenerate lab's): every input's rows and
+    `errors`, in order. A home error reached the report only through its last stderr line before this."""
+    rows: List[Any] = []
+    errors: List[str] = []
+    for path in paths:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        raw = data.get("rows") if isinstance(data, dict) else data
+        rows += raw if isinstance(raw, list) else []
+        errors += god_small_errors(data)
+    return {"rows": rows, "errors": errors}
+
+
 def god_vs_small(doc: Any, why: Optional[str]) -> Dict[str, Any]:
     raw = doc.get("rows") if isinstance(doc, dict) else doc
+    errors = god_small_errors(doc)
     if not isinstance(raw, list):
         return {"source": None, "limit": GOD_SMALL_LIMIT, "rows": [], "failing": [], "worst_ratio": None,
-                "why": why or "the god-vs-small input has no rows"}
+                "errors": errors, "why": why or "the god-vs-small input has no rows"}
     rows = []
     failing = []
     for r in raw:
@@ -479,7 +504,7 @@ def god_vs_small(doc: Any, why: Optional[str]) -> Dict[str, Any]:
             failing.append(name)
     ratios = [r["ratio"] for r in rows if isinstance(r["ratio"], (int, float))]
     return {"source": "god-vs-small", "limit": GOD_SMALL_LIMIT, "rows": rows,
-            "failing": failing,
+            "failing": failing, "errors": errors,
             "worst_ratio": max(ratios) if ratios else None, "why": None if rows else "the god-vs-small input has no rows"}
 
 
@@ -986,6 +1011,9 @@ def render_markdown(r: Dict[str, Any], public: bool) -> str:
     if failed:
         out += ["", "God-vs-small rows failed: " + ", ".join(
             f"`{row['name']}`" + (f" ({row['reason']})" if row.get("reason") else "") for row in failed)]
+    if g.get("errors"):
+        out += ["", "God-vs-small errors (lines the v2 gate home placed on no row): "
+                + "; ".join(g["errors"])]
     out += ci_markdown(r.get("ci_health") or {})
     out += journey_markdown(r.get("first_user_journey") or {}, public)
     return "\n".join(out) + "\n"
@@ -1143,7 +1171,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     fj.add_argument("--artifact", required=True)
     fj.add_argument("--dir", required=True)
     fj.add_argument("--tries", type=int, default=5, help="finished runs looked at, newest first")
+    mg = sub.add_parser("merge-god-small", help="merge god-vs-small inputs, rows and errors, into one")
+    mg.add_argument("--out", required=True)
+    mg.add_argument("inputs", nargs="+")
     args = ap.parse_args(argv)
+    if args.cmd == "merge-god-small":
+        with open(args.out, "w", encoding="utf-8") as f:
+            json.dump(merge_god_small(args.inputs), f)
+        return 0
     if args.cmd == "fetch-journey":
         try:
             print(f"quality-report: {args.artifact} from run {fetch_journey(args.repo, args.workflow, args.artifact, args.dir, tries=args.tries)}")

@@ -179,7 +179,7 @@ enum LiveWebStrings {
     static var swiftStarting: String { text("liveSwift.starting", "Starting Swift live mode…") }
     static var swiftStopping: String { text("liveSwift.stopping", "Stopping Swift live mode…") }
     static var swiftStarted: String {
-        text("liveSwift.started", "cmux restarts into the live code build when it is ready (the first time it builds it), keeping every session.")
+        text("liveSwift.started", "cmux restarts into the live code build when it is ready.")
     }
     static var swiftStopped: String {
         text("liveSwift.stopped", "cmux restarts into the normal build, keeping every session.")

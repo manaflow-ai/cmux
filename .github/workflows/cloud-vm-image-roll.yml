@@ -8,7 +8,8 @@ name: Cloud VM image roll
 #               the lock pins, and never an older one; it lists the fix commits the roll carries.
 #   2. bake     cloud-vm-image-bake.yml (called, roll: true) pins that build into the lock and bakes the
 #               image with the agent tools. The gate is the bake's own exact-image checks
-#               on the candidate snapshot: the 5-clone smoke and the agent tools probe. Any red there and
+#               on the candidate snapshot: the 5-clone smoke and the agent tools probe, whose harness gate (harness-gate.ts) must pass
+#               `acp ensure` for every harness the Cloud chat picker offers. Any red there and
 #               nothing is kept or promoted; production stays on its image.
 #   3. promote  images/cmux-vm/image-roll-push.sh lands one bot commit on feat-cmux-next: the pinned lock
 #               and the image first in production's VM_BOOT_IMAGES (last in staging's). It pushes with the
@@ -180,7 +181,7 @@ jobs:
             echo "cmux-vm: image roll ${image} (cmux-tui ${tui:0:8}) first in production"
             echo
             echo "$(jq -r .reason "$RUNNER_TEMP/plan.json")."
-            echo "Gate passed on snapshot $(jq -r .snapshot_id "$RUNNER_TEMP/candidate.json"): $(jq -r '.smoke.detail // "the clone smoke"' "$RUNNER_TEMP/candidate.json"), and the agent tools probe (${RUN_URL})."
+            echo "Gate passed on snapshot $(jq -r .snapshot_id "$RUNNER_TEMP/candidate.json"): $(jq -r '.smoke.detail // "the clone smoke"' "$RUNNER_TEMP/candidate.json"), and the agent tools probe with acp ensure for every picker harness (${RUN_URL})."
             echo
             jq -r '.fixes[] | "- \(.sha[0:12]) \(.subject)"' "$RUNNER_TEMP/plan.json"
             echo
@@ -272,7 +273,7 @@ jobs:
           case "$outcome" in
             pushed|dry-run|nothing) exit 0 ;;
           esac
-          what="the gate (bake, 5-clone smoke or agent tools probe) failed; production stays on its image"
+          what="the gate (bake, 5-clone smoke, agent tools probe or its picker harness ensure) failed; production stays on its image"
           [ "$gate" = passed ] && what="the gate passed but the promotion commit did not land; production stays on its image"
           echo "::error title=Cloud VM image roll::${what}"
           body="Cloud VM image roll ${GITHUB_RUN_ID}: ${what}. $(jq -r .reason <<< "$PLAN"). ${RUN_URL}"

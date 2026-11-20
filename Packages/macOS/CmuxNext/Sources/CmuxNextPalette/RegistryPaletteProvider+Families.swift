@@ -27,8 +27,13 @@ extension RegistryPaletteProvider {
 
     /// `arranged(_:tiers:)` with `tierList[i]` the tier of `items[i]`. The order is sorted as indices over keys read
     /// once (a row's enabled state and tier), never by moving rows or looking a tier up per comparison.
-    static func arranged(_ items: [PaletteItem], tierList: [PaletteTier]) -> [PaletteItem] {
-        var items = items
+    static func arranged(_ itemsIn: [PaletteItem], tierList: [PaletteTier]) -> [PaletteItem] {
+        // Sized for the family rows inserted below before the first write copies `items`: a copy made at the rows'
+        // own size doubled at the first insert, and the root list (`curatedRootItems`) was then handed the freed
+        // buffer twice its size (CMUX-571).
+        var items: [PaletteItem] = []
+        items.reserveCapacity(itemsIn.count + ActionDescriptor.paletteFamilies.count)
+        items.append(contentsOf: itemsIn)
         var tiers = tierList
         var position: [ActionID: Int] = [:]
         for (index, item) in items.enumerated() {

@@ -261,11 +261,16 @@ struct WorkspaceTabHoverCardTests {
     /// spans the list's width, its words start on the tab titles' column, and its chevron says
     /// which way it goes.
     @Test func showDetailsIsStyledLikeTheTabRows() throws {
+        _ = NSApplication.shared
         let card = WorkspaceHoverCardView()
         card.configure(WorkspaceHoverCardContent(title: "Project", icon: .terminal,
                        facts: [.init(icon: .folder, text: "docs", kind: "folder")]))
         card.tabList.configure(title: "project", tabs: [SidebarTab(id: TabID("only"), title: "shell")])
         card.frame = NSRect(x: 0, y: 0, width: 280, height: 400)
+        let window = NSWindow(contentRect: card.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.closeAfterTest() }
+        window.contentView = card
         card.layoutSubtreeIfNeeded()
         let toggle = card.detailsToggle
         #expect(!toggle.isHidden)

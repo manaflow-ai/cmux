@@ -40,10 +40,12 @@ impl ShmSeg {
         if ptr == libc::MAP_FAILED {
             return Err(std::io::Error::last_os_error().into());
         }
-        let seg = conn.generate_id()?;
+        // Owned from here, so a refused attach below unmaps it on drop.
+        let mut this = Self { seg: 0, ptr: ptr.cast(), len };
+        this.seg = conn.generate_id()?;
         // attach_fd takes ownership of the descriptor; the mapping stays valid after close.
-        conn.shm_attach_fd(seg, owned, false)?.check()?;
-        Ok(Self { seg, ptr: ptr.cast(), len })
+        conn.shm_attach_fd(this.seg, owned, false)?.check()?;
+        Ok(this)
     }
 
     pub fn as_slice(&self) -> &[u8] {

@@ -692,6 +692,11 @@ pub use shared::records::{
 };
 #[cfg(any(unix, windows))]
 pub use shared::unadoptable::*;
+// `sys::barrier_sync`, for a file of the crate outside this module that is
+// written before a rename. The name is a new one: the files of this module
+// name the function `sys::barrier_sync`, and they see each name of this file.
+#[cfg(unix)]
+pub(crate) use sys::barrier_sync as sync_before_rename;
 #[cfg(windows)]
 pub(crate) use sys::{HostProcessStartFailed, kill_process_group};
 #[cfg(any(unix, windows))]

@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { aptUpdateCommand } from "../scripts/cmux-vm-image/apt-update";
 import * as bake from "../scripts/cmux-vm-image/bake";
 import { cmuxTuiSourceFromLock, GUEST_DIR } from "../scripts/cmux-vm-image/bake";
-import { CURRENT_BIN, profileCommand, programInstallCommand, readInputsLock, storeEntry } from "../scripts/cmux-vm-image/lock";
-import { imageLeftoversCommand, programChecksCommand, programProblems, secretScanCommand, storeCommandPathSnippet } from "../scripts/cmux-vm-image/smoke";
+import { aptDebFetchCommand, aptLocalInstallCommand, aptPins, CURRENT_BIN, profileCommand, programInstallCommand, readInputsLock, storeEntry } from "../scripts/cmux-vm-image/lock";
+import { imageLeftoversCommand, programChecksCommand, programProblems, rolesOffFontsOnCommand, secretScanCommand, storeCommandPathSnippet } from "../scripts/cmux-vm-image/smoke";
 import { daemonHoldCommand, daemonUptimeProblems, forcedRebindCommand } from "../scripts/cmux-vm-image/daemon-uptime";
 import { GH_SHIM } from "../scripts/cmux-vm-image/github-auth";
 import { runChild } from "./helpers/run-child";
@@ -157,16 +158,77 @@ describe("cmux VM image apt index", () => {
     expect(bake.APT_UPDATE_COMMAND).toBe(aptUpdateCommand({ log: "/tmp/apt-update.log", sources: "/etc/apt/sources.list.d/ubuntu.sources", saved: "/tmp/ubuntu.sources.snapshot" }));
   });
 
-  test("an empty index is reported as one apt index problem, not the first pin", () => {
+  test("download batches are sized from the lock's .debs, and every missing pin is named at once", () => {
     const pins = { acl: "2.3.2-1build1.1", curl: "8.5.0-2ubuntu10.16", git: "1:2.43.0-1ubuntu7.4" };
-    expect(() => bake.aptDownloadBatches(pins, new Map())).toThrow(
-      "apt index has no size for 3 of 3 locked pins (acl=2.3.2-1build1.1, curl=8.5.0-2ubuntu10.16, git=1:2.43.0-1ubuntu7.4)",
+    const deb = (size: number) => ({ path: "pool/main/a/acl/acl_2.3.2-1build1.1_amd64.deb", sha256: "0".repeat(64), size });
+    expect(() => bake.aptDownloadBatches(pins, {})).toThrow(
+      "apt.ubuntu.debs has no .deb for 3 of 3 locked pins (acl=2.3.2-1build1.1, curl=8.5.0-2ubuntu10.16, git=1:2.43.0-1ubuntu7.4)",
     );
-    expect(() => bake.aptDownloadBatches(pins, new Map([["acl=2.3.2-1build1.1", 1], ["git=1:2.43.0-1ubuntu7.4", 1]]))).toThrow(
-      "apt index has no size for 1 of 3 locked pins (curl=8.5.0-2ubuntu10.16)",
-    );
-    expect(bake.aptDownloadBatches(pins, new Map(Object.entries(pins).map(([n, v]) => [`${n}=${v}`, 1])))).toHaveLength(1);
+    expect(() => bake.aptDownloadBatches(pins, { "acl=2.3.2-1build1.1": deb(1), "git=1:2.43.0-1ubuntu7.4": deb(1) })).toThrow("no .deb for 1 of 3 locked pins (curl=8.5.0-2ubuntu10.16)");
+    const all = Object.fromEntries(Object.entries(pins).map(([n, v]) => [`${n}=${v}`, deb(10)]));
+    expect(bake.aptDownloadBatches(pins, all)).toHaveLength(1);
+    expect(bake.aptDownloadBatches(pins, all, 15).map((b) => b.pins.length)).toEqual([1, 1, 1]);
   });
+
+  // Bake run 43932356313 (2026-11-16): the snapshot's index update hit its cap, the archive fallback had replaced
+  // ca-certificates 20260816ubuntu0.24.04.1 with .2, and the system layer failed with "apt index has no size".
+  test("the Ubuntu closure is fetched by content (archive, then the dated snapshot) and installed with no index", async () => {
+    const lock = readInputsLock();
+    const { ubuntu } = lock.apt;
+    const pin = `ca-certificates=${ubuntu.packages["ca-certificates"]}`;
+    const deb = ubuntu.debs[pin]!;
+    const fetch = aptDebFetchCommand(ubuntu.debs, [pin], ubuntu.uri, bake.APT_DEB_DIR);
+    const archiveUrl = `'http://archive.ubuntu.com/ubuntu/${deb.path}'`;
+    const snapshotUrl = `'${ubuntu.uri}${deb.path}'`;
+    expect(fetch).toContain(`${deb.sha256} ${deb.size} ${archiveUrl} ${snapshotUrl}`);
+    expect(fetch).toContain("sha256sum -c --quiet -");
+    expect(fetch).not.toContain("apt-get");
+    expect(() => aptDebFetchCommand(ubuntu.debs, ["ca-certificates=0"], ubuntu.uri, bake.APT_DEB_DIR)).toThrow("apt.ubuntu.debs has no .deb for ca-certificates=0");
+    await bashSyntax(fetch);
+    const install = aptLocalInstallCommand(ubuntu.debs, aptPins(ubuntu.packages), bake.APT_DEB_DIR, "/tmp/apt.log");
+    expect(install).toContain("-o Dir::Etc::sourcelist=/dev/null");
+    expect(install).toContain(`'${bake.APT_DEB_DIR}/${deb.path.split("/").pop()}'`);
+    expect(install).not.toMatch(/'[a-z0-9.+-]+=[^']+'/);
+    await bashSyntax(install);
+  });
+
+  // Bake run 43939465959: #44696 bakes openbox (role display-wm) with the agent tools, and smoke still refused it.
+  test("smoke refuses openbox only on an image without the agent tools", async () => {
+    const command = rolesOffFontsOnCommand();
+    expect(command).toContain("{ test -x /opt/cmux/agent-tools/bin/cmux-cua || ! command -v openbox >/dev/null; }");
+    expect(command).toContain("! command -v ffmpeg >/dev/null");
+    await bashSyntax(command);
+  });
+
+  test("the fetch keeps a file with the locked sha256, takes the next mirror when one fails, and fails when none serves it", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "apt-deb-fetch-"));
+    try {
+      const body = "a locked deb";
+      const sha256 = createHash("sha256").update(body).digest("hex");
+      writeFileSync(path.join(dir, "served.deb"), body);
+      const deb = { path: "pool/main/x/x/x_1_all.deb", sha256, size: body.length };
+      // The archive URL cannot answer here; the snapshot is a file:// mirror of the pool file.
+      mkdirSync(path.join(dir, "mirror/pool/main/x/x"), { recursive: true });
+      writeFileSync(path.join(dir, "mirror/pool/main/x/x/x_1_all.deb"), body);
+      const run = async (snapshot: string, debs = { "x=1": deb }) => {
+        const command = aptDebFetchCommand(debs, ["x=1"], snapshot, path.join(dir, "out")).replace("http://archive.ubuntu.com/ubuntu/", `file://${dir}/no-archive/`);
+        return runChild("sh", ["-c", command], { timeout: 20_000, env: { PATH: "/usr/bin:/bin" } });
+      };
+      const fetched = await run(`file://${dir}/mirror/`);
+      expect(fetched.status).toBe(0);
+      expect(fetched.stdout).toContain("debs 1: kept 0, archive 0, snapshot 1");
+      expect(readFileSync(path.join(dir, "out/x_1_all.deb"), "utf8")).toBe(body);
+      const kept = await run(`file://${dir}/nowhere/`);
+      expect(kept.stdout).toContain("debs 1: kept 1, archive 0, snapshot 0");
+      rmSync(path.join(dir, "out"), { recursive: true });
+      const wrong = await run(`file://${dir}/mirror/`, { "x=1": { ...deb, sha256: "f".repeat(64) } });
+      expect(wrong.status).not.toBe(0);
+      expect(wrong.stdout).toContain("no mirror served x=1 with its locked sha256");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    // curl retries each dead mirror (--retry 2), so three runs take several seconds.
+  }, 60_000);
 
   test("the image carries the agent sign-in files the Mac app's Cloud sign-in sources", async () => {
     expect(bake.AGENT_SIGN_IN_FILES.map((f) => f.path)).toEqual(["/etc/cmux/agent-auth.sh", "/etc/cmux/claude-onboarding.py"]);

@@ -201,6 +201,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     private let enrollComputerUse: @Sendable (AcpmuxEnvironment) async -> Void
     /// Gets this Mac's approver key to each daemon this host connects (``AgentPanePeerApprover``); nil: none.
     private let peerApprover: AgentPanePeerApprover?
+    /// Whether a lookup waits for this launch's build-home adoption (``AcpmuxAdoptionGate``; a stand-in in tests).
+    private let adoption: AcpmuxAdoptionGate
 
     /// - Parameters:
     ///   - daemons: the app's one ``AcpmuxLocalDaemons``, shared by every host.
@@ -225,6 +227,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         self.startOwner = startOwner
         self.daemons = daemons
         self.peerApprover = peerApprover
+        self.adoption = .live
         self.lookup = nil
     }
 
@@ -245,7 +248,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     }
 
     /// `enrollComputerUse` sends the Computer Use endpoint and `lookup` runs one lookup with the
-    /// environment and whether it may start a daemon (recorders in tests; nil: the real lookup).
+    /// environment and whether it may start a daemon (recorders in tests; nil: the real lookup); `adoption`
+    /// says when a lookup waits for the build-home adoption (a stand-in in tests).
     init(daemons: AcpmuxLocalDaemons, resolve: @escaping @Sendable () -> AcpmuxEnvironment?,
          computerUse: @escaping @Sendable () -> [String: String] = { [:] },
          offersSessionTools: @escaping @Sendable () -> Bool = { AgentPaneSuggestedTasks.forNextDaemon.isOn },
@@ -255,7 +259,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
          },
          daemonReady: (@Sendable (String) async -> Void)? = nil,
          enrollComputerUse: @escaping @Sendable (AcpmuxEnvironment) async -> Void, peerApprover: AgentPanePeerApprover? = nil,
-         lookup: (@Sendable (AcpmuxEnvironment, Bool) async throws -> AcpmuxWebEndpoint)? = nil) {
+         lookup: (@Sendable (AcpmuxEnvironment, Bool) async throws -> AcpmuxWebEndpoint)? = nil,
+         adoption: AcpmuxAdoptionGate = .live) {
         self.resolveEnvironment = resolve
         self.computerUse = computerUse
         self.offersSessionTools = offersSessionTools
@@ -269,6 +274,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         self.daemons = daemons
         self.peerApprover = peerApprover
         self.lookup = lookup
+        self.adoption = adoption
     }
 
     /// The Computer Use endpoint changed (`ComputerUseHelperDaemon.onEndpointChange`: a replaced
@@ -445,14 +451,14 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         if let healReplaced {
             heal = { @Sendable (pid: Int32) async -> Bool in await self.healOnce(pid: pid, healReplaced) }
         }
-        let (startOwner, approver, daemons) = (startOwner, peerApprover, daemons)
+        let (startOwner, approver, daemons, adoption) = (startOwner, peerApprover, daemons, adoption)
         let (daemonReady, lookup) = (daemonReady, lookup)
         // The lookup itself tells `daemonReady`, so a caller that stops waiting (its cancel) never
         // skips it for the others.
         let task = Task {
             let endpoint = if let lookup { try await lookup(environment, startsDaemon) } else {
                 try await Self.findOrStart(environment, daemons: daemons, startsDaemon: startsDaemon, owned: owned,
-                                           heal: heal, startOwner: startOwner, approver: approver)
+                                           heal: heal, startOwner: startOwner, approver: approver, adoption: adoption)
             }
             Self.markLookup("lookup_end", owned: owned)
             await daemonReady(daemonSocket)
@@ -634,10 +640,18 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     private static func findOrStart(_ environment: AcpmuxEnvironment, daemons: AcpmuxLocalDaemons, startsDaemon: Bool, owned: Bool,
                                     heal: (@Sendable (Int32) async -> Bool)?,
                                     startOwner: (@Sendable () async -> Bool)? = nil,
-                                    approver: AgentPanePeerApprover? = nil) async throws -> AcpmuxWebEndpoint {
+                                    approver: AgentPanePeerApprover? = nil,
+                                    adoption: AcpmuxAdoptionGate = .live) async throws -> AcpmuxWebEndpoint {
         Self.markLookup("lookup_start", owned: owned)
-        // cmux NEXT adopts its old acpmux home before it asks or starts a daemon (cx-is1kf.9).
-        await AcpmuxEnvironment.adoptBuildHomes()
+        // cmux NEXT adopts its old acpmux home before it asks or starts a daemon (cx-is1kf.9): the
+        // adoption stops a daemon of a home it moves. A home it no longer changes (every relaunch
+        // after the first) is looked up at once while it ends in the background; one it may still
+        // change waits a bounded time, then the pane retries (``AcpmuxAdoptionGate``).
+        guard await adoption.lookupMayProceed(home: environment.home) else {
+            logger.info("acpmux lookup waits for the build-home adoption home=\(environment.home.path, privacy: .public)")
+            Self.markLookup("adoption_pending", owned: owned)
+            throw AgentPaneHostError.daemonRestarting
+        }
         Self.markLookup("adopted", owned: owned)
         // This lookup took a stray daemon over or handed a stale one off: Settings' daemon line
         // says restarting until it ends.
@@ -730,7 +744,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         }
         do {
             Self.markLookup("spawn_start", owned: owned)
-            let launched = try await AcpmuxDaemonLauncher.launchReporting(environment)
+            let launched = try await AcpmuxDaemonLauncher.launchReporting(environment, adoption: adoption)
             Self.markLookup("spawn_ready", owned: owned)
             // A signed daemon ignores the spawn key: it takes the key by this app's signature.
             if let status = await Self.startedStatus(environment), status.serves(home: environment.home) {

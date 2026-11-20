@@ -1047,15 +1047,15 @@ async fn forward_inner(
         }
         return Ok(Some(result));
     }
-    // `PEER/name` for a peer that is down and lists no such session: say
-    // the peer is unreachable, not that the session does not exist. A peer daemon's
+    // `PEER/name` for a peer that is down (or whose list is not in yet) and lists no such session:
+    // say the peer is unreachable, not that the session does not exist. A peer daemon's
     // connection never learns this host's peers or their state (`redact::hide_peers_from_peer`):
     // it gets the answer a name no peer has gets.
     if !SESSION_SCOPED_EXCLUDED.contains(&m)
         && conn.origin != Origin::Peer
         && let Ok(key) = session_key(params)
         && hub.resolve(key).is_err()
-        && let Some(e) = hub.peer_down_for(key)
+        && let Some(e) = hub.peer_down_for(key).or_else(|| hub.peer_unlisted_for(key))
     {
         return Err(e);
     }

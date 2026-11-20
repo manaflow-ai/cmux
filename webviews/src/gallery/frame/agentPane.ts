@@ -19,7 +19,15 @@ type Message = { id?: string; method?: string; params?: Record<string, unknown> 
 export function agentPaneFontCSS(font: string, size: number): string {
   const rules: string[] = [];
   if (font) rules.push(`--cv-font: ${font};`, `--agent-host-font-family: ${font};`);
-  if (size) rules.push(`--cv-font-size: ${size}px;`, `--cv-line-height: ${Math.round(size * 1.625 * 100) / 100}px;`);
+  if (size) {
+    const lineHeight = Math.round(size * 1.625 * 100) / 100;
+    rules.push(
+      `--cv-font-size: ${size}px;`,
+      `--cv-line-height: ${lineHeight}px;`,
+      `--cv-base-font-size: ${size}px;`,
+      `--cv-base-line-height: ${lineHeight}px;`,
+    );
+  }
   return rules.length ? `:root { ${rules.join(" ")} }` : "";
 }
 

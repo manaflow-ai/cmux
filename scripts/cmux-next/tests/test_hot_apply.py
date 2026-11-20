@@ -17,7 +17,9 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.request
 import unittest
+from unittest import mock
 from pathlib import Path
 import importlib.util  # noqa: E402
 
@@ -618,6 +620,22 @@ class HotKeys(unittest.TestCase):
         self.assertNotIn("via", plan)
         self.assertEqual(plan["parts"], ["rust"])  # cmux#37155's real diff: no FFI file
 
+    def test_hot_keys_keep_ffi_sources_out_until_the_pin_moves(self):
+        git_history.require_history(ROOT, [FFI_SOURCE_ONLY, FFI_REPIN], depth=2)
+        hot = load_hot("hot_apply_keys_digest_under_test")
+
+        def digest(sha):
+            listing = subprocess.run(["git", "-C", str(ROOT), "ls-tree", "-r", "-z", "--full-tree", sha],
+                                     capture_output=True, check=True).stdout.decode()
+            blobs = {entry.split("\t", 1)[1]: entry.split()[2] for entry in listing.split("\0") if entry}
+            files = hot.live_apply.classify([("M", p) for p in blobs], {})["files"]
+            return hot.ffi_digest(ROOT, sha, blobs, files.get("daemon", []))
+
+        parent = run_git("rev-parse", f"{FFI_SOURCE_ONLY}^").stdout.strip()
+        repin_parent = run_git("rev-parse", f"{FFI_REPIN}^").stdout.strip()
+        self.assertEqual(digest(parent), digest(FFI_SOURCE_ONLY))
+        self.assertNotEqual(digest(repin_parent), digest(FFI_REPIN))
+
     def test_the_keys_plan_keeps_a_team_signed_apps_daemon_from_an_ad_hoc_build(self):
         # The published-keys plan checks the signature as the diff plan does (2026-11-15's Cloud list failure).
         app = self.tmp / "cmux NIGHTLY.app"
@@ -918,6 +936,8 @@ class TreeKey(unittest.TestCase):
 
 
 FFI ="2c58afdd5f8ac95146fed0cc3c472aee5af31562"  # cmux#43373: cmux-tui/bindings/rust, which the app links
+FFI_SOURCE_ONLY = "2816f1f6770d27a8c1f622205bdc278627165a2a"  # cmux#44307: FFI sources, no app pin move
+FFI_REPIN = "01936a9c77c22a3735bee357aa417eb7f0bf110e"  # app-ffi-repin: app-ffi-pin.json moves the release
 
 
 class LiveFrom(unittest.TestCase):
@@ -925,7 +945,7 @@ class LiveFrom(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        git_history.require_history(ROOT, [FIX, FFI], depth=4)
+        git_history.require_history(ROOT, [FIX, FFI, FFI_SOURCE_ONLY, FFI_REPIN], depth=4)
 
     def live_from(self, sha, limit):
         done = subprocess.run([sys.executable, str(SCRIPT), "live-from", sha, "--max", str(limit)],
@@ -939,10 +959,122 @@ class LiveFrom(unittest.TestCase):
         self.assertEqual(len(out["live_from"]), 3)
         self.assertIsNone(out["floor"])  # no FFI change within the limit
 
-    def test_a_commit_that_changes_rust_the_app_links_is_its_own_floor(self):
-        out = self.live_from(FFI, 5)
-        self.assertEqual((out["live_from"], out["floor"]), ([FFI], FFI))
-        self.assertTrue(all(p.startswith("cmux-tui/bindings/rust/") for p in out["floor_paths"]), out["floor_paths"])
+    def test_an_ffi_source_only_change_does_not_set_a_floor(self):
+        out = self.live_from(FFI, 2)
+        self.assertEqual(out["live_from"][0], FFI)
+        self.assertEqual(len(out["live_from"]), 2)
+        self.assertNotEqual(out["floor"], FFI)
+
+    def test_the_remote_viewer_ffi_source_only_change_does_not_set_a_floor(self):
+        out = self.live_from(FFI_SOURCE_ONLY, 1)
+        self.assertEqual(out["live_from"], [FFI_SOURCE_ONLY])
+        self.assertIsNone(out["floor"])
+        self.assertEqual(out["floor_paths"], [])
+
+    def test_a_repin_is_the_ffi_floor(self):
+        out = self.live_from(FFI_REPIN, 1)
+        self.assertEqual((out["live_from"], out["floor"]), ([FFI_REPIN], FFI_REPIN))
+        self.assertEqual(out["floor_paths"], ["Packages/macOS/CmuxNext/app-ffi-pin.json"])
+
+    def test_rust_the_swift_build_reads_outside_ffi_still_sets_a_floor(self):
+        hot = load_hot("hot_apply_pins_daemon_under_test")
+        path = "cmux-tui/crates/swift-read/src/lib.rs"
+        with tempfile.TemporaryDirectory(prefix="hot-apply-pins-test-") as repo:
+            def git(*args):
+                return subprocess.run(["git", "-C", repo, *args], check=True, capture_output=True, text=True)
+
+            git("init", "-q")
+            git("config", "user.email", "t@example.com")
+            git("config", "user.name", "t")
+            Path(repo, "base").write_text("base\n")
+            git("add", "base")
+            git("commit", "-qm", "base")
+            Path(repo, "change").write_text("change\n")
+            git("add", "change")
+            git("commit", "-qm", "swift-read")
+            sha = git("rev-parse", "HEAD").stdout.strip()
+            with mock.patch.object(hot.live_apply, "classify_range", return_value={"files": {"daemon": [path]}}), \
+                    mock.patch.object(hot, "linked_rust", side_effect=lambda _repo, paths: paths), \
+                    mock.patch.object(hot, "ffi_input", return_value=False), \
+                    mock.patch.object(hot.ffi_part, "app_pin_source", return_value="same"):
+                self.assertEqual(hot.pins_daemon(Path(repo), sha), [path])
+
+
+class PinCompatibility(unittest.TestCase):
+    """Missing historical pins and broken present pins never silently mean the same release."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="hot-apply-pin-compat-")
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name)
+        self.hot = load_hot("hot_apply_pin_compat_under_test")
+        self.git("init", "-q")
+        self.git("config", "user.email", "t@example.com")
+        self.git("config", "user.name", "t")
+        (self.repo / "base").write_text("base\n")
+        self.base = self.commit()
+        self.pin = self.repo / self.hot.ffi_part.PIN_FILE
+        self.pin.parent.mkdir(parents=True)
+        import app_ffi_pin
+        self.pin.write_text(app_ffi_pin.render("a" * 40, "b" * 64))
+        self.added = self.commit()
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.repo), *args], check=True,
+                              capture_output=True, text=True).stdout.strip()
+
+    def commit(self):
+        self.git("add", ".")
+        self.git("commit", "-qm", "fixture")
+        return self.git("rev-parse", "HEAD")
+
+    def test_introducing_or_removing_a_pin_sets_an_included_floor(self):
+        self.assertEqual(self.hot.live_from(self.repo, self.added)["live_from"], [self.added])
+        self.pin.unlink()
+        removed = self.commit()
+        result = self.hot.live_from(self.repo, removed)
+        self.assertEqual(result["live_from"], [removed])
+        self.assertEqual(result["floor_paths"], [self.hot.ffi_part.PIN_FILE])
+
+    def test_malformed_pin_cannot_publish_compatibility_or_a_digest(self):
+        self.pin.write_text("not JSON\n")
+        broken = self.commit()
+        with self.assertRaises(ValueError):
+            self.hot.live_from(self.repo, broken)
+        with self.assertRaises(ValueError):
+            self.hot.ffi_digest(self.repo, broken, {}, [])
+        with mock.patch.object(self.hot, "keys_plan", return_value={"parts": ["rust"]}):
+            with self.assertRaises(ValueError):
+                self.hot.plan(self.repo, self.repo / "unused.app", broken, base=self.added)
+
+    def test_before_pinning_the_digest_still_tracks_linked_sources(self):
+        path = "cmux-tui/crates/cmux-app-ffi/src/lib.rs"
+        before = self.hot.ffi_digest(self.repo, self.base, {path: "a" * 40}, [path])
+        after = self.hot.ffi_digest(self.repo, self.base, {path: "b" * 40}, [path])
+        self.assertNotEqual(before, after)
+
+    def test_an_unrelated_daemon_edit_requires_the_repin_to_apply(self):
+        import app_ffi_pin
+        self.pin.write_text(app_ffi_pin.render("c" * 40, "d" * 64))
+        daemon = self.repo / "cmux-tui/crates/cmux-wg/src/lib.rs"
+        daemon.parent.mkdir(parents=True)
+        daemon.write_text("// daemon change\n")
+        target = self.commit()
+        with mock.patch.object(self.hot, "tree_key", side_effect=lambda _repo, sha: sha), \
+                mock.patch.object(self.hot, "published", return_value=False), \
+                mock.patch.object(self.hot.ffi_part, "pin_plan", side_effect=self.hot.ffi_part.Left("not additive")):
+            for branch in (False, True):
+                with self.subTest(branch=branch):
+                    plan = self.hot._plan(self.repo, self.repo / "unused.app", target, branch, self.added)
+                    self.assertNotIn("rust", plan["parts"])
+                    self.assertNotIn("ffi", plan["parts"])
+                    self.assertIn(self.hot.ffi_part.PIN_FILE, plan["left"]["Rust the app links (FFI)"])
+        with mock.patch.object(self.hot, "tree_key", side_effect=lambda _repo, sha: sha), \
+                mock.patch.object(self.hot, "published", return_value=False), \
+                mock.patch.object(self.hot.ffi_part, "additive", return_value=[]):
+            plan = self.hot._plan(self.repo, self.repo / "unused.app", target, False, self.added)
+            self.assertIn("ffi", plan["parts"])
+            self.assertIn("rust", plan["parts"])
 
 
 class WebCache(unittest.TestCase):
@@ -1398,6 +1530,8 @@ class HotApplyFFI(unittest.TestCase):
                         CMUX_HOT_APPLY_TUI_BASE=(self.tmp / "tree").as_uri(),
                         CMUX_HOT_APPLY_COMMIT_BASE=(self.tmp / "commits").as_uri(),
                         CMUX_HOT_APPLY_STATE_DIR=str(self.tmp / "state"))
+        self.addCleanup(setattr, self.ffi, "RELEASES", self.ffi.RELEASES)
+        self.ffi.RELEASES = self.releases.as_uri()
 
     def tearDown(self):
         subprocess.run(["rm", "-rf", str(self.tmp)])
@@ -1428,52 +1562,60 @@ class HotApplyFFI(unittest.TestCase):
         (tag / "SHA256SUMS").write_text(f"{digest}  CCmuxAppFFI.xcframework.zip\n")
         return digest
 
-    def test_plan_takes_the_ffi_part_for_an_app_carrying_the_library(self):
+    def fetch_library(self):
+        state = self.tmp / "state"
+        def get(url):
+            with urllib.request.urlopen(url) as response:
+                return response.read()
+        return self.ffi.fetch_library(FFI_FIX, state, get, get)
+
+    def test_plan_keeps_a_source_only_ffi_edit_with_the_daemon(self):
         self.carry_dylib()
         code, plan, err = self.hot("plan", FFI_FIX, "--app", str(self.app))
         self.assertEqual(code, 0, err)
-        self.assertIn("ffi", plan["parts"])
-        self.assertIn("rust", plan["parts"])  # the daemon part rides with it
+        self.assertNotIn("ffi", plan["parts"])
+        self.assertIn("rust", plan["parts"])
         self.assertNotIn("Rust the app links (FFI)", plan["left"])
-        self.assertEqual(plan["ffi"]["source"], FFI_FIX)
-        self.assertEqual(plan["ffi"]["release"], f"cmux-app-ffi-{FFI_FIX}")
-        self.assertTrue(all(p.startswith("cmux-tui/crates/cmux-layout-reducer") for p in plan["ffi"]["files"]))
 
-    def test_an_app_linking_the_ffi_statically_leaves_it_with_why(self):
+    def test_a_source_only_ffi_edit_does_not_require_a_dynamic_library(self):
         code, plan, err = self.hot("plan", FFI_FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
         self.assertNotIn("ffi", plan["parts"], err)
-        self.assertIn("Rust the app links (FFI)", plan["left"])
-        self.assertTrue(any("links the app FFI statically" in note for note in plan["notes"]), plan["notes"])
+        self.assertIn("rust", plan["parts"])
+        self.assertNotIn("Rust the app links (FFI)", plan["left"])
 
-    def test_a_branch_s_ffi_is_left(self):
+    def test_a_branch_source_only_edit_keeps_the_pinned_ffi(self):
         self.carry_dylib()
         code, plan, err = self.hot("plan", FFI_FIX, "--app", str(self.app), "--branch")
-        self.assertNotIn("ffi", plan["parts"], err)
-        self.assertTrue(any("branch" in note for note in plan["notes"]), plan["notes"])
-
-    def test_a_dry_run_fetches_and_checks_the_published_library(self):
-        digest = self.publish()
-        code, receipt, err = self.hot("apply", FFI_FIX, "--base", self.base, "--dry-run", "--parts", "ffi")
         self.assertEqual(code, 0, err)
-        self.assertEqual(receipt["steps"]["ffi"]["archive_sha256"], digest)
-        self.assertEqual(Path(receipt["steps"]["ffi"]["copy"]).read_bytes(), b"new library")
+        self.assertNotIn("ffi", plan["parts"], err)
+        self.assertIn("rust", plan["parts"])
+        self.assertNotIn("Rust the app links (FFI)", plan["left"])
+
+    def test_fetch_checks_the_published_library(self):
+        digest = self.publish()
+        library, got = self.fetch_library()
+        self.assertEqual(got, digest)
+        self.assertEqual(library.read_bytes(), b"new library")
 
     def test_an_unpublished_release_says_so(self):
-        code, receipt, err = self.hot("apply", FFI_FIX, "--base", self.base, "--dry-run", "--parts", "ffi")
-        self.assertIn("not published", " ".join(receipt["left"]["ffi"]), err)
+        with self.assertRaises(self.ffi.Left) as left:
+            self.fetch_library()
+        self.assertIn("not published", str(left.exception))
 
     def test_a_release_from_before_the_dylib_is_left(self):
         self.publish(member="CCmuxAppFFI.xcframework/macos-arm64_x86_64/libcmux_app_ffi.a")
-        code, receipt, err = self.hot("apply", FFI_FIX, "--base", self.base, "--dry-run", "--parts", "ffi")
-        self.assertIn("carries no libcmux_app_ffi.dylib", " ".join(receipt["left"]["ffi"]), err)
+        with self.assertRaises(self.ffi.Left) as left:
+            self.fetch_library()
+        self.assertIn("carries no libcmux_app_ffi.dylib", str(left.exception))
 
     def test_an_archive_that_does_not_hash_to_its_sums_changes_nothing(self):
         self.publish()
         sums = self.releases / f"cmux-app-ffi-{FFI_FIX}" / "SHA256SUMS"
         sums.write_text(f"{'0' * 64}  CCmuxAppFFI.xcframework.zip\n")
-        code, receipt, err = self.hot("apply", FFI_FIX, "--base", self.base, "--dry-run", "--parts", "ffi")
-        self.assertNotEqual(code, 0)
-        self.assertIn("does not hash", receipt["error"], err)
+        with self.assertRaises(RuntimeError) as error:
+            self.fetch_library()
+        self.assertIn("does not hash", str(error.exception))
         self.assertFalse((self.tmp / "state" / "ffi").exists())
 
     def test_a_developer_id_app_takes_the_library_only_as_asked(self):

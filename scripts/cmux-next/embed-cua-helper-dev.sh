@@ -7,8 +7,8 @@
 # where ComputerUseHelperV2 starts it for computerUse.driver = "upstream".
 # The bytes are never re-signed here (the helper's code identity, and so its
 # macOS grant, must stay the same across builds); Xcode signs the outer app
-# without --deep. The nested cmux Remote asset is also embedded for NIGHTLY
-# Release builds. An unavailable helper (no R2 read
+# without --deep. The cmux Remote asset is also embedded for a Release build
+# that asks for it (embed-cmux-remote-dev.sh). An unavailable helper (no R2 read
 # credentials) warns and embeds nothing unless CMUX_NEXT_REQUIRE_CUA_HELPER=1;
 # a sha256 mismatch fails the build. CMUX_NEXT_SKIP_CUA_HELPER=1 embeds nothing.
 set -euo pipefail

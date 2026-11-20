@@ -17,7 +17,8 @@ public import Foundation
 /// What runs, one after another, each stopped after `timeout`: the staged app's executable with
 /// ``argument`` (`CmuxNextApp.main()` exits on it before anything else, so exec, dyld and static
 /// initializers run and nothing more), then the bundled `cmux` and `cmux-tui` with `--version`, then
-/// each Chromium helper app with `--version` (the first loads the CEF framework, about 1.4 s).
+/// each Chromium helper app with `--version` (the first loads the CEF framework, about 1.4 s), then every
+/// page of `Contents/Frameworks` read once (``readPages(under:)``), the framework code the helpers never ran.
 /// Nothing is written, verified or skipped: Gatekeeper, quarantine and the code signature checks
 /// run as they always do, only earlier.
 public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
@@ -151,12 +152,60 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
             progress?("launch pre-warm of \(build): \(part)")
             parts.append(part)
         }
+        // The framework's pages a renderer and the GPU process run, which the helpers' --version never touched
+        // (``readPages(under:)``). Its own idle slot on the files lane: the best-effort one may still hold the
+        // rollback keep, and nobody waits for this.
+        let frameworks = bundle.appending(path: "Contents/Frameworks"), started = ContinuousClock.now
+        if let pages = try? await work.run(.idle, mayBlock: .files, { Self.readPages(under: frameworks) }) {
+            let part = "Frameworks read \(pages.files) files, \(pages.pages) pages \(Self.milliseconds(ContinuousClock.now - started)) ms"
+            progress?("launch pre-warm of \(build): \(part)")
+            parts.append(part)
+        }
         if let marker {
             let build = build
             try? await work.run(.userVisible, mayBlock: .files) { Self.writeLaunchMarker(build: build, at: marker) }
         }
         return "launch pre-warm of \(build) (\(bundle.lastPathComponent)): "
             + (parts.isEmpty ? "nothing to run" : parts.joined(separator: ", ") + "; \(Self.milliseconds(ContinuousClock.now - asked)) ms in all")
+    }
+
+    /// What ``readPages(under:)`` read.
+    public struct Pages: Equatable, Sendable {
+        public var files = 0
+        public var pages = 0
+        /// The bytes read, folded together, so the compiler cannot drop the reads.
+        var fold: UInt8 = 0
+    }
+
+    /// Reads one byte of each page of every regular file under `root` through a read-only mapping. Blocking.
+    ///
+    /// The helpers' `--version` (``runs(bundle:)``) loads the CEF framework but runs none of it: with no `--type`,
+    /// `CefExecuteProcess` returns -1 at once (the exit 255 in the update log; a failed load exits 1,
+    /// CEFShim/src/helper_main.mm). So the framework's code a renderer and the GPU process run, and its resources
+    /// (`icudtl.dat`, the V8 snapshot, the paks), were never paged in. Run on `Contents/Frameworks` after the
+    /// helpers, so the framework's code signature is already attached, each page faulted in here is resident and
+    /// checked when the first launch after the update maps it (about 330 MB in NIGHTLY, 2026-11-16). The pages are
+    /// file-backed and clean, so the system drops them first under memory pressure.
+    public static func readPages(under root: URL) -> Pages {
+        var result = Pages()
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]
+        guard let walker = FileManager().enumerator(at: root, includingPropertiesForKeys: Array(keys)) else { return result }
+        let page = Int(getpagesize())
+        for case let url as URL in walker {
+            guard let values = try? url.blockingResourceValues(forKeys: keys), values.isRegularFile == true,
+                  values.isSymbolicLink != true, let size = values.fileSize, size > 0 else { continue }
+            let descriptor = open(url.path, O_RDONLY | O_CLOEXEC)
+            guard descriptor >= 0 else { continue }
+            defer { close(descriptor) }
+            guard let base = mmap(nil, size, PROT_READ, MAP_PRIVATE, descriptor, 0), base != MAP_FAILED else { continue }
+            defer { munmap(base, size) }
+            for offset in stride(from: 0, to: size, by: page) {
+                result.fold ^= base.load(fromByteOffset: offset, as: UInt8.self)
+                result.pages += 1
+            }
+            result.files += 1
+        }
+        return result
     }
 
     /// Whole milliseconds of `duration`.

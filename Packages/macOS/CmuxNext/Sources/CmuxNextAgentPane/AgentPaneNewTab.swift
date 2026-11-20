@@ -206,13 +206,17 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
         public var keywords: [String]
         /// The action's shortcut keycaps (`["⌘", "T"]`); nil without one.
         public var keycaps: [String]?
+        /// The command palette's symbol name.
+        public var symbol: String?
 
-        public init(id: String, title: String, detail: String? = nil, keywords: [String] = [], keycaps: [String]? = nil) {
+        public init(id: String, title: String, detail: String? = nil, keywords: [String] = [],
+                    keycaps: [String]? = nil, symbol: String? = nil) {
             self.id = id
             self.title = title
             self.detail = detail
             self.keywords = keywords
             self.keycaps = keycaps
+            self.symbol = symbol
         }
     }
 
@@ -308,7 +312,7 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
             "folders": folders,
             "projects": projects,
             "actions": actions.map { action in
-                optional([("id", action.id), ("title", action.title), ("detail", action.detail)])
+                optional([("id", action.id), ("title", action.title), ("detail", action.detail), ("symbol", action.symbol)])
                     .merging(["keywords": action.keywords]) { left, _ in left }
                     .merging(action.keycaps.map { ["keycaps": $0] } ?? [:]) { left, _ in left }
             },

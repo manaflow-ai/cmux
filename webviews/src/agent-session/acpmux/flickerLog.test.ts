@@ -3,7 +3,13 @@
 // kinda sluggish") held 369 lines and no page event: no `frames`, no `long-frame`.
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { pageHostFlickerSend, resetFlickerLogForTests, startFlickerLog, type FlickerEvent } from "./flickerLog";
+import {
+  FlickerLog,
+  pageHostFlickerSend,
+  resetFlickerLogForTests,
+  startFlickerLog,
+  type FlickerEvent,
+} from "./flickerLog";
 import { resetPageHostClientForTests } from "./pageHost";
 
 const scope = globalThis as Record<string, unknown>;
@@ -107,4 +113,41 @@ test("events wait for their batch: nothing goes out before the second ends or th
   expect(batches).toHaveLength(0);
   leave(win);
   expect(batches.map((batch) => batch.map((sent) => sent.kind))).toEqual([["page-load", "visibility"]]);
+});
+
+test("a record at rest arms no timer: its batch goes out at the end of its task, a second apart at most", async () => {
+  const batches: string[][] = [];
+  let now = 10_000;
+  const timers: { run: () => void; ms: number }[] = [];
+  const log = new FlickerLog(
+    (events) => batches.push(events.map((sent) => sent.kind)),
+    () => now,
+    (run, ms) => {
+      timers.push({ run, ms });
+      return timers.length as unknown as ReturnType<typeof setTimeout>;
+    },
+  );
+  // A chat switch's records, in one task: one batch after it, no timer.
+  log.transcriptMounted();
+  log.record("transcript-replace");
+  expect(batches).toHaveLength(0);
+  await settle();
+  expect(batches).toEqual([["transcript-mount", "transcript-replace"]]);
+  expect(timers).toHaveLength(0);
+  // Another record within the second waits for the rest of it, once.
+  now += 300;
+  log.record("frames");
+  log.record("long-frame");
+  await settle();
+  expect(batches).toHaveLength(1);
+  expect(timers.map((timer) => timer.ms)).toEqual([700]);
+  now += 700;
+  timers[0]!.run();
+  expect(batches.at(-1)).toEqual(["frames", "long-frame"]);
+  // Past the second again: at the end of the task, no timer.
+  now += 5_000;
+  log.record("visibility");
+  await settle();
+  expect(batches.at(-1)).toEqual(["visibility"]);
+  expect(timers).toHaveLength(1);
 });

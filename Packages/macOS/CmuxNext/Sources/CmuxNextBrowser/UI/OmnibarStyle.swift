@@ -12,7 +12,7 @@ import CmuxNextDesign
 /// text use neutral grays: cmux chrome has no blue accents.
 enum OmnibarStyle {
     /// Base padding: most spacing is a multiple of it (Helium's `kHeliumBasePadding`, 3).
-    static let basePadding: CGFloat = 3
+    static var basePadding: CGFloat { token("omnibarButtonSpacing") ?? 3 }
 
     // MARK: Toolbar
 
@@ -66,9 +66,9 @@ enum OmnibarStyle {
     /// The trailing buttons' gap to the pane's edge: More's center sits on the pane's trailing control
     /// column, under the tab bar's ⋮ (`Metrics.paneTrailingControlCenter`, Lawrence msg 19627).
     static var toolbarTrailingInset: CGFloat { max(0, Metrics.paneTrailingControlCenter - buttonSize / 2) }
-    /// Toolbar buttons highlight in a rounded square on hover and press, as round as a tab
-    /// (`Metrics.buttonCornerRadius`; Lawrence 2026-11-12, buttons round as tabs).
-    static var buttonCornerRadius: CGFloat { Metrics.buttonCornerRadius }
+    /// Toolbar buttons highlight in a rounded square on hover and press, at the tab's ratio on their own side, so
+    /// they keep one shape at every density (Lucas 2026-11-15; Lawrence 2026-11-12, buttons round as tabs).
+    static var buttonCornerRadius: CGFloat { Metrics.buttonCornerRadius(proportionalTo: buttonSize) }
     /// Toolbar button icons: `kToolbarButtonIconSize` (20 at Standard), inside Helium's 4 pt
     /// `TOOLBAR_BUTTON` insets.
     static var toolbarIconSize: CGFloat { metrics.toolbarIconSize }
@@ -93,45 +93,80 @@ enum OmnibarStyle {
     /// (`Metrics.tabCornerRadius`; Lawrence 2026-11-11: "same roundness as chrome"). With a radius the
     /// person set (`Metrics.cornerRadiusIsSet`) it is that radius itself (Lawrence 2026-11-05: "default
     /// roundness should be omnibar roundness"). `browser.omnibar.cornerRadius` overrides both.
-    static var barCornerRadius: CGFloat { Metrics.cornerRadiusIsSet ? Metrics.cornerRadius : Metrics.tabCornerRadius }
-    /// Page-info chip.
-    static var chipSize: CGFloat { barHeight - 4 }
-    static var chipButtonCornerRadius: CGFloat { Metrics.buttonCornerRadius(nestedIn: cardCornerRadius, inset: chipLeading) }
-    /// Chrome's omnibox padding, on the bar's height (Chrome's 30 pt row; Lucas 2026-11-14: "chrome's padding"): the
-    /// chip's glyph centers 22 pt in and the text starts 42 pt in, so the typed text and each suggestion's text start
-    /// on one column (the rows take these, `OmniboxSuggestionPanel`).
-    ///
-    /// Only Spacious keeps Chrome's column (its `omnibarChromeColumn` token): every other density takes Helium's, on
-    /// its 28 pt bar the chip 2 pt in and the text 31 pt in (location-bar.patch: edge padding 2, a 24 pt decoration,
-    /// inner padding 5), the same shares of the bar (Lawrence 2026-11-13: "use helium for default, for spacious,
-    /// still keep helium details, but match chrome's sizing/padding").
-    static var chipLeading: CGFloat {
-        BrowserChromeTuning.override(.chipLeading) ?? BrowserChromeTuning.chipLeading(bar: barHeight, chromeColumn: usesChromeColumn)
+    /// A browser density (one that sets `omnibarHeight`) keeps Helium's roundness on its own bar: 8 on 28, at every
+    /// height (Lucas 2026-11-14: "keep the same roundness throughout all densities"; never Chrome's pill).
+    static var barCornerRadius: CGFloat {
+        if Metrics.cornerRadiusIsSet { return Metrics.cornerRadius }
+        return token("omnibarCornerRadius")
+            ?? (isBrowserDensity ? (barHeight * 8 / 28).rounded() : Metrics.tabCornerRadius)
     }
-    /// Text distance after the chip: the text's start (``BrowserChromeTuning/textOrigin(bar:chromeColumn:)``) less the
-    /// chip's end and the field's own insets, so the text itself starts on the column.
+    /// The density draws a browser's location bar and card (`omnibarHeight` set): Default, Comfortable, Spacious.
+    static var isBrowserDensity: Bool { token("omnibarHeight") != nil }
+    /// A density's exact omnibar value (`DensityTokens.tokens[name]`, at the interface scale), or nil to derive it.
+    /// Default draws Helium's location bar and Comfortable Chrome's (chrome/browser/ui/layout_constants.cc).
+    static func token(_ name: String) -> CGFloat? { Metrics.tokens.tokens[name].map { Metrics.scale(CGFloat($0)) } }
+    /// Page-info chip: the density's `omnibarIconViewSize` (Chrome's and Helium's 24 pt page info icon view), else
+    /// the bar less 2 pt on each side.
+    static var chipSize: CGFloat {
+        let inset = 2 * edgeInset
+        return min(token("omnibarIconViewSize") ?? barHeight - inset, barHeight - inset)
+    }
+    static var chipButtonCornerRadius: CGFloat { Metrics.buttonCornerRadius(proportionalTo: chipSize) }
+    /// The page-info chip's x: a density's `omnibarIconLeading` (`kLocationBarLeadingDecorationEdgePadding`: Helium 2 at
+    /// Default, Chrome 5 at Comfortable), else Helium's share of the bar (``BrowserChromeTuning/chipLeading(bar:chromeColumn:)``,
+    /// Lawrence 2026-11-13), so the typed text and each suggestion's text start on one column (the rows take these,
+    /// `OmniboxSuggestionPanel`).
+    static var chipLeading: CGFloat {
+        BrowserChromeTuning.override(.chipLeading) ?? token("omnibarIconLeading")
+            ?? BrowserChromeTuning.chipLeading(bar: barHeight, chromeColumn: usesChromeColumn)
+    }
+    /// Text distance after the chip: a density's `omnibarTextGap` (`kLocationBarLeadingDecorationInnerPadding`: Helium 5,
+    /// Chrome 8), else Helium's text column (``BrowserChromeTuning/textOrigin(bar:chromeColumn:)``) less the chip's end.
     static var textLeading: CGFloat {
+        if let gap = token("omnibarTextGap"), BrowserChromeTuning.override(.textOrigin) == nil { return gap }
         let origin = BrowserChromeTuning.override(.textOrigin) ?? BrowserChromeTuning.textOrigin(bar: barHeight, chromeColumn: usesChromeColumn)
-        return max(0, origin - chipLeading - chipSize - fieldTextInsetCorrection - fieldTextInset)
+        return max(0, origin - chipLeading - chipSize)
+    }
+    /// A suggestion row's label (a label cell) draws its text this far inside its frame, where the bar's field draws at
+    /// its own edge, so a row places its label this much less far in and both texts start on Helium's column: 31 pt
+    /// into the bar, 38 into the card (measured in rendered views, outputs/2026-11-14-helium-match).
+    static let rowLabelTextInset: CGFloat = 2
+    /// How far the field moves down from the bar's center (Auto Layout's y grows down) so its baseline lands where
+    /// Chromium puts the omnibox text, at a browser density (`omnibarLineBoxBaseline`): the font's line box (ascent and
+    /// descent, each rounded up) centered in the bar and rounded down to a whole point, 19 pt under a 28 pt bar's top
+    /// for 14 pt text, as in Helium. Centered as a label, the field drew its text half a point lower than that and
+    /// than the suggestion rows. 0 at the other densities.
+    static func fieldBaselineShift(field: NSTextField) -> CGFloat {
+        guard token("omnibarLineBoxBaseline") != nil, let font = field.font else { return 0 }
+        // The capitals center on the bar's middle, the chip icon's center, on the pixel grid (Lucas 2026-11-16: "the
+        // search icon and the input text are aligned on the omnibar ... vertically aligned"), as a tab's title does.
+        let scale: CGFloat = field.window?.backingScaleFactor ?? 2
+        let target = ((barHeight / 2 + font.capHeight / 2) * scale).rounded() / scale
+        // Where the text draws now: the field centered in the bar on whole pixels (an odd gap rounds up a pixel), its
+        // baseline the font's ascender under its top (the text engine's, a fraction off `firstBaselineOffsetFromTop`).
+        let height = field.intrinsicContentSize.height
+        let top = (((barHeight - height) / 2) * scale).rounded(.down) / scale
+        let inset = field.firstBaselineOffsetFromTop - font.ascender.rounded()
+        let current = top + inset + font.ascender
+        return ((target - current) * scale).rounded() / scale
     }
     /// Whether the density keeps Chrome's omnibox column (Spacious) rather than Helium's.
     static var usesChromeColumn: Bool { BrowserChromeTuning.usesChromeColumn }
-    /// The bar's field draws its text 1 pt further in than a suggestion row's label does at the same x (the field
-    /// editor's and the label's fixed text insets differ), so the field sits 1 pt further right and the typed text
-    /// starts on the rows' column (Lucas 2026-11-14: "like 1pt to the right for search input"). A fixed inset of the
-    /// text views, so it does not scale with the density.
-    static let fieldTextInsetCorrection: CGFloat = 1
-    /// The resting field's own text inset: its cell's title rect and its field editor's line fragment padding
-    /// (`OmnibarFieldEditor`) both start the text 2 pt inside the field.
-    static let fieldTextInset: CGFloat = 2
-    /// Where the URL's text starts in the bar: the chip, the gap after it, the field's correction and its own inset.
-    static var textOrigin: CGFloat { chipLeading + chipSize + textLeading + fieldTextInsetCorrection + fieldTextInset }
+    /// Where the URL's text column starts in the bar: the chip, then the gap after it (the field's edge; a suggestion
+    /// row's label sits `rowLabelTextInset` less far in, so both texts start here).
+    static var textOrigin: CGFloat { chipLeading + chipSize + textLeading }
     /// The bar's trailing marks' distance from its edge.
-    static let edgeInset: CGFloat = 2
+    static var edgeInset: CGFloat { token("omnibarEdgeInset") ?? 2 }
     /// The field's distance from the trailing marks.
-    static let fieldTrailingGap: CGFloat = 5
-    static let trailingPadding: CGFloat = 8
+    static var fieldTrailingGap: CGFloat { token("omnibarFieldTrailingGap") ?? 5 }
+    static var trailingPadding: CGFloat { token("omnibarTrailingPadding") ?? 8 }
     static var iconPointSize: CGFloat { metrics.iconPointSize }
+    /// The chip's and each suggestion row's glyph side: the density's `omnibarIconSize` (Chrome's and Helium's
+    /// `kLocationBarIconSize`, 16), else the icon row size for ``iconPointSize``.
+    static var iconSide: CGFloat {
+        // Never past the chip it sits in: a custom density can shorten the bar under the exact size.
+        min(token("omnibarIconSize") ?? .iconRowSize(forLabelPointSize: iconPointSize), chipSize)
+    }
     /// The bar's text: 14 pt (`TypeScale.field`) at Standard, by density or `browser.omnibar.fontSize`.
     static var font: NSFont { Typography.system(size: metrics.fontSize, weight: TypeScale.regular) }
     static var ringWidth: CGFloat { 2 }
@@ -147,18 +182,66 @@ enum OmnibarStyle {
     /// "extrapolate helium's roundness"), unless the glass look sets its own radius.
     static var cardCornerRadius: CGFloat {
         guard OmnibarGlassLook.current.cornerRadius == nil else { return OmnibarGlassLook.current.resolvedCornerRadius(barHeight: barHeight) }
+        if let radius = token("omnibarPopupCornerRadius") { return radius }
+        // Helium's 12 on its 28 pt rows, at every row height.
+        if isBrowserDensity { return (rowHeight * 12 / 28).rounded() }
         return min((rowHeight * 17 / 39).rounded(), barHeight / 2)
     }
-    static let cardTopOutset: CGFloat = 0
-    static let cardSideOutset: CGFloat = 0
+    /// How far the open card reaches above the bar and past its sides: the density's `omnibarPopupTopOutset` and
+    /// `omnibarPopupSideOutset` (Helium's RoundedOmniboxResultsFrame: 3 above, up to the tabs, and 7 each side), else 0.
+    /// How far the open card reaches above `bar`: up to the tab pills' bottom edge, measured from the bar's place in its
+    /// window, so the card touches the tab above it as Helium's does at every density and in every pane (Lucas
+    /// 2026-11-14: "it should be directly connected to the tab when typing"). The strip's room under its pills, then the
+    /// toolbar's own top padding; a top-row strip evens its pills between the window's top edge and its bottom
+    /// (`TabStripView.computeTabTop`), so its room under them follows from where the strip sits in the window.
+    /// Only a horizontal tab strip right above the toolbar has tabs to reach: with the tabs at the bottom, vertical, or
+    /// under the toolbar, the bar heads its pane and the card stays at its top edge (0).
+    @MainActor static func cardTopOutset(bar: NSView) -> CGFloat {
+        let design = DesignSettings.shared
+        guard design.tabBarPosition == .top, !design.verticalTabs, design.tabBarOrder == .aboveToolbar else { return 0 }
+        let scale = bar.window?.backingScaleFactor ?? 2
+        let chrome = PaneChromeMetrics.current
+        let toolbarPadding = barTop(scale: scale)
+        // A strip lays out at its resolved height (`PaneChromeMetrics.resolvedStripHeight`), its pills the tab gap above
+        // its bottom.
+        let stripHeight = chrome.resolvedStripHeight(scale: scale)
+        var underPills = chrome.tabGap(scale: scale)
+        if let window = bar.window, let content = window.contentView, WindowTitlebar.topRowEvensPillGaps(in: window) {
+            let barRect = bar.convert(bar.bounds, to: nil)
+            let strip = CGRect(x: barRect.minX, y: barRect.maxY + toolbarPadding, width: barRect.width, height: stripHeight)
+            if WindowTitlebar.isInTopRow(strip, in: window) {
+                let tab = min(chrome.tabHeight, stripHeight)
+                let row = PaneChromeMetrics(stripHeight: stripHeight, tabHeight: tab, panePadding: 0)
+                underPills = max(0, stripHeight - row.pillTop(stripTop: content.bounds.maxY - strip.maxY, scale: scale) - tab)
+            }
+        }
+        return underPills + toolbarPadding
+    }
+    /// The card's reach past each side of the bar: the density's `omnibarPopupSideOutset` (Helium's 7 on its 28 pt bar),
+    /// else Helium's ratio on this bar.
+    static var cardSideOutset: CGFloat { token("omnibarPopupSideOutset") ?? (barHeight * 7 / 28).rounded() }
     /// Rows: bar height, touching as Chrome's do, inset so their corner is concentric with the card's, and Chrome's
     /// 11 pt on 30 under the last row.
-    static var rowHeight: CGFloat { barHeight }
+    /// A density's `omnibarPopupRowGap` and `omnibarPopupBottomPadding` set them instead (Helium: 2 above each row, 4
+    /// under the last); rows inset so their corner is concentric with the card's (4 at Default).
+    /// A density's `omnibarPopupRowHeight` (Chrome's 40 pt rows under its 34 pt bar) sets it, unless the person set the
+    /// bar's height (`browser.omnibar.height`): then the rows are the bar's height.
+    static var rowHeight: CGFloat {
+        guard OmnibarGlassAppearance.current.height == nil, let row = token("omnibarPopupRowHeight") else { return barHeight }
+        return max(row, barHeight)
+    }
     static var rowSideInset: CGFloat { max(edgeInset, cardCornerRadius - rowCornerRadius) }
-    static let rowGap: CGFloat = 0
-    static var cardBottomPadding: CGFloat { (rowHeight * 11 / 30).rounded() }
+    static var rowGap: CGFloat { token("omnibarPopupRowGap") ?? 0 }
+    /// Under the last row: the row's side inset, so its bottom corners stay concentric with the card's (Lucas 2026-11-16:
+    /// "concentric corners on the search across all densities").
+    static var cardBottomPadding: CGFloat { rowSideInset }
     /// The highlighted row's corner: a tab's on the row's height (8 on 30), the ratio Helium's rows draw.
-    static var rowCornerRadius: CGFloat { Metrics.chromeRowCornerRadius(height: rowHeight) }
+    /// At a browser density, Helium's 8 on its 28 pt rows at every row height, so the row stays concentric with the
+    /// card across ``rowSideInset``.
+    static var rowCornerRadius: CGFloat {
+        token("omnibarPopupRowCornerRadius")
+            ?? (isBrowserDensity ? (rowHeight * 8 / 28).rounded() : Metrics.chromeRowCornerRadius(height: rowHeight))
+    }
     static var rowDetailFont: NSFont { font }
 
     // MARK: Colors
@@ -187,4 +270,7 @@ enum OmnibarStyle {
     static var selection: NSColor { Palette.textSelection } // theme-scoped
     static var textPrimary: NSColor { Palette.textPrimary } // theme-scoped
     static var textSecondary: NSColor { Palette.textSecondary } // theme-scoped
+    /// The chip's and the suggestion rows' glyphs: Chrome's `kColorOmniboxResultsIcon` tone, the primary text at 83%
+    /// (#C6C6C6 over Helium's dark bar, #464747 over its light one).
+    static var resultsIcon: NSColor { Palette.textPrimary.withAlphaComponent(Palette.textPrimary.alphaComponent * 0.83) } // theme-scoped
 }

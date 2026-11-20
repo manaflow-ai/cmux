@@ -162,6 +162,8 @@ final class TabContentCache {
 
     /// The app's grid sender for every terminal it makes (``ResizeCoordinator``).
     let resizes: ResizeCoordinator
+    /// Each guest view by its session, with its tab (`TabContentCache+GuestTerminals`): a second window's view of a terminal.
+    var guestTerminals: [ObjectIdentifier: (tab: String, entry: TerminalEntry)] = [:]
 
     /// - Parameters:
     ///   - fileInput: answers a WebKit browser tab's file input (the App's made-ahead panel; tests pass a stand-in).
@@ -239,7 +241,7 @@ final class TabContentCache {
 
     /// The tab id whose surface is `session`.
     func tabKey(for session: TerminalSession) -> String? {
-        terminals.first { $0.value.session === session }?.key
+        guestTerminals[ObjectIdentifier(session)]?.tab ?? terminals.first { $0.value.session === session }?.key
     }
 
     // MARK: Browsers

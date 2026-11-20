@@ -36,6 +36,9 @@
     "cmux-next-web.yml": {
       "web-bisect": "web-bisect-probe.sh checks out --force (keeps the patterns) and builds webviews; run-webviews-tests.sh lists tests from cwd=webviews"
     },
+    "cmux-next-tab-switch.yml": {
+      "scope": "runs tests/test_cmux_next_tab_switch_gate.py and scripts/cmux-next/tab_switch_gate.py, and diffs HEAD^1 against HEAD for names only; none reads cmux-next-ios/verify/"
+    },
     "cmux-tui-testbox-warmup.yml": {
       "cmux-tui-rust": "builds cmux-tui; the source-mtimes helper walks only files that exist"
     },

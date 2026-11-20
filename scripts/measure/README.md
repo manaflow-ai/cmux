@@ -53,7 +53,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `instant-new-surfaces.sh` | Key to visible frame for Cmd-N, Cmd-T, Cmd-D, Cmd-Shift-D. | - | 2026-10-27 | active |
 | `new-terminal-100x.sh` | New terminal, split and workspace latency through the cmux-tui daemon. | - | 2026-11-07 | active |
 | `held-new-tab.sh` | Held Cmd-T with Cmd-W now and then, in a session of many workspaces. | - | 2026-11-15 | active |
-| `held-new-tab.py` | Python driver for held-new-tab.sh. | - | 2026-11-15 | active |
+| `held-new-tab.py` | Python driver for held-new-tab.sh. | - | 2026-11-16 | active |
 | `burst-bench.sh` | Bursts of Cmd-W, Cmd-D and Cmd-Shift-D: per-press input to next commit. | PL-burst | 2026-10-27 | active |
 | `palette-open.sh` | Command palette open time, per stage, from several page types. | - | 2026-10-27 | active |
 | `omnibar-click.sh` | Omnibar mouse-down to the frame that shows focus. | - | 2026-10-27 | active |

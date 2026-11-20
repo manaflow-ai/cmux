@@ -174,6 +174,7 @@ pub(super) fn parse_resource_layout_document(
         viewport_splits: Default::default(),
         viewport_base_width,
         layout_columns,
+        floating: current.floating_panes(),
     };
     if !snapshot.layout_columns.is_empty() {
         sync_layout_column_projection(&mut snapshot);

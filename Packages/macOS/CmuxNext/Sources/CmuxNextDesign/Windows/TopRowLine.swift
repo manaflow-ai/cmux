@@ -98,12 +98,18 @@ extension WindowTitlebar {
     /// own cards, which sit the gutter and a pane padding down.
     public static func topRowLine(in window: NSWindow, look: TopRowLineLook = TopRowLineLook.tunable.value) -> TopRowLine? {
         guard let target = targetTopRowLine(in: window, look: look) else { return nil }
-        guard look != .off, look != .concentric else { return target }
+        guard look != .off else { return target }
         let scale = window.backingScaleFactor
         let row = topRowMetrics(scale: scale)
         if Metrics.floatingPanes {
+            guard look != .concentric else { return target }
             let stripTop = Metrics.mainPaneGutter + PaneChromeMetrics.snap(Metrics.panePadding, scale)
             return TopRowLine(centerY: stripTop + row.pillTop(scale: scale) + row.tabHeight / 2)
+        }
+        if look == .concentric {
+            // The card keeps its concentric gutter; the pills sit midway between the window's top edge and the strip's
+            // bottom (Lucas 2026-11-14: the top row's tabs had more room above than below), and the line is theirs.
+            return target.reached(by: row, cardTop: Metrics.windowEdgeInset(Metrics.mainPaneGutter, in: window), scale: scale)
         }
         let card = topRowCardTop(centeringPillOn: target.centerY, gutter: Metrics.mainPaneGutter, in: window, look: look)
         return target.reached(by: row, cardTop: card, scale: scale)
@@ -114,7 +120,7 @@ extension WindowTitlebar {
     /// line variant other than `off`, and no floating panes (each of those pills centers in its own card).
     public static func topRowEvensPillGaps(in window: NSWindow) -> Bool {
         let look = TopRowLineLook.tunable.value
-        return look != .off && look != .concentric && !Metrics.floatingPanes && targetTopRowLine(in: window, look: look) != nil
+        return look != .off && !Metrics.floatingPanes && targetTopRowLine(in: window, look: look) != nil
     }
 
     /// The variant's line before the card's limits (``topRowLine(in:look:)``): what the card's top aims for.

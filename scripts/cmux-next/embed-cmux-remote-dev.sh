@@ -7,9 +7,12 @@
 # and starts it. Run from the "Embed Computer Use helper (dev)" phase
 # (embed-cua-helper-dev.sh). The bytes are never re-signed (cmux Remote's code
 # identity, and so its macOS grants, must stay the same across builds).
-# The embedded worker is signed separately and is also used by NIGHTLY Release builds.
-# Release requires the asset, so a published build cannot silently lose Screen Sharing.
-# CMUX_NEXT_ALLOW_NO_CMUX_REMOTE=1 is the opt-in of a Release build that may go out with no cmux
+# A Release build embeds it only with CMUX_NEXT_EMBED_CMUX_REMOTE_IN_RELEASE=1 (decision of
+# 2026-11-16: the third-party notices and the load-command check of a published build do not cover
+# the embedded bundle yet). Without the variable a Release build prints one note line and embeds
+# nothing, and with CMUX_NEXT_REQUIRE_CMUX_REMOTE=1 and not the variable it fails: a build that
+# requires the asset does not go out with none. With the variable, Release requires the asset.
+# CMUX_NEXT_ALLOW_NO_CMUX_REMOTE=1 is the opt-in of such a Release build that may go out with no cmux
 # Remote (decision of 2026-11-16): on a Mac with no source for the asset (no cached zip, a store
 # that gives no URL for it, no read credentials) that build prints one NOT EMBEDDED warning line and
 # embeds nothing (docs/cmux-remote.md). With the opt-in a missing pin file, a failed download and a
@@ -41,6 +44,10 @@ bench=0
 [[ " ${OTHER_SWIFT_FLAGS:-} " == *" -DCMUX_BENCH_HOOKS "* ]] && bench=1
 allow_no_source=0
 if [[ "${CONFIGURATION:-}" == "Release" && "$bench" == "0" ]]; then
+  if [[ "${CMUX_NEXT_EMBED_CMUX_REMOTE_IN_RELEASE:-0}" != "1" ]]; then
+    [[ "$required" == "1" ]] && { echo "error: CMUX_NEXT_REQUIRE_CMUX_REMOTE=1 in a Release build needs CMUX_NEXT_EMBED_CMUX_REMOTE_IN_RELEASE=1 (a Release build embeds cmux Remote only when asked)" >&2; exit 1; }
+    skip "Release configuration (embedded only with CMUX_NEXT_EMBED_CMUX_REMOTE_IN_RELEASE=1)"
+  fi
   [[ "$required" != "1" && "${CMUX_NEXT_ALLOW_NO_CMUX_REMOTE:-0}" == "1" ]] && allow_no_source=1
   required=1
 fi

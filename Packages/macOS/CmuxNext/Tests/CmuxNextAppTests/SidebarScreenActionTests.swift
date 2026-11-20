@@ -34,12 +34,10 @@ import Testing
         list.reload(animated: false)
         list.layoutSubtreeIfNeeded()
         let row = try #require(list.rowViews[.workspace(WorkspaceID("ws-local"))] as? WorkspaceRowView)
-        let button = try #require(row.screenSlot.made)
-        #expect(!button.isHidden)
-        #expect(button.label == Strings.shareScreen)
-        #expect(button.accessibilityPerformPress())
+        #expect(row.screenAction == nil)
+        #expect(row.screenSlot.made == nil)
         #expect(!list.rowViews.values.contains { $0 is ListHeaderRowView })
-        #expect(intents == [.shareScreen(.local)])
+        #expect(intents.isEmpty)
         #expect(!list.rowViews.values.contains { $0 is SectionHeaderRowView })
     }
 
@@ -58,12 +56,12 @@ import Testing
         let headers = list.rowViews.values.compactMap { $0 as? SectionHeaderRowView }
         #expect(!headers.isEmpty, "flat layouts retain machine headers so Add remains reachable")
         #expect(headers.allSatisfy { !$0.addButton.isHidden }, "Add stays visible in the flat layout")
-        for id in ["local", "mac", "cloud", "offline"] {
+        for id in ["mac", "cloud", "offline"] {
             let row = try #require(list.rowViews[.workspace(WorkspaceID("ws-" + id))] as? WorkspaceRowView)
             let button = try #require(row.screenSlot.made)
             #expect(!button.isHidden)
             #expect(button.accessibilityPerformPress() == (id != "offline"))
-            if id != "offline" { #expect(intents.last == (id == "local" ? .shareScreen(.local) : .viewScreen(MachineID(id)))) }
+            if id != "offline" { #expect(intents.last == .viewScreen(MachineID(id))) }
             let titleAtRest = row.title.frame
             #expect(titleAtRest.width >= 2 * SidebarStyle.controlSize, "the project title retains usable text space")
             #expect(titleAtRest.maxX <= button.frame.minX)
@@ -79,7 +77,7 @@ import Testing
             }
             #expect(!row.closeSlot.frame.intersects(row.moreSlot.frame))
         }
-        for id in ["linux"] {
+        for id in ["local", "linux"] {
             let row = try #require(list.rowViews[.workspace(WorkspaceID("ws-" + id))] as? WorkspaceRowView)
             #expect(row.screenAction == nil)
             #expect(row.screenSlot.made == nil)
@@ -114,10 +112,9 @@ import Testing
         let row = try #require(list.rowViews[.workspace(WorkspaceID("ws-mac"))] as? WorkspaceRowView)
         let button = try #require(row.screenSlot.made)
         row.configureScreen(Self.examples[0].machine)
-        #expect(button.label == Strings.shareScreen)
-        #expect(button.icon == .actionShare)
-        #expect(button.accessibilityPerformPress())
-        #expect(intents.last == .shareScreen(.local))
+        #expect(button.isHidden)
+        #expect(!button.accessibilityPerformPress())
+        #expect(intents.isEmpty)
         row.configureScreen(Self.examples[1].machine)
         #expect(button.label == Strings.viewScreen)
         #expect(button.icon == .remoteDisplay)
@@ -126,7 +123,7 @@ import Testing
         row.configureScreen(nil)
         #expect(button.isHidden)
         #expect(!button.accessibilityPerformPress())
-        #expect(intents.count == 2)
+        #expect(intents.count == 1)
     }
 
     @Test(arguments: [240.0, 300.0, 360.0])

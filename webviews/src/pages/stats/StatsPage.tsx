@@ -32,7 +32,6 @@ export function StatsPage({ store, strings }: { store: StatsStore; strings: Stri
       <header className="stats-header">
         <div>
           <h1 className="stats-title">{strings.t("stats.page.title")}</h1>
-          <p className="stats-private">{strings.t("stats.page.private")}</p>
         </div>
         <fieldset className="stats-ranges" aria-label={strings.t("stats.range.label")}>
           {RANGES.map((option) => (

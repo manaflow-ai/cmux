@@ -13,7 +13,14 @@ const many = Array.from({ length: 300 }, (_, index) => ({
 const omnibar: OmnibarContext = omnibarContext({
   ...EMPTY_OMNIBAR,
   actions: [
-    { id: "newWindow", title: "New Window", detail: "Windows", keywords: ["window"], keycaps: ["⇧", "⌘", "N"] },
+    {
+      id: "newWindow",
+      title: "New Window",
+      detail: "Windows",
+      keywords: ["window"],
+      keycaps: ["⇧", "⌘", "N"],
+      symbol: "macwindow",
+    },
     { id: "toggleSidebar", title: "Toggle Sidebar", detail: "View", keywords: [] },
     { id: "", title: "No id" },
     ...many,
@@ -28,6 +35,7 @@ test("the host's whole palette list is kept, past the 40-entry cap of the other 
     detail: "Windows",
     keywords: ["window"],
     keycaps: ["⇧", "⌘", "N"],
+    symbol: "macwindow",
   });
 });
 
@@ -39,6 +47,7 @@ test("an action the text names is a row, best match first", () => {
     type: "action",
     id: "newWindow",
     keycaps: ["⇧", "⌘", "N"],
+    symbol: "macwindow",
   });
   // The last of 300 is still found: no cap before the match.
   expect(actionRows("number 299", omnibar)).toEqual([{ type: "action", id: "action.299", title: "Action number 299" }]);

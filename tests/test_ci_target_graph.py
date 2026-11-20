@@ -81,6 +81,9 @@ class LiteralReadsCase(unittest.TestCase):
             'let checkoutState = ".git/config"\n'
             'let home = ".claude/settings.json"\n'
             'let codexHome = ".codex/hooks.json"\n'
+            # AppWebPaneTests' rejected roots: a "." segment names no repository file ("./web" made
+            # every web/ pull request a Mac one).
+            'let rejectedRoot = "./schemas"\n'
             'let real = "App/README.md"\n',
             encoding="utf-8",
         )

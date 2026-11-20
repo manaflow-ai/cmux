@@ -135,7 +135,7 @@ nonisolated enum TabSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.tabs.toolbarButtons", "Tab Bar Buttons"),
-                help: SettingsText.keyed("settings.tabs.toolbarButtons.help", "Actions shown as buttons at the tab bar's trailing end. Pin or unpin one from Show in Tab Bar in the tab bar's right-click menu."),
+                help: SettingsText.keyed("settings.tabs.toolbarButtons.help", "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back."),
                 kind: .orderedChoices([
                     SettingChoice("splitRight", SettingsText.keyed("settings.tabs.toolbarButtons.splitRight", "Split Right")),
                     SettingChoice("splitDown", SettingsText.keyed("settings.tabs.toolbarButtons.splitDown", "Split Down")),
@@ -146,7 +146,7 @@ nonisolated enum TabSettingsSchema {
                 ]),
                 default: .array(PaneToolbarButtonsSetting.fallback.map { .string($0) }),
                 keywords: ["toolbar", "split", "buttons", "pin", "more"]
-            ).hiddenFromSettingsPage("action ids; toggled from the tab bar's right-click menu (Show in Tab Bar)"),
+            ).hiddenFromSettingsPage("action ids; toggled from the tab bar's More menu (Show in Tab Bar)"),
             SettingDescriptor(
                 LayoutMetricSetting.tabFontSizePath,
                 section: .general,

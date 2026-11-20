@@ -66,6 +66,14 @@ async function billingResponse(origin: string, headers: Headers, signal: AbortSi
   });
 }
 
+/**
+ * What the mocked cmux-platform answers on `GET /v1/machines/credentials/self`,
+ * by machine credential; any other credential gets 401, as a revoked one does.
+ */
+export const platformMachines = new Map<string, Record<string, unknown>>();
+/** Every credential the hub asked cmux-platform about. */
+export const platformCalls: string[] = [];
+
 let stackKeys: CryptoKeyPair | null = null;
 export const outbound: string[] = [];
 
@@ -93,6 +101,14 @@ export function mockOutbound() {
       if (init?.redirect === "error") throw new TypeError("Invalid redirect value, must be one of \"follow\" or \"manual\"");
       const headers = new Headers(input instanceof Request ? input.headers : init?.headers);
       return billingResponse(billing[1]!, headers, init?.signal ?? (input instanceof Request ? input.signal : undefined));
+    }
+    if (url === "https://platform.test/v1/machines/credentials/self") {
+      const headers = new Headers(input instanceof Request ? input.headers : init?.headers);
+      const bearer = /^Bearer (\S+)$/.exec(headers.get("authorization") ?? "")?.[1] ?? "";
+      platformCalls.push(bearer);
+      const answer = platformMachines.get(bearer);
+      if (!answer) return Response.json({ _tag: "JoinUnauthorized" }, { status: 401 });
+      return Response.json(answer);
     }
     if (url.startsWith("https://rtc.live.cloudflare.com/v1/turn/keys/turn-key/credentials/generate-ice-servers")) {
       return Response.json({

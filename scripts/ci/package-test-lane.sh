@@ -772,7 +772,7 @@ linux_suite_setup() {
 # for a broad filter shares one main thread: `--filter Sidebar` started about 250 GUI tests at once and none
 # finished for minutes until the watchdog ended it (fleet bd721902, 2026-11-15). A word that names no suite fails.
 expand_each_filters() {
-  local package="$1" filter word list filters expanded=() matched line suite
+  local package="$1" filter word list filters expanded=() found=() matched line suite
   for filter in "${suite_filters[@]}"; do
     [[ "$filter" == each:* ]] || { expanded+=("$filter"); continue; }
     if [ "$lane_os" = Linux ]; then
@@ -789,7 +789,7 @@ expand_each_filters() {
       suite="$(filter_label "$line")"
       suite="${suite#*.}"
       if [[ "$suite" == *"$word"* ]]; then
-        expanded+=("$line")
+        expanded+=("$line") found+=("$line")
         matched=$((matched + 1))
       fi
     done < "$filters"
@@ -799,6 +799,9 @@ expand_each_filters() {
     echo "$filter: $matched suites, each in its own process"
   done
   suite_filters=("${expanded[@]}")
+  # The suites each: found, one per line: one whose own traits skip all of it (an opt-in gallery or profile,
+  # a display check) is "skipped", not "no result", since nobody named it; a named suite that runs nothing fails.
+  printf '%s\n' ${found[@]+"${found[@]}"} > "$each_found"
 }
 
 # filter_label FILTER: Target.Suite for an expanded ^Target\.Suite/ filter, else FILTER as given.
@@ -921,6 +924,8 @@ run_suite() {
   # way, and display tests gate nothing (Leo, 2026-10-31: "i dont like doing display tests anymore"): it
   # reads "skipped (needs a display)" with a notice and does not fail the step, unless the step asked for a
   # display (CMUX_TEST_REQUIRE_GUI=1, or cmux-ci's --display marks it CMUX_CI_DISPLAY_ROUTED=1).
+  local each_found
+  each_found="$(mktemp -t swift-suite-each.XXXXXX)"
   expand_each_filters "$suite_package"
   local log filter status started result failed=0 first_failure_status=0 display_only=0 rows=()
   local ran skipped reason reasons daemon_skips display_skips hint display_step_skips
@@ -973,6 +978,10 @@ run_suite() {
       display_only=$((display_only + 1))
       result="skipped (needs a display)"
       echo "::notice title=Swift suite needs a display::$filter in $suite_package: none of its $skipped tests ran (each needs a display); display tests gate nothing, so the step goes on. Run it on a display worker with cmux-ci run --display"
+    elif [ "$status" -eq 0 ] && [ "$ran" -eq 0 ] && [ "$daemon_skips" -eq 0 ] && [ "$skipped" -gt 0 ] &&
+         grep -qxF -- "$filter" "$each_found"; then
+      result="skipped (all $skipped skipped)"
+      echo "::notice title=Swift suite skipped::$(filter_label "$filter") in $suite_package: its own traits skipped all $skipped of its tests; each: found it, so it does not fail the step"
     elif [ "$status" -eq 0 ] && { [ "$ran" -eq 0 ] || [ "$daemon_skips" -gt 0 ]; }; then
       failed=$((failed + 1))
       status=1

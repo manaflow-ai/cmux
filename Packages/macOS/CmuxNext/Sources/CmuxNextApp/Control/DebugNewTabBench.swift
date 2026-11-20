@@ -52,7 +52,7 @@ enum DebugNewTabBench {
     }
 
     /// `bench_settings`: Cmd-, in window `window` (Settings opens late, 2026-11-15). `tab_ms`: a pane's strip (any: an inactive
-    /// app may keep the focus in Home's dock) first selects a Settings tab it hosts; `visible_ms`: that page drew (no paint hold over it) at its size.
+    /// app may keep the focus in Home's dock) first shows a Settings tab it hosts, selected; `visible_ms`: that page drew (no paint hold over it) at its size.
     static func settings(_ controller: WindowController, _ services: AppServices) async -> JSONValue {
         var tab: Double?, page: PageWebView?
         let claims = services.pageHostPool.claims.count
@@ -61,7 +61,7 @@ enum DebugNewTabBench {
         } until: { at in
             guard let pane = controller.content?.panes.values.first(where: { ($0.view.content as? InternalPageView)?.page == .settings && $0.currentTabKey != nil
                     && $0.stripModel.selectedID?.rawValue == $0.currentTabKey }), let view = pane.view.content as? InternalPageView else { return false }
-            if tab == nil { tab = at }
+            if tab == nil, pane.view.stripView.alphaValue > 0.99 { tab = at } // the tab shows, not only selected
             page = view.content as? PageWebView
             return page?.hasPainted == true && pane.view.paintHold.kept == nil && view.window != nil && view.alphaValue > 0.99
         }

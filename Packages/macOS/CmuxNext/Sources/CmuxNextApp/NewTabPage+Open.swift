@@ -95,8 +95,8 @@ extension NewTabPage {
         }
         // `showNow` already syncs the strip as part of presenting the adopted spare. Repeating
         // that full reconciliation on the same main-actor turn adds directly to the Cmd-T p95
-        // budget (cx-98s). Cold pages still need the immediate strip sync because their content
-        // is presented by the normal scheduler on a later frame.
+        // budget (cx-98s). A cold page still gets the strip sync now: its view is made by the
+        // scheduler at the next frame (`PaneController.apply`, the frame rule, decision 2026-11-16).
         if !showedSpare {
             BenchSpans.measure("newTab.strip") { pane.view.stripView.sync(fromModel: true) }
         }

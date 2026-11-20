@@ -67,11 +67,7 @@ final class CEFRuntime {
                 return CEFPageRendererGC.Page(browser: browser, isCmuxPage: CEFPageRendererGC.isCmuxPage(tab.state.url), rendererClients: clients)
             }
         },
-        heapUsed: { [weak self] browser in
-            guard let tab = self?.tabsByBrowser[browser],
-                  let reply = try? await tab.devTools(method: "Runtime.getHeapUsage", params: [:]) else { return nil }
-            return CEFPageRendererGC.usedSize(reply)
-        },
+        heapUsed: { [weak self] browser in await self?.rendererHeapUsed(browser) },
         collect: { [weak self] browser in
             guard let tab = self?.tabsByBrowser[browser] else { return }
             _ = try? await tab.devTools(method: "HeapProfiler.collectGarbage", params: [:], timeout: .seconds(10))
@@ -194,7 +190,33 @@ final class CEFRuntime {
     /// The App's sign-in tabs (`adopt`): the shim's AUTH_CALLBACK events go here.
     private(set) var signInCallbacks = CEFSignInCallbacks()
 
-    private init() {}
+    /// Maps the shim and the framework (``loadLibrary(_:signatureChecker:)``). Called only from the detached
+    /// load task of ``start(layout:environment:trigger:)`` and ``preload(layout:)``, never on the main thread:
+    /// the map holds dyld's loader lock, and a main-thread `dlopen` or `dladdr` meanwhile waits on it.
+    /// Tests inject a spy (which thread maps, and when).
+    typealias LibraryLoader = @Sendable (CEFRuntimeLayout?) -> Result<CEFLoadedLibrary, BootError>
+    private let libraryLoader: LibraryLoader
+    /// A load begun from any thread before any page asked (`CEFEngine.beginEarlyLoad`, handed over by the engine with
+    /// its stores, `adopt(earlyLoad:)`); the first start or preload of its layout takes it instead of loading again.
+    private(set) var earlyLoad: CEFEarlyLoad?
+
+    private init() { libraryLoader = { CEFRuntime.loadLibrary($0) } }
+
+    /// An idle runtime whose framework load is `libraryLoader` (tests).
+    init(libraryLoader: @escaping LibraryLoader) {
+        self.libraryLoader = libraryLoader
+    }
+
+    /// Takes the engine's early load (`CEFEngine.beginEarlyLoad`).
+    func adopt(earlyLoad: CEFEarlyLoad) {
+        self.earlyLoad = earlyLoad
+    }
+
+    /// The load to await for `candidate`: the early load of that layout when one began, else a new load at `priority`.
+    private func newLoadTask(_ candidate: CEFRuntimeLayout?, priority: TaskPriority) -> CEFEarlyLoad.LoadTask {
+        if let early = earlyLoad?.task(for: candidate) { return early }
+        return Task.detached(priority: priority) { [libraryLoader] in libraryLoader(candidate) }
+    }
 
     /// Takes the engine's stores and sign-in tabs (the process has one Chromium, so the App's one
     /// engine hands them over before its first start or tab). Idempotent for the same stores.
@@ -216,6 +238,7 @@ final class CEFRuntime {
     init(shim: CEFShimLibrary, storage: CEFProfileStorage) {
         self.shim = shim
         self.storage = storage
+        libraryLoader = { _ in .failure(.notEmbedded) }
         state = .ready
     }
 
@@ -278,7 +301,7 @@ final class CEFRuntime {
             task = loadTask
         } else {
             state = .loading
-            task = Task.detached(priority: .userInitiated) { CEFRuntime.loadLibrary(candidate) }
+            task = newLoadTask(candidate, priority: .userInitiated)
             loadTask = task
         }
         // A utility-priority preload may still be running; the await below
@@ -305,7 +328,7 @@ final class CEFRuntime {
         guard state == .idle, loadTask == nil else { return }
         state = .loading
         preloaded = true
-        let task = Task.detached(priority: .utility) { CEFRuntime.loadLibrary(candidate) }
+        let task = newLoadTask(candidate, priority: .utility)
         loadTask = task
         Task { [weak self] in
             _ = await task.value
@@ -549,6 +572,15 @@ final class CEFRuntime {
                 CEFRuntime.shared.logger.error("CEF still running at willTerminate; skipping CefShutdown")
             }
         }
+    }
+
+    /// The used heap of the renderer behind `browser`, for ``pageRendererGC``: one `Runtime.getHeapUsage` call,
+    /// its reply decoded off the main actor (`CEFPageRendererGC.usedSize`). A method, not code in the lazy
+    /// initializer, which may not reference both main-actor and nonisolated declarations.
+    private func rendererHeapUsed(_ browser: Int32) async -> Int? {
+        guard let tab = tabsByBrowser[browser],
+              let reply = try? await tab.devTools(method: "Runtime.getHeapUsage", params: [:]) else { return nil }
+        return await CEFPageRendererGC.usedSize(reply)
     }
 
     /// The request context key of a pane's store (`CEFProfileStorage.contextKey`).

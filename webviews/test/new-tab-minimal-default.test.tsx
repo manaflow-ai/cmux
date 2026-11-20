@@ -1,5 +1,5 @@
 // New Tab opens on Minimal (Leo 2026-10-20: "only do the composer for the default"), a layout of
-// its own beside the others: the composer, which keeps its project strip, with no greeting (Leo
+// its own beside the others: the composer and create buttons, with no greeting (Leo
 // 2026-10-22) and no widgets (Lawrence 2026-11-09: "remove widgets completely",
 // new-tab-no-widgets.test.tsx). The page has no Search | Ask switch (new-tab-auto-action.test.tsx).
 // The other layouts draw what they always drew.
@@ -112,14 +112,14 @@ test("Minimal is the default layout and the first dot; no other layout is gone",
   expect(PAGE_STYLES).toEqual(["minimal", "cards", "default", "threads", "console", "classic"]);
 });
 
-test("by default Minimal is the composer alone", async () => {
+test("by default Minimal shows the composer and create buttons", async () => {
   const root = await render("minimal");
   try {
     expect(parts()).toEqual({
       minimal: true,
       stage: 0,
       projects: 0,
-      actions: 0,
+      actions: 1,
       chats: 0,
       strip: 1,
     });
@@ -138,7 +138,7 @@ test("an unset NewTabScreen template uses Minimal instead of the old Default sta
       minimal: true,
       stage: 0,
       projects: 0,
-      actions: 0,
+      actions: 1,
       chats: 0,
       strip: 1,
     });

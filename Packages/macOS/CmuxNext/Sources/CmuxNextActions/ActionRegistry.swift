@@ -75,6 +75,8 @@ public final class ActionRegistry {
     public var contextMenuLayouts: [ActionMenuContext: ContextMenuLayout] = [:]
     /// Whether a whole right-click menu ends with Customize Menu… (cmux.json `contextMenus.showCustomizeItem`).
     public var showsCustomizeMenuItem = true
+    /// Settings > Menus' menus as last built (``contextMenuEditorState()``).
+    @ObservationIgnored var editorMenus: ContextMenuEditorMenu.Built?
     /// Called when a bound toggle's `paletteState` changes after its run returned (a cmux.json write that
     /// lands later): the open palette reads its rows again. The palette installs it.
     @ObservationIgnored public var paletteStateDidChange: (@MainActor () -> Void)?

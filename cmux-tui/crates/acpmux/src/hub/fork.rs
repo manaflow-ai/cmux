@@ -172,6 +172,7 @@ impl Hub {
         retarget: Retarget,
         cwd: &Path,
     ) -> Result<Option<Target>, RpcError> {
+        self.rediscover_head(Some(retarget.harness.as_str()), None).await;
         let cfg = self.config.read().await;
         let remote = parent.remote_origin || retarget.remote;
         let r = self.resolve_new(

@@ -573,14 +573,13 @@ pub(crate) fn create_dir(dir: impl AsRef<Path>, mode: u32) -> io::Result<()> {
     }
 }
 
-/// A new name beside `path` for a temporary copy of it: `.<name>.tmp-<pid>-<n>`.
+/// The name beside `path` for this process's temporary copy of it: `.<name>.tmp-<pid>`, the same
+/// on every write (`dead_temps`: each new name is one more path fseventsd keeps).
 fn aside(path: &Path) -> io::Result<std::path::PathBuf> {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static NEXT: AtomicU64 = AtomicU64::new(0);
     let name = path.file_name().ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
     let mut tmp = std::ffi::OsString::from(".");
     tmp.push(name);
-    tmp.push(format!(".tmp-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+    tmp.push(format!(".tmp-{}", std::process::id()));
     Ok(path.with_file_name(tmp))
 }
 
@@ -632,14 +631,22 @@ fn replace_with<T>(
     fill: impl FnOnce(&mut File, &Path) -> io::Result<T>,
 ) -> io::Result<T> {
     let tmp = aside(to)?;
-    let mut file = create_private(&tmp, mode)?;
-    let done = fill(&mut file, &tmp).and_then(|value| {
-        drop(file);
-        rename(&tmp, to).map(|()| value)
-    });
-    if done.is_err() {
+    let done = {
+        // This process's writers of the name take turns (`dead_temps::hold`). One a failed
+        // removal left is this process's own: start anew.
+        let _turn = crate::dead_temps::hold(&tmp);
         let _ = remove_file(&tmp);
-    }
+        let done = create_private(&tmp, mode).and_then(|mut file| {
+            fill(&mut file, &tmp).and_then(|value| {
+                drop(file);
+                rename(&tmp, to).map(|()| value)
+            })
+        });
+        if done.is_err() {
+            let _ = remove_file(&tmp);
+        }
+        done
+    };
     if let (Some(dir), Some(name)) = (to.parent(), to.file_name()) {
         crate::dead_temps::remove(dir, &format!(".{}.tmp-", name.to_string_lossy()));
     }
@@ -811,6 +818,9 @@ pub(crate) fn write_json_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let dir = path.parent().ok_or_else(|| io::Error::other("no parent folder"))?;
     private_dir(dir)?;
     let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+    // This process's writers of the name take turns, as `config::write_atomic`'s, which names
+    // its copy the same (`dead_temps::hold`).
+    let turn = crate::dead_temps::hold(&tmp);
     // A file a crashed process left under a reused pid keeps its mode: start anew.
     let _ = remove_file(&tmp);
     let written = (|| {
@@ -824,6 +834,7 @@ pub(crate) fn write_json_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     if written.is_err() {
         let _ = remove_file(&tmp);
     }
+    drop(turn);
     crate::dead_temps::remove_beside(path);
     written?;
     let _ = sync_dir(dir);

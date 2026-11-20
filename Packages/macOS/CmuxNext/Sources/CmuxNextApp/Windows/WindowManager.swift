@@ -211,6 +211,7 @@ final class WindowManager {
     func state(for windowID: String) -> WindowState {
         if let state = states[windowID] { return state }
         let state = registry.closeSelection.watch(WindowState(id: windowID, focusInput: services.focusInput), gesture: ActionRunScope.isPersonsAction)
+        state.onProfileChange = { [weak self] in self?.spaceDidChange() }
         states[windowID] = state
         return state
     }
@@ -280,7 +281,11 @@ final class WindowManager {
         if adopted == nil { placeLaunchWindow(document) }
         // The closed launch window stood for the saved window it would have become.
         if closedLaunchWindowID != nil, let front = adoptableFront(restoredRegistry) { restoreClosed.closed(front) }
-        for record in document.windows where states[record.id] == nil { states[record.id] = registry.closeSelection.watch(WindowState(record: record, focusInput: services.focusInput), gesture: ActionRunScope.isPersonsAction) }
+        for record in document.windows where states[record.id] == nil {
+            let state = registry.closeSelection.watch(WindowState(record: record, focusInput: services.focusInput), gesture: ActionRunScope.isPersonsAction)
+            state.onProfileChange = { [weak self] in self?.spaceDidChange() }
+            states[record.id] = state
+        }
         rememberMachines(of: document)
         if !restoredRegistry.windows.isEmpty {
             registry.apply { registry in

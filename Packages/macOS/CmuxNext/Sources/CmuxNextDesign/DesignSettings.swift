@@ -72,8 +72,29 @@ public final class DesignSettings {
             + "document.documentElement.style.setProperty('--cmux-density-scale', '\(Typography.pageDensityScale)');"
             + "document.documentElement.style.setProperty('--cmux-density-text-scale', '\(Typography.pageDensityTextScale)');"
             + "if (window.__cmuxSyncPageZoom) { window.__cmuxSyncPageZoom(); } else { document.documentElement.style.setProperty('--cmux-ui-scale', '\(effectivePageZoom)'); }"
+            + composerScript
+            + "document.documentElement.style.setProperty('--cmux-row-text-scale', '\(Typography.pageRowTextScale)');"
+            + "document.documentElement.style.setProperty('--cmux-row-icon-scale', '\(Typography.pageRowIconScale)');"
             + "window.dispatchEvent(new Event('cmux-ui-scale-change'))"
     }
+    /// New Tab scales its Default page values together with one zoom.
+    private var composerScript: String {
+        let tokens = densityTokens.tokens
+        let values: [(String, String?)] = [
+            ("--cmux-composer-zoom", tokens["composerZoom"].map { Self.cssNumber($0) }),
+            ("--cmux-composer-column", tokens["composerMaxWidth"].map { "min(\(Self.cssNumber($0))px, 100%)" }),
+            ("--cmux-composer-pad-block", nil),
+            ("--cmux-composer-text-size", nil),
+            ("--cmux-composer-icon-size", nil),
+            ("--cmux-composer-chip-text-size", nil),
+            ("--cmux-composer-row-radius-extra", nil),
+            ("--cmux-chat-editor-min", tokens["chatEditorMin"].map { "\(Self.cssNumber($0))px" }),
+        ]
+        return values.map { name, value in
+            "document.documentElement.style.setProperty('\(name)', '\(value ?? "")');"
+        }.joined()
+    }
+    private static func cssNumber(_ value: Double) -> String { String(format: "%g", value) }
     /// `agentPane.zoom`, the focused agent chat's own display scale.
     public var agentPaneZoom: CGFloat = 1
     /// `ui.animationSpeed`: how fast chrome animates (see `Motion`). A change posts
@@ -276,6 +297,9 @@ public final class DesignSettings {
     /// `appearance.borders`: default, or none (no border, hairline or
     /// separator anywhere; `Borders`).
     public var borders: BorderMode = .default
+    /// `appearance.fontSmoothing`: what web pages draw with now (``WebTheme``). Native text keeps the
+    /// launch's value (``ProcessFontSmoothing/current``).
+    public var fontSmoothing: FontSmoothing = .auto
     /// `appearance.sidebarSurface`: the sidebar on the main pane's surface,
     /// or shaded apart from it.
     public var sidebarSurface: SidebarSurface = .same
