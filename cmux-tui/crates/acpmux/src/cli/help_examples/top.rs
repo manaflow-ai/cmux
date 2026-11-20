@@ -178,6 +178,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         )],
     ),
     (
+        "search",
+        &[(
+            "Find a prompt or reply on this machine or its peers",
+            "acpmux search resize lag -n 10",
+        )],
+    ),
+    (
         "skill",
         &[
             ("Print the guide for driving acpmux from a script or agent", "acpmux skill"),

@@ -400,6 +400,7 @@ pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub use subsession_send::Delivery;
 mod drafts;
+pub(crate) mod history_search;
 pub(crate) mod open_delivery;
 pub(crate) mod outbox;
 #[cfg(test)]

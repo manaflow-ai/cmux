@@ -9,11 +9,16 @@ pub(super) fn handles(cmd: &Command) -> bool {
     matches!(
         cmd,
         Command::Dispatch(..)
+            | Command::Bg(..)
+            | Command::Notices { .. }
+            | Command::Open(..)
+            | Command::OpenTab(..)
             | Command::Briefs(..)
             | Command::Wait { .. }
             | Command::Ensure { .. }
             | Command::Continue(..)
             | Command::History { .. }
+            | Command::Search { .. }
             | Command::SessionSearch(..)
             | Command::TagCmd { .. }
             | Command::RulesCmd { .. }
@@ -51,6 +56,27 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
     })?;
     match cmd {
         Command::Dispatch(args) => dispatch(connect(true).await?, args, json_out).await,
+        Command::Bg(cmd) => crate::cli::bg::run(&connect(true).await?, cmd, json_out).await,
+        Command::Notices { session, thread, mark_read } => {
+            let session = session
+                .or_else(|| std::env::var(crate::acpmux_mcp::SESSION_ENV).ok())
+                .filter(|id| !id.trim().is_empty())
+                .ok_or_else(|| {
+                    crate::cli::errors::AppError::usage(
+                        "notices needs a session, or ACPMUX_SESSION_ID inside an agent session",
+                    )
+                })?;
+            crate::cli::session_inbox::run(
+                &connect(true).await?,
+                &session,
+                thread.as_deref(),
+                mark_read,
+                json_out,
+            )
+            .await
+        }
+        Command::Open(args) => crate::cli::app_bridge::run(args, false).await,
+        Command::OpenTab(args) => crate::cli::app_bridge::run(args, true).await,
         Command::Briefs(cmd) => briefs(connect(true).await?, cmd, json_out).await,
         Command::Wait {
             sessions,
@@ -113,6 +139,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::History { session, limit } => {
             orchestrate::history(connect(true).await?, &session, limit, json_out).await
+        }
+        Command::Search { query, limit } => {
+            crate::cli::session_search::all(connect(true).await?, query.join(" "), limit, json_out)
+                .await
         }
         Command::SessionSearch(args) => {
             crate::cli::session_search::run(connect(true).await?, args, json_out).await

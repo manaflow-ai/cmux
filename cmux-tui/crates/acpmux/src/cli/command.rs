@@ -7,6 +7,15 @@ pub use crate::cli::command_host::{PeerCmd, TicketCmd};
 pub use crate::cli::command_new::NewArgs;
 pub use crate::cli::task::BriefsCmd;
 
+#[derive(Args, Debug, Clone, PartialEq, Eq)]
+pub struct AppOpenArgs {
+    /// The existing acpmux session to open in cmux.
+    pub session: String,
+    /// App-owned flags such as --target, --host, --focus or --group.
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    pub options: Vec<String>,
+}
+
 #[derive(Parser)]
 #[command(name = "acpmux", version = crate::hub::version_line(), about = "tmux for coding-agent harnesses: Claude Code, Codex, OpenCode, pi, Gemini", long_about = None, after_help = "Agents: `acpmux guide` (also --guide, --skill) prints the full guide for driving acpmux from a script or another agent.")]
 pub struct Cli {
@@ -35,6 +44,24 @@ pub enum Command {
     /// Send a local brief to another harness on a machine (or the least-loaded
     /// allowed machine with `--machine auto`) and record its identity.
     Dispatch(DispatchArgs),
+    /// Start and inspect background tasks owned by this agent session.
+    #[command(subcommand)]
+    Bg(crate::cli::bg::BgCmd),
+    /// Read the current session's inbox notices and message threads.
+    Notices {
+        /// A session name or id when run by the person; defaults to this agent session.
+        session: Option<String>,
+        /// Read one thread, marking it read when --mark-read is given.
+        #[arg(long)]
+        thread: Option<String>,
+        #[arg(long, requires = "thread")]
+        mark_read: bool,
+    },
+    /// Open a session through the cmux app's existing workspace action.
+    Open(AppOpenArgs),
+    /// Open a session as a tab through the cmux app's existing tab action.
+    #[command(name = "open-tab")]
+    OpenTab(AppOpenArgs),
     /// Task briefs: list, steer and report work tracked by the daemon.
     #[command(subcommand)]
     Briefs(BriefsCmd),
@@ -138,6 +165,15 @@ pub enum Command {
         session: String,
         #[arg(long, short = 'n', default_value_t = 20)]
         limit: usize,
+    },
+    /// Search prompts and replies in every session here and on this machine's peers.
+    Search {
+        /// Words to find together in one prompt or reply, in any case or order.
+        #[arg(required = true)]
+        query: Vec<String>,
+        /// At most this many matching messages, newest first.
+        #[arg(long, short = 'n', default_value_t = 20, value_parser = clap::value_parser!(u32).range(1..=200))]
+        limit: u32,
     },
     /// Run one prompt on several harnesses, one after another, and compare.
     Compare {
@@ -1801,6 +1837,37 @@ mod help_contract_tests {
         shapes
     }
 
+    // The session guide also contains cmux app commands (such as `agent open-tab`).
+    // Only engine commands share this clap surface.
+    fn documented_engine_commands(text: &str) -> Vec<Vec<String>> {
+        let mut commands = tokens(text, "acpmux");
+        commands.extend(tokens(text, "cmux").into_iter().filter_map(|mut words| {
+            match words.get(1)?.as_str() {
+                "acp" => {}
+                "agent"
+                    if !matches!(
+                        words.get(2)?.as_str(),
+                        "list"
+                            | "message"
+                            | "inbox"
+                            | "start"
+                            | "resume"
+                            | "report"
+                            | "hook"
+                            | "plugin"
+                            | "open"
+                            | "open-tab"
+                            | "help"
+                            | "--help"
+                    ) => {}
+                _ => return None,
+            }
+            words.remove(0);
+            Some(words)
+        }));
+        commands
+    }
+
     fn documented_shape(
         words: &[String],
         shapes: &HashMap<Vec<String>, HashSet<String>>,
@@ -1868,7 +1935,7 @@ mod help_contract_tests {
         let shapes = command_shapes();
         let mut missing = Vec::new();
         for (source, text) in REMOTE_DOCS {
-            for words in tokens(text, "acpmux") {
+            for words in documented_engine_commands(text) {
                 let Some(path) = documented_shape(&words, &shapes) else {
                     missing.push(format!("{source}: {} (command)", words.join(" ")));
                     continue;
@@ -1916,7 +1983,7 @@ mod help_contract_tests {
                 .filter(|line| !line.trim_start().starts_with("- **Old spellings.**"))
                 .map(|line| format!("{line}\n"))
                 .collect();
-            for words in tokens(&text, "acpmux") {
+            for words in documented_engine_commands(&text) {
                 let command: Vec<&str> = words
                     .iter()
                     .skip(1)
