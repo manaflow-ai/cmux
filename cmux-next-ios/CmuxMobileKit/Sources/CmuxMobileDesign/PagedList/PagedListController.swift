@@ -200,6 +200,23 @@ final class PagedListCollectionView: UICollectionView {
     var willLayout: (() -> Void)?
     var didLayout: (() -> Void)?
 
+    /// The screen's content scroll view, as Workspaces' and the Feed's collections are, so the
+    /// navigation bar's search drawer and scroll edge follow this list (without it the drawer never
+    /// collapsed over Home's list, and the pull-down search's tuck undid itself). A controller that
+    /// already names one (a chat's keyboard dock) keeps it.
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil else { return }
+        var responder: UIResponder? = self
+        while let next = responder?.next {
+            if let controller = next as? UIViewController {
+                if controller.contentScrollView(for: .top) == nil { controller.setContentScrollView(self, for: .top) }
+                if controller.parent is UINavigationController || controller.parent == nil { break }
+            }
+            responder = next
+        }
+    }
+
     /// While a set of the offset runs, what it asked for (each outermost set numbered): UIKit may
     /// move the offset further inside it (rows above it sized as they came into view, with the
     /// content moved by as much), which is its correction, not the finger's or the fling's move.
