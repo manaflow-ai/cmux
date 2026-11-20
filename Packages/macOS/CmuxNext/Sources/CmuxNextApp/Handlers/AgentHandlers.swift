@@ -265,7 +265,7 @@ enum AgentHandlers {
             ("agentPane.switchModel", { MiscHandlerStrings.switchModelNeedsFocus }, { view, _ in view.showModelPicker() }),
             ("agentPane.searchFiles", { MiscHandlerStrings.pickerNeedsFocus }, { view, _ in view.showFileSearch() }),
             ("agentPane.sideQuestion", { MiscHandlerStrings.sideQuestionNeedsFocus }, { view, _ in view.askSideQuestion() }),
-        ] + AgentComposerControl.allCases.map { control -> (ActionID, () -> String, (AgentPaneView, ActionInvocation) -> Void) in (control.actionID, { MiscHandlerStrings.pickerNeedsFocus }, { $0.showComposerControl(control, byPerson: $1.isPersonsOwnRun) }) }
+        ] + AgentComposerControl.allCases.map { control -> (ActionID, () -> String, (AgentPaneView, ActionInvocation) -> Void) in (control.actionID, { MiscHandlerStrings.pickerNeedsFocus }, { $0.showComposerControl(control, byPerson: $1.isPersonsOwnRun, event: context.services.inputDispatch.event) }) }
         for (id, needsFocus, run) in keyboardCommands {
             registry.bind(id, run: { invocation in
                 guard invocation.allowsViewChange else { return context.refuse(needsFocus()) }
