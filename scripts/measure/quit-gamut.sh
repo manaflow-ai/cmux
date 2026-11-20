@@ -59,7 +59,7 @@ ab() {
   [[ "$base" =~ ^[0-9a-f]{40}$ && "$headsha" =~ ^[0-9a-f]{40}$ ]] || { echo "base= and head= take 40-hex commits" >&2; exit 2; }
   for want in "$base" "$headsha"; do
     git cat-file -e "$want^{commit}" 2>/dev/null \
-      || git fetch --quiet https://github.com/manaflow-ai/cmux.git "$want" || { echo "GAMUT cannot fetch $want"; exit 3; }
+      || git fetch --quiet --recurse-submodules=no https://github.com/manaflow-ai/cmux.git "$want" || { echo "GAMUT cannot fetch $want"; exit 3; }
   done
   # Each build checks its commit out and comes back here, so the check below is always this checkout's.
   for side in "${sides[@]}"; do
