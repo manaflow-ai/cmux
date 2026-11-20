@@ -332,24 +332,28 @@ test("Return sends a path or a short word at the prompt's end instead of rewriti
   }
 });
 
-test("Return sends a word that only starts a later part of a name; the arrows or Tab still pick it", async () => {
-  const sending = await composer(chat(), "fix it /pr");
+test("Return takes the highlighted row whenever the list shows; Esc keeps the word, then Return sends", async () => {
+  // Leo, 2026-11-20: "i click enter and it should do it".
+  const picked = await composer(chat(), "fix it /pr");
   expect(names()).toEqual(["/review-pr"]);
-  await press(sending.field, "Enter");
-  expect(sending.sent).toEqual(["fix it /pr"]);
-  const arrowed = await composer(chat(), "fix it /pr");
   // The caret where typing left it (jsdom keeps no selection of its own).
-  await act(async () => arrowed.prompt.setCaret("fix it /pr".length));
-  await press(arrowed.field, "ArrowDown");
-  await press(arrowed.field, "Enter");
-  expect(arrowed.prompt.plainText()).toBe("fix it /review-pr ");
+  await act(async () => picked.prompt.setCaret("fix it /pr".length));
+  await press(picked.field, "Enter");
+  expect(picked.sent).toEqual([]);
+  expect(picked.prompt.plainText()).toBe("fix it /review-pr ");
   const tabbed = await composer(chat(), "fix it /pr");
   await act(async () => tabbed.prompt.setCaret("fix it /pr".length));
   await press(tabbed.field, "Tab");
   expect(tabbed.prompt.plainText()).toBe("fix it /review-pr ");
+  const escaped = await composer(chat(), "fix it /pr");
+  await act(async () => escaped.prompt.setCaret("fix it /pr".length));
+  await press(escaped.field, "Escape");
+  expect(menu()).toBeNull();
+  await press(escaped.field, "Enter");
+  expect(escaped.sent).toEqual(["fix it /pr"]);
 });
 
-test("a list that closes forgets the row the arrows chose: the same word, back, and Return sends", async () => {
+test("a list that closes and comes back highlights its first row again, and Return takes it", async () => {
   const snapshot = chat();
   const { field, prompt, sent } = await composer(snapshot, "fix it /pr");
   await act(async () => prompt.setCaret("fix it /pr".length));
@@ -378,6 +382,8 @@ test("a list that closes forgets the row the arrows chose: the same word, back, 
   await draw(snapshot.commands);
   expect(names()).toEqual(["/review-pr"]);
   expect(prompt.plainText()).toBe("fix it /pr");
+  await act(async () => prompt.setCaret("fix it /pr".length));
   await press(field, "Enter");
-  expect(sent).toEqual(["fix it /pr"]);
+  expect(sent).toEqual([]);
+  expect(prompt.plainText()).toBe("fix it /review-pr ");
 });
