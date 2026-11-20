@@ -60,6 +60,9 @@ EXCEPTIONS: dict[tuple[str, str], str] = {
         ("auto-resume-nightly-notarization.yml", "poll"), ("auto-resume-nightly-notarization.yml", "poll-outer"),
         ("auto-resume-nightly-notarization.yml", "poll-stapled"), ("auto-resume-nightly-notarization.yml", "publish"),
         ("ios-internal-nightly.yml", "previous-build"), ("nightly-next-train.yml", "drive"))},
+    ("cmux-next-guards.yml", "signing-runner-variables"): "checks the runner variables, so it must not read one: "
+                                                          "rule 7 of tests/test_ci_signing_keychain_is_deleted_"
+                                                          "before_bundle_code.py pins its literal Blacksmith label",
     ("ci-cloud-overflow-probe.yml", "watch"): "github-hosted-required: it must run while Blacksmith starts nothing, "
                                               "to switch overflow on",
 }
