@@ -14,6 +14,7 @@ from pathlib import Path
 import yaml
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/app-ffi-release.yml"
+REPIN = WORKFLOW.with_name("app-ffi-repin.yml")
 LANE = "vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64'"
 CONTROL_JOBS = ("placement", "rescue", "publish", "repin")
 
@@ -29,6 +30,11 @@ class FfiReleaseLinuxRoute(unittest.TestCase):
                 self.assertIn(LANE, runs_on)
                 self.assertLess(runs_on.index(LANE), runs_on.index("vars.LINUX_RUNNER"))
                 self.assertTrue(runs_on.startswith("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' ||"))
+
+    def test_the_repin_workflow_takes_the_nightly_lane_first(self) -> None:
+        runs_on = yaml.safe_load(REPIN.read_text())["jobs"]["repin"]["runs-on"]
+        self.assertIn(LANE, runs_on)
+        self.assertLess(runs_on.index(LANE), runs_on.index("vars.LINUX_RUNNER"))
 
     def test_the_compare_only_shadow_stays_off_the_reserved_lane(self) -> None:
         self.assertNotIn("cmux-gcp-nightly-x64", self.jobs["macos-cross-shadow"]["runs-on"])
