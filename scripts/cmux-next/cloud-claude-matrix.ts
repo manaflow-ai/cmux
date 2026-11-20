@@ -21,7 +21,9 @@
  * time of the first chat, the time to first token as the journey sees it (it reads whole replies, not a stream).
  *
  * Auth:
- *   sr2           no login passed: the machine's team mode, the SR2/CodeRouter gateway (the default)
+ *   sr2           no login passed: the machine's team mode, the SR2/CodeRouter gateway (the default). Where the backend
+ *                 gives no shared route (staging, production) its first cell is "sign-in step" when the chat shows that
+ *                 step at once (``isSignInStep``), neither a pass nor a fail
  *   subscription  a Claude Pro/Max login, CLAUDE_CODE_OAUTH_TOKEN, sent with the agent's start as the app sends a Cloud model connection (cmux#40159)
  *   api-key       ANTHROPIC_API_KEY, put in Claude's settings on the machine (the chat card's API-key route)
  *   team-key      a key from the team's settings (CMUX_MATRIX_TEAM_KEY_TEAM names the team that has one)
@@ -39,7 +41,7 @@ export const AUTHS = ["sr2", "subscription", "api-key", "team-key"] as const;
 export type Auth = (typeof AUTHS)[number];
 export const CHATS = ["first", "followup", "resume", "parallel"] as const;
 export type Chat = (typeof CHATS)[number];
-export type CellStatus = "pass" | "fail" | "skip";
+export type CellStatus = "pass" | "fail" | "skip" | "signin";
 export type Cell = { status: CellStatus; detail: string };
 export type Row = { auth: Auth; model: string; cells: Record<Chat, Cell>; replyMs?: number; createToReplyMs?: number; reply?: string };
 
@@ -59,10 +61,32 @@ export function authBlocker(auth: Auth, env: Record<string, string | undefined>)
   }
 }
 
+/**
+ * The sign-in step a Claude chat with no model route gets (acpmux claude_auth `compose_cloud`, unrouted): staging and
+ * production give machines no shared route (cmux-platform CoderouterEdge.ts, by design until a coderouter trusts their
+ * issuer), so an sr2 row there has no reply to read and the most it can show is that step, at once. Only that text,
+ * within [`SIGN_IN_STEP_MS`] of the send, counts; the old "start a new machine" text, a slow answer or any other failure
+ * is still a fail.
+ */
+export const SIGN_IN_STEP = "Sign Claude in with the sign-in on this message";
+export const SIGN_IN_STEP_MS = 10_000;
+
+/** Whether a failed `reply` step is the clear sign-in step of a chat with no model route. */
+export function isSignInStep(s: Step | undefined): boolean {
+  return s?.status === "fail" && s.ms <= SIGN_IN_STEP_MS && s.detail.includes("Claude is not signed in here") && s.detail.includes(SIGN_IN_STEP);
+}
+
 /** One row's cells from its journey steps (the parallel cell is filled in by [`parallelCell`]). */
 export function rowFromSteps(auth: Auth, model: string, steps: Step[], exitCode: number): Row {
   const by = new Map(steps.map((s) => [s.step, s]));
   const cells = {} as Record<Chat, Cell>;
+  // sr2 only: a row with a login of its own that ends at the sign-in step lost its login, a failure.
+  const replyStep = by.get("reply");
+  if (auth === "sr2" && replyStep && isSignInStep(replyStep)) {
+    const stopped: Cell = { status: "skip", detail: "no model route: the chat stops at its sign-in step" };
+    const signin: Cell = { status: "signin", detail: `sign-in step in ${sec(replyStep.ms)}: ${replyStep.detail.slice(0, 200)}` };
+    return { auth, model, cells: { first: signin, followup: stopped, resume: stopped, parallel: stopped } };
+  }
   const firstFailed = steps.find((s) => s.status === "fail");
   for (const chat of ["first", "followup", "resume"] as const) {
     const s = by.get(STEP[chat]);
@@ -85,13 +109,14 @@ export function rowFromSteps(auth: Auth, model: string, steps: Step[], exitCode:
 
 /** The parallel cell of rows that ran at once: a pass when at least two of them read a first reply back. */
 export function parallelCell(rows: Row[]): Cell {
+  if (rows.length >= 2 && rows.every((r) => r.cells.first.status === "signin")) return { status: "skip", detail: "no model route: every chat stopped at its sign-in step" };
   if (rows.length < 2) return { status: "skip", detail: "fewer than two rows ran at once" };
   const ok = rows.filter((r) => r.cells.first.status === "pass").length;
   return ok >= 2 ? { status: "pass", detail: `${ok} of ${rows.length} concurrent chats replied` } : { status: "fail", detail: `${ok} of ${rows.length} concurrent chats replied` };
 }
 
 const sec = (ms?: number) => (ms === undefined ? "" : `${(ms / 1000).toFixed(1)} s`);
-const mark = (c: Cell) => (c.status === "pass" ? "pass" : c.status === "fail" ? "**FAIL**" : "skip");
+const mark = (c: Cell) => (c.status === "pass" ? "pass" : c.status === "fail" ? "**FAIL**" : c.status === "signin" ? "sign-in step" : "skip");
 
 export function matrixMarkdown(backend: string, rows: Row[]): string {
   const failed = rows.some((r) => CHATS.some((c) => r.cells[c].status === "fail"));

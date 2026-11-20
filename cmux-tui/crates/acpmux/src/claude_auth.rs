@@ -447,7 +447,8 @@ pub fn explain(session_id: &str, original: &str, cloud: bool, gateway: bool) -> 
     let work = || {
         let agent = find(&spawned.env);
         if cloud {
-            return compose_cloud(&agent, original, gateway);
+            let unrouted = crate::cloud_model_plane::backend_gives_no_route();
+            return compose_cloud(&agent, original, gateway, unrouted);
         }
         let terminal_env = terminal_env();
         let terminal = find(&terminal_env);
@@ -485,9 +486,17 @@ fn rc_file(shell: Option<&str>) -> &'static str {
 /// the sign-in on the team's or the person's behalf. So the fix is never on this machine, never a
 /// terminal or a copy from the Mac: it is the route's account or the person's model gateway.
 /// `gateway`: the machine's team has cmux's gateway, so the text names that choice too.
-fn compose_cloud(agent: &Found, original: &str, gateway: bool) -> String {
+fn compose_cloud(agent: &Found, original: &str, gateway: bool, unrouted: bool) -> String {
     let mut out = String::from("Claude is not signed in here.");
-    if agent.endpoint.is_none() {
+    if agent.endpoint.is_none() && unrouted {
+        // The image has the route, the backend gives it none (staging and production: no shared
+        // edge rule, cloud_model_plane::backend_gives_no_route). A new machine is the same, so the
+        // way on is the person's own sign-in, the step on this message.
+        out.push_str(&format!(
+            " This Cloud machine's Claude has no model route (Claude home {}): Cloud gives machines here no shared route, and this chat carries no Claude sign-in of its own. Sign Claude in with the sign-in on this message, or set up a model gateway with `cmux inference setup`, then send the message again.",
+            tilde(&agent.home)
+        ));
+    } else if agent.endpoint.is_none() {
         out.push_str(&format!(
             " This Cloud machine's Claude has no model route (Claude home {}); start a new machine to get the current image.",
             tilde(&agent.home)
@@ -614,20 +623,24 @@ mod tests {
             home: dirs::home_dir().unwrap_or_default().join(".claude"),
             ..super::Found::default()
         };
-        let text = super::compose_cloud(&none, "Not logged in · Please run /login", false);
+        let text = super::compose_cloud(&none, "Not logged in · Please run /login", false, false);
         assert!(text.starts_with("Claude is not signed in here."), "{text}");
         // The gateway is named only where the machine's team has it.
         assert!(!text.contains(super::GATEWAY_OFFER), "{text}");
         assert!(text.contains("has no model route (Claude home ~/.claude)"), "{text}");
         assert!(text.ends_with("(Claude said: Not logged in · Please run /login)"), "{text}");
         let routed = super::Found { endpoint: Some("coderouter.cmux.internal".into()), ..none };
-        let text =
-            super::compose_cloud(&routed, "API Error: 403 No Claude upstream account", false);
+        let text = super::compose_cloud(
+            &routed,
+            "API Error: 403 No Claude upstream account",
+            false,
+            false,
+        );
         assert!(text.contains("through the Cloud service"), "{text}");
         assert!(text.contains("cmux inference setup"), "{text}");
         for text in [
-            super::compose_cloud(&routed, "x", false),
-            super::compose_cloud(&super::Found::default(), "x", false),
+            super::compose_cloud(&routed, "x", false, false),
+            super::compose_cloud(&super::Found::default(), "x", false, false),
         ] {
             for word in [
                 "terminal",
@@ -645,12 +658,52 @@ mod tests {
         }
     }
 
+    /// A staging or production machine has the image's route but no edge rule for it, so a new
+    /// machine is no way on: the text names the sign-in step instead (cloud-claude-matrix sr2 rows,
+    /// runs 44496437683 and 44710784962, said "start a new machine to get the current image").
+    #[test]
+    fn a_machine_the_backend_gives_no_route_names_the_sign_in_step() {
+        let none = super::Found {
+            home: dirs::home_dir().unwrap_or_default().join(".claude"),
+            ..super::Found::default()
+        };
+        let text = super::compose_cloud(&none, "Not logged in · Please run /login", false, true);
+        assert!(text.starts_with("Claude is not signed in here."), "{text}");
+        assert!(text.contains("has no model route (Claude home ~/.claude)"), "{text}");
+        assert!(!text.contains("start a new machine"), "{text}");
+        assert!(text.contains("Sign Claude in with the sign-in on this message"), "{text}");
+        assert!(text.contains("cmux inference setup"), "{text}");
+        assert!(text.ends_with("(Claude said: Not logged in · Please run /login)"), "{text}");
+        for word in [
+            "terminal",
+            "zshrc",
+            "ANTHROPIC_API_KEY",
+            "credentials",
+            "from your Mac",
+            "setup-token",
+        ] {
+            assert!(
+                !text.split(" (Claude said:").next().unwrap_or("").contains(word),
+                "{word}: {text}"
+            );
+        }
+        assert!(!super::explains(&text));
+        // The gateway offer still follows when the team has it.
+        let text = super::compose_cloud(&none, "Not logged in · Please run /login", true, true);
+        assert!(text.contains("Or click Use cmux's gateway"), "{text}");
+        // A machine with a route of its own keeps its route's text.
+        let routed = super::Found { endpoint: Some("coderouter.cmux.internal".into()), ..none };
+        assert!(
+            super::compose_cloud(&routed, "x", false, true).contains("through the Cloud service")
+        );
+    }
+
     /// A Cloud machine whose team cmux's gateway serves names that choice beside the sign-in,
     /// and the gateway fallback's own failure is never explained again.
     #[test]
     fn a_cloud_machine_with_the_gateway_offers_it() {
         let none = super::Found::default();
-        let text = super::compose_cloud(&none, "Not logged in · Please run /login", true);
+        let text = super::compose_cloud(&none, "Not logged in · Please run /login", true, false);
         assert!(text.contains("Or click Use cmux's gateway"), "{text}");
         // No login is copied from the Mac to a Cloud machine: the text never offers that.
         assert!(!text.contains("Set up Claude Code credentials"), "{text}");

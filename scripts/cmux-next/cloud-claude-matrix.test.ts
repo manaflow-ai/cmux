@@ -48,6 +48,24 @@ describe("cloud chat matrix", () => {
     expect(authBlocker("team-key", {})).toContain("CMUX_MATRIX_TEAM_KEY_TEAM");
   });
 
+  test("an sr2 row with no model route shows the sign-in step at once, never a pass", () => {
+    const said =
+      "acp wait exit 1: Claude is not signed in here. This Cloud machine's Claude has no model route (Claude home ~/.claude): Cloud gives machines here no shared route, and this chat carries no Claude sign-in of its own. Sign Claude in with the sign-in on this message, or set up a model gateway with `cmux inference setup`, then send the message again. (Claude said: Not logged in · Please run /login)";
+    const rows = ["opus", "sonnet"].map((m) => rowFromSteps("sr2", m, [step("create machine", "pass"), step("reply", "fail", 1843, said)], 1));
+    expect(rows[0].cells.first.status).toBe("signin");
+    expect(rows[0].cells.first.detail).toContain("1.8 s");
+    expect(rows[0].cells.followup.status).toBe("skip");
+    expect(parallelCell(rows).status).toBe("skip");
+    const md = matrixMarkdown("prod", rows);
+    expect(md.startsWith("PASS")).toBe(true);
+    expect(md).toContain("sign-in step");
+    // The old advice, a slow answer, or a row that brought its own login stay failures.
+    const old = "acp wait exit 1: Claude is not signed in here. This Cloud machine's Claude has no model route (Claude home ~/.claude); start a new machine to get the current image.";
+    expect(rowFromSteps("sr2", "opus", [step("reply", "fail", 1843, old)], 1).cells.first.status).toBe("fail");
+    expect(rowFromSteps("sr2", "opus", [step("reply", "fail", 30_000, said)], 1).cells.first.status).toBe("fail");
+    expect(rowFromSteps("subscription", "opus", [step("reply", "fail", 1843, said)], 1).cells.first.status).toBe("fail");
+  });
+
   test("the table marks failures and explains non-pass cells", () => {
     const row = rowFromSteps("sr2", "opus", [step("reply", "fail", 1, "Not logged in")], 1);
     const md = matrixMarkdown("prod", [row]);

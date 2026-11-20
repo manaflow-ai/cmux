@@ -142,6 +142,23 @@ pub fn machine_plane() -> BTreeMap<String, String> {
     where_resolves(plane, plane_host_resolves)
 }
 
+/// Whether this machine's image carries the route but the backend gives it none: a Cloud VM whose
+/// image file reads and checks out, and whose hosts do not resolve here (staging and production,
+/// which install no shared edge rule: cmux-platform CoderouterEdge.ts). A new machine gets the
+/// same, so the way on is the person's own sign-in or model gateway, never a newer image.
+pub fn backend_gives_no_route() -> bool {
+    crate::cloud_host::is_cloud_vm()
+        && image_route_unresolved(read_at(Path::new(PLANE_FILE), true), plane_host_resolves)
+}
+
+/// [`backend_gives_no_route`] on a file read and a resolver: a valid route that [`where_resolves`] drops.
+pub fn image_route_unresolved(
+    read: Result<BTreeMap<String, String>, Problem>,
+    resolves: impl Fn(&str) -> bool,
+) -> bool {
+    read.is_ok_and(|plane| !plane.is_empty() && where_resolves(plane, resolves).is_empty())
+}
+
 /// `plane` whole when every host its base URLs name resolves (`resolves`, asked once per host),
 /// else nothing.
 pub fn where_resolves(
@@ -267,6 +284,18 @@ mod tests {
         assert_eq!(vars["ANTHROPIC_BASE_URL"], "https://coderouter.cmux.internal");
         assert_eq!(vars["ANTHROPIC_API_KEY"], PLACEHOLDER);
         assert_eq!(vars["OPENAI_BASE_URL"], "https://coderouter.cmux.internal/v1");
+    }
+
+    #[test]
+    fn an_image_route_whose_host_does_not_resolve_is_the_backend_giving_none() {
+        let baked = || validate(parse(BAKED));
+        // Staging and production: the image's route, no edge rule, the host does not resolve.
+        assert!(image_route_unresolved(baked(), |_| false));
+        // Development: it resolves, so the machine has its route.
+        assert!(!image_route_unresolved(baked(), |_| true));
+        // No file or a bad one is an old or broken image, not the backend.
+        assert!(!image_route_unresolved(Err(Problem::Missing), |_| false));
+        assert!(!image_route_unresolved(Err(Problem::Untrusted), |_| false));
     }
 
     #[test]
