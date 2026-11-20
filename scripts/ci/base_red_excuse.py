@@ -2975,12 +2975,13 @@ def shared_catalog_verdict(repo: str, base: str, sha: str, name: str, job: dict,
     workflow = workflow_info.get("workflow_id")
     if not isinstance(workflow, int):
         raise Refused(f"{why}; run {job['run_id']} came back without its workflow_id; nothing to compare")
-    newest, read, closest = None, 0, None
+    newest, read, closest, ended = None, 0, None, False
     for run, theirs_job in base_verdicts(repo, workflow, GENERATED_BASE_JOB, github, evidence, base_jobs, job_reads,
                                          suites):
         newest = newest or created(run)
         if read >= BASE_WINDOW or (newest and created(run)
                                    and newest - created(run) > timedelta(hours=BASE_WINDOW_HOURS)):
+            ended = True
             break
         read += 1
         if theirs_job.get("conclusion") != "failure":
@@ -3000,6 +3001,10 @@ def shared_catalog_verdict(repo: str, base: str, sha: str, name: str, job: dict,
         return (f"excused '{name}': its one red is the 'catalog' verdict of '{host}', whose failing tests and error "
                 f"lines all fail in {base} run {run['id']}'s red '{GENERATED_BASE_JOB}' ({url}), and #{number} "
                 f"changes none of the action catalog's inputs: {'; '.join(sorted(mine.tests))[:400]}")
+    if not ended and (cut := search_cut(job_reads, GENERATED_BASE_JOB, workflow)) is not None:
+        # The window was not read to its end: a matching red may be in the runs left unread (#47687's review F4).
+        raise Refused(f"{cut_refusal(name, base, cut)} ({why}, whose base job '{GENERATED_BASE_JOB}' it searched)"
+                      + (f"; so far: {closest}" if closest else ""))
     raise Refused(f"{why}; no red '{GENERATED_BASE_JOB}' of {base} in the window fails all its failing tests and "
                   f"error lines" + (f": {closest}" if closest else ""))
 
@@ -4709,7 +4714,9 @@ def replaced_while_waiting(repo: str, jobs: list[dict], found: dict, github, cac
 # judgement counted every list against the cap, kept ones too, so a retry read the same 40 and said the same. Now a list
 # already kept (a completed attempt's: the jobs cache, the settled store) costs no read and is not counted, the cut is
 # recorded (SEARCH_CUT), and a cut search says "incomplete" with a retry time: CUT_RETRY_S, glaeda-gh's sweep window,
-# by which the lists read now are kept and the next judgement reads past them.
+# by which the lists read now are kept and the next judgement reads past them. The read budget is the workflow's; the
+# cut is one search's, its workflow and job name (cmux#47687's review F2: a later job of the workflow whose suite checks
+# rule out every run left had no read cut and must not inherit another job's cut).
 SEARCH_CUT = "search-cut"
 CUT_RETRY_S = 600
 INCOMPLETE = "incomplete: read"  # cut_refusal's words; merge_hold reads them as a timed retry, never a red
@@ -4740,9 +4747,11 @@ def kept_run_jobs(repo: str, run: dict) -> list[dict] | None:
     return jobs
 
 
-def search_cut(job_reads: dict, *workflows) -> int | None:
-    """The job lists read before the cap cut a base search of any of WORKFLOWS short, or None when none was cut."""
-    cut = [job_reads[(SEARCH_CUT, workflow)] for workflow in workflows if (SEARCH_CUT, workflow) in job_reads]
+def search_cut(job_reads: dict, name: str, *workflows) -> int | None:
+    """The job lists read before the cap cut a base search for job NAME in any of WORKFLOWS short, or None when none
+    was cut."""
+    cut = [job_reads[(SEARCH_CUT, workflow, name)] for workflow in workflows
+           if workflow is not None and (SEARCH_CUT, workflow, name) in job_reads]
     return max(cut) if cut else None
 
 
@@ -4770,7 +4779,7 @@ def base_verdicts(repo: str, workflow, name: str, github, evidence: "Evidence", 
                 continue  # its suite has no verdict for NAME: no job read, so none counted (the sweep limit's note)
             kept = kept_run_jobs(repo, candidate_run)
             if kept is None and job_reads.get(workflow, 0) >= BASE_JOB_READS:
-                job_reads[(SEARCH_CUT, workflow)] = job_reads.get(workflow, 0)  # runs were left unread (search_cut)
+                job_reads[(SEARCH_CUT, workflow, name)] = job_reads.get(workflow, 0)  # runs left unread (search_cut)
                 break
             if kept is None:
                 job_reads[workflow] = job_reads.get(workflow, 0) + 1
@@ -7990,12 +7999,15 @@ def evidence_source(repo: str, base: str, github, cache: dict) -> Evidence:
     return Evidence(repo, base, github, cache)
 
 
-def stacked_parent_verdicts(name: str, base: str, parent: StackedParent, verdicts):
+def stacked_parent_verdicts(name: str, base: str, parent: StackedParent, verdicts, cut=lambda: None):
     """VERDICTS (base_verdicts' (run, job) pairs, all read from the parent's Evidence) at PARENT's head only, of its
     PR's own events, so no other run of the branch (a dispatch, say) stands in; Refused when there is none: the
-    parent's head has no completed verdict for job NAME."""
+    parent's head has no completed verdict for job NAME, or, when CUT() names the job lists read before the cap cut
+    the search short, the search is incomplete (#47687's review F4)."""
     found = [(run, job) for run, job in verdicts
              if tested_sha(run) == parent.head and run.get("event") in PARENT_EVENTS]
+    if not found and (read := cut()) is not None:
+        raise Refused(f"{cut_refusal(name, base, read)} (PR #{parent.number}'s head {parent.head[:12]})")
     if not found:
         raise Refused(f"'{name}': {base} is PR #{parent.number}'s head; its head {parent.head[:12]} has no completed "
                       "run of this workflow with a verdict for it to compare with; re-check once it has")
@@ -8316,7 +8328,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         verdicts = base_verdicts(repo, workflow, name, github, evidence, base_jobs, job_reads, suites)
         if (parent := evidence.parent) is not None:
             # A lane base heading an open PR: its verdicts are that PR's at its head (stacked_parent).
-            verdicts = stacked_parent_verdicts(name, base, parent, verdicts)
+            verdicts = stacked_parent_verdicts(name, base, parent, verdicts,
+                                               cut=lambda: search_cut(job_reads, name, workflow))
             audit.append(f"base for '{name}': {base} is open PR #{parent.number}'s head {parent.head[:12]}; its "
                          "checks there are the base verdicts below")
         base_run, base_job = next(verdicts, (None, None))
@@ -8347,7 +8360,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             if shared:
                 audit.append(why_not)  # a setup red other PRs share (other_pr_setup_verdict)
                 continue
-            if (cut := search_cut(job_reads, workflow, base_workflow)) is not None:
+            # Every workflow searched: the PR run's, and the base caller's (searched whenever it has one here, since
+            # the PR run's workflow gave no verdict), not only the one that gave a verdict (#47687's review F1).
+            if (cut := search_cut(job_reads, name, workflow, caller)) is not None:
                 raise Refused(cut_refusal(name, base, cut))
             dispatch = base_dispatch(repo, base, workflow_info, evidence.runs(workflow), github)
             raise Refused(f"'{name}': no {base} run of its workflow has a verdict for it to compare with "
@@ -8536,7 +8551,13 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 run, found = next(verdicts, (None, None)) if read < BASE_WINDOW else (None, None)
                 if (run is None or found.get("conclusion") != "failure"
                         or (newest and created(run) and newest - created(run) > timedelta(hours=BASE_WINDOW_HOURS))):
+                    # Out of verdicts because the cap cut the search, with older runs unread (#47687's review F3):
+                    # an older matching red may be among them, so not a verdict either way.
+                    cut = (search_cut(job_reads, name, workflow, base_workflow)
+                           if run is None and read < BASE_WINDOW else None)
                     if aside is not None:  # the step-A pin rule set its red aside: judged as before
+                        if cut is not None:
+                            raise Refused(f"{cut_refusal(name, base, cut)}; the newest so far: {why}") from None
                         raise
                     # BASE_JOB: the newest verdict's job, as read from the jobs API (never the window's view).
                     if (same := compile_errors_verdict(repo, base, sha, name, job, view, got.compile, got.unplaced,
@@ -8548,6 +8569,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                         audit.append(by_step())
                         break
                     except Refused as step_why:
+                        if cut is not None:
+                            raise Refused(f"{cut_refusal(name, base, cut)}; the newest so far: {why}; per step: "
+                                          f"{step_why}") from None
                         raise Refused(f"{why}; per step: {step_why}") from None
                 read += 1
                 try:
