@@ -209,7 +209,7 @@ async function expectModeChip(ctx: Parameters<Play>[0], mode: string) {
 const NEW_CHAT_FOLDER = "/Users/gallery/cloud-proof";
 
 /// A new chat's rail before its first send: the access chip names the mode this Mac's acpmux would
-/// start it in, or, with Cloud picked, the asking mode the Cloud machine starts it in (Manual).
+/// start it in, or, with Cloud picked, the mode the Cloud machine starts it in at the same level.
 function GalleryNewChatPickers({ start, cloud }: NonNullable<Props["newChat"]>) {
   const [answered, setAnswered] = useState(false);
   useEffect(() => {
@@ -227,7 +227,9 @@ function GalleryNewChatPickers({ start, cloud }: NonNullable<Props["newChat"]>) 
       <div className="acpmux-composer-gallery-shell">
         <div className="acpmux-composer-gallery-copy">
           <strong>{cloud ? "New chat, Cloud picked" : "New chat on this Mac"}</strong>
-          <span>{cloud ? "The Cloud machine starts it in Manual." : "acpmux on this Mac names the start mode."}</span>
+          <span>
+            {cloud ? "The Cloud machine starts it at your start level." : "acpmux on this Mac names the start mode."}
+          </span>
         </div>
         {answered && (
           <ComposerPickers
@@ -551,9 +553,9 @@ export default componentEntry<Props>({
       play: async (ctx) => expectModeChip(ctx, "Bypass permissions"),
     },
     "new-chat-cloud": {
-      note: 'The same new chat with Cloud picked: the Cloud machine starts it in Claude\'s asking mode, so the chip names Manual with its shield, never this Mac\'s Bypass permissions and never the bare word Mode (Leo 2026-11-10: "the "mode" is weird").',
+      note: 'The same new chat with Cloud picked: the person\'s own Cloud machine starts it at their start level, full access, so the chip names Bypass permissions from the first frame, never Manual and never the bare word Mode (Lawrence 2026-11-20: "cloud mode should default in bypass permissions/auto mode").',
       props: { newChat: { start: { modeId: "bypassPermissions", name: "Bypass permissions" }, cloud: true } },
-      play: async (ctx) => expectModeChip(ctx, "Manual"),
+      play: async (ctx) => expectModeChip(ctx, "Bypass permissions"),
     },
     "new-chat-here-manual": {
       note: "A new chat on this Mac whose acpmux starts chats asking (agents.defaultPermissionMode ask): the chip names Manual.",

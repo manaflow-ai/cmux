@@ -32,9 +32,10 @@ export type HarnessModeMenu = {
   /** The mode that skips every approval, the harness's highest permission level (acpmux's
    *  `FULL_ACCESS_MODES`, hub/start_mode.rs): what acpmux starts a chat in when the person chose none. */
   highest: string;
-  /** The mode a chat a Cloud machine (any remote start) begins in: acpmux sets no start mode there
-   *  and holds the remote `ask` policy, so the harness starts in its asking mode (acpmux
-   *  `web_modes.rs`: Claude's `ASKING_MODES` first row, the Codex bridge's `BRIDGE_ASKING_MODES`).
+  /** The mode a chat a Cloud machine begins in when it asks: a start whose level asks, or one the
+   *  machine holds to the remote `ask` policy (a team machine, a phone), starts the harness in its
+   *  asking mode (acpmux `web_modes.rs`: Claude's `ASKING_MODES` first row, the Codex bridge's
+   *  `BRIDGE_ASKING_MODES`). The person's own machine starts at their level ([`cloudStartMode`]).
    *  `name` is the harness's own label for a mode its menu does not list (the bridge's `ask`). */
   remoteStart: { id: string; name?: string };
 };
@@ -108,8 +109,8 @@ export function highestMode(family: string | undefined, harness: string | undefi
   return menu?.rows.find((row) => row.id === menu.highest);
 }
 
-/** The mode a new chat whose first send starts it on a Cloud machine begins in (`remoteStart`), named
- * as the harness's menu names it. None for a harness this table does not list: the Cloud machine
+/** The asking mode a new chat whose first send starts it on a Cloud machine begins in when it asks
+ * (`remoteStart`), named as the harness's menu names it. None for a harness this table does not list: the Cloud machine
  * decides, and the chip says so with its generic label until the chat reports. */
 export function remoteStartMode(
   family: string | undefined,
@@ -119,6 +120,36 @@ export function remoteStartMode(
   if (!menu) return undefined;
   const { id, name } = menu.remoteStart;
   return { id, name: menu.rows.find((row) => row.id === id)?.name ?? name ?? id };
+}
+
+/** acpmux's full-access mode ids (`FULL_ACCESS_MODES`, hub/start_mode.rs): a start-mode answer in one
+ * of them says new chats start in full access. */
+const FULL_ACCESS_MODE_IDS: ReadonlySet<string> = new Set([
+  "bypassPermissions",
+  "agent-full-access",
+  "full-access",
+  "yolo",
+]);
+
+/** The mode a new chat whose first send starts it on the person's own Cloud machine begins in when
+ * nothing was picked for it: the person's start level for new chats, which the start carries to
+ * that machine (`permission_mode`, cmux-tui agent_session_start.rs `start_policy`) and which this
+ * Mac's acpmux answers as its start mode for the harness (`level`; `null`: it sets none;
+ * `undefined`: no answer yet). Full access, the default level, is the family's highest mode
+ * (Claude Code's Bypass permissions, Codex's Full access; Lawrence 2026-11-20: "cloud mode should
+ * default in bypass permissions/auto mode"), also before any answer and when this Mac's acpmux has
+ * none for an agent it does not run. A level that asks is the family's asking mode
+ * ([`remoteStartMode`]). None for a harness this table does not list: the Cloud machine decides. */
+export function cloudStartMode(
+  family: string | undefined,
+  harness: string | undefined,
+  level: { modeId: string } | null | undefined,
+): { id: string; name: string } | undefined {
+  const asking = remoteStartMode(family, harness);
+  const highest = highestMode(family, harness);
+  if (!asking || !highest) return asking;
+  if (level?.modeId && !FULL_ACCESS_MODE_IDS.has(level.modeId)) return asking;
+  return { id: highest.id, name: highest.name };
 }
 
 /** The agent a Cloud machine starts when its send names none: acpmux's default, Claude first
