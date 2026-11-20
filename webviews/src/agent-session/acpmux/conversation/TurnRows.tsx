@@ -64,7 +64,7 @@ import { useCodeRouterChoice } from "./codeRouterOfferModel";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { PresentationContext } from "./presentationContextModel";
 import { useTurnWaterfall } from "./useTurnWaterfall";
-import { groupDisclosureKey, runDisclosureKey, runShape, thoughtIds, runLinks } from "./turnRowsModel";
+import { groupDisclosureKey, runDisclosureKey, runLinks, runShape, thoughtIds } from "./turnRowsModel";
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
 function WorkedLabel({ row }: { row: AcpmuxRow }) {
@@ -725,10 +725,7 @@ function TurnFailure({
     </button>
   );
   return (
-    <div
-      className={`cv-turn-note cv-turn-error ui-transient-error cv-turn-error--${arm}${arm === "card" ? " ui-glass ui-glass-content" : ""}`}
-      data-failure-kind={kind}
-    >
+    <div className={`cv-turn-note cv-turn-error cv-turn-error--${arm}`} data-failure-kind={kind}>
       <span className="cv-turn-error__cause">
         {arm !== "note" && <AlertCircle size={arm === "card" ? 16 : 14} className="cv-turn-error__icon" />}
         <span className="text-fg">
