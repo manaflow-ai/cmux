@@ -38,6 +38,18 @@ export function reportsNoModes(reported: unknown): boolean {
   return permissionModes({ availableModes: rows }, options) === undefined;
 }
 
+/// Whether acpmux's harness list row says the harness's chats report permission modes: modes that
+/// are not a copy of another option (OpenCode's Build and Plan, Claude Code's). Unknown is not some.
+export function reportsModes(reported: unknown): boolean {
+  if (!reported || typeof reported !== "object") return false;
+  const { modes, configOptions } = reported as { modes?: unknown; configOptions?: unknown };
+  const rows = Array.isArray(modes)
+    ? (modes as { id?: unknown }[]).filter((mode): mode is { id: string } => typeof mode?.id === "string")
+    : [];
+  const options = Array.isArray(configOptions) ? (configOptions as ConfigOption[]) : [];
+  return rows.length > 0 && permissionModes({ availableModes: rows }, options) !== undefined;
+}
+
 function isModeOption(option: ConfigOption): boolean {
   return option.category === "mode" || option.id === "mode";
 }
