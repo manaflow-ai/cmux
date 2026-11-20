@@ -59,9 +59,7 @@ import Testing
         #expect(DesignSettings().densityTokens == DensityPreset.compact.tokens)
     }
 
-    /// Every built-in but Compact, which is the user's tuned density (`CompactDensityDefaultsTests`, 2026-11-19); Compact's
-    /// Default-times-0.9 sizes are still the ones Default's omnibar borrows (`DensityPreset.scaledTokens`).
-    @Test(arguments: DensityPreset.allCases.filter { $0 != .compact })
+    @Test(arguments: DensityPreset.allCases)
     func everySizeKeepsDefaultsProportions(preset: DensityPreset) throws {
         let reference = DensityPreset.cozy.tokens
         let tokens = preset.tokens
