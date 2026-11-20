@@ -22,7 +22,7 @@ fn linked_notice_keeps_its_source_through_triage_and_recovery() {
     let original = json!({"surgeHeld":true,"promptId":"original","threadId":"topic:pr/example/project/17",
         "text":"review requested","_meta":{"provenance":{"notice":{"links":[{"url":url}]}}}});
     let batch = batch_of(vec![held_from_inbox(&original).unwrap()]);
-    let decisions = decide(&batch, Some("1 this"), &Owners::default());
+    let decisions = known(&batch, Some("1 this"), &Owners::default());
     let record = triaged_record(&batch, &decisions, Some("digest"));
     assert!(digest("receiver", &record_lines(&record)).unwrap().contains(url));
 }
