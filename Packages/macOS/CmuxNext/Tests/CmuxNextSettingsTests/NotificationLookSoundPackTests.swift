@@ -20,7 +20,7 @@ struct NotificationLookSoundPackTests {
         let prefs = Self.prefs()
         #expect(!prefs.sounds.lookPack)
         #expect(prefs.sounds.choice(for: .finished, in: Self.scope, fallback: prefs.sound)?.name == "Glass")
-        #expect(prefs.lookSound(for: .ciGreen, minuteOfDay: 600) == nil)
+        #expect(prefs.lookSound(for: .ciGreen, minuteOfDay: 600) == .unset)
     }
 
     @Test func onThePackSoundsForItsThreeMoments() {
@@ -30,7 +30,7 @@ struct NotificationLookSoundPackTests {
         #expect(prefs.sounds.choice(for: .needsInput, in: Self.scope, fallback: prefs.sound)?.level == "look:needsInput")
         // An event the pack has no moment for keeps its sound.
         #expect(prefs.sounds.choice(for: .error, in: Self.scope, fallback: prefs.sound)?.name == "Glass")
-        #expect(prefs.lookSound(for: .ciGreen, minuteOfDay: 600)?.name == "Pop")
+        #expect(prefs.lookSound(for: .ciGreen, minuteOfDay: 600).choice?.name == "Pop")
     }
 
     @Test func thePersonsOwnSoundsWin() {
@@ -43,21 +43,25 @@ struct NotificationLookSoundPackTests {
         // cmux muted: notifications.sound "none".
         let muted = Self.prefs(["lookPack": true], sound: "none")
         #expect(muted.sounds.choice(for: .finished, in: Self.scope, fallback: muted.sound) == nil)
-        #expect(muted.lookSound(for: .ciGreen, minuteOfDay: 600) == nil)
+        #expect(muted.lookSound(for: .ciGreen, minuteOfDay: 600) == .muted)
         // A level's "none" (a muted agent kind) still mutes.
         let agentMuted = Self.prefs(["lookPack": true, "agents": ["codex": "none"]])
         #expect(agentMuted.sounds.choice(for: .finished, in: Self.scope, fallback: agentMuted.sound) == nil)
         // Volume 0.
         let silent = Self.prefs(["lookPack": true, "volume": 0])
-        #expect(silent.lookSound(for: .ciGreen, minuteOfDay: 600) == nil)
+        #expect(silent.lookSound(for: .ciGreen, minuteOfDay: 600) == .muted)
         // Quiet hours.
         var quiet = Self.prefs(["lookPack": true])
         quiet.quietHours = QuietHours(start: 22 * 60, end: 7 * 60)
-        #expect(quiet.lookSound(for: .ciGreen, minuteOfDay: 23 * 60) == nil)
-        #expect(quiet.lookSound(for: .ciGreen, minuteOfDay: 12 * 60)?.name == "Pop")
+        #expect(quiet.lookSound(for: .ciGreen, minuteOfDay: 23 * 60) == .muted)
+        #expect(quiet.lookSound(for: .ciGreen, minuteOfDay: 12 * 60).choice?.name == "Pop")
         // The pack's own "none" for a moment.
         let packNone = Self.prefs(["lookPack": true], pack: [.ciGreen: "none"])
-        #expect(packNone.lookSound(for: .ciGreen, minuteOfDay: 600) == nil)
+        #expect(packNone.lookSound(for: .ciGreen, minuteOfDay: 600) == .muted)
+        // Quiet hours mute nothing a pack has no sound for: the chat's own sound stays.
+        var quietNoPack = Self.prefs(["lookPack": true], pack: [:])
+        quietNoPack.quietHours = QuietHours(start: 22 * 60, end: 7 * 60)
+        #expect(quietNoPack.lookSound(for: .ciGreen, minuteOfDay: 23 * 60) == .unset)
     }
 
     @Test func aLookWithNoPackChangesNothing() {

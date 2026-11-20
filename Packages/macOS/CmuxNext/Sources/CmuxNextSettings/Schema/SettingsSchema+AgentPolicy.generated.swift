@@ -72,7 +72,7 @@ extension SettingsSchema {
         "appearance.highlightColor",
         "appearance.themeEdits",
         // The theme file whose look applies (looks only)
-        "appearance.themeFile",
+        "appearance.themeFile", "appearance.themeFileExceptions",
         // Starred themes and their rotation (looks only)
         "appearance.favoriteThemes", "appearance.rotateFavoriteThemes",
         // The color of each machine's marks (looks only)

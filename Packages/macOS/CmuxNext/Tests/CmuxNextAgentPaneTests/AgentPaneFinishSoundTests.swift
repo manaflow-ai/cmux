@@ -39,11 +39,19 @@ import Testing
     /// the built-in sounds are unchanged otherwise.
     @Test func theLooksSoundWinsAndLookOnlyNeedsOne() {
         let look = NotificationSoundChoice(name: "Hero", volume: 0.8, level: "look:ciGreen")
-        #expect(AgentPaneFinishSound.pick(.ci, look: look, lookOnly: true)?.name == "Hero")
-        #expect(AgentPaneFinishSound.pick(.ci, look: look, lookOnly: true)?.volume == 0.8)
-        #expect(AgentPaneFinishSound.pick(.ci, look: nil, lookOnly: true) == nil)
-        #expect(AgentPaneFinishSound.pick(.ci, look: nil, lookOnly: false)?.name == "Pop")
-        #expect(AgentPaneFinishSound.pick(.ci, look: nil, lookOnly: false)?.volume == AgentPaneFinishSound.volume)
+        #expect(AgentPaneFinishSound.pick(.ci, look: .play(look), lookOnly: true)?.name == "Hero")
+        #expect(AgentPaneFinishSound.pick(.ci, look: .play(look), lookOnly: true)?.volume == 0.8)
+        #expect(AgentPaneFinishSound.pick(.ci, look: .unset, lookOnly: true) == nil)
+        #expect(AgentPaneFinishSound.pick(.ci, look: .unset, lookOnly: false)?.name == "Pop")
+        #expect(AgentPaneFinishSound.pick(.ci, look: .unset, lookOnly: false)?.volume == AgentPaneFinishSound.volume)
+        // A pack that mutes the moment ("none", quiet hours, volume 0) silences the built-in sound too.
+        #expect(AgentPaneFinishSound.pick(.turn, look: .muted, lookOnly: false) == nil)
+        #expect(AgentPaneFinishSound.pick(.ci, look: .muted, lookOnly: true) == nil)
+        // sounds.when "whenInactive": a pack's sound is muted while cmux is active, kept while it is not.
+        #expect(AgentPaneFinishSound.muted(.play(look), when: .whenInactive, appActive: true) == .muted)
+        #expect(AgentPaneFinishSound.muted(.play(look), when: .whenInactive, appActive: false) == .play(look))
+        #expect(AgentPaneFinishSound.muted(.unset, when: .whenInactive, appActive: true) == .unset)
+        #expect(AgentPaneFinishSound.muted(.play(look), when: .unlessViewed, appActive: true) == .play(look))
         #expect(AgentPaneFinishSound.lookEvent(.turn) == .finished)
         #expect(AgentPaneFinishSound.lookEvent(.ci) == .ciGreen)
         #expect(AgentPaneFinishSound.lookEvent(.merged) == nil)

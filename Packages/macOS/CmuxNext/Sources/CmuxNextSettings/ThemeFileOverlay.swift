@@ -252,8 +252,13 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
         /// A sound name as written; a `file:` sound as an absolute path; nil when the file name is
         /// no plain sound file name (a folder, `..`, another extension).
         private func soundPath(_ text: String) -> String? {
+            // A bare `~/path` (as cmux-config's theme_file/sounds.rs takes it) is a home file too.
+            if text.hasPrefix("~/") { return soundPath("file:" + text) }
             guard text.hasPrefix("file:") else { return text }
             let path = String(text.dropFirst("file:".count))
+            if path.hasPrefix("~/"), path.dropFirst(2).split(separator: "/", omittingEmptySubsequences: false).contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) {
+                return nil
+            }
             let ext = (path as NSString).pathExtension.lowercased()
             guard Self.soundExtensions.contains(ext) else { return nil }
             if path.hasPrefix("~/") { return NSString(string: path).expandingTildeInPath }

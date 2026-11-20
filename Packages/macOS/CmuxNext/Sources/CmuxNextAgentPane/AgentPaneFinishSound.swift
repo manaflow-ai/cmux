@@ -73,19 +73,22 @@ public final class AgentPaneFinishSound {
     }
 
     /// Where a page's finish moments find the active look's sound (``AgentPaneShared/lookSound``).
-    public typealias LookSource = @MainActor (Kind) -> NotificationSoundChoice?
+    public typealias LookSource = @MainActor (Kind) -> NotificationSoundPreferences.LookMoment
 
     /// The active look's sound for `kind`: its theme file's sound pack while
-    /// `notifications.sounds.lookPack` is on and no mute applies (``NotificationPreferences/lookSound(for:minuteOfDay:)``).
-    /// The pane's view sets it from the app's ``AgentPaneShared``; nil, or a nil answer, keeps the built-in sound.
+    /// `notifications.sounds.lookPack` is on (``NotificationPreferences/lookSound(for:minuteOfDay:)``), muted under
+    /// quiet hours, `sounds.when: "whenInactive"` while cmux is active, and the other notification mutes.
+    /// The pane's view sets it from the app's ``AgentPaneShared``; nil, or an unset answer, keeps the built-in sound.
     var lookSound: LookSource?
 
     /// The app's look source: `settings`' notification preferences at the local time of each sound.
     public static func lookSource(_ settings: @escaping @MainActor () -> SettingsController?) -> LookSource {
         { kind in
-            guard let settings = settings(), let event = lookEvent(kind) else { return nil }
+            guard let settings = settings(), let event = lookEvent(kind) else { return .unset }
+            let notifications = settings.snapshot.notifications
             let now = Calendar.current.dateComponents([.hour, .minute], from: Date())
-            return settings.snapshot.notifications.lookSound(for: event, minuteOfDay: (now.hour ?? 0) * 60 + (now.minute ?? 0))
+            let moment = notifications.lookSound(for: event, minuteOfDay: (now.hour ?? 0) * 60 + (now.minute ?? 0))
+            return muted(moment, when: notifications.sounds.when, appActive: NSApp?.isActive ?? false)
         }
     }
 
@@ -98,11 +101,23 @@ public final class AgentPaneFinishSound {
         }
     }
 
-    /// The sound `kind` plays: the look's at its notification volume when it has one, else the built-in one at ``volume``;
+    /// `moment` under `notifications.sounds.when`: a pack's sound is muted while cmux is active when it
+    /// sounds only `whenInactive`. A chat has no single viewed pane, so `unlessViewed` keeps it.
+    nonisolated static func muted(_ moment: NotificationSoundPreferences.LookMoment, when: NotificationSoundTiming,
+                                  appActive: Bool) -> NotificationSoundPreferences.LookMoment {
+        guard moment != .unset, when == .whenInactive, appActive else { return moment }
+        return .muted
+    }
+
+    /// The sound `kind` plays: the look's at its notification volume when it has one, nothing when the pack
+    /// mutes the moment (its `"none"`, quiet hours, volume 0), else the built-in one at ``volume``;
     /// with `lookOnly` (`pane.lookSound`: the finish sound is off) nothing but the look's.
-    static func pick(_ kind: Kind, look: NotificationSoundChoice?, lookOnly: Bool) -> (name: String, volume: Float)? {
-        if let look { return (look.name, Float(min(max(look.volume, 0), 1))) }
-        return lookOnly ? nil : (kind.soundName, Self.volume)
+    static func pick(_ kind: Kind, look: NotificationSoundPreferences.LookMoment, lookOnly: Bool) -> (name: String, volume: Float)? {
+        switch look {
+        case .play(let choice): return (choice.name, Float(min(max(choice.volume, 0), 1)))
+        case .muted: return nil
+        case .unset: return lookOnly ? nil : (kind.soundName, Self.volume)
+        }
     }
 
     /// Plays `kind`'s sound, unless the system switch is off or another sound started under
@@ -114,7 +129,7 @@ public final class AgentPaneFinishSound {
         // A merge right after a turn's end still sounds: a bigger moment outranks the gap.
         let outranks = lastKind.map { kind.rank > $0.rank } ?? true
         guard outranks || Self.admits(now: now, last: lastPlayed), Self.systemAllowsUISounds else { return }
-        guard let picked = Self.pick(kind, look: lookSound?(kind), lookOnly: lookOnly),
+        guard let picked = Self.pick(kind, look: lookSound?(kind) ?? .unset, lookOnly: lookOnly),
               let sound = sounds[picked.name] ?? Self.load(picked.name) else { return }
         sounds[picked.name] = sound
         sound.volume = picked.volume
