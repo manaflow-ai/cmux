@@ -114,7 +114,7 @@ jobs:
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
-      # 44733869883, 2026-11-20); remove it so checkout clones fresh. tests/test_ci_reused_sparse_checkout.py.
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -207,7 +207,7 @@ jobs:
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
-      # 44733869883, 2026-11-20); remove it so checkout clones fresh. tests/test_ci_reused_sparse_checkout.py.
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -297,7 +297,7 @@ jobs:
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
-      # 44733869883, 2026-11-20); remove it so checkout clones fresh. tests/test_ci_reused_sparse_checkout.py.
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -404,7 +404,7 @@ jobs:
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
-      # 44733869883, 2026-11-20); remove it so checkout clones fresh. tests/test_ci_reused_sparse_checkout.py.
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -524,7 +524,16 @@ jobs:
             echo "::warning::no Python 3.9 on this runner; the nightly prune compatibility step reds on the head and the base alike"
             exit 0
           fi
-          ln -sf "$PYTHON39" "$RUNNER_TEMP/python39/python3.9"
+          # A wrapper, not a symlink: setup-python's 3.9 is a shared-library build that finds libpython3.9.so through
+          # LD_LIBRARY_PATH, which update-environment: false leaves unset (a persistent pool runner: "libpython3.9.so.1.0:
+          # cannot open shared object file", guards run 44762407859).
+          lib="$(cd "$(dirname "$PYTHON39")/../lib" 2>/dev/null && pwd || true)"
+          # shellcheck disable=SC2016 # $LD_LIBRARY_PATH and $@ are the wrapper's own, expanded when it runs
+          printf '#!/bin/sh\nLD_LIBRARY_PATH="%s${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" exec "%s" "$@"\n' "$lib" "$PYTHON39" \
+            > "$RUNNER_TEMP/python39/python3.9"
+          chmod 755 "$RUNNER_TEMP/python39/python3.9"
+          "$RUNNER_TEMP/python39/python3.9" -c 'import sys; assert sys.version_info[:2] == (3, 9)' \
+            || { echo "::warning::$PYTHON39 does not start as Python 3.9"; rm -f "$RUNNER_TEMP/python39/python3.9"; exit 0; }
           echo "$RUNNER_TEMP/python39" >> "$GITHUB_PATH"
 
       # The branch had 24 of the group's 134 steps red before this job ran there (2026-10-21), so the job fails
@@ -562,9 +571,7 @@ jobs:
           head_status=0
           timeout --kill-after=10 "$head_budget" \
             scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || head_status=$?
-          head_cut=false
           if [ "$head_status" -eq 124 ] || [ "$head_status" -eq 137 ]; then
-            head_cut=true
             echo "::error title=ci guard group head pass cut::the head pass hit its ${head_budget}s bound (exit ${head_status}); its unfinished steps have no head result"
             scripts/ci/guards-local.sh --list --feat-routes "$RUNNER_TEMP/changed-files.txt" 2>/dev/null \
               | sed -n 's/^  - //p; s/  (Linux only; skipped here)$//' | sort -u > "$RUNNER_TEMP/guards-plan.txt" || true
@@ -634,7 +641,7 @@ jobs:
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
-      # 44733869883, 2026-11-20); remove it so checkout clones fresh. tests/test_ci_reused_sparse_checkout.py.
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -742,7 +749,7 @@ jobs:
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
-      # 44733869883, 2026-11-20); remove it so checkout clones fresh. tests/test_ci_reused_sparse_checkout.py.
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -836,7 +843,7 @@ jobs:
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
-      # 44733869883, 2026-11-20); remove it so checkout clones fresh. tests/test_ci_reused_sparse_checkout.py.
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -1014,7 +1021,7 @@ jobs:
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
-      # 44733869883, 2026-11-20); remove it so checkout clones fresh. tests/test_ci_reused_sparse_checkout.py.
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -1072,7 +1079,7 @@ jobs:
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
-      # 44733869883, 2026-11-20); remove it so checkout clones fresh. tests/test_ci_reused_sparse_checkout.py.
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
         if: runner.os == 'Linux'
         shell: bash

@@ -27,6 +27,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | xbench | `perf-bench.sh` (`scripts/perf-bench/xbench.py`); `--import` reads `results.json` and `scripts/perf-bench/baseline/*.json` | Against other browsers, and the resource budget rows. |
 | idle | `perf-10x-idle.sh` | Idle CPU, wakeups and footprint per process kind. |
 | tui-idle | `tui-idle-ram.sh` (`tui-idle-ram.py`, `dhat-top.py`) on Linux CI | The idle cmux-tui daemon's anonymous PSS, PSS, threads, binary sections and (dhat=1) Rust heap at commits. |
+| acpmux-watch-bytes | acpmux `hub/stream_tell_tests.rs` (cargo, Linux CI) | Bytes one acpmux watcher is sent while 20 chats stream and the list is read 60 times. |
 | typing | `webviews/bench/composer-typing.bench.ts` (load modes L0-L3, Chromium and WebKit) on Linux CI | Composer keydown-to-paint p95/p99 and key integrity under idle, stream, ten streaming documents and a 100k-row stream. |
 | mcp-fanout | `mcp-fanout.sh` (`mcp-fanout.py`) on a fleet Mac, any published app (`app=`) | MCP tool-server processes, RSS, idle CPU per kind at N open chats; first cmux tool call latency. |
 | workspace-factory | `workspace-factory.sh` (`workspace-factory/`, the `wsfactory` Rust factory) on a fleet Mac | A per-job throwaway workspace (APFS clone of a read-only seed) against today's cold and warm-slot step workspaces: start, build, cache hit, disk left behind. |

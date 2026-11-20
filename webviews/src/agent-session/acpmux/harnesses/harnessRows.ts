@@ -54,7 +54,36 @@ export type HarnessRow = {
   docsUrl?: string;
   /** The command that installs it, run in place. */
   install?: string;
+  /** The harness this row needs before it can run (Chief needs Claude Code): its install, sign-in and
+   * checks are that harness's, and the row's own state is that harness's. */
+  needs?: { harness: string; name: string };
 };
+
+/** acpmux's family of the built-in Chief harness (acpmux `CHIEF_FAMILY`). */
+const CHIEF_FAMILY = "chief";
+/** The Chief's own Claude routes: with one configured the Chief answers through it (optchat-chief
+ * `host::default_harness`), so its row is left as acpmux reports it. */
+const CHIEF_ROUTES = ["claude-cr", "claude-sr2"];
+/** The harness a Chief answers through when no route is configured: the person's own Claude Code. */
+const CHIEF_AGENT = "claude";
+
+/// The Chief row as what it answers through, Claude Code (first-run findings row 7: "Chief: Ready" on a
+/// Mac with no Claude Code while Chief refused every message). Ready only when Claude Code is; else
+/// Claude Code's own fix: install it, or sign in to it. Its row is the evidence, so a check that has not
+/// answered leaves Chief checking too.
+function chiefRow(chief: HarnessRow, agent: HarnessRow): HarnessRow {
+  const needs = { harness: agent.harness, name: agent.name };
+  const { detail: _detail, login: _login, install: _install, docsUrl: _docs, ...base } = chief;
+  return {
+    ...base,
+    status: agent.status,
+    needs,
+    ...(agent.detail ? { detail: agent.detail } : {}),
+    ...(agent.login ? { login: agent.login } : {}),
+    ...(agent.install ? { install: agent.install } : {}),
+    ...(agent.docsUrl ? { docsUrl: agent.docsUrl } : {}),
+  };
+}
 
 export function harnessRows(
   catalog: PickerCatalog,
@@ -101,5 +130,12 @@ export function harnessRows(
   const installed = new Set(
     catalog.harnesses.filter((entry) => entry.installed).map((entry) => entry.acpmuxHarness ?? entry.id),
   );
-  return [...rows.filter((row) => installed.has(row.harness)), ...rows.filter((row) => !installed.has(row.harness))];
+  const chief = catalog.harnesses.find((entry) => entry.family === CHIEF_FAMILY);
+  const agent = rows.find((row) => row.harness === CHIEF_AGENT);
+  const routed = acpmux.some((entry) => CHIEF_ROUTES.includes(entry.id));
+  const shown =
+    chief && agent && !routed
+      ? rows.map((row) => (row.harness === (chief.acpmuxHarness ?? chief.id) ? chiefRow(row, agent) : row))
+      : rows;
+  return [...shown.filter((row) => installed.has(row.harness)), ...shown.filter((row) => !installed.has(row.harness))];
 }
