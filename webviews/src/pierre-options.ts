@@ -71,7 +71,9 @@ export function codeViewOptions(
 ): CodeViewOptions<any> {
   return {
     layout: { paddingTop: 0, gap: 1, paddingBottom: 0 },
-    itemMetrics: lineHeight ? { diffHeaderHeight: DIFF_FILE_HEADER_HEIGHT, lineHeight } : { diffHeaderHeight: DIFF_FILE_HEADER_HEIGHT },
+    itemMetrics: lineHeight
+      ? { diffHeaderHeight: DIFF_FILE_HEADER_HEIGHT, lineHeight }
+      : { diffHeaderHeight: DIFF_FILE_HEADER_HEIGHT },
     diffStyle: options.layout,
     diffIndicators: options.diffIndicators,
     overflow: options.wordWrap ? "wrap" : "scroll",
