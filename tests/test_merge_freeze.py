@@ -36,6 +36,7 @@ BROKER_FIELDS = frozenset({
     "isPrivate", "isTruncated", "issueCount", "label", "labels", "lastEditedAt", "limit", "locked", "login",
     "maintainerCanModify", "mergeCommit", "mergeMethod", "mergeStateStatus", "mergeable", "merged",
     "mergedAt", "mergedBy", "message", "mode", "name", "nameWithOwner", "nodes", "number", "object", "oid",
+    "messageBody", "messageHeadline",  # hq lane-gh-broker graphql-allowlist.json, commit message reads
     "pageInfo", "parents", "path", "prefix", "pullRequest", "pushedAt", "remaining", "requestedReviewer",
     "resetAt", "reviewRequests", "reviews", "slug", "startCursor", "state", "status", "submittedAt",
     "target", "targetUrl", "text", "timelineItems", "title", "totalCount", "tree", "type", "updatedAt",
