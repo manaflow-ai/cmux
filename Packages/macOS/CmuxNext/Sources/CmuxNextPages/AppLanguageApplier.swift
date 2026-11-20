@@ -50,7 +50,7 @@ public final class AppLanguageApplier {
         // selected language code is unchanged. Re-apply the page hook so its locale script is
         // fetched from the newly active pack instead of leaving the page on its English table.
         Bundle.observeLanguagePacks { [weak self] in
-            Task { @MainActor [weak self] in
+            MainDelivery().run { [weak self] in
                 guard let self else { return }
                 self.pages(self.language.code)
             }
