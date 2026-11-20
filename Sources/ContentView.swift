@@ -15829,6 +15829,7 @@ struct SidebarFooterButtons: View {
                     }
                     if shows(.help) {
                         SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
+                        SidebarTipsButton()
                     }
                     // Right of Help and left of Upgrade, per the footer design.
                     if shows(.cloud) {
@@ -16120,12 +16121,10 @@ private struct SidebarHelpMenuButton: View {
         case .upgrade:
             ProUpgradePresenter.present(source: .sidebarHelpMenu)
         case .importBrowserData:
-            isPopoverPresented = false
             DispatchQueue.main.async {
                 browserDataImportCoordinator?.presentImportDialog()
             }
         case .keyboardShortcuts:
-            isPopoverPresented = false
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
                 Task { @MainActor in
                     if let appDelegate = AppDelegate.shared {
