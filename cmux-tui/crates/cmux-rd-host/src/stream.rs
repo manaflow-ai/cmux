@@ -85,13 +85,15 @@ pub struct MediaSession {
     /// The cursor as metadata, when the viewer draws it (cap `cursor`) and the desktop
     /// reports it: the pictures leave it out.
     cursor: Option<CursorChannel>,
+    /// Clipboard text both ways (cap `clipboard.text`), only while the viewer holds control.
+    clipboard: Option<crate::clipboard::ClipboardChannel>,
     /// Spreads each frame's datagrams over part of its frame interval (`None` with
     /// `CMUX_RD_PACE=0`, for comparison): a keyframe written as one burst of hundreds of
     /// datagrams is queued or dropped by a Wi-Fi radio or the kernel.
     pacer: Option<Pacer>,
     frame_interval_us: u64,
     /// Timing lines of frames still in the pacer: datagrams left, the line without `sent_us`.
-    paced_logs: VecDeque<(usize, serde_json::Value)>,
+    paced_logs: VecDeque<PacedLog>,
 }
 
 /// Whether frames are paced (`CMUX_RD_PACE=0` turns it off, for A/B measurement).
@@ -218,6 +220,14 @@ fn process_cpu_s() -> f64 {
     tv(ru.ru_utime) + tv(ru.ru_stime)
 }
 
+/// A paced frame's timing line, written when its last datagram leaves.
+struct PacedLog {
+    /// (stream, frame)
+    frame: (u16, u32),
+    remaining: usize,
+    line: serde_json::Value,
+}
+
 impl MediaSession {
     pub fn open(
         cfg: &SessionCfg,
@@ -276,6 +286,7 @@ impl MediaSession {
             settle_ns: cfg.settle_us * 1000,
             timing: Timing::from_env(),
             cursor: wants_cursor(negotiated_caps).then(CursorChannel::new),
+            clipboard: crate::clipboard::open(negotiated_caps, now_us()),
             pacer: pacing_enabled().then(Pacer::new),
             frame_interval_us: 1_000_000 / u64::from(cfg.max_fps.max(1)),
             paced_logs: VecDeque::new(),
@@ -338,6 +349,13 @@ impl MediaSession {
             let timeout = self.cursor.as_ref().map_or(timeout, |c| {
                 timeout.min(c.next_deadline_us().saturating_sub(now_us()).saturating_mul(1000))
             });
+            // The next clipboard check or part (only while the viewer holds control).
+            let may_control = table.may_inject_input(session, viewer);
+            let timeout =
+                match self.clipboard.as_ref().and_then(|c| c.next_deadline_us(may_control)) {
+                    Some(due) => timeout.min(due.saturating_sub(now_us()).saturating_mul(1000)),
+                    None => timeout,
+                };
             // Timed input work: a press waiting behind the agent's held button, the person
             // master going idle.
             let wake = if table.may_inject_input(session, viewer) {
@@ -365,6 +383,19 @@ impl MediaSession {
             for item in incoming.drain(..) {
                 match item {
                     Incoming::Control(Control::Stop) => return "stopped by viewer".into(),
+                    Incoming::Control(Control::Clipboard { seq, text, offset, total }) => {
+                        // Applied only in a control session; without the cap, ignored.
+                        let may_control = table.may_inject_input(session, viewer);
+                        if let Some(clipboard) = self.clipboard.as_mut() {
+                            let part = cmux_rd_proto::clipboard::ClipboardPart {
+                                seq,
+                                text,
+                                offset,
+                                total,
+                            };
+                            clipboard.on_part(part, may_control);
+                        }
+                    }
                     Incoming::Control(control) => {
                         let may_control = table.may_inject_input(session, viewer);
                         if let Some(answer) =
@@ -432,6 +463,13 @@ impl MediaSession {
             }
             if let Err(e) = self.send_cursor(carrier) {
                 return format!("control write failed: {e}");
+            }
+            if let Some(clipboard) = self.clipboard.as_mut() {
+                if let Some(part) = clipboard.poll(now_us(), may_inject) {
+                    if let Err(e) = carrier.send_control(&part) {
+                        return format!("control write failed: {e}");
+                    }
+                }
             }
             if now_ns() >= self.next_stats_ns {
                 self.send_stats(carrier);
@@ -527,7 +565,9 @@ impl MediaSession {
             return Ok(());
         }
         if let Some(line) = line {
-            self.paced_logs.push_back((out.datagrams.len(), line));
+            let frame = DatagramHeader::decode(&out.datagrams[0]).map(|(h, _)| (h.stream, h.frame));
+            let frame = frame.unwrap_or_default();
+            self.paced_logs.push_back(PacedLog { frame, remaining: out.datagrams.len(), line });
         }
         pacer.push_frame(out.datagrams, self.engine.target_bps(), self.frame_interval_us, now_us());
         Ok(self.send_paced(carrier)?)
@@ -545,19 +585,47 @@ impl MediaSession {
             self.engine.datagram_sent(datagram, now);
         }
         while left > 0 {
-            let Some((remaining, _)) = self.paced_logs.front_mut() else { break };
-            let take = left.min(*remaining);
-            *remaining -= take;
+            let Some(log) = self.paced_logs.front_mut() else { break };
+            let take = left.min(log.remaining);
+            log.remaining -= take;
             left -= take;
-            if *remaining == 0 {
-                if let (Some((_, line)), Some(timing)) =
+            if log.remaining == 0 {
+                if let (Some(log), Some(timing)) =
                     (self.paced_logs.pop_front(), self.timing.as_mut())
                 {
-                    timing.frame_sent(line, now_us());
+                    timing.frame_sent(log.line, now_us());
                 }
             }
         }
         Ok(())
+    }
+
+    /// D12: the path came back from an outage. What queued in the pacer while the
+    /// radio was away delays the newest picture, but dropping a frame the encoder
+    /// predicts from costs a keyframe; the engine picks the whole unstarted frames
+    /// worth dropping (`outage_drop_plan`). They leave the queue and its timing
+    /// lines, then the engine retires them (else their missing receipts read as
+    /// loss) and makes the next frame a keyframe where one is needed.
+    fn drop_stale_queue(&mut self, out: &mut Output) {
+        let Some(pacer) = self.pacer.as_mut() else { return };
+        let drop = self.engine.outage_drop_plan(pacer.queued(), out);
+        if drop.is_empty() {
+            return;
+        }
+        let is_dropped = |d: &[u8]| {
+            DatagramHeader::decode(d).is_ok_and(|(h, _)| {
+                matches!(h.kind, DatagramKind::Video | DatagramKind::Fec)
+                    && drop.contains(&(h.stream, h.frame))
+            })
+        };
+        let stale = pacer.take_where(is_dropped);
+        self.paced_logs.retain(|log| !drop.contains(&log.frame));
+        trace(&format!(
+            "outage ended: dropped {} queued datagrams of {} unstarted frames",
+            stale.len(),
+            drop.len()
+        ));
+        self.engine.retire_unsent(&stale, out, now_us());
     }
 
     /// Sends an engine output's datagrams, injects its input and hands its
@@ -570,6 +638,9 @@ impl MediaSession {
         session: SessionId,
         viewer: &Principal,
     ) {
+        if out.outage_ended.is_some() {
+            self.drop_stale_queue(&mut out);
+        }
         self.send_output(carrier, std::mem::take(&mut out.datagrams));
         self.upstreams.deliver(&out.upstream);
         if out.release_all {
@@ -704,7 +775,7 @@ mod encode_off_loop_tests {
     use crate::carrier::{Carrier, Incoming};
     use cmux_rd_core::policy::{ConsentRule, HostPolicy, Mode, PrincipalClass};
     use cmux_rd_core::session::StartRequest;
-    use cmux_rd_proto::{DatagramHeader, DatagramKind, InputEvent, InputPacket};
+    use cmux_rd_proto::{InputEvent, InputPacket};
     use std::os::fd::{AsRawFd, RawFd};
     use std::os::unix::net::UnixStream;
     use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
@@ -907,3 +978,10 @@ mod encode_off_loop_tests {
         );
     }
 }
+
+/// D12 detector, host half: when an outage ends, what queued in the pacer during it never
+/// goes out, its missing receipts are not loss, and the newest frame goes out next as a
+/// keyframe.
+#[cfg(test)]
+#[path = "stream_outage_tests.rs"]
+mod outage_drop_tests;

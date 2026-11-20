@@ -27,7 +27,10 @@
 #               CMUX_TICK_HARNESS=1, the suite's opt-in (it allocates and
 #               runs for seconds, so the kit's full run skips it)
 #             ui=SUITE[,SUITE...]   also run those CmuxMobileAppUITests suites
-#               against a Debug app; with ui= and no only=, the kit run is skipped
+#               against a Debug app; with ui= and no only=, the kit run is skipped.
+#               A suite named *ColdUITests runs each of its test*Cold methods
+#               on a freshly booted iPhone, CMUX_LAUNCH_COLD_RUNS (10) times
+#               (LaunchTTIColdUITests); LAUNCHTTI lines go to launch-tti.jsonl
 #             video   record the UI tests' iPhone screen (simctl recordVideo)
 #               to ui-video.mp4 in the artifact: before/after videos of a change;
 #               with ffmpeg on the host (Homebrew), also ui-video-small.mp4:
@@ -206,6 +209,7 @@ fi
 kit_only=()
 kit_env=()
 ui_suites=()
+ui_cold=()
 ui_video=0
 ui_profile=0
 if [[ "$mode" == test && $# -gt 1 ]]; then
@@ -224,14 +228,16 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
         for item in "${items[@]}"; do
           [[ "$item" =~ ^[A-Za-z0-9_]+(/[A-Za-z0-9_]+)?$ ]] ||
             { echo "cmux-next-ios-sim.sh: ui= wants CmuxMobileAppUITests suite names, got '$item'" >&2; exit 2; }
-          ui_suites+=("-only-testing:CmuxMobileAppUITests/$item")
+          # A suite named *ColdUITests runs each of its test*Cold methods on a freshly booted
+          # simulator, CMUX_LAUNCH_COLD_RUNS times (default 10): one cold launch per run.
+          if [[ "$item" == *ColdUITests ]]; then ui_cold+=("$item"); else ui_suites+=("-only-testing:CmuxMobileAppUITests/$item"); fi
         done ;;
       video) ui_video=1 ;;
       profile) ui_profile=1 ;;
       *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST, video and profile, got '$sel'" >&2; exit 2 ;;
     esac
   done
-  if [[ $ui_profile -eq 1 && ${#ui_suites[@]} -eq 0 ]]; then
+  if [[ $ui_profile -eq 1 && $((${#ui_suites[@]} + ${#ui_cold[@]})) -eq 0 ]]; then
     echo "cmux-next-ios-sim.sh: profile records the UI test run; give it ui=SUITE,..." >&2; exit 2
   fi
 fi
@@ -343,7 +349,7 @@ if [[ "$mode" == clips ]]; then
     echo "cmux-next-ios-sim.sh: roles=...before needs base=SHA" >&2; exit 2
   fi
 fi
-if [[ ${#ui_suites[@]} -gt 0 && ${#kit_only[@]} -eq 0 ]]; then run_kit=0; fi
+if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 && ${#kit_only[@]} -eq 0 ]]; then run_kit=0; fi
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
@@ -622,8 +628,12 @@ if [[ "$mode" == release-build ]]; then
   build_settings=(CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO)
 fi
 if [[ "$mode" == handoff ]]; then
-  # The task's own install beside every other build: its bundle id, home-screen name and commit.
-  build_settings+=("CMUX_MOBILE_TAG=.$handoff_tag" "CMUX_MOBILE_DISPLAY_NAME=cmux $handoff_tag"
+  # The task's own install beside every other build: its bundle id, home-screen name and commit, and
+  # its tag's cloud data space (Info.plist CmuxMobileDevTag, `X-Cmux-Build-Space: dev:<tag>`), the space
+  # its same-tag Mac app's hostd registers in. project.yml sets CMUX_MOBILE_DEV_TAG only for Debug: a
+  # shared Demo build (demo-build.sh) stays in the default space, and only the hand-off's Demo build gets
+  # one. The tag is already a slug (checked above), so the space is `dev:<tag>` as the Mac's is.
+  build_settings+=("CMUX_MOBILE_TAG=.$handoff_tag" "CMUX_MOBILE_DEV_TAG=.$handoff_tag" "CMUX_MOBILE_DISPLAY_NAME=cmux $handoff_tag"
     "CMUX_MOBILE_SOURCE_COMMIT=$(git rev-parse HEAD)")
 fi
 build_command=(xcodebuild -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration "$configuration"
@@ -785,7 +795,10 @@ if [[ "$mode" == handoff ]]; then
     account="$CMUX_FLEET_SIGNIN_EMAIL"
     client="$(python3 -I -c 'import uuid,sys; print(uuid.uuid5(uuid.NAMESPACE_URL, "cmux-ios-dogfood-client:%s:%s" % (sys.argv[1], sys.argv[2])))' "$bundle_id" "$udid")"
     receipt="$work/readiness.json"
-    simctl io "$udid" recordVideo --codec h264 --force "$out/recording.mp4" >"$work/recording.log" 2>&1 &
+    # xcrun itself in the background, never the simctl() wrapper: `wrapper &` is a subshell, which
+    # ignores SIGINT (an async command in a non-interactive shell) and waits on its xcrun, so the
+    # SIGINT below never reached the recorder and the step hung until its 6 h timeout (2026-11-18).
+    xcrun simctl --set "$sims" io "$udid" recordVideo --codec h264 --force "$out/recording.mp4" >"$work/recording.log" 2>&1 &
     rec_pid=$!
     sleep 1  # the recorder's first frame; a bounded start, it has no ready signal
     for leg in auto_login restored; do
@@ -822,7 +835,8 @@ if [[ "$mode" == handoff ]]; then
       note "- simulator $leg: $verdict (screens/signed-in-$leg.png)"
     done
     cmux_fleet_signin_forget
-    if [[ -n "$rec_pid" ]]; then kill -INT "$rec_pid" 2>/dev/null || true; wait "$rec_pid" 2>/dev/null || true; fi
+    # recordVideo finishes the file on SIGINT; one that has not stopped in 30 s is ended (bounded).
+    if [[ -n "$rec_pid" ]]; then kill -INT "$rec_pid" 2>/dev/null || true; for _ in $(seq 1 30); do kill -0 "$rec_pid" 2>/dev/null || break; sleep 1; done; ! kill -0 "$rec_pid" 2>/dev/null || kill -TERM "$rec_pid" 2>/dev/null || true; wait "$rec_pid" 2>/dev/null || true; fi
     simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
     [[ -z "$handoff_sim_reason" ]]
   }
@@ -840,12 +854,12 @@ fi
 keep_test_logs() {
   local log=$1 bundle=$2 name=$3
   cp "$log" "$out/$name-test.log" 2>/dev/null || true
-  xcrun xcresulttool get log --type console --path "$bundle" > "$out/$name-console.txt" 2>/dev/null || true
+  xcrun xcresulttool get log --type console --path "$bundle" > "$out/$name-console.txt" 2> "$out/$name-console-error.txt" || true
   xcrun xcresulttool get test-results tests --path "$bundle" --compact > "$out/$name-tests.json" 2>/dev/null || true
   # XCTAttachments (UI tests' keepAlways screenshots) as files, with the
   # manifest.json that maps each one to its test.
   mkdir -p "$out/$name-attachments"
-  xcrun xcresulttool export attachments --path "$bundle" --output-path "$out/$name-attachments" >/dev/null 2>&1 || true
+  xcrun xcresulttool export attachments --path "$bundle" --output-path "$out/$name-attachments" > "$out/$name-attachments-export.log" 2>&1 || true
   xcrun xcresulttool get test-results summary --path "$bundle" --compact 2>/dev/null | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
@@ -1037,8 +1051,48 @@ ui_profile_finish() {
   rm -rf "$profile_trace"
 }
 
+# Cold suites (ui=*ColdUITests): each test*Cold method of the suite, once per fresh boot of the
+# UI tests' iPhone (shut down, booted, then the one test), CMUX_LAUNCH_COLD_RUNS times (default 10,
+# at most 30). The app's LAUNCHTTI lines from every run go to launch-tti.jsonl; each run's console
+# and per-test results to ui-cold/.
+ui_cold_tests() {
+  local runs="${CMUX_LAUNCH_COLD_RUNS:-10}" suite file test run status
+  [[ "$runs" =~ ^[0-9]+$ ]] && (( runs >= 1 && runs <= 30 )) || runs=10
+  ui_cold_runs=$runs
+  mkdir -p "$out/ui-cold"
+  for suite in "${ui_cold[@]}"; do
+    file="$(grep -lw "class ${suite%%/*}" cmux-next-ios/UITests/*.swift | head -1)"
+    local tests=()
+    if [[ "$suite" == */* ]]; then
+      tests=("${suite#*/}")
+    elif [[ -n "$file" ]]; then
+      while IFS= read -r test; do tests+=("$test"); done < <(grep -oE 'func test[A-Za-z0-9_]*Cold\(' "$file" | sed -E 's/func (.*)\(/\1/')
+    fi
+    if [[ ${#tests[@]} -eq 0 ]]; then
+      note "- cold UI suite $suite: no test*Cold methods found"; ui_status=1; continue
+    fi
+    for test in "${tests[@]}"; do
+      for ((run = 1; run <= runs; run++)); do
+        xcrun simctl shutdown "$ui_udid" >/dev/null 2>&1 || true
+        # A run counts as cold only after a confirmed fresh boot; a failed transition is no sample.
+        if ! { xcrun simctl boot "$ui_udid" && xcrun simctl bootstatus "$ui_udid" -b >/dev/null; }; then
+          ui_status=1; note "- cold $suite/$test run $run: simulator reboot failed, no sample"; continue
+        fi
+        local bundle="$work/ui-cold-${test}-${run}.xcresult"
+        xcodebuild test-without-building "${ui_xcodebuild[@]}" -resultBundlePath "$bundle" \
+          "-only-testing:CmuxMobileAppUITests/${suite%%/*}/$test" >"$work/ui-cold-${test}-${run}.log" 2>&1
+        status=$?
+        keep_test_logs "$work/ui-cold-${test}-${run}.log" "$bundle" "ui-cold/${test}-${run}"
+        (( status == 0 )) || { ui_status=$status; note "- cold $suite/$test run $run: exit $status"; }
+        rm -rf "$bundle"
+      done
+    done
+  done
+  note "- cold UI suites ${ui_cold[*]}: $runs runs per test, one fresh boot each"
+}
+
 # --- UI tests (test ui=...) -------------------------------------------------
-if [[ ${#ui_suites[@]} -gt 0 ]]; then
+if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
   t0=$SECONDS
   # A Debug build of the app and its UI test bundle, on a new iPhone in the
   # default device set (xcodebuild sees no other), deleted by its UDID after.
@@ -1054,6 +1108,21 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= -quiet)
   ui_action=test
   ui_status=0
+  if [[ $ui_profile -eq 0 && ${#ui_cold[@]} -gt 0 ]]; then
+    # Cold suites run test-without-building once per fresh boot: built once, first.
+    ui_t0=$SECONDS
+    set +e
+    xcodebuild build-for-testing "${ui_xcodebuild[@]}" >"$work/ui-build.log" 2>&1
+    ui_status=$?
+    set -e
+    note "- UI test build (build-for-testing, for the cold suites): exit $ui_status, $((SECONDS - ui_t0)) s"
+    if [[ $ui_status -ne 0 ]]; then
+      tail -40 "$work/ui-build.log"
+      cp "$work/ui-build.log" "$out/ui-build.log" 2>/dev/null || true
+    else
+      ui_action=test-without-building
+    fi
+  fi
   if [[ $ui_profile -eq 1 ]]; then
     # Built first, so the recording (every host process) holds the tests and not the compiler.
     ui_t0=$SECONDS
@@ -1077,10 +1146,13 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
   fi
   set +e
   ui_t0=$SECONDS
-  if [[ $ui_status -eq 0 ]]; then
+  if [[ $ui_status -eq 0 && ${#ui_suites[@]} -gt 0 ]]; then
     xcodebuild "$ui_action" "${ui_xcodebuild[@]}" -resultBundlePath "$work/ui.xcresult" \
       "${ui_suites[@]}" >"$work/ui-test.log" 2>&1
     ui_status=$?
+  fi
+  if [[ $ui_status -eq 0 && ${#ui_cold[@]} -gt 0 ]]; then
+    ui_cold_tests
   fi
   ui_seconds=$((SECONDS - ui_t0))
   if [[ -n "$recorder" ]]; then
@@ -1111,7 +1183,31 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
   ui_udid=""
   keep_test_logs "$work/ui-test.log" "$work/ui.xcresult" ui
   grep -h "^FAILED:" -A3 "$out/ui-tests-failures.txt" 2>/dev/null || true
-  note "- UI tests ${ui_suites[*]}: exit $ui_status, $(cat "$out/ui-tests-counts.txt" 2>/dev/null || echo "no result bundle"), xcodebuild $ui_action $ui_seconds s, $((SECONDS - t0)) s in all"
+  # Bash 3.2 treats an empty array as unset under nounset (warm-only or cold-only).
+  note "- UI tests ${ui_suites[*]-} ${ui_cold[*]-}: exit $ui_status, $(cat "$out/ui-tests-counts.txt" 2>/dev/null || echo "no result bundle"), xcodebuild $ui_action $ui_seconds s, $((SECONDS - t0)) s in all"
+  # Launch marks (LaunchTTIUITests): every LAUNCHTTI line, and per flow and phase the p50 of each span.
+  if ! python3 -I scripts/ci/ios_launch_samples.py "$out" --cold-runs "${ui_cold_runs:-10}" \
+    --suites ${ui_suites[@]+"${ui_suites[@]}"} ${ui_cold[@]+"${ui_cold[@]}"}; then
+    note "- ERROR: launch measurements are missing or invalid; see launch-tti-error.txt and the attachment export logs."
+    ui_status=1
+  fi
+  if [[ -s "$out/launch-tti.jsonl" ]]; then
+    python3 - "$out/launch-tti.jsonl" <<'PY' | while IFS= read -r line; do note "$line"; done
+import json, sys
+rows = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
+groups = {}
+for row in rows:
+    groups.setdefault((row["flow"], row["phase"]), []).append(row)
+print("- Launch to first interaction (LaunchTTIUITests, ms since process start, p50 [min-max], n):")
+for (flow, phase), items in sorted(groups.items()):
+    parts = []
+    for key in ["first_frame", "shell_frame", "list_ms", "open_ms", "echo_ms", "tti_ms"]:
+        values = sorted(item[key] for item in items if key in item)
+        if values:
+            parts.append("%s %.0f [%.0f-%.0f]" % (key, values[len(values) // 2], values[0], values[-1]))
+    print("  - %s %s (n=%d): %s" % (flow, phase, len(items), ", ".join(parts)))
+PY
+  fi
 fi
 
 # --- Chief layout benchmark -------------------------------------------------
@@ -1519,10 +1615,19 @@ if [[ "$mode" == pair-e2e ]]; then
     ./scripts/download-prebuilt-ghosttykit.sh >"$work/ghosttykit.log" 2>&1 ||
       { tail -20 "$work/ghosttykit.log"; echo "error: could not download GhosttyKit.xcframework" >&2; exit 1; }
   fi
+  # ghostty-vt-sys (ghostty-next) needs the fleet's pinned Zig 0.17 (the worker's tools, as
+  # its probe reports); PATH can name /usr/local's 0.16, which it refuses ("Your Zig version
+  # v0.16.0 does not meet the required build version of v0.17.0", steps
+  # e00987962032845838c55ef5 and b9658de920bf40d484a998ac). Only ZIG, which ghostty-vt-sys
+  # reads first: the classic Ghostty CLI helper reads CMUX_ZIG and needs its own 0.16, as
+  # scripts/measure/projection.sh sets it.
+  fleet_zig=/Users/Shared/cmux-build-fleet/tools/bin/zig
+  vt_zig="${ZIG:-}"
+  [[ -z "$vt_zig" && -x "$fleet_zig" ]] && vt_zig="$fleet_zig"
   # A fleet build (CMUX_FLEET_BUILD_TAG) builds acpmux, optchat-chief and
   # cmux-mobile-host on a cache miss and requires them in the bundle.
   set +e
-  CMUX_FLEET_BUILD_TAG="$mac_tag" ./scripts/reload.sh --tag "$mac_tag" --derived-data "$mac_dd" \
+  ZIG="$vt_zig" CMUX_FLEET_BUILD_TAG="$mac_tag" ./scripts/reload.sh --tag "$mac_tag" --derived-data "$mac_dd" \
     --no-global-cli-links >"$work/mac-build.log" 2>&1
   status=$?
   set -e
