@@ -33,7 +33,7 @@ final class ChatJumpTopSettleUITests: XCTestCase {
             // element queries can name a row that is gone by the time it is read.
             var visible = -1
             if let root = try? app.snapshot() {
-                var stack: [XCUIElementSnapshot] = [root]
+                var stack: [any XCUIElementSnapshot] = [root]
                 visible = 0
                 while let node = stack.popLast() {
                     if node.elementType == .staticText, !node.frame.isEmpty, band.intersects(node.frame), !node.label.isEmpty {
