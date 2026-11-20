@@ -190,16 +190,30 @@ actor AgentHibernationProcessSnapshotCoordinator {
                 AgentHibernationController.maximumScopedProcessTerminationCount else {
             return nil
         }
-        // Two kinds of listed process are no part of the next epoch, and are
-        // set aside before any scope check:
+        // Three kinds of listed process are no part of the next epoch, and
+        // are set aside before any scope check:
         // - an exited generation not yet reaped, whose argv can no longer be
         //   read;
         // - one of the panel's known survivors (its `login` and shell), still
-        //   the exact generation the caller recorded and outside the agent's
-        //   groups. It stays on the terminal until the terminal closes, and
-        //   `login` is setuid, so its argv cannot be read either.
-        // Anything else on the terminal or in the agent's groups still has to
-        // pass every check below.
+        //   the exact generation the caller recorded. It stays on the
+        //   terminal until the terminal closes, and `login` is setuid, so its
+        //   argv cannot be read either;
+        // - the shell's own work in a known survivor's process group, such as
+        //   the command substitutions that draw its next prompt once the agent
+        //   exits. It ends with the shell, and often exits before its argv
+        //   can be read. A job the shell starts gets a group of its own.
+        // Each is outside the agent's groups and still the generation the
+        // snapshot listed. Anything else on the terminal or in the agent's
+        // groups still has to pass every check below.
+        let survivorProcessGroupIDs = Set(knownSurvivors.compactMap { survivor -> Int? in
+            guard let leader = snapshot.process(pid: Int(survivor.pid)),
+                  leader.processIdentity == survivor,
+                  leader.processGroupID == Int(survivor.pid),
+                  authorizedLeaders[survivor.pid] == nil else {
+                return nil
+            }
+            return Int(survivor.pid)
+        })
         let settledProcessIDs = observedProcessIDs.filter { processID in
             guard let process = snapshot.process(pid: processID),
                   let capturedIdentity = process.processIdentity else {
@@ -208,9 +222,10 @@ actor AgentHibernationProcessSnapshotCoordinator {
             if exitedIdentities.contains(capturedIdentity) {
                 return true
             }
-            guard knownSurvivors.contains(capturedIdentity),
-                  let processGroupID = process.processGroupID,
-                  authorizedLeaders[pid_t(processGroupID)] == nil else {
+            guard let processGroupID = process.processGroupID,
+                  authorizedLeaders[pid_t(processGroupID)] == nil,
+                  knownSurvivors.contains(capturedIdentity) ||
+                    survivorProcessGroupIDs.contains(processGroupID) else {
                 return false
             }
             let currentIdentity = processIdentityProvider(pid_t(processID))
