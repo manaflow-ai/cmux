@@ -387,6 +387,12 @@ async fn check_inner(
     // Nor does the app pane's: its reply in place is no prompt (`app_reply.rs`).
     if m == method::SESSION_PROMPT
         && crate::prompt_provenance::present(params.pointer("/_meta/acpmux"))
+        && !(origin == super::Origin::Peer
+            && auth.peer_daemon()
+            && control_of(origin, auth, params) == crate::hub::Control::Peer
+            && params.pointer("/_meta/acpmux/provenance/kind")
+                == Some(&serde_json::json!("surge_digest"))
+            && params.pointer("/_meta/acpmux/provenance/threadIds").is_some())
     {
         return Err(crate::prompt_provenance::origin_refused());
     }
