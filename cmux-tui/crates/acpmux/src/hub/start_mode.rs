@@ -934,7 +934,15 @@ impl Hub {
             .collect();
         let reported = newest_first(of_agent)
             .iter()
-            .map(|s| offered(&s.meta.lock().unwrap_or_else(|e| e.into_inner())))
+            .map(|s| {
+                let meta = s.meta.lock().unwrap_or_else(|e| e.into_inner());
+                // Its permission modes, as the composer shows them (`permission_modes.rs`).
+                if super::permission_modes::of_session(&meta).is_none() {
+                    Vec::new()
+                } else {
+                    offered(&meta)
+                }
+            })
             .find(|m| !m.is_empty());
         reported.unwrap_or_else(|| {
             if profile.kind == crate::config::HarnessKind::ClaudeStdio {
@@ -985,13 +993,27 @@ impl Hub {
         };
         // What the harness's startup probe's `session/new` answered (`model_probe.rs`), for a
         // harness no chat of has reported in this daemon yet: a first New Tab on it knows its
-        // choices (Pi: options only; its `modes` copy its thinking levels).
+        // choices (Pi: options only; its `modes` copy its thinking levels, `permission_modes.rs`).
         let probed =
             self.probed_choices.lock().unwrap_or_else(|e| e.into_inner()).get(agent).cloned();
         let modes: Vec<Value> = newest
             .iter()
-            .find_map(|s| mode_rows(s.meta.lock().unwrap_or_else(|e| e.into_inner()).modes.as_ref()))
-            .or_else(|| probed.as_ref().and_then(|(modes, _)| mode_rows(modes.as_ref())))
+            .find_map(|s| {
+                mode_rows(
+                    super::permission_modes::of_session(
+                        &s.meta.lock().unwrap_or_else(|e| e.into_inner()),
+                    )
+                    .as_ref(),
+                )
+            })
+            .or_else(|| {
+                probed.as_ref().and_then(|(modes, options)| {
+                    mode_rows(
+                        super::permission_modes::permission_modes(modes.as_ref(), options.as_ref())
+                            .as_ref(),
+                    )
+                })
+            })
             .unwrap_or_else(|| {
                 if profile.kind == crate::config::HarnessKind::ClaudeStdio {
                     crate::claude_stdio::MODES

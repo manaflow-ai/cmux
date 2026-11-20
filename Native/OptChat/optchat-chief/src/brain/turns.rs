@@ -504,6 +504,9 @@ impl Brain {
         // (`turn_permission`), with no question to anyone.
         self.turn_ask = items.iter().any(Queued::requires_approval);
         self.last_turn_ask = self.turn_ask;
+        // A turn only wake notes started is a wake run (memory.rs): its
+        // outcome and cost are recorded, and a cost limit applies.
+        let budget = self.begin_wake_run(&items, &key, family == crate::acpmux::Family::Codex);
         self.turn_relay = if self.turn_ask {
             super::steer::trusted_relays(&items)
         } else {
@@ -769,6 +772,11 @@ impl Brain {
                 "from": kept.as_ref().map(|k| k.seen_end),
             });
         }
+        // A kept session that read this memory block last turn did not get it
+        // again: the inspector leaves it out of this turn's input.
+        if reuse.is_some() && memory_seen && memory.is_some() {
+            layout["memory_block_sent"] = serde_json::json!(false);
+        }
         if let Some(route) = &self.turn_route {
             self.trace.emit(
                 "turn.route",
@@ -824,6 +832,7 @@ impl Brain {
             key,
             limit: self.settings.turn_limit,
             idle_limit: self.settings.turn_idle_limit,
+            budget,
             reuse,
             keep,
             retire,
@@ -1455,6 +1464,12 @@ impl Brain {
             return;
         }
         self.cuts = 0;
+        // A wake run its cost limit stopped ends like a Chief stop: nothing
+        // more posts, no failure (memory.rs `end_wake_run` notes it).
+        if outcome.budget_stopped.is_some() {
+            self.tool_stopped = true;
+            outcome.error = None;
+        }
         let ran_before = std::mem::take(&mut self.cut_ran);
         if ran_before {
             outcome.unstarted = false;
@@ -1502,6 +1517,13 @@ impl Brain {
         // A turn the owner stopped posts nothing, even one that ended
         // normally before it saw the interrupt (the stop was accepted).
         let quiet = superseded || owner_stopped;
+        let final_posted = !quiet
+            && !tool_stopped
+            && outcome
+                .reply
+                .as_deref()
+                .is_some_and(|r| !r.trim().is_empty() && r.trim() != "NO_REPLY");
+        self.end_wake_run(&outcome, final_posted);
         // A turn whose start stalled before its prompt reached a harness
         // (`unstarted_stall`), past its cuts: its error is the harness
         // start's, for host.log and the trace, never a reply. Its messages
@@ -1927,7 +1949,8 @@ impl Brain {
     /// never one the owner or a newer message stopped, at most `MAX_CUTS` in
     /// a row.
     fn is_cut(&self, key: &str, outcome: &TurnOutcome) -> Option<Cut> {
-        if !self.may_cut(key) {
+        // A wake run its cost limit stopped is never run again.
+        if outcome.budget_stopped.is_some() || !self.may_cut(key) {
             return None;
         }
         cut_kind(outcome)
@@ -1993,6 +2016,8 @@ impl Brain {
 
     fn turn_cut(&mut self, key: &str, outcome: TurnOutcome, cut: Cut) {
         self.cuts += 1;
+        // A cut wake run goes on in its resume turn (memory.rs).
+        self.cut_wake_run = self.wake_run.take();
         let error = outcome.error.clone().unwrap_or_default();
         let wait = self
             .upstream_backoff
