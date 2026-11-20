@@ -133,8 +133,8 @@ def problems(env: dict[str, str]) -> list[str]:
                 # Checked on their own: the drift policy accepts some labels (an older provider's,
                 # say) that no signing job may run on.
                 if name not in reported and not allowed_value(name, value):
-                    found.append(f"{name}={value!r}: signing jobs run on it, so it may only name blacksmith-* "
-                                 "or ubuntu-* (scripts/ci/signing_runner_variables.py)")
+                    found.append(f"{name}={value!r}: signing jobs run on it, so it may only name blacksmith-*, "
+                                 "cmux-fleet-linux-x64 or ubuntu-* (scripts/ci/signing_runner_variables.py)")
             for name, value, reason in drifted:
                 if (switched.get(name) == value and not HOSTED_MACOS_LABEL.search(value.strip().lower())
                         and allowed_value(name, value)):

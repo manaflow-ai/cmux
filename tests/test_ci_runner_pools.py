@@ -62,18 +62,44 @@ class Declared(unittest.TestCase):
     def test_the_linux_pool_is_the_runner_set(self) -> None:
         # Leo, 2026-10-28: "just pin the set of the shit that isn't hilariously slow".
         # Smallest first: Blacksmith caps vCPUs at once, so the live member is the small size (2026-11-01).
-        self.assertEqual(runner_pools.load_pools()["linux"]["members"],
-                         ["blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"])
+        # Leo, 2026-11-20: "i thought i already told you guys to route off blacksmith": our own one-job VMs lead.
+        self.assertEqual(runner_pools.load_pools(env={})["linux"]["members"],
+                         ["cmux-fleet-linux-x64", "blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"])
 
     def test_every_blacksmith_linux_size_has_its_own_pool(self) -> None:
         # Leo, 2026-10-28: "Where the f***ing are the generalized solution to all these problems that these
         # incessant pins?" A job measured at one size reads that size's pool, so a stalled size moves by declaration.
-        pools = runner_pools.load_pools()
+        pools = runner_pools.load_pools(env={})
         for size, name in ((2, "linux_2"), (4, "linux_4"), (8, "linux_8"), (16, "linux_16"), (32, "linux_32")):
             with self.subTest(pool=name):
                 listed = runner_pools.members(pools[name])
-                self.assertEqual(listed[0], f"blacksmith-{size}vcpu-ubuntu-2404")
+                self.assertEqual(runner_pools.sized(listed)[0], f"blacksmith-{size}vcpu-ubuntu-2404")
                 self.assertGreater(len(listed), 1, f"{name} needs a member to fail over to")
+
+    def test_every_x64_linux_pool_leads_with_our_own_vms(self) -> None:
+        # Leo, 2026-11-20: "no y'all need to be gettin rid of hte hardcoded blacksmith jobs dude" and "i thought i
+        # already told you guys to route off blacksmith". Blacksmith stays only as overflow after our label.
+        pools = runner_pools.load_pools(env={})
+        for name in ("linux", "linux_2", "linux_4", "linux_8", "linux_16", "linux_32", "promotion"):
+            with self.subTest(pool=name):
+                listed = runner_pools.members(pools[name])
+                self.assertEqual(listed[0], "cmux-fleet-linux-x64")
+                self.assertTrue(runner_pools.sized(listed), f"{name} keeps a Blacksmith size as overflow")
+        value, _ = runner_pools.reconcile({}, pools, dead_now=(), served_now=(), now=NOW)
+        for name in ("linux", "linux_2", "linux_4", "linux_8", "linux_16", "linux_32", "promotion"):
+            self.assertEqual(value[name], "cmux-fleet-linux-x64", name)
+
+    def test_a_dead_owned_label_falls_over_to_blacksmith_and_comes_back(self) -> None:
+        pools = runner_pools.load_pools(env={})
+        value, _ = runner_pools.reconcile({}, pools, dead_now={"cmux-fleet-linux-x64"}, served_now=(), now=NOW)
+        self.assertEqual(value["linux"], "blacksmith-4vcpu-ubuntu-2404")
+        self.assertEqual(value["linux_16"], "blacksmith-16vcpu-ubuntu-2404")
+        back, _ = runner_pools.reconcile(value, pools, dead_now=(), served_now={"cmux-fleet-linux-x64"},
+                                         now=NOW + dt.timedelta(minutes=5))
+        self.assertEqual(back["linux"], "cmux-fleet-linux-x64")
+        # Not probed, so a fresh janitor snapshot covers it and its mark can expire.
+        self.assertIn("cmux-fleet-linux-x64",
+                      runner_pools.evidence_covers(None, {"generated_at": runner_pools.iso(NOW)}, pools, now=NOW))
 
     def test_every_bounded_selector_accepts_every_linux_member(self) -> None:
         # Review of #30340: a member a bounded selector refuses (contains([...], vars.LINUX_RUNNER) && ... || '<4 vCPU>')
@@ -95,7 +121,8 @@ class Declared(unittest.TestCase):
         for name, spec in runner_pools.load_pools().items():
             for label in runner_pools.members(spec):
                 with self.subTest(pool=name, label=label):
-                    self.assertRegex(label, runner_pools.HOSTED if spec.get("hosted") else runner_pools.EPHEMERAL)
+                    ok = runner_pools.HOSTED.match(label) if spec.get("hosted") else runner_pools.pool_member(label)
+                    self.assertTrue(ok, label)
 
     def test_spec_problems_refuse_owned_hosted_and_unknown_labels(self) -> None:
         bad = {
@@ -481,13 +508,13 @@ class Reconcile(unittest.TestCase):
 class NeverHosted(unittest.TestCase):
     def test_a_non_hosted_pool_never_resolves_to_a_hosted_label(self) -> None:
         # Hosted runners are not in the declared set: whatever is dead, a pool not marked hosted
-        # picks one of its own Blacksmith members, never ubuntu-* or macos-*.
+        # picks one of its own members (ours or Blacksmith), never ubuntu-* or macos-*.
         pools = runner_pools.load_pools()
         every = {label for spec in pools.values() for label in runner_pools.members(spec)}
         value, _ = runner_pools.reconcile({}, pools, dead_now=every, served_now=(), now=NOW)
         for name, spec in pools.items():
             if not spec.get("hosted"):
-                self.assertRegex(value[name], runner_pools.EPHEMERAL)
+                self.assertTrue(runner_pools.pool_member(value[name]), value[name])
         current, dropped = runner_pools.parse_value(json.dumps({"linux": "ubuntu-24.04"}), pools)
         self.assertNotIn("linux", current)
         self.assertTrue(dropped)
@@ -517,39 +544,41 @@ class HostedOverride(unittest.TestCase):
             with self.subTest(raw=raw):
                 self.assertEqual(runner_pools.load_pools(env={"CI_LINUX_HOSTED_RUNNER": raw}), declared)
 
-    def test_the_x64_linux_pools_lead_with_it_and_nothing_else_moves(self) -> None:
+    def test_the_x64_linux_pools_put_it_after_our_vms_and_nothing_else_moves(self) -> None:
+        # Made for a Blacksmith outage, so it goes ahead of the Blacksmith sizes but never ahead of our own VMs
+        # (Leo, 2026-11-20: "i thought i already told you guys to route off blacksmith").
         declared = runner_pools.load_pools(env={})
         pools = runner_pools.load_pools(env=self.ON)
         self.assertEqual(runner_pools.spec_problems(pools), [])
         for name in self.X64:
-            self.assertEqual(pools[name]["members"], ["ubuntu-24.04", *declared[name]["members"]])
+            listed = declared[name]["members"]
+            self.assertEqual(pools[name]["members"],
+                             ["cmux-fleet-linux-x64", "ubuntu-24.04", *runner_pools.sized(listed)])
         for name in set(declared) - set(self.X64):
             self.assertEqual(pools[name], declared[name], name)
         self.assertEqual(pools["linux_arm64"]["members"], ["blacksmith-4vcpu-ubuntu-2404-arm"])
 
-    def test_a_pass_writes_it_and_the_next_pass_keeps_it(self) -> None:
-        before = runner_pools.reconcile({}, runner_pools.load_pools(env={}), dead_now=(), served_now=(), now=NOW)[0]
+    def test_a_pass_moves_the_pools_and_the_mirror_off_the_hosted_label_onto_our_vms(self) -> None:
+        # 2026-11-20 04:28Z: 9,156 jobs queued on ubuntu-24.04 while the override held every x64 pool there.
+        hosted = json.dumps({**{k: "ubuntu-24.04" for k in self.X64}, "_dead": {}})
         switch = Main.Switch({"LINUX_RUNNER": "ubuntu-24.04"})
-        env = {"RUNNER_POOLS": runner_pools.render(before), **self.ON}
+        env = {"RUNNER_POOLS": hosted, **self.ON}
         self.assertEqual(runner_pools.main([], env, api=Main.Api(None), switch=switch, now=NOW), 0)
-        [(name, raw)] = switch.writes
-        written = json.loads(raw)
-        self.assertEqual({k: written[k] for k in self.X64}, dict.fromkeys(self.X64, "ubuntu-24.04"))
-        self.assertEqual({k: v for k, v in written.items() if k not in self.X64 and not k.startswith("_")},
-                         {k: v for k, v in before.items() if k not in self.X64 and not k.startswith("_")})
-        again = Main.Switch({"LINUX_RUNNER": "ubuntu-24.04"})
-        env = {"RUNNER_POOLS": raw, **self.ON}
-        self.assertEqual(runner_pools.main([], env, api=Main.Api(None), switch=again, now=NOW), 0)
+        [(name, raw), mirrored] = switch.writes
+        self.assertEqual(name, "RUNNER_POOLS")
+        self.assertEqual({k: json.loads(raw)[k] for k in self.X64}, dict.fromkeys(self.X64, "cmux-fleet-linux-x64"))
+        self.assertEqual(mirrored, ("LINUX_RUNNER", "cmux-fleet-linux-x64"))
+        self.assertEqual(runner_pools.main(["--check"], dict(env, RUNNER_POOLS=raw, LINUX_RUNNER=mirrored[1])), 0)
+        # The next pass keeps it, the mirror included.
+        again = Main.Switch({"LINUX_RUNNER": "cmux-fleet-linux-x64"})
+        self.assertEqual(runner_pools.main([], dict(env, RUNNER_POOLS=raw), api=Main.Api(None), switch=again,
+                                           now=NOW), 0)
         self.assertEqual(again.writes, [])
-        self.assertEqual(runner_pools.main(["--check"], dict(env, LINUX_RUNNER="ubuntu-24.04")), 0)
-        # Deleting the variable is the revert: the next pass puts every pool back on Blacksmith.
-        back = Main.Switch({"LINUX_RUNNER": "ubuntu-24.04"})
-        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": raw}, api=Main.Api(None), switch=back, now=NOW), 0)
-        [(name, raw), mirrored] = back.writes
-        self.assertEqual({k: json.loads(raw)[k] for k in self.X64}, {k: before[k] for k in self.X64})
-        # router-review F1: LINUX_RUNNER follows the pool back too, so --check passes after the revert.
-        self.assertEqual(mirrored, ("LINUX_RUNNER", before["linux"]))
-        self.assertEqual(runner_pools.main(["--check"], {"RUNNER_POOLS": raw, "LINUX_RUNNER": mirrored[1]}), 0)
+
+    def test_with_our_vms_dead_the_override_takes_the_pool(self) -> None:
+        pools = runner_pools.load_pools(env=self.ON)
+        value, _ = runner_pools.reconcile({}, pools, dead_now={"cmux-fleet-linux-x64"}, served_now=(), now=NOW)
+        self.assertEqual({k: value[k] for k in self.X64}, dict.fromkeys(self.X64, "ubuntu-24.04"))
 
     def test_the_mirror_leaves_the_hosted_label_alone_while_the_override_is_set(self) -> None:
         value = {"linux": "ubuntu-24.04"}
