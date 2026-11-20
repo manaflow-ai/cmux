@@ -7,6 +7,7 @@ recording order fails immediately instead of producing an incomplete gallery.
 """
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -14,6 +15,24 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 FOLDERS = ("looks", "last-demo", "glass", "widgets")
+MAX_ROWS = 50
+
+
+def validate_manifest(relative: str, manifest: dict, main_text: str) -> str | None:
+    surfaces = manifest.get("implements")
+    if not surfaces:
+        return "manifest has no feature surfaces"
+    exports = set(re.findall(r"globalThis\.__cmuxAppExports\s*=\s*\{([^}]*)\}", main_text, re.S))
+    export_block = next(iter(exports), "")
+    for surface, declaration in surfaces.items():
+        export_name = declaration.get("export")
+        if not export_name or not re.search(rf"\b{re.escape(export_name)}\b", export_block):
+            return f"{surface} exports {export_name!r}, but customize/main.js does not export it"
+        options = declaration.get("options", {})
+        max_rows = options.get("maxRows")
+        if max_rows is not None and (not isinstance(max_rows, int) or isinstance(max_rows, bool) or not 1 <= max_rows <= MAX_ROWS):
+            return f"{surface}.options.maxRows={max_rows!r}; expected an integer from 1 to {MAX_ROWS}"
+    return None
 
 
 def profiles() -> list[str]:
@@ -43,11 +62,9 @@ def main() -> int:
         main_text = files.get("customize/main.js", "")
         if manifest_text:
             manifest = json.loads(manifest_text)
-            if not manifest.get("implements"):
-                print(f"{relative}: manifest has no feature surfaces", file=sys.stderr)
-                return 1
-            if "__cmuxAppExports" not in main_text:
-                print(f"{relative}: customize/main.js exports no feature surface", file=sys.stderr)
+            problem = validate_manifest(relative, manifest, main_text)
+            if problem:
+                print(f"{relative}: {problem}", file=sys.stderr)
                 return 1
         elif not profile.get("settings"):
             print(f"{relative}: has neither app surfaces nor settings", file=sys.stderr)
