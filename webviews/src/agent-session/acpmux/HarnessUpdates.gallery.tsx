@@ -18,6 +18,8 @@ const row = (id: string, version: string, latest: string, command: string): Harn
 });
 const codex = row("codex", "0.164.0", "0.167.2", "npm install -g @openai/codex@latest");
 const opencode = row("opencode", "1.19.0", "1.19.5", "npm install -g opencode-ai@latest");
+const CLAUDE = "/Users/me/.local/bin/claude";
+const claude = (id: string) => row(id, "2.1.325", "2.1.329", `${CLAUDE} update`);
 
 type Props = {
   /// The chat's own agent's offer (Claude Code), when it has one.
@@ -83,17 +85,36 @@ export default componentEntry<Props>({
       note: "The reference's pair, Codex and OpenCode, in a chat whose own agent is current.",
       props: { rows: [codex, opencode] },
     },
-    // Lawrence 2026-11-19 (clip 3.37.01 PM): the list read "Cmux" (Claude Code's hidden router
-    // fallback) and "OpenCode" twice.
+    // Lawrence 2026-11-19 (clip 3.37.01 PM): "OpenCode" twice.
     "hidden-fallback-and-twin": {
-      note: "The cmux router fallback the menus never offer is left out; opencode-v2 reads OpenCode (v2).",
+      note: "A harness the menus never offer is left out; opencode-v2 reads OpenCode (v2).",
       props: {
         rows: [
-          row("cmux", "2.1.325", "2.1.329", "npm install -g @anthropic-ai/claude-code@latest"),
+          row("acme", "1.0.0", "1.1.0", "npm install -g acme@latest"),
           opencode,
-          row("opencode-v2", "0.0.0-next", "1.19.6", "npm install -g opencode-ai@latest"),
+          row("opencode-v2", "1.18.0", "1.19.6", "npm install -g opencode-ai@latest"),
         ],
-        offered: (id) => id !== "cmux",
+        offered: (id) => id !== "acme",
+      },
+    },
+    // Lawrence 2026-11-19 (msg 42278, "there are duplicates sometimes"): acpmux's rows as that Mac had
+    // them. `cmux` (the router fallback) runs the same ~/.local/bin/claude as `claude`, and opencode-v2
+    // is a 0.0.0-next nightly acpmux no longer calls outdated. No catalog yet: nothing is hidden.
+    "one-row-per-binary": {
+      note: 'Two profiles of one claude binary are one Claude Code row; never "Cmux", never a nightly.',
+      props: {
+        rows: [
+          { ...claude("claude"), path: CLAUDE, package: "@anthropic-ai/claude-code" },
+          { ...claude("cmux"), path: CLAUDE, package: "@anthropic-ai/claude-code" },
+          {
+            ...row("opencode", "1.19.5", "1.19.6", "bun add -g opencode-ai@latest"),
+            path: "/Users/me/.bun/bin/opencode",
+          },
+          {
+            ...row("opencode-v2", "0.0.0-next", "1.19.6", "/Users/me/.opencode/bin/opencode2 upgrade"),
+            outdated: false,
+          },
+        ],
       },
     },
     "one-harness": {
