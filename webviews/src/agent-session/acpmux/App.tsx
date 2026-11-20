@@ -5078,6 +5078,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     harness: snapshot.summary?.harness,
     model: snapshot.summary?.model,
   });
+  /// For `chat.model`, which the page's actions read after this render.
+  const cloudStartPickRef = useRef(cloudStartPickShown);
+  cloudStartPickRef.current = cloudStartPickShown;
   const cloudStarting = cloudStart?.state === "starting";
   /// Nothing that starts a chat goes from this tab while a Cloud start is out, stalled or not: if it
   /// still opens its chat, the host closes this tab, with a chat started here in it.
@@ -9248,6 +9251,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             if (!configurationSessionMatches(expectedSessionId, summary?.sessionId))
               // l10n-allow: a refusal for the host action's caller, which drops a stale pick; never shown.
               throw new Error("the agent chat session changed");
+            // A failed Cloud start's pick covers a chat with no session and no switch (its agent lives only in that
+            // start): a model of the same agent picked there starts that agent's chat on it, as picking the agent
+            // does, so the pick replaces the failed start's and goes with Retry (#46874 review).
+            const failedPick = cloudStartPickRef.current;
+            if (!summary?.sessionId && !snapshotRef.current?.switching && failedPick)
+              return harnessSwitch.switchTo(failedPick.harness, undefined, { model: String(modelId) });
             return harnessSwitch.pickModel(
               String(modelId),
               summary?.sessionId ? { sessionId: summary.sessionId, model: summary.model } : undefined,
