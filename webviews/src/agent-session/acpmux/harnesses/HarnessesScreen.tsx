@@ -90,10 +90,6 @@ export function HarnessesScreen({
   const [progress, setProgress] = useState<Record<string, Progress | undefined>>({});
   const live = useRef(true);
   const launching = useRef(new Set<string>());
-  /// A row's harness → the harness it needs (Chief → Claude Code), for checks made outside render.
-  const needsOf = useRef<Record<string, string>>({});
-  /// Has acpmux look again for every row an install left unrunnable (set each render).
-  const lookAgain = useRef<() => void>(() => {});
   useEffect(() => {
     live.current = true;
     return () => {
@@ -153,15 +149,11 @@ export function HarnessesScreen({
       live = false;
     };
   }, [callNative, installed, checks]);
-  useEffect(() => {
-    // After a Sign In ran in a terminal tab, coming back checks again.
-    const recheck = () => {
-      setChecks((count) => count + 1);
-      lookAgain.current();
-    };
-    window.addEventListener("focus", recheck);
-    return () => window.removeEventListener("focus", recheck);
-  }, []);
+  const rows = harnessRows(catalog, acpmux, health, checking);
+  const needsOf = useMemo(
+    () => Object.fromEntries(rows.flatMap((row) => (row.needs ? [[row.harness, row.needs.harness]] : []))),
+    [rows],
+  );
   const waiting = Object.keys(progress)
     .filter((harness) => progress[harness]?.kind === "waiting")
     .join("\n");
@@ -169,7 +161,7 @@ export function HarnessesScreen({
     // A sign-in started here: checked until it lands (the row turns ready) or the wait ends.
     if (!waiting) return;
     const ids = waiting.split("\n");
-    const checked = (id: string) => needsOf.current[id] ?? id;
+    const checked = (id: string) => needsOf[id] ?? id;
     const ends = Date.now() + SIGN_IN_WAIT_MS;
     let busy = false;
     const timer = setInterval(() => {
@@ -195,15 +187,13 @@ export function HarnessesScreen({
       });
     }, signInPollMs);
     return () => clearInterval(timer);
-  }, [callNative, waiting, signInPollMs]);
+  }, [callNative, needsOf, waiting, signInPollMs]);
   useEscapeCloses(true, onClose);
-  const rows = harnessRows(catalog, acpmux, health, checking);
   /// The harness a row's checks ask about: the one it needs, else its own.
   const target = (row: HarnessRow) => row.needs?.harness ?? row.harness;
   /// Rows whose install finished while acpmux still cannot run the harness: coming back to the page
   /// (from a terminal tab, Finder or System Settings) has acpmux look for them again.
-  const stuckRows = useRef<HarnessRow[]>([]);
-  const stuckNow = rows.filter(
+  const stuckRows = rows.filter(
     (row) => progress[row.harness]?.kind === "done" && (row.status === "notInstalled" || row.status === "unavailable"),
   );
   const inFolder = cwd ? { cwd } : {};
@@ -264,17 +254,15 @@ export function HarnessesScreen({
     mark(row.harness, { kind: "installing" });
     void rescan(row).then(() => mark(row.harness, { kind: "done" }));
   };
-  const lookAgainNow = () => {
-    for (const row of stuckRows.current) checkAgain(row);
-  };
-  // Refs are written after commit, never during render: the timers and listeners above read the
-  // newest rows, needs and look-again action from them.
-  const needsNow = Object.fromEntries(rows.flatMap((row) => (row.needs ? [[row.harness, row.needs.harness]] : [])));
   useEffect(() => {
-    needsOf.current = needsNow;
-    stuckRows.current = stuckNow;
-    lookAgain.current = lookAgainNow;
-  });
+    // After a Sign In ran in a terminal tab, coming back checks again.
+    const recheck = () => {
+      setChecks((count) => count + 1);
+      for (const row of stuckRows) checkAgain(row);
+    };
+    window.addEventListener("focus", recheck);
+    return () => window.removeEventListener("focus", recheck);
+  }, [stuckRows]);
   /// The one fix a row acpmux cannot run offers: its update when acpmux has one that needs no
   /// admin rights (through the channel it was installed with), its setup page, or another look.
   const fix = (row: HarnessRow): { label: string; run(): void } => {
