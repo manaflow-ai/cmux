@@ -26,6 +26,7 @@ fn item(
     text: &str,
 ) -> Item {
     Item {
+        surge_held: false,
         prompt_id: prompt_id.to_owned(),
         notice: None,
         answered: None,
@@ -390,19 +391,22 @@ fn class_aliases_name_the_inbox_kinds() {
 #[test]
 fn trim_lets_go_only_of_answered_read_messages_and_remembers_them() {
     let mut inbox = Inbox::default();
-    for n in 0..KEEP + 3 {
+    for n in 0..KEEP + 4 {
         let mut i = item(&format!("m-{n}"), "from:a", "a", PromptClass::Result, n as u64, "x");
         (i.noticed, i.read) = (true, true);
-        // The first two are answered; the third went in with no answer yet (its notice runs).
+        // The third item's notice still runs. A read surge item has no outstanding turn.
+        i.surge_held = n == 3;
         if n < 2 {
             i.answered = Some(Ok(json!({"stopReason": "end_turn"})));
         }
         inbox.items.push(i);
     }
     trim(&mut inbox);
-    assert_eq!(inbox.items.len(), KEEP + 1, "only the answered ones go");
+    assert_eq!(inbox.items.len(), KEEP + 1, "only the answered or read surge items go");
     assert!(inbox.trimmed.contains("m-0") && inbox.trimmed.contains("m-1"));
     assert!(inbox.items.iter().any(|i| i.prompt_id == "m-2"));
+    assert!(!inbox.trimmed.contains("m-3"));
+    assert!(!inbox.items.iter().any(|i| i.prompt_id == "m-3"));
 }
 
 #[test]
@@ -508,6 +512,148 @@ fn hub_with_chat(id: &str) -> (Arc<Hub>, Arc<Session>) {
     hub.begin_startup(false);
     let session = hub.resolve(id).unwrap();
     (hub, session)
+}
+
+#[tokio::test]
+async fn surge_first_upgrade_uses_a_completed_reply_before_any_held_receipt() {
+    let (hub, session) = hub_with_chat("upgrading");
+    let start_at = now_ms() - 60_000;
+    let (start, _) = hub.append_at(
+        &session,
+        "mux",
+        "turn_started",
+        json!({"turnId":"previous"}),
+        None,
+        Some(start_at),
+    );
+    let result = json!({"turnId":"previous","turnSeq":start.seq,"status":"completed"});
+    let end_at = start_at + 30_000;
+    hub.append_at(&session, "mux", "turn_result", result.clone(), None, Some(end_at));
+    session.meta.lock().unwrap().last_turn =
+        Some(super::super::turns::last_turn_of(&result, end_at));
+    *session.time_breakdown.lock().unwrap() = Default::default();
+    let blocks = [json!({"type":"text","text":"Runner is busy"})];
+    let opts = PromptOptions { agent: Some("runner".into()), ..Default::default() };
+    assert!(hub.hold_surge_message(&session, "a", "cli", &blocks, &opts).unwrap().is_none());
+    assert_eq!(session.cold_reply_period.get(), Some(&Some(30_000)));
+    let second = hub.hold_surge_message(&session, "b", "cli", &blocks, &opts).unwrap().unwrap();
+    assert_eq!(second["surgeHeld"], true);
+}
+
+#[tokio::test]
+async fn surge_reopen_preserves_the_remaining_burst_after_a_short_lull() {
+    let (hub, session) = hub_with_chat("burst");
+    let now = now_ms();
+    // The receiver has a 30 s reply period. After 40 s idle it has paid off only
+    // 10 s of its 20 s excess. The older admission reached the journal second.
+    for (id, arrival, excess) in [("newer", now - 40_000, 20_000), ("older", now - 90_000, 10_000)]
+    {
+        hub.append_at(
+            &session,
+            "mux",
+            "inbox",
+            json!({"promptId":id,"from":"runner","threadId":"runner","surgeHeld":true,
+                "replyPeriodMs":30_000,"surgeArrivalAt":arrival,"surgeExcessMs":excess}),
+            None,
+            Some(now - 40_000),
+        );
+    }
+    *session.inbox() = Default::default();
+    hub.restore_inbox(&session);
+    let blocks = [json!({"type":"text","text":"Report"})];
+    let opts = PromptOptions { agent: Some("runner".into()), ..Default::default() };
+    let receipt = hub.hold_surge_message(&session, "after", "cli", &blocks, &opts).unwrap();
+    assert_eq!(receipt.unwrap()["surgeHeld"], true);
+    let events = hub.events(&session.id, 0, 20).unwrap();
+    let after = events.iter().find(|e| e.msg["promptId"] == "after").unwrap();
+    let at = after.msg["surgeArrivalAt"].as_u64().unwrap();
+    assert_eq!(after.msg["surgeExcessMs"], 50_000 - (at - (now - 40_000)));
+}
+
+#[tokio::test]
+async fn surge_cold_headless_burst_uses_the_last_held_measurement() {
+    let (hub, session) = hub_with_chat("reopening");
+    let blocks = [json!({"type":"text","text":"Runner is still busy"})];
+    let opts = PromptOptions { agent: Some("runner".into()), ..Default::default() };
+    hub.append(
+        &session,
+        "mux",
+        "inbox",
+        json!({
+            "promptId":"before-restart", "threadId":"runner", "from":"runner",
+            "surgeHeld":true, "replyPeriodMs":30_000, "text":"Runner is busy"
+        }),
+    );
+    *session.inbox() = Default::default();
+    hub.restore_inbox(&session);
+    assert!(session.time_breakdown.lock().unwrap().reply_period_ms(now_ms()).is_none());
+    assert!(session.turn().is_none());
+    for id in ["first-after-restart", "second-after-restart"] {
+        let receipt = hub.hold_surge_message(&session, id, "cli", &blocks, &opts).unwrap();
+        assert_eq!(receipt.unwrap()["surgeHeld"], true);
+    }
+    assert_eq!(hub.inbox_threads(&session)["surge"]["held"], 3);
+}
+
+#[tokio::test]
+async fn surge_receipt_restores_the_same_held_message_and_searches_its_original_text() {
+    let (hub, session) = hub_with_chat("busy-chat");
+    // The receiving chat took 30 seconds to reply before the burst.
+    for (seq, at, kind) in [(1, 10_000, "turn_started"), (2, 40_000, "turn_result")] {
+        let msg = json!({"turnSeq":1,"turnId":"finished","status":"completed"});
+        session.time_breakdown.lock().unwrap().record(&EventRecord {
+            seq,
+            at,
+            kind: kind.into(),
+            dir: "mux".into(),
+            msg,
+            host_seq: None,
+        });
+    }
+    let mut opts = PromptOptions {
+        provenance: Some(crate::prompt_provenance::notice(
+            &json!({"sender":"watcher","severity":"warn","title":"Runner warning"}),
+            "busy-chat",
+        )),
+        class: Some(PromptClass::Fyi),
+        ..Default::default()
+    };
+    let body = [json!({"type":"text","text":"Read the runner report for #418."})];
+    assert!(hub.hold_surge_message(&session, "first", "cli", &body, &opts).unwrap().is_none());
+    let receipt = hub.hold_surge_message(&session, "second", "cli", &body, &opts).unwrap().unwrap();
+    assert_eq!(receipt["surgeHeld"], true);
+    let thread = receipt["threadId"].as_str().unwrap();
+    assert_eq!(
+        crate::cli::output::sent_lines(&receipt, false),
+        ["held in the receiver's surge inbox"]
+    );
+    assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":1,"needYou":0}));
+    hub.persist_surge_triage(&session, json!({"batchId":"batch-1"}), 1).unwrap();
+    *session.inbox() = Default::default();
+    hub.restore_inbox(&session);
+    assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":1,"needYou":1}));
+    let thread = hub.inbox_thread(&session, thread, false);
+    assert_eq!(thread["messages"][0]["text"], body[0]["text"]);
+    assert_eq!(thread["messages"][0]["surgeHeld"], true);
+    assert!(session.inbox().items.iter().all(|item| item.noticed));
+    let duplicate = hub.logged_inbox_answer(&session, "second").unwrap().unwrap();
+    assert_eq!(duplicate.pointer("/_meta/acpmux/surgeHeld").unwrap(), true);
+    let needle = crate::chats::search::Needle::parse("runner watcher 418").unwrap();
+    let search = hub.search_held_inbox(&session, &needle, None).unwrap();
+    assert_eq!(search["hits"].as_array().unwrap().len(), 1);
+    assert_eq!(search["hits"][0]["promptId"], "second");
+    assert!(matches!(hub.inbox_unsend(&session, "second"), Unsend::Unsent));
+    assert!(session.inbox().items.is_empty());
+    assert_eq!(hub.search_held_inbox(&session, &needle, None).unwrap(), search);
+    opts.provenance = Some(crate::prompt_provenance::notice(
+        &json!({"sender":"watcher","severity":"fire","title":"Runner failure"}),
+        "busy-chat",
+    ));
+    assert!(hub.hold_surge_message(&session, "fire", "cli", &body, &opts).unwrap().is_none());
+    let mut urgent = item("fire", "runner", "watcher", PromptClass::Fyi, now_ms(), "fire");
+    urgent.tool_notice = tool_notice_of(opts.provenance.as_ref());
+    assert!(wakes(&session.meta(), &urgent));
+    assert!(!ordinary_fyi(&urgent));
 }
 
 /// The chat runs another agent's turn (not the person's) that takes steers.

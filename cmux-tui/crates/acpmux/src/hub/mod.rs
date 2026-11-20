@@ -23,6 +23,7 @@ mod away_recap;
 mod memory_inbox;
 mod prompt_coach;
 pub(crate) mod stop_condition;
+mod surge_triage;
 pub use prompt_coach::CoachRewriter;
 mod message_events;
 pub use agent_pairs::PairGuard;
@@ -298,6 +299,7 @@ pub(crate) use shutdown::{
 mod caller_registry;
 mod history_timing;
 pub(crate) mod inbox;
+pub(crate) mod inbox_subscription;
 mod spawn;
 mod start_defaults;
 pub(crate) mod start_mode;
@@ -1121,6 +1123,13 @@ pub struct Hub {
     pub(super) recap_wake: Arc<Notify>,
     /// What writes prompt coach rewrites instead of the small model (tests; `prompt_coach.rs`).
     pub(super) coach_rewriter: StdMutex<Option<prompt_coach::CoachRewriter>>,
+    /// Chats with a surge triage pass due or running, and whether another is asked after it
+    /// (`surge_triage.rs`).
+    pub(super) surge_triage_due: StdMutex<HashMap<String, bool>>,
+    /// What answers surge triage instead of the small model (tests; `surge_triage.rs`).
+    pub(super) surge_triager: StdMutex<Option<surge_triage::SurgeTriager>>,
+    /// Each chat's surge triage state between passes (`surge_triage.rs` `Journal`).
+    pub(super) surge_triage_journals: StdMutex<HashMap<String, surge_triage::Journal>>,
     /// The forced start mode and the setting's change count (`start_mode_state.rs`).
     pub(super) start_mode_state: start_mode_state::StartModeCell,
     /// The caller tokens earlier daemon runs gave out, by session (`caller_registry.rs`).
@@ -1539,6 +1548,9 @@ impl Hub {
             recap_due: StdMutex::new(HashMap::new()),
             recap_wake: Arc::new(Notify::new()),
             coach_rewriter: StdMutex::new(None),
+            surge_triage_due: StdMutex::new(HashMap::new()),
+            surge_triager: StdMutex::new(None),
+            surge_triage_journals: StdMutex::new(HashMap::new()),
             start_mode_state,
             caller_registry,
             full_access_pushes: tokio::sync::Mutex::new(()),
@@ -2001,6 +2013,7 @@ impl Hub {
             idle_refusal_logged: AtomicU64::new(0),
             append_lock: StdMutex::new(()),
             time_breakdown: StdMutex::new(Default::default()),
+            cold_reply_period: Default::default(),
             meta_writer: Default::default(),
             message_ids: StdMutex::new(None),
             log_deferral: StdMutex::new(Default::default()),

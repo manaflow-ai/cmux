@@ -16,9 +16,97 @@ pub async fn run(
     session: &str,
     thread: Option<&str>,
     mark_read: bool,
+    search: Option<&str>,
+    before: Option<u64>,
+    subscribe: Option<&str>,
+    unsubscribe: Option<&str>,
+    subscriptions: bool,
     json_out: bool,
 ) -> Result<()> {
     let id = resolve_id(client, session).await?;
+    if let Some(thread) = subscribe {
+        let reply = client
+            .request(
+                method::MUX_INBOX_SUBSCRIPTION_SET,
+                json!({"sessionId": id, "threadId": thread}),
+            )
+            .await?;
+        if json_out {
+            print_json(&reply);
+        } else {
+            println!(
+                "Subscribed to surge thread {}.",
+                reply["threadId"].as_str().unwrap_or(thread)
+            );
+        }
+        return Ok(());
+    }
+    if let Some(thread) = unsubscribe {
+        let reply = client
+            .request(
+                method::MUX_INBOX_SUBSCRIPTION_REMOVE,
+                json!({"sessionId": id, "threadId": thread}),
+            )
+            .await?;
+        if json_out {
+            print_json(&reply);
+        } else {
+            println!(
+                "Unsubscribed from surge thread {}.",
+                reply["threadId"].as_str().unwrap_or(thread)
+            );
+        }
+        return Ok(());
+    }
+    if subscriptions {
+        let reply =
+            client.request(method::MUX_INBOX_SUBSCRIPTIONS, json!({"sessionId": id})).await?;
+        if json_out {
+            print_json(&reply);
+        } else {
+            let rows = reply["subscriptions"].as_array().cloned().unwrap_or_default();
+            if rows.is_empty() {
+                println!("No surge thread subscriptions.");
+            } else {
+                for row in rows {
+                    println!("{}", row["threadId"].as_str().unwrap_or_default());
+                }
+            }
+        }
+        return Ok(());
+    }
+    if let Some(query) = search {
+        let reply = client
+            .request(
+                method::MUX_INBOX_THREADS,
+                json!({"sessionId":id,"search":query,"before":before}),
+            )
+            .await?;
+        let hits = reply["hits"]
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("this daemon does not support held-inbox search"))?;
+        if json_out {
+            print_json(&reply);
+        } else {
+            for hit in hits {
+                let field = |key: &str| hit[key].as_str().unwrap_or_default();
+                println!(
+                    "[{}] {} · {}\n{}",
+                    field("promptId"),
+                    field("from"),
+                    field("threadId"),
+                    field("text")
+                );
+            }
+            if hits.is_empty() {
+                println!("No matching held messages.");
+            }
+            if let Some(next) = reply["next"].as_u64() {
+                println!("Continue with --before {next}.");
+            }
+        }
+        return Ok(());
+    }
     let reply = match thread {
         Some(thread) => {
             let params = json!({"sessionId": id, "threadId": thread, "markRead": mark_read});

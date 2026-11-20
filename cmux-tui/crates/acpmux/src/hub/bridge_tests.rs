@@ -26,7 +26,7 @@ fn a_delivery_is_found_by_its_uuid_in_its_own_session_until_answered() {
     assert_eq!(delivered("s2", "u-find"), None);
     answered("s1", "p1", "t1");
     assert_eq!(delivered("s1", "u-find"), None, "an answered delivery is shown already");
-    assert_eq!(*rx.borrow(), Some(Ok("t1".to_owned())));
+    assert_eq!(*rx.borrow(), Some(Ok(Arrival::App(Some("t1".to_owned())))));
     assert!(deliveries().of_prompt("s1", "p1").is_some(), "kept, so a resend finds it");
 }
 
@@ -182,7 +182,7 @@ async fn a_prompt_to_a_watched_desktop_chat_is_delivered_and_its_answer_shown() 
 /// prompt id under a new uuid each time, after the coordinator's daemon restarted).
 #[cfg(unix)]
 #[tokio::test]
-async fn a_resend_after_the_daemon_forgot_the_delivery_is_not_delivered_again() {
+async fn surge_and_regular_bridge_deliveries_survive_daemon_forgetting_the_delivery() {
     crate::claude_peers::TEST_ENABLED.store(true, std::sync::atomic::Ordering::SeqCst);
     let config = scratch("restart");
     let transcript = config.join("sid-r.jsonl");
@@ -249,6 +249,50 @@ async fn a_resend_after_the_daemon_forgot_the_delivery_is_not_delivered_again() 
     let events = hub.store.events(&session.id, 0, usize::MAX).unwrap();
     let delivered = events.iter().filter(|e| e.kind == "bridge_delivered").count();
     assert_eq!(delivered, 1, "one delivery is logged");
+
+    // A measured minute per reply puts this bridge into surge during the next pair of notices.
+    let mut rate = crate::time_breakdown::State::default();
+    rate.initialized = true;
+    for (seq, at, kind) in [(1, 1, "turn_started"), (2, 60_001, "turn_result")] {
+        rate.record(&crate::store::EventRecord {
+            seq,
+            at,
+            kind: kind.into(),
+            dir: "mux".into(),
+            host_seq: None,
+            msg: json!({"turnSeq":1,"turnId":"sample","status":"completed"}),
+        });
+    }
+    *session.time_breakdown.lock().unwrap() = rate;
+    let send_notice = |id: &str, severity: &str| {
+        let opts = PromptOptions {
+            prompt_id: Some(id.to_owned()),
+            provenance: Some(crate::prompt_provenance::notice(
+                &json!({"sender":"watcher","severity":severity}),
+                &session.id,
+            )),
+            ..Default::default()
+        };
+        let blocks = vec![json!({"type":"text","text":format!("{severity} from watcher")})];
+        hub.prompt_with(&session, blocks, "outbox", false, opts)
+    };
+    let first = send_notice("first-warn", "warn").await.unwrap();
+    assert_eq!(first["_meta"]["acpmux"]["answered"], true);
+    let held = send_notice("held-warn", "warn").await.unwrap();
+    assert_eq!(held["_meta"]["acpmux"]["surgeHeld"], true);
+    for cold in [false, true] {
+        if cold {
+            deliveries().by_uuid.retain(|_, p| p.session_id != session.id);
+            forget_delivered_ids(&session.id);
+        }
+        let retry = send_notice("held-warn", "warn").await.unwrap();
+        assert_eq!(retry["_meta"]["acpmux"]["surgeHeld"], true);
+        assert_eq!(retry["_meta"]["acpmux"]["duplicate"], true);
+    }
+    assert_eq!(inbox.load(std::sync::atomic::Ordering::SeqCst), 2);
+    let urgent = send_notice("fire", "fire").await.unwrap();
+    assert_eq!(urgent["_meta"]["acpmux"]["answered"], true);
+    assert_eq!(inbox.load(std::sync::atomic::Ordering::SeqCst), 3);
 }
 
 /// A watched chat whose app is gone is still refused: Take Over runs it here.

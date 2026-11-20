@@ -18,6 +18,9 @@ impl Hub {
         if only.is_none() {
             self.restore_inbox(session);
             session.inbox_loaded.store(true, Ordering::Release);
+            if let Some(hub) = self.hub_ref.get().and_then(std::sync::Weak::upgrade) {
+                hub.schedule_surge_triage(session);
+            }
         }
         self.restore_queue_after(session, only, None);
     }
