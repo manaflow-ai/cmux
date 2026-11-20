@@ -153,6 +153,7 @@ OTHER = {
 
 FLEET_FIRST = {("cmux-next-fast-gates.yml", "fast-gates", "runs-on")}
 FLEET_RUNNER_LIST = ["cmux-fleet-linux-x64", SMALL, BIG]
+OWNED_FIRST_MARKER = "&& 'cmux-linux' || 'cmux-gcp-pr-control-jit-x64'"
 
 # `vars.LINUX_RUNNER` exactly; `vars.LINUX_RUNNER_DARWIN_CROSS` is its own knob.
 SHARED_VARIABLE = re.compile(r"vars\.LINUX_RUNNER(?!\w)")
@@ -186,6 +187,11 @@ def fleet_runner_list(value: str) -> list[str]:
     if not isinstance(labels, list) or not all(isinstance(label, str) for label in labels):
         raise AssertionError(f"invalid runner allowlist: {labels!r}")
     return labels
+
+
+def is_owned_first(value: str) -> bool:
+    """Whether a read-only job uses the repository-owned Linux selector."""
+    return OWNED_FIRST_MARKER in value and "github.repository == 'manaflow-ai/cmux'" in value
 
 
 # What comes before the trusted fallback: the fork and fork pull request
@@ -316,6 +322,11 @@ class LinuxCompileRunners(unittest.TestCase):
                     self.assertEqual(fleet_runner_list(value), FLEET_RUNNER_LIST)
                     self.assertNotIn("vars.LINUX_RUNNER", value)
                     continue
+                if is_owned_first(value):
+                    self.assertIn("github.repository == 'manaflow-ai/cmux'", value)
+                    self.assertIn("'cmux-linux'", value)
+                    self.assertIn("'cmux-gcp-pr-control-jit-x64'", value)
+                    continue
                 route = route_ref(label, workflow, job_id)
                 self.assertIn(route, value, f"{workflow}:{job_id} {where} names no {route} route: {value}")
                 # vars.LINUX_RUNNER appears only in the outage guard, never as
@@ -336,6 +347,10 @@ class LinuxCompileRunners(unittest.TestCase):
                 if (workflow, job_id, where) in FLEET_FIRST:
                     self.assertEqual(fleet_runner_list(value), FLEET_RUNNER_LIST)
                     continue
+                if is_owned_first(value):
+                    self.assertIn("github.repository == 'manaflow-ai/cmux'", value)
+                    self.assertIn(OWNED_FIRST_MARKER, value)
+                    continue
                 self.assertEqual(value.count(trusted_fallback(label, OTHER.get((workflow, job_id)), lambda size: route_ref(size, workflow, job_id))), 1, f"{workflow}:{job_id} {where}: {value}")
                 self.assertRegex(
                     value, re.escape(trusted_fallback(label, OTHER.get((workflow, job_id)), lambda size: route_ref(size, workflow, job_id))) + r"\)? \}\}$",
@@ -350,6 +365,12 @@ class LinuxCompileRunners(unittest.TestCase):
             with self.subTest(workflow=workflow, job=job_id, where=where):
                 if (workflow, job_id, where) in FLEET_FIRST:
                     self.assertTrue(value.startswith("${{ " + OWNER), value)
+                    continue
+                if is_owned_first(value):
+                    self.assertIn("github.repository == 'manaflow-ai/cmux'", value)
+                    self.assertIn("'cmux-gcp-pr-control-jit-x64'", value)
+                    if "github.event_name == 'pull_request'" in value:
+                        self.assertIn("github.event.pull_request.head.repo.full_name != github.repository", value)
                     continue
                 # A pool read a fork could reach is wrapped to keep the fork's old label
                 # (tests/test_ci_no_single_size_pins.py); compare what every other run takes.

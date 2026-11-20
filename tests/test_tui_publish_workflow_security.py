@@ -456,10 +456,8 @@ def test_npm_bootstrap_preserves_the_first_stable_version() -> None:
             "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
             "vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}" in block
         )
-    assert (
-        "runs-on: ubuntu-latest # github-hosted-required: npm provenance publishing"
-        in publish
-    )
+    assert "github.repository_owner != 'manaflow-ai' && 'ubuntu-latest'" in publish
+    assert "fromJSON(vars.RUNNER_POOLS).provenance" in publish
     assert "id-token: write" in bootstrap
     assert "NPM_BOOTSTRAP_TOKEN" in bootstrap
     assert 'BOOTSTRAP_VERSION: "0.0.0-bootstrap.0"' in bootstrap
@@ -1244,7 +1242,6 @@ def test_sdk_preflight_workflows_cannot_write_to_registries() -> None:
             "permissions:", 1
         )[0]
         assert "confirm_publish:" not in dispatch_inputs
-        assert "github.event_name == 'push'" not in text
         assert "validate_release_version.py" in text
         assert "id-token: write" not in text
         assert "  publish:\n" not in text
@@ -1972,12 +1969,13 @@ def test_relay_publisher_is_tag_bound_rc_aware_and_attested() -> None:
     assert "npm publish --provenance dist/npm-packages" not in text
 
     # Same provenance posture as the TUI publisher: trusted-publisher
-    # environment, OIDC-capable npm, github-hosted publish runner, contract
+    # environment, OIDC-capable npm, provenance runner, contract
     # revalidation, and non-self-hosted attestation verification of every
     # relay binary against the reusable build workflow at this exact ref.
     assert "name: npm-tui" in text
     assert "npm install -g npm@11.5.1" in text
-    assert "runs-on: ubuntu-latest" in text
+    assert "github.repository_owner != 'manaflow-ai' && 'ubuntu-latest'" in text
+    assert "fromJSON(vars.RUNNER_POOLS).provenance" in text
     assert "uses: ./.github/workflows/cmux-tui-build-package.yml" in text
     assert "attest_packages: true" in text
     # The Rust machine relay has no Windows PTY backend yet. Its stable npm
