@@ -136,7 +136,9 @@ import Testing
         #expect(store.trusts(machine))
         let after = try await provider.call(MobilePairingPageProvider.statusOp, params: [:], context: click)
         #expect(after["localPhones"]?.arrayValue?.compactMap { $0["id"]?.stringValue } == ["two"])
-        #expect(CmuxConfigSnapshot().mobileDeviceRevoke == false)
+        #expect(CmuxConfigSnapshot.empty.mobileDeviceRevoke == false)
+        let enabled = CmuxConfigSnapshot.parse(["labs": ["mobileDeviceRevoke": true]], validDensities: [], validMetrics: [])
+        #expect(enabled.mobileDeviceRevoke == true)
     }
 
     /// The code is the pairing link itself, and the page asks for a new one a minute before the
