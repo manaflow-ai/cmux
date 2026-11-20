@@ -184,7 +184,7 @@ test("Restore last good asks first and says the broken text is kept; only the co
   await settle();
   expect(page!.provider.doctorRuns).toEqual([]);
   const confirm = finding(BROKEN).querySelector<HTMLElement>("[data-doctor-confirm]")!;
-  expect(confirm.textContent).toContain("Put back the last themes/night.json that loaded?");
+  expect(confirm.textContent).toContain("Restore the last themes/night.json that loaded?");
   expect(confirm.textContent).toContain("moves the broken text aside and keeps it");
   expect(document.activeElement).toBe(confirm.querySelector('[data-doctor-action="cancel"]'));
   await click(confirm.querySelector('[data-doctor-action="confirm"]')!);
