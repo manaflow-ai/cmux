@@ -131,6 +131,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Cache Bun package cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -183,6 +184,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Cache Bun package cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -228,6 +230,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Cache Bun package cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -284,6 +287,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Cache Bun package cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -366,6 +370,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Cache Bun package cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -472,6 +477,11 @@ jobs:
           - shard: 12
             shard_count: 12
     steps:
+      # timeout-minutes count from the job's start, not from Test webviews': its retry
+      # deadline is measured from this stamp (#46488 F1: about 8 min of setup runs first).
+      - name: Record the job start
+        run: echo "CMUX_WEB_TEST_JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -498,6 +508,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # The source build installs webviews dependencies before the test suite;
       # cache Bun's package blobs on this lane so a new source key
@@ -659,8 +670,9 @@ jobs:
           # failed-file budget cut accent-glass-invariants' retry (it needs more
           # than 297 s alone) and skipped transcript-thought and
           # streaming-text-frames (#27425's shard 4). The retries end 8 min before
-          # the job's timeout-minutes (32 min into this step at 40; it starts about
-          # 2 min into the job), which leaves the uploads room inside it. The run
+          # the job's timeout-minutes, counted from the job's start (Record the job
+          # start), not this step's: the setup before this step would otherwise run
+          # a fully retried job into its timeout before the uploads. The run
           # below sets both from these minutes. A file that fails alone too stays red.
           CMUX_WEB_TEST_JOB_MINUTES: *webview-shard-minutes
           # Keep jsdom and browser workers below the 16-vCPU saturation point. The Session Info
@@ -680,8 +692,14 @@ jobs:
           # Replay uses this exact runner and result parser, with the base's tests and bun.
           # Different deadline policies can otherwise turn an old named failure into a new timeout.
           # Unset (a local run of this script under set -u), the runner keeps its own retry defaults.
+          # The runner counts its deadline from its own start, so it gets what is left of the job's minutes less
+          # the uploads' 480 s. With no job-start stamp (this script run on its own), assume 15 min of setup.
           if [ -n "${CMUX_WEB_TEST_JOB_MINUTES:-}" ]; then
-            export CMUX_WEB_TEST_RETRY_DEADLINE=$(( CMUX_WEB_TEST_JOB_MINUTES * 60 - 480 ))
+            now=$(date +%s)
+            job_started="${CMUX_WEB_TEST_JOB_STARTED:-}"
+            [[ "$job_started" =~ ^[0-9]+$ ]] || job_started=$(( now - 900 ))
+            left=$(( job_started + CMUX_WEB_TEST_JOB_MINUTES * 60 - 480 - now ))
+            export CMUX_WEB_TEST_RETRY_DEADLINE=$(( left > 0 ? left : 0 ))
             export CMUX_WEB_TEST_RETRY_BUDGET="$CMUX_WEB_TEST_RETRY_DEADLINE"
           fi
           mkdir -p "$RUNNER_TEMP/webviews-head-results/runner"
@@ -878,6 +896,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Use the base's bun
         if: ${{ steps.pick.outputs.files != '0' }}
@@ -1085,6 +1104,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # The base replays its reds with the bun its own webviews/package.json declares,
       # so a PR that moves the pin (or a base whose bun check is exact) compares like
@@ -1579,6 +1599,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Cache Bun package cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -1657,6 +1678,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Cache Bun package cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
