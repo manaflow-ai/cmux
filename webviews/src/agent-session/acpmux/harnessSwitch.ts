@@ -119,6 +119,8 @@ export const PREWARM_DEBOUNCE_MS = 150;
 /// The same harness hinted again this soon after its last hint is not sent again (acpmux keeps
 /// only the newest hint, so a harness hinted after another one always goes out).
 export const PREWARM_REPEAT_MS = 30_000;
+/// How often `pickSession` looks again at a start that drew no change.
+export const PICK_SESSION_POLL_MS = 50;
 
 export type SwitchConfig = { model?: string; mode?: string; options: Readonly<Record<string, string>> };
 export type QueuedSwitchPrompt = { id: string; text: string; at: number };
@@ -289,6 +291,9 @@ export class HarnessSwitch {
   private listeners = new Set<() => void>();
   /// The session the pane left for the current intent, when it was empty: switching back reuses it.
   private left?: { sessionId: string; harness?: string };
+  /// The permission mode last picked or run on each harness in this pane: a switch away and back
+  /// (Codex, Claude Code, Codex) starts the new chat on it again, as its model comes back.
+  private modes = new Map<string, string>();
   private hintTarget?: string;
   private cancelHint?: () => void;
   private lastHint?: { harness: string; at: number };
@@ -408,6 +413,13 @@ export class HarnessSwitch {
     }
     const done = deferred<string | undefined>();
     const model = options.model ?? (previous?.harness === harness ? previous.config.model : undefined);
+    // The harness being left keeps its mode for a switch back: a pending start's pick, else the mode
+    // the shown chat of that harness runs on.
+    const leftHarness = previous ? previous.harness : shownSession?.harness;
+    const leftMode =
+      previous?.config.mode ?? (shownSession?.harness === leftHarness ? shownSession?.modeId : undefined);
+    if (leftHarness && leftMode) this.modes.set(leftHarness, leftMode);
+    const back = previous?.harness === harness ? undefined : this.modes.get(harness);
     const intent: Intent = {
       id: ++this.generation,
       harness,
@@ -416,15 +428,19 @@ export class HarnessSwitch {
       phase: "starting",
       queued: previous?.queued ?? [],
       // A model or mode picked for one harness does not carry to another; to another folder it does.
+      // Back on a harness, its own last mode comes back with it.
       config: {
         ...(previous?.harness === harness ? previous.config : { options: {} }),
         // A model row of this harness picked it, or the caller passed the one last picked on it
         // (`lastOfferedModel`): the new chat starts on that model.
         ...(model ? { model } : {}),
+        ...(back ? { mode: back } : {}),
       },
       tickets: previous?.harness === harness ? previous.tickets : new Map(),
       done,
     };
+    // The mode it comes back to takes its gesture ticket now, in the pick's own handler.
+    if (back) intent.tickets.set("mode", this.takeTicket({ method: "session/set_mode", params: { modeId: back } }));
     if (previous) this.retire(previous, false);
     this.modelPick = undefined;
     this.configPick = undefined;
@@ -666,6 +682,49 @@ export class HarnessSwitch {
   /// prompt went, ends and its session is discarded. A shown switch is the chat's own.
   cancelDeferred(): void {
     if (this.intent && !this.intent.shown) this.cancel();
+  }
+
+  /// The local session a pick on a sessionless page started (a model row of another agent, such as
+  /// GPT-6.1 Sol on a Claude page), once its start settled: undefined when no pick is held, it
+  /// started none (failed, waits for Trust, a chat that starts on its first send) or `timeoutMs`
+  /// passed first. A Cloud start from that page names it as the chat it replaces (`replacesChat`),
+  /// so the host's hold on a start it saw open there (AcpmuxPaneReplacements) never refuses the
+  /// Cloud start as "a chat is already starting in this tab" (cmux#45946).
+  pickSession(timeoutMs: number): Promise<string | undefined> {
+    const settled = (): { sessionId?: string } | undefined => {
+      const intent = this.intent;
+      if (!intent || intent.phase === "failed" || intent.phase === "trust") return {};
+      if (intent.sessionId) return { sessionId: intent.sessionId };
+      // Nothing is starting it: no client runs it now (a chat that starts on its first send, or no connection).
+      if (!intent.running) return {};
+      return undefined;
+    };
+    const now = settled();
+    if (now) return Promise.resolve(now.sessionId);
+    return new Promise((resolve) => {
+      const deadline = this.clock.now() + timeoutMs;
+      let cancelTimer: (() => void) | undefined;
+      const finish = (sessionId: string | undefined) => {
+        cancelTimer?.();
+        unsubscribe();
+        resolve(sessionId);
+      };
+      const check = () => {
+        const done = settled();
+        if (done) return finish(done.sessionId);
+        if (this.clock.now() >= deadline) return finish(undefined);
+        // A shown pick's session is set before its open answers, with no change to draw: look again.
+        cancelTimer = this.clock.schedule(
+          check,
+          Math.min(PICK_SESSION_POLL_MS, Math.max(0, deadline - this.clock.now())),
+        );
+      };
+      const unsubscribe = this.subscribe(() => {
+        const done = settled();
+        if (done) finish(done.sessionId);
+      });
+      check();
+    });
   }
 
   cancel(): void {

@@ -1519,10 +1519,19 @@ if [[ "$mode" == pair-e2e ]]; then
     ./scripts/download-prebuilt-ghosttykit.sh >"$work/ghosttykit.log" 2>&1 ||
       { tail -20 "$work/ghosttykit.log"; echo "error: could not download GhosttyKit.xcframework" >&2; exit 1; }
   fi
+  # ghostty-vt-sys (ghostty-next) needs the fleet's pinned Zig 0.17 (the worker's tools, as
+  # its probe reports); PATH can name /usr/local's 0.16, which it refuses ("Your Zig version
+  # v0.16.0 does not meet the required build version of v0.17.0", steps
+  # e00987962032845838c55ef5 and b9658de920bf40d484a998ac). Only ZIG, which ghostty-vt-sys
+  # reads first: the classic Ghostty CLI helper reads CMUX_ZIG and needs its own 0.16, as
+  # scripts/measure/projection.sh sets it.
+  fleet_zig=/Users/Shared/cmux-build-fleet/tools/bin/zig
+  vt_zig="${ZIG:-}"
+  [[ -z "$vt_zig" && -x "$fleet_zig" ]] && vt_zig="$fleet_zig"
   # A fleet build (CMUX_FLEET_BUILD_TAG) builds acpmux, optchat-chief and
   # cmux-mobile-host on a cache miss and requires them in the bundle.
   set +e
-  CMUX_FLEET_BUILD_TAG="$mac_tag" ./scripts/reload.sh --tag "$mac_tag" --derived-data "$mac_dd" \
+  ZIG="$vt_zig" CMUX_FLEET_BUILD_TAG="$mac_tag" ./scripts/reload.sh --tag "$mac_tag" --derived-data "$mac_dd" \
     --no-global-cli-links >"$work/mac-build.log" 2>&1
   status=$?
   set -e

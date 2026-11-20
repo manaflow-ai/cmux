@@ -289,7 +289,10 @@ public final class LiveCoordinator {
             // comes); with none kept, the chat loads instead of saying it hasn't started.
             if let owner, owner.tree == nil {
                 let keptKey = AgentTranscriptCache.key(accountID: scoped.accountID, macID: summary.macID, tabID: summary.id)
-                if let keptKey, let keptSession = self.transcriptCache?.cached(keptKey)?.sessionID ?? self.keptSessionIDs[key] {
+                // The kept session from memory, else the chat's small head file in this turn (no
+                // "Loading chat…" first frame for a chat this phone holds).
+                if let keptKey, let keptSession = self.transcriptCache?.cached(keptKey)?.sessionID ?? self.keptSessionIDs[key]
+                    ?? self.transcriptCache?.firstScreen(keptKey)?.sessionID {
                     self.sourcedSessions[key] = (tabID: summary.id, macID: summary.macID, session: keptSession, provisional: true)
                     return self.agentSource(owner, session: keptSession, summary: scoped)
                 }

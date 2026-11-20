@@ -173,8 +173,8 @@ final class SidebarBridge {
             guard let self else { return }
             self.model.sectionCustomization = projection
             self.showProfiles(profiles, active: active, launching: launching)
-            self.show(SidebarSection.decorated(feed.fill(sections), decorations), shownAt: shownAt, layout: shown, launching: launching, failed: failed,
-                      creating: PendingWorkspaceRows.shared.rows(in: windowState.id))
+            BenchSpans.measure("sidebar.pass") { self.show(SidebarSection.decorated(feed.fill(sections), decorations), shownAt: shownAt, layout: shown, launching: launching, failed: failed,
+                                                           creating: PendingWorkspaceRows.shared.rows(in: windowState.id)) }
             // A grouped create this pass listed loose (and left out) joins its group now: the document's move draws it
             // there on the next pass, its first frame.
             for (id, group) in PendingWorkspaceRows.shared.groupJoins.takeDue(in: windowState.id) {
@@ -192,9 +192,9 @@ final class SidebarBridge {
         }
         PendingWorkspaceRows.shared.redraws.add(self) { [weak self] in
             guard let self, let id = self.state?.id else { return }
-            rows.show(creating: (PendingWorkspaceRows.shared.rows(in: id), NewWorkspacePlacements.home(services.machines)))
+            BenchSpans.measure("sidebar.pendingRow.show") { self.rows.show(creating: (PendingWorkspaceRows.shared.rows(in: id), NewWorkspacePlacements.home(services.machines))) }
             self.selectionHold.flush() // a selection waiting on the new row takes it in this turn, as `show` does
-            container.sidebarView.renderInFrame() // the model changed in this turn; the list draws the row in its frame
+            BenchSpans.measure("sidebar.pendingRow.render") { self.container.sidebarView.renderInFrame() } // the model changed in this turn; the list draws the row in its frame
         }
         // R99: the rows of another space, for the page beside the current one during a swipe.
         model.spaceSections = { [weak windowState, spaceCache] key in

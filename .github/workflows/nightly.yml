@@ -76,7 +76,7 @@ on:
         default: false
         type: boolean
       notary_test_without_browser_data_import:
-        description: nightly-next only. Like notary_test_without_password_import, and also compiles out every read of another browser's files or Keychain items (CMUX_NO_BROWSER_DATA_IMPORT) and ships an empty browser-sources.json. One app notary submission (plus the Computer Use helper's), nothing published.
+        description: nightly-next only. Like notary_test_without_password_import, and also compiles out every read of another browser's files or Keychain items (CMUX_NO_BROWSER_DATA_IMPORT) and ships an empty browser-sources.json. One app notary submission, nothing published.
         required: false
         default: false
         type: boolean
@@ -98,7 +98,7 @@ on:
         default: false
         type: boolean
       notary_probe_production_identity:
-        description: nightly-next only. One app notary submission (plus the Computer Use helper's) of this build as the production identity (com.cmuxterm.app, cmux.release.entitlements, release profile) with the browser-data import compiled out. There is no Sparkle key or feed, no DMG or app artifact, and no recovery artifact. Only text receipts are uploaded and nothing is published.
+        description: nightly-next only. One app notary submission of this build as the production identity (com.cmuxterm.app, cmux.release.entitlements, release profile) with the browser-data import compiled out. There is no Sparkle key or feed, no DMG or app artifact, and no recovery artifact. Only text receipts are uploaded and nothing is published.
         required: false
         default: false
         type: boolean
@@ -218,10 +218,10 @@ env:
 jobs:
   # Fails the run in minutes when a label its jobs would wait on has no online runner, instead of every job sitting
   # queued for hours (2026-11-10: CI_NIGHTLY_MINI named cmux-lawrence-2-light, whose runners went offline at 00:45Z;
-  # the nightly sat queued for 3+ h). It runs on the dedicated nightly-only pool, never on vars.CI_NIGHTLY_MINI, so a
-  # dead CI_NIGHTLY_MINI still fails in minutes; a dead nightly-only pool holds decide on the same label anyway. It
-  # was on GitHub-hosted Ubuntu until 2026-11-18, when the org-wide hosted queue held it 1h25m+ (run 44207617943) and
-  # with it every nightly, while the nightly Macs were idle. It holds
+  # the nightly sat queued for 3+ h). It takes decide's own route, so it never waits longer than decide would, and in
+  # one-mini mode it stays on vars.CI_NIGHTLY_MINI with the rest of the run (never split across Macs); there a dead
+  # mini holds it like every other job. It was on GitHub-hosted Ubuntu until 2026-11-18, when the org-wide hosted
+  # queue held it 1h25m+ (run 44207617943) and with it every nightly, while the nightly Macs were idle. It holds
   # no secret and reads only vars.CI_RUNNER_STATE (scripts/ci/nightly_runner_preflight.py). It never cancels anything;
   # an unreadable or stale census lets the run go on. A failure files the nightly's failure incident with the job's
   # token (report-nightly-failure never runs then). hq docs/handbook/runner-var-points-at-dead-host.md.
@@ -229,8 +229,8 @@ jobs:
     permissions:
       issues: write # a failure opens or updates the nightly's failure incident (notify() in the script)
     if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '' && inputs.nightly_next_post_publish == '')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
-    timeout-minutes: 3
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 123 || 3 }}
     steps:
       - name: Check out the preflight
         if: github.repository == 'manaflow-ai/cmux'
@@ -884,7 +884,7 @@ jobs:
             const pipeline = isNextRef && context.eventName === 'push' && track === 'nightly-next' && shouldPublish && !notaryPaused && !notaryTest && process.env.NIGHTLY_NEXT_PIPELINE !== 'off' && !oneJob;
             core.setOutput('pipeline', pipeline ? 'true' : 'false');
             if (notaryTest) {
-              core.notice(`cx-f58x notary test (${notaryProbe ? 'production-identity probe, ' : ''}import ${importVariant}): one app notary submission plus the Computer Use helper's, nothing published.`);
+              core.notice(`cx-f58x notary test (${notaryProbe ? 'production-identity probe, ' : ''}import ${importVariant}): one app notary submission, nothing published.`);
             } else if (browserDataOut) {
               core.notice('nightly-next ships with the browser-data import compiled out (NIGHTLY_NEXT_BROWSER_DATA_IMPORT=compiled-out).');
             }
@@ -2789,27 +2789,6 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && (env.NIGHTLY_FAST_BUILD == 'true')
         run: bash scripts/ci/nightly-steps/app-bundle-fast-cmux-tui-client.sh
 
-      - &x43
-        name: Assemble the Computer Use helper
-        if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
-        env:
-          HELPER_ARCHS: ${{ contains(needs.decide.outputs.variants, 'x86_64') && 'arm64 x86_64' || 'arm64' }}
-          CMUX_CEF_R2_ACCOUNT_ID: *r2a
-          CMUX_CEF_R2_ACCESS_KEY_ID: *r2k
-          CMUX_CEF_R2_SECRET_ACCESS_KEY: *r2s
-          CMUX_CEF_R2_ENV_FILE: /dev/null
-        run: bash scripts/ci/nightly-steps/app-assemble-computer-use-helper.sh
-
-      - &x43u
-        name: Keep a source-built Computer Use helper
-        if: ${{ !env.LEFT_SLOT }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cmux-cua-helper-unsigned
-          path: ${{ runner.temp }}/cmux-cua-helper-prebuilt/
-          if-no-files-found: ignore
-          retention-days: 3
-
       - &x44
         name: Resolve immutable SSH daemon metadata
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true') && !env.LEFT_SLOT
@@ -3444,7 +3423,7 @@ jobs:
         name: Add the workflow commit's new step scripts to an older build tree
         if: ((env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && hashFiles('scripts/ci/nightly-steps/prepare-thin-bundle.sh') == '') && !env.LEFT_SLOT
         run: |
-          git fetch -q --no-tags --depth=1 origin "$GITHUB_SHA"
+          for try in 1 2 3; do git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=120 fetch -q --no-tags --depth=1 origin "$GITHUB_SHA" && break; [ "$try" != 3 ] || exit 1; sleep $((try * 10)); done
           git diff --name-only --diff-filter=A HEAD FETCH_HEAD -- scripts/ci/nightly-steps | while read -r f; do git checkout FETCH_HEAD -- "$f"; done
 
       - &download-signing-inputs-paralle
@@ -3507,8 +3486,7 @@ jobs:
       # restores; it runs here only when that job did not prove this app (an unsigned
       # resume, or a build_sha without the step). It scans file contents, so the strip
       # before transfer does not hide anything from it, and it covers what
-      # build-nightly-app adds after the compile (the Computer Use helper,
-      # cmux-symbols.bin). The password-reader proof reads symbols with nm, which the
+      # build-nightly-app adds after the compile (cmux-symbols.bin). The password-reader proof reads symbols with nm, which the
       # strip removes, so it stays right after the compile in build-nightly-app.
       - &prove-the-browser-data-import
         name: Prove the browser-data import is compiled out (cx-f58x notary test)
@@ -4267,26 +4245,6 @@ jobs:
         run: bash -e scripts/ci/nightly-steps/embed-provisioning-profile.sh
 
 
-      # The Computer Use helper has its own notarization ticket (a copy outside
-      # the app stays Gatekeeper-valid). Its submission starts here, signed
-      # with its final Developer ID signature, so Apple's wait overlaps the
-      # smoke steps; the notarize step below finishes it before the DMG.
-      - &x63
-        name: Start the Computer Use helper notarization
-        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && !env.LEFT_SLOT
-        env:
-          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
-          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
-          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-        run: |
-          ./scripts/ci/notarize-computer-use-helper.sh --start \
-            "$RUNNER_TEMP/cmux-computer-use-notarization.state" \
-            "$CHANNEL_APP_PATH" \
-            "$CHANNEL_ENTITLEMENTS" \
-            "$APPLE_SIGNING_IDENTITY"
-
-
       - &x64
         name: Codesign apps
         if: ${{ !env.LEFT_SLOT }}
@@ -4306,13 +4264,7 @@ jobs:
           fi
           s=scripts/ci/nightly-steps/sign-fetch-published-chromium.sh
           if [ -f "$s" ]; then bash "$s" join "$RUNNER_TEMP/cef-reuse"; fi
-          # A submitted helper keeps the exact signature Apple is notarizing;
-          # otherwise (fast or paused builds) sign it in the inside-out pass.
-          sign_mode=all
-          if [ -f "$RUNNER_TEMP/cmux-computer-use-notarization.state" ]; then
-            sign_mode=all-except-computer-use
-          fi
-          CMUX_SIGN_MODE="$sign_mode" ./scripts/sign-cmux-bundle.sh \
+          CMUX_SIGN_MODE=all ./scripts/sign-cmux-bundle.sh \
             "$CHANNEL_APP_PATH" \
             "$CHANNEL_ENTITLEMENTS" \
             "$APPLE_SIGNING_IDENTITY"
@@ -4342,14 +4294,6 @@ jobs:
           retention-days: 7
           overwrite: true
 
-      # Onboarding grants Accessibility and Screen Recording only to a helper
-      # that passes the Developer ID requirement (cx-urd.6).
-      - &x65
-        name: Verify the Computer Use helper signature
-        if: ${{ !env.LEFT_SLOT }}
-        run: ./scripts/ci/verify-computer-use-helper.sh signed "$CHANNEL_APP_PATH"
-
-
       - &x66
         name: Delete signing keychain before runtime checks
         if: always()
@@ -4372,8 +4316,7 @@ jobs:
           echo "### nightly-next notarization paused (NIGHTLY_NEXT_NOTARY_PAUSED=1): no notary submission, nothing published" >> "$GITHUB_STEP_SUMMARY"
 
 
-      # The helper re-seal and the DMG need the identity again. Both run no
-      # bundle code; notarize-nightly-dmg.sh deletes the keychain right after
+      # The DMG needs the identity again. It runs no bundle code; notarize-nightly-dmg.sh deletes the keychain right after
       # the DMG signature, before static artifact verification.
       - &x67
         name: Import signing cert for the DMG signature
@@ -4391,8 +4334,6 @@ jobs:
         timeout-minutes: ${{ needs.decide.outputs.notary_test == 'true' && 205 || 130 }}
         env:
           CMUX_NOTARY_WAIT_TIMEOUT: ${{ needs.decide.outputs.notary_test == 'true' && '160m' || needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && '20m' || '40m' }}
-          CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE: ${{ runner.temp }}/cmux-computer-use-notarization.state
-          CMUX_COMPUTER_USE_NOTARY_WAIT_TIMEOUT: 15m
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
@@ -4680,6 +4621,12 @@ jobs:
           # so older macOS keeps the previous (legacy) items still in the feed.
           SPARKLE_MINIMUM_SYSTEM_VERSION="$(python3 scripts/ci/appcast_minimum_system_version.py floor "$CHANNEL_APP_PATH")"
           export SPARKLE_MINIMUM_SYSTEM_VERSION
+          # nightly-next ships the deltas from its nearest earlier builds with the build itself (hq#13299).
+          # A build tree from before it has no script: that build publishes full-only, as before.
+          if [ "$TRACK" = nightly-next ] && [ -f scripts/ci/nightly-steps/appcast-with-nearest-deltas.sh ]; then
+            bash scripts/ci/nightly-steps/appcast-with-nearest-deltas.sh
+            exit 0
+          fi
           SPARKLE_DELTA_NAME_PREFIX="${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-" \
             ./scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" "$CHANNEL_RELEASE_TAG" "$NIGHTLY_APPCAST"
           ls -l "$NIGHTLY_DMG_IMMUTABLE" "$NIGHTLY_DMG_RELEASE" "$NIGHTLY_APPCAST"
@@ -4884,7 +4831,7 @@ jobs:
         name: Add the workflow commit's new step scripts to an older build tree
         if: hashFiles('scripts/ci/nightly-steps/prepare-thin-bundle.sh') == ''
         run: |
-          git fetch -q --no-tags --depth=1 origin "$GITHUB_SHA"
+          for try in 1 2 3; do git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=120 fetch -q --no-tags --depth=1 origin "$GITHUB_SHA" && break; [ "$try" != 3 ] || exit 1; sleep $((try * 10)); done
           git diff --name-only --diff-filter=A HEAD FETCH_HEAD -- scripts/ci/nightly-steps | while read -r f; do git checkout FETCH_HEAD -- "$f"; done
       - &x75
         name: Verify bundled CLI commands run from the bundle alone
@@ -4899,11 +4846,10 @@ jobs:
         run: bash scripts/ci/nightly-steps/verify-signed-diff-sidecar-contract.sh
 
       # The post-sign checks of sign-cmux-bundle.sh (entitlements, helpers,
-      # browser host) on this signed app whichever signer made it, and the
-      # Computer Use helper's own ticket on a copy taken out of the app.
+      # browser host) on this signed app whichever signer made it.
       # A build commit older than these checks has none to run.
       - &x77
-        name: Verify signed app entitlements and the Computer Use helper ticket
+        name: Verify signed app entitlements
         if: hashFiles('scripts/ci/nightly-steps/verify-signed-app-checks.sh') != '' && !env.LEFT_SLOT
         run: bash scripts/ci/nightly-steps/verify-signed-app-checks.sh
 
@@ -6572,15 +6518,7 @@ jobs:
 
       - *wipe-owned-credentials
 
-  # nightly-next's dSYMs to Sentry, off the build's path (Sentry held it 10.8 and 19.7 min in
-  # runs 41471126151, 41466468306). Nothing needs it; it continues on error. It runs with the rest of the
-  # tail (run_tail: on nightly-next the dispatched tail run), outside the push group: in the loop run it held
-  # the push group until its hosted queue (39 min for the oldest job on 2026-11-08) and its upload were done,
-  # and in a pipelined push run (decide's pipeline) it held the group after dispatch-nightly-next-sign.
-  # It stays on GitHub-hosted Ubuntu (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS): the Sentry token keeps it
-  # off the nightly mini's shared light runners, and on the trusted signing runner its 11-20 min upload would
-  # hold the whole Mac while the next run builds and signs there. The dSYMs come from the run that compiled the
-  # published binary, as keep-published-dsyms finds them.
+  # Why: docs/ci/nightly-workflow-notes.md#note-28
   sentry-dsyms-nightly:
     needs: [published-build]
     if: "!cancelled() && needs.published-build.outputs.track == 'nightly-next' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_refused != 'true' && needs.published-build.outputs.publish_build_sha != '' && needs.published-build.outputs.run_tail == 'true'"
@@ -6645,6 +6583,8 @@ jobs:
       CHANNEL_DMG_PREFIX: ${{ needs.published-build.outputs.dmg_prefix }}
       CHANNEL_RELEASE_TAG: ${{ needs.published-build.outputs.release_tag }}
       NIGHTLY_DELTAS_PREBUILD_ONLY: 1
+      # nightly-next shipped its 3 nearest deltas with the build (hq#13299): only the ~1 and ~3 day bases here.
+      NIGHTLY_DELTAS_NEAREST_SHIPPED: ${{ needs.published-build.outputs.track == 'nightly-next' && 'true' || '' }}
       # BinaryDelta peaks near 6 GB a delta; two at a time leave the mini's light work its memory.
       SPARKLE_DELTA_JOBS: 2
     steps:
@@ -6751,6 +6691,7 @@ jobs:
       CHANNEL_RELEASE_TAG: ${{ needs.published-build.outputs.release_tag }}
       NIGHTLY_SPARKLE_KEY: ${{ vars.NIGHTLY_SPARKLE_KEY }}
       TRACK: ${{ needs.published-build.outputs.track }}
+      NIGHTLY_DELTAS_NEAREST_SHIPPED: ${{ needs.published-build.outputs.track == 'nightly-next' && 'true' || '' }}
       # Every item starts on the new build's ring; republish-nightly-deltas
       # moves the ones whose canary passed back to Nightly.
       SPARKLE_CHANNEL: ${{ needs.published-build.outputs.track == 'nightly-next' && (vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'cmux-next-dev' || 'cmux-next') || '' }}
@@ -6934,6 +6875,7 @@ jobs:
             scripts/ci/publish-release-assets.py
             scripts/ci/gh_budget_wait.sh
             scripts/ci/publish-nightly-next-r2.py
+            scripts/ci/nightly_next_delta_check.py
             scripts/ci/upload-r2-object.py
             scripts/ci/gh_app_token.sh
             scripts/ci/nightly_next_dev_ring.sh
@@ -7276,8 +7218,6 @@ jobs:
       - *x38
       - *x39
       - *x40
-      - *x43
-      - *x43u
       - *x44
       - *x45
       - *x46
@@ -7325,9 +7265,7 @@ jobs:
       - *x60
       - *x61
       - *x62
-      - *x63
       - *x64
-      - *x65
       - *x66
       - name: Start the signed-app checks (they run during notarization)
         if: ${{ !env.LEFT_SLOT }}
@@ -7353,8 +7291,6 @@ jobs:
         timeout-minutes: 130
         env:
           CMUX_NOTARY_WAIT_TIMEOUT: 40m
-          CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE: ${{ runner.temp }}/cmux-computer-use-notarization.state
-          CMUX_COMPUTER_USE_NOTARY_WAIT_TIMEOUT: 15m
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
@@ -7532,6 +7468,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run nightly-next-tick.yml --repo "$GITHUB_REPOSITORY" --ref main
+      # The detector (hq#13299): the build this run published must reach the feed with its deltas, each
+      # served at its length; a newer build already live passes with a notice. Red here names a feed
+      # where every Mac downloads the full 243 MB DMG.
+      - name: Check the published feed offers deltas
+        if: needs.nightly-next-one.outputs.feed_written == 'true'
+        env:
+          BUILD: ${{ needs.nightly-next-one.outputs.build }}
+        run: set -o pipefail; python3 scripts/ci/nightly_next_delta_check.py check --feed-url "$NIGHTLY_NEXT_FEED_BASE/appcast-arm64.xml" --build "$BUILD" | tee -a "$GITHUB_STEP_SUMMARY"
 
   # Why: docs/ci/nightly-workflow-notes.md#note-22
   published-build:
@@ -7627,15 +7571,7 @@ jobs:
           RECORD_FILE: ${{ runner.temp }}/published-build/published-build.json
         run: python3 scripts/ci/nightly_published_build.py outputs
 
-  # The push run's half of the nightly-next pipeline (decide's pipeline): once the unsigned app and what the
-  # resume restores beside it are uploaded, ask for this build's sign run. It is the unsigned resume of this run
-  # (resume-unsigned-nightly.py, which reads this live run only as a sign stage) in the sign group, so this run
-  # and the push group end here and the next build starts while this one signs. GitHub keeps one pending run in
-  # the sign group and replaces it with a newer dispatch: nothing started is cancelled, and a build that waited
-  # behind a newer one is never signed. A dispatch refused for the API rate limit waits for the reset and tries
-  # again (gh_budget_wait.sh; a refused request did nothing, so this never starts two runs): run 42726398544's
-  # dispatch failed on "API rate limit exceeded for installation" and nothing published for two hours. Any other
-  # failure fails this job, retry-nightly-next retries the build and report-nightly-failure lists it.
+  # Why: docs/ci/nightly-workflow-notes.md#note-27
   dispatch-nightly-next-sign:
     # It waits for the preparation too (prepare-nightly-variant, the app the signer signs): the sign run restores
     # that prepared app and starts at the signer.

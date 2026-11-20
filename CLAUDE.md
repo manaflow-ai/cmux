@@ -8,6 +8,14 @@ Read the matching skill before changing an area, then only the references needed
 
 ## The loop: use it first, then test
 
+**Before asking for a dev build, copy your nightly and swap your code in: `cmux app try .`** (on a Mac, in
+your checkout). It clones `/Applications/cmux NIGHTLY.app` (`--from APP` for another), runs the clone beside
+the person's cmux without touching it, puts your working tree's web UI (live on save) and daemon Rust in, and
+prints the clone's socket (`cmux --app-socket SOCKET ...`). `cmux app try . --extract` keeps what went in (a
+branch and a patch); `cmux app try . --stop` deletes the clone. When it says the change needs a build (Swift,
+FFI), the dev build is still the way, and it prints the fleet command. Off a Mac (a Linux host, a lane VM) it
+prints the fleet route: push, then `cmux-ci hot-verify N --look`.
+
 Write the code, put it into your running cmux, use it (screenshot, video, click through it), and only then run
 the slow checks: compile, CI, gallery, suites. 70% of recent Mac-app PRs go into a running app with no build (cmuxterm-hq hot-swap layers doc).
 Full loop and examples: the [cmux-hot-loop skill](skills/cmux-hot-loop/SKILL.md); for people:

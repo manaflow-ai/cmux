@@ -1,5 +1,23 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-18 (a590, hover card grid base red): Sidebar-Look: the workspace hover card's tab rows line up with its
+  header again, icons on one column and text on one edge, as before #44449. d8917c9 (#44449) scaled every density
+  from Default by one factor, so the card's padding (7.5 pt), its icon-to-text gap and the tab rows' fill outset
+  (3.5 pt) became half points. The header (a stack view) snapped them to whole points; the frame-laid tab list stood
+  its scroll view on a half point, and the rows landed 1.5 pt right of the header's icon and 2 pt right of its text
+  at 1x. The card's grid is whole points now: the padding rounds (`SidebarRowTokens.hoverCard`), and one gap,
+  `HoverCardRowView.iconGap` (`space2` rounded), sets the header's and the activity row's spacing, the fact rows' gap,
+  `WorkspaceHoverCardView.textInset` and `WorkspaceTabHoverCardRow.fillOutset`. At Default: 8 pt padding, 4 pt gap.
+  Regression: `WorkspaceHoverCardGridTests.everyIconSharesOneColumnAndEveryTextOneEdge` (red on base since d8917c9).
+
+- 2026-11-18 (lane/sidebar-customize-stress, ask-2b329124aa): Sidebar-Look: no visual change. Sidebar customization
+  (`sidebar.sections`, `sidebar.workspaces`) under stress. A selection change re-projects the sidebar only when it shows
+  or hides a row (the old selection was kept only for being selected, Rust's `selection_spared`, or the new one is a
+  hidden row); before, any hide rule made every click run every row through the planner. Regroup rules apply in one
+  pass per section (`SidebarCustomizationPlanner.moveIntoGroups`) instead of a search and a projection copy per move.
+  Regression: `SidebarCustomizationScaleTests` (CmuxNextAppTests).
+
+- 2026-11-18 (minimal-hide-all): Sidebar-Look: user, 2026-11-17 (msg 38388): "minimal mode should hide everything in sidebar including cards like update, iff user is not hovered in sidebar". In Minimal Mode (`sidebar.minimal`), with the pointer away, every sidebar view but the content (the workspace list, the bands, the Priority view, edit mode's bar) fades out with the controls' hover fade (`SidebarChromeReveal.rest`, `SidebarView.minimalChromeViews`): one rule over the sidebar's subviews, so a card added later hides by default. Newly hidden: the Restart to Update, notice (tips, star prompt, restoring, update status), Now Playing and cmux Updated cards, the card stack, app health's line, the Update Available button, the Priority bell, the titlebar accessory and the needs-you tray. A card arriving while hidden arrives hidden. Their room goes to the list with the footer's, on the footer's curve, and comes back on hover. A fade only: frames and the accessibility tree stay. Show Sidebar Controls Only on Hover alone keeps the cards. `MinimalModeHidesEverythingTests`.
 - 2026-11-18 (a590, grid base red): Sidebar-Look: an unread dot beside a status mark sits one column in again, as before
   #44449. d8917c9 (#44449) made the trailing pitch the control plus a tenth of it (17.6 or 20.53 pt), and
   `SidebarColumns` rounded the pitches back from the trailing edge up with no tolerance, so one pitch could count as two
@@ -73,6 +91,10 @@
   desktop gui, ios, remote, cloud, etc". Sign-in, install, update and start failures show at once; the tooltip and
   VoiceOver keep the real state. `SectionHeaderRowView.drawn`; regression:
   `DaemonStartupFailureStateTests.aDroppedLinkSaysNothingInItsHeaderUntilTheGrace`.
+
+- 2026-11-18 (hover card press frame): Sidebar-Look: Lawrence, msg 38370 follow-up: "fix the one late frame at the press of Show/Hide details". The press skipped a display frame on 36 to 37 of 40 presses (cmux-lawrence-2, 120 Hz): its layout, measure and first resize frame (4 to 6 ms) ran inside the press and crossed the frame's end. An animated refit no longer sets the window to the rest frame before the morph sets the larger one (one layout at a size never shown, gone), and a press of Show details or Hide details runs at the start of the card window's next frame (`WorkspaceHoverCardView.pressDetails`, a one-step animator on the window's `MotionClock`), where the work fits. Two presses before one frame change nothing; Reduce Motion, speed off or a card in no window: at once. An animated refit lays nothing out before the morph's one layout and measures the glass's content view (`glass.contentView.fittingSize`, without the glass panel's views); the edge insets read the density tokens once. The card reports its own size (`HoverCardSizeReporting`): a size per details state, measured while it rests (after the settle frame's commit, `prepareSizes`) and emptied by any content change, so a press builds no temporary layout engine; Hide details keeps its rows laid out from the press (no hide and show again for the fold); the chevron's two images are made once. Tests that press Show details call `runPendingDetailsPresses()` after the press. Regression: `WorkspaceHoverCardFoldTests` (`aDetailsPressRunsAtTheStartOfTheNextFrameNotInThePress`, `pressingDetailsLaysTheCardOutOnlyAtTheSizeItShows`, `aDetailsPressMeasuresNothingAndRemakesNothing`, `theCardsReportedSizeIsItsMeasuredSize`).
+
+- 2026-11-17 (hover card resize): Sidebar-Look: Lawrence, msg 38370 (a recording of Show details and Hide details): "fix jank like shadows stuff". The workspace card no longer resizes under a mask over a card laid out at the larger size: its real surface, rim, rounded corners and shadow take the resize's size on every frame of the window's motion clock (`HoverCardMorph`, `PopupHostView.cardRect`), so the moving edge keeps its rim and the shadow never pops when the card settles. Hide details keeps the detail rows laid out, fading out (`.fadeOut`), under the folding edge until the fold ends (`HoverCardFoldingBody`), instead of dropping them and folding an empty card; Show details fades the rows in (`.fadeIn`) as the card grows over them. Same `.panel` spring, Reduce Motion still changes the size at once. Regression: `WorkspaceHoverCardFoldTests`.
 
 - 2026-11-15 (device glyphs): Sidebar-Look: Leo asked for “nicer icons for stuff ... across all the remote related areas”. A machine with no icon of the person's own now draws the SF Symbol of the device its daemon says it is (`machine_symbol`, cmux-device-kind) in its sidebar header and on the hover card's machine line, where the globe drew before; a Cloud machine keeps the cloud. The glyph takes the slot and size the old icon had, so nothing moves.
 - 2026-11-14 (CMUX-383 Step B): Sidebar-Look: Leo asked for “Sidebar customization (look at BB and Herder)”. The existing sidebar surface and density now read the pinned Rust projection through Swift, applying section hide/order, same-section workspace grouping/order, and atomic cmux-next.json hot reload. Gallery variants cover default, hidden/reordered sections, and workspace grouping; the watcher test covers an editor-style atomic replace.
