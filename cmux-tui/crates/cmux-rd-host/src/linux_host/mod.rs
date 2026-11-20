@@ -606,6 +606,20 @@ fn enable_consent(args: &Args) -> LocalConsent {
     LocalConsent { view: true, full: !args.flag("view-only") }
 }
 
+/// Beside `consent.json`: the join whose consent it is, written only after the consent itself
+/// (review F1 of #45480). A rerun for that join keeps the consent as its person left it; a run
+/// that stopped before this file was written writes the consent again on its next run, so a
+/// joined machine is never left unshared by a crash.
+const CONSENT_JOIN_FILE: &str = "consent-join.json";
+
+/// The join `consent.json` was written for, if a run finished writing it.
+fn consent_join(dir: &std::path::Path) -> Res<Option<machine::Joined>> {
+    match identity::read_private(&dir.join(CONSENT_JOIN_FILE))? {
+        Some(bytes) => Ok(serde_json::from_slice(&bytes).ok()),
+        None => Ok(None),
+    }
+}
+
 /// The consent `enable --non-interactive` leaves in `dir` for the join `mark` (None: not a
 /// join), asking `grant` for the portal's grant (with control or not) only when it wrote it.
 fn join_consent(
@@ -614,13 +628,13 @@ fn join_consent(
     args: &Args,
     grant: &mut dyn FnMut(bool),
 ) -> Res<Res<LocalConsent>> {
-    let same_join = match (mark, machine::Joined::load(dir)?) {
-        (Some(mark), Some(recorded)) => !mark.machine_id.is_empty() && recorded == *mark,
+    let same_join = match (mark, consent_join(dir)?) {
+        (Some(mark), Some(written)) => !mark.machine_id.is_empty() && written == *mark,
         _ => false,
     };
     if same_join {
-        // Review F1 of #45480: the person's choice stays, including a withdrawn one (no file).
-        // Only a narrower one is taken: `--view-only` turns control off, never on.
+        // The person's choice stays, including a withdrawn one (no file). Only a narrower one
+        // is taken: `--view-only` turns control off, never on.
         return match LocalConsent::load(dir) {
             Ok(kept) if kept.full && args.flag("view-only") => {
                 let narrowed = LocalConsent { full: false, ..kept };
@@ -632,6 +646,17 @@ fn join_consent(
     }
     let consent = enable_consent(args);
     consent.save(dir)?;
+    // The consent first, then whose it is: a run cut off between the two writes it again.
+    match mark {
+        Some(mark) => identity::write_private(
+            &dir.join(CONSENT_JOIN_FILE),
+            &serde_json::to_vec_pretty(mark)?,
+        )?,
+        None => match std::fs::remove_file(dir.join(CONSENT_JOIN_FILE)) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
+            _ => {}
+        },
+    }
     grant(consent.full);
     Ok(Ok(consent))
 }
