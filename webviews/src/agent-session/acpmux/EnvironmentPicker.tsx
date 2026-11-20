@@ -405,8 +405,9 @@ export function EnvironmentPicker({
   // Move to…'s list: each target, then nothing else (Escape closes it, as Machines…).
   const moveRows = targetActions.map((action) => action.value);
   // Cloud: where a chat runs off this Mac. A new chat with `runMode` picks it as where the chat runs
-  // (cloudRun.ts: the app picks and sizes a machine, CLOUD_RUN); elsewhere a pick opens the host's
-  // New Cloud Machine flow, which stays in the right-click menu either way.
+  // (cloudRun.ts: the app picks and sizes a machine, CLOUD_RUN); elsewhere it shows where the chat runs
+  // and a pick makes nothing (cmux#47677: it once ran New Cloud Machine, a new workspace on a click).
+  // New Cloud Machine… stays in the right-click menu either way.
   // Cloud and Sign in for Cloud are one row, never two (Leo, 2026-11-07, of the menu showing both
   // and then dropping the sign-in row: "The thing becomes just one state instead of rapidly
   // switching to another"). Only once the app says signed out does the row read Sign in for Cloud,
@@ -421,7 +422,10 @@ export function EnvironmentPicker({
   const cloud: Action | undefined =
     onConnect && runMode === undefined
       ? cloudSignedIn !== false
-        ? { value: ACTION + "cloud", text: t("composer.cloud"), kind: "cloud", run: () => onConnect("cloud") }
+        ? // Never New Cloud Machine (cmux#47677): picking Cloud only names where a chat runs, so a row with
+          // no new chat to point there makes nothing (no machine, no workspace). New Cloud Machine… stays
+          // on the control's right-click menu.
+          { value: ACTION + "cloud", text: t("composer.cloud"), kind: "cloud", run: () => undefined }
         : {
             value: ACTION + "cloud",
             text: t("composer.cloudSignIn"),
@@ -704,8 +708,8 @@ export function EnvironmentPicker({
       focusPrompt();
       return;
     }
-    // A machine, Remote, or Cloud's New Cloud Machine flow: Persistent again.
-    if (!action || (value === ACTION + "cloud" && !action.signsIn)) persistent();
+    // A machine or Remote: Persistent again. The Cloud row with no `runMode` makes nothing and sets nothing.
+    if (!action) persistent();
     if (action) action.run();
     // The chat's own machine, paused (cloudMachines.ts withCloudSleep), is still a pick: it resumes.
     else if (value === currentRow && !(machine && isCloudMachineRow(machine))) focusPrompt();

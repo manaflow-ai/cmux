@@ -13293,7 +13293,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             })}
             localName={thisMacName(localMachineName, machineName, composerSnapshot.summary)}
             environments
-            {...(cloudOffered ? { runMode: composerModeRows } : {})}
+            // Where the new chat runs is settable as soon as Cloud may be offered here, not only once the
+            // host's check answered: before, the Where menu's Cloud row ran New Cloud Machine meanwhile
+            // and made a workspace on the click (cmux#47677). A send before the check waits for it
+            // (cloud_checking, cloudSendAfterCheck). A page on another machine starts no Cloud chat. Cloud
+            // still picked while it is briefly not offered (a pending selection, a switch) stays shown, so
+            // the menu never reads This Mac while Return goes to Cloud (cmux#47679).
+            {...((cloudOfferable && !onOtherMachine) || cloudPickedNotOffered ? { runMode: composerModeRows } : {})}
             onBrowseFolder={
               canMove ? () => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd) : undefined
             }
@@ -13747,9 +13753,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   takeDraft={takeNewTabDraft}
                   {...(cloudPickPending ? { cloudPick: takeCloudPick } : {})}
                   {...(cloudHintShown ? { cloudHint: { onClose: cloudHint.close } } : {})}
-                  {...(sandboxOffered || sandboxPickedNotOffered || cloudPickedNotOffered
+                  {...(sandboxOffered ||
+                  sandboxPickedNotOffered ||
+                  cloudPickedNotOffered ||
+                  (sandboxOfferable && !onOtherMachine)
                     ? {
-                        runMode: sandboxModeRows,
+                        // Before the host's check answers, Cloud and This Mac only (cmux#47677): the Where
+                        // menu's Cloud row sets where the chat runs instead of running New Cloud Machine.
+                        runMode:
+                          sandboxOffered || sandboxPickedNotOffered
+                            ? sandboxModeRows
+                            : { ...sandboxModeRows, sandbox: false as const },
                         // A page-side refusal goes to the chat view, which says why (SandboxRunView), with
                         // the prompt and attachments put back in its composer.
                         ...(!cloudStart && cloudWaitsForCheck && !sandbox.unread
