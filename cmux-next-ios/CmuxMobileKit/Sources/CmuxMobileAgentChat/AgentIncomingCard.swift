@@ -259,7 +259,11 @@ struct AgentIncomingCard: View {
         for block in MarkdownDocument(parsing: text).blocks {
             let lines: [String]
             switch block.kind {
-            case .heading(_, let text), .paragraph(let text):
+            case .heading(_, let text):
+                // A closed heading's trailing marks (`## Status ##`) are syntax too.
+                let open = text.replacingOccurrences(of: #"\s+#+\s*$"#, with: "", options: .regularExpression)
+                lines = plainInline(open).split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+            case .paragraph(let text):
                 // The block's marks are read whole (bold or a link may span a line break), then
                 // its first line is taken.
                 lines = plainInline(text).split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
@@ -267,7 +271,7 @@ struct AgentIncomingCard: View {
                 // A quote holds Markdown of its own (a fence, a heading): its first line, read so.
                 lines = [firstLine(text)]
             case .list(let list):
-                lines = list.items.map { plainInline($0.text).trimmingCharacters(in: .whitespaces) }
+                lines = list.items.map { itemFirstLine($0.text) }
             case .table(let table):
                 lines = [table.header.map { plainInline($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: " · ")]
             case .code(_, let code, _):
@@ -285,6 +289,20 @@ struct AgentIncomingCard: View {
         return math ?? ""
     }
 
+    /// A list item's first line, read as the Markdown it holds (a heading, a fence). The parser joins
+    /// an item's indented lines with spaces, so a fence under the item's text (`Install:` then
+    /// ```` ```bash ````) is cut off, and a fence the item opens with keeps only its code.
+    private static func itemFirstLine(_ text: String) -> String {
+        var item = text
+        if let fence = item.range(of: #"\s(?:```|~~~)"#, options: .regularExpression) {
+            item = String(item[..<fence.lowerBound])
+        }
+        if let range = item.range(of: #"^(?:```|~~~)\S*\s*"#, options: .regularExpression) {
+            return item[range.upperBound...].trimmingCharacters(in: .whitespaces)
+        }
+        return firstLine(item)
+    }
+
     /// Text's inline Markdown (emphasis, code, strike, links, `$math$`) as the plain characters it
     /// draws, its line breaks kept; a line of marks alone (`**`) is nothing.
     private static func plainInline(_ text: String) -> String {
@@ -297,7 +315,7 @@ struct AgentIncomingCard: View {
         )
         let plain = parsed.map { String($0.characters) } ?? unmathed
         return plain.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line in line.allSatisfy { "*_~` ".contains($0) } ? "" : String(line) }
+            .map { line in line.allSatisfy { "*_~`# ".contains($0) } ? "" : String(line) }
             .joined(separator: "\n")
     }
 }
