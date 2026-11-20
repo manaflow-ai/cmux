@@ -288,8 +288,14 @@ class Stress:
             return (window or {}).get("focused_pane") == pane_id or (topology.get("focus") or {}).get("pane") == pane_id
         if not wait(focused, 10, step=0.05):
             topology = self.topology()
+            # In-tree pages: why the window kept its first responder (the gate's counters and last refusal), and what
+            # it is, so a focus that never lands names its cause (offin-a896f429: in tree only, pane 13 of 14).
+            focus = self.rpc("debug.focus") or {}
+            why = {k: focus.get(k) for k in ("in_tree", "windows", "window_invariants", "consistent")
+                   if k in focus}
             raise StressShapeError(f"focus never reached pane {pane_id} (active focus {topology.get('focus')}, "
-                                   f"windows {[(w.get('key'), w.get('workspace'), w.get('focused_pane')) for w in topology.get('windows') or []]})")
+                                   f"windows {[(w.get('key'), w.get('workspace'), w.get('focused_pane')) for w in topology.get('windows') or []]}, "
+                                   f"debug.focus {json.dumps(why, default=str)[:1500]})")
 
     def tabs(self, workspace_id, pane_id):
         pane = next((p for p in self.panes(self.workspace(workspace_id)) if p.get("id") == pane_id), None)
