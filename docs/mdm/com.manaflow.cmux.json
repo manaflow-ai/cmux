@@ -6180,7 +6180,7 @@
       "type" : "boolean"
     },
     "workspaces.freeing.enabled" : {
-      "default" : false,
+      "default" : true,
       "description" : "Ends idle shells of long-unused workspaces; they restart in the same folder.",
       "title" : "Free Idle Terminals",
       "type" : "boolean"

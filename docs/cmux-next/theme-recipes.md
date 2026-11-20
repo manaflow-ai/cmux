@@ -95,9 +95,25 @@ A theme file costs nothing per frame: it's read once on each save. Code you add 
 different matter. [modding-kit.md](modding-kit.md) lists the rules the dev server checks on save and
 the primitives that keep a mod fast.
 
+## The thinking look (settings a look sets)
+
+A look's setup can set how the running line and Jump to latest move while an agent works. All four
+are agent-settable settings (`cmux settings set`, the palette, MCP `settings_set`); each default
+draws what cmux draws without a look, and a change applies at once:
+
+| Key | Values | Default | What it does |
+| --- | --- | --- | --- |
+| `agentPane.display.thinking.shimmer` | `cadenced`, `continuous` | `cadenced` | `continuous`: the light band crosses the running line's words and running tool rows pass after pass, eased in and out, as Claude's desktop app draws it. `cadenced` is one one-second pass every four seconds |
+| `agentPane.display.thinking.shimmerPeriod` | 600 to 4000 ms | 1250 | One continuous pass |
+| `agentPane.display.thinking.shimmerBand` | 0 to 240 px | 0 | The band's lit width on any line; 0 keeps the band half the line wide |
+| `agentPane.display.thinking.jumpButton` | `arrow`, `dots` | `arrow` | `dots`: while the agent works, Jump to latest shows three dots in the theme accent that trade size between the middle and the ends; the arrow shows on hover and once the agent stops |
+
+Reduce Motion, static status indicators and animations off hold all of them still. The Claude look
+sets `continuous`, 1250, 80 and `dots`.
+
 ## Not in a theme file yet
 
 These parts of a look are still built into the app:
 
 - the thinking indicator's look in the agent pane (a Debug setting today, `StatusWorkingLook`)
-- the motion of the jump to latest button
+- the motion of the jump to latest button, beyond `agentPane.display.thinking.jumpButton` above

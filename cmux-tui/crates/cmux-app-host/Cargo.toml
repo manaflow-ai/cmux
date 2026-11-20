@@ -27,6 +27,8 @@ engine = ["dep:rquickjs", "dep:chrono", "dep:chrono-tz"]
 
 [dependencies]
 cmux-json.workspace = true
+# acorn and the app runtime compiled in compressed (src/script/prelude.rs, src/vm.rs).
+cmux-embed.workspace = true
 rquickjs = { workspace = true, optional = true }
 # `cmux.time.zone`: QuickJS has no Intl, so the host answers zone offsets from
 # the IANA database built into chrono-tz (the sandbox can open no zoneinfo file).
