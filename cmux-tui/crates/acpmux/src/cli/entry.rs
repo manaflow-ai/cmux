@@ -95,7 +95,9 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     }
     // A rewritten background shell starting its command as a daemon task (`bg_hook::rewrite`).
     if args.first().is_some_and(|a| a == crate::bg_hook::START_ARG) {
-        return crate::bg_hook::start_main(args.get(1..).unwrap_or_default());
+        let words: Vec<String> =
+            args.iter().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
+        return crate::bg_hook::start_main(&words);
     }
     #[cfg(target_os = "linux")]
     if args.first().is_some_and(|a| a == "__remote-sandbox-canary-unix") {
