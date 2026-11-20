@@ -148,9 +148,14 @@ import Testing
         let mapped = work.byStep["ObservedItems.map"] ?? 0
         print("observed items feed, 826 models: the change of one item visited \(listed) models in passes over the list and mapped \(mapped)")
         #expect(listed == 0, "the change of one item visited \(listed) models of 826 in passes over the list, want 0")
-        #expect(mapped <= 2, "the change of one item mapped \(mapped) models, want the changed one only")
+        #expect(mapped == 1, "the change of one item mapped \(mapped) models, want the changed one only")
         #expect(counts.changes == 1, "the change of one item ran the feed's `changed` \(counts.changes) times, want 1")
         #expect(feed.observedItems == places.list.map(\.title), "the feed's items are not the map of the list after the change of one item")
+    }
+
+    /// The copy of the items that an owner keeps from the feed's `update`.
+    @MainActor final class Kept {
+        var items: [String]?
     }
 
     @MainActor final class Heard {
@@ -162,11 +167,14 @@ import Testing
     /// items so and takes no `changed` has no other signal of a change.
     ///
     /// The sign that the reader runs is a condition of the setup: the last items that it heard are the first ones.
+    /// The change of the one item makes no pass over the list (the module's own work counter, set around the
+    /// feed's start), so the reader hears the path that writes the item in its place.
     @Test func aTrackedReaderOfTheItemsHearsTheChangeOfOneItemOneTime() async throws {
         let places = Places(40)
         let counts = Counts()
+        let work = ObservationWork()
         let feed = feed(places, counts)
-        feed.start()
+        ObservationWork.$current.withValue(work) { feed.start() }
         defer { feed.stop() }
         let heard = Heard()
         let reading = Task {
@@ -181,12 +189,15 @@ import Testing
         try #require(first == places.list.map(\.title), "setup: the reader's last items are not the first ones: \(String(describing: first))")
 
         var before = heard.values.count
+        work.reset()
         let changed = places.list[17]
         changed.title = "renamed"
         await drain()
         await drain()
         let afterChange = heard.values.count - before
         let renamed: [String]? = heard.values.last ?? nil
+        let listed = work.byStep["ObservedItems.list"] ?? 0
+        #expect(listed == 0, "the change of one item visited \(listed) models of 40 in passes over the list, want 0")
         #expect(afterChange == 1, "the reader heard \(afterChange) values after the change of one item, want 1")
         #expect(renamed == places.list.map(\.title), "the reader's last items do not have the changed item: \(String(describing: renamed))")
 
@@ -198,6 +209,65 @@ import Testing
         let ended: [String]? = heard.values.last ?? nil
         #expect(afterEnd == 1, "the reader heard \(afterEnd) values after the end of the list, want 1")
         #expect(ended == nil, "the reader's last items after the end of the list are not nil: \(String(describing: ended))")
+    }
+
+    /// One thing that an owner of a feed got: every item, one item's change, or the call of `changed`.
+    enum Got: Equatable {
+        case items([String])
+        case item(place: Int, old: String, new: String)
+        case changed
+    }
+
+    @MainActor final class Taken {
+        var got: [Got] = []
+    }
+
+    /// An owner that takes the feed's `update` gets every item at the first items, with no `changed`; the one
+    /// item's place, the item before and the item now at the change of one item; every item again at a change of
+    /// the list; each of the 2 before the feed's `changed`. It gets nothing at the end of the list, and every item
+    /// again, with no `changed`, when a list comes again.
+    ///
+    /// This row has no red first: it holds what the feed gives to an owner that keeps the items in step.
+    @Test func anOwnerThatTakesTheUpdateGetsEachChangeBeforeChangedAndNothingAtTheEndOfTheList() async throws {
+        let places = Places(4)
+        let taken = Taken()
+        let feed = ObservedItemsFeed<Place, String>(
+            list: { places.open ? places.list : nil }, id: { $0.id }, item: { $0.title },
+            changed: { taken.got.append(.changed) },
+            update: { update in
+                switch update {
+                case .items(let all): taken.got.append(.items(all))
+                case .item(let change): taken.got.append(.item(place: change.position, old: change.old, new: change.new))
+                }
+            })
+        feed.start()
+        defer { feed.stop() }
+        await drain()
+        try #require(taken.got == [.items(["w0", "w1", "w2", "w3"])], "setup: the owner did not get the first items alone: \(taken.got)")
+
+        taken.got = []
+        let third = places.list[2]
+        third.title = "renamed"
+        await drain()
+        #expect(taken.got == [.item(place: 2, old: "w2", new: "renamed"), .changed],
+                "the owner did not get the one item's change, then `changed`: \(taken.got)")
+
+        taken.got = []
+        places.list.append(Place("w4"))
+        await drain()
+        #expect(taken.got == [.items(["w0", "w1", "renamed", "w3", "w4"]), .changed],
+                "the owner did not get every item after a change of the list, then `changed`: \(taken.got)")
+
+        taken.got = []
+        places.open = false
+        await drain()
+        try #require(feed.observedItems == nil, "setup: the feed still has items after the end of the list")
+        #expect(taken.got == [], "the owner got an update or a `changed` at the end of the list: \(taken.got)")
+
+        places.open = true
+        await drain()
+        #expect(taken.got == [.items(["w0", "w1", "renamed", "w3", "w4"])],
+                "the owner did not get the first items alone when a list came again: \(taken.got)")
     }
 
     /// A model that the list has at 2 places has its change at each of them, and at its one place after the list
@@ -246,6 +316,10 @@ import Testing
     /// counter (``ObservationWork``), set around the feed's start, and prints them; with each id once, more than
     /// half of the steps put their items in place.
     ///
+    /// The feed of each run gives its `update` to an owner that keeps a copy of the items (every item after a
+    /// pass, the one item in its place at one item's change). After each step with a list the copy is the feed's
+    /// items.
+    ///
     /// This row has no red first: it holds what must stay when a change of one item makes no pass.
     @Test func theItemsFollowTheListThroughEachStepOfARunFromASeed() async throws {
         // The steps that put items in place with no pass, and the steps that made a pass, by the kind of run.
@@ -259,9 +333,16 @@ import Testing
             let once = run % 2 == 1
             var random = Seed(state: UInt64(seed))
             let places = Places(12)
-            let counts = Counts()
             let work = ObservationWork()
-            let feed = feed(places, counts)
+            let kept = Kept()
+            let feed = ObservedItemsFeed<Place, String>(
+                list: { places.open ? places.list : nil }, id: { $0.id }, item: { $0.title },
+                update: { update in
+                    switch update {
+                    case .items(let all): kept.items = all
+                    case .item(let change): kept.items?[change.position] = change.new
+                    }
+                })
             ObservationWork.$current.withValue(work) { feed.start() }
             defer { feed.stop() }
             await drain()
@@ -347,6 +428,13 @@ import Testing
                     seed \(seed), each id once \(once), step \(step), kind \(kind): the feed has \(String(describing: has)),
                     want \(String(describing: want))
                     """)
+                // An owner that takes `update` has the feed's items while there is a list (no update at its end).
+                if let has {
+                    try #require(kept.items == has, """
+                        seed \(seed), each id once \(once), step \(step), kind \(kind): the copy from `update` is
+                        \(String(describing: kept.items)), the feed has \(has)
+                        """)
+                }
                 // The path of the step: a pass visits the list's models; items that changed with no visit went in place.
                 let listed = work.byStep["ObservedItems.list"] ?? 0
                 var inPlace = false

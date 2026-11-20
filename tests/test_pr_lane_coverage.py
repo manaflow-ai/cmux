@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -345,7 +346,9 @@ class ThisTree(unittest.TestCase):
         for test in ("tests/test_webviews_tests_per_file.py", "tests/test_web_lint_prepush.py"):
             with self.subTest(test=test):
                 self.assertIn(test, text)
-                self.assertIn(f"python3 {test}", runs)
+                # A step runs the file itself: `python3 FILE` or `python3 -m pytest ... FILE`
+                # (pytest-xdist, the job's two slowest steps), never a mere mention.
+                self.assertRegex(runs, rf"(?m)^python3 (?:-m pytest [^\n]*?)?{re.escape(test)}(?:\s|$)")
 
     def test_tests_of_feat_files_run_on_feat_pull_requests(self):
         """Tests whose code feat-cmux-next pull requests edit ran only on main, a push, a schedule, or nowhere.
@@ -379,7 +382,6 @@ class ThisTree(unittest.TestCase):
         in_area_jobs = (
             "tests/test_cmux_bug_triage.py",
             "tests/test_cmux_code_mode_mcp.py",
-            "tests/test_cmux_cua_dev_helper_identity.py",
             "tests/test_remote_daemon_notices.py",
             "tests/test_remote_daemon_release_assets.py",
             "tests/test_remote_daemon_release_verification.py",
@@ -400,7 +402,10 @@ class ThisTree(unittest.TestCase):
         workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "cmux-next-guards.yml").read_text(encoding="utf-8"))
         steps = workflow["jobs"]["ci-guard-group"]["steps"]
         runs = [str(step.get("run", "")) for step in steps]
-        calls = [line for run in runs for line in run.splitlines() if "scripts/ci/guards-local.sh" in line]
+        # A `--list` call only prints the plan (the cut head pass names its unfinished steps with it, #46862); it
+        # runs no guard, so it is not one of the passes counted here.
+        calls = [line for run in runs for line in run.splitlines()
+                 if "scripts/ci/guards-local.sh" in line and "guards-local.sh --list" not in line]
         # The head call (ci and the routed groups, release-notary among them, on a pull request and a push alike),
         # then the base.
         self.assertEqual(len(calls), 2, calls)

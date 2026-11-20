@@ -6,5 +6,6 @@
   "author": "claude opus (45018 lane)",
   "owner": "45018 lane: fold the host closures into a BrowserTabs host protocol when BrowserPageRequests splits",
   "receipt": "Review (claude subagent, independent): SHIP at db4c706983d8fc43ec4505e2bc1cf5fc82e0c6b6",
-  "expiry": "2026-12-16"
+  "expiry": "2026-12-16",
+  "applied_sha": "92aeb2987f12fc87762cd724d9f805cc2fa2d221"
 }
