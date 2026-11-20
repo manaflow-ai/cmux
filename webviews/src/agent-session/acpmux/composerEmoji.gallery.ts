@@ -59,8 +59,9 @@ export default agentPaneEntry({
       (ctx) => typeToMenu(ctx, "That fixed it :DD"),
     ),
     heart: variant("Play: `<3` lists the red heart first.", (ctx) => typeToMenu(ctx, "Thanks <3")),
-    "arrow-return": variant("Play: ↓ chooses the second row on `:tedd`; Return writes it and a space.", async (ctx) => {
-      await typeToMenu(ctx, "Ship it :tedd");
+    // `:sm` lists several rows (`:tedd` lists one, where ↓ wraps back to it).
+    "arrow-return": variant("Play: ↓ chooses the second row on `:sm`; Return writes it and a space.", async (ctx) => {
+      await typeToMenu(ctx, "Ship it :sm");
       const prompt = ctx.document.querySelector(PROMPT)!;
       const second = ctx.document.querySelectorAll(`${ROW} .acpmux-emoji-glyph`)[1]?.textContent ?? "";
       await ctx.press("ArrowDown");
