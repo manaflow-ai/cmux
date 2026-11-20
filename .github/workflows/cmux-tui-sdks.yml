@@ -10,6 +10,9 @@ on:
       - main
       - feat-cmux-next
     paths:
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
+      - "schemas/settings/source/general.json"
+      - "webviews/src/apps/scene/extTemplateScenes.json"
       - "cmux-tui/**"
       - "cmux-tui/scripts/verify-pypi-tui-upload.sh"
       - ".github/actions/setup-cmux-tui-rust/**"
@@ -165,6 +168,9 @@ on:
       - "skills/cmux-customization/templates/my-prs/main.js"
   pull_request:
     paths:
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
+      - "schemas/settings/source/general.json"
+      - "webviews/src/apps/scene/extTemplateScenes.json"
       - "cmux-tui/**"
       - "cmux-tui/scripts/verify-pypi-tui-upload.sh"
       - ".github/actions/setup-cmux-tui-rust/**"
