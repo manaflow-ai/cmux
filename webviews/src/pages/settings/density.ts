@@ -111,6 +111,13 @@ function preset(id: string, name: string, nameKey: string, factor: number, row: 
   tokens.sidebarRowHeight = row - half(2 * factor);
   tokens.browserRowHeight = row;
   tokens.tabStripHeight = row + 2 * half(3 * factor);
+  // Default and the densities above it take Default's Chrome spacing times their factor (Swift `DensityPreset`): the strip
+  // padding (Default's 5 pt) and the omnibar row's gap (Chrome's 6 pt). Ultra-compact and Compact keep 3 pt times theirs.
+  if (factor >= 1) {
+    tokens.browserRowGap = half(DEFAULT_STRIP_PADDING * factor);
+    tokens.tabStripHeight = row + 2 * tokens.browserRowGap;
+    tokens.omnibarRowGap = half(CHROME_TOOLBAR_GAP * factor);
+  }
   // Default's omnibar is Compact's (Swift `DensityPreset.omnibarScaleFactor`), on Chrome's 34 pt bar
   // (Swift `DensityPreset.chromeOmnibarHeight`) rounded at Helium's 8 on 28.
   if (id === "cozy") {
@@ -118,11 +125,6 @@ function preset(id: string, name: string, nameKey: string, factor: number, row: 
     // Its toolbar buttons and star plate keep Compact's padding (Swift `DensityPreset`): Compact's 28 pt buttons, a 28 pt plate.
     tokens.omnibarButtonSize = tokens.omnibarHeight!;
     tokens.omnibarStarPlateSize = DEFAULT_STAR_PLATE_SIZE;
-    // Its omnibar row has Chrome's 6 pt above and below the bar (Swift `DensityPreset.chromeToolbarGap`).
-    tokens.omnibarRowGap = CHROME_TOOLBAR_GAP;
-    // Its strip padding is 5 pt above, beside and under the tabs (Swift `DensityPreset.defaultStripPadding`).
-    tokens.browserRowGap = DEFAULT_STRIP_PADDING;
-    tokens.tabStripHeight = row + 2 * DEFAULT_STRIP_PADDING;
     tokens.omnibarHeight = CHROME_OMNIBAR_HEIGHT;
     tokens.omnibarCornerRadius = half((CHROME_OMNIBAR_HEIGHT * 8) / 28);
     // Its URL capitals are 11 pt, a point over Compact's (Swift `DensityPreset.defaultOmnibarCapHeight`).

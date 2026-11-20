@@ -83,6 +83,16 @@ public nonisolated enum DensityPreset: String, Sendable, CaseIterable {
         sizes["sidebarRowHeight"] = rowHeight - Double(DensityTokens.half(2 * t))
         sizes["browserRowHeight"] = rowHeight
         sizes["tabStripHeight"] = rowHeight + 2 * Double(DensityTokens.half(3 * t))
+        // Default and the densities above it take Default's Chrome spacing times their factor (Lucas 2026-11-20: "make sure
+        // that densities after default have similar spacing to default (but proportionally)"): the strip padding (Default's
+        // 5 pt, Chrome's tab top) and the omnibar row's gap (Chrome's 6 pt, ``chromeToolbarGap``). Ultra-compact and Compact
+        // keep Default-times-their-factor's 3 pt.
+        if t >= 1 {
+            let padding = Double(DensityTokens.half(Self.defaultStripPadding * t))
+            sizes["browserRowGap"] = padding
+            sizes["tabStripHeight"] = rowHeight + 2 * padding
+            sizes["omnibarRowGap"] = Double(DensityTokens.half(Self.chromeToolbarGap * t))
+        }
         // Default's omnibar is Compact's (``omnibarScaleFactor``).
         if self == .cozy {
             for (key, value) in Self.compact.scaledTokens.tokens where Self.isOmnibarToken(key) { sizes[key] = value }
@@ -93,13 +103,6 @@ public nonisolated enum DensityPreset: String, Sendable, CaseIterable {
             // 34 pt bar, and a 28 pt plate for its 16 pt star (Compact's 24 for 13.5).
             sizes["omnibarButtonSize"] = sizes["omnibarHeight"]
             sizes["omnibarStarPlateSize"] = Self.defaultStarPlateSize
-            // Its omnibar row has Chrome's room around the bar (Lucas 2026-11-20: "match chrome to be EXACTLY the same as
-            // chromium ... top-padding 6px bottom padding 6px"): 6 pt from the tabs to the bar and from the bar to the page.
-            sizes["omnibarRowGap"] = Self.chromeToolbarGap
-            // Its tabs sit 5 pt under the window's top edge (Lucas 2026-11-20: "make the top of the tabs 5px (so 2 more px)"):
-            // the strip padding, so the gap beside the first tab and under the tabs is 5 too, and the omnibar row tops it up to 6.
-            sizes["browserRowGap"] = Self.defaultStripPadding
-            sizes["tabStripHeight"] = rowHeight + 2 * Self.defaultStripPadding
             sizes["omnibarHeight"] = Self.chromeOmnibarHeight
             sizes["omnibarCornerRadius"] = Double(DensityTokens.half(Self.chromeOmnibarHeight * 8 / 28))
             // Its URL capitals are a point over Compact's 10 (Lucas 2026-11-17: "for default our font size has to be 1px
@@ -127,10 +130,12 @@ public nonisolated enum DensityPreset: String, Sendable, CaseIterable {
 
     /// Default's location bar: Chrome's 34 pt (`kLocationBarHeight` in Chrome's layout constants).
     static let chromeOmnibarHeight: Double = 34
-    /// Default's room above and below its location bar: Chrome's 6 pt (`TOOLBAR_INTERIOR_MARGIN`'s vertical inset in
+    /// Default's room above and below its location bar (Lucas 2026-11-20: "match chrome to be EXACTLY the same as chromium
+    /// ... top-padding 6px bottom padding 6px"), Comfortable and Spacious that times their factor: Chrome's 6 pt (`TOOLBAR_INTERIOR_MARGIN`'s vertical inset in
     /// Chrome's layout constants), the bar's 34 pt in a 46 pt toolbar.
     static let chromeToolbarGap: Double = 6
-    /// Default's strip padding: 5 pt above, beside and under its tabs, 2 over Default-times-1's 3.
+    /// Default's strip padding: 5 pt above, beside and under its tabs, 2 over Default-times-1's 3 (Lucas 2026-11-20: "make
+    /// the top of the tabs 5px (so 2 more px)"); Comfortable and Spacious take it times their factor.
     static let defaultStripPadding: Double = 5
     /// Default's URL capitals: 11 pt, a point over Compact's 10.
     static let defaultOmnibarCapHeight: Double = 11

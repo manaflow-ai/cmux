@@ -218,8 +218,10 @@ import Testing
         let row = omnibarRow(density)
         let (gap, inset, above, below) = (row.rowGap, row.inset, row.above, row.below)
         print("TOPROW|\(density.id)|omnibar|strip \(row.gap) gap \(gap) inset \(inset) above \(above) below \(below)")
-        // Default's own is Chrome's 6; every other density, and a custom one whose strip padding is past 6, keeps its strip padding.
-        let want: CGFloat = density.id == DensityPreset.cozy.rawValue ? 6 : row.gap
+        // Default's own is Chrome's 6, Comfortable's 6.5 and Spacious's 7 (6 times their factor); Ultra-compact, Compact and a
+        // custom one whose strip padding is past its omnibar gap keep the strip padding.
+        let chromeRow: [String: CGFloat] = [DensityPreset.cozy.rawValue: 6, DensityPreset.comfortable.rawValue: 6.5, DensityPreset.spacious.rawValue: 7]
+        let want: CGFloat = chromeRow[density.id] ?? row.gap
         #expect(gap == want, "\(density.id): the omnibar row's gap is \(gap), want \(want)")
         #expect(abs(above - (gap + inset)) <= 0.501, "\(density.id): \(above) pt between the tab and the omnibar, the row's gap is \(gap) (+ \(inset))")
         #expect(abs(below - (gap + inset)) <= 0.501, "\(density.id): \(below) pt between the omnibar and the page, the row's gap is \(gap) (+ \(inset))")

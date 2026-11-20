@@ -76,8 +76,9 @@ import Testing
         let row = try #require(rows[preset])
         #expect(tokens.tokens["browserRowHeight"] == row)
         #expect(try #require(tokens.tokens["sidebarRowHeight"]) + half(2 * t) == row)
-        // The strip padding is Default's 3 pt times t, but Default's own is 5 (`defaultStripPadding`, Lucas 2026-11-20).
-        let gap = preset == .cozy ? DensityPreset.defaultStripPadding : half(3 * t)
+        // The strip padding is 3 pt times t below Default; Default's 5 (`defaultStripPadding`, Lucas 2026-11-20) times t from it up.
+        let gap = t >= 1 ? half(DensityPreset.defaultStripPadding * t) : half(3 * t)
+        #expect(tokens.tokens["omnibarRowGap"] == (t >= 1 ? half(DensityPreset.chromeToolbarGap * t) : nil))
         #expect(tokens.tokens["browserRowGap"] == gap)
         #expect(tokens.tokens["tabStripHeight"] == row + 2 * gap)
         #expect(tokens.spacing == t)

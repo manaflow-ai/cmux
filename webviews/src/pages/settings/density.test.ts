@@ -67,10 +67,11 @@ test("a custom density round-trips and passes the settings check", () => {
 // rows are 30 pt and its text the ChatGPT app's 14 pt; Comfortable and Spacious above it.
 // The previews draw what the app draws (Swift TabsFollowRowsTests): tabs as tall as the rows, and a strip that
 // grows with them. Compact's strip is its 28 pt tab and its 1 pt strip padding above and below (user 2026-11-19);
-// Default's is its 30 pt tab and its 5 pt strip padding (Lucas 2026-11-20, Chrome's tab top).
+// Default's is its 30 pt tab and its 5 pt strip padding (Lucas 2026-11-20, Chrome's tab top), Comfortable's and Spacious's
+// that padding times 1.1 and 1.2 (5.5 and 6 pt).
 test("every preset's tabs and strip are the app's", () => {
   expect(PRESETS.map((preset) => resolve(preset).tabHeight)).toEqual([24, 28, 30, 32, 36]);
-  expect(PRESETS.map((preset) => resolve(preset).tabStripHeight)).toEqual([29, 30, 40, 39, 43]);
+  expect(PRESETS.map((preset) => resolve(preset).tabStripHeight)).toEqual([29, 30, 40, 43, 48]);
   // A copy of a built-in keeps following its rows: no preset pins its tab height.
   expect(PRESETS.some((preset) => preset.tokens?.tabHeight !== undefined)).toBe(false);
 });

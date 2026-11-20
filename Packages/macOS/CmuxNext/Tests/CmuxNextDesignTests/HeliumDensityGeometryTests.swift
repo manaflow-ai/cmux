@@ -19,12 +19,12 @@ import Testing
                  omnibar: preset == .cozy ? 34 : (28 / 0.9 * preset.omnibarScaleFactor * 2).rounded() / 2, title: 14 * preset.scaleFactor)
     }
 
-    /// The strip padding: Default's 3 pt times the factor, but Compact's tuned 1 pt (`compactTuned`) and Default's own 5
-    /// (`defaultStripPadding`, Lucas 2026-11-20).
+    /// The strip padding: Default's 3 pt times the factor below Default, Compact's tuned 1 pt (`compactTuned`), and Default's
+    /// own 5 (`defaultStripPadding`, Lucas 2026-11-20) times the factor from Default up: 5, 5.5 and 6.
     nonisolated static func stripPadding(_ preset: DensityPreset) -> CGFloat {
         switch preset {
         case .compact: return 1
-        case .cozy: return CGFloat(DensityPreset.defaultStripPadding)
+        case .cozy, .comfortable, .spacious: return CGFloat((DensityPreset.defaultStripPadding * preset.scaleFactor * 2).rounded() / 2)
         default: return CGFloat((3 * preset.scaleFactor * 2).rounded() / 2)
         }
     }

@@ -156,10 +156,12 @@ import Testing
         let above = top - pill.maxY, between = pill.minY - bar.maxY, under = bar.minY - page.maxY
         let at = "\(preset.rawValue) top row \(topRow)"
         #expect(abs(between - under) <= 0.5, "\(at): \(between) pt from the tab to the omnibar, \(under) pt from the omnibar to the page")
-        if preset == .cozy {
-            // Default is Chrome's: 5 pt above the tab, 6 pt from it to the omnibar and from the omnibar to the page (Lucas 2026-11-20).
-            #expect(abs(above - 5) <= 0.5, "\(at): \(above) pt above the tab, Chrome's is 5")
-            #expect(abs(between - 6) <= 0.5, "\(at): \(between) pt from the tab to the omnibar, Chrome's is 6")
+        // Default is Chrome's: 5 pt above the tab, 6 pt from it to the omnibar and from the omnibar to the page; Comfortable
+        // and Spacious are that times 1.1 and 1.2 on the half-point grid (Lucas 2026-11-20).
+        let chrome: [DensityPreset: (above: CGFloat, between: CGFloat)] = [.cozy: (5, 6), .comfortable: (5.5, 6.5), .spacious: (6, 7)]
+        if let want = chrome[preset] {
+            #expect(abs(above - want.above) <= 0.5, "\(at): \(above) pt above the tab, want \(want.above)")
+            #expect(abs(between - want.between) <= 0.5, "\(at): \(between) pt from the tab to the omnibar, want \(want.between)")
         } else {
             #expect(abs(above - between) <= 0.5, "\(at): \(above) pt above the tab, \(between) pt from the tab to the omnibar")
         }
