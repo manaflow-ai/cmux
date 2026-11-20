@@ -111,7 +111,10 @@ HOSTED_LITERAL_RUNNER = re.compile(
 # other value, including a persistent mini's label, falls back to Blacksmith,
 # and a fork running its own CI gets GitHub-hosted. Either provider can then
 # carry the merge-gating checks while the other is down.
-TRUSTED_RUNNER_LABELS = ("ubuntu-24.04", "blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404")
+# Our fleet labels are one-job JIT VMs (no service account, no ingress, deleted after the job), the same trust as a
+# Blacksmith VM; cmux-gcp-trusted-x64 is the trusted gates' own label with warm runners (cmuxterm-hq gha_runners.py).
+TRUSTED_RUNNER_LABELS = ("ubuntu-24.04", "blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404",
+                         "cmux-fleet-linux-x64", "cmux-gcp-trusted-x64")
 TRUSTED_RUNNER_EXPRESSION = (
     "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('"
     + json.dumps(list(TRUSTED_RUNNER_LABELS), separators=(",", ":"))
@@ -119,8 +122,15 @@ TRUSTED_RUNNER_EXPRESSION = (
 )
 # CLA's trusted base validator pins its older selector and runner-name guard.
 # Keep that policy valid while other trusted jobs adopt the measured BS8 size.
-CLA_TRUSTED_RUNNER_EXPRESSION = TRUSTED_RUNNER_EXPRESSION.replace(',"blacksmith-8vcpu-ubuntu-2404"', '')
-TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, CLA_TRUSTED_RUNNER_EXPRESSION)
+CLA_TRUSTED_RUNNER_EXPRESSION = (
+    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('"
+    + json.dumps(["ubuntu-24.04", "blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"], separators=(",", ":"))
+    + "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
+)
+# The rescue and resolver jobs keep the selector without the fleet labels: they must not run on a pool they rescue
+# or resolve (tests/test_ci_owned_pool_rescue.py, tests/test_ci_runner_capability_resolver.py).
+OFF_FLEET_TRUSTED_RUNNER_EXPRESSION = TRUSTED_RUNNER_EXPRESSION.replace(',"cmux-fleet-linux-x64","cmux-gcp-trusted-x64"', '')
+TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, OFF_FLEET_TRUSTED_RUNNER_EXPRESSION, CLA_TRUSTED_RUNNER_EXPRESSION)
 # Fast checks admission accepts only the smallest measured Blacksmith size (a
 # picker's one re-run route, never 16 or 32 vCPU), with the same hosted
 # default. No input can select a persistent runner.
@@ -177,7 +187,7 @@ HOSTED_LITERAL_LABEL = re.compile(r"ubuntu-latest|ubuntu-\d{2}\.\d{2}(?:-arm)?|m
 # Blacksmith one. Accepted only as a literal operand: no variable may name it, and no other owned label is.
 # The queue janitors take it first so they never queue on the hosted pools they drain (2026-11-19: about 28,700
 # queued jobs, the janitors among them).
-FLEET_EPHEMERAL_LABELS = frozenset({"cmux-fleet-linux-x64"})
+FLEET_EPHEMERAL_LABELS = frozenset({"cmux-fleet-linux-x64", "cmux-gcp-trusted-x64"})
 # The janitors' fleet-first operand, exactly: a switch-off variable compared with a literal, an optional
 # schedule-or-dispatch event test, then the fleet literal. Placed after the fork branch of an otherwise accepted
 # expression (the trusted selector included), it can only ever add that one label.
@@ -1583,7 +1593,8 @@ class ForkRunnerRoutingTests(unittest.TestCase):
     def test_trusted_runner_selector_admits_only_ephemeral_labels(self) -> None:
         self.assertEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {TRUSTED_RUNNER_EXPRESSION}\n"), [])
         for label in TRUSTED_RUNNER_LABELS:
-            self.assertTrue(label == "ubuntu-24.04" or label.startswith("blacksmith-"), label)
+            self.assertTrue(label == "ubuntu-24.04" or label.startswith("blacksmith-") or label in FLEET_EPHEMERAL_LABELS,
+                            label)
         widened = TRUSTED_RUNNER_EXPRESSION.replace('"ubuntu-24.04",', '"ubuntu-24.04","glaeda-std-xcode-26.6",')
         renamed = TRUSTED_RUNNER_EXPRESSION.replace("vars.CI_TRUSTED_RUNNER", "vars.LINUX_RUNNER")
         unforked = TRUSTED_RUNNER_EXPRESSION.replace("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ", "")
