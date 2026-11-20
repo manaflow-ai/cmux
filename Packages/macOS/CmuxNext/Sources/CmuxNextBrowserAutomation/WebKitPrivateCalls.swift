@@ -76,16 +76,17 @@ public struct WebKitPrivateCalls: Sendable {
 
     /// Resumes once WebKit presented the page's next frame (SPI `_doAfterNextPresentationUpdate:`),
     /// or after the bound; at once without it. A wheel sent before the page's layers reached the
-    /// screen is dropped.
-    @MainActor
-    public func afterNextPresentationUpdate(_ webView: WKWebView) async {
+    /// screen is dropped. True when WebKit answered, false when the bound passed first, nil without
+    /// the SPI or on a suspended page (nothing is known).
+    @MainActor @discardableResult
+    public func afterNextPresentationUpdate(_ webView: WKWebView) async -> Bool? {
         // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
         let selector = NSSelectorFromString("_doAfterNextPresentationUpdate:")
-        guard webView.responds(to: selector), !webView.cmuxIsSuspended else { return }
+        guard webView.responds(to: selector), !webView.cmuxIsSuspended else { return nil }
         typealias Action = @convention(block) () -> Void
         typealias Function = @convention(c) (AnyObject, Selector, Action) -> Void
         let function = unsafeBitCast(webView.method(for: selector), to: Function.self)
-        _ = await awaitCallback { done in
+        return await awaitCallback { done in
             // WebKit keeps the block until the update: it must be an escaping one.
             let action: Action = { done() }
             function(webView, selector, action)

@@ -189,7 +189,7 @@ pub(super) fn run(
                 print!("{}", human(&report, &crate::localization::catalog().app_control));
                 0
             }
-            _ => super::super::wire::print_local_success(&report, global.output),
+            _ => super::super::wire::print_local_success(&with_timing(report), global.output),
         },
         Ok(Err(mut error)) => {
             if super::error_code(&error) == Some("method_not_found") {
@@ -244,6 +244,63 @@ fn typing(
     }
 }
 
+/// p50, p95 and max of VALUES by nearest rank (`p` of `n` is the `ceil(p * n)`-th smallest), or None.
+fn spread(mut values: Vec<f64>) -> Option<Value> {
+    values.retain(|value| value.is_finite());
+    if values.is_empty() {
+        return None;
+    }
+    values.sort_by(f64::total_cmp);
+    let rank =
+        |p: f64| values[((p * values.len() as f64).ceil() as usize).clamp(1, values.len()) - 1];
+    Some(json!({ "p50": rank(0.5), "p95": rank(0.95), "max": values[values.len() - 1] }))
+}
+
+/// What the wheel's ticks waited on, from the app's per-tick record (`wheel.per_tick`): each WebKit
+/// wait (a tick that had no time left skips it), how often one ran to its bound, the pause after each
+/// tick, and the ticks whose own time passed `tick_ms`, by which the cadence slipped. None for an
+/// app from before the record, or a run that sent no tick.
+pub(super) fn timing(wheel: &Value) -> Option<Value> {
+    let ticks = wheel["per_tick"].as_array().filter(|ticks| !ticks.is_empty())?;
+    let column =
+        |name: &str| ticks.iter().filter_map(|tick| tick[name].as_f64()).collect::<Vec<_>>();
+    let bound = |name: &str| ticks.iter().filter(|tick| tick[name] == "bound").count();
+    let tick_ms = wheel["tick_ms"].as_f64().unwrap_or(f64::INFINITY);
+    Some(json!({
+        "ticks": ticks.len(),
+        "tick_ms": wheel["tick_ms"],
+        "took_ms": spread(column("took_ms")),
+        "presentation_ms": spread(column("presentation_ms")),
+        "pending_ms": spread(column("pending_ms")),
+        "pause_ms": spread(column("pause_ms")),
+        "bound": { "presentation": bound("presentation"), "pending": bound("pending") },
+        "overran": column("took_ms").into_iter().filter(|took| *took > tick_ms).count(),
+    }))
+}
+
+/// The report `--json` prints: the app's, with the wheel's `timing` summary beside its per-tick record.
+pub(super) fn with_timing(mut report: Value) -> Value {
+    if let Some(summary) = timing(&report["wheel"])
+        && let Some(wheel) = report.get_mut("wheel").and_then(Value::as_object_mut)
+    {
+        wheel.insert("timing".into(), summary);
+    }
+    report
+}
+
+/// A summary's p50/p95/max as `8/500/500`, or `-` for a wait no tick made.
+fn trio(spread: &Value) -> String {
+    let number = |value: &Value| {
+        let value = value.as_f64().unwrap_or(0.0);
+        if value.fract() == 0.0 { format!("{value:.0}") } else { format!("{value:.1}") }
+    };
+    if spread.is_object() {
+        format!("{}/{}/{}", number(&spread["p50"]), number(&spread["p95"]), number(&spread["max"]))
+    } else {
+        "-".into()
+    }
+}
+
 /// The summary `cmux app chat drive` prints without `--json`.
 pub(super) fn human(report: &Value, catalog: &AppControlMessages) -> String {
     let messages = &catalog.chat_drive;
@@ -287,6 +344,21 @@ pub(super) fn human(report: &Value, catalog: &AppControlMessages) -> String {
             line(
                 messages.wheel_scrolled,
                 &[("scrolled", text(&wheel["scrolled"])), ("expected", text(&wheel["expected"]))],
+            );
+        }
+        if let Some(summary) = timing(wheel) {
+            line(
+                messages.wheel_waits,
+                &[
+                    ("presentation", trio(&summary["presentation_ms"])),
+                    ("presentation_bound", text(&summary["bound"]["presentation"])),
+                    ("pending", trio(&summary["pending_ms"])),
+                    ("pending_bound", text(&summary["bound"]["pending"])),
+                    ("pause", trio(&summary["pause_ms"])),
+                    ("overran", text(&summary["overran"])),
+                    ("ticks", text(&summary["ticks"])),
+                    ("tick_ms", text(&summary["tick_ms"])),
+                ],
             );
         }
     }

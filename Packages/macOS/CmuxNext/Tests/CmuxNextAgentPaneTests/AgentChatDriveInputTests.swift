@@ -147,7 +147,10 @@ struct AgentChatDriveInputTests {
         defer { page.window.closeAfterTest() }
         var input = AgentChatDriveInput(webView: page.webView)
         var waits: [Duration] = []
-        input.presentationUpdate = { _, bound in waits.append(bound) }
+        input.presentationUpdate = { _, bound in
+            waits.append(bound)
+            return true
+        }
         input.pendingMouseEvents = { _, bound in
             waits.append(bound)
             return true
@@ -164,6 +167,41 @@ struct AgentChatDriveInputTests {
         #expect(waits == [AgentChatDriveInput.wheelWait, AgentChatDriveInput.wheelWait])
     }
 
+    /// A tick records what each WebKit wait took and how it ended: answered, its bound ran out, or
+    /// nothing is known (no SPI). A wait with no time left is skipped and recorded as none.
+    @Test func aTickRecordsWhatEachWaitTookAndHowItEnded() async throws {
+        let page = try await Page()
+        defer { page.window.closeAfterTest() }
+        var input = AgentChatDriveInput(webView: page.webView)
+        input.presentationUpdate = { _, _ in false }
+        input.pendingMouseEvents = { _, _ in nil }
+        let center = try await page.boxCenter()
+
+        let tick = await input.wheelTick(at: center, deltaY: 40, before: ContinuousClock.now + .seconds(5))
+        #expect(tick.sent)
+        #expect(tick.presentation?.how == .bound)
+        #expect(tick.pending?.how == .unknown)
+        #expect((tick.presentation?.milliseconds ?? -1) >= 0 && (tick.pending?.milliseconds ?? -1) >= 0)
+        input.presentationUpdate = { _, _ in true }
+        input.pendingMouseEvents = { _, _ in true }
+        let answered = await input.wheelTick(at: center, deltaY: 40, before: nil)
+        #expect(answered.presentation?.how == .answered && answered.pending?.how == .answered)
+        let late = await input.wheelTick(at: center, deltaY: 40, before: ContinuousClock.now - .milliseconds(1))
+        #expect(late.sent && late.presentation == nil && late.pending == nil)
+    }
+
+    /// The pause between ticks ends `tick_ms` after the tick started, not after its waits: a tick whose
+    /// waits took 10 of 16 ms pauses 6, one that took 20 goes on at once, and none passes the run's end.
+    @Test func thePauseIsAnchoredToTheTicksStart() {
+        let started = ContinuousClock.now
+        let stop = started + .seconds(10)
+        #expect(DriveCadence.nextTick(after: started, every: .milliseconds(16), stop: stop) == started + .milliseconds(16))
+        #expect(DriveCadence.nextTick(after: started, every: .milliseconds(16), stop: started + .milliseconds(5))
+            == started + .milliseconds(5))
+        #expect(DriveCadence.pause(until: started + .milliseconds(16), now: started + .milliseconds(10)) == .milliseconds(6))
+        #expect(DriveCadence.pause(until: started + .milliseconds(16), now: started + .milliseconds(20)) == .zero)
+    }
+
     /// The settle after the last tick can't outlast the run either: its two 1 s waits ran whole after the
     /// ticks had reached `seconds`, so an occluded run ended about 2 s late. Each is cut to the time left,
     /// and with none left the run reads the page without waiting.
@@ -172,7 +210,10 @@ struct AgentChatDriveInputTests {
         defer { page.window.closeAfterTest() }
         var input = AgentChatDriveInput(webView: page.webView)
         var waits: [Duration] = []
-        input.presentationUpdate = { _, bound in waits.append(bound) }
+        input.presentationUpdate = { _, bound in
+            waits.append(bound)
+            return true
+        }
         input.pendingMouseEvents = { _, bound in
             waits.append(bound)
             return true

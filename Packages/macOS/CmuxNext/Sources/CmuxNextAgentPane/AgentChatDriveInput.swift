@@ -38,6 +38,30 @@ public struct AgentChatDriveInput {
         case failed
     }
 
+    /// One WebKit wait of a wheel tick: how long it took and how it ended.
+    public struct Wait: Sendable, Equatable {
+        public enum How: String, Sendable {
+            /// WebKit answered.
+            case answered
+            /// The bound (the wait's own, or the run's time left) passed first.
+            case bound
+            /// Nothing is known: no SPI, an unverified macOS or a suspended page.
+            case unknown
+        }
+
+        public var milliseconds: Double
+        public var how: How
+    }
+
+    /// What one wheel tick did: whether it was sent, and its waits for WebKit's presentation update
+    /// before it and for its pending mouse events after it (nil: skipped with no time left, or a
+    /// Chromium page, whose DevTools input was handled before it answered).
+    public struct WheelTick: Sendable, Equatable {
+        public var sent: Bool
+        public var presentation: Wait?
+        public var pending: Wait?
+    }
+
     private weak var webView: WKWebView?
     private weak var pageView: PageWebView?
     private weak var chromiumPage: (any PageChromiumPage)?
@@ -49,8 +73,8 @@ public struct AgentChatDriveInput {
     /// false when the bound passed first, nil when it can't be known (an unverified macOS, no SPI).
     /// Tests pass their own.
     var pendingMouseEvents: @MainActor (WKWebView, Duration) async -> Bool? = { await AgentChatDriveInput.afterPendingMouseEvents($0, bound: $1) }
-    /// WebKit's next presentation update, at most the bound. Tests pass their own.
-    var presentationUpdate: @MainActor (WKWebView, Duration) async -> Void = { await AgentChatDriveInput.afterPresentationUpdate($0, bound: $1) }
+    /// WebKit's next presentation update, at most the bound, the same way. Tests pass their own.
+    var presentationUpdate: @MainActor (WKWebView, Duration) async -> Bool? = { await AgentChatDriveInput.afterPresentationUpdate($0, bound: $1) }
 
     /// Input for a bare WebKit view (the pane's own WebKit host; tests).
     public init(webView: WKWebView) {
@@ -102,26 +126,47 @@ public struct AgentChatDriveInput {
     /// With `deadline` (the run's end), the tick's waits for WebKit end by then, and a tick with no time
     /// left sends without them.
     public func wheel(at css: CGPoint, deltaY: Double, before deadline: ContinuousClock.Instant? = nil) async -> Bool {
-        guard css.x.isFinite, css.y.isFinite, deltaY.isFinite, let engine else { return false }
+        await wheelTick(at: css, deltaY: deltaY, before: deadline).sent
+    }
+
+    /// One wheel tick as ``wheel(at:deltaY:before:)`` sends it, with what each of its waits for WebKit
+    /// took and how it ended (``WheelTick``): the drive's report records them per tick.
+    public func wheelTick(at css: CGPoint, deltaY: Double, before deadline: ContinuousClock.Instant? = nil) async -> WheelTick {
+        var tick = WheelTick(sent: false)
+        guard css.x.isFinite, css.y.isFinite, deltaY.isFinite, let engine else { return tick }
         switch engine {
         case .webKit(let webView):
             // WebKit drops a wheel that reaches the page before its next presentation update, and coalesces
             // wheels still pending: each tick waits for both (as WebKitNativeInput.wheel does), so ticks a
             // frame or less apart each reach the page. Each wait is bounded by `wheelWait` and the time left.
-            if let bound = Self.bounded(Self.wheelWait, before: deadline) { await presentationUpdate(webView, bound) }
+            if let bound = Self.bounded(Self.wheelWait, before: deadline) {
+                tick.presentation = await Self.timed { await presentationUpdate(webView, bound) }
+            }
             guard let window = webView.window,
                   let event = Self.wheelEvent(window: window, location: webView.convert(Self.viewPoint(webView, css: css), to: nil), deltaY: deltaY)
-            else { return false }
+            else { return tick }
             // The view's own override routes it (`PageWKWebView.scrollWheel(with:)`), as a person's wheel.
             webView.scrollWheel(with: event)
-            if let bound = Self.bounded(Self.wheelWait, before: deadline) { _ = await pendingMouseEvents(webView, bound) }
-            return true
+            tick.sent = true
+            if let bound = Self.bounded(Self.wheelWait, before: deadline) {
+                tick.pending = await Self.timed { await pendingMouseEvents(webView, bound) }
+            }
+            return tick
         case .chromium(_, let page):
-            return (try? await page.devTools("Input.dispatchMouseEvent", params: [
+            tick.sent = (try? await page.devTools("Input.dispatchMouseEvent", params: [
                 "type": "mouseWheel", "x": Double(css.x), "y": Double(css.y), "deltaX": 0.0, "deltaY": deltaY,
                 "button": "none", "buttons": 0, "modifiers": 0,
             ])) != nil
+            return tick
         }
+    }
+
+    /// One WebKit wait, timed: its milliseconds and how it ended (true answered, false bound, nil unknown).
+    private static func timed(_ wait: () async -> Bool?) async -> Wait {
+        let started = ContinuousClock.now
+        let answered = await wait()
+        return Wait(milliseconds: AgentPaneSpareOpening.milliseconds(since: started),
+                    how: answered.map { $0 ? .answered : .bound } ?? .unknown)
     }
 
     /// Gives the hover back to the person's pointer: a move to where the real pointer is when it is
@@ -167,7 +212,7 @@ public struct AgentChatDriveInput {
     public func settle(bound: Duration = .seconds(1), before deadline: ContinuousClock.Instant? = nil) async { // timeout: only how long one settle waits for WebKit to answer; when it runs out the run goes on, and nothing the person does waits on it
         guard case .webKit(let webView)? = engine else { return }
         // A wheel that reaches a page before its next presentation update is dropped (WebKitNativeInput).
-        if let bound = Self.bounded(bound, before: deadline) { await presentationUpdate(webView, bound) }
+        if let bound = Self.bounded(bound, before: deadline) { _ = await presentationUpdate(webView, bound) }
         if let bound = Self.bounded(bound, before: deadline) { _ = await pendingMouseEvents(webView, bound) }
     }
 
@@ -285,10 +330,10 @@ public struct AgentChatDriveInput {
 
     /// WebKit's next presentation update, at most `bound` (``WebKitPrivateCalls``: its callback is bounded and
     /// resumes once, and a suspended page is skipped); at once on a macOS the private calls were not verified on.
-    private static func afterPresentationUpdate(_ webView: WKWebView, bound: Duration) async {
+    private static func afterPresentationUpdate(_ webView: WKWebView, bound: Duration) async -> Bool? {
         let calls = WebKitPrivateCalls(callbackBound: bound)
-        guard calls.isVerified else { return }
-        await calls.afterNextPresentationUpdate(webView)
+        guard calls.isVerified else { return nil }
+        return await calls.afterNextPresentationUpdate(webView)
     }
 
     /// WebKit's handling of the mouse events sent so far, at most `bound`, the same way: true when it
@@ -298,5 +343,20 @@ public struct AgentChatDriveInput {
         let calls = WebKitPrivateCalls(callbackBound: bound)
         guard calls.isVerified else { return nil }
         return await calls.afterPendingMouseEvents(webView)
+    }
+}
+
+/// When the drive's next wheel tick goes (``AgentChatDriveControl``): `tick_ms` after the last one
+/// started, not after its waits, so a run's cadence is the one asked for on every machine; never past
+/// the run's end. A tick whose own waits took longer goes on at once.
+enum DriveCadence {
+    static func nextTick(after started: ContinuousClock.Instant, every tick: Duration,
+                         stop: ContinuousClock.Instant) -> ContinuousClock.Instant {
+        min(started + tick, stop)
+    }
+
+    /// The pause from `now` until `next`: none once it has passed.
+    static func pause(until next: ContinuousClock.Instant, now: ContinuousClock.Instant) -> Duration {
+        max(next - now, .zero)
     }
 }

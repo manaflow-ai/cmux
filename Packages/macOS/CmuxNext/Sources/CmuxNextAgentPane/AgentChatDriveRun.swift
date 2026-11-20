@@ -12,6 +12,9 @@ struct DriveRun {
     var hover: [String: JSONValue] = ["held": false, "native": true, "reason": "no_target"]
     /// Wheel ticks handed to the engine.
     var sent = 0
+    /// Each tick sent, in order: its own time before its pause, each WebKit wait and how it ended, and
+    /// the pause after it (`wheel.per_tick`; the CLI sums them).
+    var perTick: [JSONValue] = []
     /// How far the transcript moved from just before the first tick to just after the last (CSS px).
     var scrolled: Double?
     var interrupted: String?
@@ -93,18 +96,45 @@ struct DriveRun {
                 return true
             }
             guard !release.isDone, ContinuousClock.now < stop else { break }
+            let tickStarted = ContinuousClock.now
             // A tick's waits for WebKit end at `stop` too: on a covered window each would run its whole bound.
-            if await input.wheel(at: point, deltaY: Double(wheel.delta), before: stop) { sent += 1 }
+            let sentTick = await input.wheelTick(at: point, deltaY: Double(wheel.delta), before: stop)
+            let took = AgentPaneSpareOpening.milliseconds(since: tickStarted)
+            // Counted before the pause: a run cancelled during it still reports the tick it sent.
+            if sentTick.sent {
+                sent += 1
+                perTick.append(Self.record(sentTick, took: took, paused: 0))
+            }
             if tick + 1 < wheel.ticks {
-                // Between two ticks (up to 200 ms apart, never past `stop`) the person, the window and the app
-                // are watched every DriveWatch.step, as in a hold; what it sees, the next tick's checks act on at once.
+                // Between two ticks (`tick_ms` from this one's start, never past `stop`; DriveCadence) the person,
+                // the window and the app are watched every DriveWatch.step, as in a hold; what it sees, the next
+                // tick's checks act on at once.
                 let surroundings = surroundings
-                _ = try await DriveWatch.watch(until: min(ContinuousClock.now + .milliseconds(wheel.tickMilliseconds), stop), isUsing: {
+                let pauseStarted = ContinuousClock.now
+                _ = try await DriveWatch.watch(until: DriveCadence.nextTick(after: tickStarted, every: .milliseconds(wheel.tickMilliseconds),
+                                                                            stop: stop), isUsing: {
                     Self.outside(surroundings, release) != nil || person.isUsing(since: started)
                 })
+                if sentTick.sent {
+                    perTick[perTick.count - 1] = Self.record(sentTick, took: took,
+                                                             paused: AgentPaneSpareOpening.milliseconds(since: pauseStarted))
+                }
             }
         }
         return false
+    }
+
+    /// One tick's `wheel.per_tick` entry, in milliseconds to 0.01; a skipped wait is null.
+    static func record(_ tick: AgentChatDriveInput.WheelTick, took: Double, paused: Double) -> JSONValue {
+        let ms = { (value: Double) in JSONValue.number((value * 100).rounded() / 100) }
+        return [
+            "took_ms": ms(took),
+            "presentation_ms": tick.presentation.map { ms($0.milliseconds) } ?? .null,
+            "presentation": tick.presentation.map { .string($0.how.rawValue) } ?? .null,
+            "pending_ms": tick.pending.map { ms($0.milliseconds) } ?? .null,
+            "pending": tick.pending.map { .string($0.how.rawValue) } ?? .null,
+            "pause_ms": ms(paused),
+        ]
     }
 
     /// The transcript's scroll offset as the page reads it (`drive.state().scroll_top`), or nil.
