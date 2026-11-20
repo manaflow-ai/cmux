@@ -229,6 +229,8 @@ mod theme_scheme;
 // `cmux wallpaper`: the window picture and how it switches by itself.
 mod topology_help;
 #[cfg(unix)]
+mod verb_spelling;
+#[cfg(unix)]
 mod wallpaper;
 mod wire;
 #[cfg(unix)]
@@ -1072,6 +1074,13 @@ fn run_app_action_fallback(args: &[String]) -> Option<i32> {
             return Some(wire::print_local_error(&error, global.output, 2));
         }
         None => {}
+    }
+    // `workspace <ws_…> pin`, `workspace unpin`: another spelling of an app verb (cmux#44937).
+    if let Some((name, action_args)) = verb_spelling::action(&command_args) {
+        // `workspace <ws_…> move-to-window --new` keeps its new-window spelling.
+        let (name, action_args) =
+            app::new_window_spelling(&name, &action_args).unwrap_or((name, action_args));
+        return app::run_cli_action(&global, &name, &action_args);
     }
     let words = command_args.iter().take_while(|arg| !arg.starts_with('-')).count();
     if words < 2 {

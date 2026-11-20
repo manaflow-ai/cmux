@@ -413,7 +413,18 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             if id == "-" {
                 batch::parse_batch(tail, &mut std::io::stdin().lock(), action_origin())?
             } else {
-                run_action(id, tail, ActionName::Any)?
+                // `action run pin-unpin`: a bare verb names the actions it could mean.
+                match super::verb_spelling::action_run_name(id) {
+                    Ok(()) => run_action(id, tail, ActionName::Any)?,
+                    Err(names) => {
+                        return Err(UsageError::new(
+                            messages
+                                .shared_verb
+                                .replace("{verb}", id)
+                                .replace("{names}", &names.join(", ")),
+                        ));
+                    }
+                }
             }
         }
         ("settings" | "config", Some("list")) => {

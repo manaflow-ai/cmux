@@ -2330,3 +2330,86 @@ fn the_ping_gets_only_what_is_left_of_the_deadline() {
     assert_eq!(windows.len(), 1, "{windows:?}");
     assert!(windows.iter().all(|window| *window <= Duration::from_millis(110)), "{windows:?}");
 }
+
+/// cmux#44937: the words a person reaches for to pin a workspace reach the app's Pin/Unpin
+/// Workspace action with its state, through the same fallback and socket as every app verb:
+/// `workspace <ws> pin|unpin`, `workspace unpin --target <ws>`, and an offered verb object first.
+#[test]
+fn workspace_pin_and_unpin_run_the_pin_action_with_its_state() {
+    const WS: &str = "ws_0123456789abcdef0123456789abcdef";
+    let ok = json!({ "id": 1, "ok": true, "result": { "ran": true } });
+    for (words, pinned) in [
+        (&["workspace", WS, "pin"][..], "true"),
+        (&["workspace", WS, "unpin"][..], "false"),
+        (&["workspace", "unpin", "--target", WS][..], "false"),
+        (&["workspace", WS, "pin-unpin", "--pinned", "true"][..], "true"),
+    ] {
+        let (socket, app) = fake_app(vec![ok.clone()]);
+        let mut cli = args(&["--app-socket", socket.to_str().unwrap()]);
+        cli.extend(args(words));
+        assert_eq!(super::super::run_app_action_fallback(&cli), Some(0), "{words:?}");
+        let connections = app.join().unwrap();
+        let [request] = connections[0].as_slice() else { panic!("{words:?}: {connections:?}") };
+        assert_eq!(request["method"], "action.run", "{words:?}");
+        assert_eq!(request["params"]["action"], "workspace pin-unpin", "{words:?}");
+        assert_eq!(request["params"]["cli"], true, "{words:?}");
+        assert_eq!(request["params"]["target"], WS, "{words:?}");
+        // A flag's value goes as the word typed; the app's validation reads it as the bool.
+        assert_eq!(request["params"]["args"]["pinned"], pinned, "{words:?}");
+    }
+}
+
+/// `workspace-group pin` is the group's Toggle Pin with `pinned` set, and a word that names
+/// no state (`workspace archive`, a name instead of an id) is left to the grammar's usage error.
+#[test]
+fn state_words_name_their_toggle_and_other_words_keep_their_path() {
+    let (name, flags) =
+        super::super::verb_spelling::action(&args(&["workspace-group", "pin"])).unwrap();
+    assert_eq!((name.as_str(), flags), ("workspace-group toggle-pin", args(&["--pinned", "true"])));
+    for words in [
+        &["workspace", "archive"][..],
+        &["workspace", "current", "pin"][..],
+        &["workspace", "my-work", "pin"][..],
+        &["workspace", "my_proj", "pin"][..],
+        &["workspace", "in_progress", "pin"][..],
+        &["workspace", "ws_0123456789abcdef", "pin", "--target", "ws_fedcba9876543210"][..],
+        &["workspace", "ws_0123456789abcdef", "frobnicate"][..],
+        &["workspace", "pin-unpin", "--target", "ws_1"][..],
+    ] {
+        assert_eq!(super::super::verb_spelling::action(&args(words)), None, "{words:?}");
+    }
+}
+
+/// `cmux action run pin-unpin` (cmux#44937) said only "unknown action": a verb several nouns
+/// share now names each action it could mean, and an id or full CLI name runs as before.
+#[test]
+fn action_run_with_a_shared_verb_names_its_actions() {
+    let error = parse(&args(&["action", "run", "pin-unpin"])).unwrap_err().0;
+    for name in ["workspace pin-unpin", "tab pin-unpin"] {
+        assert!(error.contains(name), "{error}");
+    }
+    // One offered name with that verb is still only a guess (`pin` is also a tab's mux verb):
+    // it is named, not run.
+    let error = parse(&args(&["action", "run", "pin", "--target", "ws_1"])).unwrap_err().0;
+    assert!(error.contains("extension pin"), "{error}");
+    for action in ["palette.toggleWorkspacePin", "workspace pin-unpin"] {
+        let (_, params) = call(parse(&args(&["action", "run", action])).unwrap().unwrap());
+        assert_eq!(params["action"], action);
+    }
+}
+
+/// Object first keeps `move-to-window --new` as the new-window verb, as the verb-first form does.
+#[test]
+fn object_first_move_to_window_new_moves_to_a_new_window() {
+    const WS: &str = "ws_0123456789abcdef0123456789abcdef";
+    let ok = json!({ "id": 1, "ok": true, "result": { "ran": true } });
+    let (socket, app) = fake_app(vec![ok]);
+    let mut cli = args(&["--app-socket", socket.to_str().unwrap()]);
+    cli.extend(args(&["workspace", WS, "move-to-window", "--new"]));
+    assert_eq!(super::super::run_app_action_fallback(&cli), Some(0));
+    let connections = app.join().unwrap();
+    let [request] = connections[0].as_slice() else { panic!("{connections:?}") };
+    assert_eq!(request["params"]["action"], "workspace move-to-new-window");
+    assert_eq!(request["params"]["target"], WS);
+    assert!(request["params"]["args"].get("new").is_none(), "{request}");
+}

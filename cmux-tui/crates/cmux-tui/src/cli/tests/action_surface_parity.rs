@@ -158,3 +158,54 @@ fn pane_open_files_and_find_as_run_their_actions_with_a_path() {
         assert_eq!(params["args"]["path"], cwd.join("src").to_string_lossy().as_ref());
     }
 }
+
+/// cmux#44937: every action a person can run from a menu, a right-click or the palette has a CLI
+/// path. With a named verb, `cmux <cli name>` (checked above); without one, `cmux action run <id>`
+/// sends exactly that id, which no other spelling (`verb_spelling`) rewrites. The app's
+/// `CLISurfaceParityTests.everyGUIActionRunsFromTheCLIByID` checks the other end: each such
+/// `action.run` reaches its own handler.
+#[test]
+fn every_gui_action_runs_by_its_id_with_action_run() {
+    let surfaces = action_surfaces();
+    let mut checked = 0;
+    for action in surfaces["actions"].as_array().expect("actions array") {
+        let gui = action["palette"] == "offered"
+            || action["context_menus"].as_array().is_some_and(|menus| !menus.is_empty())
+            || !action["main_menu"].is_null();
+        if !gui || action["cli"] == "devOnly" {
+            continue;
+        }
+        let id = action["id"].as_str().expect("an action id");
+        let command = app::parse(&strings(&["action", "run", id]))
+            .unwrap_or_else(|error| panic!("cmux action run {id}: {}", error.0))
+            .unwrap_or_else(|| panic!("cmux action run {id}: no command"));
+        let app::AppCommand::Call { method, params, .. } = command else {
+            panic!("cmux action run {id}: not a call")
+        };
+        assert_eq!(method, "action.run", "{id}");
+        assert_eq!(params["action"], id, "cmux action run {id} sent another action");
+        checked += 1;
+    }
+    assert!(checked > 1000, "only {checked} GUI actions; is the export stale?");
+}
+
+/// cmux#44937: an offered verb also takes its object first, as the mux grammar spells its own
+/// verbs: `cmux <noun> <id> <verb…>` is `cmux <noun> <verb…> --target <id>`, unless the mux grammar
+/// has that verb itself (`workspace <ws> close`).
+#[test]
+fn every_offered_verb_takes_its_object_first() {
+    let mut missing = Vec::new();
+    for name in offered_cli_names() {
+        let Some((noun, verb)) = name.split_once(' ') else { continue };
+        let mut words = strings(&[noun, "obj_0123456789abcdef"]);
+        words.extend(verb.split_whitespace().map(str::to_owned));
+        if parse(&words, Surface::Cmux).is_ok() || matches!(app::parse(&words), Ok(Some(_))) {
+            continue;
+        }
+        let expected = (name.clone(), strings(&["--target", "obj_0123456789abcdef"]));
+        if verb_spelling::action(&words) != Some(expected) {
+            missing.push(name);
+        }
+    }
+    assert!(missing.is_empty(), "these verbs do not take their object first: {missing:?}");
+}
