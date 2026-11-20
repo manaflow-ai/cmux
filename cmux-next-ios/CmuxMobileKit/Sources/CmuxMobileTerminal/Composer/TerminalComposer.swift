@@ -187,9 +187,10 @@ struct TerminalComposer: View {
     }
 
     /// Retry in the send circle's place: the outage's line shows (as the
-    /// placeholder) and the field holds nothing to send.
+    /// placeholder). Keep it available while a draft or attachments are held
+    /// so a failed attach can be retried without clearing the person's work.
     private var retryInField: (@MainActor () async -> Void)? {
-        guard model.connectionLine != nil, model.composerText.isEmpty, model.attachments.isEmpty, !model.isUploading else { return nil }
+        guard model.connectionLine != nil, !model.isUploading else { return nil }
         return model.reconnect
     }
 
