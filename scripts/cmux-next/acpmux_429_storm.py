@@ -50,7 +50,6 @@ import json
 import os
 import re
 import shlex
-import shutil
 import signal
 import subprocess
 import sys
@@ -276,11 +275,15 @@ def make_handler(ep: Endpoint):
 
 def clean_env(out: Path, base_url: str, acpmux: str) -> dict:
     """An environment with nothing of this host's acpmux, Claude Code or session in it. The build under
-    test is first on PATH, so the chat's own `acpmux` (its inbox reads) is that build too."""
+    test is first on PATH as `acpmux` (a private link, whatever the binary's own file name), so the
+    chat's own `acpmux` (its inbox reads) is that build too."""
     env = {k: os.environ[k] for k in ("PATH", "LANG", "LC_ALL", "TERM", "USER", "LOGNAME", "SHELL", "TZ") if k in os.environ}
     home = out / "home"
+    shim = out / "bin"
+    shim.mkdir(parents=True, exist_ok=True)
+    (shim / "acpmux").symlink_to(acpmux)
     env.update({
-        "PATH": f"{Path(acpmux).parent}:{env.get('PATH', '/usr/bin:/bin')}",
+        "PATH": f"{shim}:{env.get('PATH', '/usr/bin:/bin')}",
         "HOME": str(home), "XDG_CONFIG_HOME": str(home / ".config"), "XDG_DATA_HOME": str(home / ".local/share"),
         "XDG_STATE_HOME": str(home / ".local/state"), "XDG_CACHE_HOME": str(home / ".cache"),
         "XDG_RUNTIME_DIR": str(out / "run"), "TMPDIR": str(out / "tmp"),
@@ -355,9 +358,11 @@ def main_run(a: argparse.Namespace) -> int:
     # The daemon refuses a state directory under a group- or world-writable folder.
     os.umask(0o022)
     out = Path(a.out).resolve()
-    if out.exists():
-        shutil.rmtree(out)
-    out.mkdir(parents=True)
+    # A new directory only: an existing one may hold another run's evidence, which this never deletes.
+    if out.exists() and (not out.is_dir() or any(out.iterdir())):
+        print(f"acpmux_429_storm: --out {out} exists and is not empty; give a new directory", file=sys.stderr)
+        return 2
+    out.mkdir(parents=True, exist_ok=True)
     log = lambda *x: print(f"[{time.strftime('%H:%M:%S')}] [{a.label}]", *x, flush=True)
 
     ep = Endpoint(out / "endpoint.ndjson", None if a.retry_after in (None, "none") else int(a.retry_after))
@@ -456,11 +461,15 @@ def storm(a, out: Path, ep: Endpoint, env: dict, acpmux: str, version: str, proc
             marker = f"STORM-{k}-{i}"
             text = f"{marker}: report {i} from lane-{k}"
             at = time.time()
-            r = run([acpmux, "--json", "send", "coord", "--from", f"lane-{k}", "--no-wait", "--class", "question",
-                     text], env, 60)
+            # A send that raises (a timeout) is recorded as failed, never dropped with its thread.
+            try:
+                r = run([acpmux, "--json", "send", "coord", "--from", f"lane-{k}", "--no-wait", "--class",
+                         "question", text], env, 60)
+                row = {"rc": r.returncode, "out": r.stdout.strip()[-300:], "err": r.stderr.strip()[-300:]}
+            except Exception as error:  # noqa: BLE001
+                row = {"rc": None, "out": "", "err": f"{type(error).__name__}: {error}"[-300:]}
             with sent_lock:
-                sent.append({"marker": marker, "at": at, "rc": r.returncode, "out": r.stdout.strip()[-300:],
-                             "err": r.stderr.strip()[-300:]})
+                sent.append({"marker": marker, "at": at, **row})
             i += 1
             nxt += a.interval
 
@@ -497,6 +506,10 @@ def storm(a, out: Path, ep: Endpoint, env: dict, acpmux: str, version: str, proc
     (out / "meta.json").write_text(json.dumps(meta, indent=1))
     res = tally(out)
     log(json.dumps({k: v for k, v in res.items() if not k.endswith("_gaps_s")}))
+    failed = [x for x in sent if x["rc"] is None]
+    if failed:
+        log(f"FAILED: {len(failed)} sends raised, so the workload is short: {failed[:3]}")
+        return 1
     return 0
 
 

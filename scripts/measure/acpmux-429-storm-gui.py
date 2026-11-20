@@ -11,8 +11,8 @@ like getting busted". The Linux harness proves what acpmux does; this one reads 
      defaults set aside), with the harness's fake Anthropic endpoint as Claude Code's ANTHROPIC_BASE_URL (the
      app's environment and the fresh home's ~/.claude/settings.json), Claude Code first on PATH, the first-run
      history page marked shown and the chat's folder trusted.
-  2. `cmux agents chat new --harness claude --policy approve-all` (the app's own CLI) starts the coordinator
-     chat in the GUI, and its workspace is selected. Its first turn starts into the storm: the endpoint answers
+  2. `cmux agents chat new --harness claude` (the app's own CLI; the fresh home's agents.defaultPermissionMode
+     is fullAccess) starts the coordinator chat in the GUI, and its workspace is selected. Its first turn starts into the storm: the endpoint answers
      429 for --storm seconds (Retry-After or none).
   3. --agents senders `acpmux send <chat> --from lane-K --no-wait --class question` (the app's bundled acpmux,
      on the app's own daemon) one report each every --interval seconds for the whole storm.
@@ -181,10 +181,12 @@ class Run:
             "customApiKeyResponses": {"approved": [FAKE_KEY[-20:]], "rejected": []},
             "projects": {str(self.work): {"hasTrustDialogAccepted": True}},
         }))
-        # The chat's folder trusted (pr_capture folder_trust.py's rule), so the first prompt waits on nothing.
+        # The chat's folder trusted (pr_capture folder_trust.py's rule), so the first prompt waits on nothing,
+        # and new chats in Full Access (this throwaway home's own setting), so its inbox reads ask no one.
         config = home / ".config" / "cmux" / "cmux-next.json"
         config.parent.mkdir(parents=True, exist_ok=True)
-        config.write_text(json.dumps({"agents": {"trust": {"autoTrust": True, "projectRoots": [str(self.work)]}}}) + "\n")
+        config.write_text(json.dumps({"agents": {"defaultPermissionMode": "fullAccess",
+                                                 "trust": {"autoTrust": True, "projectRoots": [str(self.work)]}}}) + "\n")
         env["CMUX_NEXT_CONFIG_FILE"] = str(config)
         if app:
             bundle_id = plistlib.loads((app / "Contents" / "Info.plist").read_bytes()).get("CFBundleIdentifier")
@@ -244,7 +246,9 @@ class Run:
         t0 = time.time()
         self.t0, self.lift = t0, t0 + a.storm
         self.ep.lift_at(self.lift)
-        made = self.cli("agents", "chat", "new", "--name", "coord", "--harness", "claude", "--policy", "approve-all",
+        # No --policy: an agent may not pick approve-all (`chat_control.rs` AGENT_POLICIES); the fresh home's
+        # own agents.defaultPermissionMode (prepare) lets the chat run its inbox reads unasked.
+        made = self.cli("agents", "chat", "new", "--name", "coord", "--harness", "claude",
                         "--cwd", str(self.work), "--", "plan the day", timeout=120)
         answer = parsed(made.stdout)
         chat = found(answer, "chat")
@@ -329,11 +333,17 @@ class Run:
             time.sleep(max(0, nxt - time.time()))
             marker = f"STORM-{k}-{i}"
             at = time.time()
-            r = self.acpmux("--json", "send", self.chat, "--from", f"lane-{k}", "--no-wait", "--class", "question",
-                            f"{marker}: report {i} from lane-{k}")
+            # A send that raises (a timeout) is recorded and fails the run, never dropped with its thread.
+            try:
+                r = self.acpmux("--json", "send", self.chat, "--from", f"lane-{k}", "--no-wait", "--class",
+                                "question", f"{marker}: report {i} from lane-{k}")
+                row = {"rc": r.returncode, "out": r.stdout.strip()[-300:], "err": r.stderr.strip()[-300:]}
+            except Exception as error:  # noqa: BLE001
+                row = {"rc": None, "out": "", "err": f"{type(error).__name__}: {error}"[-300:]}
             with self.lock:
-                self.sent.append({"marker": marker, "at": at, "rc": r.returncode, "out": r.stdout.strip()[-300:],
-                                  "err": r.stderr.strip()[-300:]})
+                self.sent.append({"marker": marker, "at": at, **row})
+                if row["rc"] is None:
+                    self.failures.append(f"send {marker}: {row['err']}")
             i += 1
             nxt += a.interval
 
