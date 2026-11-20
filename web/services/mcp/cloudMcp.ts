@@ -21,6 +21,10 @@ export const CLOUD_MCP_SERVER_NAME = "cmux-cloud";
 export const CLOUD_MCP_SERVER_VERSION = "0.1.0";
 export const CLOUD_MCP_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"] as const;
 const LATEST_PROTOCOL_VERSION = CLOUD_MCP_PROTOCOL_VERSIONS[0];
+/** Opt-in Labs experiment: expose the cloud catalog through progressive discovery. */
+export const CLOUD_MCP_CODE_MODE_ENV = "CMUX_MCP_EXPERIMENTAL_CODE_MODE";
+export const CLOUD_MCP_DOCS_NAME = "cmux_cloud_docs";
+export const CLOUD_MCP_EXEC_NAME = "cmux_cloud_exec";
 
 export const CLOUD_MCP_AGENTS = ["claude", "codex", "opencode", "pi"] as const;
 export type CloudMcpAgent = (typeof CLOUD_MCP_AGENTS)[number];
@@ -211,6 +215,61 @@ export const CLOUD_MCP_LISTED_TOOLS: readonly ToolDefinition[] = [
     return tool ? [{ ...tool, name: alias, description: `Deprecated alias of ${target}; call ${target}. ${tool.description}` }] : [];
   }),
 ];
+
+const CLOUD_MCP_CODE_MODE_TOOLS: readonly ToolDefinition[] = [
+  {
+    name: CLOUD_MCP_DOCS_NAME,
+    description: "Search the cloud MCP catalog for tools, schemas and examples before calling one.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Words or an exact tool name to search for." },
+        limit: { type: "integer", minimum: 1, maximum: 20, default: 8 },
+      },
+      additionalProperties: false,
+    },
+    annotations: { title: "Search cloud tools", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: CLOUD_MCP_EXEC_NAME,
+    description: "Call one named cloud MCP tool returned by cmux_cloud_docs.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "The cloud MCP tool name returned by cmux_cloud_docs." },
+        arguments: { type: "object", additionalProperties: true },
+      },
+      required: ["name"],
+      additionalProperties: false,
+    },
+    annotations: { title: "Run cloud tool", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  },
+];
+
+function cloudCodeModeEnabled(): boolean {
+  return process.env[CLOUD_MCP_CODE_MODE_ENV]?.trim() === "1";
+}
+
+function listedTools(): readonly ToolDefinition[] {
+  return cloudCodeModeEnabled() ? CLOUD_MCP_CODE_MODE_TOOLS : CLOUD_MCP_LISTED_TOOLS;
+}
+
+function cloudDocs(query: string, limit: number): JsonObject {
+  const normalized = query.trim().toLowerCase();
+  const exact = CLOUD_MCP_TOOLS.find((tool) => tool.name.toLowerCase() === normalized);
+  const matches = exact ? [exact] : CLOUD_MCP_TOOLS.filter((tool) => {
+    if (!normalized) return true;
+    const properties = tool.inputSchema.properties;
+    const argumentNames = properties && typeof properties === "object" && !Array.isArray(properties) ? Object.keys(properties) : [];
+    const haystack = `${tool.name} ${tool.description} ${argumentNames.join(" ")}`.toLowerCase();
+    return normalized.split(/\s+/).every((term) => haystack.includes(term));
+  });
+  return {
+    query,
+    tools: matches.slice(0, limit),
+    more: matches.slice(limit).map((tool) => tool.name),
+  };
+}
 
 /** Tools that act and take `idempotency_key`. */
 const IDEMPOTENT_TOOLS: ReadonlySet<string> = new Set(["agent_run", "terminal_input_write", "machine_create"]);
@@ -445,6 +504,30 @@ async function runTool(gateway: CloudMcpGateway, tool: string, args: JsonObject)
   }
 }
 
+async function runCodeModeTool(gateway: CloudMcpGateway, name: string, args: JsonObject): Promise<ToolResult> {
+  if (name === CLOUD_MCP_DOCS_NAME) {
+    rejectUnknownArguments(args, ["query", "limit"]);
+    const query = typeof args.query === "string" ? args.query : "";
+    const limit = args.limit === undefined ? 8 : args.limit;
+    if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 20) {
+      return toolFailure("invalid_arguments", "`limit` must be an integer from 1 to 20.");
+    }
+    return toolSuccess(cloudDocs(query, limit));
+  }
+  if (name === CLOUD_MCP_EXEC_NAME) {
+    rejectUnknownArguments(args, ["name", "arguments"]);
+    const target = requireString(args, "name");
+    const targetArgs = args.arguments;
+    if (targetArgs !== undefined && (!targetArgs || typeof targetArgs !== "object" || Array.isArray(targetArgs))) {
+      return toolFailure("invalid_arguments", "`arguments` must be an object.");
+    }
+    const resolved = resolveCloudMcpToolName(target);
+    if (!resolved) return toolFailure("unknown_tool", `Unknown tool: ${target}`);
+    return callCloudMcpTool(gateway, resolved, targetArgs ?? {});
+  }
+  return toolFailure("unknown_tool", `Unknown tool: ${name}`);
+}
+
 /** First results of keyed calls, per caller and tool (bounded: cloudMcpIdempotency.ts). */
 export const cloudMcpIdempotencyCache = new IdempotencyCache<ToolResult>();
 
@@ -528,19 +611,27 @@ export async function handleCloudMcpMessage(gateway: CloudMcpGateway, message: u
           protocolVersion,
           capabilities: { tools: { listChanged: false } },
           serverInfo: { name: CLOUD_MCP_SERVER_NAME, version: CLOUD_MCP_SERVER_VERSION },
-          instructions:
-            "Control the caller's cmux Cloud machines. Call machine_list first; every other tool takes a machine_id from it. " +
-            "agent_run starts a coding agent in a new terminal; poll it with terminal_read. " +
-            "agent_run and terminal_input_write take an optional idempotency_key: retry with the same key and it acts once.",
+          instructions: cloudCodeModeEnabled()
+            ? "Use cmux_cloud_docs to find a cloud tool, then cmux_cloud_exec to call it. " +
+              "The catalog uses the same noun_verb names as the direct cloud tools."
+            : "Control the caller's cmux Cloud machines. Call machine_list first; every other tool takes a machine_id from it. " +
+              "agent_run starts a coding agent in a new terminal; poll it with terminal_read. " +
+              "agent_run and terminal_input_write take an optional idempotency_key: retry with the same key and it acts once.",
         },
       };
     }
     case "ping":
       return { jsonrpc: "2.0", id, result: {} };
     case "tools/list":
-      return { jsonrpc: "2.0", id, result: { tools: CLOUD_MCP_LISTED_TOOLS } };
+      return { jsonrpc: "2.0", id, result: { tools: listedTools() } };
     case "tools/call": {
       if (typeof params.name !== "string") return rpcError(id, -32602, "tools/call needs a tool name.");
+      if (cloudCodeModeEnabled() && (params.name === CLOUD_MCP_DOCS_NAME || params.name === CLOUD_MCP_EXEC_NAME)) {
+        const args = params.arguments && typeof params.arguments === "object" && !Array.isArray(params.arguments)
+          ? params.arguments as JsonObject
+          : {};
+        return { jsonrpc: "2.0", id, result: await runCodeModeTool(gateway, params.name, args) };
+      }
       if (!resolveCloudMcpToolName(params.name)) {
         return rpcError(id, -32602, `Unknown tool: ${params.name}`);
       }
