@@ -80,7 +80,7 @@ import {
 } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
-import { foldMotion, foldMs, useFold } from "../conversation/fold";
+import { cancelResize, foldMotion, playResize, useFold } from "../conversation/fold";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { type PaneLanguage, usePaneLanguage, useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -563,6 +563,15 @@ export const SubagentTray = memo(function SubagentTray({
       }),
     [t, items, finished, waiting, working, chatHarness, kindsArm, kindLine],
   );
+  // The rubber band's held height (`drawBand` below).
+  const folded = useRef(0);
+  // A hat that goes mid-drag (its chat switched, its last line ended) ends the drag and its band.
+  useEffect(
+    () => () => {
+      cancelDrag.current?.();
+    },
+    [],
+  );
   if (items.length === 0 && finished.length === 0 && !planned) return null;
   // The counts, split by kind, then what ended and failed (trayHeadKinds.ts; Leo, 2026-11-03: "the
   // top bit aka what the collapsed area shows i think can show much more interesting stuf fthan it
@@ -664,14 +673,13 @@ export const SubagentTray = memo(function SubagentTray({
   };
   const rowHeight = () => headButton.current?.getBoundingClientRect().height || HAT_ROW;
   /// The rubber band past the one row: the hat gives `band` px from its top, sinking into the composer
-  /// under its own clip, set on the node with no render (one style write per pointer move).
-  const folded = useRef(0);
-  const bandSpring = useRef<Animation | undefined>(undefined);
+  /// under its own clip, set on the node with no render (one style write per pointer move). Its
+  /// `folded` ref sits with the hooks above the early return.
   const drawBand = (band: number) => {
     const node = trayNode.current;
     if (!node) return;
-    bandSpring.current?.cancel();
-    bandSpring.current = undefined;
+    // A spring back still playing (`springBack`) stops where the hat lays out.
+    cancelResize(node);
     if (band <= 0) {
       clearBand(node);
       return;
@@ -684,30 +692,15 @@ export const SubagentTray = memo(function SubagentTray({
     node.removeAttribute("data-band");
     node.style.removeProperty("height");
   };
-  /// Let go short of the hide: the band springs back to the one row on the fold's own clock, at once
-  /// under Reduce Motion or with motion off (fold.ts `foldMs`). The clip holds until it lands.
+  /// Let go short of the hide: the band springs back to the one row through the fold's shared resize
+  /// (fold.ts `playResize`: its clock and easing, clipped while it plays, at once under Reduce Motion
+  /// or with motion off).
   const springBack = (band: number) => {
     const node = trayNode.current;
     if (!node) return;
-    const ms = band > 0 ? foldMs(node) : 0;
-    if (ms <= 0) {
-      clearBand(node);
-      return;
-    }
-    const from = `${folded.current - band}px`;
-    node.style.removeProperty("height");
-    const spring = node.animate([{ height: from }, { height: `${folded.current}px` }], {
-      duration: ms,
-      easing: foldMotion.easing(node),
-    });
-    bandSpring.current = spring;
-    const landed = () => {
-      if (bandSpring.current !== spring) return;
-      bandSpring.current = undefined;
-      clearBand(node);
-    };
-    spring.onfinish = landed;
-    spring.oncancel = landed;
+    const from = node.getBoundingClientRect().height;
+    clearBand(node);
+    if (band > 0) playResize(node, from);
   };
   const startDrag = (event: ReactPointerEvent<HTMLElement>, rim: boolean) => {
     swallowClick.current = false;
@@ -763,14 +756,6 @@ export const SubagentTray = memo(function SubagentTray({
     setTuckQuiet(true);
     dispatchHat(hatKey, { type: "step", by, max: maxRows() });
   };
-  // A hat that goes mid-drag (its chat switched, its last line ended) ends the drag and its band.
-  useEffect(
-    () => () => {
-      cancelDrag.current?.();
-      bandSpring.current?.cancel();
-    },
-    [],
-  );
   // The header's mark is in the accent while anything under it runs.
   const runs = running > 0 || commands > 0 || planned;
   return (
