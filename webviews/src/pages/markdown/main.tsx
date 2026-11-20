@@ -33,6 +33,7 @@ import { LinkResolver, type ResolvedLink } from "./links";
 import { htmlPreview } from "./htmlPreview";
 import { MarkdownPage } from "./MarkdownPage";
 import { LinkOverlays } from "./overlays";
+import { Outline } from "./outline";
 import { MarkdownStore } from "./store";
 import type { ReadingSettingsActions } from "./ReadingSettings";
 import { MARKDOWN_READING, bindMarkdownLook, markdownCodeTheme } from "./settings";
@@ -286,6 +287,12 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
     afterShow: (run) => requestAnimationFrame(() => run()),
   });
   const host = editorHost(store, client, strings, resolver, (href) => void router.follow(href));
+  // The outline rail: a heading there scrolls through the router's `#heading` path, as an anchor link.
+  const outline = new Outline({
+    element: (pos) => editor?.headingElement(pos) ?? null,
+    scroller,
+    go: (slug) => void router.follow(`#${slug}`),
+  });
   const find = bindMarkdownFind(store, scroller);
   // A callback ref: React calls it with the element on mount and null on unmount.
   // Another document (a link, back, a reload from disk) brings its own comments in its config.
@@ -311,6 +318,7 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
       readOnly: store.getState().readOnly,
       onUserEdit: () => store.edited(),
       onRunnable: (runnable) => store.setRunnable(runnable),
+      onOutline: (headings) => outline.setHeadings(headings),
     });
     editor = next;
     void next.create().then(() => {
@@ -337,6 +345,7 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
         else if (command === "open" && text) void router.open(text);
         else if (command === "link") editor?.openLinkPopover();
         else if (command === "goToTop") scroller()?.scrollTo({ top: 0 });
+        else if (command === "print") printDocument();
         else if (command === "resetTableWidths") editor?.resetTableWidths();
         else if (command === "resetContextTableWidths") editor?.resetTableWidthsAt(contextTarget);
         else if (command === "comments") editor?.setComments(parseComments(parseJSON(text)));
@@ -402,6 +411,8 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
         reading={readingActions(store, zoom)}
         onRunAll={client ? () => runAll(store, client, editor) : undefined}
         find={find}
+        outline={outline}
+        onPrint={printDocument}
       />
     </UiProvider>,
   );
@@ -459,6 +470,15 @@ function bindMarkdownFind(store: MarkdownStore, scroller: () => HTMLElement | nu
   find.subscribe(follow);
   store.subscribe(follow);
   return find;
+}
+
+/**
+ * Print or Save as PDF (the toolbar's Print, the `print` page command): the system print panel
+ * over the rendered document; `@media print` in styles.css leaves out the toolbar, the outline
+ * rail and every overlay. The host answers a page's window.print() (PageOpenPanel's print hook).
+ */
+function printDocument(): void {
+  window.print();
 }
 
 /** `text` as JSON, null when it is not. */
