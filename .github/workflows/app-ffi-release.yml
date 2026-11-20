@@ -107,9 +107,9 @@ on:
         type: string
         default: ""
       rescue_tried:
-        # The labels every earlier build of this rescue chain sat on, comma-separated: a rescued run whose build also
-        # gets no runner rescues again to an owned pool not in it, and leaves the build queued once all are tried.
-        description: "Internal: the labels the build rescue already tried (the build rescue sets it)"
+        # The owned pools (ffi-pool, promote, side) this rescue chain has named, comma-separated, never empty: a rescued run whose build also
+        # gets no runner rescues again to an owned pool not in it (never Blacksmith), and leaves the build queued once all are tried.
+        description: "Internal: the owned pools the build rescue already named (the build rescue sets it)"
         type: string
         default: ""
 
