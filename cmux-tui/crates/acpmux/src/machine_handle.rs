@@ -81,12 +81,19 @@ impl Registry {
         if let Some(entry) = self.entries.get(key) {
             return Ok(Some(entry));
         }
-        let matches: Vec<&Entry> = self
-            .entries
-            .values()
-            .filter(|entry| entry.canonical == key || entry.handle.eq_ignore_ascii_case(key))
-            .collect();
-        match matches.as_slice() {
+        // Existing canonical names take precedence over display handles so adding a handle can
+        // never retarget a route that already used that host name.
+        let canonical: Vec<&Entry> =
+            self.entries.values().filter(|entry| entry.canonical == key).collect();
+        if let [entry] = canonical.as_slice() {
+            return Ok(Some(entry));
+        }
+        if canonical.len() > 1 {
+            bail!("machine name {key:?} is ambiguous")
+        }
+        let handles: Vec<&Entry> =
+            self.entries.values().filter(|entry| entry.handle.eq_ignore_ascii_case(key)).collect();
+        match handles.as_slice() {
             [] => Ok(None),
             [entry] => Ok(Some(entry)),
             _ => bail!("machine handle {key:?} is ambiguous"),
@@ -234,6 +241,16 @@ mod tests {
         let mut registry = Registry::default();
         registry.upsert("pool-1", "cmux-runner-pool-1", "Ramen", None).unwrap();
         assert_eq!(registry.resolve("cmux-runner-pool-1").unwrap().unwrap().handle, "Ramen");
+    }
+
+    #[test]
+    fn canonical_names_win_over_a_handle_with_the_same_spelling() {
+        let mut registry = Registry::default();
+        registry.upsert("host-id", "host-name", "Mango", None).unwrap();
+        registry.upsert("mango-id", "other-host", "other", None).unwrap();
+        assert_eq!(registry.resolve("host-name").unwrap().unwrap().id, "host-id");
+        registry.rename("other-host", "host-name").unwrap();
+        assert_eq!(registry.resolve("host-name").unwrap().unwrap().id, "host-id");
     }
 
     #[test]
