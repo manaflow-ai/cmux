@@ -176,6 +176,22 @@ class DecideTests(unittest.TestCase):
         self.assertNotEqual(cron.bisect_midpoint(commits, lambda c: True, skip=["c3"]), "c3", "a skipped commit is not picked again")
         self.assertIsNone(cron.bisect_midpoint(commits, lambda c: True, skip=commits))
 
+    def test_bisect_next_judges_at_most_its_budget_and_goes_on_from_its_place(self):
+        commits = [f"c{i}" for i in range(1, 10)]  # nearest the middle first: c5 c4 c6 c3 c7 c2 c8 c1 c9
+        judged = []
+
+        def only_c1(c):
+            judged.append(c)
+            return c == "c1"
+        self.assertEqual(cron.bisect_next(commits, only_c1, budget=3), (None, 3))
+        self.assertEqual(judged, ["c5", "c4", "c6"])
+        self.assertEqual(cron.bisect_next(commits, only_c1, skip=["c7"], start=3, budget=2), (None, 6),
+                         "a skipped commit costs nothing")
+        self.assertEqual(judged[3:], ["c3", "c2"])
+        self.assertEqual(cron.bisect_next(commits, only_c1, start=6, budget=3), ("c1", 7))
+        self.assertEqual(cron.bisect_next(commits, only_c1, start=9, budget=3), (None, 9), "every commit judged")
+        self.assertEqual(cron.bisect_next(commits, lambda c: c == "c2"), ("c2", 5), "no budget: no bound")
+
 
 class RegressionTests(unittest.TestCase):
     def test_worse_by_ten_percent_and_the_floor_regresses(self):
@@ -3253,48 +3269,59 @@ class BisectGoneHostTests(unittest.TestCase):
                     self.assertEqual((plan["action"], plan["sha"], plan["worker"]), ("part", "b" * 40, "cmux21"))
 
 
-class BisectTreeLookupTests(unittest.TestCase):
-    """2026-11-19: the bisect looked up the tree of every commit of 16 ranges of 300 to 740 commits, none with a
-    tree, and the plan job hit its 75 min timeout every tick."""
+class BisectBudgetTests(unittest.TestCase):
+    """2026-11-19: the bisect judged every commit of 16 ranges of 300 to 1,900 commits, none measurable, each tick,
+    and the plan job hit its 75 min timeout every tick."""
 
-    def test_a_tick_looks_up_at_most_the_bisect_budget_of_trees_each_once(self):
-        tip, commits = "f" * 40, [f"{i:040x}" for i in range(1, 501)]
-        looked = []
+    def tick(self, d, commits, judged):
+        tip = "f" * 40
 
         def git(*args, check=True):
             return tip if args[0] in ("rev-parse", "rev-list") else ""
 
         def tree_published(sha):
-            looked.append(sha)
+            judged.append(sha)
             return False
+        out = os.path.join(d, "plan.out")
+        with mock.patch.object(cron, "now_utc", lambda: at(1)), mock.patch.object(cron, "git", git), \
+                mock.patch.object(cron, "measure_version", lambda sha: 2), \
+                mock.patch.object(cron, "commit_on_branch", lambda repo, t, known=(): cron.is_sha), \
+                mock.patch.object(cron, "tree_published", tree_published), \
+                mock.patch.object(cron, "range_commits", lambda g, b: commits[(g, b)]), \
+                mock.patch.object(cron, "tip_due", lambda state, t: False), \
+                mock.patch.object(cron, "github_busy", lambda *a: None), \
+                mock.patch.object(cron, "frame_pacing_runs", lambda repo: []), \
+                mock.patch.object(cron, "is_ancestor", lambda a, b: False), \
+                mock.patch.object(cron, "supported_parts_at", lambda sha: ["motion"]), \
+                contextlib.redirect_stdout(io.StringIO()) as said:
+            cron.cmd_plan(argparse.Namespace(repo="o/r", dir=d, tip="HEAD", yield_mode="queued", no_mac=False,
+                                             output=out))
+        with open(out) as f:
+            return dict(line.split("=", 1) for line in f.read().splitlines()), said.getvalue()
+
+    def test_a_tick_judges_at_most_its_budget_and_the_next_goes_on_where_it_stopped(self):
+        ranges = [(f"{n:x}" * 40, f"{n + 1:x}" * 40) for n in (1, 3)]
+        commits = {rng: [f"{n:02x}{i:038x}" for i in range(500)] for n, rng in enumerate(ranges)}
         with tempfile.TemporaryDirectory() as d:
             state = cron.empty_state(T0)
             state["persisted"] = True
-            state["last_tried"] = {"sha": tip, "at": cron.iso(at(0))}
-            state["regressions"] = [
-                {"name": f"cmd_d.e2e@cmux2{n}", "p95": 30.0, "base": 20.0, "confirmed": True,
-                 "range": {"good": f"{n:x}" * 40, "bad": f"{n + 1:x}" * 40, "skip": [], "steps": 0}} for n in (1, 3)]
+            state["last_tried"] = {"sha": "f" * 40, "at": cron.iso(at(0))}
+            state["regressions"] = [{"name": f"cmd_d.e2e@cmux2{n}", "p95": 30.0, "base": 20.0, "confirmed": True,
+                                     "range": {"good": g, "bad": b, "skip": [], "steps": 0}}
+                                    for n, (g, b) in enumerate(ranges)]
             with open(os.path.join(d, "state.json"), "w") as f:
                 json.dump(state, f)
-            out = os.path.join(d, "plan.out")
-            with mock.patch.object(cron, "now_utc", lambda: at(1)), mock.patch.object(cron, "git", git), \
-                    mock.patch.object(cron, "measure_version", lambda sha: 2), \
-                    mock.patch.object(cron, "commit_on_branch", lambda repo, t, known=(): cron.is_sha), \
-                    mock.patch.object(cron, "tree_published", tree_published), \
-                    mock.patch.object(cron, "range_commits", lambda g, b: commits), \
-                    mock.patch.object(cron, "tip_due", lambda state, t: False), \
-                    mock.patch.object(cron, "github_busy", lambda *a: None), \
-                    mock.patch.object(cron, "frame_pacing_runs", lambda repo: []), \
-                    mock.patch.object(cron, "is_ancestor", lambda a, b: False), \
-                    mock.patch.object(cron, "supported_parts_at", lambda sha: ["motion"]), \
-                    contextlib.redirect_stdout(io.StringIO()) as said:
-                cron.cmd_plan(argparse.Namespace(repo="o/r", dir=d, tip="HEAD", yield_mode="queued", no_mac=False,
-                                                 output=out))
-            plan = dict(line.split("=", 1) for line in open(out).read().splitlines())
-        self.assertEqual(plan["action"], "none", plan.get("reason"))
-        self.assertEqual(len(looked), cron.BISECT_TREE_LOOKUPS, "two ranges of 500 commits, none with a tree")
-        self.assertEqual(len(set(looked)), len(looked), "each commit is looked up once a tick")
-        self.assertIn("the rest wait for the next tick", said.getvalue())
+            first, second = [], []
+            plan, said = self.tick(d, commits, first)
+            self.assertEqual(plan["action"], "none", plan.get("reason"))
+            self.assertEqual(len(first), cron.BISECT_JUDGED_PER_TICK, "two ranges of 500 commits, none measurable")
+            self.assertIn("the rest wait for the next tick", said)
+            self.tick(d, commits, second)
+            self.assertEqual(len(second), cron.BISECT_JUDGED_PER_TICK)
+            self.assertFalse(set(first) & set(second), "the next tick judges the commits after the first's")
+            with open(os.path.join(d, "state.json")) as f:
+                looked = json.load(f)["regressions"][0]["range"]["looked"]
+            self.assertEqual(looked["place"], 2 * cron.BISECT_JUDGED_PER_TICK)
 
 
 

@@ -101,11 +101,12 @@ TIP_EVERY_HOURS = 6
 # as not run ('no_tree'). 2026-11-17 07:13Z: none of the 10 commits since the last tip had a tree, so no tip started,
 # and the web-ui rows of new Linux benches (cmux#44534) waited on a prerequisite only the Mac parts have.
 TREE_WAIT_HOURS = 2
-# A tree lookup (cmux_tui_tree_key.py twice, then files.cmux.com) costs 0.2 to 10 s. A plan tick's bisect looks up at
-# most this many commits, each once (the tip walk is bounded by CANDIDATE_DEPTH): on 2026-11-19 the bisect looked up
-# every commit of 16 culprit ranges of 300 to 740 commits with no Mac tree among them, uncached, so the plan job hit
-# its 75 min timeout every tick and no part ran for a day.
-BISECT_TREE_LOOKUPS = 40
+# Judging whether the bisect can measure a commit (its parts, its split-spring.sh version, its cmux-tui tree) costs
+# about 30 git reads, some fetching a blob, and a tree lookup. A plan tick judges at most this many commits across
+# every range, and a range keeps its place (looked) so the next tick goes on from there: on 2026-11-19 sixteen culprit
+# ranges of 300 to 1,900 commits had no measurable commit near their middle, the bisect judged every one of them each
+# tick, and the plan job hit its 75 min timeout every tick, so no part ran for two days.
+BISECT_JUDGED_PER_TICK = 40
 # The plan's checkout is shallow (fetch-depth 300): a culprit range older than that is deepened this many commits at
 # a time, at most DEEPEN_ROUNDS times, before its commits are listed.
 DEEPEN_STEP = 500
@@ -1426,15 +1427,27 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
 def bisect_midpoint(commits, measurable, skip=()):
     """commits: first-parent commits strictly between good and bad, oldest first. The measurable one nearest
     the middle that is not in skip (commits a bisect step could not judge: `git bisect skip`), or None."""
-    commits = [c for c in commits if c not in set(skip)]
-    if not commits:
-        return None
+    return bisect_next(commits, measurable, skip)[0]
+
+
+def bisect_next(commits, measurable, skip=(), start=0, budget=None):
+    """bisect_midpoint from a place in its order, judging at most budget commits (None: no bound). The order is
+    every commit's, nearest the middle first, skip included, so a place stays valid when a step adds to skip; a
+    commit in skip costs nothing. start: how far earlier ticks got (the commits before it were not measurable).
+    Returns (the commit or None, the place after the last commit judged)."""
     mid = len(commits) // 2
     order = sorted(range(len(commits)), key=lambda i: (abs(i - mid), i))
-    for i in order:
-        if measurable(commits[i]):
-            return commits[i]
-    return None
+    skip, judged, place = set(skip), 0, start
+    for place in range(start, len(order)):
+        c = commits[order[place]]
+        if c in skip:
+            continue
+        if budget is not None and judged >= budget:
+            return None, place
+        judged += 1
+        if measurable(c):
+            return c, place
+    return None, len(order)
 
 
 def bisect_measurable(rows, mac_measurable, supported_parts):
@@ -2981,23 +2994,14 @@ def plan(o):
             print(f"perf-cron: no commit since the last tip has a published cmux-tui tree; the tip is {newest[:12]}, "
                   f"its Mac parts wait for its tree (at most {TREE_WAIT_HOURS} h)")
     bisect = None
-    looked_up, told = set(), []
-
-    def bisect_tree_ready(sha):
-        # Past BISECT_TREE_LOOKUPS new commits a commit reads as having no tree for this tick only: its step waits
-        # for a later tick.
-        if sha not in trees:
-            if len(looked_up) >= BISECT_TREE_LOOKUPS:
-                if not told:
-                    told.append(sha)
-                    print(f"perf-cron: the bisect looked up {BISECT_TREE_LOOKUPS} commits' cmux-tui trees this tick; "
-                          "the rest wait for the next tick")
-                return False
-            looked_up.add(sha)
-        return tree_ready(sha)
+    budget = BISECT_JUDGED_PER_TICK
     if not state.get("current") and not (candidate and tip_due(state, t)):
         for group in bisect_groups(state):
             rng = group["range"]
+            if budget <= 0:
+                print(f"perf-cron: the bisect judged {BISECT_JUDGED_PER_TICK} commits this tick; the range "
+                      f"{rng['good'][:12]}...{rng['bad'][:12]} and the rest wait for the next tick")
+                break
             if any(host_avoided(state, h, t) or host_gone(state, h, t) for h in {mac_host(n) for n in group["rows"]} - {None}):
                 # A gone host (the controller has no such worker) would answer every step with host_gone: its rows
                 # close at the next tip measurement elsewhere instead.
@@ -3007,9 +3011,16 @@ def plan(o):
             between = range_commits(rng["good"], rng["bad"])
             if between is None:
                 continue
-            ok = bisect_measurable(group["rows"], lambda c: fleet_runs(c, tip_version) and bisect_tree_ready(c),
+            ok = bisect_measurable(group["rows"], lambda c: fleet_runs(c, tip_version) and tree_ready(c),
                                    supported_parts_at)
-            sha = bisect_midpoint(between, ok, rng.get("skip") or [])
+            judged = []
+            looked = rng.get("looked") if isinstance(rng.get("looked"), dict) else {}
+            start = looked.get("place", 0) if (looked.get("good"), looked.get("bad")) == (rng["good"], rng["bad"]) else 0
+            sha, place = bisect_next(between, lambda c: judged.append(c) or ok(c), rng.get("skip") or [],
+                                     start if isinstance(start, int) else 0, budget)
+            budget -= len(judged)
+            # Where this range's walk stopped, for the next tick; a narrowed range (new good or bad) starts over.
+            rng["looked"] = {"good": rng["good"], "bad": rng["bad"], "place": place}
             if sha:
                 bisect = {"sha": sha, "range": rng, "rows": group["rows"]}
                 break
