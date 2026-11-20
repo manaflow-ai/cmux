@@ -159,24 +159,40 @@ await requireBrowserLane("transcript-thumb-look.test.ts", async () => {
           });
           await cast.send("Page.startScreencast", { format: "jpeg", quality: 80, everyNthFrame: 1 });
         }
+        /// Until the thumb rests: not scrolling, near the pointer or not as asked, and no fade's
+        /// inline ink left (followShownScrollerFade clears it when a fade ends).
+        const settled = (near: boolean) =>
+          page.waitForFunction(
+            (near) => {
+              const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+              return (
+                !scroller.hasAttribute("data-cmux-scrolling") &&
+                scroller.hasAttribute("data-cmux-scroller-near") === near &&
+                !scroller.style.getPropertyValue("--cmux-shown-scroller-ink")
+              );
+            },
+            near,
+            { timeout: 10_000 },
+          );
         const pagesBefore = pane.methods.filter((method) => method === "_acpmux/events").length;
         for (let round = 0; round < 3; round++) {
           // Up through the history, a quick trackpad scroll, while pages land above.
           await phase(`wheel-${round}`);
           for (let step = 0; step < 90; step++) {
             await page.mouse.wheel(0, -[80, 190, 120, 256, 145, 202][step % 6]!);
+            // fixed-wait: the gap between wheel events is the input itself, a trackpad's cadence.
             await page.waitForTimeout(16);
           }
           // At rest: the thumb fades out.
           await phase(`rest-${round}`);
-          await page.waitForTimeout(1400);
+          await settled(false);
           // Reaching for the thumb: it fades in wide, then out as the pointer leaves.
           await phase(`near-${round}`);
           await page.mouse.move(view.x + view.width - 4, middle.y, { steps: 6 });
-          await page.waitForTimeout(700);
+          await settled(true);
           await phase(`leave-${round}`);
           await page.mouse.move(middle.x, middle.y, { steps: 6 });
-          await page.waitForTimeout(700);
+          await settled(false);
         }
         if (cast) await cast.send("Page.stopScreencast").catch(() => {});
         const { frames, phases } = await page.evaluate(
