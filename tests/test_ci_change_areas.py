@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import importlib.util
+import itertools
 import json
 import os
 import re
@@ -3296,6 +3297,16 @@ def test_every_setup_bun_step_declares_a_version() -> None:
                 continue
             found += 1
             tail = lines[index + 1:index + 7]
+            # setup-bun's binary cache archives ~/.bun relative to the workspace, so an entry saved under
+            # /home/runner/work restores outside ~/.bun/bin on a runner whose workspace is
+            # /home/runner/actions-runner/_work, and setup-bun fails "Unable to locate executable file"
+            # (#47731; the Cloud VM image roll's plan, run 44506003283). Every step downloads bun instead.
+            step = list(itertools.takewhile(lambda candidate: not re.match(r"^\s*- ", candidate), tail))
+            assert any(re.match(r"^\s+no-cache:\s*true\s*$", candidate) for candidate in step), (
+                workflow_path.relative_to(ROOT),
+                index + 1,
+                "setup-bun must set no-cache: true",
+            )
             versions = [
                 match.group(1)
                 for candidate in tail
