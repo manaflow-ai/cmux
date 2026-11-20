@@ -1,5 +1,7 @@
 import AppKit
 @testable import CmuxNextAgentPane
+import CmuxNextPages
+import CmuxNextSettings
 import Foundation
 import Testing
 
@@ -20,9 +22,18 @@ import Testing
 /// `ready` of the same page view gets no adopt event, a take after the handshake sends its ONE event at the take,
 /// and a `ready` after that take gets none.
 ///
-/// Limits. The page view is a WebKit one with no document: the row reads the scripts that the host sends
-/// (`AgentPaneView.evaluateScript`) and the host's reply, and no page runs. That a page listens at its handshake
-/// is by a read of the page's source, not by this row. The host is a stand-in that answers each handshake at once.
+/// That row holds a page view with no page host only: its bridge is the one place that sends the event again. With
+/// a page host (the app's default, `agent.chromium`) the page's `ready` goes through `AgentPageProvider.call`, and
+/// no reply there sends an event. By a read of the page's source, a page there gets no context with its document:
+/// it asks `newTab.context` after it added its adopt listener. The second row holds the host's half of that: with a
+/// page host, the answers to `newTab.context` and to the handshake have the context of the tab that has the page view.
+///
+/// Limits. Each page view is a WebKit one with no page of the app in it: the rows read the scripts that the host
+/// sends (`AgentPaneView.evaluateScript`) and the host's answers, and no page runs. That a page listens at its
+/// handshake, and that a page on a page host asks only after it listens, is by a read of the page's source, not by
+/// these rows. No row has a page that did hear a take before the host answered its handshake (it gets the event 2
+/// times with no page host), a page that loads again, or an answer to `newTab.context` that comes to the page after
+/// a later take's event. The host is a stand-in that answers each handshake at once.
 @MainActor @Suite
 struct NewTabAdoptBeforeHandshakeTests {
     struct Host: AgentPaneHostProviding {
@@ -107,5 +118,38 @@ struct NewTabAdoptBeforeHandshakeTests {
         #expect(atSecondReady == 0, "a second `ready` of the same page view got \(atSecondReady) adopt event(s)")
         #expect(atLateTake == 1, "a take after the handshake sent \(atLateTake) adopt events")
         #expect(atThirdReady == 0, "a `ready` after a take that came after the handshake got \(atThirdReady) adopt event(s)")
+    }
+
+    /// The token in the `newTab` object of an answer that the page host gives to its page.
+    static func token(of answer: JSONValue) -> String? { answer["newTab"]?["inputToken"]?.stringValue }
+
+    /// With a page host: 0, 1 or 2 takes of a page view before its page asked for anything, then the page's ask for
+    /// its context and its handshake, each as the page host gives it to the model. 0 takes is the control: the
+    /// answers then have the context that the page view was made with.
+    @Test(arguments: [0, 1, 2])
+    func onAPageHostTheAnswersToAPageThatATabTookBeforeItAskedHaveThatTabsContext(takes: Int) async throws {
+        _ = NSApplication.shared
+        let model = AgentPaneModel(host: Host(), newTab: Self.context(tab: 0))
+        model.startFolders.resolve = { _ in nil }
+        let file = try #require(AgentPageTestRoot.page, "setup: no page file")
+        let made = AgentPaneView(model: model, source: .bundled(file), pageHost: true, testRoot: true, chromium: nil)
+        let view = try #require(made, "setup: no page view")
+        let provider = try #require(view.pageEvents, "setup: the page view has no page host")
+
+        for tab in 0..<takes { view.adoptNewTab(Self.context(tab: tab + 1)) }
+        try #require(!model.hasHandshake, "setup: the page view has its handshake before a page asked for one")
+        let page = PageCallContext(page: PageDescriptor.agent.id)
+        let context = try await provider.call(AgentPageOps.namespace + "newTab.context", params: .object([:]), context: page)
+        let handshake = try await provider.call(AgentPageOps.namespace + "handshake", params: .object([:]), context: page)
+        try #require(model.hasHandshake, "setup: the host's answer to the handshake set no handshake mark")
+
+        let want = Self.token(takes)
+        print("""
+            NewTabAdoptBeforeHandshakeTests: page host, \(takes) take(s) of a page view before its page asked: the token \
+            in the answer to `newTab.context`: \(Self.token(of: context) ?? "none"), in the answer to the handshake: \
+            \(Self.token(of: handshake) ?? "none"), of the tab that has the page view: \(want)
+            """)
+        #expect(Self.token(of: context) == want, "the answer to `newTab.context` has another tab's context")
+        #expect(Self.token(of: handshake) == want, "the answer to the handshake has another tab's context")
     }
 }

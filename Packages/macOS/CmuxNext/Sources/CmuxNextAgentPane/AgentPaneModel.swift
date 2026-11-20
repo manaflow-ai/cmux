@@ -306,7 +306,7 @@ public final class AgentPaneModel {
     /// Whether the page has asked for a handshake, so its bridge is up and
     /// a turn can be revealed through it directly.
     @ObservationIgnored public internal(set) var hasHandshake = false
-    /// A tab took this New Tab page before its handshake (``AgentPaneView/adoptNewTab(_:)``): its page did not hear that.
+    /// A tab took this New Tab page before its handshake (``AgentPaneView/adoptNewTab(_:)``): that can be unheard. Read with no page host only.
     @ObservationIgnored var newTabAdoptUnheard = false
     /// The New Tab context came from the spare pool's prepare (the tab a Cmd-T would make), not from a tab: the
     /// handshake (a reconnect too) never takes its folder, which is no tab's yet (SHORTCUT FRAMES F2 review).

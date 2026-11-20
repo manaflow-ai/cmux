@@ -109,7 +109,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_start")
         defer { AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_end") }
         let reply = await model.respond(to: request)
-        // A tab took this page before its handshake, so the page did not hear the take's event. The reply has the
+        // A tab took this page before its handshake, so the page can be one that did not hear the take's event. The reply has the
         // tab's context too, but a page that drew from the context of its document takes only a missing folder and
         // missing actions from a reply: it would keep the context of the tab that had it before. The page listens
         // for the event before it sends `ready`, so the take's call runs again here, one time (it clears the mark).

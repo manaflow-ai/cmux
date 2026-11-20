@@ -49,8 +49,8 @@ final class NewTabInputCoordinator {
         /// What had the keyboard at the opening: it gets no key of a hold that ends with no field ready.
         let keyboard: NewTabHoldKeyboard
         let limit: Duration
-        /// The tab the pane showed before Cmd-T, by its id of now (`tabMade`): it counts as the opening only until the page shows.
-        var opened: String?
+        /// The tab the pane showed before Cmd-T, by all its ids (`tabMade`): it counts as the opening only until the page shows.
+        var opened: Set<String>
         weak var pane: PaneController?
         weak var window: NSWindow?
         /// The open put the page's tab on screen (`didShow`).
@@ -65,7 +65,7 @@ final class NewTabInputCoordinator {
             self.buffer = buffer
             self.keyboard = keyboard
             self.limit = limit
-            self.opened = opened
+            self.opened = Set([opened, opened.flatMap { pane?.services.agentTabs.resolve($0) }].compactMap { $0 })
             self.pane = pane
             self.window = window
             self.incoming = incoming
@@ -80,8 +80,8 @@ final class NewTabInputCoordinator {
             if incoming != nil { return true }
             guard let pane, pane.view.window === window, !pane.view.isHiddenOrHasHiddenAncestor else { return false }
             guard let key = pane.currentTabKey else { return !shown || pane.stripModel.selectedID.map { pane.services.agentTabs.isNewTabPage($0.rawValue) } == true } // or its page waits for its frame (`PaneController.apply`)
-            if shown, let opened, key == opened { return false } // `opened` is the store's id of a tab that the daemon made since (`tabMade`)
-            return pane.services.agentTabs.isNewTabPage(key) || LocalPageTab.page(of: key) == .nativeNewTab || (!shown && key == opened)
+            if opened.contains(key) { return !shown } // the tab of the key, by each id that it had in this hold
+            return pane.services.agentTabs.isNewTabPage(key) || LocalPageTab.page(of: key) == .nativeNewTab
         }
     }
 
@@ -121,7 +121,7 @@ final class NewTabInputCoordinator {
         let buffer = NewTabInputBuffer(began: now(), held: earlier, focusField: { [weak pane, weak window] in
             // The native page (tabs.nativeNewTabPage): its field, once the page is in the pane.
             if let pane, let window, let key = pane.currentTabKey, LocalPageTab.page(of: key) == .nativeNewTab {
-                guard let field = nativeNewTabHost(in: pane.view)?.fieldView, field.window === window else { return false }
+                guard let field = NativeNewTabHostingView.shown(in: pane.view)?.fieldView, field.window === window else { return false }
                 return window.firstResponder === field || FocusRoute(.person, "the new tab the person opened: its field").moveKeyboard(in: window, to: field)
             }
             guard let pane, let window, let key = pane.currentTabKey, pane.services.agentTabs.isNewTabPage(key),
@@ -275,11 +275,11 @@ final class NewTabInputCoordinator {
     func didShow(in window: NSWindow?) { if let window { held(in: window)?.shown = true } }
 
     /// The daemon made the tab that the app made under the id `first`: a hold whose key came on that tab knows it by
-    /// the store's id from now on. The store answers for `first` only until its tree no longer lists that id
+    /// the store's id too from now on. The store answers for `first` only until its tree no longer lists that id
     /// (`AgentTabStore.releaseGoneTabs`), so a later key can not ask the store.
     func tabMade(_ first: String, in tabs: AgentTabStore) {
-        for entry in buffers.values where entry.opened == first {
-            entry.opened = tabs.resolve(first)
+        for entry in buffers.values where entry.opened.contains(first) {
+            entry.opened.insert(tabs.resolve(first))
         }
     }
 
@@ -289,7 +289,7 @@ final class NewTabInputCoordinator {
         guard let window = pane.view.window, let entry = held(in: window) else { return }
         let tabs = pane.services.agentTabs
         guard let view = pane.stripModel.selectedID.flatMap({ tabs.existingView($0.rawValue) }) else { return }
-        guard entry.opened.flatMap({ tabs.existingView($0) }) !== view else { return }
+        guard !entry.opened.contains(where: { tabs.existingView($0) === view }) else { return }
         entry.keyboard.newTabTook(view)
     }
 
