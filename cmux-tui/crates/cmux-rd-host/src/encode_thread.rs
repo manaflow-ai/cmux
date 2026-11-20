@@ -280,6 +280,8 @@ mod tests {
             force_idr: true,
             idr_reason: None,
             target_kbps,
+            profile: Default::default(),
+            refine: false,
         };
         Job { req, halve_first }
     }

@@ -15,7 +15,7 @@ use crate::wire::Control;
 use crate::Res;
 use cmux_rd_core::cc::PathKind;
 use cmux_rd_core::flow::Rect;
-use cmux_rd_core::pacer::Pacer;
+use cmux_rd_core::pacer::{Pacer, StrictWireBudget};
 use cmux_rd_core::policy::Principal;
 use cmux_rd_core::session::{SessionId, SessionTable};
 use cmux_rd_engine::{EncodeRequest, Encoded, EngineConfig, MediaEngine, Output};
@@ -26,6 +26,8 @@ use std::collections::VecDeque;
 pub struct SessionCfg {
     pub display: String,
     pub max_fps: u32,
+    /// `--encode-profile`: standard (default) or ultra (the engine marks every frame with it).
+    pub encode_profile: cmux_rd_core::profile::EncodeProfile,
     pub start_kbps: u32,
     pub max_kbps: u32,
     #[cfg_attr(target_os = "macos", allow(dead_code))] // software encoders only
@@ -257,7 +259,7 @@ impl MediaSession {
     ) -> Res<Self> {
         let (w, h) = desktop.size();
         // Phase 1 has no path events from the link yet; the VPC path is the deployed case.
-        let engine = MediaEngine::new(
+        let mut engine = MediaEngine::new(
             EngineConfig {
                 width: w,
                 height: h,
@@ -272,6 +274,13 @@ impl MediaSession {
             },
             now_us(),
         );
+        engine.set_profile(cfg.encode_profile);
+        let pacer = pacing_enabled().then(|| match cfg.encode_profile {
+            cmux_rd_core::profile::EncodeProfile::Ultra => {
+                Pacer::strict(StrictWireBudget::new(engine.target_bps()))
+            }
+            cmux_rd_core::profile::EncodeProfile::Standard => Pacer::new(),
+        });
         Ok(Self {
             desktop,
             encoder: EncodeThread::spawn(frames)?,
@@ -287,7 +296,7 @@ impl MediaSession {
             timing: Timing::from_env(),
             cursor: wants_cursor(negotiated_caps).then(CursorChannel::new),
             clipboard: crate::clipboard::open(negotiated_caps, now_us()),
-            pacer: pacing_enabled().then(Pacer::new),
+            pacer,
             frame_interval_us: 1_000_000 / u64::from(cfg.max_fps.max(1)),
             paced_logs: VecDeque::new(),
         })
@@ -577,6 +586,8 @@ impl MediaSession {
             let frame = frame.unwrap_or_default();
             self.paced_logs.push_back(PacedLog { frame, remaining: out.datagrams.len(), line });
         }
+        // Ultra: the strict bucket follows the engine's held wire budget as probes measure it.
+        pacer.set_rate_bps(self.engine.target_bps());
         pacer.push_frame(out.datagrams, self.engine.target_bps(), self.frame_interval_us, now_us());
         Ok(self.send_paced(carrier)?)
     }
@@ -678,6 +689,7 @@ impl MediaSession {
             let _ = carrier.send_datagram(datagram);
         }
         if !repairs.is_empty() {
+            pacer.set_rate_bps(self.engine.target_bps());
             pacer.push_repair(repairs, self.engine.target_bps(), now_us());
             if let Err(e) = self.send_paced(carrier) {
                 eprintln!("cmux-rd host: paced repair send failed: {e}");
@@ -793,6 +805,8 @@ mod tests {
             force_idr: reason.is_some(),
             idr_reason: reason,
             target_kbps: 8_000,
+            profile: Default::default(),
+            refine: false,
         };
         assert_eq!(idr_reason(&req(Some(IdrReason::Recovery)), None), "recovery");
         assert_eq!(idr_reason(&req(Some(IdrReason::Start)), Some("resize")), "start");
@@ -937,6 +951,7 @@ mod encode_off_loop_tests {
         SessionCfg {
             display: String::new(),
             max_fps: 60,
+            encode_profile: Default::default(),
             start_kbps: 1000,
             max_kbps: 2000,
             preset: String::new(),

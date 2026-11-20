@@ -126,6 +126,7 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
     Ok(SessionCfg {
         display,
         max_fps,
+        encode_profile: Default::default(),
         start_kbps: opts.num_or("start-kbps", 8000)?,
         max_kbps: opts.num_or("max-kbps", 50_000)?,
         preset: opts.str_or("preset", "ultrafast"),
