@@ -215,5 +215,12 @@ class FakeRun(unittest.TestCase):
             self.assertTrue(json.loads((out / "cu-bench.json").read_text())["engines"]["json-engine"]["errors"])
 
 
+
+class CmuxOutlineTests(unittest.TestCase):
+    def test_a_diff_lines_old_value_is_not_the_state(self) -> None:
+        index, labels, role = cu_bench.line_labels('~ [316] text "7" (was: "0")')
+        self.assertEqual((index, role), ("316", "text"))
+        self.assertNotIn("0", labels)
+
 if __name__ == "__main__":
     unittest.main()

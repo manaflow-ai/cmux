@@ -16,6 +16,11 @@ rects); a window's bounds are [x, y, w, h] in global points, as CGWindowList rep
 Not an own window: the app's pid, the marker's pid, and the system's furniture that is on screen in every round (the
 window server's cursor and menu bar, the Dock, the recorder's cursor overlay). The notification banner is another
 process's window (NotificationCenter), so it counts.
+
+Only a window in front of the app covers it. The list is front to back, so `ForeignLog.add` keeps the foreign windows
+listed before the app's first own window: the desktop (Finder, WindowManager) and a dialog the app is in front of are
+behind it. On a CI mini (macOS 27, 2026-11-18) every round of a run was left out over those, a stale accessibility prompt
+behind the app among them. A sample without an own window keeps every foreign window.
 """
 from __future__ import annotations
 
@@ -28,7 +33,10 @@ import subprocess
 import threading
 import time
 
-IGNORED_OWNERS = ("Window Server", "Dock", "SystemUIServer", "CuaDriver", "cua-driver")
+IGNORED_OWNERS = ("Window Server", "Dock", "SystemUIServer", "CuaDriver", "cua-driver", "Cua Driver")
+# Owners whose window spanning the whole app window is a transparent host that is on screen in every round (macOS 27's
+# Notification Center keeps one over the display at layer 21); their small windows (a banner) still count.
+HOST_OWNERS = ("Notification Center",)
 MAX_EXCLUDED_SHARE = 0.2  # a run that lost more than this share of its rounds to foreign windows measured nothing
 MIN_ALPHA = 0.05  # an invisible window covers nothing
 MIN_POINTS = 2.0  # a hairline (a shadow, an edge) covers nothing
@@ -60,6 +68,22 @@ def is_foreign(win, own_pids, ignored=IGNORED_OWNERS):
     return len(bounds) == 4 and bounds[2] >= MIN_POINTS and bounds[3] >= MIN_POINTS
 
 
+def in_front(windows, own_pids):
+    """The windows listed before the first of `own_pids`' (the list is front to back); all of them when none is own."""
+    for i, win in enumerate(windows):
+        if win.get("pid") in own_pids:
+            return windows[:i]
+    return windows
+
+
+def is_host(win, window, hosts=HOST_OWNERS):
+    """Whether `win` is a system host window spanning the whole app window [x, y, w, h] (see HOST_OWNERS)."""
+    if str(win.get("owner") or "") not in hosts:
+        return False
+    x, y, w, h = win.get("bounds") or (0, 0, 0, 0)
+    return x <= window[0] and y <= window[1] and x + w >= window[0] + window[2] and y + h >= window[1] + window[3]
+
+
 def foreign_over(windows, own_pids, rects, window, scale):
     """The foreign windows among `windows` that intersect any of `rects` (None entries skipped): one
     {"owner", "pid", "layer", "bounds"} each, in the list's order."""
@@ -84,7 +108,8 @@ class ForeignLog:
         self.lock = threading.Lock()
 
     def add(self, t, windows):
-        kept = [w for w in windows if is_foreign(w, self.own_pids)]
+        kept = [w for w in in_front(windows, self.own_pids) if is_foreign(w, self.own_pids)
+                and not is_host(w, self.window)]
         with self.lock:
             self.samples.append((t, kept))
 

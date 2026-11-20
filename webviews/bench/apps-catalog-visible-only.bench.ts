@@ -19,7 +19,7 @@ declare global {
   interface Window {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
-    benchChangeOne(index: number): Promise<void>;
+    benchChangeListing(index: number): Promise<void>;
   }
 }
 
@@ -91,7 +91,7 @@ try {
       }, CARDS);
 
       await page.evaluate(() => window.benchRowRenders.mark());
-      await page.evaluate(() => window.benchChangeOne(1));
+      await page.evaluate(() => window.benchChangeListing(1));
       await page.evaluate(() => window.cmuxPaintFrame());
       const change = await page.evaluate(() => window.benchRowRenders.since());
 
