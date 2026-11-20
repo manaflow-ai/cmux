@@ -19,7 +19,8 @@ export const TRANSCRIPT =
   /VirtualTranscript|turnEndFold|Thinking\.tsx|scrollCoordinates|RevealedMarkdown|revealedMarkdownModel|tailGlide|pinnedLiveLine/;
 
 export const MEASURE = process.env.CHAT_RENDER_MEASURE === "1";
-export const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
+export const PROMPT =
+  ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
 const CATEGORIES = [
   "toplevel",
   "devtools.timeline",
