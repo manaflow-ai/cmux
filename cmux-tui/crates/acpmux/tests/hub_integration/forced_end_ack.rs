@@ -184,6 +184,7 @@ async fn a_refused_sign_in_end_waits_for_claude_before_the_next_prompt() {
     assert_eq!(log.lines(), Vec::<String>::new(), "prompts went into the refused turn");
     let ended = until_results(&hub, &id, 2).await;
     assert_eq!(ended[0]["status"], "failed", "{ended:?}");
-    assert_eq!(ended[0]["detail"], "sign_in_refused", "{ended:?}");
+    // Typed as signed out: `finish_turn` gives it the sign-in card (`claude_auth.rs`).
+    assert!(ended[0]["error"].as_str().is_some_and(|e| e.contains("not signed in")), "{ended:?}");
     assert_eq!(records(&hub, &id, "turn_retrying").len(), 2, "one end, at the second retry");
 }
