@@ -78,6 +78,8 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_GROWTH_CHATS",
     "ACPMUX_GROWTH_CLIENTS",
     "ACPMUX_GROWTH_CLIENT_MS",
+    "ACPMUX_GROWTH_SLOW",
+    "ACPMUX_GROWTH_STACKS",
 ]);
 
 /// The growth lab: a daemon with many sessions under a mesh of peers that come and go.

@@ -154,18 +154,25 @@ async fn growth_under_mesh_churn_and_short_clients() {
     let (rss_listed, _) = daemon.rss();
     println!("GROWTH-START listedMs={listed:?} rss={}", rss_listed >> 20);
 
-    // A client that watches and never reads.
-    let mut slow = UnixStream::connect(&socket).unwrap();
-    for (id, (m, p)) in [
-        ("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "growth-slow"}})),
-        ("_acpmux/watch", json!({"enabled": true})),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let line = json!({"jsonrpc": "2.0", "id": id + 1, "method": m, "params": p});
-        slow.write_all(format!("{line}\n").as_bytes()).unwrap();
-    }
+    // Clients that watch and never read (`ACPMUX_GROWTH_SLOW`): an agent's MCP bridge or a
+    // stopped app holding its connection.
+    let slow: Vec<UnixStream> = (0..knob("ACPMUX_GROWTH_SLOW", 1usize))
+        .map(|n| {
+            let mut slow = UnixStream::connect(&socket).unwrap();
+            for (id, (m, p)) in [
+                ("initialize",
+                 json!({"protocolVersion": 1, "clientInfo": {"name": format!("growth-slow-{n}")}})),
+                ("_acpmux/watch", json!({"enabled": true})),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let line = json!({"jsonrpc": "2.0", "id": id + 1, "method": m, "params": p});
+                slow.write_all(format!("{line}\n").as_bytes()).unwrap();
+            }
+            slow
+        })
+        .collect();
 
     let stop = Arc::new(AtomicBool::new(false));
     let counts = Arc::new(Counts::default());
@@ -341,6 +348,28 @@ async fn growth_under_mesh_churn_and_short_clients() {
         _ => 0.0,
     };
     let heap = profile.as_deref().map(attribute);
+    // The blocks held at the end, by whole stack: the largest few, every frame (a site's first
+    // acpmux frames may all be inlined into one task's future).
+    if let Some(path) = profile.as_deref()
+        && let Ok(text) = std::fs::read_to_string(path)
+        && let Ok(doc) = serde_json::from_str::<Value>(&text)
+    {
+        let ftbl: Vec<&str> = doc["ftbl"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|f| f.as_str().unwrap_or(""))
+            .collect();
+        let mut pps: Vec<&Value> = doc["pps"].as_array().into_iter().flatten().collect();
+        pps.sort_by_key(|pp| std::cmp::Reverse(pp["eb"].as_u64().unwrap_or(0)));
+        for (n, pp) in pps.iter().take(knob("ACPMUX_GROWTH_STACKS", 6)).enumerate() {
+            println!("GROWTH-STACK {n} endBytes={} endBlocks={}", pp["eb"], pp["ebk"]);
+            for f in pp["fs"].as_array().into_iter().flatten() {
+                let frame = ftbl.get(f.as_u64().unwrap_or(0) as usize).copied().unwrap_or("");
+                println!("GROWTH-STACK {n}   {}", short_frame(frame));
+            }
+        }
+    }
     let result = json!({
         "secs": secs, "rows": rows, "stable": stable, "churn": churn, "sshDown": ssh_down,
         "chats": chats, "clients": clients,
