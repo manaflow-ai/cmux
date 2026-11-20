@@ -59,6 +59,7 @@ final class NewTabInputCoordinator {
         /// The open put the page's tab on screen (`didShow`).
         var shown = false
         var deadline: Task<Void, Never>?
+        var follows = false // drained, and its keys still go on through it (`flush`)
         /// A page that does not exist yet (Cmd-N's new workspace, `beginIncoming`): its tab key
         /// comes with its readiness; until then the hold owns its window's keys.
         let incoming: IncomingPage?
@@ -335,6 +336,7 @@ final class NewTabInputCoordinator {
             return false
         }
         note("hold key #\(entry.buffer.count + 1)", entry)  // never characters: desync reports keep this log
+        defer { if entry.follows { flush(in: window) } }
         return entry.buffer.capture(event)
     }
 
@@ -348,8 +350,11 @@ final class NewTabInputCoordinator {
 
     func flush(in window: NSWindow?) {
         guard let window, let entry = entry(for: window) else { return }
-        if entry.buffer.drain() {
-            note("drained to field", entry)
+        if entry.follows || entry.buffer.drain() {
+            if entry.follows { entry.buffer.release() } else { note("drained to field", entry) }
+            // Keys typed now would reach no view (cmux23 bench run now-page-3, 2026-11-19: the key after the drain was lost).
+            // They go on through this hold, at once, until the page's window has the keys or the hold's limit passes.
+            if keysReachNoView(window) { entry.follows = true; return }
             entry.deadline?.cancel()
             remove(entry)
         } else if expired(entry) || !entry.owns {
