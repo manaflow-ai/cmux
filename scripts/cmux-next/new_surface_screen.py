@@ -13,10 +13,12 @@ recording: a frame with no row directly before the page is then not seen. So eac
 is INVALID (`display`; new_surface_frames.py `NO_RATE`), and its line says `not known` for the frames with no row.
 Only a finite number above 0 is an asked rate (`asked_rate`): a given `--display-hz` that is none (0, a number below
 0, `inf`, `nan`) stops the run at its arguments (`given_rate`). An asked rate that is lower than the display's has
-the same fault, and the rows can prove it: a row whose rows do not agree with the asked rate is INVALID (`display`
-too; `rate_fault`), and each row's line has the judged number (`rate_share`). When a valid row's number is near
-the limit, the head says so in one sentence (`rate_margin_sentence`). The rows cannot prove that the asked rate
-is right: the true rate is the display's own, which the entry makes.
+the same fault, and the rows can prove it when the rate is more than 15 % too low: a row whose rows do not agree
+with the asked rate, or do not judge it, is INVALID (`display` too; `rate_fault`), and the line of each row with 9
+rows or more has the judged number (`rate_share`). With an asked rate the head says the limit of this check in one
+sentence (`rate_limit_sentence`), and, when a valid row's number is near the limit, that too
+(`rate_margin_sentence`). The rows cannot prove that the asked rate is right: the true rate is the display's own,
+which the entry makes.
 
 The session: `--workspaces N` makes the session that many workspaces with the repository's one session maker
 (scripts/perf-bench/session_real.py make, as scripts/measure/pane-motion-films.py does): each added workspace
@@ -376,10 +378,14 @@ def holes(row):
 
 
 def close_said(row):
-    """The end of a Close Tab row's printed line: which tab closed, which tab shows, and the close's frames."""
+    """The end of a Close Tab row's printed line: which tab closed, which tab shows, and the close's frames. A row
+    with a `display` reason says `not known` for the order, and why: the order is a count of frames, and the row's
+    frame time does not see a frame with no row (the row's `close_tab.order` in the JSON stays as the reader made it)."""
     fact = row.get("close_tab")
     if not fact:
         return ""
+    blind = frames_of.rate_not_known(row.get("invalid"))
+    order = f"not known ({blind})" if blind else fact["order"]
 
     def at(name):
         return json.dumps(fact.get(name) and [fact[name]["frame"], fact[name]["ms"]])
@@ -391,7 +397,7 @@ def close_said(row):
             f"shown={at('content_shown')} strip_first={at('strip_first')}"
             + (f" strip_first_can_be_frames_earlier={earlier}" if earlier else "")
             + f" between={fact.get('content_between_frames')} "
-            f"blank={fact.get('blank_frames')}{keys} order={fact['order']!r}")
+            f"blank={fact.get('blank_frames')}{keys} order={order!r}")
 
 
 def beside(work):
@@ -967,10 +973,10 @@ class Screen:
             if report.get("stopped"):
                 print(f"{MARK} STOPPED {report['stopped']}", flush=True)
                 break
-        # The head's first sentences keep their places; then the recorder's lost rows (and the asked rate's margin when
-        # a valid row's is small), then the app's settings lines.
-        margin = frames_of.rate_margin_sentence(self.rows)
-        report["head"] = self.head() + [frames_of.recorder_sentence(report["cases"])] + ([margin] if margin else []) + settings["lines"]
+        # The head's first sentences keep their places; then the recorder's lost rows, with an asked rate the limit of
+        # its check (and the asked rate's margin when a valid row's is small), then the app's settings lines.
+        rate = [said for said in (frames_of.rate_limit_sentence(self.rate), frames_of.rate_margin_sentence(self.rows)) if said]
+        report["head"] = self.head() + [frames_of.recorder_sentence(report["cases"])] + rate + settings["lines"]
         print(f"{MARK}-HEAD {'; '.join(report['head'])}", flush=True)
         # A stopped run is not a whole run: the driver ends with this code (0: each case ran).
         report["exit_code"] = STOPPED_EXIT if report.get("stopped") else 0

@@ -59,11 +59,15 @@ after the judged key.
 An asked rate that is lower than the display's has the same fault: the frame numbers are too small and a frame
 with no row is not seen. The rows can prove that an asked rate is too LOW, and `rate_fault` does (the reason
 `display`): the smallest time of `RATE_STEPS` steps one after the other in the whole recording (`rate_share`: that
-time over as many asked frame times; each row has it, valid or not) is below `RATE_SHARE`. One step alone is no
-proof: a row's time has a jitter of some ms, and a recording at the right rate has single steps of half a frame
-time, each next to a long one. A recording with too few rows for that sum is INVALID too: a rule that cannot
-judge does not pass. The rows cannot prove that an asked rate is RIGHT: a 120 Hz display whose pictures come each
-second frame gives the rows of a 60 Hz display. The true rate is the display's own, which the entry makes.
+time over as many asked frame times; each row with 9 rows or more has it, valid or not) is below `RATE_SHARE`. One
+step alone is no proof: a row's time has a jitter of some ms, and a recording at the right rate has single steps
+of half a frame time, each next to a long one. A rule that cannot judge does not pass: a recording with too few
+rows for that sum is INVALID too, and so is one with no `RATE_STEPS` steps one after the other whose rows come at
+the asked rate (`rate_on_grid`; the reason says `not judged`): a sum of long and short steps says nothing of the
+rate. The check has a limit, and the head of a report with an asked rate says it (`rate_limit_sentence`): an
+asked rate that is wrong by `1 - RATE_SHARE` or less passes, and the rows cannot prove that an asked rate is
+RIGHT: a 120 Hz display whose pictures come each second frame gives the rows of a 60 Hz display. The true rate is
+the display's own, which the entry makes.
 
 A frame with no row. The recorder gives a row for each picture that the window server made and for each time
 that it says that nothing changed, and it does not give one for each frame of the display: in the still part of a
@@ -158,7 +162,9 @@ NO_RATE = ("display: no asked display rate (`--display-hz`; the entry gives it w
 
 # The asked rate against the rows: the steps one after the other whose time is judged, the share of as many asked
 # frame times under which the display runs faster than the asked rate, and the share under which a take's head
-# says that the margin is small (60 recordings at the right rate: 0.915 and more, each of them).
+# says that the margin is small. `RATE_SHARE` is the one limit: of the INVALID decision, of the frame time that
+# `refresh_of` takes, and of the rows that `rate_on_grid` takes as rows at the asked rate. So an asked rate that
+# is wrong by 15 % or less passes; what the check does not find is in `rate_limit_sentence`.
 RATE_STEPS, RATE_SHARE, RATE_MARGIN = 8, 0.85, 0.88
 # Why the counts of frames with no row are not known, for a row or a case with a `display` reason.
 NO_RATE_SAID, RATE_NOT_PROVED_SAID = "no asked display rate", "the asked display rate is not proved"
@@ -170,8 +176,11 @@ def _number(value):
 
 def asked_rate(value):
     """The asked display rate in Hz, or None when `value` is no rate: only a finite number above 0 is one (`inf` is none:
-    its frame time is 0)."""
-    return value if _number(value) and math.isfinite(value) and value > 0 else None
+    its frame time is 0; so is a whole number that is too large for a float)."""
+    try:
+        return value if _number(value) and math.isfinite(value) and value > 0 else None
+    except OverflowError:
+        return None
 
 
 def rate_share(timed, asked):
@@ -183,12 +192,26 @@ def rate_share(timed, asked):
     return round(min(b - a for a, b in zip(times, times[RATE_STEPS:])) / (RATE_STEPS * asked), 3)
 
 
+def rate_on_grid(timed, asked):
+    """True when RATE_STEPS steps one after the other of the rows `timed` come at the asked rate: against a row for
+    each frame time `asked` (ms) from the first of those rows, no row of them is early or late by more than
+    `1 - RATE_SHARE` of the steps' asked time together (1.2 frame times: the room that the sum's limit gives). Only
+    such rows say something of the rate: a sum of long and short steps can pass the limit at each rate."""
+    times = [row["ms"] for row in timed]
+    room = (1 - RATE_SHARE) * RATE_STEPS * asked
+    for start in range(len(times) - RATE_STEPS):
+        off = [times[start + step] - times[start] - step * asked for step in range(RATE_STEPS + 1)]
+        if max(off) - min(off) <= room:
+            return True
+    return False
+
+
 def rate_fault(timed, asked, refresh):
     """The INVALID reason `display` of a recording whose rows do not agree with the asked frame time `asked` (ms),
     or None (also with no asked rate: the mode gives that reason). `refresh`: the frame time that `refresh_of` took."""
     if not asked:
         return None
-    share = rate_share(timed, asked)
+    share, low = rate_share(timed, asked), f"{round((1 - RATE_SHARE) * 100):g} %"
     if share is None:
         return (f"display: the recording has {len(timed)} rows, fewer than the {RATE_STEPS + 1} that the check of the asked "
                 f"display rate needs ({RATE_STEPS} steps one after the other): the rate is not proved")
@@ -197,8 +220,12 @@ def rate_fault(timed, asked, refresh):
                 f"({asked:.2f} ms each; under {RATE_SHARE:g}): the display runs faster than the asked rate, so a frame with "
                 f"no row is not seen and a frame's number can be too small")
     if refresh != asked:
-        return (f"display: the rows come faster than the asked rate by more than 15 %, so the frame time is the rows' own "
+        return (f"display: the rows come faster than the asked rate by more than {low}, so the frame time is the rows' own "
                 f"median step ({refresh:.2f} ms; asked {asked:.2f} ms): a frame with no row is not seen")
+    if not rate_on_grid(timed, asked):
+        return (f"display: the asked rate is not judged: no {RATE_STEPS} steps one after the other of the recording's "
+                f"{len(timed)} rows come at the asked rate ({asked:.2f} ms each; the sum of {RATE_STEPS} steps is {share:g} of "
+                f"{RATE_STEPS} asked frame times at the least, and a sum of long and short steps proves no rate)")
     return None
 
 
@@ -222,6 +249,19 @@ def rate_margin_sentence(rows):
             f"{least['rate_share']:g} in {least.get('label')}; below {RATE_SHARE:g} a row is INVALID by `display`)")
 
 
+def rate_limit_sentence(asked_hz):
+    """One sentence for the head of a report with an asked display rate (None with none): what the check of the
+    asked rate against the rows finds, and what it does not find."""
+    if not asked_rate(asked_hz):
+        return None
+    low = f"{round((1 - RATE_SHARE) * 100):g} %"
+    return (f"the asked display rate ({asked_hz:g} Hz) against the rows: a row is INVALID by `display` when {RATE_STEPS} steps one "
+            f"after the other of its rows took less than {RATE_SHARE:g} of {RATE_STEPS} asked frame times (an asked rate that is more "
+            f"than {low} too low), and when no {RATE_STEPS} steps one after the other come at the asked rate (not judged); an error "
+            f"of {low} or less is not found (rows of a 132 Hz display with 120 asked pass with no word), and rows that come each "
+            f"second frame of a display at 2 times the asked rate pass too")
+
+
 def pair(row, region):
     """(share unlike before the key, share unlike the last picture) of `region` in one row, or None when the rows
     do not carry the region."""
@@ -240,8 +280,8 @@ def refresh_of(rows, asked_hz=None):
     """(the display's frame time, the rows' own step), in ms. The rows' own step: their times are whole ms, so the
     mean of the steps near the median one. The frame time is the asked rate's when one is given: rows that come
     slower than it are frames with no row, and a frame's number stays the display's. Only rows that come FASTER
-    than the asked rate by more than 15 % say that the display does not run at it: the frame time is then the
-    rows' own step, as with no asked rate."""
+    than the asked rate by more than 15 % (a step under `RATE_SHARE` of the asked frame time) say that the display
+    does not run at it: the frame time is then the rows' own step, as with no asked rate."""
     steps = [b["ms"] - a["ms"] for a, b in zip(rows, rows[1:]) if b["ms"] > a["ms"]]
     measured = None
     if steps:
@@ -249,7 +289,7 @@ def refresh_of(rows, asked_hz=None):
         near = [s for s in steps if 0.5 * middle <= s <= 1.5 * middle]
         measured = sum(near) / len(near)
     asked = 1000.0 / asked_hz if asked_rate(asked_hz) else None
-    if asked and (measured is None or measured >= 0.85 * asked):
+    if asked and (measured is None or measured >= RATE_SHARE * asked):
         return asked, measured
     return measured, measured
 
@@ -614,40 +654,53 @@ def summarize(rows):
            "zero": sorted({row["zero"] for row in good if row.get("zero")})}
     for name in ("tab", "content_first", "content_final", "final", "second_first"):
         out[name] = {unit: _spread([(row.get(name) or {}).get(unit) for row in good]) for unit in ("frame", "ms")}
-    # Over EACH row with a first content frame, also an INVALID one: how wrong its first frame can be.
-    spans = [row["first_frame_span"] for row in rows if row.get("first_frame_span")]
-    out["first_frame_no_row"] = {"rows": len(spans), "with_a_frame_with_no_row": sum(1 for span in spans if span["no_row"]),
-                                 # The 2 kinds apart: the page can have come in a frame with no row (INVALID for the
-                                 # time), or each such frame is before a row of the old picture (the time is proved).
-                                 "time_not_proved": sum(1 for span in spans if span["early_ms_at_most"]),
-                                 "time_proved_partial_state_not_seen": sum(1 for span in spans if span["no_row"] and not span["early_ms_at_most"]),
-                                 "no_row": _spread([span["no_row"] for span in spans]),
-                                 "longest_gap_ms": _spread([span["longest_gap_ms"] for span in spans]),
-                                 "early_ms_at_most": _spread([span["early_ms_at_most"] for span in spans])}
-    # A case with a `display` row: why its counts of frames with no row are not known (None: they are known).
-    out["no_row_not_known"] = next((why for why in (NO_RATE_SAID, RATE_NOT_PROVED_SAID)
-                                    if any(rate_not_known(row.get("invalid")) == why for row in rows)), None)
+    # A row with a `display` reason: its frame time does not see a frame with no row, so its counts are not known
+    # (`rate_not_known`). `no_row_not_known`: why, for a case with such a row (None: each row's counts are known);
+    # `no_row_not_known_rows`: how many of the case's rows.
+    whys = [rate_not_known(row.get("invalid")) for row in rows]
+    out["no_row_not_known"] = next((why for why in (NO_RATE_SAID, RATE_NOT_PROVED_SAID) if why in whys), None)
+    out["no_row_not_known_rows"] = sum(1 for why in whys if why)
+    # Over EACH row with a first content frame whose counts are known, also an INVALID one: how wrong its first
+    # frame can be. None when the counts of each row of the case are not known: a 0 there would read as `none`.
+    spans = [row["first_frame_span"] for row, why in zip(rows, whys) if not why and row.get("first_frame_span")]
+    out["first_frame_no_row"] = None if rows and all(whys) else {
+        "rows": len(spans), "with_a_frame_with_no_row": sum(1 for span in spans if span["no_row"]),
+        # The 2 kinds apart: the page can have come in a frame with no row (INVALID for the time), or each such
+        # frame is before a row of the old picture (the time is proved).
+        "time_not_proved": sum(1 for span in spans if span["early_ms_at_most"]),
+        "time_proved_partial_state_not_seen": sum(1 for span in spans if span["no_row"] and not span["early_ms_at_most"]),
+        "no_row": _spread([span["no_row"] for span in spans]),
+        "longest_gap_ms": _spread([span["longest_gap_ms"] for span in spans]),
+        "early_ms_at_most": _spread([span["early_ms_at_most"] for span in spans])}
     return out
 
 
 def recorder_lost(rows):
     """One case's rows that the recorder lost: the rows with an INVALID reason `no-row` (a frame with no row where
     the page can have come) or `refresh` (rows slower than the display's frames). Both are faults of the tool's
-    yield, not of the app. `rows`: the rows with one of the 2 reasons, `of` each row of the case."""
-    kinds = [{reason.split(":")[0] for reason in row.get("invalid") or []} & {"no-row", "refresh"} for row in rows]
-    return {"rows": sum(1 for kind in kinds if kind), "of": len(rows),
+    yield, not of the app. A row with a `display` reason is not counted: its frame time does not see a frame with
+    no row (`rate_not_known`). `rows`: the rows with one of the 2 reasons, `of` the rows that are counted,
+    `not_known` the rows that are not. None when no row of the case is counted: a 0 would read as `none lost`."""
+    seen = [row for row in rows if not rate_not_known(row.get("invalid"))]
+    if rows and not seen:
+        return None
+    kinds = [{reason.split(":")[0] for reason in row.get("invalid") or []} & {"no-row", "refresh"} for row in seen]
+    return {"rows": sum(1 for kind in kinds if kind), "of": len(seen), "not_known": len(rows) - len(seen),
             "no_row": sum(1 for kind in kinds if "no-row" in kind), "refresh": sum(1 for kind in kinds if "refresh" in kind)}
 
 
 def recorder_sentence(cases):
     """The report's head sentence from each case's `recorder_lost`, in the cases' order. A case with a `display`
-    row has no count: its frame time does not see a frame with no row, so `0 of N` would read as `none lost`."""
+    row has no count for that row: its frame time does not see a frame with no row, so `0 of N` would read as
+    `none lost`. A case with rows of both kinds says how many rows are not known, and counts the others."""
     said = []
     for name, case in cases.items():
         lost = case.get("recorder_lost") or {}
         kinds = f" (no-row {lost['no_row']}, refresh {lost['refresh']})" if lost.get("rows") else ""
-        blind = case.get("no_row_not_known")
-        said.append(f"{name} not known ({blind})" if blind else f"{name} {lost.get('rows')} of {lost.get('of')}{kinds}")
+        blind, some = case.get("no_row_not_known"), lost.get("not_known")
+        said.append(f"{name} {lost.get('rows')} of {lost.get('of')}{kinds}" if not blind else
+                    f"{name} not known for {some} of {some + lost['of']} rows ({blind}), {lost['rows']} of the {lost['of']} others{kinds}"
+                    if some and lost.get("of") else f"{name} not known ({blind})")
     if not said:
         return "rows lost to the recorder: no case recorded"
     return "rows lost to the recorder (INVALID by `no-row` or `refresh`, a fault of the tool's yield): " + "; ".join(said)
@@ -658,11 +711,16 @@ def cell(summary):
         frames, ms = summary[name]["frame"], summary[name]["ms"]
         return "none" if not frames else f"frame {frames['p50']:g} (max {frames['max']:g}), {ms['p50']:g} ms (max {ms['max']:g})"
     changes, work, zeros = summary["changes_after_content"], summary["key_work_ms"], summary.get("zero") or []
-    holes, blind = summary["first_frame_no_row"], summary.get("no_row_not_known")
+    holes, blind, some = summary["first_frame_no_row"], summary.get("no_row_not_known"), summary.get("no_row_not_known_rows")
+    # Each row of the case is not known (also a summary of an older tool, which has no count of such rows).
+    whole = blind and (holes is None or not some or some >= summary["n"])
+    partly = "" if whole or not blind else f": not known for {some} of {summary['n']} rows ({blind})"
     return (f"valid {summary['valid']}/{summary['n']}" + (f" (INVALID: {', '.join(summary['invalid'])})" if summary["invalid"] else "")
-            + ("" if not holes["rows"] else
-               f"; frames with no row from the key to content_first: not known ({blind})" if blind else
-               f"; frames with no row from the key to content_first, over EACH of {holes['rows']} rows (also the INVALID ones): in "
+            + (f"; frames with no row from the key to content_first: not known ({blind})" if whole else
+               f"; frames with no row from the key to content_first{partly}" if not holes["rows"] and partly else
+               "" if not holes["rows"] else
+               f"; frames with no row from the key to content_first{partly}{';' if partly else ','} over EACH of "
+               f"{holes['rows']} {'other ' if partly else ''}rows (also the INVALID ones): in "
                f"{holes['with_a_frame_with_no_row']} rows ({holes['time_not_proved']} with one directly before content_first: the time is "
                f"not proved; {holes['time_proved_partial_state_not_seen']} with each before a row of the old picture: the time is proved, "
                f"a partial state is not seen), p50 {holes['no_row']['p50']:g} max {holes['no_row']['max']:g}, the longest step "

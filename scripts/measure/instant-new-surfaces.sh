@@ -85,8 +85,9 @@ for arg in "$@"; do
 done
 # --screen counts frames of the display: a display that this script was asked for and did not get is no display to
 # count on (below), and a rate that is no number above 0 stops the step here, before the build (the driver refuses
-# such a --display-hz too, but only after the build).
-if [[ "$screen" == 1 && -n "$vdisplay_hz" ]] && [[ ! "$vdisplay_hz" =~ ^[0-9]+(\.[0-9]+)?$ || "$vdisplay_hz" =~ ^[0.]+$ ]]; then
+# such a --display-hz too, but only after the build). The match runs with LC_ALL=C (in a subshell, so the script's
+# own locale stays): in a UTF-8 locale `[0-9]` also takes digits of other scripts, which are no rate for the driver.
+if [[ "$screen" == 1 && -n "$vdisplay_hz" ]] && ! (LC_ALL=C; [[ "$vdisplay_hz" =~ ^[0-9]+(\.[0-9]+)?$ && ! "$vdisplay_hz" =~ ^[0.]+$ ]]); then
   echo "instant-new-surfaces: --screen: --vdisplay=$vdisplay_hz is not a rate in Hz above 0" >&2
   exit 2
 fi
