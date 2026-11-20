@@ -165,6 +165,38 @@ struct AgentHibernationProcessSignalBoundaryTests {
         )
     }
 
+    /// A recovery retry refreshes its epoch after the agent has exited. When
+    /// only the detached inbox helper is left, there is no terminal to share,
+    /// and the helper is still signaled through its own group.
+    @MainActor
+    @Test
+    func aRetryEpochWithOnlyTheInboxHelperLeftStillSignalsIt() async {
+        let signaledTargets = OSAllocatedUnfairLock(initialState: [pid_t]())
+        let helperOnly = AgentHibernationProcessExitEpoch(
+            terminations: [Self.agentAndHelperTerminations[1]],
+            processGroupLeaders: [202: Self.helperIdentity],
+            signalableProcessIdentities: [Self.helperIdentity]
+        )
+
+        let result = await AgentHibernationController.terminateScopedProcessEpochForHibernation(
+            helperOnly,
+            processScopeKey: Self.signalScopeKey,
+            currentProcessID: 999,
+            currentProcessGroupID: 999,
+            processIdentityProvider: { $0 == 202 ? Self.helperIdentity : nil },
+            processGroupProvider: { $0 },
+            processArgumentsProvider: { $0 == 202 ? Self.helperArguments : nil },
+            processTTYDeviceProvider: { _ in nil },
+            signalErrorProvider: { target, _ in
+                signaledTargets.withLock { $0.append(target) }
+                return nil
+            }
+        )
+
+        #expect(result == .committedAwaitingExit)
+        #expect(signaledTargets.withLock { $0 } == [-202])
+    }
+
     @MainActor
     @Test
     func rejectsAHelperWhoseOwnershipEvidenceChanged() async {
