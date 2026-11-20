@@ -239,6 +239,62 @@ fn the_settle_wait_never_passes_the_ceiling() {
     assert_eq!(*d.captures.lock().unwrap(), 1 + 10);
 }
 
+/// Leo (ask-cdfac12eab): "why do we ever even wait for screen frames? we
+/// shouldnt bother most of the time i think". An app whose accessibility
+/// signals are watched and that sent none, with its window unchanged after
+/// the floor, returns at the floor after one capture: no frame-by-frame wait
+/// to the ceiling.
+#[test]
+fn a_silent_app_is_not_watched_frame_by_frame() {
+    let d = Arc::new(FakeDesktop::standard());
+    *d.signals.lock().unwrap() = Some(crate::desktop::Signals::default());
+    let (e, slept) = settling_engine(d.clone());
+    assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+    let out = e.call(&ctx(None), "type_text", &json!({"window_id": "1", "text": "x"}));
+    let state = &out.body["state"];
+    assert_eq!(state["unchanged"], true, "{state}");
+    assert_eq!(state["waited_ms"], 120, "{state}");
+    assert_eq!(state["captures"], 1, "{state}");
+    assert_eq!(*d.captures.lock().unwrap(), 1 + 1);
+    assert_eq!(*slept.0.lock().unwrap(), vec![Duration::from_millis(120)]);
+}
+
+/// An app that signalled a change its window does not show yet is still
+/// watched until the change shows (within the ceiling).
+#[test]
+fn a_signalled_change_is_waited_for_until_it_shows() {
+    let d = Arc::new(FakeDesktop::standard());
+    *d.signals.lock().unwrap() = Some(crate::desktop::Signals::default());
+    let (e, _) = settling_engine(d.clone());
+    assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+    // The app signalled (the action's effect is under way); it redraws on
+    // the third capture after the agent's screenshot.
+    *d.signals.lock().unwrap() =
+        Some(crate::desktop::Signals { in_window: 1, ..Default::default() });
+    *d.repaint_from.lock().unwrap() = Some((4, 77));
+    let mut out = ToolOutput::ok(json!({"evidence": "delivered"}));
+    let app = e.app_of(&e.window("1").unwrap());
+    let before = Arc::new(Mutex::new(Some(crate::desktop::Signals::default())));
+    struct Then(Arc<Mutex<Option<crate::desktop::Signals>>>, Arc<FakeDesktop>);
+    impl Watch for Then {
+        fn signals(&self) -> crate::desktop::Signals {
+            // The first read is from before the action; later reads see the
+            // desktop's signals.
+            match self.0.lock().unwrap().take() {
+                Some(s) => s,
+                None => self.1.signals.lock().unwrap().clone().unwrap_or_default(),
+            }
+        }
+        fn listening(&self) -> bool {
+            true
+        }
+    }
+    let watch = Then(before, d.clone());
+    e.attach_state(&ctx(None), "1", &app, &mut out, SettleMode::Adaptive, false, Some(&watch));
+    assert_eq!(out.body["state"]["unchanged"], false, "{}", out.body);
+    assert_eq!(*d.captures.lock().unwrap(), 1 + 3);
+}
+
 /// Bug 5 and the verified results: input the route only delivered, whose
 /// effect must show in the window (`shows`), after which nothing changed
 /// through a real settle wait (pixels, elements, windows of any process,
