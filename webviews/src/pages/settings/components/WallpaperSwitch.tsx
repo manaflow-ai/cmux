@@ -11,7 +11,12 @@ import {
   FOLDER_PREFIX,
   formatWhen,
   isFixed,
+  isShuffle,
   modeOf,
+  rememberBackground,
+  rememberedFixed,
+  rememberedFolder,
+  rememberedShuffle,
   MODES,
   nextWhen,
   OFFSETS,
@@ -402,11 +407,14 @@ export function WallpaperSwitch({
   const labelId = useId();
   const name = useId();
   const mode = modeOf(values, choices);
-  // The last picture that stayed: Off puts it back after a mode that has none of its own.
-  const lastFixed = useRef<string | null>(isFixed(values.background) ? values.background : null);
+  // The last picture that stayed: Off puts it back after a mode that has none of its own. The last
+  // shuffle: Rotate goes back to its folder. Both outlive the page (wallpaperSwitch.ts's memory).
+  const lastFixed = useRef<string | null>(isFixed(values.background) ? values.background : rememberedFixed());
   useEffect(() => {
+    rememberBackground(values.background);
     if (isFixed(values.background)) lastFixed.current = values.background;
   }, [values.background]);
+  const lastShuffle = isShuffle(values.background) ? values.background : rememberedShuffle();
   // Which slot's picture list is open: "light", "dark", "sun" or a schedule row's key.
   // Kept with the mode it opened in, so a mode change closes it.
   const [opened, setOpened] = useState<{ mode: WallpaperMode; id: string } | null>(null);
@@ -417,7 +425,7 @@ export function WallpaperSwitch({
   const pickMode = (next: WallpaperMode) => {
     if (next === mode) return;
     write(
-      writesFor(next, values, { choices, lastFixed: lastFixed.current }),
+      writesFor(next, values, { choices, lastFixed: lastFixed.current, lastShuffle }),
       t("settingsPage.history.change", t("settingsWindow.wallpaperSwitch.title"), t(MODE_TITLE[next])),
     );
   };
@@ -529,13 +537,15 @@ export function WallpaperSwitch({
     );
   } else if (mode === "rotate") {
     const folder = values.background;
+    // The folder on screen, else the last one shuffled, so showing the paintings never drops it.
+    const own = folder.startsWith(FOLDER_PREFIX) ? folder : rememberedFolder();
     const folders = [
       { id: SHUFFLE_PAINTINGS, title: t("settingsWindow.backdropPicker.shufflePaintings") },
       ...(yoursFolder
         ? [{ id: FOLDER_PREFIX + yoursFolder, title: t("settingsWindow.backdropPicker.shuffleYours") }]
         : []),
-      ...(folder.startsWith(FOLDER_PREFIX) && folder !== FOLDER_PREFIX + yoursFolder
-        ? [{ id: folder, title: folder.slice(FOLDER_PREFIX.length).split("/").filter(Boolean).at(-1) ?? folder }]
+      ...(own !== null && own !== FOLDER_PREFIX + yoursFolder
+        ? [{ id: own, title: own.slice(FOLDER_PREFIX.length).split("/").filter(Boolean).at(-1) ?? own }]
         : []),
     ];
     editor = (

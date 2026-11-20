@@ -4,6 +4,7 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { installDom } from "./testDom";
 import {
+  forgetWallpaperMemory,
   formatWhen,
   modeOf,
   nextWhen,
@@ -26,6 +27,7 @@ let page: Rendered | null = null;
 afterEach(() => {
   page?.unmount();
   page = null;
+  forgetWallpaperMemory();
 });
 
 async function card(values: Record<string, unknown> = { "appearance.background": "friedrich-forest-moonlight" }) {
