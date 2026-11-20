@@ -12,7 +12,8 @@ surface); its copies run the real Sparkle flow against a loopback appcast, as ru
 no harness feed, and only the nightly key could sign one for it). Steps:
   1. v1 and v2 copies (v2 newer; with --handoff, the default, v2's daemons carry another build commit, so the update
      takes the daemon handoff a real nightly update takes), a throwaway EdDSA key, the signed appcast served on
-     127.0.0.1. v1 gets its own cmux-next.json: updates.installWhenIdle on, installWhenIdleMinutes N (1), a low
+     127.0.0.1. v1 gets its own cmux-next.json: updates.installWhenIdle on (--install-when-idle on, the opt-in; unset leaves
+     the build's default), installWhenIdleMinutes N (1), a low
      idleInstallQuietSeconds, downloadAutomatically on, automatic checks off.
   2. Before the update stages: agent session A finishes a turn; agent session B starts a turn that waits on a FIFO
      (acpmux's fake agent, `gate:`); a new chat gets an unsent draft typed into its composer (`debug.key`, the path a
@@ -162,6 +163,8 @@ def main():
     ap.add_argument("--expect", choices=["install", "none"], default="install",
                     help="install: the build has Update When Idle (head); none: a control build without it (base)")
     ap.add_argument("--idle-minutes", type=int, default=1, help="updates.installWhenIdleMinutes (default 1)")
+    ap.add_argument("--install-when-idle", choices=["on", "unset"], default="on",
+                    help="updates.installWhenIdle in v1's config: on (the opt-in, default) or unset (the build's default)")
     ap.add_argument("--quiet-seconds", type=int, default=5, help="updates.idleInstallQuietSeconds (default 5)")
     ap.add_argument("--input-bump-after", type=float, default=20,
                     help="seconds after the draft is cleared to touch input once more (0: never); the install must wait "
@@ -188,13 +191,15 @@ def main():
         probe.close()
     out = os.path.abspath(a.out)
     work = os.path.join(out, "work")
-    shutil.rmtree(work, ignore_errors=True)
+    # A repeated run never erases another run's artifacts or state.
+    if os.path.lexists(work):
+        raise SystemExit(f"{work} exists: use a fresh output directory")
     keys, feed = os.path.join(work, "keys"), os.path.join(work, "feed")
     for d in (keys, feed, os.path.join(work, "v1"), os.path.join(work, "v2"), os.path.join(work, "cwd"), os.path.join(work, "draft")):
         os.makedirs(d)
     marks_path = os.path.join(out, "marks.ndjson")
-    if os.path.exists(marks_path):
-        os.unlink(marks_path)
+    if os.path.lexists(marks_path):
+        raise SystemExit(f"{marks_path} exists: use a fresh output directory")
     name = os.path.basename(a.app.rstrip("/"))
     v1, v2 = os.path.join(work, "v1", name), os.path.join(work, "v2", name)
     feed_url = f"http://127.0.0.1:{a.port}/appcast.xml"
@@ -202,9 +207,20 @@ def main():
     slug = "-".join(filter(None, "".join(c if c.isalnum() else " " for c in a.tag.lower()).split()))
     acp_home = os.path.join(os.environ["HOME"], ".acpmux/builds",
                             "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", slug).strip("."))
-    if os.path.exists(os.path.join(acp_home, "config.json")):
-        shutil.rmtree(acp_home)  # an earlier round of this tag; Agent refuses a home it did not configure
+    with open(os.path.join(a.app, "Contents/Info.plist"), "rb") as f:
+        source_identity = plistlib.load(f).get("CFBundleIdentifier")
+    if source_identity != os.path.basename(acp_home):
+        raise SystemExit("the app must be the isolated DEV build for --tag")
+    if os.path.lexists(sock):
+        raise SystemExit(f"{sock} exists: use a fresh tag")
+    os.makedirs(os.path.dirname(acp_home), exist_ok=True)
+    # Exclusive creation proves that the final teardown owns this home.
+    try:
+        os.mkdir(acp_home)
+    except FileExistsError:
+        raise SystemExit(f"{acp_home} exists: use a fresh tag")
     result = {"tag": a.tag, "app": name, "expect": a.expect, "idle_minutes": a.idle_minutes, "quiet_seconds": a.quiet_seconds,
+              "install_when_idle": a.install_when_idle,
               "handoff": a.handoff, "holds": {}, "passed": False}
     server = None
     owned_apps = {}
@@ -273,13 +289,13 @@ def main():
         # Its own config, never the Mac's shared ~/.config/cmux/cmux-next.json (cmux#45598).
         config = os.path.join(work, "cmux-next.json")
         with open(config, "w") as f:
-            json.dump({"updates": {"installWhenIdle": True, "installWhenIdleMinutes": a.idle_minutes,
-                                   "idleInstallQuietSeconds": a.quiet_seconds, "downloadAutomatically": True,
-                                   "checkAutomatically": False}}, f)
+            updates = {"installWhenIdleMinutes": a.idle_minutes, "idleInstallQuietSeconds": a.quiet_seconds,
+                       "downloadAutomatically": True, "checkAutomatically": False}
+            if a.install_when_idle == "on":
+                updates["installWhenIdle"] = True
+            json.dump({"updates": updates}, f)
         result["config"] = json.load(open(config))
         marks = Marks(marks_path)
-        if os.path.exists(sock):
-            os.unlink(sock)
         env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
                "SHELL": "/bin/zsh", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
                "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_DEV_BACKEND_MODE": "local", "CMUX_NEXT_CONFIG_FILE": config}
