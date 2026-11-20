@@ -130,7 +130,20 @@
      "text": "hi"
     }
    },
-   "wait": 4
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Trust /tmp for the chat (the folder question its first send asks)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".acpmux-trust-ask-primary"
+    }
+   },
+   "wait": 5,
+   "shot": false
   },
   {
    "title": "Pi's running chat: model and thinking, no Mode",
