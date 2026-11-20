@@ -391,19 +391,21 @@ fn class_aliases_name_the_inbox_kinds() {
 #[test]
 fn trim_lets_go_only_of_answered_read_messages_and_remembers_them() {
     let mut inbox = Inbox::default();
-    for n in 0..KEEP + 3 {
+    for n in 0..KEEP + 4 {
         let mut i = item(&format!("m-{n}"), "from:a", "a", PromptClass::Result, n as u64, "x");
         (i.noticed, i.read) = (true, true);
-        // The first two are answered; the third went in with no answer yet (its notice runs).
+        // The third item's notice still runs. A read surge item has no outstanding turn.
+        i.surge_held = n == 3;
         if n < 2 {
             i.answered = Some(Ok(json!({"stopReason": "end_turn"})));
         }
         inbox.items.push(i);
     }
     trim(&mut inbox);
-    assert_eq!(inbox.items.len(), KEEP + 1, "only the answered ones go");
+    assert_eq!(inbox.items.len(), KEEP + 1, "only the answered or read surge items go");
     assert!(inbox.trimmed.contains("m-0") && inbox.trimmed.contains("m-1"));
     assert!(inbox.items.iter().any(|i| i.prompt_id == "m-2"));
+    assert!(inbox.trimmed.contains("m-3"));
 }
 
 #[test]
@@ -539,6 +541,10 @@ async fn surge_receipt_restores_the_same_held_message_and_searches_its_original_
     let receipt = hub.hold_surge_message(&session, "second", "cli", &body, &opts).unwrap().unwrap();
     assert_eq!(receipt["surgeHeld"], true);
     let thread = receipt["threadId"].as_str().unwrap();
+    assert_eq!(
+        crate::cli::output::sent_lines(&receipt, false),
+        ["held in the receiver's surge inbox"]
+    );
     *session.inbox() = Default::default();
     hub.restore_inbox(&session);
     let thread = hub.inbox_thread(&session, thread, false);
@@ -551,6 +557,9 @@ async fn surge_receipt_restores_the_same_held_message_and_searches_its_original_
     let search = hub.search_held_inbox(&session, &needle, None).unwrap();
     assert_eq!(search["hits"].as_array().unwrap().len(), 1);
     assert_eq!(search["hits"][0]["promptId"], "second");
+    assert!(matches!(hub.inbox_unsend(&session, "second"), Unsend::Unsent));
+    assert!(session.inbox().items.is_empty());
+    assert_eq!(hub.search_held_inbox(&session, &needle, None).unwrap(), search);
     opts.provenance = Some(crate::prompt_provenance::notice(
         &json!({"sender":"watcher","severity":"fire","title":"Runner failure"}),
         "busy-chat",

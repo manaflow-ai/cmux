@@ -2199,16 +2199,18 @@ impl Hub {
     pub(super) fn inbox_unsend(&self, session: &Arc<Session>, prompt_id: &str) -> Unsend {
         let removed = {
             let mut inbox = session.inbox();
-            let found = inbox.items.iter().enumerate().find(|(_, i)| i.prompt_id == prompt_id);
-            match found.map(|(at, i)| (at, i.noticed, i.notice.is_none())) {
-                None => return Unsend::Gone,
-                Some((_, true, true)) => return Unsend::Carried,
-                Some((_, true, false)) => return Unsend::Noticed,
-                Some((i, false, _)) => {
-                    inbox.removed.insert(prompt_id.to_owned());
-                    inbox.items.remove(i)
-                }
+            let Some(at) = inbox.items.iter().position(|item| item.prompt_id == prompt_id) else {
+                return Unsend::Gone;
+            };
+            let item = &inbox.items[at];
+            if item.surge_held && item.read {
+                return Unsend::Noticed;
             }
+            if !item.surge_held && item.noticed {
+                return if item.notice.is_none() { Unsend::Carried } else { Unsend::Noticed };
+            }
+            inbox.removed.insert(prompt_id.to_owned());
+            inbox.items.remove(at)
         };
         let why = json!({"promptId": prompt_id, "threadId": removed.thread, "reason": "withdrawn"});
         self.append(session, "mux", "inbox_removed", why);
@@ -2395,6 +2397,9 @@ impl Hub {
                     marked.push(item.prompt_id.clone());
                 }
             }
+            if !marked.is_empty() {
+                trim(&mut inbox);
+            }
             (messages, marked, label_key)
         };
         if !marked.is_empty() {
@@ -2488,7 +2493,10 @@ fn trim(inbox: &mut Inbox) {
         .collect();
     while inbox.items.len() > KEEP {
         let gone = |i: &Item| {
-            i.read && i.noticed && i.answered.is_some() && !carried.contains(&i.prompt_id)
+            i.read
+                && i.noticed
+                && (i.surge_held || i.answered.is_some())
+                && !carried.contains(&i.prompt_id)
         };
         match inbox.items.iter().position(gone) {
             Some(i) => {

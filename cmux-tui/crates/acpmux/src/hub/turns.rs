@@ -270,8 +270,15 @@ impl Hub {
             }));
             return self.prompt_unless_held(session, blocks, client, steer, opts).await;
         };
-        let duplicate = |v: Value| {
+        let duplicate = |v: &Value| {
             let mut answer = json!({"sessionId": session.id, "promptId": prompt_id, "duplicate": true, "queued": false, "turnId": v.pointer("/_meta/acpmux/turnId")});
+            if v.pointer("/_meta/acpmux/surgeHeld").and_then(Value::as_bool) == Some(true) {
+                answer.set("surgeHeld", json!(true));
+                answer.set(
+                    "threadId",
+                    v.pointer("/_meta/acpmux/threadId").cloned().unwrap_or_default(),
+                );
+            }
             name_kept_message(&mut answer, session, &prompt_id);
             answer
         };
@@ -293,7 +300,14 @@ impl Hub {
                     // this copy then knows the prompt was taken. With none yet, the first run
                     // may still be held or refused, and only its answer says.
                     let (turn, queued) = pending_turn(session, &prompt_id).unzip();
-                    let mut notice = duplicate(json!({"_meta": {"acpmux": {"turnId": turn}}}));
+                    let pending = json!({"_meta": {"acpmux": {"turnId": turn}}});
+                    let mut notice = duplicate(
+                        first
+                            .borrow()
+                            .as_ref()
+                            .and_then(|result| result.as_ref().ok())
+                            .unwrap_or(&pending),
+                    );
                     if queued == Some(true) {
                         notice.set("queued", json!(true));
                     }
@@ -321,7 +335,7 @@ impl Hub {
             && let Some(answer) = self.logged_inbox_answer(session, &prompt_id)
         {
             if let Some(f) = opts.on_accepted.take() {
-                f(duplicate(answer.clone().unwrap_or(Value::Null)));
+                f(duplicate(answer.as_ref().unwrap_or(&Value::Null)));
             }
             let mut ledger = session.prompts.lock().unwrap();
             outcome.send_replace(Some(answer.clone()));
@@ -338,7 +352,7 @@ impl Hub {
                         "turnId": error.data.as_ref().and_then(|d| d.get("turnId"))
                     }}}),
                 };
-                f(duplicate(value));
+                f(duplicate(&value));
             }
             let mut ledger = session.prompts.lock().unwrap();
             outcome.send_replace(Some(logged.clone()));

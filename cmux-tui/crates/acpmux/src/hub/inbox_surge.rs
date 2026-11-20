@@ -83,13 +83,20 @@ impl Hub {
     ) -> Result<Option<Value>, RpcError> {
         let Some(from) = eligible(opts, blocks) else { return Ok(None) };
         let now = now_ms();
-        let period =
+        // Session Info restores this reducer lazily. A headless receiver needs it as well.
+        self.start_time_breakdown_backfill(session);
+        let measured =
             session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner()).reply_period_ms(now);
+        let period =
+            measured.or_else(|| session.turn().map(|turn| now.saturating_sub(turn.started_at)));
         if !session.inbox().surge_rate.arrival(now, period) {
             return Ok(None);
         }
         if super::super::queue::closing(session) {
             return Err(super::super::queue::closing_error());
+        }
+        if session.moving().is_some() {
+            return Err(super::super::queue::moving_error(session));
         }
 
         let provenance = opts.provenance.as_ref();
@@ -112,13 +119,14 @@ impl Hub {
         let msg = json!({"promptId": prompt_id, "threadId": thread, "from": from, "fromSession": from_session,
             "class":class,"kind":kind_of(class),"client":client,"text":text,"prompt":blocks,
             "sender":sender,"surgeHeld":true,"replyPeriodMs":period,"report":is_report(provenance)});
-        let (_, stored) = self.append_logged(
-            session,
-            "mux",
-            "inbox",
-            crate::prompt_provenance::marked(msg, provenance),
-            None,
-        );
+        let msg = crate::prompt_provenance::marked(msg, provenance);
+        // The sender retries a refused hold. A concurrent journal restore must never park
+        // a second copy of that refused record to write behind the sender's back.
+        let stored = {
+            let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
+            self.catch_up_locked(session);
+            self.append_at_locked(session, "mux", "inbox", msg, None, None, true, true).1
+        };
         if !stored {
             return Err(RpcError::internal("could not persist the surge inbox message"));
         }
