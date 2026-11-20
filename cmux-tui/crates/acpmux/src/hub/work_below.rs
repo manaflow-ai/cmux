@@ -123,34 +123,10 @@ impl Hub {
     /// summary still counts them. A new daemon started with none, and until each subagent's next
     /// progress event its lines reached clients untagged, as the chat's own (a helper's grep read
     /// as the chat still running grep after its turn ended). A harness start ends the background
-    /// subagents of the one before, and a turn start the foreground ones, as live.
-    pub(super) fn seed_subagents_from_log(&self, session: &Session) {
-        let meta = session.meta();
-        let mut tree = crate::subagents::SubagentTree::default();
-        tree.set_own(meta.agent_session_id.as_deref());
-        tree.set_roots(
-            meta.agent_session_id.iter().chain(&meta.retired_agent_session_ids).map(String::as_str),
-        );
-        let _ = self.store.scan_heads(&session.id, &mut |head| {
-            if head.dir == "mux" {
-                match head.kind {
-                    "host_started" | "stopped" | "exited" => tree.end_background(),
-                    "turn_started" => tree.end_foreground(),
-                    _ => {}
-                }
-                return true;
-            }
-            if head.dir != "in" || !names_subagents(head) {
-                return true;
-            }
-            let replay = head.kind.ends_with(".replay");
-            if let Some(mut e) = head.record()
-                && let Some(params) = e.msg.get_mut("params")
-            {
-                tree.annotate_live(params, !replay);
-            }
-            true
-        });
+    /// subagents of the one before, and a turn start the foreground ones, as live. Read from the
+    /// adoption checkpoint of host `incarnation` when there is one (`hosts/checkpoint.rs`).
+    pub(super) fn seed_subagents_from_log(&self, session: &Session, incarnation: &str) {
+        let tree = self.subagents_from_log(session, incarnation);
         let (running_before, running_after) = {
             let mut live = session.subagents.lock().unwrap_or_else(|e| e.into_inner());
             let before = live.running_count();

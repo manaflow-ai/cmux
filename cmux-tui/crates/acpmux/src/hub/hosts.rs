@@ -13,6 +13,7 @@ use crate::agent_host::{self, Liveness};
 use cmux_json::JsonSet as _;
 use futures_util::StreamExt;
 
+mod checkpoint;
 mod journal;
 
 /// How long adoption waits for the next replayed entry of one host to be logged before it recovers
@@ -22,7 +23,7 @@ use crate::agent::{REPLAY_CEILING, REPLAY_STALL};
 
 /// What the session log says about the work in flight under one host
 /// incarnation when the previous controller stopped.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct OpenWork {
     /// `turn_started` without `turn_result`: (seq, turnId, promptId, prompt,
     /// client, control; a Web steer's `turn_control` raises it).
@@ -657,7 +658,7 @@ impl Hub {
         let resume_after = self.last_host_seq(session, &record.incarnation);
         // The subagents the host still runs, before its first replayed line reaches the tap:
         // a child's line is tagged with its session from the first one (`work_below.rs`).
-        self.seed_subagents_from_log(session);
+        self.seed_subagents_from_log(session, &record.incarnation);
         // So is the turn its log has open: the replay's model work is that turn's, not one the
         // person did not start, until recovery below rebuilds it (`background_turn.rs`).
         let _adopted_turn = self.hold_adopted_turn(session);
