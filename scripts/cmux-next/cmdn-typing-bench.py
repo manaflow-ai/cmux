@@ -182,7 +182,7 @@ class Bench:
                "planned_ms": round(sent.get("duration_ms") or 0, 1), "keys_to": word}
         row["key_trace"] = field.get("key_trace")
         if not ok:
-            row["hold_log"] = (focus.get("new_tab_key_log") or [])[-45:]
+            row["hold_log"] = (focus.get("new_tab_key_log") or [])[-160:]
             row["recent_focus"] = window.get("recent_events")
         print("CMDN-TYPING", json.dumps(row), flush=True)
         return row

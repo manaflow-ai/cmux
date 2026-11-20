@@ -24,6 +24,7 @@ final class CEFRuntime {
     }
 
     var state: State = .idle
+    var probeLog: [String] = [] // PROBE
     private(set) var shim: CEFShimLibrary?
     /// Whether first-party pages serve the live web loop (``setLivePages(_:)``), kept until the shim loads.
     var livePages = false

@@ -668,6 +668,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         let canTake = shown && pageWindowHostHasArea && !appearedThisTurn
         pendingFocus = focused && (!canTake || browserID == nil)
         if !focused { keyedPageWindow = nil }
+        CEFProbe.note("setFocused(\(focused)) b=\(browserID ?? -1) canTake=\(canTake) shown=\(shown) appeared=\(appearedThisTurn)")
         guard !focused || canTake, let browserID else { return }
         if focused { grantFocus(browserID) } else { runtime.shim?.setFocus(browserID, 0) }
     }
@@ -697,7 +698,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         guard pendingFocus, isShown, pageWindowHostHasArea, !appearedThisTurn, !awaitsWindowMove, let browserID else { return }
         // Not while the person types in another window (Cmd-N, then Cmd-` before the page painted):
         // the ask waits until this page's window has the keys again.
-        if let key = NSApp.keyWindow, let owner = container.window, key !== owner, key.parent !== owner { return }
+        if let key = NSApp.keyWindow, let owner = container.window, key !== owner, key.parent !== owner { CEFProbe.note("pending grant skipped: other window key"); return }
         pendingFocus = false
         host.lifecycleTrace.record(id, "focus(pending) granted")
         grantFocus(browserID)
