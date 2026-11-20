@@ -18,7 +18,6 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
-from blacksmith_linux_sizes import entry  # noqa: E402
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
@@ -262,21 +261,13 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
         workflow = yaml.safe_load((WORKFLOWS / "cmux-next-guards.yml").read_text(encoding="utf-8"))
         return workflow["jobs"]["ci-guard-group"]
 
-    def test_the_job_runs_on_its_measured_size_and_follows_the_outage_switch(self):
-        # Linux only: fleet Linux, then Blacksmith at its measured size. On a mini 24 of its steps red (no
+    def test_the_job_takes_the_one_linux_label(self):
+        # Linux only: the one Linux label (scripts/ci/one_linux_label.py), no size. On a mini 24 of its steps red (no
         # python3.9 or node, temp-cwd scripts), so portable-placement never places it.
-        measured = entry("cmux-next-guards.yml", "ci-guard-group")
-        pool_route = (f"vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_{measured['failover']}"
-                      f" || fromJSON(vars.RUNNER_POOLS).linux_{measured['size']}")
+        import one_linux_label
         self.assertNotIn("needs", self.job())
         self.assertEqual(self.job()["if"], "${{ !cancelled() }}")
-        self.assertEqual(
-            workflow_jobs.single_runs_on(self.job()),
-            "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request'"
-            " && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'"
-            " || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER"
-            " || " + pool_route + " }}",
-        )
+        self.assertEqual(workflow_jobs.single_runs_on(self.job()), one_linux_label.CANONICAL)
 
     def test_each_guard_pass_uses_a_worker_per_core(self):
         run = "\n".join(str(step.get("run", "")) for step in self.job()["steps"])

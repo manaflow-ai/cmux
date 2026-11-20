@@ -50,20 +50,14 @@ OWNER = re.compile(r"github\.repository_owner\s*!=\s*'manaflow-ai'\s*&&\s*$")
 LIST_OPEN = re.compile(r"fromJSON\('\[[^\]']*$")
 COMPARED = re.compile(r"(?:[!=]=|,|\w\()\s*$")  # a comparison or a function argument, never a bare group
 # The text before a literal that keeps it on purpose -> why. Nothing else may.
-EXCEPTIONS = {
-    re.compile(r"vars\.CI_TRUSTED_RUNNER\) && vars\.CI_TRUSTED_RUNNER \|\|\s*$"): (
-        "runner trust policy: a trusted-token job (pull_request_target, comment events, CLA) takes CI_TRUSTED_RUNNER "
-        "only from the allowlist written into its own expression, else one fixed ephemeral label. A RUNNER_POOLS "
-        "read would let whoever writes that variable route the token; scripts/ci/validate-cla-policy.rb allows the "
-        "CLA job's runs-on as one exact string"
-    ),
+EXCEPTIONS: dict[re.Pattern[str], str] = {
+    # Empty since 2026-11-20: no trusted-token job keeps a literal after its CI_TRUSTED_RUNNER allowlist any more
+    # (they read the pool or the one Linux label). A new entry names the text before its literal and why.
 }
 # Whole selections that keep their literal on purpose -> why.
-SELECTIONS_KEPT_LITERAL = {
-    ("cmux-next-guards.yml", "jobs.signing-runner-variables.runs-on"): (
-        "the job checks the runner variables themselves, so its own route must not read them: with a bad value it "
-        "would queue on that value instead of going red"
-    ),
+SELECTIONS_KEPT_LITERAL: dict[tuple[str, str], str] = {
+    # Empty since 2026-11-20: cmux-next-guards.yml's signing-runner-variables takes the one Linux label,
+    # 'cmux-linux', which reads no runner variable, so it needs no literal (scripts/ci/one_linux_label.py).
 }
 # A job that holds signing or release material keeps its route under its own trust rules
 # (tests/test_ci_release_sdk_lane.sh, tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py).
@@ -72,6 +66,14 @@ from runs_on_labels import holds_signing_material  # noqa: E402
 import workflow_jobs  # noqa: E402
 # A fork branch whose operand reads any repository variable, directly or through fromJSON.
 VARS_READ = re.compile(r"\bvars\.")
+# The one Linux label's fork operand (scripts/ci/one_linux_label.py, Leo 2026-11-20: "you shouldn't have to think
+# about sizing your CI"): an operator's fork-only variable that ends in GitHub-hosted Ubuntu. A fork run that cannot
+# read the variable still gets the quoted hosted label, so it reads as that label.
+FORK_HOSTED_DEFAULT = "(vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04')"
+
+
+def without_fork_hosted_default(value: str) -> str:
+    return value.replace(FORK_HOSTED_DEFAULT, "'ubuntu-24.04'")
 FORK_READS_POOLS = re.compile(FORK.pattern.rstrip("$") + r"(?:fromJSON\()?vars\.")
 
 
@@ -146,6 +148,7 @@ def violations(directory: Path = WORKFLOWS) -> list[str]:
                 continue
             if holds_signing_material(jobs.get(path[1])):
                 continue
+            value = without_fork_hosted_default(value)
             if FORK_READS_POOLS.search(value) or any(
                     VARS_READ.search(value[span.start:span.stop]) for span in fork_operands(value)):
                 found.append(f"{workflow.name}: {'.'.join(path)} gives fork pull requests a repository variable, "
@@ -179,7 +182,7 @@ class NoSingleSizePins(unittest.TestCase):
                            "steps": [{"run": "echo blacksmith-4vcpu-ubuntu-2404"}]}}
         self.assertEqual([path for path, _ in selections(jobs, ("jobs",))], [("jobs", "runner", "runs-on")])
 
-    def test_every_exception_is_still_used(self) -> None:
+    def test_every_exception_is_still_used(self) -> None:  # passes vacuously while EXCEPTIONS is empty
         text = "\n".join(path.read_text(encoding="utf-8") for path in sorted(WORKFLOWS.glob("*.y*ml")))
         for allowed in EXCEPTIONS:
             with self.subTest(exception=allowed.pattern):
@@ -202,12 +205,23 @@ class NoSingleSizePins(unittest.TestCase):
         for cell in cells:
             self.assertNotIn("RUNNER_POOLS", cell)
 
-    def test_the_trusted_selector_keeps_its_literal_and_nothing_else_does(self) -> None:
+    def test_a_trusted_selector_literal_is_a_pin_now_that_nothing_keeps_one(self) -> None:
         trusted = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\","
                    "\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || "
                    "'blacksmith-4vcpu-ubuntu-2404' }}")
-        self.assertEqual(pins_in(trusted), [])
+        self.assertEqual(pins_in(trusted), ["blacksmith-4vcpu-ubuntu-2404"])
         self.assertTrue(pins_in("${{ vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"))
+
+    def test_the_one_label_fork_operand_reads_as_its_hosted_default(self) -> None:
+        one = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && "
+               "github.event.pull_request.head.repo.full_name != github.repository && " + FORK_HOSTED_DEFAULT
+               + " || 'cmux-linux' }}")
+        value = without_fork_hosted_default(one)
+        self.assertFalse(FORK_READS_POOLS.search(value))
+        self.assertFalse(any(VARS_READ.search(value[s.start:s.stop]) for s in fork_operands(value)))
+        self.assertEqual(pins_in(value), [])
+        other = one.replace("vars.CI_FORK_LINUX_RUNNER", "vars.LINUX_RUNNER")
+        self.assertTrue(any(VARS_READ.search(other[s.start:s.stop]) for s in fork_operands(other)))
 
     def test_a_fork_branch_that_reads_a_variable_is_flagged(self) -> None:
         value = ("${{ github.event.pull_request.head.repo.full_name != github.repository && "
