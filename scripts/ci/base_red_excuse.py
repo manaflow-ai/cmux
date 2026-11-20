@@ -2763,7 +2763,9 @@ DIAGNOSTIC_SUMMARY = re.compile(r"^error: (?:could not compile `[^`]+`|aborting 
 # outside the diff with the base commit that last changed it. They name no error of their own (each is a located
 # diagnostic above them), and differ between a PR and the base by scope and commit, so they are never compared; the
 # file a base-red line names must still be one the PR does not change.
-CLIPPY_SCOPE = re.compile(r"^##\[error\]clippy -D warnings failed for [^;]+; run `cargo clippy ")
+# Since lints stopped failing the check (2026-11-20) the scope line says "clippy found compile errors in"; older
+# base logs still say "clippy -D warnings failed for", so both are read.
+CLIPPY_SCOPE = re.compile(r"^##\[error\]clippy (?:-D warnings failed for|found compile errors in) [^;]+; run `cargo clippy ")
 CLIPPY_BASE_RED = re.compile(r"^##\[error\](?P<path>\S+) is red and this change does not touch it: ")
 COMPILE_ERROR_LOGS = 6  # base job logs read for one red, at most
 

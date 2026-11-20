@@ -1369,7 +1369,8 @@ jobs:
   # A feat-cmux-next push only. This scan reports and never fails on a finding
   # (`--fail-on none`); on a pull request `React Doctor (changed React projects)`
   # (cmux-next-react-doctor.yml) scans the same webviews project with the same
-  # pinned tool and gates it: a new error or a failed scan is red there. Running
+  # pinned tool and reports a new error or a failed scan as a warning (lint never
+  # stops a merge, Leo 2026-11-20). Running
   # it here too was 786 runs and about 178 hours of 16 vCPU a day (p50 13.6 min,
   # 2026-11-16T08:27Z..11-17T08:27Z) for a verdict nobody read, and its timeouts
   # held PRs (#44127).
