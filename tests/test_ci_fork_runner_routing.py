@@ -120,7 +120,20 @@ TRUSTED_RUNNER_EXPRESSION = (
 # CLA's trusted base validator pins its older selector and runner-name guard.
 # Keep that policy valid while other trusted jobs adopt the measured BS8 size.
 CLA_TRUSTED_RUNNER_EXPRESSION = TRUSTED_RUNNER_EXPRESSION.replace(',"blacksmith-8vcpu-ubuntu-2404"', '')
-TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, CLA_TRUSTED_RUNNER_EXPRESSION)
+# The required merge gates' reserved one-job label (cmuxterm-hq gha_runners.py GATE_JIT_LABEL): served only by the
+# fleet reconciler's JIT VMs (no service account, deleted after the one job), created first in a tick under its own
+# cap with a warm floor, and named only by the jobs behind main's required checks (tests/test_ci_required_gate_label.py).
+# On 2026-11-20 #47869's required CLA policy guard jobs 136180710145 and 136182264409 sat queued with no runner from
+# 08:41Z on hosted ubuntu-24.04. The operand leads the trusted selector, after the fork branch; CI_GATE_SKIP_FLEET=1
+# turns it off and the selector after it is unchanged, so it can only ever add that one literal label.
+GATE_JIT_LABEL = "cmux-gcp-gate-jit-x64"
+GATE_FIRST_OPERAND = "vars.CI_GATE_SKIP_FLEET != '1' && '" + GATE_JIT_LABEL + "' || "
+GATE_TRUSTED_RUNNER_EXPRESSION = TRUSTED_RUNNER_EXPRESSION.replace(
+    "'ubuntu-24.04' || ", "'ubuntu-24.04' || " + GATE_FIRST_OPERAND, 1)
+GATE_CLA_TRUSTED_RUNNER_EXPRESSION = CLA_TRUSTED_RUNNER_EXPRESSION.replace(
+    "'ubuntu-24.04' || ", "'ubuntu-24.04' || " + GATE_FIRST_OPERAND, 1)
+TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, CLA_TRUSTED_RUNNER_EXPRESSION,
+                              GATE_TRUSTED_RUNNER_EXPRESSION, GATE_CLA_TRUSTED_RUNNER_EXPRESSION)
 # Fast checks admission accepts only the smallest measured Blacksmith size (a
 # picker's one re-run route, never 16 or 32 vCPU), else Blacksmith 2 vCPU, never
 # GitHub-hosted. No input can select a persistent runner.
@@ -1374,7 +1387,26 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 self.assertEqual(len(runs_on), 1, runs_on)
                 self.assertRegex(runs_on[0], TRUSTED_RUNNER_LINE)
                 if workflow in {"cla.yml", "cla-policy-guard.yml"}:
-                    self.assertEqual(runs_on[0].strip(), "runs-on: " + CLA_TRUSTED_RUNNER_EXPRESSION)
+                    self.assertIn(runs_on[0].strip(), ("runs-on: " + CLA_TRUSTED_RUNNER_EXPRESSION,
+                                                       "runs-on: " + GATE_CLA_TRUSTED_RUNNER_EXPRESSION))
+                if workflow == "backend-migrations.yml":
+                    # The required gates' reserved label leads (test_ci_required_gate_label.py).
+                    self.assertEqual(runs_on[0].split(" #", 1)[0].strip(), "runs-on: " + GATE_TRUSTED_RUNNER_EXPRESSION)
+
+    def test_the_gate_label_passes_only_as_the_literal_operand_ahead_of_the_trusted_selector(self) -> None:
+        # A trusted-token gate may lead with cmux-gcp-gate-jit-x64 (one VM per job, deleted after it). Only that
+        # literal, behind CI_GATE_SKIP_FLEET, ahead of the exact selector passes; anything else still fails.
+        self.assertEqual(runner_label_errors(GATE_TRUSTED_RUNNER_EXPRESSION), [])
+        self.assertEqual(runner_label_errors(GATE_CLA_TRUSTED_RUNNER_EXPRESSION), [])
+        for refused in (GATE_TRUSTED_RUNNER_EXPRESSION.replace(GATE_JIT_LABEL, "cmux-fleet-linux-x64"),
+                        GATE_TRUSTED_RUNNER_EXPRESSION.replace(GATE_JIT_LABEL, "cmux-gcp-lane-x64"),
+                        GATE_TRUSTED_RUNNER_EXPRESSION.replace("'" + GATE_JIT_LABEL + "'", "vars.GATE_RUNNER"),
+                        GATE_JIT_LABEL):
+            with self.subTest(runs_on=refused):
+                self.assertNotEqual(runner_label_errors(refused), [])
+        # Not the repair workflows' switch: a variable named for the other label cannot turn this one off.
+        self.assertNotEqual(runner_label_errors(GATE_TRUSTED_RUNNER_EXPRESSION.replace(
+            "CI_GATE_SKIP_FLEET", "CI_REPAIR_SKIP_FLEET")), [])
 
     def test_a_job_with_an_app_key_runs_where_no_variable_can_move_it(self) -> None:
         jobs = app_key_jobs()
