@@ -133,7 +133,7 @@ class NightlyNextOneJobTests(unittest.TestCase):
                      "Generate Sparkle appcasts (nightly)", "Verify version surfaces",
                      "Verify bundled CLI commands run from the bundle alone",
                      "Verify signed diff sidecar protocol contract",
-                     "Verify signed app entitlements and the Computer Use helper ticket",
+                     "Verify signed app entitlements",
                      "Run bundled Ghostty theme picker helper regression", "Verify signed app SSH daemon contract",
                      "Verify final DMG artifact", "Launch smoke from a fresh home",
                      "Require every DMG to match a tested digest", "Take the nightly-next publish lease",
@@ -202,7 +202,7 @@ class NightlyNextOneJobTests(unittest.TestCase):
     # verify-final-dmg-nightly's, which run without secrets in the split path).
     BUNDLE_RUNNERS = (
         "Verify version surfaces", "Verify bundled CLI commands run from the bundle alone",
-        "Verify signed diff sidecar protocol contract", "Verify signed app entitlements and the Computer Use helper ticket",
+        "Verify signed diff sidecar protocol contract", "Verify signed app entitlements",
         "Run bundled Ghostty theme picker helper regression", "Verify signed app SSH daemon contract",
         "Verify final DMG artifact", "Launch smoke from a fresh home",
     )

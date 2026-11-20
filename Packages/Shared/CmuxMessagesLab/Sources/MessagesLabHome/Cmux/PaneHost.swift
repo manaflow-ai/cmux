@@ -619,7 +619,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
         if Self.args.contains("--inactive") { demo.setInactive(true) }
         scheduleWake()
-        if intents?.canReply == true { swipe.install(); thread.install() }
+        // The thread view's outside-click and Esc close work in a chat that takes no replies too (a permalink opens
+        // a thread there); only the reply gestures need a host that takes replies.
+        if intents?.canReply == true { swipe.install() }
+        thread.install()
         host.needsLayout = true
         onInstalled.forEach { $0(self) }
         return store
@@ -765,8 +768,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
             let orphans = ComposeInlineText.orphanRanges(in: storage, keeping: Set(draft.map(\.id)))
             for r in orphans { storage.replaceCharacters(in: r, with: "") }
         }
-        composerHistory.textChanged(to: tv.string)
-        dispatch(.setDraft(tv.string))
+        // The draft is a native copy of the field's text (a bridged NSString): each key compares it.
+        let text = String(nativeCopyOf: tv.string)
+        composerHistory.textChanged(to: text)
+        dispatch(.setDraft(text))
         // An attachment whose character the person deleted (Delete, a cut, the remove button) leaves the draft.
         let shown = Set(tv.textStorage.map(ComposeInlineText.ids(in:)) ?? [])
         let gone = draft.filter { !shown.contains($0.id) }
