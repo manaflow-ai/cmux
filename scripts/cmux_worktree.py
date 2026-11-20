@@ -332,10 +332,12 @@ def stat_fields(st: os.stat_result, mode: int) -> List[int]:
 
 
 def same_stat(fresh: List[int], recorded: List[int]) -> bool:
-    """Whether a file's stat words are the ones its index entry records. A git built
-    without nanosecond stat stores 0 there, and then only the seconds are compared."""
+    """Whether a file's stat words are the ones its index entry records, as git compares
+    them: never the device (git does not without USE_STDEV, and macOS numbers a volume
+    anew after a restart: 16777232 in old entries, 16777233 now on this Mac), and only
+    the seconds where a git built without nanosecond stat stored 0."""
     for position, (now, then) in enumerate(zip(fresh, recorded)):
-        if position in (1, 3) and then == 0:
+        if position == 4 or (position in (1, 3) and then == 0):
             continue
         if now != then:
             return False
