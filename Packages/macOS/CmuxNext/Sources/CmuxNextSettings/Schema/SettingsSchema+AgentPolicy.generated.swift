@@ -51,7 +51,7 @@ extension SettingsSchema {
         "app.hideDockIconWithoutWindows",
         // The menu bar item; looks only, ends no work.
         "app.showMenuBarIcon",
-        "tabs.overflow",
+        "tabs.overflow", "experiments.tabBarStyle", "experiments.tabOverflow",
         // How tabs are listed (looks only)
         "tabs.verticalTabs", "tabs.verticalTabsExpandOnHover",
         // Whether a lone chat's tab draws (looks only)
