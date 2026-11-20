@@ -83,6 +83,7 @@ cmux-wallpaper = { path = "../cmux-wallpaper", features = ["schema"] }
 # The settings file's path and JSONC reader (src/user_settings.rs), the settings owner's.
 cmux-config.workspace = true
 # NEXT Cloud's generated client: the join's hub calls (redeem, credentials/self).
+cmux-build-space.workspace = true
 cmux-cloud-client.workspace = true
 # Each deployment's device hub origin, for the share host's machine sign-in (`share_host/`).
 cmux-cloud-environment.workspace = true
@@ -217,6 +218,7 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+cmux-build-space = { workspace = true, features = ["testing"] }
 # Release gates print and compare their rounds through `acpmux_book::gate_rounds`.
 acpmux-book = { path = "../acpmux-book", features = ["gate-rounds"] }
 # Property tests of the stores under random operations, restarts and torn writes (src/stress/).
