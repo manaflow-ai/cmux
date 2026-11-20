@@ -42,6 +42,16 @@ POOLS = {
 }
 
 
+# Blacksmith is off by default (blacksmith_off()); the tests of the pools' own routing (dead marks, release valve,
+# mirror, outage override, the fleet's starved fallback) run with it turned back on, as CI_BLACKSMITH_OFF='0' does.
+BLACKSMITH_ON = {"CI_BLACKSMITH_OFF": "0"}
+
+
+def main_on(argv, env=None, **kwargs):
+    """runner_pools.main() with Blacksmith on unless `env` says otherwise."""
+    return runner_pools.main(argv, {**BLACKSMITH_ON, **(env or {})}, **kwargs)
+
+
 def fresh_snapshot(now):
     """A complete janitor snapshot from a minute before NOW that saw no Linux start: beside it a probe's stall
     counts (label_evidence())."""
@@ -205,7 +215,11 @@ class Declared(unittest.TestCase):
         [step] = [s for s in steps if "runner_pools.py" in str(s.get("run", ""))]
         self.assertIn('--policy-root "$GITHUB_WORKSPACE"', step["run"])
         # Without the checkout, or when the spill fails, main's policy still runs alone.
-        self.assertEqual(step["run"].count("python3 scripts/ci/runner_pools.py"), 2)
+        # With Blacksmith off (the default), without the checkout, or when the spill fails, main's policy runs alone.
+        self.assertEqual(step["run"].count("python3 scripts/ci/runner_pools.py"), 3)
+        self.assertEqual(step["env"]["CI_BLACKSMITH_OFF"], "${{ vars.CI_BLACKSMITH_OFF }}")
+        self.assertTrue(step["run"].lstrip().startswith('if [ "$CI_BLACKSMITH_OFF" != "0" ]; then\n  python3 scripts/ci/runner_pools.py'),
+                        "no spill moves linux onto Blacksmith while it is off")
         names = [s.get("name") for s in steps]
         self.assertLess(names.index(checkout["name"]), names.index(step["name"]))
 
@@ -419,7 +433,7 @@ class Evidence(unittest.TestCase):
         dead, started, _ = runner_pools.label_evidence(None, None, now=NOW)
         self.assertEqual((dead, started), (set(), set()))
         switch = Main.Switch()
-        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": ""}, api=Main.Api(None), switch=switch, now=NOW), 0)
+        self.assertEqual(main_on([], {"RUNNER_POOLS": ""}, api=Main.Api(None), switch=switch, now=NOW), 0)
         value = json.loads(switch.writes[0][1])
         self.assertEqual(value["_dead"], {})
         for name, spec in runner_pools.load_pools().items():
@@ -624,15 +638,15 @@ class HostedOverride(unittest.TestCase):
         hosted = json.dumps({**{k: "ubuntu-24.04" for k in self.X64}, "_dead": {}})
         switch = Main.Switch({"LINUX_RUNNER": "ubuntu-24.04"})
         env = {"RUNNER_POOLS": hosted, **self.ON}
-        self.assertEqual(runner_pools.main([], env, api=Main.Api(None), switch=switch, now=NOW), 0)
+        self.assertEqual(main_on([], env, api=Main.Api(None), switch=switch, now=NOW), 0)
         [(name, raw), mirrored] = switch.writes
         self.assertEqual(name, "RUNNER_POOLS")
         self.assertEqual({k: json.loads(raw)[k] for k in self.X64}, dict.fromkeys(self.X64, "cmux-fleet-linux-x64"))
         self.assertEqual(mirrored, ("LINUX_RUNNER", "cmux-fleet-linux-x64"))
-        self.assertEqual(runner_pools.main(["--check"], dict(env, RUNNER_POOLS=raw, LINUX_RUNNER=mirrored[1])), 0)
+        self.assertEqual(main_on(["--check"], dict(env, RUNNER_POOLS=raw, LINUX_RUNNER=mirrored[1])), 0)
         # The next pass keeps it, the mirror included.
         again = Main.Switch({"LINUX_RUNNER": "cmux-fleet-linux-x64"})
-        self.assertEqual(runner_pools.main([], dict(env, RUNNER_POOLS=raw), api=Main.Api(None), switch=again,
+        self.assertEqual(main_on([], dict(env, RUNNER_POOLS=raw), api=Main.Api(None), switch=again,
                                            now=NOW), 0)
         self.assertEqual(again.writes, [])
 
@@ -720,7 +734,7 @@ class Main(unittest.TestCase):
             "blacksmith-4vcpu-ubuntu-2404": "stalled", "blacksmith-16vcpu-ubuntu-2404": "stalled",
             "blacksmith-2vcpu-ubuntu-2404": "started", "blacksmith-8vcpu-ubuntu-2404": "started",
             "blacksmith-32vcpu-ubuntu-2404": "stalled"}, checked=now))})
-        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": live}, api=self.Api(fresh_snapshot(now)), switch=switch,
+        self.assertEqual(main_on([], {"RUNNER_POOLS": live}, api=self.Api(fresh_snapshot(now)), switch=switch,
                                            now=now), 0)
         value = json.loads(switch.writes[0][1])
         self.assertEqual(value["linux_16"], "blacksmith-8vcpu-ubuntu-2404")
@@ -731,13 +745,13 @@ class Main(unittest.TestCase):
         # The next pass keeps it (the writer used to reset any label outside the members). It rewrites the
         # variable only to refresh the dead marks' times.
         again = self.Switch(switch.variables)
-        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": switch.writes[0][1]},
+        self.assertEqual(main_on([], {"RUNNER_POOLS": switch.writes[0][1]},
                                            api=self.Api(fresh_snapshot(now + dt.timedelta(minutes=1))),
                                            switch=again, now=now + dt.timedelta(minutes=1)), 0)
         kept = json.loads(dict(again.writes).get("RUNNER_POOLS", switch.writes[0][1]))
         self.assertEqual((kept["linux_16"], kept["linux_32"]),
                          ("blacksmith-8vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"))
-        self.assertEqual(runner_pools.main(["--check"], {"RUNNER_POOLS": switch.writes[0][1],
+        self.assertEqual(main_on(["--check"], {"RUNNER_POOLS": switch.writes[0][1],
                                                          "LINUX_RUNNER": value["linux"]}), 0)
 
     def test_a_stalled_size_flips_linux_once(self) -> None:
@@ -746,7 +760,7 @@ class Main(unittest.TestCase):
             "LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"})
         with tempfile.TemporaryDirectory() as tmp:
             env = {"RUNNER_POOLS": "", "GITHUB_STEP_SUMMARY": f"{tmp}/summary"}
-            self.assertEqual(runner_pools.main([], env, api=self.Api(RECORDED), switch=switch, now=NOW), 0)
+            self.assertEqual(main_on([], env, api=self.Api(RECORDED), switch=switch, now=NOW), 0)
         [(name, raw), mirrored] = switch.writes
         self.assertEqual(name, "RUNNER_POOLS")
         self.assertEqual(json.loads(raw)["linux"], "blacksmith-16vcpu-ubuntu-2404")
@@ -761,7 +775,7 @@ class Main(unittest.TestCase):
         value, _ = runner_pools.reconcile(current, runner_pools.load_pools(), dead_now=(), served_now=(), now=NOW)
         env = {"RUNNER_POOLS": runner_pools.render(value)}
         switch = self.Switch({"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"})
-        self.assertEqual(runner_pools.main([], env, api=self.Api(None), switch=switch, now=NOW), 0)
+        self.assertEqual(main_on([], env, api=self.Api(None), switch=switch, now=NOW), 0)
         self.assertEqual(switch.writes, [("LINUX_RUNNER", "blacksmith-4vcpu-ubuntu-2404")])
 
     def test_linux_runner_is_left_to_the_overflow_switch_and_to_a_deliberate_value(self) -> None:
@@ -799,12 +813,12 @@ class Main(unittest.TestCase):
 
         switch = Forbidden()
         env = {"RUNNER_POOLS": runner_pools.render(held)}
-        self.assertEqual(runner_pools.main([], env, api=NoSnapshot(), switch=switch, now=NOW), 0)
+        self.assertEqual(main_on([], env, api=NoSnapshot(), switch=switch, now=NOW), 0)
         self.assertEqual(switch.writes, [])
         # The same with health that is only stale (the job's start value from 05:30Z) and no snapshot.
         stale = health({first: "stalled"}, checked=NOW - dt.timedelta(minutes=55))
         switch = self.Switch({runner_pools.HEALTH_VARIABLE: json.dumps(stale), "LINUX_RUNNER": second})
-        self.assertEqual(runner_pools.main([], env, api=self.Api(None), switch=switch, now=NOW), 0)
+        self.assertEqual(main_on([], env, api=self.Api(None), switch=switch, now=NOW), 0)
         self.assertEqual(switch.writes, [])
         # A fresh snapshot is no evidence about a Linux size (it lists only macOS labels): still held.
         current, _ = runner_pools.parse_value(env["RUNNER_POOLS"], pools)
@@ -833,19 +847,19 @@ class Main(unittest.TestCase):
         value, _ = runner_pools.reconcile({}, runner_pools.load_pools(), dead_now=(), served_now=(), now=NOW)
         switch = Broken()
         env = {"RUNNER_POOLS": runner_pools.render(value)}
-        self.assertEqual(runner_pools.main([], env, api=self.Api(None), switch=switch, now=NOW), 0)
+        self.assertEqual(main_on([], env, api=self.Api(None), switch=switch, now=NOW), 0)
         self.assertEqual(switch.writes, [])
 
     def test_check_fails_while_linux_runner_is_outside_the_linux_pool(self) -> None:
         value, _ = runner_pools.reconcile({}, runner_pools.load_pools(), dead_now=(), served_now=(), now=NOW)
         env = {"RUNNER_POOLS": runner_pools.render(value)}
-        self.assertEqual(runner_pools.main(["--check"], dict(env, LINUX_RUNNER="blacksmith-4vcpu-ubuntu-2404")), 0)
-        self.assertEqual(runner_pools.main(["--check"], dict(env, LINUX_RUNNER="blacksmith-32vcpu-ubuntu-2404")), 1)
-        self.assertEqual(runner_pools.main(["--check"], env), 1)
-        self.assertEqual(runner_pools.main(["--check"], dict(env, LINUX_RUNNER="ubuntu-24.04",
+        self.assertEqual(main_on(["--check"], dict(env, LINUX_RUNNER="blacksmith-4vcpu-ubuntu-2404")), 0)
+        self.assertEqual(main_on(["--check"], dict(env, LINUX_RUNNER="blacksmith-32vcpu-ubuntu-2404")), 1)
+        self.assertEqual(main_on(["--check"], env), 1)
+        self.assertEqual(main_on(["--check"], dict(env, LINUX_RUNNER="ubuntu-24.04",
                                                              CI_CLOUD_OVERFLOW_SAVED=SWITCHED_LINUX)), 0)
         # A record that left LINUX_RUNNER alone does not excuse it.
-        self.assertEqual(runner_pools.main(["--check"], dict(env, LINUX_RUNNER="ubuntu-24.04",
+        self.assertEqual(main_on(["--check"], dict(env, LINUX_RUNNER="ubuntu-24.04",
                                                              CI_CLOUD_OVERFLOW_SAVED=MACOS_ONLY_RECORD)), 1)
 
     def test_a_macos_only_overflow_record_does_not_freeze_linux_runner_on_a_dead_member(self) -> None:
@@ -867,7 +881,7 @@ class Main(unittest.TestCase):
         env = {"RUNNER_POOLS": runner_pools.render(value)}
         switch = self.Switch({"LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404",
                               "CI_CLOUD_OVERFLOW_SAVED": MACOS_ONLY_RECORD})
-        self.assertEqual(runner_pools.main([], env, api=self.Api(None), switch=switch, now=NOW), 0)
+        self.assertEqual(main_on([], env, api=self.Api(None), switch=switch, now=NOW), 0)
         self.assertEqual(switch.writes, [("LINUX_RUNNER", "blacksmith-16vcpu-ubuntu-2404")])
 
     def test_the_repo_variable_check_hands_in_what_the_mirror_check_reads(self) -> None:
@@ -919,9 +933,9 @@ exit 0
         # Review of #28864: with no token and the variables not handed in, the mirror is unknown, not unset.
         value, _ = runner_pools.reconcile({}, runner_pools.load_pools(), dead_now=(), served_now=(), now=NOW)
         env = {"RUNNER_POOLS": runner_pools.render(value)}
-        self.assertEqual(runner_pools.main([], env, api=self.Api(None), switch=None, now=NOW), 0)
+        self.assertEqual(main_on([], env, api=self.Api(None), switch=None, now=NOW), 0)
         env.update(LINUX_RUNNER=value["linux"], CI_CLOUD_OVERFLOW_SAVED="")
-        self.assertEqual(runner_pools.main([], env, api=self.Api(None), switch=None, now=NOW), 0)
+        self.assertEqual(main_on([], env, api=self.Api(None), switch=None, now=NOW), 0)
 
     def test_the_overflow_watch_hands_in_what_the_mirror_reads(self) -> None:
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
@@ -935,20 +949,20 @@ exit 0
     def test_nothing_changed_writes_nothing(self) -> None:
         switch = self.Switch({"LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"})
         env = {"RUNNER_POOLS": ""}
-        runner_pools.main([], env, api=self.Api(RECORDED), switch=switch, now=NOW)
+        main_on([], env, api=self.Api(RECORDED), switch=switch, now=NOW)
         env["RUNNER_POOLS"] = switch.writes[0][1]
-        runner_pools.main([], env, api=self.Api(RECORDED), switch=switch, now=NOW + dt.timedelta(minutes=10))
+        main_on([], env, api=self.Api(RECORDED), switch=switch, now=NOW + dt.timedelta(minutes=10))
         self.assertEqual(len(switch.writes), 1)
 
     def test_a_malformed_variable_is_rewritten(self) -> None:
         switch = self.Switch()
-        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": '{"_dead":[]}'}, api=self.Api(None),
+        self.assertEqual(main_on([], {"RUNNER_POOLS": '{"_dead":[]}'}, api=self.Api(None),
                                            switch=switch, now=NOW), 0)
         self.assertEqual(runner_pools.value_problems(json.loads(switch.writes[0][1]), runner_pools.load_pools()), [])
 
     def test_check_fails_on_an_unset_or_malformed_variable(self) -> None:
-        self.assertEqual(runner_pools.main(["--check"], {"RUNNER_POOLS": ""}), 1)
-        self.assertEqual(runner_pools.main(["--check"], {"RUNNER_POOLS": '{"_dead":[]}'}), 1)
+        self.assertEqual(main_on(["--check"], {"RUNNER_POOLS": ""}), 1)
+        self.assertEqual(main_on(["--check"], {"RUNNER_POOLS": '{"_dead":[]}'}), 1)
 
 
 class RawLabelVars(unittest.TestCase):
@@ -973,7 +987,7 @@ class RawLabelVars(unittest.TestCase):
             json.loads(switch.variables[runner_pools.HEALTH_VARIABLE])["labels"], checked=now))
         switch.writes.clear()
         with redirect_stdout(out):
-            code = runner_pools.main([], {"RUNNER_POOLS": pools_value}, api=Main.Api(fresh_snapshot(now)), switch=switch,
+            code = main_on([], {"RUNNER_POOLS": pools_value}, api=Main.Api(fresh_snapshot(now)), switch=switch,
                                      now=now)
         self.assertEqual(code, 0)
         written = dict(switch.writes)
@@ -1263,7 +1277,7 @@ class RefusedRead(unittest.TestCase):
         switch = Main.Switch({runner_pools.HEALTH_VARIABLE: json.dumps(health({
             self.TWO: "started", self.FOUR: "stalled", self.EIGHT: "stalled", self.SIXTEEN: "stalled",
             self.THIRTY_TWO: "stalled"}))})
-        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": ""}, api=self.Refused(), switch=switch, now=NOW,
+        self.assertEqual(main_on([], {"RUNNER_POOLS": ""}, api=self.Refused(), switch=switch, now=NOW,
                                            **({"fallback": fallback} if fallback is not None else {})), 0)
         return json.loads(switch.writes[0][1])
 
@@ -1336,16 +1350,86 @@ class RefusedRead(unittest.TestCase):
         runner_pools.pr_runner_pool.GitHub = Recording
         try:
             with contextlib.redirect_stdout(io.StringIO()):
-                runner_pools.main([], env, api=self.Refused(), switch=switch, now=NOW)
+                main_on([], env, api=self.Refused(), switch=switch, now=NOW)
             self.assertEqual(built, [("workflow-token", "manaflow-ai/cmux")])
             # The same token twice is no fallback: nothing more is built.
             built.clear()
             with contextlib.redirect_stdout(io.StringIO()):
-                runner_pools.main([], {**env, "GH_FALLBACK_TOKEN": "bot-token"}, api=self.Refused(), switch=switch,
+                main_on([], {**env, "GH_FALLBACK_TOKEN": "bot-token"}, api=self.Refused(), switch=switch,
                                   now=NOW)
             self.assertEqual(built, [])
         finally:
             runner_pools.pr_runner_pool.GitHub = real
+
+class BlacksmithOffByDefault(unittest.TestCase):
+    """Leo, 2026-11-20: "i thought i already told you guys to route off blacksmith" (ask-7dcf8a6ea6, after
+    ask-373debe932 and ask-9d2a31e55d). The fleet leads every x64 pool (cmux#47794), but its starved mark still sent
+    them to Blacksmith; with Blacksmith off by default nothing does."""
+
+    X64 = ("linux", "linux_2", "linux_4", "linux_8", "linux_16", "linux_32", "promotion")
+    FLEET = "cmux-fleet-linux-x64"
+
+    def test_only_exactly_0_turns_blacksmith_on(self) -> None:
+        for raw in (None, "", " ", "1", "true", "off", " 0 ", "0 "):
+            with self.subTest(raw=raw):
+                self.assertTrue(runner_pools.blacksmith_off({} if raw is None else {"CI_BLACKSMITH_OFF": raw}))
+        self.assertFalse(runner_pools.blacksmith_off({"CI_BLACKSMITH_OFF": "0"}))
+
+    def test_a_starved_or_dead_fleet_keeps_every_x64_pool_and_linux_runner_on_it(self) -> None:
+        pools = runner_pools.load_pools(env={})
+        for marks in ({self.FLEET}, {self.FLEET, "blacksmith-4vcpu-ubuntu-2404"}):
+            with self.subTest(marks=sorted(marks)):
+                value, _ = runner_pools.reconcile({}, pools, dead_now=marks, served_now=(), now=NOW, off=True)
+                self.assertEqual({k: value[k] for k in self.X64}, dict.fromkeys(self.X64, self.FLEET))
+                self.assertIn(self.FLEET, value["_dead"], "the mark is kept for when Blacksmith is back on")
+                on, _ = runner_pools.reconcile({}, pools, dead_now=marks, served_now=(), now=NOW)
+                self.assertNotEqual(on["linux"], self.FLEET, "with Blacksmith on, the starved fleet still falls back")
+        # The same through main(): the janitor's snapshot calls the fleet starved, LINUX_RUNNER sits on Blacksmith.
+        snapshot = dict(fresh_snapshot(NOW), pools={}, dead_labels=[],
+                        starved=[{"label": self.FLEET, "oldest_queued_minutes": 40}])
+        switch = Main.Switch({"LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"})
+        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": ""}, api=Main.Api(snapshot), switch=switch, now=NOW), 0)
+        writes = dict(switch.writes)
+        written = json.loads(writes["RUNNER_POOLS"])
+        self.assertEqual({k: written[k] for k in self.X64}, dict.fromkeys(self.X64, self.FLEET))
+        self.assertEqual(writes["LINUX_RUNNER"], self.FLEET)
+        # Pools with no owned member keep Blacksmith: no owned arm64 or Windows runner, and no GitHub-hosted fallback.
+        self.assertTrue(written["linux_arm64"].startswith("blacksmith-"))
+        self.assertTrue(written["windows"].startswith("blacksmith-"))
+
+    def test_an_overflow_record_never_holds_linux_runner_on_blacksmith_while_off(self) -> None:
+        value = {"linux": self.FLEET}
+        live = {"LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404"}
+        self.assertEqual(runner_pools.mirror_writes(value, live, record=SWITCHED_LINUX), [])
+        self.assertEqual(runner_pools.mirror_writes(value, live, record=SWITCHED_LINUX, off=True),
+                         [("LINUX_RUNNER", self.FLEET)])
+        self.assertEqual(runner_pools.mirror_writes(value, live, record="not json", off=True),
+                         [("LINUX_RUNNER", self.FLEET)])
+
+    def test_turning_blacksmith_back_on_with_a_record_kept_lets_linux_runner_follow_the_pool(self) -> None:
+        # router-review F3 on cmux#47829: LINUX_RUNNER on the fleet is this writer's footprint, never the switch's,
+        # so a record naming LINUX_RUNNER does not freeze it there once CI_BLACKSMITH_OFF=0.
+        value = {"linux": "blacksmith-4vcpu-ubuntu-2404"}
+        live = {"LINUX_RUNNER": self.FLEET}
+        self.assertEqual(runner_pools.mirror_writes(value, live, record=SWITCHED_LINUX),
+                         [("LINUX_RUNNER", "blacksmith-4vcpu-ubuntu-2404")])
+        # A value the switch did write stays the switch's to put back.
+        self.assertEqual(runner_pools.mirror_writes(value, {"LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404"},
+                                                    record=SWITCHED_LINUX), [])
+
+    def test_the_workflows_pass_and_honour_the_switch(self) -> None:
+        probe = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
+        self.assertIn("vars.CI_BLACKSMITH_OFF == '0'", probe["jobs"]["probe"]["if"])
+        steps = probe["jobs"]["watch"]["steps"]
+        [switch] = [s for s in steps if s.get("id") == "switch"]
+        self.assertEqual(switch["env"]["CI_BLACKSMITH_OFF"], "${{ vars.CI_BLACKSMITH_OFF }}")
+        [rescue] = [s for s in steps if "--rescue-dead" in str(s.get("run", ""))]
+        self.assertIn("vars.CI_BLACKSMITH_OFF == '0'", rescue["if"], "router-review F2 on cmux#47829")
+        check = yaml.safe_load((ROOT / ".github/workflows/ci-repo-variables.yml").read_text())
+        [step] = [s for job in check["jobs"].values() for s in job.get("steps", [])
+                  if "runner_pools.py --check" in str(s.get("run", ""))]
+        self.assertEqual(step["env"]["CI_BLACKSMITH_OFF"], "${{ vars.CI_BLACKSMITH_OFF }}", "router-review F5")
+
 
 if __name__ == "__main__":
     unittest.main()

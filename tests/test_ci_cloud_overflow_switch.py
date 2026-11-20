@@ -131,8 +131,10 @@ def run_main(env: dict[str, str], actions: FakeActions, writer: FakeSwitch | Non
              argv: list[str] | None = None) -> tuple[int, str, str]:
     with tempfile.TemporaryDirectory() as tmp:
         out, summary = Path(tmp) / "out", Path(tmp) / "summary"
+        # Blacksmith is off by default (switch.blacksmith_off()); these tests drive the probe-and-switch policy, which
+        # runs only once CI_BLACKSMITH_OFF is '0'. BlacksmithOffTests covers the default.
         full = {"GH_REPO": "manaflow-ai/cmux", "GITHUB_RUN_ID": "1", "GITHUB_RUN_ATTEMPT": "1",
-                "GITHUB_OUTPUT": str(out), "GITHUB_STEP_SUMMARY": str(summary), **env}
+                "GITHUB_OUTPUT": str(out), "GITHUB_STEP_SUMMARY": str(summary), "CI_BLACKSMITH_OFF": "0", **env}
         clock = Clock()
         code = switch.main(argv or [], full, api=actions, switch=writer, now=clock.now, sleep=clock.sleep)
         return code, out.read_text() if out.exists() else "", summary.read_text() if summary.exists() else ""
@@ -1229,6 +1231,34 @@ class WorkflowTests(unittest.TestCase):
     def test_a_drill_probes_its_label_and_is_always_a_dry_run(self) -> None:
         self.assertIn("inputs.probe_label != '' && format('[\"{0}\"]', inputs.probe_label) ||", self.text)
         self.assertIn("(inputs.dry_run || inputs.probe_label != '')", self.text)
+
+
+class BlacksmithOffTests(unittest.TestCase):
+    """Leo, 2026-11-20: "i thought i already told you guys to route off blacksmith" (ask-7dcf8a6ea6)."""
+
+    def test_unset_is_off_and_only_0_turns_it_on(self) -> None:
+        self.assertTrue(switch.blacksmith_off({}))
+        self.assertTrue(switch.blacksmith_off({"CI_BLACKSMITH_OFF": ""}))
+        self.assertTrue(switch.blacksmith_off({"CI_BLACKSMITH_OFF": "1"}))
+        self.assertFalse(switch.blacksmith_off({"CI_BLACKSMITH_OFF": "0"}))
+
+    def test_off_probes_nothing_and_writes_no_variable(self) -> None:
+        # A record whose Linux failover is a Blacksmith size, as the switch wrote them: neither restored nor resumed.
+        record = json.dumps({"since": "2026-11-20T04:00:00Z", "changed": {
+            "LINUX_RUNNER": {"before": "blacksmith-4vcpu-ubuntu-2404", "after": "blacksmith-16vcpu-ubuntu-2404"}}})
+        for env in ({**BLACKSMITH_STEADY, "CI_BLACKSMITH_OFF": ""},
+                    {**BLACKSMITH_STEADY, "CI_BLACKSMITH_OFF": "", "VAR_CI_CLOUD_OVERFLOW_SAVED": record}):
+            with self.subTest(record="VAR_CI_CLOUD_OVERFLOW_SAVED" in env):
+                writer = FakeSwitch()
+                code, out, summary = run_main(env, FakeActions(None), writer)
+                self.assertEqual(code, 0)
+                self.assertEqual(writer.writes, [])
+                self.assertEqual(writer.health, [])
+                self.assertIn("outcome=off", out)
+                # The workflow's last step force-cancels the run unless every probe started; with none queued there
+                # is nothing to cancel.
+                self.assertIn("all_started=true", out)
+                self.assertIn("Blacksmith is off", summary)
 
 
 class RepoVariableCheckTests(unittest.TestCase):
