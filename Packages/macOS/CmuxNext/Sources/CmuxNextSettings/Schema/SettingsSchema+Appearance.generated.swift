@@ -101,6 +101,12 @@ extension ReducedBackgroundsSetting {
     public nonisolated static let fallback = false
 }
 
+extension AgentGlowSetting {
+    /// `appearance.agentGlow`.
+    public nonisolated static let configPath = ["appearance", "agentGlow"]
+    public nonisolated static let fallback = false
+}
+
 extension ExperimentalAppearanceSetting {
     /// `appearance.experimentalControls`.
     public nonisolated static let configPath = ["appearance", "experimentalControls"]
