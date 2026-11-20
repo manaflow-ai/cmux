@@ -196,7 +196,7 @@ if (values.video) {
         const tag = document.createElement("div");
         tag.textContent = label;
         tag.style.cssText =
-          "position:fixed;left:32px;top:12px;z-index:99999;font:600 22px system-ui,sans-serif;color:#fff;" +
+          "position:fixed;right:32px;top:8px;z-index:99999;font:600 22px system-ui,sans-serif;color:#fff;" +
           "background:rgba(0,0,0,.72);padding:6px 14px;border-radius:8px";
         document.body.append(tag);
       }, `${look.title}, ${scheme}`);
