@@ -546,6 +546,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         // selection; apps and MCP send anchor and ids.
         ("layout.bulk", "anchor"),
         ("layout.bulk", "ids"),
+        // git.status's github: the Changes sidebar's pull request list asks for github_repo
+        // (#44129); `cmux git status` prints the working tree's status and never sends it.
+        ("git.status", "github"),
     ];
     for operation in &expected {
         let catalog_fields = catalog["operations"][operation]["params"]["fields"]
