@@ -9,7 +9,7 @@ import { rowsByKey, schema } from "./schema";
 
 const restore = installDom();
 afterAll(() => restore());
-const { renderPage, rowElement } = await import("./testing");
+const { renderPage, rowElement, settle } = await import("./testing");
 
 const chipOf = (container: ParentNode, key: string) =>
   rowElement(container, key).querySelector(".row-title [data-beta-chip]");
@@ -47,14 +47,11 @@ test("on: experimental rows and the Experimental sidebar entry get a Beta chip, 
   const labs = await renderPage({ path: "/settings/experimental", mock: { values: { [BETA_CHIPS_KEY]: true } } });
   expect(chipOf(labs.container, "appearance.experimentalControls")?.textContent).toBe("Beta");
   expect(chipOf(labs.container, BETA_CHIPS_KEY)).not.toBeNull();
+  expect(chipOf(labs.container, "labs.previewFeatures")).not.toBeNull();
   expect(sidebarChip(labs.container, "experimental")?.textContent).toBe("Beta");
   expect(sidebarChip(labs.container, "general")).toBeNull();
   expect(labs.container.querySelectorAll("[data-section-link] [data-beta-chip]").length).toBe(1);
   labs.unmount();
-
-  const labsRows = await renderPage({ path: "/settings/experimental", mock: { values: { [BETA_CHIPS_KEY]: true } } });
-  expect(chipOf(labsRows.container, "labs.previewFeatures")).not.toBeNull();
-  labsRows.unmount();
 
   const general = await renderPage({ path: "/settings/updates", mock: { values: { [BETA_CHIPS_KEY]: true } } });
   expect(chipOf(general.container, "updates.channel")).toBeNull();
@@ -65,7 +62,6 @@ test("turning it on live draws the chips without a reload", async () => {
   const page = await renderPage({ path: "/settings/experimental" });
   expect(page.container.querySelector("[data-beta-chip]")).toBeNull();
   await page.store.set(BETA_CHIPS_KEY, true);
-  const { settle } = await import("./testing");
   await settle();
   expect(chipOf(page.container, "appearance.experimentalControls")).not.toBeNull();
   page.unmount();
