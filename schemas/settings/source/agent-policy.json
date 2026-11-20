@@ -453,6 +453,7 @@
     {
       "agent": "settable",
       "keys": [
+        "experiments.apps_tier",
         "labs.previewFeatures"
       ]
     },

@@ -11,6 +11,22 @@
       "note": "Settings > Advanced > Labs: surfaces still being shaped, off by default.",
       "rows": [
         {
+          "key": "experiments.apps_tier",
+          "name": "appsTier",
+          "note": "Publish a Cloud preview as a versioned app and list published apps in the sidebar.",
+          "title": {
+            "key": "settings.experiments.appsTier",
+            "text": "Publish Cloud Previews as Apps"
+          },
+          "help": {
+            "key": "settings.experiments.appsTier.help",
+            "text": "Show Publish on Cloud previews and Apps in the sidebar."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": ["apps", "preview", "publish", "cloud", "experiment"]
+        },
+        {
           "key": "labs.previewFeatures",
           "note": "Surfaces still being shaped (the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.",
           "title": {

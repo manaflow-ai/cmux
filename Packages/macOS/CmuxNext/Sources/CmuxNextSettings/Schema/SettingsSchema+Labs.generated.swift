@@ -2,6 +2,9 @@
 // schemas/settings/source/labs.json. Do not edit; edit the JSON and rerun.
 
 extension CmuxConfigSnapshot {
+    /// `experiments.apps_tier`: Publish a Cloud preview as a versioned app and list published apps in the sidebar.
+    public nonisolated static let appsTierPath = ["experiments", "apps_tier"]
+    public nonisolated static let appsTierDefault = false
     /// `labs.previewFeatures`: Surfaces still being shaped (the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.
     public nonisolated static let previewFeaturesPath = ["labs", "previewFeatures"]
     public nonisolated static let previewFeaturesDefault = false
@@ -28,6 +31,16 @@ nonisolated enum LabsSettingsSchema {
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.labs", "Labs")
         return [
+            SettingDescriptor(
+                CmuxConfigSnapshot.appsTierPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.appsTier", "Publish Cloud Previews as Apps"),
+                help: SettingsText.keyed("settings.experiments.appsTier.help", "Show Publish on Cloud previews and Apps in the sidebar."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.appsTierDefault),
+                keywords: ["apps", "preview", "publish", "cloud", "experiment"]
+            ),
             SettingDescriptor(
                 CmuxConfigSnapshot.previewFeaturesPath,
                 section: .advanced,
