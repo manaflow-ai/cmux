@@ -2501,16 +2501,11 @@ class Workflow(unittest.TestCase):
         self.assertEqual(step["env"]["POOL_OWNED"], "${{ vars.CI_PR_POOL_OWNED }}")
 
     def test_polls_from_an_ephemeral_runner(self):
-        # Never from an owned pool it may rescue, and never only from
-        # GitHub-hosted: a GitHub billing block must not stop the rescue.
-        # Its last fallback reads RUNNER_POOLS.linux (#47603: one variable moves every Linux job off a dead label);
-        # none of that pool's members is GitHub-hosted.
+        # A rescue must be able to run outside the pool that it rescues.
         self.assertEqual(
             workflow_jobs.runs_on_cells(self.doc["jobs"]["rescue"]),
-            ['${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || contains(fromJSON(\'["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || fromJSON(vars.RUNNER_POOLS).linux }}'],
+            ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-pr-control-jit-x64' }}"],
         )
-        members = json.loads((ROOT / ".github/runners.json").read_text(encoding="utf-8"))["pools"]["linux"]["members"]
-        self.assertTrue(members and not any(label.startswith("ubuntu-") for label in members), members)
 
     def test_marker_steps_never_fail_the_changes_job(self):
         steps = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]["changes"]["steps"]

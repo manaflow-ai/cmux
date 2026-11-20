@@ -54,7 +54,7 @@ on:
 
 concurrency:
   group: cmux-mobile-ffi-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.ref != 'refs/heads/feat-cmux-next' }}
 
 permissions: {}
 
