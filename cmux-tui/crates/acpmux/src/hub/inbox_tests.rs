@@ -565,6 +565,24 @@ async fn surge_receipt_restores_the_same_held_message_and_searches_its_original_
     assert!(!ordinary_fyi(&urgent));
 }
 
+#[test]
+fn surge_eviction_preserves_unanswered_questions_without_growing_the_removed_id_set() {
+    let mut inbox = Inbox::default();
+    inbox.items.push(item("question", "question", "owner", PromptClass::Question, 1, "Ready?"));
+    for seq in 0..(KEEP + 20) {
+        let mut held =
+            item(&seq.to_string(), "runner", "watcher", PromptClass::Fyi, seq as u64, "held");
+        held.surge_held = true;
+        held.noticed = true;
+        inbox.items.push(held);
+        trim(&mut inbox);
+    }
+    assert_eq!(inbox.items.len(), KEEP);
+    assert_eq!(inbox.items[0].prompt_id, "question");
+    assert_eq!(inbox.items.last().unwrap().prompt_id, (KEEP + 19).to_string());
+    assert!(inbox.trimmed.is_empty());
+}
+
 /// The chat runs another agent's turn (not the person's) that takes steers.
 fn running(session: &Session) {
     let turn = TurnInfo::prompted("test", "go", "t-run", "p-run", Control::Local);
