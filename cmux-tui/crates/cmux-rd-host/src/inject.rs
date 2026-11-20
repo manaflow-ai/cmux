@@ -850,6 +850,112 @@ pub(crate) mod tests {
         assert!(pressed, "the person's key press reached the focused window");
     }
 
+    /// On a real Xvfb with openbox, the desktop a Linux host shares: openbox focuses the
+    /// newest window, then the person clicks the other one and types. openbox focuses on
+    /// that click while it holds the person pointer's grab, so the server gives the person
+    /// keyboard the focus and the core keyboard keeps the old window. The key must reach
+    /// the window the person clicked (CMUX-572: the viewer's clicks moved windows, but no
+    /// typed key ever arrived).
+    #[test]
+    #[ignore = "needs Xvfb and openbox; run with --ignored on a Linux host"]
+    fn person_keys_reach_the_window_the_person_clicked_under_openbox() {
+        use x11rb::protocol::xproto::{CreateWindowAux, EventMask, WindowClass};
+        use x11rb::protocol::Event;
+        let xvfb = Xvfb::start();
+        let display = xvfb.display.clone();
+        let _wm = Openbox::start(&display);
+        let (app, screen) = x11rb::connect(Some(&display)).unwrap();
+        let root = app.setup().roots[screen].root;
+        let mut make = |x: i16| {
+            let win = app.generate_id().unwrap();
+            app.create_window(
+                0,
+                win,
+                root,
+                x,
+                100,
+                300,
+                200,
+                0,
+                WindowClass::INPUT_OUTPUT,
+                0,
+                &CreateWindowAux::new().event_mask(EventMask::KEY_PRESS),
+            )
+            .unwrap();
+            app.map_window(win).unwrap();
+            app.sync().unwrap();
+            win
+        };
+        let clicked = make(100);
+        std::thread::sleep(Duration::from_millis(300));
+        let newest = make(600);
+        std::thread::sleep(Duration::from_millis(500));
+        let at = app.translate_coordinates(clicked, root, 150, 100).unwrap().reply().unwrap();
+        let (x, y) = (i32::from(at.dst_x), i32::from(at.dst_y));
+
+        let mut person = Injector::new(&display).unwrap();
+        person.apply(&InputEvent::Pointer { x, y }).unwrap();
+        person.apply(&InputEvent::Button { button: 1, down: true }).unwrap();
+        person.apply(&InputEvent::Button { button: 1, down: false }).unwrap();
+        person.conn.sync().unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        person.apply(&InputEvent::Key { usage: 0x0007_0004, down: true }).unwrap();
+        person.apply(&InputEvent::Key { usage: 0x0007_0004, down: false }).unwrap();
+        person.conn.sync().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let (mut on_clicked, mut on_newest) = (false, false);
+        while !on_clicked && Instant::now() < deadline {
+            while let Some(event) = app.poll_for_event().unwrap() {
+                if let Event::KeyPress(k) = event {
+                    on_clicked |= k.event == clicked;
+                    on_newest |= k.event == newest;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        person.release_all().unwrap();
+        assert!(
+            on_clicked,
+            "the key reached the clicked window (it went to the other one: {on_newest})"
+        );
+    }
+
+    /// openbox on a test display, ended with the test. It reads no config of the host's
+    /// session: `--sm-disable` and an empty HOME for its rc lookup.
+    struct Openbox(std::process::Child);
+
+    impl Openbox {
+        fn start(display: &str) -> Self {
+            let home = std::env::temp_dir().join(format!("cmux-rd-openbox-{}", std::process::id()));
+            std::fs::create_dir_all(&home).unwrap();
+            let child = std::process::Command::new("openbox")
+                .arg("--sm-disable")
+                .env("DISPLAY", display)
+                .env("HOME", &home)
+                .env_remove("XDG_CONFIG_HOME")
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .expect("openbox");
+            // openbox owns the screen once it holds WM_S0.
+            let (conn, _) = x11rb::connect(Some(display)).unwrap();
+            let atom = conn.intern_atom(false, b"WM_S0").unwrap().reply().unwrap().atom;
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while conn.get_selection_owner(atom).unwrap().reply().unwrap().owner == x11rb::NONE {
+                assert!(Instant::now() < deadline, "openbox took the screen");
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Self(child)
+        }
+    }
+
+    impl Drop for Openbox {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
     /// On a real Xvfb: the person's XTest moves the person master, not the core pointer,
     /// the property names the window under it, and ending the session removes the master.
     /// `cargo test -- --ignored person_master` on a Linux host with Xvfb.
