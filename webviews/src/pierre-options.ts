@@ -242,6 +242,14 @@ export function codeViewUnsafeCSS(): string {
     [data-utility-button]:hover {
       transform: scale(1.1);
     }
+    /* Pierre hangs the comment button 1lh - 1ch past the line numbers, which clears the code only
+       behind classic signs' 2ch: behind the bars or no signs (1ch; Pierre writes no data-indicators
+       for none) it covered the first characters, and a drag
+       from there began a comment instead of selecting the code. It ends where the code text
+       begins, 1 px short so its hover scale stays clear too. */
+    pre:not([data-indicators='classic']) [data-utility-button] {
+      margin-right: calc(1px - 1ch);
+    }
     [data-utility-button] [data-icon] {
       width: 12px;
       height: 12px;
