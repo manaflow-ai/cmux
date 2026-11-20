@@ -47,7 +47,7 @@ const step: HomeRunStep = {
 function TranscriptHover({ surface }: { surface: Surface }) {
   const [strings] = useState(() => createStrings(table, ["en"]));
   return (
-    <main style={{ padding: "96px 24px", maxWidth: 640 }}>
+    <main style={{ padding: "calc(var(--ds-space-48) * 2) var(--ds-space-5)", maxWidth: 640 }}>
       {surface === "run" ? (
         <RunSteps run={run} steps={[step]} agentNames={new Map()} />
       ) : surface === "channel" ? (
@@ -128,7 +128,11 @@ export default componentEntry<{ surface: Surface }>({
       note: "A message bubble uses the same timestamp tooltip.",
       play: hover(),
     },
-    run: { props: { surface: "run" }, note: "A run step supplies its own date to the time tooltip.", play: hover() },
+    run: {
+      props: { surface: "run" },
+      note: "A run step supplies its own date to the time tooltip.",
+      play: hover(),
+    },
     "run-link": {
       props: { surface: "run" },
       note: "A run-step link opens the same preview as a Markdown link.",
