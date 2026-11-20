@@ -46,6 +46,7 @@ on:
       - "schemas/settings/source/agent-retry.json"
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
+      - "schemas/theme/slots.json"
       - "schemas/theme/theme-ink-vectors.json"
       - "scripts/measure/screen-stream-eval/wifi-away-holds.json"
       - "skills/cmux-acpmux/SKILL.md"
