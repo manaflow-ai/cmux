@@ -325,6 +325,13 @@ class Run:
         info = self.pick_chat_page()
         if not info.get("extent"):
             info["error"] = info.get("error") or "no scroller"
+        # The page takes the host's glass mode (data-glass on <html>) when the theme reaches it, not at once:
+        # step 4be4bd6b's lens window began with the page still on plain. Wait for it, bounded, and say so.
+        started = time.monotonic()
+        while self.page_glass() != mode and time.monotonic() - started < 20:
+            time.sleep(0.5)  # test script: waiting for the theme push
+        info["glass_mode_start"] = self.page_glass()
+        info["glass_mode_wait_s"] = round(time.monotonic() - started, 1)
         time.sleep(self.opts.settle)  # test script: the page rests before the window
         self.js("""(() => { const sc = window.__gpScroller; if (!sc) return 'none';
   const a = window.__gpRaf = {t: [], on: true}; let dir = 1;
@@ -336,9 +343,14 @@ class Run:
         page = self.page_intervals()
         # The lens attaches after the mode switch; read its marker once the window is over.
         info["composer_lens"] = bool(self.js("!!document.querySelector('[data-composer-lens]')"))
+        info["glass_mode_end"] = self.page_glass()
+        if info["glass_mode_start"] != mode or info["glass_mode_end"] != mode:
+            info["error"] = info.get("error") or (f"page glass mode {info['glass_mode_start']} at the start and "
+                                                  f"{info['glass_mode_end']} at the end, not {mode}")
+        lens_on = mode == "lens" and info["composer_lens"] and info["glass_mode_end"] == "lens"
         util = moving["gpu"].get("device_utilization_pct")
         return {"state": "composer-scroll", "mode": mode, "surfaces": info.get("glass"), "probe": info, **moving,
-                "lens_source": (("live-content" if info.get("composer_lens") else "wallpaper-still")
+                "lens_source": (("live-content" if lens_on else "wallpaper-still")
                                 if mode == "lens" else None), "gpu_pct": util,
                 "gpu_ms_per_frame": round(util / 100 * moving["seconds"] * 1000 / len(page), 3)
                 if isinstance(util, (int, float)) and page else None,
@@ -359,6 +371,11 @@ class Run:
         if error:
             print(f"glass-perf: evaluate: {error}", file=sys.stderr)
         return value
+
+    def page_glass(self):
+        """The measured page's glass mode: data-glass on its <html> (None when unset or unreadable)."""
+        value = self.js("document.documentElement.getAttribute('data-glass')")
+        return value if isinstance(value, str) else None
 
     def set_mode(self, mode: str) -> str:
         reply = self.app.call("debug.tunables", {"action": "set", "key": "glass.lens", "value": mode}) or {}
