@@ -380,17 +380,21 @@ impl Customize {
         if !in_the_way.is_empty() {
             return Err(Error::Untracked(in_the_way));
         }
+        let mut before = BTreeMap::new();
         for path in live.keys() {
-            if !check.contains_key(path)
-                && let Some(bytes) = tree::read(self.roots(), path)?
-            {
-                check.insert(path.clone(), bytes);
+            if let Some(bytes) = tree::read(self.roots(), path)? {
+                if !check.contains_key(path) {
+                    check.insert(path.clone(), bytes.clone());
+                }
+                before.insert(path.clone(), bytes);
             }
         }
-        let problems: Vec<_> = validate::problems(&check)
-            .into_iter()
-            .filter(|problem| files.contains_key(&problem.path))
-            .collect();
+        // Only what this profile brings: a problem the files already had is the person's.
+        let problems: Vec<_> =
+            validate::introduced(validate::problems(&check), &validate::problems(&before))
+                .into_iter()
+                .filter(|problem| files.contains_key(&problem.path))
+                .collect();
         if !problems.is_empty() {
             return Err(Error::Invalid(problems));
         }

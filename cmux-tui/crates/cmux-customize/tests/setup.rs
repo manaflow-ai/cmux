@@ -292,6 +292,67 @@ fn an_update_that_fails_puts_the_installed_setup_back() {
 }
 
 #[test]
+fn a_value_already_wrong_in_your_settings_never_blocks_an_install() {
+    // Classic's `solidFill`: the app reads it as `fill`, the settings schema refuses it. In Leo's
+    // NIGHTLY it made `cmux setup install` of the Studio look refuse a key the look never sets
+    // (cmux#46049).
+    let mine =
+        "{\n  // my settings\n  \"workspaceColors\": { \"indicatorStyle\": \"solidFill\" }\n}\n";
+    let home = Home::new();
+    home.write("cmux-next.json", mine);
+    let repo = sample_repo(home.dir.path());
+    let read = setup::read_dir(&repo).unwrap();
+    let customize = home.customize();
+    assert!(!customize.status().unwrap().problems.is_empty(), "the file has its problem");
+
+    let installed = customize.install_setup(&read, "setup", "cli", 10).unwrap();
+    assert!(installed.applied.is_some());
+    let settings = home.settings();
+    assert_eq!(settings["appearance"]["themeFile"], json!("sample-dusk"));
+    assert_eq!(
+        settings["workspaceColors"]["indicatorStyle"],
+        json!("solidFill"),
+        "yours, untouched"
+    );
+
+    // A setup that brings a refused value of its own is still refused, and nothing goes live.
+    let home = Home::new();
+    home.write("cmux-next.json", mine);
+    let mut read = setup::read_dir(&sample_repo(home.dir.path())).unwrap();
+    read.profile.settings.insert("sidebar.density".to_owned(), json!("enormous"));
+    let customize = home.customize();
+    let error = customize.install_setup(&read, "setup", "cli", 10).unwrap_err();
+    assert!(matches!(error, Error::Invalid(_) | Error::Profile(_)), "{error:?}");
+    assert!(error.to_string().contains("sidebar.density"), "{error}");
+    assert!(!error.to_string().contains("indicatorStyle"), "{error}");
+    assert_eq!(home.settings()["appearance"].get("themeFile"), None);
+}
+
+#[test]
+fn a_failed_install_puts_back_your_hand_edits_too() {
+    let home = Home::new();
+    home.write("cmux-next.json", MINE);
+    let customize = home.customize();
+    customize.ensure_baseline(1).unwrap();
+    // Edits made by hand after the last generation: in no generation yet.
+    home.write(
+        "cmux-next.json",
+        "{\n  \"appearance\": { \"background\": \"folder:/wallpapers\" }\n}\n",
+    );
+    home.write("themes/teal-twin-dark.json", "{ \"name\": \"Teal Twin Dark\" }\n");
+    // An install that fails while writing (a folder is where one of its themes goes), so its
+    // rollback runs: in Leo's NIGHTLY that rollback put back a three-day-old generation and
+    // deleted his own themes and wallpaper setting.
+    let mut read = setup::read_dir(&sample_repo(home.dir.path())).unwrap();
+    read.profile.files.insert("themes/zz.json".to_owned(), "{ \"name\": \"Z\" }\n".into());
+    fs::create_dir_all(home.config("themes/zz.json/inside")).unwrap();
+    assert!(customize.install_setup(&read, "setup", "cli", 10).is_err());
+    assert_eq!(home.settings()["appearance"]["background"], json!("folder:/wallpapers"));
+    assert!(home.read("themes/teal-twin-dark.json").is_some(), "your theme is still there");
+    assert!(customize.status().unwrap().changes.is_empty(), "and it is the current generation");
+}
+
+#[test]
 fn a_failed_install_leaves_nothing_live() {
     let home = Home::new();
     home.write("cmux-next.json", MINE);
