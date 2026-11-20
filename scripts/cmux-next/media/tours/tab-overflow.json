@@ -1,0 +1,778 @@
+{
+ "title": "Tab overflow (experiments.tabOverflow): 20 tabs while the window narrows and widens, under Scroll Chevrons, More Menu and All Tabs Pill",
+ "settings": {
+  "appearance": {
+   "background": "hokusai-great-wave"
+  },
+  "experiments": {
+   "tabOverflow": "off"
+  }
+ },
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "Workspace Tabs",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Tabs"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Show it",
+   "cmux": [
+    "workspace",
+    "name:Tabs",
+    "focus"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Name the first tab",
+   "cmux": [
+    "workspace",
+    "name:Tabs",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "rename",
+    "shell"
+   ],
+   "wait": 0.5,
+   "shot": false,
+   "optional": "a name only"
+  },
+  {
+   "title": "Tab Docs",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "Docs",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Tab Notes",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "Notes",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Tab server",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "server",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Tab tests",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "tests",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Tab build",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "build",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Tab api",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "api",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Tab web",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "web",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Tab logs",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "logs",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Tab deploy",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "deploy",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Tab db",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "db",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Tab review",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "review",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Tab bench",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "bench",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Tab design",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "design",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Tab release",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "release",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Tab infra",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "infra",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Tab mobile",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "mobile",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Tab search",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "search",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Tab sync",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "sync",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Tab metrics",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "metrics",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Select review",
+   "cmux": [
+    "workspace",
+    "name:Tabs",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "name:review",
+    "focus"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Off (shipped): on",
+   "cmux": [
+    "settings",
+    "set",
+    "experiments.tabOverflow",
+    "off"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Off (shipped), wide",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      1440,
+      760
+     ]
+    }
+   },
+   "wait": 1.2,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "Off (shipped), narrower",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      1100,
+      760
+     ]
+    }
+   },
+   "wait": 1.2,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "Off (shipped), narrow",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      800,
+      760
+     ]
+    }
+   },
+   "wait": 1.2,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "Off (shipped), narrowest",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      560,
+      760
+     ]
+    }
+   },
+   "wait": 1.2,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "Off (shipped), wider again",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      800,
+      760
+     ]
+    }
+   },
+   "wait": 1.2,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "Off (shipped), wide again",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      1440,
+      760
+     ]
+    }
+   },
+   "wait": 1.2,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "Scroll Chevrons: on",
+   "cmux": [
+    "settings",
+    "set",
+    "experiments.tabOverflow",
+    "chevrons"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Scroll Chevrons, wide",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      1440,
+      760
+     ]
+    }
+   },
+   "wait": 1.2,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "Scroll Chevrons, narrower",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      1100,
+      760
+     ]
+    }
+   },
+   "wait": 1.2,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "Scroll Chevrons, narrow",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      800,
+      760
+     ]
+    }
+   },
+   "wait": 1.2,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "Scroll Chevrons, narrowest",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      560,
+      760
+     ]
+    }
+   },
+   "wait": 1.2,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "Scroll Chevrons, wider again",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      800,
+      760
+     ]
+    }
+   },
+   "wait": 1.2,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "Scroll Chevrons, wide again",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      1440,
+      760
+     ]
+    }
+   },
+   "wait": 1.2,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "More Menu: on",
+   "cmux": [
+    "settings",
+    "set",
+    "experiments.tabOverflow",
+    "moreMenu"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "More Menu, wide",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      1440,
+      760
+     ]
+    }
+   },
+   "wait": 1.2,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "More Menu, narrower",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      1100,
+      760
+     ]
+    }
+   },
+   "wait": 1.2,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "More Menu, narrow",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      800,
+      760
+     ]
+    }
+   },
+   "wait": 1.2,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "More Menu, narrowest",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      560,
+      760
+     ]
+    }
+   },
+   "wait": 1.2,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "More Menu, wider again",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      800,
+      760
+     ]
+    }
+   },
+   "wait": 1.2,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "More Menu, wide again",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      1440,
+      760
+     ]
+    }
+   },
+   "wait": 1.2,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "All Tabs Pill: on",
+   "cmux": [
+    "settings",
+    "set",
+    "experiments.tabOverflow",
+    "allTabs"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "All Tabs Pill, wide",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      1440,
+      760
+     ]
+    }
+   },
+   "wait": 1.2,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "All Tabs Pill, narrower",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      1100,
+      760
+     ]
+    }
+   },
+   "wait": 1.2,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "All Tabs Pill, narrow",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      800,
+      760
+     ]
+    }
+   },
+   "wait": 1.2,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "All Tabs Pill, narrowest",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      560,
+      760
+     ]
+    }
+   },
+   "wait": 1.2,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "All Tabs Pill, wider again",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      800,
+      760
+     ]
+    }
+   },
+   "wait": 1.2,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "All Tabs Pill, wide again",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      1440,
+      760
+     ]
+    }
+   },
+   "wait": 1.2,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "Back to Off",
+   "cmux": [
+    "settings",
+    "set",
+    "experiments.tabOverflow",
+    "off"
+   ],
+   "wait": 1,
+   "shot": false
+  }
+ ]
+}

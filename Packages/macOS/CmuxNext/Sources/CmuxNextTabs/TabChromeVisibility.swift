@@ -55,13 +55,15 @@ public struct TabChromeVisibility: Hashable, Sendable {
         if width + 0.5 < min(metrics.minInactiveTabWidth, metrics.chrome.minInactiveWidth) { return .hidden }
         let contents = width - metrics.contentLeadingInset - metrics.contentTrailingInset
         let roomy = contents >= metrics.closeMinContentsWidth
+        // `experiments.tabOverflow` (any arm but off): the selected tab shows its x at rest, at any width.
+        let selectedCloseAtRest = isSelected && metrics.overflowExperiment != .off
         let wantsClose: Bool
         switch style {
         // Inactive crowded tabs put the close in the icon's center on hover.
         // Once there is room for both, the icon keeps its original position.
         // The selected tab's existing at-rest narrow close is preserved.
-        case .chrome: wantsClose = isSelected ? (isHovered || !roomy) : isHovered
-        case .compact: wantsClose = isHovered
+        case .chrome: wantsClose = isSelected ? (isHovered || !roomy || selectedCloseAtRest) : isHovered
+        case .compact: wantsClose = isHovered || selectedCloseAtRest
         }
         // A tab that cannot close (Home's tab, `pinned-dock-v1`) never shows its x.
         let showsClose = wantsClose && isClosable
@@ -75,7 +77,7 @@ public struct TabChromeVisibility: Hashable, Sendable {
         let showsTitle = iconFits && titleWidth >= metrics.titleMinVisibleWidth
         // An x the tab shows at rest (a narrow selected tab) already sits beside the status: hover keeps that
         // form, so the status stays (the x only replaces a status where hover brings the x).
-        let closeAtRest = style == .chrome && isSelected && !roomy && isClosable
+        let closeAtRest = ((style == .chrome && isSelected && !roomy) || selectedCloseAtRest) && isClosable
         return TabChromeVisibility(showsIcon: showsIcon, showsTitle: showsTitle, showsClose: showsClose, centersContent: !showsTitle)
             .yieldingStatus(isHovered && hasStatus && !closeAtRest)
     }

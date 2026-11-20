@@ -8,6 +8,8 @@ extension TabStripView {
     func tabID(at point: CGPoint) -> TabID? {
         let local = convert(point, to: tabsClip)
         guard local.x >= 0, local.x <= tabsClip.bounds.width else { return nil }
+        // A chevron of `experiments.tabOverflow` over a faded edge covers the tab under it.
+        if overflowControls.control(at: convert(point, to: contentView)) != nil { return nil }
         // An unpinned tab scrolled under the fixed pinned band is hidden there: only pinned tabs hit.
         let showsUnpinned = scrollMapping.showsUnpinned(at: local.x)
         for item in displayed where item.isPinned || showsUnpinned {

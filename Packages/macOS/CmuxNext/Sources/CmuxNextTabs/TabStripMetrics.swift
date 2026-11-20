@@ -14,6 +14,13 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var minActiveTabWidth: CGFloat
     /// `tabs.overflow`: with `.scroll` both minimums are `scrollTabMinWidth`.
     public var overflow: TabOverflow
+    /// `experiments.tabBarStyle` (Settings > Experimental): the strip's look. `.off`, the default, is the shipped one;
+    /// every other look is drawn by the cells and the strip from this value, so a change restyles live.
+    public var barStyle: TabBarStyleExperiment = .off
+
+    /// Settings > Experimental `experiments.tabOverflow`: off follows ``overflow``; every other arm keeps each unpinned
+    /// tab at ``maxTabWidth`` (``withOverflowExperiment(_:)``) and shows the selected tab's x at rest.
+    public var overflowExperiment: TabOverflowExperiment = .off
     public var pinnedTabWidth: CGFloat
     /// Chrome's strip geometry (design-tokens.json `motion.tabStrip`, at the UI scale): open and
     /// close widths, the minimum widths above, the reorder threshold, closing mode.
@@ -212,6 +219,9 @@ public struct TabStripMetrics: Equatable, Sendable {
         stripTopOutset = Metrics.stripTopOutset
         // The chrome's one button size (`TitlebarBandButton.side`), as the pane's tools beside it.
         newTabButtonWidth = TitlebarBandButton.side
+        barStyle = DesignSettings.shared.tabBarStyleExperiment
+        // The glass look's + is its own round glass button as tall as the tabs' capsule.
+        if barStyle == .glass { newTabButtonWidth = max(newTabButtonWidth, tabHeight) }
         scrollFadeWidth = TabTunables.scrollFadeWidth.value
         tabBackgroundInset = Metrics.tabBackgroundInset
         tearOffDistance = TabTunables.tearOffDistance.value
@@ -227,6 +237,25 @@ public struct TabStripMetrics: Equatable, Sendable {
         separatorHeight = TabTunables.separatorHeight.value
         separatorOpacity = TabTunables.separatorOpacity.value
         showsPinnedDivider = TabTunables.pinnedDivider.value
+        switch barStyle {
+        case .off: break
+        // One capsule, or plain labels on a hairline: no line between tabs.
+        case .glass, .underline: showsSeparators = false
+        // Flat inactive tabs read apart by thin lines between them (the selected tab hides its own, as always).
+        case .fused: showsSeparators = true
+        }
+        self = withOverflowExperiment(DesignSettings.shared.tabOverflowExperiment)
+    }
+
+    /// These metrics under `experiments.tabOverflow` = `experiment`: any arm but off keeps every unpinned tab at its
+    /// widest (both minimums are ``maxTabWidth``), so the row never shrinks a tab; off returns them as they are.
+    public func withOverflowExperiment(_ experiment: TabOverflowExperiment) -> TabStripMetrics {
+        var metrics = self
+        metrics.overflowExperiment = experiment
+        guard experiment != .off else { return metrics }
+        metrics.minActiveTabWidth = maxTabWidth
+        metrics.minInactiveTabWidth = maxTabWidth
+        return metrics
     }
 
     /// Token-derived metrics for the current density.
@@ -234,6 +263,13 @@ public struct TabStripMetrics: Equatable, Sendable {
 }
 
 extension TabStripMetrics {
+    /// The glass look's inset of each tab's pill inside the capsule (top, bottom and the capsule's ends); 0 in
+    /// every other look, which keeps the pill the slot's height.
+    var glassInset: CGFloat { barStyle == .glass ? Metrics.space1 : 0 }
+
+    /// The glass look's room between the capsule's end and the + circle beside it, beyond the strip's end gap.
+    var glassButtonGap: CGFloat { barStyle == .glass ? Metrics.space2 : 0 }
+
     /// Where a titled tab's status mark sits: ``statusMarkPlacement``, else the Debug tunable.
     var resolvedStatusMarkPlacement: TabStatusMarkPlacement { statusMarkPlacement ?? TabTunables.statusMarkPlacement.value }
 

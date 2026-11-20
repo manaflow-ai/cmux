@@ -87,6 +87,15 @@ extension TabOverflowSetting {
     public nonisolated static let fallback: TabOverflow = .shrink
 }
 
+extension TabStripExperimentsSetting {
+    /// `experiments.tabBarStyle`: Taste build 3 (desktop coordinator's list, 2026-11-19), Settings > Experimental, off by default: Off is the shipped strip. Glass: the tabs in one glass capsule, the selected tab a lighter inner pill, the + its own round glass button. Fused: the selected tab joins the content sheet below, the others flat on the bar. Underline: plain labels on a hairline, the selected one bold over a 2 pt rule.
+    public nonisolated static let tabBarStylePath = ["experiments", "tabBarStyle"]
+    public nonisolated static let tabBarStyleDefault: TabBarStyleExperiment = .off
+    /// `experiments.tabOverflow`: Taste build 14 (desktop coordinator's list, 2026-11-19), Settings > Experimental, off by default: Off is tabs.overflow's. The others keep fixed tab widths, show the close x on the hovered and the selected tab, and scroll the selected tab into view. Chevrons: scroll under edge fades, a chevron at each hidden edge. More Menu: the tabs that do not fit go into a More menu at the end. All Tabs: the clipped edge fades under a pinned All Tabs pill listing every tab.
+    public nonisolated static let tabOverflowPath = ["experiments", "tabOverflow"]
+    public nonisolated static let tabOverflowDefault: TabOverflowExperiment = .off
+}
+
 extension NewTerminalWorkspaceSetting {
     /// `newTerminal.opensWorkspace`: Whether New Terminal creates a workspace in the current space instead of a tab in the focused workspace.
     public nonisolated static let configPath = ["newTerminal", "opensWorkspace"]

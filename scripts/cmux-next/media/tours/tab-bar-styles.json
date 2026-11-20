@@ -1,0 +1,351 @@
+{
+ "title": "Tab bar styles (experiments.tabBarStyle): Off, Glass Capsule, Fused Sheet and Underline at 3 and 12 tabs",
+ "settings": {
+  "appearance": {
+   "background": "hokusai-great-wave"
+  },
+  "experiments": {
+   "tabBarStyle": "off"
+  }
+ },
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "Window",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      1440,
+      860
+     ]
+    }
+   },
+   "wait": 1,
+   "shot": false,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "Workspace Tabs",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Tabs"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Show it",
+   "cmux": [
+    "workspace",
+    "name:Tabs",
+    "focus"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Name the first tab",
+   "cmux": [
+    "workspace",
+    "name:Tabs",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "rename",
+    "shell"
+   ],
+   "wait": 0.5,
+   "shot": false,
+   "optional": "a name only"
+  },
+  {
+   "title": "Tab Docs",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "Docs",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "Tab Notes",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "Notes",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "Select Docs",
+   "cmux": [
+    "workspace",
+    "name:Tabs",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "name:Docs",
+    "focus"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "3 tabs, Off (shipped)",
+   "cmux": [
+    "settings",
+    "set",
+    "experiments.tabBarStyle",
+    "off"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "3 tabs, Glass Capsule",
+   "cmux": [
+    "settings",
+    "set",
+    "experiments.tabBarStyle",
+    "glass"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "3 tabs, Fused Sheet",
+   "cmux": [
+    "settings",
+    "set",
+    "experiments.tabBarStyle",
+    "fused"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "3 tabs, Underline",
+   "cmux": [
+    "settings",
+    "set",
+    "experiments.tabBarStyle",
+    "underline"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "Tab server",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "server",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "Tab tests",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "tests",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "Tab build",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "build",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "Tab api",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "api",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "Tab web",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "web",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "Tab logs",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "logs",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "Tab deploy",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "deploy",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "Tab db",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "db",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "Tab review",
+   "cmux": [
+    "tab",
+    "create",
+    "terminal",
+    "--name",
+    "review",
+    "--workspace",
+    "name:Tabs"
+   ],
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "Select api",
+   "cmux": [
+    "workspace",
+    "name:Tabs",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "name:api",
+    "focus"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "12 tabs, Off (shipped)",
+   "cmux": [
+    "settings",
+    "set",
+    "experiments.tabBarStyle",
+    "off"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "12 tabs, Glass Capsule",
+   "cmux": [
+    "settings",
+    "set",
+    "experiments.tabBarStyle",
+    "glass"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "12 tabs, Fused Sheet",
+   "cmux": [
+    "settings",
+    "set",
+    "experiments.tabBarStyle",
+    "fused"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "12 tabs, Underline",
+   "cmux": [
+    "settings",
+    "set",
+    "experiments.tabBarStyle",
+    "underline"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "Back to Off",
+   "cmux": [
+    "settings",
+    "set",
+    "experiments.tabBarStyle",
+    "off"
+   ],
+   "wait": 2,
+   "shot": false
+  }
+ ]
+}

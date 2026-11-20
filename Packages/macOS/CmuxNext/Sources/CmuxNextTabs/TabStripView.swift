@@ -76,7 +76,10 @@ public final class TabStripView: NSView {
     /// The + button's offset after the last tab's slot: the last pill to the button is `Metrics.tabStripEndGap`, the
     /// strip's leading gap, at every density; the slot's trailing inset and the button's own leading inset (a
     /// `tabBackgroundInset` each) count toward it, so this can be negative where a density spaces its tabs wider.
-    var newTabLeadingGap: CGFloat { metrics.endGap(scale: window?.backingScaleFactor ?? 2) - 2 * metrics.tabBackgroundInset }
+    /// The glass look adds its capsule-to-circle gap (``TabStripMetrics/glassButtonGap``, 0 in every other look).
+    var newTabLeadingGap: CGFloat {
+        metrics.endGap(scale: window?.backingScaleFactor ?? 2) - 2 * metrics.tabBackgroundInset + metrics.glassButtonGap
+    }
     var newTabControlsWidth: CGFloat {
         guard showsTypeChooser else { return metrics.newTabButtonWidth }
         // Circles: the ⌄ takes the +'s square, so both circles are one diameter. Split: classic's narrower segment.
@@ -115,6 +118,10 @@ public final class TabStripView: NSView {
     var inCardTone: (shade: CAShapeLayer, divider: CAShapeLayer)?
     /// What ``inCardTone`` was last drawn from: a chrome redraw that changes none of it redraws nothing.
     var inCardToneDrawn: InCardToneKey?
+    /// `experiments.tabBarStyle`'s strip layers (`TabStripView+CornerFlush`), made on first use and removed in the
+    /// shipped look: the glass capsule behind the tabs or the fused look's tinted bar, and the underline look's hairline.
+    var barStyleBackdrop: CALayer?
+    var barStyleHairline: CALayer?
     /// The pane's content starts with a toolbar row right under this strip (a browser's omnibar; the pane sets it):
     /// the tab row's divider leaves this pane out, the window's (`CornerFlushChrome`) and this strip's own in-card one,
     /// so the tabs and the omnibar read as one surface (Lawrence, 2026-11-13). A change reports to the window root.
@@ -148,6 +155,10 @@ public final class TabStripView: NSView {
     /// The line that ends the pinned group (Lawrence msg 20243): `TabStripView+PinnedDivider.swift`.
     let pinnedDivider = TabStripView.makePinnedDivider()
     private(set) lazy var edgeFade = TabEdgeFade(strip: self)
+    /// `experiments.tabOverflow`'s chevrons and More / All Tabs pill (`TabOverflowControls`).
+    private(set) lazy var overflowControls = TabOverflowControls(strip: self)
+    /// `experiments.tabOverflow` = moreMenu: the tabs the last layout left out of the row (`relayout`).
+    var overflowPartition = TabOverflowPartition.none
     let newTabButton = NewTabButtonView()
     let newTabMenuButton = PaneTypeMenuButton()
     let hoverCard = TabHoverCardController()
@@ -391,7 +402,9 @@ public final class TabStripView: NSView {
     // Every event is handled here, never by a tab subview.
     public override func hitTest(_ point: NSPoint) -> NSView? {
         let local = superview.map { convert(point, from: $0) } ?? point
-        return bounds.contains(local) ? self : nil
+        guard bounds.contains(local) else { return nil }
+        // `experiments.tabOverflow`'s buttons take their own clicks; the strip handles every other event.
+        return overflowControls.control(at: convert(local, to: contentView)) ?? self
     }
 
     /// VoiceOver on the strip itself reveals the plus (`noteAccessibilityFocus`).
@@ -411,6 +424,7 @@ public final class TabStripView: NSView {
         }
         if !newTabButton.isHidden { children.append(newTabButton) }
         if !newTabMenuButton.isHidden { children.append(newTabMenuButton) }
+        children += overflowControls.visibleControls
         return children
     }
 
@@ -538,6 +552,8 @@ public final class TabStripView: NSView {
         for band in groups.bands.values { band.themeScope = scope }
         applyPinnedDividerColor()
         updateInCardTone()
+        applyBarStyleColors()
+        newTabButton.refreshGlassCircle()
         hoverCard.themeChanged()
     }
 
@@ -564,12 +580,17 @@ public final class TabStripView: NSView {
         metrics = customMetrics ?? TabStripMetrics()
         if opensNewTabMenuOnPress { metrics.newTabButtonWidth += Metrics.space4 }
         trailingButtons = TabTunables.trailingButtons.value
-        newTabButton.hoverStyle = trailingButtons.hoverStyle
-        newTabButton.splitSegment = showsTypeChooser && trailingButtons == .split
+        // The glass look's + is a round glass button of its own, never the split look's leading segment.
+        let glass = metrics.barStyle == .glass
+        newTabButton.hoverStyle = glass ? .circle : trailingButtons.hoverStyle
+        newTabButton.splitSegment = !glass && showsTypeChooser && trailingButtons == .split
+        newTabButton.glassCircle = glass
+        applyBarStyleColors()
         newTabMenuButton.style = trailingButtons
         newTabMenuButton.isHidden = !showsTypeChooser || !model.showsNewTabButton
         updateChooserReveal()
         hoverCard.tokensChanged()
+        overflowControls.tokensChanged()
         geometryDidChange()
         let font = Typography.tabTitle
         for cell in cells.values {
@@ -600,7 +621,11 @@ public final class TabStripView: NSView {
         let leading = padding
         windowControlsInset = computeWindowControlsInset()
         appliedTabTop = computeTabTop()
-        let viewport = max(0, bounds.width - leading - padding - windowControlsInset - (model.showsNewTabButton ? newTabLeadingGap + newTabControlsWidth : 0))
+        let row = max(0, bounds.width - leading - padding - windowControlsInset - (model.showsNewTabButton ? newTabLeadingGap + newTabControlsWidth : 0))
+        // `experiments.tabOverflow` = allTabs: tabs that overflow the row leave the All Tabs pill its room at the end.
+        // The arm's tabs have fixed widths, so the last layout's content width says so for this width too.
+        overflowControls.reservesAllTabs = metrics.overflowExperiment == .allTabs && result.contentWidth > row + 0.5
+        let viewport = max(0, row - (overflowControls.reservesAllTabs ? overflowControls.pillWidth : 0))
         tabsClip.frame = CGRect(x: leading + windowControlsInset, y: 0, width: viewport, height: bounds.height)
         if viewport != lastViewportWidth {
             // FRAME OWNER S1: the width is the pane's of this frame tick (a window resize, a split, a pane spring), so the tabs

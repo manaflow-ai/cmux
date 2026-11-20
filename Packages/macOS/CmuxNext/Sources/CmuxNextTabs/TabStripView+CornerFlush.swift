@@ -32,10 +32,17 @@ extension TabStripView: TabStripCorner {
         // Bottom tabs have no card under them (`CornerFlushChrome.apply`): the selected tab stays a pill.
         // A strip inside the card (a lower split pane's) runs into its pane's content too while the top row's
         // tabs are folders (``setTonedInCard(_:)``), on its own toned row, so every selected tab joins the content.
-        let runsDown = isPaneTabRow && (runsIntoCard || tonedInCard) && CornerFlush.current.isOn
-            && DesignSettings.shared.tabBarPosition != .bottom
-        let foot = runsDown ? max(0, bounds.height - (tabY + tabHeight)) : 0
-        for cell in cells.values { cell.cornerFoot = foot }
+        // `experiments.tabBarStyle`: the fused look's selected tab always runs into the content below it; the glass and
+        // underline looks never do (a capsule's pill, plain labels), whatever the flush corner says.
+        let style = metrics.barStyle
+        let flushes = style == .fused || (style == .off && (runsIntoCard || tonedInCard) && CornerFlush.current.isOn)
+        let runsDown = isPaneTabRow && flushes && DesignSettings.shared.tabBarPosition != .bottom
+        let below = max(0, bounds.height - (tabY + tabHeight))
+        let foot = runsDown ? below : 0
+        for cell in cells.values {
+            cell.cornerFoot = foot
+            cell.underlineDrop = below
+        }
         reportCornerLead()
     }
 
@@ -150,4 +157,93 @@ struct InCardToneKey: Equatable {
     var ink: NSColor
     var weight: CGFloat
     var lined: Bool
+}
+
+// `experiments.tabBarStyle` (Settings > Experimental): the strip's own layers for the looks other than the shipped one.
+// The cells draw their part (TabCell's fill, `TabCell+Separator`'s underline); the strip draws what spans tabs.
+extension TabStripView {
+    /// Lays out the look's strip layers after the tabs and the + have their frames (`applyFrames`). Glass: one capsule
+    /// from the first pill to the last, `glassInset` beyond each, the tabs' height, fully rounded, that rides the same
+    /// move as the tabs and the +. Fused: the bar's tint over the whole strip. Underline: a hairline along the strip's
+    /// bottom. The shipped look removes them. O(1): nothing here reads a cell.
+    func layoutBarStyle(tabY: CGFloat, tabHeight: CGFloat, tabsEnd: CGFloat, pixel: (CGFloat) -> CGFloat, move: TabStripMove?) {
+        guard let host = layer else { return }
+        let style = metrics.barStyle
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        switch style {
+        case .glass:
+            let pad = metrics.glassInset
+            let minX = pixel(tabsClip.frame.minX - pad)
+            let maxX = pixel(tabsEnd - 2 * metrics.tabBackgroundInset + pad)
+            let capsule = makeBarStyleBackdrop(in: host)
+            let wasShown = !capsule.isHidden && capsule.bounds.width > 0
+            let before = TabStripMove.snapshot(capsule, depth: 0, masks: false)
+            capsule.frame = CGRect(x: minX, y: pixel(tabY), width: max(0, maxX - minX), height: tabHeight)
+            capsule.cornerRadius = tabHeight / 2 // radius-allow: the glass look's capsule (Apple HIG Liquid Glass tab bar)
+            capsule.isHidden = maxX - minX <= 2 * pad
+            // It grows and shrinks with the tabs on their one curve, so its end stays with the last pill and the +.
+            if let move, wasShown, !capsule.isHidden { move.animate(from: before) }
+        case .fused:
+            let tint = makeBarStyleBackdrop(in: host)
+            tint.frame = bounds
+            tint.cornerRadius = 0
+            tint.isHidden = false
+        case .off, .underline:
+            barStyleBackdrop?.removeFromSuperlayer()
+            barStyleBackdrop = nil
+        }
+        if style == .underline {
+            let line: CALayer
+            if let barStyleHairline {
+                line = barStyleHairline
+            } else {
+                line = CALayer()
+                line.actions = Self.barStyleLayerActions
+                host.insertSublayer(line, at: 0)
+                barStyleHairline = line
+                applyBarStyleColors()
+            }
+            // The chrome's one divider weight (`appearance.borders`), just inside the strip's bottom (flipped: maxY).
+            let weight = Metrics.lineWidth(Metrics.dividerThickness)
+            line.frame = CGRect(x: 0, y: bounds.maxY - weight, width: bounds.width, height: weight)
+        } else if let barStyleHairline {
+            barStyleHairline.removeFromSuperlayer()
+            self.barStyleHairline = nil
+        }
+    }
+
+    /// Geometry and color never animate implicitly; a strip move animates the capsule explicitly.
+    static let barStyleLayerActions: [String: any CAAction] = [
+        "bounds": NSNull(), "position": NSNull(), "hidden": NSNull(), "backgroundColor": NSNull(), "borderColor": NSNull(),
+        "borderWidth": NSNull(), "cornerRadius": NSNull(),
+    ]
+
+    /// The capsule or the tint, under the tabs (below the strip's content view).
+    private func makeBarStyleBackdrop(in host: CALayer) -> CALayer {
+        if let barStyleBackdrop { return barStyleBackdrop }
+        let backdrop = CALayer()
+        backdrop.actions = Self.barStyleLayerActions
+        backdrop.cornerCurve = .continuous
+        host.insertSublayer(backdrop, at: 0)
+        barStyleBackdrop = backdrop
+        applyBarStyleColors()
+        return backdrop
+    }
+
+    /// The look's strip colors in the strip's theme: the glass capsule is the chrome's faint lift with a hairline rim
+    /// (the window's backdrop shows through it), the fused bar the strip's tonal step, the hairline the separator ink.
+    func applyBarStyleColors() {
+        let style = metrics.barStyle
+        themeScope.perform {
+            if let barStyleBackdrop {
+                let glass = style == .glass
+                barStyleBackdrop.backgroundColor = (glass ? Palette.chromeBackground : Palette.stripStep).cgColor
+                barStyleBackdrop.borderColor = glass ? Palette.separator.cgColor : nil
+                barStyleBackdrop.borderWidth = glass ? Metrics.lineWidth(Metrics.dividerThickness) : 0
+            }
+            barStyleHairline?.backgroundColor = Palette.separator.cgColor
+        }
+    }
 }

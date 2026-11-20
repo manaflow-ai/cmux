@@ -486,10 +486,15 @@ final class TabCell {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
 
-        backgroundLayer.frame = bounds
+        applyTitleWeight()
+        // The glass look's pill is a lighter capsule inset inside the strip's glass capsule; every other look's pill
+        // is the slot's height at the tabs' corner.
+        let glassInset = m.glassInset
+        backgroundLayer.frame = glassInset > 0 ? bounds.insetBy(dx: 0, dy: glassInset) : bounds
         layoutNeedsYouGlow(pill: bounds, onPath: onPath)
         layoutSeparator(slot: slot, pill: bounds)
-        backgroundLayer.cornerRadius = m.cornerRadius
+        backgroundLayer.cornerRadius = glassInset > 0 ? backgroundLayer.frame.height / 2 : m.cornerRadius // radius-allow: the glass look's inner capsule, concentric with its strip capsule
+        layoutUnderline(pill: bounds, onPath: onPath)
         // A folder tab takes the circular curve of its shade cut-out and fillets (``folderPath()``, ``feetPath``), so a
         // squircle `tabs.cornerCurve` leaves no halo of shade at its top corners.
         backgroundLayer.cornerCurve = runsIntoCard ? .circular : Metrics.tabCornerCurve
