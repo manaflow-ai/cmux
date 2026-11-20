@@ -186,6 +186,11 @@ pub fn parse_instance(instance: &Value) -> Option<Machine> {
         state: status,
         slots,
         vcpu: machine_type_vcpu(instance.get("machineType").and_then(Value::as_str).unwrap_or("")),
+        schedule_pause: instance
+            .get("labels")
+            .and_then(|l| l.get("cmux-schedule"))
+            .and_then(Value::as_str)
+            == Some(crate::model::SCHEDULE_PAUSE),
     })
 }
 

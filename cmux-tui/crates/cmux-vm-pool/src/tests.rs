@@ -17,6 +17,7 @@ fn machine(provider: Provider, name: &str, power: Power, slots: u32) -> Machine 
         state: format!("{power:?}"),
         slots,
         vcpu: 16,
+        schedule_pause: true,
     }
 }
 
@@ -466,4 +467,46 @@ fn an_offline_baseline_before_since_counts_a_fast_resume() {
     t.observe(900, &[runner("fsp-c", true, false)]);
     t.observe(1_100, &[runner("fsp-c", true, false)]);
     assert_eq!(t.online_count(), 0);
+}
+
+#[test]
+fn the_idle_pause_takes_only_opted_in_machines() {
+    // The persistent pools (no opt-in) stay running however idle; an opted-in machine or a --pause-prefix pauses.
+    let mut persistent = machine(Provider::Freestyle, "fsp-a", Power::Running, 1);
+    persistent.schedule_pause = false;
+    let mut gce = machine(Provider::Gcp, "cmux-runner-pool-b", Power::Running, 1);
+    gce.schedule_pause = false;
+    let opted = machine(Provider::Freestyle, "fsp-c", Power::Running, 1);
+    let machines = vec![persistent, gce, opted];
+    let roster = vec![
+        runner("fsp-a", true, false),
+        runner("cmux-runner-pool-b", true, false),
+        runner("fsp-c", true, false),
+    ];
+    let policy = Policy { idle_ms: 0, keep_idle: 0, ..Policy::default() };
+    let mut s = Scheduler::new(policy.clone());
+    assert_eq!(s.tick(0, &machines, &roster, Demand::Jobs(0)).pause, vec!["id-fsp-c".to_owned()]);
+    let mut s =
+        Scheduler::new(Policy { pause_prefixes: vec!["cmux-runner-pool-".to_owned()], ..policy });
+    let mut paused = s.tick(0, &machines, &roster, Demand::Jobs(0)).pause;
+    paused.sort();
+    assert_eq!(paused, vec!["id-cmux-runner-pool-b".to_owned(), "id-fsp-c".to_owned()]);
+    // Resumes still take persistent machines: opting in is about pausing only.
+    let mut paused_persistent = machine(Provider::Freestyle, "fsp-d", Power::Paused, 1);
+    paused_persistent.schedule_pause = false;
+    let mut s = Scheduler::new(Policy::default());
+    let d = s.tick(0, &[paused_persistent], &[], Demand::Jobs(1));
+    assert_eq!(d.resume, vec!["id-fsp-d".to_owned()]);
+}
+
+#[test]
+fn providers_read_the_schedule_opt_in() {
+    let vm = json!({"id": "v1", "state": "running", "metadata": {"purpose": "freestyle-pool", "fsp_runner": "fsp-x", "cmux_schedule": "pause"}});
+    assert!(freestyle::parse_vm(&vm, "freestyle-pool").is_some_and(|m| m.schedule_pause));
+    let vm = json!({"id": "v2", "state": "running", "metadata": {"purpose": "freestyle-pool", "fsp_runner": "fsp-y"}});
+    assert!(freestyle::parse_vm(&vm, "freestyle-pool").is_some_and(|m| !m.schedule_pause));
+    let inst = json!({"name": "cmux-runner-pool-z", "status": "RUNNING", "labels": {"purpose": "cmux-runner-pool", "cmux-schedule": "pause"}});
+    assert!(gce::parse_instance(&inst).is_some_and(|m| m.schedule_pause));
+    let inst = json!({"name": "cmux-runner-pool-w", "status": "RUNNING", "labels": {"purpose": "cmux-runner-pool"}});
+    assert!(gce::parse_instance(&inst).is_some_and(|m| !m.schedule_pause));
 }

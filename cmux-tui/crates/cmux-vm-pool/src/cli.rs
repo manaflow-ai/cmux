@@ -49,6 +49,9 @@ Options:
             --demand-file PATH (one line `vcpu=N mem_gib=M`, reread each tick;
             resumes by vCPU instead of by queued job count)
             --keep-idle K (4) --tick SECS (5) [--once]
+            The idle pause takes only machines that opted in (Freestyle metadata
+            cmux_schedule=pause, GCE label cmux-schedule=pause) or match
+            --pause-prefix P; the persistent pools stay running by default.
   GitHub:   --org ORG (manaflow-ai) --group GROUP (cmux-fleet-linux)
   GCP:      --project P (manaflow-437420)
   Pool:     --label L (the jobs runs-on label, cmux-linux)
@@ -83,6 +86,7 @@ struct Args {
     repos: Vec<String>,
     idle_minutes: u64,
     keep_idle: u32,
+    pause_prefixes: Vec<String>,
     tick_s: u64,
     demand_file: Option<String>,
     load_url: Option<String>,
@@ -158,6 +162,7 @@ fn parse(words: &[String]) -> Result<Args, String> {
                 );
             }
             "--prefix" => args.prefixes.push(value(flag)?),
+            "--pause-prefix" => args.pause_prefixes.push(value(flag)?),
             "--org" => args.org = value(flag)?,
             "--group" => args.group = value(flag)?,
             "--project" => args.project = Some(value(flag)?),
@@ -769,6 +774,7 @@ async fn schedule(
         keep_idle: args.keep_idle,
         prefixes: args.prefixes.clone(),
         label: args.label.clone(),
+        pause_prefixes: args.pause_prefixes.clone(),
         ..Policy::default()
     });
     loop {

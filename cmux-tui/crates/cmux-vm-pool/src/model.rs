@@ -73,6 +73,9 @@ impl Power {
     }
 }
 
+/// The opt-in value of the schedule key (Freestyle metadata `cmux_schedule`, GCE label `cmux-schedule`).
+pub const SCHEDULE_PAUSE: &str = "pause";
+
 /// One pool machine.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Machine {
@@ -90,6 +93,9 @@ pub struct Machine {
     pub slots: u32,
     /// vCPUs (GCE machineType, Freestyle metadata `fsp_vcpu`); 0 when unknown.
     pub vcpu: u32,
+    /// Opted into the scheduler's idle pause (Freestyle metadata `cmux_schedule=pause`, GCE label
+    /// `cmux-schedule=pause`). The persistent pools stay running unless a machine says so (hq#15393).
+    pub schedule_pause: bool,
 }
 
 impl Machine {
@@ -111,6 +117,7 @@ impl Machine {
             "state": self.state,
             "slots": self.slots,
             "vcpu": self.vcpu,
+            "schedule_pause": self.schedule_pause,
         })
     }
 }

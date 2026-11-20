@@ -5,6 +5,8 @@
 //!   already on their way, resume paused machines for the difference (Freestyle first, [`crate::plan::pick_up`]).
 //! - Idle: a running machine whose runners have all been online and idle for `idle_ms` pauses, while at least
 //!   `keep_idle` idle runners stay up for the next job, and never while jobs are queued.
+//! - Only machines opted in (metadata `cmux_schedule=pause`, GCE label `cmux-schedule=pause`, or `--pause-prefix`)
+//!   ever pause: the persistent pools stay running by default.
 //! - Never deletes; a machine in any state other than running or paused/stopped is left alone.
 
 use std::collections::{HashMap, HashSet};
@@ -29,6 +31,9 @@ pub struct Policy {
     pub busy_pct: f64,
     /// Measured CPU under this (and no job) for `idle_ms`: the machine pauses.
     pub quiet_pct: f64,
+    /// Machine-name prefixes the idle pause may also take (`--pause-prefix`), beside machines that opted in
+    /// themselves (`Machine::schedule_pause`). Empty by default: the persistent pools stay running.
+    pub pause_prefixes: Vec<String>,
     /// How long a machine this scheduler resumed counts as on its way while none of its runners is online.
     pub start_grace_ms: u64,
 }
@@ -43,6 +48,7 @@ impl Default for Policy {
             busy_pct: 90.0,
             quiet_pct: 20.0,
             start_grace_ms: 3 * 60 * 1000,
+            pause_prefixes: Vec::new(),
         }
     }
 }
@@ -111,6 +117,13 @@ impl Scheduler {
         for id in ids {
             self.resumed_at.insert(id.clone(), now_ms);
         }
+    }
+
+    /// Whether the idle pause may take this machine: it opted in, or a `--pause-prefix` names it. The
+    /// persistent pools (hq#15361, hq#15371) stay running by default (hq#15393: no deletes, no caps).
+    pub fn pausable(&self, machine: &Machine) -> bool {
+        machine.schedule_pause
+            || self.policy.pause_prefixes.iter().any(|p| machine.name.starts_with(p.as_str()))
     }
 
     fn in_pool(&self, runner: &str) -> bool {
@@ -244,6 +257,7 @@ impl Scheduler {
         // Pause the longest-idle machines first while the idle floor stays.
         let mut idle: Vec<&Machine> = machines
             .iter()
+            .filter(|m| self.pausable(m))
             .filter(|m| {
                 self.idle_since
                     .get(&m.id)

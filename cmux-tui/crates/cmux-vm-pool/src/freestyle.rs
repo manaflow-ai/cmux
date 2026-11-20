@@ -102,5 +102,6 @@ pub fn parse_vm(vm: &Value, purpose: &str) -> Option<Machine> {
         state,
         slots,
         vcpu: meta(vm, "fsp_vcpu").and_then(|v| v.trim().parse().ok()).unwrap_or(DEFAULT_VCPU),
+        schedule_pause: meta(vm, "cmux_schedule") == Some(crate::model::SCHEDULE_PAUSE),
     })
 }
