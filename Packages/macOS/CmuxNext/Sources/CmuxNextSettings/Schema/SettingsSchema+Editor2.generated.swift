@@ -245,6 +245,16 @@ extension EditorSettingsSchema {
         let group = SettingsText.keyed("settings.group.editorEditing", "Editing")
         return [
             SettingDescriptor(
+                EditorSettingsSchema.vimModePath,
+                section: .editor,
+                group: group,
+                title: SettingsText.keyed("settings.editor.vimMode", "Vim Keys in the Editor"),
+                help: SettingsText.keyed("settings.editor.vimMode.help", "Normal, Insert and Visual modes in the code editor, with the mode shown in its status bar."),
+                kind: .toggle,
+                default: .bool(EditorSettingsSchema.vimModeDefault),
+                keywords: ["editor", "code", "monaco", "vim", "vi", "modal", "hjkl", "keyboard"]
+            ),
+            SettingDescriptor(
                 EditorSettingsSchema.autoClosingBracketsPath,
                 section: .editor,
                 group: group,
@@ -323,63 +333,6 @@ extension EditorSettingsSchema {
                 ]),
                 default: .string(EditorSettingsSchema.findSeedDefault),
                 keywords: ["editor", "code", "monaco", "find", "search", "selection", "seedSearchStringFromSelection"]
-            ),
-        ]
-    }
-}
-
-extension EditorSettingsSchema {
-    static var savingRows: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.editorSaving", "Saving")
-        return [
-            SettingDescriptor(
-                EditorSettingsSchema.autoSavePath,
-                section: .editor,
-                group: group,
-                title: SettingsText.keyed("settings.editor.autoSave", "Save Automatically"),
-                kind: .choice([
-                    SettingChoice("afterDelay", SettingsText.keyed("settings.choice.editor.afterDelay", "After a Pause")),
-                    SettingChoice("off", SettingsText.keyed("settings.choice.off", "Off")),
-                ]),
-                default: .string(EditorSettingsSchema.autoSaveDefault),
-                keywords: ["editor", "code", "monaco", "save", "auto save", "autoSave"]
-            ),
-            SettingDescriptor(
-                EditorSettingsSchema.autoSaveDelayPath,
-                section: .editor,
-                group: group,
-                title: SettingsText.keyed("settings.editor.autoSaveDelay", "Pause Before Saving"),
-                kind: .number(SettingNumber(EditorSettingsSchema.autoSaveDelayRange, step: 100, unit: .milliseconds)),
-                default: .number(EditorSettingsSchema.autoSaveDelayDefault),
-                keywords: ["editor", "code", "monaco", "save", "delay", "autoSaveDelay"]
-            ),
-            SettingDescriptor(
-                EditorSettingsSchema.trimTrailingWhitespacePath,
-                section: .editor,
-                group: group,
-                title: SettingsText.keyed("settings.editor.trimTrailingWhitespace", "Remove Trailing Spaces on Save"),
-                kind: .toggle,
-                default: .bool(EditorSettingsSchema.trimTrailingWhitespaceDefault),
-                keywords: ["editor", "code", "monaco", "trim", "trailing", "whitespace", "save", "trimTrailingWhitespace"]
-            ),
-            SettingDescriptor(
-                EditorSettingsSchema.insertFinalNewlinePath,
-                section: .editor,
-                group: group,
-                title: SettingsText.keyed("settings.editor.insertFinalNewline", "End Files with a Newline on Save"),
-                kind: .toggle,
-                default: .bool(EditorSettingsSchema.insertFinalNewlineDefault),
-                keywords: ["editor", "code", "monaco", "final newline", "newline", "save", "insertFinalNewline"]
-            ),
-            SettingDescriptor(
-                EditorSettingsSchema.formatOnSavePath,
-                section: .editor,
-                group: group,
-                title: SettingsText.keyed("settings.editor.formatOnSave", "Format on Save"),
-                help: SettingsText.keyed("settings.editor.formatOnSave.help", "Runs the language's formatter when one is installed."),
-                kind: .toggle,
-                default: .bool(EditorSettingsSchema.formatOnSaveDefault),
-                keywords: ["editor", "code", "monaco", "format", "save", "prettier", "formatOnSave"]
             ),
         ]
     }

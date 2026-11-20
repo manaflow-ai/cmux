@@ -103,7 +103,7 @@ for (const [name, Row] of [
   ["CommandRow", CommandRow],
   ["ToolRow", ToolRow],
 ] as const) {
-  test(`${name}: running in the background shimmers its words, with no mark at the edge and no time`, async () => {
+  test(`${name}: running in the background shimmers its words, with no mark at the edge and no hover time`, async () => {
     const container = await render(<Row item={call({ state: "running" })} />);
     const mark = container.querySelector(".cv-command__bg-state")!;
     expect(mark.getAttribute("title")).toBe(translate("tools.background.running"));

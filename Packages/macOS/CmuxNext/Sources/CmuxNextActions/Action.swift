@@ -34,10 +34,11 @@ public nonisolated struct Shortcut: Hashable, Sendable {
     static let relevantModifiers: NSEvent.ModifierFlags = [.command, .shift, .option, .control]
 
     /// Whether a key-down event triggers this shortcut.
-    public func matches(_ event: NSEvent) -> Bool {
+    public func matches(_ event: NSEvent, qwerty: Bool = false) -> Bool {
         guard event.type == .keyDown else { return false }
         let flags = event.modifierFlags.intersection(Self.relevantModifiers)
         guard flags == modifiers else { return false }
+        if let position = Self.qwertyKey(for: event, qwerty: qwerty) { return position == key }
         // `charactersIgnoringModifiers` keeps shift applied for letters on
         // some layouts, so compare lowercased.
         return event.charactersIgnoringModifiers?.lowercased() == key

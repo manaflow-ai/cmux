@@ -678,17 +678,6 @@
       "title" : "Internal Developer Mode",
       "type" : "boolean"
     },
-    "app.keyStyle" : {
-      "default" : "standard",
-      "description" : "Vim moves through lists with j, k, gg, G and /. Emacs uses Control-N, P, F, B, A and E.",
-      "enum" : [
-        "standard",
-        "vim",
-        "emacs"
-      ],
-      "title" : "Key Style",
-      "type" : "string"
-    },
     "app.quitBehavior" : {
       "default" : "keep",
       "description" : "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
@@ -698,16 +687,6 @@
         "end-everything"
       ],
       "title" : "When Quitting",
-      "type" : "string"
-    },
-    "app.shortcutLayout" : {
-      "default" : "followLayout",
-      "description" : "Keep QWERTY Positions puts shortcuts on the US keys, for Dvorak, Colemak, AZERTY and QWERTZ.",
-      "enum" : [
-        "followLayout",
-        "qwertyPositions"
-      ],
-      "title" : "Keyboard Layout",
       "type" : "string"
     },
     "app.showMenuBarIcon" : {
@@ -2082,6 +2061,17 @@
       "description" : "A theme file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json.",
       "title" : "Theme File",
       "type" : "string"
+    },
+    "appearance.themeFileExceptions" : {
+      "default" : [
+
+      ],
+      "description" : "Settings you changed while a theme file sets them. Your value applies over the file's; resetting the row returns to the file's. Choosing another theme file clears the list.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Changed Over Theme File",
+      "type" : "array"
     },
     "appearance.titleAreaContrast" : {
       "default" : 1,
@@ -3910,6 +3900,12 @@
       "default" : false,
       "description" : "Mac Screen tabs connect only through the relay, to test it.",
       "title" : "Relay Only",
+      "type" : "boolean"
+    },
+    "macScreen.shareWithoutAsking" : {
+      "default" : false,
+      "description" : "Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies.",
+      "title" : "Share This Mac Without Asking",
       "type" : "boolean"
     },
     "macScreen.systemShortcuts" : {
