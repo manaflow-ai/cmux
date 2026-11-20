@@ -733,6 +733,10 @@
       "scope": "finder:write",
       "class": "mutation"
     },
+    "forum.threads": {
+      "scope": "forum:read",
+      "class": "read"
+    },
     "git.branches": {
       "scope": "git:read",
       "class": "read"
@@ -2105,6 +2109,9 @@
     "agent.message.send",
     "agent.message.unsend",
     "automation.delete",
+    "automation.secret.list",
+    "automation.secret.remove",
+    "automation.secret.set",
     "automation.settings.set",
     "automation.webhook.get",
     "browser.attach",
