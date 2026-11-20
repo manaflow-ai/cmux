@@ -1381,6 +1381,37 @@ fn two_slow_calls_end_at_the_one_start_deadline() {
     assert!(calls.iter().skip(1).all(|(_, left)| *left < Duration::from_millis(200)), "{calls:?}");
 }
 
+#[test]
+fn a_lost_create_receipt_never_invites_a_second_launch() {
+    let steps = joined::Steps {
+        words: &["session", "start"],
+        target: "studio/n",
+        prompt: Some("go"),
+        receipt: true,
+        fast: false,
+    };
+    for queued in [false, true] {
+        let mut calls = Vec::new();
+        let error = joined::start_chat(&steps, Duration::from_secs(9), Duration::ZERO, |words, _, _| {
+            calls.push(words.join(" "));
+            if words == steps.words && queued {
+                Ok(json!({"messageId":"m1", "state":"queued"}))
+            } else if queued {
+                Err(json!({"code":"acpmux.unreachable", "message":"hub disconnected", "retryable":true}))
+            } else {
+                Err(json!({"code":"acpmux.timeout", "retryable":true}))
+            }
+        }).unwrap_err();
+        assert_eq!(error["retryable"], false);
+        assert_eq!(error["details"]["session_id"], "studio/n");
+        assert_eq!(
+            error["details"]["next"],
+            if queued { "cmux acp session receipt m1" } else { "cmux acp session info studio/n" }
+        );
+        assert_eq!(calls.len(), if queued { 2 } else { 1 });
+    }
+}
+
 /// #38355 review 4: a first prompt whose send timed out answered `retryable: true`, but it may
 /// have been delivered, so a retry sent it twice. It is not retryable now, and says which
 /// prompt id to look for. The send waits only for acceptance (`--no-wait`): a peer link's

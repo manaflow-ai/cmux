@@ -459,18 +459,7 @@ pub(in crate::cli) fn run(
     );
     let (started, sent) = match started {
         Ok(started) => started,
-        Err(mut error) => {
-            if deadline.is_some() && error.get_str("code") == Some("chat_target.unavailable") {
-                if let Some(message) = error.get_str("message") {
-                    error["message"] = json!(format!(
-                        "{message}. Check `cmux acp session info {target}` before starting another chat."
-                    ));
-                }
-                error["retryable"] = json!(false);
-                error["details"]["session_id"] = json!(target);
-            }
-            return fail(global, error);
-        }
+        Err(error) => return fail(global, error),
     };
     // `cmux chat send TEXT` (no SESSION) goes on with this chat, as after a start here.
     super::super::last_chat::remember(&target, None);
@@ -742,9 +731,18 @@ where
         Some(left) => acp(words, stdin, left),
         None => Err(error("acpmux.timeout", "the start's deadline passed", true)),
     };
-    let enqueued = call(steps.words, None).map_err(|e| late(e, || not_taken(limit, None)))?;
+    if limit.is_zero() {
+        return Err(error(
+            "chat_target.unavailable",
+            "No time remained to start the chat; no request was sent",
+            true,
+        ));
+    }
+    let enqueued = call(steps.words, None).map_err(|e| {
+        late(e, || uncertain_start(steps.target, None, &format!("after {}s", limit.as_secs())))
+    })?;
     let receipt = if steps.receipt {
-        wait_started(&enqueued, deadline, limit, poll, &mut call)?
+        wait_started(&enqueued, steps.target, deadline, limit, poll, &mut call)?
     } else {
         enqueued
     };
@@ -766,6 +764,7 @@ where
 /// until `deadline`.
 fn wait_started<C>(
     enqueued: &Value,
+    target: &str,
     deadline: Instant,
     limit: Duration,
     poll: Duration,
@@ -775,7 +774,7 @@ where
     C: FnMut(&[&str], Option<&str>) -> Result<Value, Value>,
 {
     let Some(id) = enqueued.get_str("messageId").map(str::to_owned) else {
-        return Err(error("acpmux.invalid_response", "acpmux's start answered no receipt", false));
+        return Err(uncertain_start(target, None, "because the machine returned no receipt"));
     };
     let mut receipt = enqueued.clone();
     loop {
@@ -791,13 +790,26 @@ where
             Settled::Pending => {
                 let left = deadline.saturating_duration_since(Instant::now());
                 if left.is_zero() {
-                    return Err(not_taken(limit, Some(&id)));
+                    return Err(uncertain_start(
+                        target,
+                        Some(&id),
+                        &format!("after {}s", limit.as_secs()),
+                    ));
                 }
                 std::thread::sleep(poll.min(left));
             }
         }
-        receipt = call(&["session", "receipt", &id, "--json"], None)
-            .map_err(|e| late(e, || not_taken(limit, Some(&id))))?;
+        receipt = call(&["session", "receipt", &id, "--json"], None).map_err(|e| {
+            let why = if e.get_str("code") == Some("acpmux.timeout") {
+                format!("after {}s", limit.as_secs())
+            } else {
+                format!(
+                    "because the receipt could not be read: {}",
+                    e.get_str("message").unwrap_or("connection lost")
+                )
+            };
+            uncertain_start(target, Some(&id), &why)
+        })?;
     }
 }
 
@@ -806,16 +818,15 @@ fn late(error: Value, instead: impl FnOnce() -> Value) -> Value {
     if error.get_str("code") == Some("acpmux.timeout") { instead() } else { error }
 }
 
-/// The machine did not take the chat by the deadline (it may still: `id` is its receipt).
-fn not_taken(limit: Duration, id: Option<&str>) -> Value {
-    let receipt = id
-        .map(|id| format!("; `cmux acp session receipt {id}` says when it does"))
-        .unwrap_or_default();
-    error(
-        "chat_target.unavailable",
-        &format!("the machine has not taken the chat after {}s{receipt}", limit.as_secs()),
-        true,
-    )
+/// The create may already have reached the host. Inspect it before issuing another create.
+fn uncertain_start(target: &str, id: Option<&str>, why: &str) -> Value {
+    let next = match id {
+        Some(id) => format!("cmux acp session receipt {id}"),
+        None => format!("cmux acp session info {target}"),
+    };
+    json!({"code":"chat_target.unavailable", "retryable":false,
+        "message":format!("Could not confirm the start of {target} {why}. Check `{next}` before starting another chat."),
+        "details":{"session_id":target, "receipt_id":id, "next":next}})
 }
 
 /// `what` (a prompt to `target`) was not confirmed within `limit`. It may have been delivered,
