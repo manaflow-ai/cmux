@@ -43,8 +43,8 @@ alone does not grant access to sessions or app-only operations.
 
 `transport.wireguard: true` needs the `wireguardStatic` block below. Without
 it the daemon refuses to start, and `acpmux config --set transport.wireguard=true`
-refuses to write it. The hub carrier (`cmux remote ... --via-machine`) does not
-need this transport. A joined machine runs the carrier on its node key alone.
+refuses to write it. The hub carrier (the `--via-machine` flag of cmux remote exec, cp and
+connect) does not need this transport. A joined machine runs the carrier on its node key alone.
 
 Configure each side in its private `config.json`, with different node keys and
 virtual addresses. The endpoint is the other machine's UDP address; `address`
@@ -1468,18 +1468,20 @@ so an agent messages another lane or session with a tool call instead of piping 
   the `promptId` and delivery id once the delivery settles (steered in, queued, or a new turn),
   or after 5 s with the message on its way; it never waits for the reply. `steer` defaults to true.
   It also takes `class`, `pr`, `thread` and `supersede` (as the CLI's flags), `file` in place of
-  `text` (a UTF-8 file of the caller's own, at most 256 KiB; a relative path is from the
-  folder the agent runs in), `tag` in place of `to` (every live session carrying it, at most 32, not the sender),
+  `text` (a UTF-8 file of the caller's own; small files go inline and larger files are attached;
+  a relative path is from the
+  folder the agent runs in), `tag` in place of `to` (every live session carrying it, not the sender),
   `notice: {sender?, host?, severity, title, links?}` sends it as a tool's notice (as `acpmux
   send --notice`; `text` is its optional body, the sender defaults to this session's name),
-  and `messages: [{to|tag, text|file, steer?, class?, pr?, thread?, supersede?, notice?}]`, a batch of up
-  to 32 sent in order, with the top-level fields as each item's defaults. With `messages` or
+  and `messages: [{to|tag, text|file, steer?, class?, pr?, thread?, supersede?, notice?}]`, a batch
+  sent in order, with the top-level fields as each item's defaults. With `messages` or
   `tag` the result is `results: [{index, to, target, tag, ok, promptId, deliveryId, status,
   sessionId, delivery, error?}]` plus `sent` and `failed`: one row per recipient, a bad one its
   own row's error, never the others'. Messages to one session go in turn, each once the one
   before it was taken, so they arrive in the order given (one still on its way after the 5 s
   wait holds back the rest to that session, with a row saying why); different sessions go side
-  by side, so a batch answers within the one 5 s wait. Use it in place of a shell loop of `acpmux send --no-wait`.
+  by side in bounded groups sharing one 5 s delivery-status deadline. There is no message,
+  tag-session or expanded-recipient count cap. Use it in place of a shell loop of `acpmux send --no-wait`.
 - `acpmux_ls {status?, query?, limit?}`: one line per session on this machine and its peers,
   newest first. Closed sessions are left out unless `status` is `closed`; `query` matches name,
   title or peer; the list stops at `limit` (default 100, at most 500) and says how many more match.

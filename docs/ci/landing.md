@@ -134,8 +134,9 @@ Leo and every agent:
   nightly, releases, public text): a change that reaches those runs the CI that tests it. Stopping on a
   stuck, irrelevant or trivial check is the failure (Leo, 2026-11-19). The agents' merge gate already
   skips a pinned docs-only PR in any repo (`docs_only`); for any other stuck or irrelevant check, merge
-  past it with `MERGE_HOLD_OVERRIDE="<reason>" gh pr merge N --squash --match-head-commit <full head sha>`.
-  The override is logged and stays pinned; never `--admin`.
+  past it with `LAND_JUDGE_OVERRIDE="<reason>" gh pr merge N --squash --match-head-commit <full head sha>`.
+  The override is logged and stays pinned; never `--admin`. `MERGE_HOLD_OVERRIDE` is the same switch
+  under its old name.
 - **Into `feat-cmux-next`, merge it yourself** with a squash pinned to the head
   (`gh pr merge N --squash --match-head-commit <full head sha>`). The `ready-to-land` label is only a
   fallback hand-off for a PR its owner can't land: a label older than the head's last push doesn't count.
