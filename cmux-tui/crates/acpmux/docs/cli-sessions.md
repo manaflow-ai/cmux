@@ -55,10 +55,19 @@ stopped. Win rates count completed, reviewer-decided races, once per model per r
 | An agent's send that waits for the reply (it queues and returns by default) | `acpmux send --wait coord "…"` |
 | From an agent session, message several sessions at once | the `send` tool of the `acpmux` MCP server with `messages: [{to, text}, {to, file}]` (or `tag`), not a shell loop of `acpmux send --no-wait` |
 | Retry a failed last turn | `acpmux retry review-27310` |
+| Park a failed turn's automatic retry before handing its work off | `acpmux --json session park-retry local/review-27310 --expect-revision 17` |
 | Cancel the running turn | `acpmux session cancel coord` |
 
 An agent's send steers into a running turn by default (the agent reads it at its next tool
 boundary); `--no-steer` queues it instead.
+
+`session park-retry` runs on the machine that owns the session. Pass its observed `lastSeq`
+as `--expect-revision`. It returns `{sessionId, revision, parked: true}` only after the retry's
+stop boundary is durable; a rate-limit hold stays parked too. A moved revision, running turn,
+retry already firing, or runnable queued prompt is refused. The failed turn, transcript and
+agent process stay intact. A later explicit retry or new prompt can resume the source; keep
+the handoff receipt so an automated recovery worker does not create another successor.
+Older daemons refuse the distinct `_acpmux/park_retry` operation; do not substitute Cancel or Stop.
 
 ## Read and wait
 

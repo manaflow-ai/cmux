@@ -17,7 +17,7 @@ impl crate::store::Store for FailingPromptStopStore {
     }
     fn append(&self, id: &str, record: &EventRecord) -> anyhow::Result<()> {
         anyhow::ensure!(
-            record.kind != "prompt_stop_requested"
+            !matches!(record.kind.as_str(), "prompt_stop_requested" | "auto_resume_stopped")
                 || self.failure.load(std::sync::atomic::Ordering::SeqCst) != 1,
             "injected prompt stop append failure"
         );
@@ -106,6 +106,34 @@ fn waiting_for_park(hub: &Hub, session: &Session) -> Value {
     last
 }
 
+#[test]
+fn park_retry_never_acknowledges_failed_append_or_flush() {
+    use std::sync::atomic::{AtomicU8, Ordering};
+    for failed_operation in [1, 2] {
+        let mut config = crate::config::Config::default();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let inner = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+        let failure = Arc::new(AtomicU8::new(0));
+        let store = FailingPromptStopStore { inner, failure: failure.clone() };
+        let meta = serde_json::from_value(json!({
+            "schema":crate::store::META_SCHEMA,"id":"failed-park","name":"Failed park",
+            "harness":"fake","cwd":"/tmp","status":"closed","createdAt":1,"updatedAt":1
+        }))
+        .unwrap();
+        crate::store::Store::save(&store, &meta).unwrap();
+        let hub = Hub::new(config, Box::new(store));
+        let session = hub.resolve("failed-park").unwrap();
+        let last = waiting_for_park(&hub, &session);
+        failure.store(failed_operation, Ordering::SeqCst);
+        assert!(hub.park_retry(&session, Hub::revision(&session)).is_err());
+        assert_eq!(session.meta().last_turn, Some(last));
+        assert!(matches!(session.auto_resume.lock().as_ref(), Some(Mark::Waiting { .. })));
+        failure.store(0, Ordering::SeqCst);
+        assert!(hub.park_retry(&session, Hub::revision(&session)).unwrap().parked);
+        assert!(hub.fire_pending(&session, "workflow-turn").is_err());
+    }
+}
+
 #[tokio::test]
 async fn park_retry_fences_timer_preserves_failure_and_survives_recovery() {
     let (hub, session) = retry_chat();
@@ -145,6 +173,9 @@ fn park_retry_refuses_moved_revision_and_running_or_firing_work_without_mutation
         assert_eq!(hub.store.events(&session.id, 0, 100).unwrap().len(), before);
     };
     check(revision.saturating_sub(1));
+    let queued_writer = session.queue.lock().unwrap();
+    check(revision);
+    drop(queued_writer);
     let lease = session.turn_lock.try_lock().unwrap();
     check(revision);
     drop(lease);

@@ -179,3 +179,37 @@ mod person_prompt_tests {
         assert!(!counts_as_person_prompt(false, false, true), "a send from inside a session");
     }
 }
+
+#[cfg(test)]
+mod park_retry_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn park_retry_refuses_every_nonlocal_origin() {
+        let mut config = crate::config::Config::default();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+        let hub = Hub::new(config, store);
+        for (origin, auth) in [
+            (Origin::Web, crate::server::ConnAuth::ListenerToken),
+            (Origin::LocalApp, crate::server::ConnAuth::LocalApp),
+            (Origin::Peer, crate::server::ConnAuth::PeerToken),
+            (Origin::Peer, crate::server::ConnAuth::CarrierOwner),
+        ] {
+            let mut params = serde_json::json!({"sessionId":"source", "expectRevision":7});
+            assert!(
+                crate::server::remote_guard::check(
+                    &hub,
+                    origin,
+                    auth,
+                    None,
+                    method::MUX_PARK_RETRY,
+                    &mut params,
+                    false,
+                )
+                .await
+                .is_err()
+            );
+        }
+    }
+}

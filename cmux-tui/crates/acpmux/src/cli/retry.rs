@@ -66,3 +66,29 @@ pub async fn run(args: RetryArgs, json_out: bool) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::cli::command::{Cli, Command, flatten};
+    use clap::Parser;
+
+    #[test]
+    fn park_retry_cli_requires_the_observed_revision() {
+        assert!(Cli::try_parse_from(["acpmux", "session", "park-retry", "local/s"]).is_err());
+        let cli = Cli::try_parse_from([
+            "acpmux",
+            "--json",
+            "session",
+            "park-retry",
+            "local/s",
+            "--expect-revision",
+            "17",
+        ])
+        .unwrap();
+        let Command::ParkRetry(args) = flatten(cli.command.unwrap()) else {
+            panic!("session park-retry did not select the dedicated operation")
+        };
+        assert_eq!(args.session, "local/s");
+        assert_eq!(args.expect_revision, 17);
+    }
+}

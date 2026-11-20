@@ -25,6 +25,9 @@ impl Hub {
             session.harness_use.try_write().map_err(|_| refused(session, "retry.busy"))?;
         let _spawn = session.spawn_lock.try_lock().map_err(|_| refused(session, "retry.busy"))?;
         let mut pending = session.auto_resume.lock();
+        // Queue mutations append while holding their queue lock. Take it before append,
+        // without waiting, so their pending write cannot deadlock a conditional park.
+        let queue = session.queue.try_lock().map_err(|_| refused(session, "retry.busy"))?;
         let _append = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
         self.catch_up_locked(session);
         if session.replaced.load(Ordering::SeqCst)
@@ -38,7 +41,7 @@ impl Hub {
         }
         if session.turn().is_some()
             || session.harness_turn.load(Ordering::SeqCst)
-            || session.queue().iter().any(|q| !q.aside())
+            || queue.iter().any(|q| !q.aside())
         {
             return Err(refused(session, "retry.busy"));
         }
