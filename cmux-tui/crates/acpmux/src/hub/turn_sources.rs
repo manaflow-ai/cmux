@@ -103,6 +103,9 @@ impl TurnSources {
 
 impl Hub {
     pub(super) fn note_turn_source(&self, session: &Session, update: &Value) {
+        if !matches!(update["sessionUpdate"].as_str(), Some("tool_call" | "tool_call_update")) {
+            return;
+        }
         // Called after tap.rs excludes child/replayed/muted updates. A prompt not yet
         // written cannot own reads from a prior harness or a history load.
         if session.stalled_counted.lock().unwrap_or_else(|e| e.into_inner()).is_none() {
