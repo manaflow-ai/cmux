@@ -51,10 +51,6 @@ while len(args) >= 2 and args[0] in ("-c", "--config", "-p", "--profile"):
     if args[0] in ("-p", "--profile"):
         profile = args[1]
     args = args[2:]
-if args == ["debug", "models"] and os.environ.get("FAKE_CODEX_PROVIDER"):
-    with open(os.environ["FAKE_CODEX_PROVIDER"]) as catalog:
-        print(catalog.read())
-    sys.exit(0)
 if not args or args[0] != "app-server":
     sys.stderr.write("usage: codex app-server\n")
     sys.exit(2)
@@ -201,8 +197,6 @@ for line in sys.stdin:
     if method == "initialize":
         reply({"method": "codex/event", "params": {"note": "a notification first"}})
         reply({"id": rid, "result": {"userAgent": "fake"}})
-    elif method == "config/read":
-        reply({"id": rid, "result": {"config": {"model_provider": profile}}})
     elif method == "model/list":
         if mode == "unauth":
             reply({"id": rid, "error": {"code": -32000, "message": "Not logged in. Run `codex login`."}})
@@ -212,7 +206,7 @@ for line in sys.stdin:
                 data, cursor = json.load(f), None
         else:
             data, cursor = PAGES[message.get("params", {}).get("cursor")]
-        if profile and message.get("params", {}).get("modelProvider") == profile and cursor is None:
+        if profile and cursor is None:
             data = list(data) + [{"model": profile, "id": profile, "displayName": profile,
                                   "supportedReasoningEfforts": [{"reasoningEffort": "high"}],
                                   "serviceTiers": ["priority"]}]

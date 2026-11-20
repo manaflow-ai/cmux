@@ -114,32 +114,21 @@ async fn codex_lists_every_page_without_hidden_models_and_the_default_first() {
     assert_eq!(catalog[0]["serviceTiers"], serde_json::json!(astra.service_tiers));
 }
 
-#[tokio::test]
-async fn refreshed_provider_offers_new_models_and_tiers_missing_from_app_server() {
-    let cwd = scratch("codex-provider");
-    let path = cwd.join("provider.json");
-    let raw = serde_json::json!({"models": [
-        {"slug": "gpt-6.2-astra", "display_name": "Astra", "visibility": "list",
-         "supported_reasoning_levels": [{"effort": "low"}, {"effort": "high"}],
-         "service_tiers": [], "additional_speed_tiers": ["priority"]},
-        {"slug": "internal", "visibility": "hide"}
-    ]});
-    std::fs::write(&path, raw.to_string()).unwrap();
-    let models = probe(
-        Cli::Codex,
-        &fake("fake_codex_app_server.py"),
-        &env(&[("FAKE_CODEX_PROVIDER", path.to_str().unwrap())]),
-        &cwd,
-        DEADLINE,
-    )
-    .await
-    .unwrap();
-    assert!(!ids(&models).contains(&"internal"));
-    assert!(models[0].is_default);
-    let astra = models.iter().find(|m| m.id == "gpt-6.2-astra").unwrap();
-    assert_eq!(astra.efforts, ["low", "high"]);
-    assert_eq!(astra.fast, Some(true));
-    assert_eq!(astra.service_tiers, [serde_json::json!("priority")]);
+#[test]
+fn empty_and_legacy_speed_tiers_follow_the_running_protocol() {
+    use serde_json::json;
+    let rows = acpmux::live_models::codex::parse(&[
+        json!({"id":"legacy","serviceTiers":[],"additionalSpeedTiers":["fast"]}),
+        json!({"id":"standard","serviceTiers":[]}),
+        json!({"id":"unspecified"}),
+    ]);
+    assert_eq!(rows[0].service_tiers, [json!("fast")]);
+    assert_eq!(rows[0].fast, Some(true));
+    assert_eq!(rows[1].fast, Some(false));
+    assert_eq!(rows[2].fast, None);
+    let mut catalog = [json!({"id":"standard","serviceTiers":["priority"]})];
+    acpmux::live_models::overlay(&mut catalog, &rows);
+    assert_eq!(catalog[0]["serviceTiers"], json!([]));
 }
 
 #[tokio::test]

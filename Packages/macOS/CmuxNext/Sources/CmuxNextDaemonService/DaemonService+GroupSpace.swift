@@ -1,5 +1,5 @@
-import CmuxNextActions
-import CmuxNextDaemon
+package import CmuxNextActions
+package import CmuxNextDaemon
 
 extension DaemonService {
     /// A personal group moves its own pins. For a document group, resolve every member before writing any pin.

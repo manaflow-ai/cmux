@@ -271,7 +271,7 @@ impl Translator {
                             return Vec::new();
                         }
                         if changed {
-                            auth.held.extend(self.inner.from_client(msg));
+                            auth.held.extend(self.translate_client(msg));
                             return vec![auth.login_request(file)];
                         }
                     }
@@ -290,6 +290,14 @@ impl Translator {
         }
         if let Some(out) = self.background().request(msg) {
             return out;
+        }
+        self.translate_client(msg)
+    }
+
+    fn translate_client(&self, msg: &Value) -> Vec<Out> {
+        let mut catalog = self.catalog.lock().unwrap_or_else(|e| e.into_inner());
+        if catalog.hold_pick(msg) {
+            return Vec::new();
         }
         self.inner.from_client(msg)
     }
@@ -346,7 +354,7 @@ impl Translator {
                         if let Some(out) = self.background().request(&msg) {
                             released.extend(out);
                         } else {
-                            released.extend(self.inner.from_client(&msg));
+                            released.extend(self.translate_client(&msg));
                         }
                     }
                     return released;
@@ -411,9 +419,11 @@ impl Translator {
     fn translate_server(&self, raw: &Value) -> Vec<Out> {
         let mut catalog = self.catalog.lock().unwrap_or_else(|e| e.into_inner());
         let complete;
+        let mut picks = Vec::new();
         let msg = match catalog.receive(raw) {
             Some(Err(next)) => return vec![next],
             Some(Ok(reply)) => {
+                picks = catalog.take_picks();
                 complete = reply;
                 &complete
             }
@@ -421,6 +431,9 @@ impl Translator {
         };
         let mut out = self.inner.from_server(msg);
         catalog.start(&mut out);
+        for pick in picks {
+            out.extend(self.inner.from_client(&pick));
+        }
         self.message_phases.lock().unwrap_or_else(|e| e.into_inner()).enrich(raw, &mut out);
         out
     }
@@ -435,7 +448,14 @@ impl Translator {
     }
 
     fn settle_pending(&self, why: &str) -> Vec<Out> {
+        let picks = self.catalog.lock().unwrap_or_else(|e| e.into_inner()).take_picks();
         let mut out = self.inner.server_closed(why);
+        for pick in picks {
+            if let Some(id) = pick.get("id") {
+                out.push(Out::Client(serde_json::json!({"jsonrpc":"2.0", "id":id, "error":{"code":-32603,"message":why}})));
+            }
+        }
+
         out.extend(self.background().closed(why));
         out
     }
@@ -544,11 +564,6 @@ pub fn into_value(m: Message) -> Value {
 /// The session-log kind of a raw app-server line (`codex.<method>`, or
 /// `codex.response`), or None for item notifications and streaming deltas.
 pub fn tap_kind(raw: &Value) -> Option<String> {
-    // Config can include private provider and MCP environment values. No part of this reply belongs in a session log.
-    if raw.get("method").is_none() && raw.get("id").and_then(Value::as_str) == Some(catalog::CONFIG)
-    {
-        return None;
-    }
     match raw.get("method").and_then(Value::as_str) {
         // Item notifications become session updates that carry what they
         // say; logging the raw line too would double the busiest records.
@@ -642,10 +657,7 @@ mod tests {
         let list = split(tr.from_server(
             &json!({"id": init, "result": {"userAgent": "acpmux/0.164.0 (Linux; x86_64)"}}),
         ));
-        let config =
-            list.server.iter().find(|m| m["method"] == "config/read").unwrap()["id"].clone();
-        let list = split(tr.from_server(&json!({"id": config, "result": {"config": {}}})));
-        let list = list.server[0]["id"].clone();
+        let list = list.server.iter().find(|m| m["method"] == "model/list").unwrap()["id"].clone();
         split(tr.from_server(&json!({"id": list, "result": {"data": []}})));
         let new = split(tr.from_client(
             &json!({"jsonrpc": "2.0", "id": 1, "method": "session/new", "params": {"cwd": "/tmp", "mcpServers": []}}),
@@ -668,6 +680,56 @@ mod tests {
         let done = split(tr.from_server(&json!({"method": "turn/completed",
             "params": {"threadId": "t", "turn": {"id": "turn-1", "status": "completed", "items": []}}})));
         (options, done.server)
+    }
+
+    #[test]
+    fn a_fast_pick_during_pagination_settles_after_the_last_page_or_close() {
+        for close in [false, true] {
+            let tr = translator_with(false);
+            #[cfg(unix)]
+            {
+                *tr.auth.lock().unwrap() = AuthGate::from_read(Ok(None));
+            }
+            let init = split(tr.start()).server[0]["id"].clone();
+            let out = split(tr.from_server(&json!({"id":init,"result":{}})));
+            let list =
+                out.server.iter().find(|m| m["method"] == "model/list").unwrap()["id"].clone();
+            let out =
+                split(tr.from_server(&json!({"id":list,"result":{"data":[],"nextCursor":"two"}})));
+            let page = out.server[0]["id"].clone();
+            let out = split(tr.from_client(
+                &json!({"id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}),
+            ));
+            let start =
+                out.server.iter().find(|m| m["method"] == "thread/start").unwrap()["id"].clone();
+            tr.from_server(
+                &json!({"id":start,"result":{"thread":{"id":"t"},"model":"live-model"}}),
+            );
+            let pick = json!({"id":"pick","method":"session/set_config_option","params":{"sessionId":"t","configId":"fast-mode","value":"priority"}});
+            assert!(tr.from_client(&pick).is_empty());
+            let out = if close {
+                tr.server_closed("catalog connection closed")
+            } else {
+                tr.from_server(&json!({"id":page,"result":{"data":[{"model":"live-model","serviceTiers":["priority"]}]}}))
+            };
+            let reply = split(out)
+                .hub
+                .into_iter()
+                .map(|m| m.into_value())
+                .find(|m| m["id"] == "pick")
+                .unwrap();
+            if close {
+                assert_eq!(reply["error"]["message"], "catalog connection closed");
+            } else {
+                assert!(
+                    reply["result"]["configOptions"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|v| v["id"] == "fast-mode" && v["currentValue"] == "priority")
+                );
+            }
+        }
     }
 
     #[test]

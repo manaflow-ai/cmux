@@ -272,7 +272,28 @@ fn codex_cli_at(
         .filter(|p| !p.is_empty())
         .cloned()
         .unwrap_or_else(|| command.clone());
-    Ok(CodexCli { program, globals: codex_globals(args).to_vec(), env: layered.env })
+    Ok(CodexCli { program, globals: codex_config_args(args), env: layered.env })
+}
+
+/// Codex also accepts config overrides after app-server. Carry them into a
+/// catalog or login command without copying transport or startup actions.
+fn codex_config_args(args: &[String]) -> Vec<String> {
+    let before = codex_globals(args);
+    let mut globals = before.to_vec();
+    if args.get(before.len()).is_some_and(|arg| arg == "app-server") {
+        let mut tail = args[before.len() + 1..].iter();
+        while let Some(arg) = tail.next() {
+            let (name, attached) =
+                arg.split_once('=').map_or((arg.as_str(), false), |(name, _)| (name, true));
+            if matches!(name, "-c" | "--config" | "--enable" | "--disable") {
+                globals.push(arg.clone());
+                if !attached && let Some(value) = tail.next() {
+                    globals.push(value.clone());
+                }
+            }
+        }
+    }
+    globals
 }
 
 /// The account and configuration the native bridge uses, for its model catalog probe.
@@ -718,6 +739,20 @@ mod tests {
     #[test]
     fn codex_globals_stop_at_app_server() {
         let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            codex_config_args(&args(&[
+                "-p",
+                "work",
+                "app-server",
+                "--listen",
+                "stdio://",
+                "-c",
+                "model_provider='team'",
+                "--enable=x",
+                "--startup-sign-out"
+            ])),
+            args(&["-p", "work", "-c", "model_provider='team'", "--enable=x"])
+        );
         assert!(codex_globals(&args(&["app-server"])).is_empty());
         assert_eq!(
             codex_globals(&args(&["-c", "a=b", "--enable=x", "-p", "w", "app-server", "--x"])),
