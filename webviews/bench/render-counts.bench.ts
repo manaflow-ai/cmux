@@ -49,15 +49,22 @@ const rows: Row[] = [];
 const record = (scenario: string, per: string, counts: RenderCounts, ms: number) => {
   rows.push({ scenario, per, counts, ms });
   console.log(formatRenderCounts(`${scenario} (per ${per})`, counts));
-  // One cause per line: a CI log cuts a long line short, and the long tail is where a missing memo hides.
-  for (const [cause, count] of Object.entries(counts.why)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 80))
-    console.log(`WHY ${scenario}: ${cause}=${count}`);
-  for (const [name, count] of Object.entries(counts.mountsByComponent)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 12))
-    console.log(`MOUNT ${scenario}: ${name}=${count}`);
+  // Every cause, packed into short lines: a CI log cuts a long line short and keeps only its last lines, and
+  // the long tail is where a missing memo hides.
+  const pack = (label: string, entries: [string, number][]) => {
+    let line = "";
+    for (const [name, count] of entries.sort((a, b) => b[1] - a[1])) {
+      const item = `${name}=${Math.round(count * 100) / 100}`;
+      if (line && line.length + item.length > 300) {
+        console.log(`${label} ${scenario}: ${line}`);
+        line = "";
+      }
+      line += (line ? " | " : "") + item;
+    }
+    if (line) console.log(`${label} ${scenario}: ${line}`);
+  };
+  pack("WHY", Object.entries(counts.why));
+  pack("MOUNT", Object.entries(counts.mountsByComponent));
 };
 
 /// Two frames and a task after them: whatever the event scheduled has committed.
