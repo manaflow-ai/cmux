@@ -271,6 +271,38 @@ mod segment_tests {
         assert!(untold.data.is_none(), "{untold:?}");
     }
 
+    #[test]
+    fn local_and_peer_agent_ids_resolve_through_direct_helpers() {
+        let agent = "6e0bad7d-1100-4000-8000-000000000001";
+        let hub = hub_with(&[("m1", "local-lane")]);
+        let local = hub.sessions.lock().unwrap().get("m1").cloned().unwrap();
+        local.meta.lock().unwrap().agent_session_id = Some(agent.to_owned());
+        assert_eq!(id(hub.resolve(agent)), "m1");
+        assert_eq!(id(hub.resolve("6E0BAD")), "m1");
+        assert!(hub.resolve("6e0ba").is_err(), "short agent-id prefixes stay invalid");
+
+        let hub = hub_with(&[]);
+        add_peer(&hub, "hb");
+        let row = RemoteSession {
+            peer: "hb".into(),
+            summary: json!({
+                "sessionId": "r1", "name": "hb/remote-lane", "peer": "hb",
+                "agentSessionId": agent
+            })
+            .into(),
+            receipt: SessionReceipt {
+                host_id: "hb".into(),
+                mux_session_id: "r1".into(),
+                agent_session_id: Some(agent.to_owned()),
+                generation: 1,
+            },
+        };
+        hub.remote_sessions.write().insert("hb/r1".into(), row);
+        assert_eq!(remote_id(&hub, agent).as_deref(), Some("hb/r1"));
+        assert_eq!(remote_id(&hub, "6E0BAD").as_deref(), Some("hb/r1"));
+        assert_eq!(remote_id(&hub, "hb/6e0bad").as_deref(), Some("hb/r1"));
+    }
+
     /// Review of #27791: a short name skips closed sessions while a live one has it, here and
     /// on peers, as `key_route` does; only closed ones still tie among themselves.
     #[test]

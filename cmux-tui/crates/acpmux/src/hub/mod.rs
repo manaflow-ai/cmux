@@ -2421,7 +2421,11 @@ impl Hub {
     /// `acpmux ls`. Reads every name: only where the refusal goes back to a caller.
     pub fn unknown_session(&self, key: &str) -> RpcError {
         let lower = key.to_ascii_lowercase();
-        let id_query = key.bytes().any(|b| b.is_ascii_digit());
+        // Agent ids are commonly UUIDs, but the native id may be an opaque hex token too.
+        // Include those ids in nearest-match diagnostics whenever the query can be an agent-id
+        // prefix, while retaining full UUID diagnostics that contain separators.
+        let id_query = (key.len() >= 6 && key.bytes().all(|b| b.is_ascii_hexdigit()))
+            || key.bytes().any(|b| b.is_ascii_digit());
         let mut names: Vec<String> = self
             .sessions
             .lock()
