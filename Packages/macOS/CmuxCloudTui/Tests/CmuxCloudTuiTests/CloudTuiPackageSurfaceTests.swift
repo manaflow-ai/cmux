@@ -18,6 +18,17 @@ import CmuxCloudTui
         #expect(CloudTuiCommandLine.shellQuote(value) == "'\(value)'")
     }
 
+    /// Only a blank working directory is dropped: a path with surrounding spaces is
+    /// a different directory and is sent unchanged.
+    @Test func workingDirectoryIsSentUnchangedUnlessBlank() {
+        let run = CloudTuiRequests.runArguments(socketPath: "/s", workspaceID: "w", command: ["sh"], cwd: "/remote/project ")
+        #expect(run.params["cwd"] as? String == "/remote/project ")
+        let pane = CloudTuiRequests.paneCreate(paneID: "p", direction: nil, command: ["sh"], cwd: "/remote/project ", revision: nil, key: "k", correlationKey: nil)
+        #expect(pane.params["cwd"] as? String == "/remote/project ")
+        let blank = CloudTuiRequests.paneCreate(paneID: "p", direction: nil, command: ["sh"], cwd: "  ", revision: nil, key: "k", correlationKey: nil)
+        #expect(blank.params["cwd"] == nil)
+    }
+
     @Test func gridRejectsDimensionsOutsideTheSupportedRange() {
         #expect(CloudTuiManualIOGrid(columns: 1, rows: 24) == nil)
         #expect(CloudTuiManualIOGrid(columns: 80, rows: 10_001) == nil)

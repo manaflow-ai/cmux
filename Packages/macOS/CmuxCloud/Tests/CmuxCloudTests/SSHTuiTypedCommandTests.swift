@@ -10,6 +10,9 @@ struct SSHTuiTypedCommandTests {
         #expect(SSHTuiConnection.typedCommand(fromInitialInput: "one\ntwo\r") == nil)
         #expect(SSHTuiConnection.typedCommand(fromInitialInput: "one\rtwo\r") == nil)
         #expect(SSHTuiConnection.typedCommand(fromInitialInput: "  \r") == nil)
+        // Swift folds CRLF into one Character, so this line break must be found by scalar.
+        #expect(SSHTuiConnection.typedCommand(fromInitialInput: "one\r\ntwo\r") == nil)
+        #expect(SSHTuiConnection.typedCommand(fromInitialInput: "one\r\n") == nil)
     }
 
     @Test("The typed command runs in the login shell, then a login shell replaces it")
