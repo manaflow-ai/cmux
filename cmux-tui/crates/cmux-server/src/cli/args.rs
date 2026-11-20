@@ -32,14 +32,23 @@ pub static VERBS: &[VerbSpec] = &[
     },
     VerbSpec {
         path: &["install"],
-        positionals: &[],
-        flags: &[("version", true), ("system", false), ("channel", true), ("channel-url", true)],
-        help: "install or update to the channel's (or --version) manifest; start the service",
+        positionals: &["ssh://host?"],
+        flags: &[
+            ("version", true),
+            ("system", false),
+            ("channel", true),
+            ("channel-url", true),
+            ("binary", false),
+            ("session-name", true),
+            ("yes", false),
+            ("nightly", false),
+        ],
+        help: "keep cmux running here as a service (or on ssh://[user@]host[:port], installed there first)",
     },
     VerbSpec {
         path: &["uninstall"],
-        positionals: &[],
-        flags: &[("purge", false), ("no-backup", false), PG_BIN],
+        positionals: &["ssh://host?"],
+        flags: &[("purge", false), ("no-backup", false), PG_BIN, ("yes", false)],
         help: "stop and remove the service, shim and store; keep state unless --purge",
     },
     VerbSpec {
