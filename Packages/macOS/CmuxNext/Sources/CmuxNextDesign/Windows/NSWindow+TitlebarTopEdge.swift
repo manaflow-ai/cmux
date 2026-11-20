@@ -4,8 +4,10 @@ extension NSWindow {
     /// Hides the light line AppKit's titlebar decoration draws along the window's top edge, so the
     /// top edge reads like the other three.
     ///
-    /// The decoration (`_NSTitlebarDecorationView`, a CoreUI frame layer as tall as the titlebar)
-    /// paints a one-pixel white line at about 10% across the top, in light and dark. The window's
+    /// On macOS 26 the decoration (`_NSTitlebarDecorationView`, a CoreUI frame layer as tall as the
+    /// titlebar) paints a one-pixel white line at about 10% across the top, in light and dark; macOS
+    /// 27 paints none there, and hiding it changes nothing (the glass's own edge highlight is the
+    /// line there: ``WindowMaterialView/fillsWindow``). The window's
     /// own rim already runs around all four sides, so where content runs under a transparent
     /// titlebar the top showed a second, brighter line (the user, 2026-11-19: "weird white border at
     /// top of window"). A window with a visible titlebar keeps it: there the line is part of the
