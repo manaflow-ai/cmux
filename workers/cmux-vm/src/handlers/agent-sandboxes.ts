@@ -60,6 +60,16 @@ export const withRunCap = (principal: Principal, requested: CreateVmRequest): Cr
 };
 
 /**
+ * The refusal of a create past the live-VM cap, naming the holder, the cap and the current count. Paused VMs count
+ * (they are live and resume without a create), so resuming one never passes a cap a create would not.
+ */
+const overVmCap = (budget: AgentBudget, live: number) =>
+  new QuotaExceeded({
+    message: `This ${budget.holder ?? "agent key"} has ${live} live VMs, at its maxVms cap of ${budget.maxVms}; delete one, or resume a paused one instead of creating`,
+    budget: "agent_vms",
+  });
+
+/**
  * Whether one more VM of `size` fits the agent key's budget: fewer live VMs than
  * maxVms, and the estimated USD/h of the live ones (as the provider reports their
  * size) plus the new one at most maxUsdPerHour. The live-VM count is then admitted
@@ -68,14 +78,7 @@ export const withRunCap = (principal: Principal, requested: CreateVmRequest): Cr
  * slot to settle once the create ends (`settleAgentCreate`); undefined when the
  * caller has no agent budget.
  */
-/** The refusal of a create past the live-VM cap, naming the holder and the cap. */
-const overVmCap = (budget: AgentBudget) =>
-  new QuotaExceeded({
-    message: `This ${budget.holder ?? "agent key"} already has its maxVms cap of ${budget.maxVms} VMs; delete one or resume a paused one`,
-    budget: "agent_vms",
-  });
-
-export const agentBudgetAllows =<C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, size: SizeRequest | undefined) =>
+export const agentBudgetAllows = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, size: SizeRequest | undefined) =>
   Effect.gen(function* () {
     const budget = caller.value.agent;
     if (budget === undefined) return undefined;
@@ -87,7 +90,7 @@ export const agentBudgetAllows =<C>(caller: Named<C, Principal>, scope: KeyHasSc
         Effect.catchAll((error) => (error.status === 404 ? Effect.succeed(0) : Effect.fail(unavailable(error)))),
       ),
     ).pipe(Effect.catchTag("StoreError", (error) => Effect.fail(unavailable(error))));
-    if (page.results.length >= budget.maxVms) return yield* Effect.fail(overVmCap(budget));
+    if (page.results.length >= budget.maxVms) return yield* Effect.fail(overVmCap(budget, page.results.length));
     const next = sizeOfCreate(size);
     const total = page.results.reduce((sum, usd) => sum + usd, 0) + estimatedUsdPerHour(next.vcpus, next.memoryMib);
     if (total > budget.maxUsdPerHour + 1e-9) {
@@ -108,7 +111,8 @@ export const agentBudgetAllows =<C>(caller: Named<C, Principal>, scope: KeyHasSc
     const admitted = yield* (yield* TenantLimits)
       .admitAgentSlot(caller.value.tenantId, agent, budget.maxVms, owned.results, slotId)
       .pipe(Effect.mapError(unavailable));
-    if (!admitted) return yield* Effect.fail(overVmCap(budget));
+    // Lost a race to a concurrent create: its slot fills the cap.
+    if (!admitted) return yield* Effect.fail(overVmCap(budget, budget.maxVms));
     return { agent, slotId };
   });
 

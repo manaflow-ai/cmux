@@ -102,7 +102,7 @@ describe("a team key", () => {
     const body = await over.json<{ message: string; budget: string }>();
     expect(body.budget).toBe("agent_vms");
     expect(body.message).toContain("team key tk-lanes");
-    expect(body.message).toContain("maxVms cap of 1");
+    expect(body.message).toContain("has 1 live VMs, at its maxVms cap of 1");
     expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(1);
   });
 
