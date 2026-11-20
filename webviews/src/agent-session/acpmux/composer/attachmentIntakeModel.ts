@@ -906,7 +906,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       }
       making.current.clear();
     },
-    [],
+    [failedForSend],
   );
   /// A pending chip's ×: it goes, and whatever its read makes later is dropped; a chip the host
   /// is making (attachLater) is stopped there too. A file's source is kept a while for an undo
