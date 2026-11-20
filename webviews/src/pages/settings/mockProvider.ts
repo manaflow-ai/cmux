@@ -725,7 +725,7 @@ export class MockSettingsProvider {
       "cmux.settings.agentMcp.run": (params) => {
         const run = params as AgentMcpRun;
         if (!this.agentMcp.enabled) throw new ProtocolError("cmux.page.unavailable", "labs.agentCustomization is off");
-        if (run.action === "refresh" || run.action === "pickFolder") return {};
+        if (run.action === "refresh" || run.action === "pickFolder" || !("name" in run)) return {};
         this.agentMcpRuns.push(run);
         const { agent, name, scope } = run;
         const same = (row: { agent: string; name: string; scope: string }) =>
