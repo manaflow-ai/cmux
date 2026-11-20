@@ -107,14 +107,22 @@
   ); /* theme-fixed: red's complement, the other side of the split; never the accent */
 }
 
-/* Plain glass: today's blur glass, the default (any root that is not lens or spectrum). */
+/* Plain glass: today's blur glass, the default (any root that is not lens or spectrum).
+   THE ONE EDGE (design/glass-system.md, rule 4): the host's hairline ring (--glass-edge, the card
+   rim, transparent with borders off) and one lit hairline along the top, --cmux-tone-light at the
+   design scale's --ds-glass-edge-top (60% light, 24% dark). No second border; the specular sheen is
+   the composer's alone (.ui-glass-material). Reduce Transparency and Liquid Glass off keep the ring
+   only (below). */
 :root:not([data-glass="lens"], [data-glass="spectrum"]) {
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-chrome-tint), transparent);
   --glass-backdrop: var(--surface-blur);
 }
 :root:not([data-glass="lens"], [data-glass="spectrum"]),
 :root:not([data-glass="lens"], [data-glass="spectrum"]) .ui-glass {
-  --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
+  --glass-edge-top: color-mix(in srgb, var(--cmux-tone-light, #fff) calc(var(--ds-glass-edge-top) * var(--glass-rim)), transparent);
+  --glass-rim-shadow:
+    inset 0 var(--cmux-hairline, 0.5px) 0 0 var(--glass-edge-top),
+    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
 }
 
 /* The lens draws the bend and its frost behind the glass; the surface keeps only a light frost
@@ -173,6 +181,20 @@
   backdrop-filter: var(--glass-backdrop);
   box-shadow: var(--glass-rim-shadow), var(--glass-elevation);
 }
+/* CONTENT LAYER (design/glass-system.md, rule 2: glass is for floating things; a card in the
+   content layer gets a near-solid surface). A card that sits in the content layer (a permission ask
+   or a turn error in the transcript, a Settings card, a changelog figure, the cloud progress card)
+   keeps .ui-glass for its shape and its Liquid Glass off and Reduce Transparency path, and adds
+   .ui-glass-content: the design scale's content tint (--ds-glass-content-tint, 88% light and 86%
+   dark) with no backdrop-filter, since it scrolls with the content (rule 7), and the hairline ring
+   alone, with no lit top edge. It reads solid over the page and lets a wallpaper behind a
+   see-through page show only faintly. Never opaque (the glass rule's 90% cap,
+   check-glass-never-opaque.ts); off and Reduce Transparency still draw the opaque surface (below). */
+.ui-glass.ui-glass-content {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-content-tint), transparent);
+  --glass-backdrop: none;
+  --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
+}
 /* A popup's own sheet often paints the solid popup surface on its class (`background:
    var(--surface-popup)`); as glass that hides the blur, so the glass tint wins over one class. */
 .ui-popup.ui-glass {
@@ -192,8 +214,8 @@
    rim. Reduce Transparency keeps the opaque fill and the hairline rim (below), and
    appearance.borders none clears the rim and the sheen (--glass-rim 0); the shadow stays. */
 :root {
-  --glass-material-blur: var(--ds-glass-popover-radius); /* the popover level's radius; the material keeps its own vivid saturation */
-  --glass-material-saturate: 1.8;
+  --glass-material-blur: var(--ds-glass-popover-radius); /* the popover level's radius and its saturation */
+  --glass-material-saturate: var(--ds-glass-saturation); /* the one saturation (design/glass-system.md); 1.8 until the one glass system */
   --glass-material-backdrop: blur(var(--glass-material-blur)) saturate(var(--glass-material-saturate));
 }
 :root,
@@ -228,7 +250,7 @@
 }
 /* Under the system's Reduce Transparency as under the host's: none of the material, the solid card. */
 @media not (prefers-reduced-transparency: reduce) {
-  :root:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency]) .ui-glass.ui-glass-material {
+  :root:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency], [data-glass="off"]) .ui-glass.ui-glass-material {
     --glass-rim-shadow: var(--glass-material-rim), inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
     --glass-elevation: var(--glass-material-depth);
     --glass-backdrop: var(--glass-material-backdrop);
@@ -238,7 +260,7 @@
 /* SVG REFRACTION (svgRefraction.ts; the gallery's and the latency harness's comparison, never set by a
    shipped page): Chromium runs the SVG filter as the backdrop, bending the page's own pixels. */
 @media not (prefers-reduced-transparency: reduce) {
-  :root[data-glass-refract="svg"]:not([data-reduce-transparency]) .ui-glass {
+  :root[data-glass-refract="svg"]:not([data-reduce-transparency], [data-glass="off"]) .ui-glass {
     -webkit-backdrop-filter: url(#cmux-glass-refract) saturate(1.3);
     backdrop-filter: url(#cmux-glass-refract) saturate(1.3);
   }
@@ -263,7 +285,7 @@
 }
 @media not (prefers-reduced-transparency: reduce) {
   @supports not (-webkit-backdrop-filter: none) {
-    :root:not([data-reduce-transparency]) .ui-glass.ui-glass-fisheye {
+    :root:not([data-reduce-transparency], [data-glass="off"]) .ui-glass.ui-glass-fisheye {
       /* The color alone, so a surface's own background-image (a hover wash) still draws. */
       background-color: var(--glass-fisheye-tint);
       backdrop-filter: var(--glass-fisheye) var(--glass-fisheye-frost);
@@ -291,20 +313,22 @@
    (chromiumUnderlay.experiment.ts, which desktop.ts puts on <html>). A surface whose page blurs
    itself under it (seeThroughBlur.ts, below) needs no underlay and draws none. */
 :root {
-  --glass-underlay: 70%;
+  /* The design scale's underlay (design/glass-system.md, rule 6): a menu's 80% over 40% covers
+     88% of the text under it. 70% (93%, a grey slab with no blur) until the one glass system. */
+  --glass-underlay: var(--ds-glass-underlay);
 }
 :root[data-glass-underlay="none"] {
   --glass-underlay: 0%;
 }
 :root[data-glass-underlay="light"] {
-  --glass-underlay: 50%;
+  --glass-underlay: 25%;
 }
 :root[data-glass-underlay="heavy"] {
-  --glass-underlay: 85%;
+  --glass-underlay: 70%;
 }
 @media not (prefers-reduced-transparency: reduce) {
   @supports not (-webkit-backdrop-filter: none) {
-    :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency])
+    :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency], [data-glass="off"])
       :is(.ui-popup, .ui-tooltip, .ui-title-tooltip, .ui-card, .ui-glass-floats).ui-glass {
       background:
         linear-gradient(var(--glass-tint), var(--glass-tint)),
@@ -316,10 +340,10 @@
        (data-glass-under) draws through its own SVG filter. The text under the glass is then
        blurred in place, as WebKit's backdrop draws it, so the surface needs no underlay to hide it:
        its tint and that blur carry the legibility (design/overlay-surfaces.md). */
-    :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency]) [data-glass-under] {
+    :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency], [data-glass="off"]) [data-glass-under] {
       filter: var(--glass-under-filter);
     }
-    :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency]) .ui-glass[data-glass-over] {
+    :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency], [data-glass="off"]) .ui-glass[data-glass-over] {
       --glass-underlay: 0%;
     }
     /* HOST GLASS (hostGlass.ts; Leo 2026-11-06: "why the f*** is this not glass? Like the way the
@@ -383,7 +407,7 @@
    Its own filters only: another surface's kept holes (the Summary's while Find hides it) stay off. */
 @media not (prefers-reduced-transparency: reduce) {
   @supports not (-webkit-backdrop-filter: none) {
-    :root:not([data-glass-lens], [data-reduce-transparency]) [data-glass-under~="hover-card"] {
+    :root:not([data-glass-lens], [data-reduce-transparency], [data-glass="off"]) [data-glass-under~="hover-card"] {
       filter: var(--glass-under-filter-hover-card);
     }
   }
@@ -445,13 +469,13 @@
     --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge) !important;
   }
 }
-:root[data-reduce-transparency] {
+:root:is([data-reduce-transparency], [data-glass="off"]) {
   --glass-tint: var(--glass-surface);
   --glass-backdrop: none;
   --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
   --glass-dispersion: 0;
 }
-:root[data-reduce-transparency] .ui-glass {
+:root:is([data-reduce-transparency], [data-glass="off"]) .ui-glass {
   --glass-tint: var(--glass-opaque) !important;
   --glass-backdrop: none !important;
   --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge) !important;
