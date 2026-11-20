@@ -187,17 +187,24 @@ mod tests {
         admission.pause(Some("503 outage")).unwrap();
         let started = Arc::new(StdMutex::new(Vec::new()));
         let mut jobs = tokio::task::JoinSet::new();
+        let (ready, mut queued) = tokio::sync::mpsc::unbounded_channel();
         for id in 0..100 {
             let admission = admission.clone();
             let started = started.clone();
+            let ready = ready.clone();
             jobs.spawn(async move {
-                let _permit = admission.enter(if id >= 90 { 0 } else { 2 }).await.unwrap();
+                let mut waiting = Box::pin(admission.enter(if id >= 90 { 0 } else { 2 }));
+                assert!(futures::poll!(&mut waiting).is_pending());
+                ready.send(()).unwrap();
+                let _permit = waiting.await.unwrap();
                 let active = admission.state.lock().unwrap().active;
                 started.lock().unwrap().push((id, Instant::now(), active));
                 tokio::time::sleep(Duration::from_secs(10)).await;
             });
         }
-        tokio::task::yield_now().await;
+        for _ in 0..100 {
+            queued.recv().await.unwrap();
+        }
         assert_eq!(admission.state.lock().unwrap().waiting.len(), 100);
         assert!(started.lock().unwrap().is_empty());
         admission.pause(None).unwrap();

@@ -916,6 +916,7 @@ impl Hub {
                         notice: false,
                         // As logged (`turn_started` `persons`); an older record's takes notices.
                         persons: work.turn_persons,
+                        prompted_by_person: work.turn_persons,
                         accepted: true,
                         device: None,
                     });

@@ -99,8 +99,20 @@ mod tests {
             .unwrap()
         };
         let _hello = next(1, &mut outgoing).await;
-        input.send(Message::request(2, crate::hub::finished::METHOD,
-            json!({"op": op, "sessionId": target, "handoff": "done", "reason": "explicit follow-up"})).to_line()).await.unwrap();
+        let (method, params) = if op == "send" {
+            (
+                method::MUX_SEND_QUEUE,
+                json!({"request": {"sessionId": target,
+                "prompt": [{"type": "text", "text": "accidental message"}]}}),
+            )
+        } else {
+            (
+                crate::hub::finished::METHOD,
+                json!({"op": op, "sessionId": target,
+                "handoff": "done", "reason": "explicit follow-up"}),
+            )
+        };
+        input.send(Message::request(2, method, params).to_line()).await.unwrap();
         next(2, &mut outgoing).await
     }
 
@@ -131,6 +143,9 @@ mod tests {
         let reply = request(&hub, Origin::Local, Some("self"), "finish", "self").await;
         assert!(reply.get("error").is_none(), "{reply}");
         assert!(hub.resolve("self").unwrap().meta().finished.is_some());
+        let refused = request(&hub, Origin::Local, Some("other"), "send", "self").await;
+        assert_eq!(refused["error"]["data"]["reason"], "session.finished", "{refused}");
+        assert!(refused["error"]["data"]["next"].as_str().unwrap().contains("fresh"));
         let reply = request(&hub, Origin::Local, Some("self"), "wake", "self").await;
         assert!(reply.get("error").is_none(), "{reply}");
         assert!(hub.resolve("self").unwrap().meta().finished.is_none());
