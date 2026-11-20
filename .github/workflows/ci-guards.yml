@@ -1855,6 +1855,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_publish_guard.py
 
+      - name: Validate lint-class webview checks are fixed forward on the nightly
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_lint_fix_forward.py
+
       - name: Validate the published feed read-back and the shipped app's channels
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_live_feed_check.py
