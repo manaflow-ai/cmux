@@ -1772,7 +1772,8 @@ const TOOL_ROW_PT = TRANSCRIPT_LINE_ROW;
 /// The room around "Worked for"'s rule (Lucas, 2026-11-07; Leo, 2026-11-09): 4 under its words, 8 over the next row,
 /// conversation.css `.cv-worked.has-divider.is-toggle`; no stack gap follows (MARK_WORKED).
 const WORKED_GAP_PT = gridLength("gap-foot") + gridLength("gap");
-const toolRowHeight = () => TOOL_ROW_PT * chromeScale;
+/// The trajectory's density (conversation/trajectory.ts) sets the pitch; the default is TOOL_ROW_PT.
+const toolRowHeight = () => trajectoryRowHeight(TOOL_ROW_PT) * chromeScale;
 const TOOL_RUN_BOTTOM = 0;
 /// A one-line row that is not a tool run (`isLineRow`) draws one tool row's line, as a one-call run
 /// does (#29965; Leo, 2026-11-01: "doesn't make sense for these to be spaced differently"). On the
@@ -2564,16 +2565,22 @@ function fallbackRowHeight(
       const open = settings.show !== "collapsed" || cardOpen(row.id);
       return finish(EDITED_CARD_BELOW + editedCardHeight(files.size, plain.length, open, settings.maxRows));
     }
+    // The trajectory view (trajectory.ts), as ToolRows draws it: a row whose steps are all hidden
+    // draws nothing, a hidden step takes no room, and `separate` folds no run.
+    const view = trajectory();
+    const shaped = view === DEFAULT_TRAJECTORY ? undefined : toolGroups(items, view);
+    if (shaped && !shaped.length) return 0;
+    const shown = shaped ? shaped.flatMap((group) => ("items" in group ? group.items : [group.item])) : items;
     // A folded run (the Codex-style runs) that keeps an entry in sight (a message to another agent)
     // draws its stretches; one with nothing kept in sight draws one summary line, or its one call.
     if (row.foldRun && items.length) {
-      const groups = toolGroups(items);
+      const groups = shaped ?? toolGroups(items);
       // A run line open from the start (`runOpen`) draws each stretch's line over its steps; one the
-      // reader opened draws them too.
-      if (row.runOpen || groups.some(staysInSight) || isFoldedRun(items))
+      // reader opened draws them too. `separate` (trajectory.ts) folds no run.
+      if (row.runOpen || groups.some(staysInSight) || (view.grouping !== "separate" && isFoldedRun(shown)))
         return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups, width, sessionId));
     }
-    let steps = items.length ? stepsHeight(items, width, sessionId, row.id, 0, row.live === true) : toolRowHeight();
+    let steps = shown.length ? stepsHeight(shown, width, sessionId, row.id, 0, row.live === true) : toolRowHeight();
     // Adjacent calls that each sent a message draw as one closed group's line (toolGroups.ts
     // `sendGroup`), not a line per call. One call's batch is one step already.
     if (items.filter((item) => item.tool && sendsMessage(item.tool)).length > 1)
@@ -3687,7 +3694,7 @@ export function layoutConversation(
           height = custom
             ? customHeight
             : edge === LIVE_STEP_EDGE
-              ? TRANSCRIPT_LIVE_STEP_HEIGHT * chromeScale
+              ? trajectoryRowHeight(TRANSCRIPT_LIVE_STEP_HEIGHT) * chromeScale
               : measuredRowHeight(
                   row,
                   width,
@@ -4112,6 +4119,7 @@ import {
 } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
 import { runStretches, staysInSight, stretchStart, toolGroups, type ToolGroup } from "./conversation/toolGroups";
+import { DEFAULT_TRAJECTORY, trajectory, trajectoryRowHeight } from "./conversation/trajectory";
 import {
   callDisclosureKey,
   callDisclosureKeys,

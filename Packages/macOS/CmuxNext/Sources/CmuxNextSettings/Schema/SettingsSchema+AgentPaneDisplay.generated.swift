@@ -86,6 +86,22 @@ extension AgentPaneDisplaySettingsSchema {
     nonisolated static let presentationPath = ["agentPane", "display", "presentation"]
     nonisolated static let presentationDefault = "transcript"
     nonisolated static let presentationValues = ["transcript", "messages"]
+    /// `agentPane.display.trajectory.layout`: The trajectory view's layout (webviews conversation/trajectory.ts, trajectory.css; Leo, 2026-11-17 standup: "customize trajectory GUI (look into [a reference app])"). Default: the transcript as it ships. Rail: each step's glyph hangs on one thin line down the icon column, as a timeline.
+    nonisolated static let layoutPath = ["agentPane", "display", "trajectory", "layout"]
+    nonisolated static let layoutDefault = "default"
+    nonisolated static let layoutValues = ["default", "rail"]
+    /// `agentPane.display.trajectory.density`: One step row's pitch (webviews conversation/trajectory.ts TRAJECTORY_ROW_HEIGHT): Default 22 px, Compact 20, Relaxed 26, as a tool call density setting. The row estimator reads the same values.
+    nonisolated static let densityPath = ["agentPane", "display", "trajectory", "density"]
+    nonisolated static let densityDefault = "default"
+    nonisolated static let densityValues = ["default", "compact", "relaxed"]
+    /// `agentPane.display.trajectory.grouping`: Default: runs of one kind of call under one line ("Ran 3 commands") and runs between asides folded. Separate: every call on its own row, no run folded (webviews conversation/toolGroups.ts).
+    nonisolated static let groupingPath = ["agentPane", "display", "trajectory", "grouping"]
+    nonisolated static let groupingDefault = "default"
+    nonisolated static let groupingValues = ["default", "separate"]
+    /// `agentPane.display.trajectory.hide`: The kinds of step left out of the transcript (webviews conversation/toolGroups.ts `hiddenStep`). A failed step or one waiting for permission always shows; messages to other agents, sub-sessions and asides are never hidden.
+    nonisolated static let hidePath = ["agentPane", "display", "trajectory", "hide"]
+    nonisolated static let hideDefault: [String] = []
+    nonisolated static let hideValues = ["thinking", "reads", "searches", "commands", "edits", "tools"]
     /// `agentPane.display.promptCoach`: Prompt coach (webviews conversation/PromptCoachCard.tsx; Leo, 2026-11-08): after a chat in which the person corrected the agent three or more times before moving on, a card under that turn shows the chat's first prompt rewritten with what they added later, with Copy. Off: the chat asks acpmux for no rewrite (`_acpmux/prompt_coach`) and draws no card.
     nonisolated static let promptCoachPath = ["agentPane", "display", "promptCoach"]
     nonisolated static let promptCoachDefault = true
@@ -106,4 +122,10 @@ extension AgentPaneDisplaySettingsSchema {
     /// `agentPane.display.commandLabels`: How the chat's running tray names background commands no built-in rule knows (CommandLabelsSetting; webviews session-info/commandLabelSettings.ts): preset names and rules of one's own, edited as JSON.
     nonisolated static let commandLabelsPath = ["agentPane", "display", "commandLabels"]
     nonisolated static let commandLabelsDefault: [String] = []
+}
+
+/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
+nonisolated enum AgentPaneDisplaySettingsSchema {
+    /// The agent chat's look (plans/cmux-next/chat-display-settings-DESIGN.md): the chat page reads the same names and ranges (webviews/src/agent-session/acpmux/chatDisplay.ts CHAT_DISPLAY), and its ... menu's Text & Width popover writes them. The font, code font and code size have no value of their own by default: the chat then follows the Markdown viewer's, and code follows the terminal font. Sizes and width never follow the viewer.
+    static var descriptors: [SettingDescriptor] { descriptorsPart1 + descriptorsPart2 }
 }

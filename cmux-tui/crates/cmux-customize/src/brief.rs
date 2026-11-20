@@ -29,6 +29,10 @@ Where things are:\n\
 a whole New Tab page (`cmux.newtab/1`) shows only once picked: `cmux settings set tabs.newTabApp local/customize`, \
 and only on the web New Tab page, so `tabs.nativeNewTabPage` must be false)\n\
 - {styles}: {config}/agent-pane/theme.css\n\
+- how an agent chat draws its steps (tool calls and thoughts): settings \
+`agentPane.display.trajectory.layout` (default, rail), `.density` (default, compact, relaxed), \
+`.grouping` (default, separate) and `.hide` (a list of thinking, reads, searches, commands, edits, tools); \
+`cmux settings reset KEY` puts one back\n\
 - {automations}: make and change them with `cmux automation create|update …` (`cmux automation --help`)\n\
 \n\
 Recipes and working templates are in the cmux-customization skill; read the one that fits before you write.\n\
