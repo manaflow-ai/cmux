@@ -40,7 +40,7 @@
 //! by its id.
 
 use std::os::unix::net::UnixStream;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cmux::{CallKind, ChatTarget, ChatTargetRefusal};
 use cmux_json::JsonGet as _;
@@ -270,6 +270,7 @@ pub(super) enum Route {
 /// `Some(exit code)` when `args` is a chat start: `cmux chat` with no words, `cmux chat new …`,
 /// or `cmux chat` followed by a flag or the prompt. Every other `chat` verb runs where it did.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
+    let began = Instant::now();
     let (mut global, command) = super::parse_globals(args).ok()?;
     let (scope, rest) = command.split_first()?;
     if scope != "chat" {
@@ -279,7 +280,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let words = cloud_start_chat::lift_output_of(rest, &mut global.output, TAKES_VALUE);
     let env = std::env::var(TARGET_ENV).ok();
     let mut unanswered = None;
-    let parsed = parse_with(&words, env, || {
+    let parsed = parse_with(&words, env, began, || {
         setting_target(&global).unwrap_or_else(|error| {
             unanswered = Some(error);
             None
@@ -299,7 +300,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         Ok(Parsed::Run(start)) => start,
         Err(error) => return Some(usage_failure(&error, global.output)),
     };
-    Some(run(&global, start))
+    Some(run(&global, start, began))
 }
 
 /// The start's words after `chat`, or `None` for another chat verb. Anything but a verb (a flag,
@@ -317,7 +318,7 @@ fn start_words(rest: &[String]) -> Option<&[String]> {
 /// CLI runs [`parse_with`].
 #[cfg(test)]
 pub(super) fn parse(words: &[String], env_target: Option<String>) -> Result<Parsed, UsageError> {
-    parse_with(words, env_target, || None)
+    parse_with(words, env_target, Instant::now(), || None)
 }
 
 /// [`parse`], with `setting` the `chat.on` read, called only when neither `--on` nor `CMUX_ON`
@@ -325,6 +326,7 @@ pub(super) fn parse(words: &[String], env_target: Option<String>) -> Result<Pars
 pub(super) fn parse_with(
     words: &[String],
     env_target: Option<String>,
+    began: Instant,
     setting: impl FnOnce() -> Option<String>,
 ) -> Result<Parsed, UsageError> {
     let mut start = Start {
@@ -399,8 +401,8 @@ pub(super) fn parse_with(
                 set_prompt(&mut start.prompt, text)?;
             }
             "--prompt-file" => {
-                let path = value()?;
-                set_prompt(&mut start.prompt, prompt_file::read(&path)?)?;
+                // The target can follow the file. Defer I/O until all flags are known.
+                set_prompt(&mut start.prompt, value()?)?;
                 start.prompt_from_file = true;
             }
             "--agent" | "--harness" => start.agent = Some(value()?),
@@ -449,6 +451,12 @@ pub(super) fn parse_with(
     start.on = pick_target(start.on.take(), env_target, setting);
     if start.on.as_deref() == Some("vm:") {
         return Err(UsageError::new("--on vm: needs new, or a VM's id or name"));
+    }
+    if start.prompt_from_file
+        && let Some(path) = start.prompt.take()
+    {
+        let deadline = named_launch::deadline(&start, began);
+        start.prompt = Some(prompt_file::read_by(path, deadline)?);
     }
     Ok(Parsed::Run(start))
 }
@@ -904,12 +912,12 @@ where
     }
 }
 
-fn run(global: &GlobalArgs, start: Start) -> i32 {
+fn run(global: &GlobalArgs, start: Start, began: Instant) -> i32 {
     // Refused before any target is read, so a signed-out or ambiguous Cloud target says this.
     if start.repo.is_some() && start.on.as_deref().is_some_and(names_cloud) {
         return usage_failure(&UsageError::new(REPO_HERE_ONLY), global.output);
     }
-    let deadline = named_launch::deadline(&start);
+    let deadline = named_launch::deadline(&start, began);
     let (route, start) = match named_launch::route(global, start, deadline) {
         Ok(found) => found,
         Err(error) => return super::wire::print_local_error(&error, global.output, 1),

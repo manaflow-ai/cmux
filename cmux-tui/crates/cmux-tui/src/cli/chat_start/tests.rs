@@ -20,8 +20,17 @@ fn words(list: &[&str]) -> Vec<String> {
 #[test]
 fn named_cloud_and_auto_targets_share_the_launch_budget() {
     for target in ["auto", "lane-1", "vm:vm-1", "vm", "cloud", "joined:abc"] {
-        assert!(super::named_launch::deadline(&start(&["--machine", target])).is_some());
-        assert!(super::named_launch::deadline(&start(&["--on", target])).is_none());
+        assert!(
+            super::named_launch::deadline(
+                &start(&["--machine", target]),
+                std::time::Instant::now()
+            )
+            .is_some()
+        );
+        assert!(
+            super::named_launch::deadline(&start(&["--on", target]), std::time::Instant::now())
+                .is_none()
+        );
     }
     let local = JoinedMachine {
         id: None,
@@ -36,6 +45,19 @@ fn named_cloud_and_auto_targets_share_the_launch_budget() {
         args,
         words(&["new-session", "--machine", "local", "-n", "demo", "-d", "-m", "codex", "--json"])
     );
+}
+
+#[test]
+fn a_named_start_never_opens_the_prompt_file_after_its_deadline() {
+    let began = std::time::Instant::now() - acpmux::launch_contract::NAMED_START_LIMIT;
+    for args in [
+        ["--machine", "lane", "--prompt-file", "/not-a-real-prompt"],
+        ["--prompt-file", "/not-a-real-prompt", "--machine", "lane"],
+    ] {
+        let err =
+            parse_with(&words(&args), None, began, || panic!("explicit machine")).unwrap_err();
+        assert!(err.0.contains("No chat was started"), "{err:?}");
+    }
 }
 
 #[test]
@@ -264,7 +286,9 @@ fn cmux_chat_reads_the_setting_only_without_on_and_cmux_on() {
             read.set(true);
             Some("cloud".to_owned())
         };
-        match parse_with(&words(list), env.map(str::to_owned), setting).unwrap() {
+        match parse_with(&words(list), env.map(str::to_owned), std::time::Instant::now(), setting)
+            .unwrap()
+        {
             Parsed::Run(start) => (start.on, read.get()),
             Parsed::Help => (None, read.get()),
         }
@@ -273,7 +297,10 @@ fn cmux_chat_reads_the_setting_only_without_on_and_cmux_on() {
     assert_eq!(on(&["--on", "here", "hi"], None), (Some("here".into()), false));
     assert_eq!(on(&["hi"], Some("vm:dev")), (Some("vm:dev".into()), false));
     assert_eq!(on(&["--help"], None), (None, false));
-    assert!(parse_with(&words(&["hi"]), None, || Some("vm:".into())).is_err());
+    assert!(
+        parse_with(&words(&["hi"]), None, std::time::Instant::now(), || Some("vm:".into()))
+            .is_err()
+    );
 }
 
 #[test]

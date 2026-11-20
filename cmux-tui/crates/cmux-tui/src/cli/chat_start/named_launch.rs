@@ -4,10 +4,10 @@ use std::time::Instant;
 use super::{GlobalArgs, Reads, Route, Start, joined};
 use serde_json::{Value, json};
 
-pub(super) fn deadline(start: &Start) -> Option<Instant> {
+pub(super) fn deadline(start: &Start, began: Instant) -> Option<Instant> {
     let target = start.on.as_deref()?;
     (start.named_machine && !start.wait && target != "here")
-        .then(|| Instant::now() + acpmux::launch_contract::NAMED_START_LIMIT)
+        .then(|| began + acpmux::launch_contract::NAMED_START_LIMIT)
 }
 
 fn lookup(global: &GlobalArgs, start: &Start, deadline: Option<Instant>) -> Result<Route, Value> {

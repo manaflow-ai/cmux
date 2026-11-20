@@ -2,7 +2,37 @@ use std::fs::OpenOptions;
 use std::io::Read as _;
 use std::os::unix::fs::OpenOptionsExt as _;
 
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::time::Instant;
+
 use super::UsageError;
+
+/// Even open/stat on a regular file can block on a network mount. The worker only reads input;
+/// after a timeout it cannot create a session or deliver a prompt.
+pub(super) fn read_by(path: String, deadline: Option<Instant>) -> Result<String, UsageError> {
+    let Some(end) = deadline else { return read(&path) };
+    let expired = || {
+        UsageError::new(
+            "--prompt-file did not finish within the launch deadline. No chat was started.",
+        )
+    };
+    if Instant::now() >= end {
+        return Err(expired());
+    }
+    let (tx, rx) = mpsc::channel();
+    std::thread::Builder::new()
+        .name("chat-prompt-file".into())
+        .spawn(move || {
+            let _ = tx.send(read(&path));
+        })
+        .map_err(|e| UsageError::new(format!("--prompt-file: cannot start reader: {e}")))?;
+    rx.recv_timeout(end.saturating_duration_since(Instant::now())).map_err(|e| match e {
+        RecvTimeoutError::Timeout => expired(),
+        RecvTimeoutError::Disconnected => {
+            UsageError::new("--prompt-file reader stopped. No chat was started.")
+        }
+    })?
+}
 
 pub(super) fn read(path: &str) -> Result<String, UsageError> {
     const LIMIT: u64 = 8 * 1024 * 1024;
