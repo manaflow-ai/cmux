@@ -38,8 +38,7 @@ extension WindowRootView {
         WindowTitlebar.layoutAccessories(after: toolbarBand.frame, badge: showsTitlebarBadge ? titlebarBadge : nil,
                                         indicator: hostPressureIndicator,
                                         indicatorWidth: (hostPressureIndicator as? HostPressureIndicatorView)?.width ?? TitlebarBandButton.side,
-                                        centeredOn: midY, scale: window?.backingScaleFactor ?? 1,
-                                        extensionStatus: extensionStatusStrip, extensionStatusWidth: extensionStatusStrip?.width ?? 0,
-                                        trailing: liveModeBadge, showsTrailing: sidebarHidden)
+                                        centeredOn: midY, scale: window?.backingScaleFactor ?? 1, extensionStatus: extensionStatusStrip,
+                                        extensionStatusWidth: extensionStatusStrip?.width ?? 0, trailing: liveModeBadge, showsTrailing: sidebarHidden)
     }
 }

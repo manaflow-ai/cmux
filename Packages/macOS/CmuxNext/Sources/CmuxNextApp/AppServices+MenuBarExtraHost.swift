@@ -1,7 +1,6 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentLanes
-import CmuxNextApps
 import CmuxNextMacScreen
 import CmuxNextSettings
 

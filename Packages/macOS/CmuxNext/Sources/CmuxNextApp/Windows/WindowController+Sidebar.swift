@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextApps
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextLiveCode
@@ -19,16 +18,14 @@ extension WindowController {
         // own (a hide sizes it once at the start): every move of the card, its last frame
         // included, has its header re-read the traffic lights (no change, no work).
         root.onMainPaneMove = { [weak self] in WindowControlsAvoiders.refresh(in: self?.window) }
-        // The host pressure indicator joins the top row after the band and badge (cmuxterm-hq#2995),
-        // then the extensions' status items (`cmux.status/1`, hidden while none draws). Shown, hidden
-        // or resized: the top row places them (layoutTitlebarAccessories), then strips avoid them.
+        // The host pressure indicator, then extensions' status items (cmux.status/1), join the top row after the band and badge (cmuxterm-hq#2995).
         let topRowChanged = { [weak self] in
             self?.root.needsLayout = true
             self?.root.layoutSubtreeIfNeeded()
             self?.relayoutTopRowStrips()
         }
         root.hostPressureIndicator = HostPressureIndicatorView(services: services, onVisibilityChange: topRowChanged)
-        root.extensionStatusStrip = AppStatusStripView(items: services.apps.client.statusItems, onWidthChange: topRowChanged)
+        root.extensionStatusStrip = services.apps.client.statusItems.titlebarStrip(onWidthChange: topRowChanged)
         // Swift live mode's mark: in the sidebar's footer, and in the top row while the sidebar is hidden.
         services.liveCode.whenLive { [weak self] in
             self?.sidebar.container.sidebarView.liveModeBadge = LiveModeBadgeView()

@@ -106,6 +106,11 @@ public final class AppStatusItems {
         }.filter { $0.frame.height > 0 }
     }
 
+    /// The titlebar strip that draws the items placed there (`AppStatusStripView`).
+    public func titlebarStrip(onWidthChange: (() -> Void)? = nil) -> AppStatusStripView {
+        AppStatusStripView(items: self, onWidthChange: onWidthChange)
+    }
+
     /// The mount's `surface` in its context.
     public static let surface = "statusItem"
 }
