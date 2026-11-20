@@ -11,7 +11,7 @@ public extension Metrics {
     ///
     /// ```swift
     /// let card = Metrics.buttonContainer(padding: 16)
-    /// glass.cornerRadius = card.outerRadius           // 24 at the default density
+    /// glass.cornerRadius = card.outerRadius           // 20 at the default density
     /// ChromeHover(button, cornerRadius: card.childRadius)
     /// ```
     /// - Parameter padding: Points from the container's edge to a button, the same on the top, the bottom and
@@ -20,6 +20,15 @@ public extension Metrics {
     static func buttonContainer(padding: CGFloat) -> ConcentricContainer {
         ConcentricContainer(childRadius: buttonCornerRadius, padding: padding)
     }
+
+    /// Points from the edge of a card that holds text and buttons (the sidebar's tip and notice cards) to its
+    /// content, the same on every side: ``space5`` (12 pt at the default density), so it follows the density and the
+    /// interface scale (Lawrence 2026-11-19, on the tip card: "need more padding here"; it was ``space3``, 6 pt, inside
+    /// the curve of its corner).
+    static var cardPadding: CGFloat { space5 }
+
+    /// The gap between such a card's text and its button row: ``space4`` (8 pt at the default density).
+    static var cardRowGap: CGFloat { space4 }
 
     /// A close x (or another control) in the corner of a card or a toast rounded by `outerRadius`, concentric
     /// with it (Lawrence 2026-11-15: the Updated card's x was not concentric with the card's corner): the same
