@@ -6,6 +6,8 @@
 //! richer queue/digest/transfer state instead of guessing. No Hub is opened, no kind index or
 //! restore point is written, and existing log bytes are never rewritten. Only unresolved
 //! prompts, the final interrupted turn, and unhandled inbox items get completion records.
+//! [`append_settled_turns`] then repeats the history's latest whole turns after them, so the
+//! newest pages a measurement reads are ordinary history and not those records.
 
 use acpmux::hub::EventFilter;
 use acpmux::store::{EventRecord, LocalStore, SessionStatus, Store};
@@ -417,6 +419,207 @@ pub fn settle(home: &Path, id: &str) -> Result<Settled> {
     })
 }
 
+/// What [`append_settled_turns`] wrote after the completion records.
+#[derive(Debug)]
+pub struct Tail {
+    /// Original history the run copies: the seqs after `from` through `through`.
+    pub from: u64,
+    pub through: u64,
+    pub records: u64,
+    pub bytes: u64,
+    pub turns: u64,
+    /// The completion records the copy needed (queued or inbox prompts it leaves open), each
+    /// right after the copy's last record of that prompt or turn, not at the end.
+    pub completion_seqs: Vec<u64>,
+    /// The log after the run, as [`Settled`] reports it.
+    pub log_bytes: u64,
+    pub log_records: u64,
+    pub last_seq: u64,
+    pub log_turns: u64,
+}
+
+/// The ids a copied record carries, so they differ from the history it repeats.
+fn rename(msg: &mut Value) {
+    let Some(map) = msg.as_object_mut() else { return };
+    for key in ["promptId", "turnId", "messageId", "noticePromptId"] {
+        if let Some(Value::String(s)) = map.get_mut(key) {
+            s.push_str("~tail");
+        }
+    }
+    if let Some(Value::Array(ids)) = map.get_mut("promptIds") {
+        for id in ids.iter_mut() {
+            if let Value::String(s) = id {
+                s.push_str("~tail");
+            }
+        }
+    }
+}
+
+fn mentions(e: &EventRecord, prompt: &str, turn: Option<&str>) -> bool {
+    e.dir == "mux"
+        && (field(&e.msg, "promptId") == Some(prompt)
+            || turn.is_some_and(|t| field(&e.msg, "turnId") == Some(t))
+            || e.msg
+                .get("promptIds")
+                .and_then(Value::as_array)
+                .is_some_and(|ids| ids.iter().any(|id| id.as_str() == Some(prompt))))
+}
+
+/// A run of the history's own settled turns after [`settle`]'s completion records, so the
+/// newest pages read ordinary history and not the records that settled it. The run copies the
+/// latest whole turns of the history through `history_end` (from just after one `turn_result`
+/// through a later one) of at least `target` bytes, or a quarter of the history when that is
+/// less, with fresh prompt, turn and message ids, and times and host seqs after the log's. The
+/// copy leaves no queued prompt or inbox item open: what it would leave gets its completion
+/// right after that prompt's last record. Not idempotent: call once, after `settle`.
+pub fn append_settled_turns(home: &Path, id: &str, history_end: u64, target: u64) -> Result<Tail> {
+    let store = LocalStore::new(home.join("sessions"), 8 << 20)?;
+    let mut meta = store.load(id)?.context("seed session metadata is missing")?;
+    let filter = EventFilter::parse(Some(&json!(["transcript"])))?;
+    // Each turn_result through history_end, with the history's bytes through it.
+    let (mut ends, mut bytes) = (vec![(0_u64, 0_u64)], 0_u64);
+    let (mut last_seq, mut at, mut host_seq, mut records, mut turns, mut transcript_seq) =
+        (0_u64, 0_u64, 0_u64, 0_u64, 0_u64, 0_u64);
+    store.scan_strict(id, 0, &mut |e| {
+        if e.seq <= history_end {
+            bytes += serde_json::to_vec(&e).map_or(0, |v| v.len() as u64 + 1);
+            if e.dir == "mux" && e.kind == "turn_result" {
+                ends.push((e.seq, bytes));
+            }
+        }
+        records += 1;
+        last_seq = e.seq;
+        at = at.max(e.at);
+        host_seq = host_seq.max(e.host_seq.unwrap_or(0));
+        if filter.matches(&e) {
+            transcript_seq = e.seq;
+        }
+        if e.dir == "mux" && e.kind == "user_message" {
+            turns += 1;
+        }
+        true
+    })?;
+    let &(through, through_bytes) = ends.last().expect("ends starts with the log's start");
+    ensure!(through > 0, "the seed history has no settled turn to repeat");
+    let target = target.min(bytes / 4).max(1);
+    // The latest turn boundary with at least `target` bytes after it.
+    let from = ends
+        .iter()
+        .rev()
+        .skip(1)
+        .find(|(_, b)| through_bytes - b >= target)
+        .map_or(0, |(seq, _)| *seq);
+
+    let mut window = Vec::new();
+    store.scan_strict(id, from, &mut |mut e| {
+        if e.seq > through {
+            return false;
+        }
+        if e.dir == "mux" {
+            rename(&mut e.msg);
+        }
+        window.push(e);
+        true
+    })?;
+    ensure!(
+        window.first().is_some_and(|e| e.seq == from + 1)
+            && window.last().is_some_and(|e| e.seq == through),
+        "the seed history between {from} and {through} is not contiguous"
+    );
+
+    // What the copy would leave open, completed after its last record of that prompt or turn.
+    let mut pending = Pending::default();
+    for e in &window {
+        pending.read(e)?;
+    }
+    let mut after: BTreeMap<usize, Vec<(&'static str, Value)>> = BTreeMap::new();
+    for (kind, msg) in pending.suffix() {
+        let prompt = field(&msg, "promptId").unwrap_or_default().to_owned();
+        let turn = field(&msg, "turnId").map(str::to_owned);
+        let i = window
+            .iter()
+            .rposition(|e| mentions(e, &prompt, turn.as_deref()))
+            .unwrap_or(window.len() - 1);
+        after.entry(i).or_default().push((kind, msg));
+    }
+
+    let first_at = window[0].at;
+    let first_host = window.iter().filter_map(|e| e.host_seq).min().unwrap_or(0);
+    let base_at = at + 1;
+    let mut check = Pending::default();
+    let mut tail = Tail {
+        from,
+        through,
+        records: 0,
+        bytes: 0,
+        turns: 0,
+        completion_seqs: vec![],
+        log_bytes: 0,
+        log_records: 0,
+        last_seq: 0,
+        log_turns: 0,
+    };
+    for (i, mut e) in window.into_iter().enumerate() {
+        last_seq += 1;
+        e.seq = last_seq;
+        e.at = (base_at + e.at.saturating_sub(first_at)).max(at);
+        at = e.at;
+        e.host_seq = e.host_seq.map(|h| host_seq + 1 + h.saturating_sub(first_host));
+        let mut out = vec![(e, false)];
+        for (kind, msg) in after.remove(&i).unwrap_or_default() {
+            last_seq += 1;
+            let rec = EventRecord {
+                seq: last_seq,
+                at,
+                dir: "mux".into(),
+                kind: kind.into(),
+                msg,
+                host_seq: None,
+            };
+            out.push((rec, true));
+        }
+        for (e, completion) in out {
+            check.read(&e)?;
+            if filter.matches(&e) {
+                transcript_seq = e.seq;
+            }
+            if e.dir == "mux" && e.kind == "user_message" {
+                turns += 1;
+                tail.turns += 1;
+            }
+            if completion {
+                tail.completion_seqs.push(e.seq);
+            } else {
+                tail.records += 1;
+                tail.bytes += serde_json::to_vec(&e).map_or(0, |v| v.len() as u64 + 1);
+            }
+            store.append(id, &e)?;
+            records += 1;
+        }
+    }
+    let left = check.suffix();
+    ensure!(left.is_empty(), "the repeated turns leave {} records open: {left:?}", left.len());
+    meta.last_seq = last_seq;
+    meta.event_count = records;
+    meta.transcript_seq = transcript_seq;
+    meta.turn_count = turns;
+    meta.updated_at = meta.updated_at.max(at);
+    store.save(&meta)?;
+    store.flush()?;
+    let mut log_bytes = 0;
+    for entry in std::fs::read_dir(home.join("sessions").join(id).join("events"))? {
+        let entry = entry?;
+        if entry.path().extension().is_some_and(|e| e == "ndjson") {
+            log_bytes += entry.metadata()?.len();
+        }
+    }
+    tail.log_bytes = log_bytes;
+    tail.log_records = records;
+    tail.last_seq = last_seq;
+    tail.log_turns = turns;
+    Ok(tail)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -544,5 +747,63 @@ mod tests {
         );
         assert!(!home.join("sessions").join(id).join("events-index").exists());
         assert_eq!(settle(home, id).unwrap().appended, 0);
+    }
+
+    #[test]
+    fn repeated_turns_follow_the_completions_and_settle_where_they_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path();
+        let store = LocalStore::new(home.join("sessions"), 8 << 20).unwrap();
+        let id = "seed";
+        let ids = |p: &str, t: &str| json!({"promptId": p, "turnId": t});
+        let events = [
+            ("user_message", ids("p1", "t1")),
+            ("turn_started", ids("p1", "t1")),
+            ("turn_result", json!({"promptId": "p1"})),
+            ("user_message", ids("p2", "t2")),
+            ("turn_started", ids("p2", "t2")),
+            ("queued", ids("peer", "t9")),
+            ("turn_result", json!({"promptId": "p2"})),
+            ("user_message", ids("p3", "t3")),
+            ("turn_started", ids("p3", "t3")),
+        ];
+        for (i, (kind, msg)) in events.iter().enumerate() {
+            store.append(id, &record(i as u64 + 1, kind, msg.clone())).unwrap();
+        }
+        let meta = acpmux::god_fixture::session_meta(id, "coord-sim-test", "/tmp", "agent", 9, 9);
+        store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+        store.flush().unwrap();
+        drop(store);
+        let settled = settle(home, id).unwrap();
+        // The open turn t3 and the queued peer prompt.
+        assert_eq!(settled.appended, 2);
+        let history_end = settled.last_seq - settled.appended;
+        // A target past the history repeats only its last whole turn (t2, seqs 4..=7).
+        let tail = append_settled_turns(home, id, history_end, 1 << 30).unwrap();
+        assert_eq!((tail.from, tail.through, tail.records, tail.turns), (3, 7, 4, 1));
+        let store = LocalStore::new(home.join("sessions"), 8 << 20).unwrap();
+        let mut log = vec![];
+        store
+            .scan_strict(id, 0, &mut |e| {
+                log.push(e);
+                true
+            })
+            .unwrap();
+        let kinds: Vec<_> =
+            log.iter().skip(settled.last_seq as usize).map(|e| e.kind.as_str()).collect();
+        // The copy's queued prompt is removed right after it, before the copy's turn ends.
+        assert_eq!(
+            kinds,
+            ["user_message", "turn_started", "queued", "queue_removed", "turn_result"]
+        );
+        assert_eq!(tail.completion_seqs, vec![settled.last_seq + 4]);
+        assert_eq!(log.last().unwrap().seq, tail.last_seq);
+        assert_eq!(log[settled.last_seq as usize].msg["promptId"], "p2~tail");
+        let mut state = Pending::default();
+        for e in &log {
+            state.read(e).unwrap();
+        }
+        assert!(state.suffix().is_empty());
+        assert_eq!(store.load(id).unwrap().unwrap().last_seq, tail.last_seq);
     }
 }

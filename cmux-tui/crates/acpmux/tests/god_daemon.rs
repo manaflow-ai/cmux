@@ -1654,6 +1654,10 @@ const SIZE_ALL_LOGS: Duration = Duration::from_secs(1800);
 const OLDER_PAGE_LIMIT: u64 = 2000;
 const OLDER_PAGE_BYTES: u64 = 1 << 20;
 
+/// The repeated settled turns after a coord-sim chat's settlement: twice the largest page read,
+/// so every newest page is ordinary history (a quarter of the history when that is less).
+const TAIL_BYTES: u64 = 2 * OLDER_PAGE_BYTES;
+
 /// The kinds the pane's attach asks a local acpmux for (attachParams.ts `plainAttach`).
 fn app_attach(id: &str) -> Value {
     json!({"sessionId": id, "waitLogs": false, "settled": true, "limit": PAGE_LIMIT,
@@ -1700,13 +1704,29 @@ fn free_bytes(path: &Path) -> u64 {
     st.f_bavail as u64 * st.f_frsize as u64
 }
 
-/// Completion suffix records must not become the measured workload of a newest page.
-fn original_page_records(reply: &Value, history_end: u64) -> usize {
+/// The records fixture preparation wrote (the settlement's completions and the repeated turns'),
+/// as inclusive seq ranges from `fixturePreparation.preparationSeqs`.
+fn preparation_seqs(preparation: &Value) -> Vec<(u64, u64)> {
+    preparation["preparationSeqs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|r| Some((r[0].as_u64()?, r[1].as_u64()?)))
+        .collect()
+}
+
+/// Completion records must not become the measured workload of a page: the records of `reply`
+/// that are history, not preparation.
+fn original_page_records(reply: &Value, prepared: &[(u64, u64)]) -> usize {
     reply["events"]
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|e| e["seq"].as_u64().is_some_and(|seq| seq > 0 && seq <= history_end))
+        .filter(|e| {
+            e["seq"].as_u64().is_some_and(|seq| {
+                seq > 0 && !prepared.iter().any(|&(from, to)| (from..=to).contains(&seq))
+            })
+        })
         .count()
 }
 
@@ -1716,7 +1736,7 @@ fn timed_rounds(
     rpc: &mut Rpc,
     method: &str,
     rounds: u64,
-    history_end: u64,
+    prepared: &[(u64, u64)],
     params: impl Fn(u64) -> Value,
 ) -> (Value, Value, Value) {
     let (mut times, mut records, mut error) = (vec![], Value::Null, Value::Null);
@@ -1730,11 +1750,11 @@ fn timed_rounds(
         match reply {
             Ok(reply) => {
                 let count = reply["events"].as_array().map_or(0, Vec::len);
-                let original = original_page_records(&reply, history_end);
+                let original = original_page_records(&reply, prepared);
                 if count == 0 || original * 2 < count {
                     error = json!({"method": method, "round": round,
                         "reason": "page is empty or dominated by fixture completions",
-                        "records": count, "originalRecords": original, "historyEndSeq": history_end});
+                        "records": count, "originalRecords": original});
                     break;
                 }
                 times.push(us);
@@ -1760,6 +1780,25 @@ fn timed_rounds(
 /// it failed (and reads on) instead of waiting [`STEP`].
 const SEND_WAIT: Duration = Duration::from_secs(120);
 
+/// An `agent_message_chunk` notice in either envelope the daemon sends it (server/mod.rs
+/// `deliver`): its chat and text. A connection whose attach asked for `eventStream` (the
+/// pane's, [`app_attach`]) hears the logged record as `_acpmux/event`, with the record's `kind`
+/// and the agent's raw message in `msg`; any other hears ACP's `session/update`.
+fn streamed_chunk(v: &Value) -> Option<(&str, &str)> {
+    let params = &v["params"];
+    let update = match v["method"].as_str()? {
+        "session/update" => &params["update"],
+        "_acpmux/event" if params["kind"] == "agent_message_chunk" => {
+            &params["msg"]["params"]["update"]
+        }
+        _ => return None,
+    };
+    if update["sessionUpdate"] != "agent_message_chunk" {
+        return None;
+    }
+    Some((params["sessionId"].as_str()?, update["content"]["text"].as_str()?))
+}
+
 /// A prompt to `id` until its first streamed chunk (the stand-in agent echoes it), then its
 /// turn's end: the time to the chunk. Past [`SEND_WAIT`] an error that names the notices read
 /// meanwhile (a prompt queued behind a turn the log left open shows as `queued`).
@@ -1771,12 +1810,7 @@ fn send_first_token(rpc: &mut Rpc, id: &str, text: &str) -> Result<u64, Value> {
     let first = rpc.wait_note_until(
         |v| {
             (is_response(v, req) && v.get("error").is_some())
-                || (v["method"] == "session/update"
-                    && v["params"]["sessionId"] == json!(id)
-                    && v["params"]["update"]["sessionUpdate"] == "agent_message_chunk"
-                    && v["params"]["update"]["content"]["text"]
-                        .as_str()
-                        .is_some_and(|t| t.contains(text)))
+                || streamed_chunk(v).is_some_and(|(chat, t)| chat == id && t.contains(text))
         },
         Some(sent + SEND_WAIT),
     );
@@ -1796,12 +1830,10 @@ fn send_first_token(rpc: &mut Rpc, id: &str, text: &str) -> Result<u64, Value> {
             .notes
             .iter()
             .skip(seen)
-            .filter(|v| v["params"]["update"]["sessionUpdate"] == "agent_message_chunk")
+            .filter_map(streamed_chunk)
             .take(4)
-            .map(|v| {
-                let text = v["params"]["update"]["content"]["text"].as_str().unwrap_or("");
-                json!({"sessionId": v["params"]["sessionId"],
-                       "text": text.chars().take(160).collect::<String>()})
+            .map(|(chat, text)| {
+                json!({"sessionId": chat, "text": text.chars().take(160).collect::<String>()})
             })
             .collect();
         json!({"kinds": kinds, "chunks": chunks})
@@ -1866,18 +1898,32 @@ fn write_size_chat(
     let id = chat["id"].as_str().expect("the manifest names its chat").to_owned();
     let home = out.join("acpmux-home");
     let settled = chat_size_seed::settle(&home, &id).expect("settle generated offline seed");
+    let history_end = settled.last_seq - settled.appended;
+    // The settlement's completions end the log; the history's own latest turns, repeated after
+    // them, make the newest pages ordinary history again.
+    let tail = chat_size_seed::append_settled_turns(&home, &id, history_end, TAIL_BYTES)
+        .expect("repeat settled turns after the settlement");
+    let mut prepared = vec![];
+    if settled.appended > 0 {
+        prepared.push(json!([history_end + 1, settled.last_seq]));
+    }
+    prepared.extend(tail.completion_seqs.iter().map(|seq| json!([seq, seq])));
     let preparation = json!({
-        "appended": settled.appended, "historyEndSeq": settled.last_seq - settled.appended,
+        "appended": settled.appended, "historyEndSeq": history_end,
         "removedPrompts": settled.removed_prompts,
         "removedInbox": settled.removed_inbox, "settledTurns": settled.settled_turns,
         "transcriptSeq": settled.transcript_seq,
+        "tail": {"from": tail.from, "through": tail.through, "records": tail.records,
+                 "bytes": tail.bytes, "turns": tail.turns,
+                 "completions": tail.completion_seqs.len()},
+        "preparationSeqs": prepared,
     });
     let w = chat_size_fixture::Written {
         id,
-        bytes: settled.bytes,
-        records: settled.records,
-        turns: settled.turns,
-        last_seq: settled.last_seq,
+        bytes: tail.log_bytes,
+        records: tail.log_records,
+        turns: tail.log_turns,
+        last_seq: tail.last_seq,
         tool_outputs: 0,
         largest_output: 0,
     };
@@ -1899,7 +1945,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let written_at = Instant::now();
     let (home, w, source, preparation) = write_size_chat(&scratch, bytes);
     let write_ms = ms(written_at);
-    let history_end = preparation["historyEndSeq"].as_u64().unwrap_or(w.last_seq);
+    let prepared = preparation_seqs(&preparation);
     write_config(&home, json!({}));
     let id = w.id.clone();
     let segments =
@@ -1942,10 +1988,10 @@ fn size_run(label: &str, bytes: u64) -> Value {
     // Settled: the log is read; what a long chat costs on its own.
     let rounds = ROUNDS as u64;
     let (attach_us, attach_records, attach_error) =
-        timed_rounds(&mut rpc, "_acpmux/attach", rounds, history_end, |_| app_attach(&id));
+        timed_rounds(&mut rpc, "_acpmux/attach", rounds, &prepared, |_| app_attach(&id));
     let (rss_idle, _) = daemon.rss();
     let (newest_us, newest_records, newest_error) =
-        timed_rounds(&mut rpc, "_acpmux/events", rounds, history_end, |_| {
+        timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
             older_params(&id, last + 1)
         });
     // Warm pages at fixed proportional depths, as the repeated newest/attach reads above.
@@ -1953,26 +1999,26 @@ fn size_run(label: &str, bytes: u64) -> Value {
     // future forward cursors) while large chats still returned content. Keep each workload
     // nonempty and report its returned record counts alongside its latency distribution.
     let (recent_us, _, recent_error) =
-        timed_rounds(&mut rpc, "_acpmux/events", rounds, history_end, |_| {
+        timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
             older_params(&id, (last * 9 / 10).max(2))
         });
     let (mid_us, _, mid_error) =
-        timed_rounds(&mut rpc, "_acpmux/events", rounds, history_end, |_| {
+        timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
             older_params(&id, (last / 2).max(2))
         });
     let (deep_us, _, deep_error) =
-        timed_rounds(&mut rpc, "_acpmux/events", rounds, history_end, |_| {
+        timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
             older_params(&id, (last / 20).max(2))
         });
     // The rail's prompt index (direct.ts `readPromptIndex`).
     let (prompt_index_us, prompt_index_rows, prompt_index_error) =
-        timed_rounds(&mut rpc, "_acpmux/events", rounds, history_end, |_| {
+        timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
             json!({"sessionId": id, "beforeSeq": last + 1, "promptIndex": true,
                    "kinds": ["user_message"], "limit": 5000, "maxBytes": 256 << 10})
         });
     // A forward read from the middle (a reconnect's catch-up, a rail jump's `loadThrough`).
     let (forward_us, _, forward_error) =
-        timed_rounds(&mut rpc, "_acpmux/events", rounds, history_end, |_| {
+        timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
             json!({"sessionId": id, "afterSeq": last / 2,
                "limit": OLDER_PAGE_LIMIT, "maxBytes": OLDER_PAGE_BYTES})
         });
@@ -2241,8 +2287,32 @@ fn chat_size_ratios_use_the_same_metric_and_baseline() {
 
 #[test]
 fn chat_size_page_coverage_excludes_preparation_and_missing_sequences() {
-    let reply = json!({"events": [{"seq": 99}, {"seq": 100}, {"seq": 101}, {}, {"seq": 0}]});
-    assert_eq!(original_page_records(&reply, 100), 2);
-    assert_eq!(original_page_records(&json!({"events": [{"seq": 101}]}), 100), 0);
-    assert_eq!(original_page_records(&json!({}), 100), 0);
+    let reply = json!({"events": [{"seq": 99}, {"seq": 100}, {"seq": 101}, {}, {"seq": 0},
+                                  {"seq": 103}, {"seq": 104}]});
+    // Settlement 101..=102, one repeated-turn completion at 104: 99, 100 and 103 are history.
+    let prepared = preparation_seqs(&json!({"preparationSeqs": [[101, 102], [104, 104]]}));
+    assert_eq!(prepared, vec![(101, 102), (104, 104)]);
+    assert_eq!(original_page_records(&reply, &prepared), 3);
+    assert_eq!(original_page_records(&json!({"events": [{"seq": 101}]}), &prepared), 0);
+    assert_eq!(original_page_records(&json!({}), &prepared), 0);
+    assert_eq!(original_page_records(&json!({"events": [{"seq": 101}]}), &[]), 1);
+}
+
+#[test]
+fn a_streamed_chunk_is_read_from_either_envelope() {
+    // As server/mod.rs `deliver` sends one to a connection with and without `eventStream`.
+    let update = json!({"sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": "turn: size 1M 0"}});
+    let event = json!({"jsonrpc": "2.0", "method": "_acpmux/event", "params": {
+        "sessionId": "chat", "seq": 9, "at": 1, "dir": "in", "kind": "agent_message_chunk",
+        "msg": {"jsonrpc": "2.0", "method": "session/update",
+                "params": {"sessionId": "agent-session", "update": update}}}});
+    assert_eq!(streamed_chunk(&event), Some(("chat", "turn: size 1M 0")));
+    let acp = json!({"jsonrpc": "2.0", "method": "session/update",
+                     "params": {"sessionId": "chat", "update": update}});
+    assert_eq!(streamed_chunk(&acp), Some(("chat", "turn: size 1M 0")));
+    let thought = json!({"method": "_acpmux/event", "params": {"sessionId": "chat",
+        "kind": "agent_thought_chunk", "msg": {"params": {"update": {
+            "sessionUpdate": "agent_thought_chunk", "content": {"text": "size 1M 0"}}}}}});
+    assert_eq!(streamed_chunk(&thought), None);
 }
