@@ -261,6 +261,10 @@ pub struct Decision {
     /// The owner session, for `needs_its_owner` only, from [`Owners`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner: Option<String>,
+    /// An earlier message of the same subject and condition this one repeats (its receipt):
+    /// its recipient was already told, so no digest shows it again ([`mark_repeats`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repeat_of: Option<String>,
 }
 
 /// Each message of `batch` decided from the model's `answer` (None: the call failed or timed
@@ -307,6 +311,7 @@ pub fn decide(batch: &Batch, answer: Option<&str>, owners: &Owners) -> Vec<Optio
                 category,
                 decided_by,
                 owner,
+                repeat_of: None,
             })
         })
         .collect()
@@ -334,15 +339,166 @@ pub fn triaged_record(batch: &Batch, decided: &[Decision], digest: Option<&str>)
                 "category": d.category, "decidedBy": d.decided_by,
                 "from": m.map(|m| cut(&m.from, 64)).unwrap_or_default(),
                 "label": m.map(|m| preview(&m.text)).unwrap_or_default(),
+                "class": m.map(|m| m.class.as_str()).unwrap_or_default(),
+                "fingerprint": m.map(fingerprint).unwrap_or_default(),
             });
             if let Some(o) = &d.owner {
                 v["owner"] = json!(o);
+            }
+            if let Some(r) = &d.repeat_of {
+                v["repeatOf"] = json!(r);
             }
             v
         })
         .collect();
     json!({"batchId": batch.batch_id, "recipient": batch.recipient, "items": items,
            "digestPromptId": digest})
+}
+
+/// How long a told subject and condition stays told: a repeat within it shows in no digest; one
+/// after it surfaces again.
+pub const REPEAT_WINDOW_MS: u64 = 4 * 60 * 60 * 1000;
+/// Told subjects kept per chat, at most; the oldest go first.
+pub const MAX_TOLD: usize = 4096;
+
+/// What a message says, stripped of what changes between observations of one condition: case,
+/// numbers (counts, minutes, PR and run numbers, times), hex ids, and the names in its
+/// sender's own label (two hosts' reports of one incident match). Its first line only: the
+/// subject and the condition, not the detail.
+pub fn fingerprint(m: &Held) -> String {
+    let line = m.text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default();
+    let mut text = cut(line, 512).to_lowercase();
+    for part in m.from.to_lowercase().split(['/', ' ', ':', '@']) {
+        if part.len() >= 3 {
+            text = text.replace(part, " ");
+        }
+    }
+    let mut norm = String::with_capacity(text.len());
+    let mut word = String::new();
+    let flush = |word: &mut String, norm: &mut String| {
+        let hexish = word.len() >= 7 && word.chars().all(|c| c.is_ascii_hexdigit());
+        let numeric = word.chars().any(|c| c.is_ascii_digit());
+        if !word.is_empty() {
+            if !norm.is_empty() {
+                norm.push(' ');
+            }
+            if hexish {
+                norm.push('#');
+            } else if numeric {
+                let mut last_digit = false;
+                for c in word.chars() {
+                    if c.is_ascii_digit() {
+                        if !last_digit {
+                            norm.push('#');
+                        }
+                        last_digit = true;
+                    } else {
+                        norm.push(c);
+                        last_digit = false;
+                    }
+                }
+            } else {
+                norm.push_str(word);
+            }
+        }
+        word.clear();
+    };
+    for c in text.chars() {
+        if c.is_alphanumeric() || c == '#' {
+            word.push(c);
+        } else {
+            flush(&mut word, &mut norm);
+        }
+    }
+    flush(&mut word, &mut norm);
+    format!("{:x}", Sha256::digest(norm.as_bytes()))[..16].to_owned()
+}
+
+/// The subjects and conditions a chat's digests already told, by who was told: `(recipient,
+/// thread, fingerprint) -> (first prompt id, when)`. Rebuilt from `inbox_triaged` records, so
+/// it holds across a restart.
+#[derive(Debug, Clone, Default)]
+pub struct Told(BTreeMap<(String, String, String), (String, u64)>);
+
+impl Told {
+    /// The earlier message `(to, thread, print)` repeats, if one was told within the window.
+    pub fn repeat(&self, to: &str, thread: &str, print: &str, at: u64) -> Option<&str> {
+        let key = (to.to_owned(), thread.to_owned(), print.to_owned());
+        self.0
+            .get(&key)
+            .filter(|(_, when)| at.saturating_sub(*when) < REPEAT_WINDOW_MS)
+            .map(|(id, _)| id.as_str())
+    }
+
+    /// `id` told `to` of `(thread, print)` at `at`; an older entry of the key is replaced.
+    pub fn note(&mut self, to: &str, thread: &str, print: &str, id: &str, at: u64) {
+        if print.is_empty() {
+            return;
+        }
+        let key = (to.to_owned(), thread.to_owned(), print.to_owned());
+        if self.repeat(to, thread, print, at).is_some() {
+            return;
+        }
+        self.0.insert(key, (id.to_owned(), at));
+        if self.0.len() > MAX_TOLD {
+            let oldest = self.0.iter().min_by_key(|(_, (_, when))| *when).map(|(k, _)| k.clone());
+            if let Some(k) = oldest {
+                self.0.remove(&k);
+            }
+        }
+    }
+
+    /// The tells of an `inbox_triaged` record made at `at`: each shown item (not a repeat).
+    pub fn read_record(&mut self, recipient: &str, record: &Value, at: u64) {
+        for l in record_lines(record) {
+            if let Some(to) = l.told(recipient) {
+                self.note(to, &l.thread_id, &l.fingerprint, &l.prompt_id, at);
+            }
+        }
+    }
+}
+
+impl Line {
+    /// Who a digest tells of this line: the chat or its owner; None when no digest shows it.
+    pub fn told<'a>(&'a self, recipient: &'a str) -> Option<&'a str> {
+        if self.repeat_of.is_some() || self.class == "question" {
+            return None;
+        }
+        match self.category {
+            Category::NeedsThisSession => Some(recipient),
+            Category::NeedsItsOwner => self.owner.as_deref(),
+            _ => None,
+        }
+    }
+}
+
+/// Marks each decision in `batch` that repeats one already told its recipient (by `told`, or
+/// earlier in this pass) with [`Decision::repeat_of`], and notes the rest as told at `at`. A
+/// question never repeats: someone waits for its answer. A message whose first line differs
+/// past numbers and its sender's names (another blocker, another action) is told.
+pub fn mark_repeats(batch: &Batch, decided: &mut [Decision], told: &mut Told, at: u64) {
+    let by_id: BTreeMap<&str, &Held> =
+        batch.messages.iter().map(|m| (m.prompt_id.as_str(), m)).collect();
+    for d in decided.iter_mut() {
+        let Some(m) = by_id.get(d.prompt_id.as_str()) else { continue };
+        let to = match d.category {
+            Category::NeedsThisSession => batch.recipient.as_str(),
+            Category::NeedsItsOwner => match d.owner.as_deref() {
+                Some(o) => o,
+                None => continue,
+            },
+            _ => continue,
+        };
+        if m.class == "question" {
+            continue;
+        }
+        let print = fingerprint(m);
+        match told.repeat(to, &d.thread_id, &print, at) {
+            Some(first) if first != d.prompt_id => d.repeat_of = Some(first.to_owned()),
+            Some(_) => {}
+            None => told.note(to, &d.thread_id, &print, &d.prompt_id, at),
+        }
+    }
 }
 
 /// One decided item as a digest reads it (a [`triaged_record`] item).
@@ -358,6 +514,12 @@ pub struct Line {
     pub label: String,
     #[serde(default)]
     pub owner: Option<String>,
+    #[serde(default)]
+    pub class: String,
+    #[serde(default)]
+    pub fingerprint: String,
+    #[serde(default)]
+    pub repeat_of: Option<String>,
 }
 
 /// The items of a [`triaged_record`].
