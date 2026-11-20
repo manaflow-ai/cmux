@@ -262,13 +262,13 @@ enum AgentHandlers {
             guard let view = selectedChat(context, invocation) else { return context.registry.refuse(.noChat, "agentPane.continueIn") }
             view.showContinueIn()
         })
-        // The focused chat's page takes the keyboard, then opens the model picker, file search,
-        // or `/btw`'s side-question composer. The gate is published live from Debug Settings.
+        // The focused chat's page takes the keyboard, then opens the model picker, file search, `/btw`'s
+        // side-question composer or a composer bar control (AgentComposerControl). The gate is published live from Debug Settings.
         let keyboardCommands: [(ActionID, () -> String, (AgentPaneView) -> Void)] = [
             ("agentPane.switchModel", { MiscHandlerStrings.switchModelNeedsFocus }, { $0.showModelPicker() }),
             ("agentPane.searchFiles", { MiscHandlerStrings.pickerNeedsFocus }, { $0.showFileSearch() }),
             ("agentPane.sideQuestion", { MiscHandlerStrings.sideQuestionNeedsFocus }, { $0.askSideQuestion() }),
-        ]
+        ] + AgentComposerControl.allCases.map { control -> (ActionID, () -> String, (AgentPaneView) -> Void) in (control.actionID, { MiscHandlerStrings.pickerNeedsFocus }, { $0.showComposerControl(control) }) }
         for (id, needsFocus, run) in keyboardCommands {
             registry.bind(id, run: { invocation in
                 guard invocation.allowsViewChange else { return context.refuse(needsFocus()) }
