@@ -110,6 +110,17 @@ class AdvisoryOutTests(unittest.TestCase):
             self.assertIn("only in files the app never ships", self.out)
             self.assertNotIn("::error", self.out)
 
+    def test_the_real_log_shape_with_buns_lines_is_fixed_forward(self):
+        """job 136040412192's typecheck block in its order: the diagnostic, the summary, bun's command and exit lines."""
+        real = (self.BENCH_TS2367 + "Found 1 error and 0 warnings in 6953 files (6.5s, 14 threads)\n"
+                "$ vp check --no-fmt --no-lint\nerror: Type errors found\n"
+                'error: script "typecheck" exited with code 1\n')
+        with tempfile.TemporaryDirectory() as temp:
+            report = Path(temp) / "lint.json"
+            self.assertEqual(self.run_main({"typecheck": real}, ADVISORY, str(report)), 0, self.out)
+            self.assertEqual([f["check"] for f in json.loads(report.read_text())["failed"]], ["typecheck"])
+        self.assertFalse(checks.outside_the_app(["$ vp check", 'error: script "typecheck" exited with code 1']))
+
     def test_a_typecheck_red_in_app_source_still_blocks(self):
         app = self.BENCH_TS2367.replace("bench/composer-typing.bench.ts", "src/agent-session/AgentPane.tsx")
         with tempfile.TemporaryDirectory() as temp:
@@ -127,7 +138,7 @@ class AdvisoryOutTests(unittest.TestCase):
 
     def test_not_shipped_paths(self):
         for path in ("bench/a.bench.ts:", "test/a.test.ts:", "src/x/a.test.tsx:", "src/x/a.gallery.ts:",
-                     "dev-server/x.ts:", "scripts/check.ts:", "<root>/webviews/test/a.ts:"):
+                     "dev-server/x.ts:", "scripts/check.ts:", "webviews/test/a.ts:"):
             self.assertTrue(checks.outside_the_app([f"{path} typescript(TS1): m"]), path)
         for path in ("src/agent-session/AgentPane.tsx:", "src/bench.ts:", "src/testing/a.ts:"):
             self.assertFalse(checks.outside_the_app([f"{path} typescript(TS1): m"]), path)

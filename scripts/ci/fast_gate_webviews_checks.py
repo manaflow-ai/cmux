@@ -75,13 +75,18 @@ ADVISORY_EXCERPT = 40  # findings per check in the advisory report; the run log 
 # nothing about whether the app works, so on the nightly it is fixed forward like a lint. Leo, 2026-11-20, after
 # a TS2367 in bench/composer-typing.bench.ts held the NEXT nightly (run 44661110467): "failed on a webview check i
 # thought we didnt panic for these types of things? ... where's our fixit type things". A red in app source blocks.
-NOT_SHIPPED = re.compile(r"^(?:<root>/)?(?:webviews/)?(?:bench|test|tests|e2e|dev-server|scripts)/"
+# Build-time code under dev-server/ and scripts/ (Vite plugins) is read by the build, but a type error there does not
+# change the emitted JS, so it is still outside what the app runs.
+NOT_SHIPPED = re.compile(r"^(?:webviews/)?(?:bench|test|tests|e2e|dev-server|scripts)/"
                          r"|\.(?:test|spec|gallery|bench)\.[cm]?[jt]sx?:")
+# bun's own lines around a check's output, never a finding: the script it ran and its exit (job 136040412192).
+BUN_RUN_LINE = re.compile(r'^(?:\$ .*|error: script "[^"]+" exited with code \d+)$')
 
 
 def outside_the_app(lines: list[str]) -> bool:
     """Whether every finding names a file the app never ships (NOT_SHIPPED); a finding with no path counts as app."""
-    return bool(lines) and all(NOT_SHIPPED.search(line.split(" ", 1)[0]) for line in lines)
+    found = [line for line in lines if not BUN_RUN_LINE.match(line.strip())]
+    return bool(found) and all(NOT_SHIPPED.search(line.split(" ", 1)[0]) for line in found)
 
 
 def advisory_class(check: str, lines: list[str]) -> bool:
