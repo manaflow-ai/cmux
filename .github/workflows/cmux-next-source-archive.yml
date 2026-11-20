@@ -175,7 +175,7 @@ jobs:
           name: ghosttykit-link-sets
           path: ${{ runner.temp }}/ghosttykit-link-sets
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
       # The iOS Settings.bundle Acknowledgements pane is generated from this tree
       # (the ghostty-next gitlink = the GhosttyNextKit pin's revision).
@@ -197,7 +197,7 @@ jobs:
           name: ${{ inputs.artifact || 'cmux-next-source-archive-dry-run' }}
           path: ${{ runner.temp }}/source-archive
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   fetch-list-linux:
     # bin/cmux-tui-ssh/cmux-tui-* (Linux) link libghostty-vt too.
@@ -267,4 +267,4 @@ jobs:
           name: vt-link-graph
           path: ${{ runner.temp }}/vt-link-graph
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish

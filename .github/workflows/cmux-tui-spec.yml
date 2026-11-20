@@ -811,7 +811,7 @@ jobs:
           name: panic-clippy-pr-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/panic-clippy.jsonl
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       # Before the sticky disk's post step commits it: bound it, then record the source
       # mtimes and the commit next to the artifacts, so the next run restores them.

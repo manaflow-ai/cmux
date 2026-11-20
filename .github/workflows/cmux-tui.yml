@@ -429,7 +429,7 @@ jobs:
           name: rustfmt-${{ matrix.os }}-${{ github.sha }}
           path: ${{ runner.temp }}/rustfmt.patch
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       - name: cargo clippy
         working-directory: cmux-tui
@@ -458,7 +458,7 @@ jobs:
           name: panic-clippy-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/panic-clippy.jsonl
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       # cmux-rd-ffi is in the app FFI workspace (cmux-app-ffi, outside
       # cmux-tui's --workspace), so the cmux-tui lint/test steps never build it. Its tests pin the C header
@@ -999,7 +999,7 @@ jobs:
           name: optchat-chief-lock-${{ inputs.commit }}
           path: Native/OptChat/optchat-chief/Cargo.lock
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Require committed Chief lockfile
         run: git diff --exit-code -- Native/OptChat/optchat-chief/Cargo.lock

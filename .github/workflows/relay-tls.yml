@@ -52,5 +52,5 @@ jobs:
         if: always()
         with:
           name: relay-tls-results
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           path: relay-tls-results

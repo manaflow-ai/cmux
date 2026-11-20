@@ -1026,7 +1026,7 @@ jobs:
         with:
           name: xcode-build-metrics-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/xcode-build-metrics.json
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           if-no-files-found: ignore
 
       - name: Validate Swift warning budget
@@ -1121,7 +1121,7 @@ jobs:
           name: app-host-products-v1-${{ steps.product-key.outputs.key }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/app-host-products.tar.gz
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           compression-level: 0
 
       - name: Record compile admission metrics
@@ -1224,7 +1224,7 @@ jobs:
           name: macos-compile-admission-metrics-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ steps.admission-metrics.outputs.path }}
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           compression-level: 0
 
       # One line per owned admission in the mini's admissions.jsonl: its start
@@ -1292,7 +1292,7 @@ jobs:
           name: owned-warm-keys
           overwrite: true
           path: ${{ steps.owned-warm-keys.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           if-no-files-found: ignore
 
       - name: Seed node-local compiled product cache
@@ -1488,7 +1488,7 @@ jobs:
           name: macos-pool-late-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/late-placement/runners.json
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
       # The rescue sweeper finds late-placed runs by this fixed name.
       - name: Upload the late owned-pool watch marker
         id: late-watch-marker
@@ -1499,7 +1499,7 @@ jobs:
           name: owned-pool-watch-late
           path: ${{ runner.temp }}/late-placement/runners.json
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   cli-product-tests:
     permissions:
@@ -2062,7 +2062,7 @@ jobs:
           name: cmux-ghostty-cli-helper
           path: ghostty-cli-helper/ghostty
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       - name: Retry Release Ghostty CLI helper upload
         if: ${{ inputs.full_suite == 'true' && inputs.release_build == 'true' && steps.upload-ghostty-cli-helper.outcome == 'failure' }}
@@ -2071,7 +2071,7 @@ jobs:
           name: cmux-ghostty-cli-helper
           path: ghostty-cli-helper/ghostty
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           overwrite: true
 
       - name: Select Xcode
@@ -2149,7 +2149,7 @@ jobs:
         with:
           name: swift-package-passed-${{ github.run_attempt }}
           path: ${{ steps.run-packages.outputs.passed_packages }}
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           overwrite: true
 
       # Phase 1 has no automatic fallback: when the fleet cannot take the step
@@ -2262,7 +2262,7 @@ jobs:
           name: swift-package-tests-crash-reports-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/package-test-crash-reports
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   release-admission:
     needs:
@@ -2654,7 +2654,7 @@ jobs:
           name: release-products-v1-${{ steps.release-product-key.outputs.key }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cmux-release-product.tar.gz
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           compression-level: 0
 
       - name: Emit Release product reuse receipt
@@ -2749,7 +2749,7 @@ jobs:
           name: release-product-reuse-receipt-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/release-product-reuse-receipt.json
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           compression-level: 0
 
   macos-status:

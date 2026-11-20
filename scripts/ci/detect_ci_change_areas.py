@@ -199,6 +199,7 @@ _NON_RUNNING_FILES = frozenset({
     ".github/ISSUE_TEMPLATE/config.yml",
     ".github/ISSUE_TEMPLATE/feature_request.yml",
     ".github/actionlint.yaml",
+    ".github/artifact-retention.json",
     ".github/checkout-lean.json",
     ".github/cloud-backend-paths.json",
     ".github/cloud-machine-count-probe/request",

@@ -41,8 +41,13 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 ALLOWLIST = ROOT / "tests/upload_artifact_retention_allowlist.json"
-MAX_DAYS = 3
-MAX_ALLOWED_DAYS = 7
+sys.path.insert(0, str(ROOT / "scripts/ci"))
+import artifact_retention  # noqa: E402  (the one source of the day counts: .github/artifact-retention.json)
+
+# The bounds are classes in .github/artifact-retention.json, not numbers typed here.
+_CLASSES = artifact_retention.load_classes()
+MAX_DAYS = _CLASSES["report"]
+MAX_ALLOWED_DAYS = _CLASSES["publish"]
 LARGE_TOKENS = {"app", "dsym", "dsyms", "xcresult", "capture", "captures", "zip", "dmg",
                 "ipa", "xcframework"}
 # Path words that name an archive or a bundle: a shell step may build `<name>.app.zip` and upload it
@@ -218,6 +223,69 @@ class RuleTests(unittest.TestCase):
             self.assertEqual(sorted(violations(root)), [".github/workflows/w.yml::j::same",
                                                         ".github/workflows/w.yml::j::same#2",
                                                         ".github/workflows/w.yml::j::same#3"])
+
+
+class RetentionClassTests(unittest.TestCase):
+    """Every literal retention-days is written from .github/artifact-retention.json (hq#11721 row 8)."""
+
+    def _tree(self, tmp: str, step_lines: str) -> Path:
+        import shutil
+        root = Path(tmp)
+        (root / ".github/workflows").mkdir(parents=True)
+        shutil.copy(ROOT / artifact_retention.POLICY, root / artifact_retention.POLICY)
+        (root / ".github/workflows/w.yml").write_text(
+            "jobs:\n  j:\n    steps:\n      - uses: actions/upload-artifact@v4\n        with:\n"
+            "          name: x\n" + step_lines)
+        return root
+
+    def test_a_hand_typed_literal_with_no_class_fails_and_fix_names_it(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._tree(tmp, "          retention-days: 3\n")
+            self.assertEqual(len(artifact_retention.findings(root)), 1)
+            self.assertEqual(artifact_retention.fix(root), 1)
+            self.assertIn("retention-days: 3  # retention-class: report",
+                          (root / ".github/workflows/w.yml").read_text())
+            self.assertEqual(artifact_retention.findings(root), [])
+
+    def test_a_value_that_is_not_its_class_fails_and_fix_writes_the_class(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._tree(tmp, "          retention-days: 5 # retention-class: handoff; a note\n")
+            self.assertIn("hand-typed", artifact_retention.findings(root)[0])
+            artifact_retention.fix(root)
+            self.assertIn("retention-days: 1 # retention-class: handoff; a note",
+                          (root / ".github/workflows/w.yml").read_text())
+            self.assertEqual(artifact_retention.findings(root), [])
+
+    def test_an_unknown_class_fails_and_prose_and_expressions_are_not_literals(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._tree(tmp, "          retention-days: 1  # retention-class: forever\n"
+                                   "          # kept until it expires (retention-days: 2).\n"
+                                   "          overwrite: true # (retention-days: 9)\n")
+            (root / ".github/workflows/e.yml").write_text(
+                "jobs:\n  j:\n    steps:\n      - uses: actions/upload-artifact@v4\n        with:\n"
+                "          retention-days: ${{ inputs.retention_days }}\n")
+            found = artifact_retention.findings(root)
+            self.assertEqual(len(found), 1, found)
+            self.assertIn("'forever'", found[0])
+
+    def test_a_flow_style_step_is_checked_and_fixed(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._tree(tmp, "")
+            (root / ".github/workflows/f.yml").write_text(
+                "jobs:\n  j:\n    steps:\n      - uses: actions/upload-artifact@v4\n"
+                "        with: {name: x, path: a, retention-days: 3, overwrite: true}\n")
+            self.assertEqual(len(artifact_retention.findings(root)), 1)
+            artifact_retention.fix(root)
+            self.assertEqual(artifact_retention.findings(root), [])
+
+    def test_every_literal_retention_days_names_its_class_and_takes_its_days(self):
+        # Fails on a tree where any step hand-types its days (every one of them before this test).
+        found = artifact_retention.findings()
+        self.assertEqual(found, [], "\n".join(found))
 
 
 class WorkflowTests(unittest.TestCase):

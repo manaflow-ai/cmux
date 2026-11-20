@@ -163,7 +163,7 @@ jobs:
         with:
           name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-${{ steps.pool.outputs.jobs }}-${{ steps.pool.outputs.label }}
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       # The simulator jobs the run will hold, for the janitor's glaeda-ios-sim
       # count (queue_janitor.capability_marker), before those jobs exist.
@@ -174,7 +174,7 @@ jobs:
         with:
           name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-${{ steps.pool.outputs.sim_jobs }}-glaeda-ios-sim
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   screenshots:
     needs: [resolve-ref, runner]
@@ -344,7 +344,7 @@ jobs:
           name: ios-appstore-raw-captures
           path: ios/fastlane/raw-screenshot-captures
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Upload screenshots artifact
         if: ${{ always() }}
@@ -353,7 +353,7 @@ jobs:
           name: ios-appstore-screenshots
           path: ios/fastlane/screenshots
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Materialize App Store Connect API key
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload }}

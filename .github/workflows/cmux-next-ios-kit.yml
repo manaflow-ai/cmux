@@ -199,7 +199,7 @@ jobs:
         with:
           name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-${{ steps.pool.outputs.label }}
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
       - name: Upload the simulator capacity marker
         if: steps.marker.outputs.path != ''
         continue-on-error: true
@@ -207,7 +207,7 @@ jobs:
         with:
           name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-glaeda-ios-sim
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
       - name: Upload the owned-pool watch marker
         if: steps.marker.outputs.path != ''
         continue-on-error: true
@@ -215,7 +215,7 @@ jobs:
         with:
           name: owned-pool-watch
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       # Same-tree reuse: a pass of kit-tests on this exact merge tree and workflow file (a re-push of the same
       # tree, a reopen, a re-run) is not run again; the Mac is never taken. The key is the merge commit's tree,
@@ -448,7 +448,7 @@ jobs:
           name: instant-perf-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/instant-perf/*.jsonl
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       # A sampled audit of a same-tree hit ran in full and went red: the receipt it contradicts is named.
       - name: Same-tree audit

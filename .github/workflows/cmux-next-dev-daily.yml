@@ -302,7 +302,7 @@ jobs:
           path: signed-handoff/*
           compression-level: 0
           if-no-files-found: error
-          retention-days: 1  # a same-run hand-off (the publish jobs below); 208 MB a run
+          retention-days: 1  # retention-class: handoff; a same-run hand-off (the publish jobs below); 208 MB a run
 
       - name: Cleanup signing keychain
         if: always()
@@ -441,7 +441,7 @@ jobs:
         with:
           name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-${{ steps.pool.outputs.label }}
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       - name: Upload the owned-pool watch marker
         if: ${{ steps.marker.outputs.path != '' }}
@@ -450,7 +450,7 @@ jobs:
         with:
           name: owned-pool-watch
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   verify:
     name: Verify signed cmux NEXT DEV
@@ -503,7 +503,7 @@ jobs:
           name: cmux-next-dev-daily-tested
           path: tested/tested.sha256
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   publish:
     name: Publish cmux NEXT DEV
