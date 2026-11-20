@@ -1,14 +1,14 @@
 ---
 name: cmux-acpmux
-description: "Coordinate bounded work across acpmux agent sessions. Use when starting, partitioning, messaging, waiting on, reviewing, or closing agent work, or when using the daemon-local mailbox."
+description: "Coordinate work across cmux agent sessions. Use when starting, partitioning, messaging, waiting on, reviewing, or closing agent work, or when using the daemon-local mailbox."
 ---
 
-# cmux acpmux coordination
+# Coordinate agent sessions
 
-Use this skill for orchestration around acpmux sessions. The installed binary is the command
-authority: read `acpmux guide` or `cmux acp skill` first when a command, flag, or exit code is
-uncertain. This skill adds ownership, trust, and handoff policy; it does not replace the binary
-guide.
+Use `cmux agent` for session commands. Use `cmux agent --help` for the commands available in
+the installed build and `cmux agent skill` for the full session guide.
+
+Leo put the ergonomics decision this way: “Obviously you can decide on the ergonomics / I think aliases kind of make sense”.
 
 ## Establish the runtime
 
@@ -22,10 +22,11 @@ test "${ACPMUX_ENV:-}" = 1 && \
 Prefer JSON output for discovery and record the exact ids and names returned by the daemon:
 
 ```bash
-acpmux --json ls
-acpmux --json session info @       # only when ACPMUX_ENV=1
-acpmux machine ls
-acpmux --json machine status       # each machine's health; run it before remote work and after a machine error
+cmux agent ls --json
+cmux agent search "build receipt"   # matching prompts and replies on this machine and its peers
+cmux agent --json session info @       # only when ACPMUX_ENV=1
+cmux agent machine ls
+cmux agent --json machine status       # each machine's health; run it before remote work and after a machine error
 ```
 
 Use `@` only for the current session. Never invent a session id, reuse a stale name without
@@ -43,11 +44,11 @@ idempotency key for reconciliation. Report which fallback was used.
 In cmux-next, Go to Workspace (Cmd-P) lists agent sessions; Cmd-K on a row opens its Actions
 menu, and **Copy Session ID** copies:
 
-- an acpmux chat: `acp:<session id>` (the id `acpmux --json ls` prints). Pass it as is to
+- an acpmux chat: `acp:<session id>` (the id `cmux agent ls --json` prints). Pass it as is to
   `cmux agent message acp:<session id> "..."` (the Chief and other agents use the same path). For
-  acpmux commands, drop the `acp:` prefix: `acpmux --json session info <session id>`,
-  `acpmux send <session id> "..."`. The id names a session on the machine that runs it; from
-  another machine, use the `machine/name` form from `acpmux --json ls`.
+  acpmux commands, drop the `acp:` prefix: `cmux agent --json session info <session id>`,
+  `cmux agent send <session id> "..."`. The id names a session on the machine that runs it; from
+  another machine, use the `machine/name` form from `cmux agent ls --json`.
 - a Claude Code or Codex terminal: the harness's own session UUID (the `session_id` its hooks
   report), for `claude --resume <uuid>` or `codex resume <uuid>`. To message that agent, use its
   terminal instead: `cmux agent message term_<id> "..."`.
@@ -69,8 +70,8 @@ many tiny prompts. Name and tag sessions for the task: the name is a short reada
 `optchat-sub-6b68ac4a-a26`). Ids, item numbers and bead ids go in a tag. For example:
 
 ```bash
-acpmux ensure mailbox-auth-review -m codex --cwd "$PWD"
-acpmux session tag mailbox-auth-review task=acpmux role=review
+cmux agent ensure mailbox-auth-review -m codex --cwd "$PWD"
+cmux agent session tag mailbox-auth-review task=acpmux role=review
 ```
 
 Read the harness/model catalog before overriding defaults. Set a policy explicitly when the task
@@ -78,7 +79,7 @@ needs one, and never change shared defaults, presets, or machines as a side effe
 Before sending work to an existing session, inspect its `session info` (including policy, cwd,
 model, and pending permissions). A session on another machine is named `machine/name`; do not silently treat a
 remote session as local. Its files live on that machine; when a request to it fails, run
-`acpmux machine status` and follow the next command it names instead of retrying blind
+`cmux agent machine status` and follow the next command it names instead of retrying blind
 (`machine doctor` is safe; `machine update` restarts that daemon, so run it only when the task asks
 for machine maintenance).
 For shared cmux-next surfaces, record ownership and decisions in
@@ -97,7 +98,7 @@ cmux agent inbox
 
 The agent-room path stores, delivers, and records delivery state for provider-neutral messages.
 Its messages are text only. To hand another session an image, attach the file with
-`acpmux send <target> --no-wait "..." --attach /abs/shot.png` (or `attach` in the acpmux MCP `send`
+`cmux agent send <target> --no-wait "..." --attach /abs/shot.png` (or `attach` in the acpmux MCP `send`
 tool) so it shows as a preview. Never pass a provider's own file id (ChatGPT's `libfile_...`, an
 upload id): nobody here can open one.
 Do not emulate it with raw `session/prompt` or `_acpmux/mail/*` calls. Use the low-level
@@ -132,12 +133,12 @@ identity and delivery scope.
 
 A Claude Code session in the desktop app or a terminal gets a stable acpmux name from its own
 shell, and from then on is an address like any lane (a Codex session gets one by being started
-with acpmux, `acpmux new -n NAME -m codex`):
+with acpmux, `cmux agent new -n NAME -m codex`):
 
 ```bash
-acpmux register desktop-zoe                          # in its Bash tool; then run the --code line it receives
-acpmux send --no-wait cosmic-gray/desktop-zoe "..."  # from any peered machine; prints a delivery id
-acpmux send --status ID                              # queued, delivering, delivered, held or failed
+cmux agent register desktop-zoe                          # in its Bash tool; then run the --code line it receives
+cmux agent send --no-wait cosmic-gray/desktop-zoe "..."  # from any peered machine; prints a delivery id
+cmux agent send --status ID                              # queued, delivering, delivered, held or failed
 ```
 
 The daemon binds the name to the session whose process tree runs the shell, never to one the
@@ -159,15 +160,15 @@ actions through the repository's normal review and approval path.
 ## Run and close work deterministically
 
 Use the lifecycle primitives deliberately. In a chat, message with the acpmux `send` tool
-(`cmux.acpmux_send` in a cmux_exec script), not `acpmux send` in a shell; the commands below are
+(`cmux.acpmux_send` in a cmux_exec script), not `cmux agent send` in a shell; the commands below are
 for shells and scripts:
 
 ```bash
-acpmux send NAME --no-wait "..."
-acpmux wait NAME --until done
-acpmux last NAME
-acpmux history NAME
-acpmux pending
+cmux agent send NAME --no-wait "..."
+cmux agent wait NAME --until done
+cmux agent last NAME
+cmux agent history NAME
+cmux agent pending
 ```
 
 A timeout or `prompt_stalled` does not prove delivery failed. Inspect `last` and `history` before
