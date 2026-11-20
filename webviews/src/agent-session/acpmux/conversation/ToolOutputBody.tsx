@@ -3,6 +3,7 @@
 import { memo, useCallback, useId, useMemo, useState } from "react";
 import { useT } from "../i18n";
 import { experimentArm } from "../../../experiments/experiment";
+import { claudeCardSurface } from "./claudeCardSurface.experiment";
 import { hoverActions } from "../../../ui/hoverActions.experiment";
 import { outputWraps, useBlockWrap } from "./blockWrap";
 import { Lines, WrapButton } from "./BlockParts";
@@ -100,7 +101,11 @@ export const ToolOutput = memo(function ToolOutput({
     [],
   );
   return (
-    <div id={id} className="cv-tool-output-card" ref={menuPartRef({ output: raw.text })}>
+    <div
+      id={id}
+      className={`cv-tool-output-card${experimentArm(claudeCardSurface) === "soft" ? " cv-claude-card-soft" : ""}`}
+      ref={menuPartRef({ output: raw.text })}
+    >
       <div className="cv-tool-output__box" id={bodyId}>
         <span className="cv-tool-output__actions" data-find-skip="">
           {!rendered && <WrapButton kind="output" shaped={shaped} />}

@@ -17,6 +17,8 @@ import { Counts } from "../changes/Counts";
 import { TurnCountsContext } from "../changes/TurnCountsContext";
 import { namesCheckpointFile, outsideRepository, turnCounts } from "../changes/turnCheckpoint";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
+import { experimentArm } from "../../../experiments/experiment";
+import { claudeCardSurface } from "./claudeCardSurface.experiment";
 import { pathKey, plainEditLabels, type AcpmuxRow } from "../model";
 import { turnChanges, type EditedFile, type UndoStatus } from "../turnChanges/model";
 import { SessionCwdContext, SessionEditsContext } from "../turnChanges/sessionRows";
@@ -157,7 +159,7 @@ function Card({
     fileStatus(undoState, changes.files.find((edited) => edited.key === pathKey(file))?.path ?? file.path);
   return (
     <div
-      className="acpmux-edited"
+      className={`acpmux-edited${experimentArm(claudeCardSurface) === "soft" ? " cv-claude-card-soft" : ""}`}
       data-earlier={earlier ? "" : undefined}
       data-undo={undoState.phase === "idle" ? undefined : undoState.phase}
     >

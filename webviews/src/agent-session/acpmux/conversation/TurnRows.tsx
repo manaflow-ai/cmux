@@ -57,6 +57,7 @@ import {
   type FailureRoute,
 } from "../failureCopy";
 import { experimentArm } from "../../../experiments/experiment";
+import { claudeCardSurface } from "./claudeCardSurface.experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
 import { CodeRouterAction } from "./CodeRouterOffer";
@@ -725,7 +726,10 @@ function TurnFailure({
     </button>
   );
   return (
-    <div className={`cv-turn-note cv-turn-error cv-turn-error--${arm}`} data-failure-kind={kind}>
+    <div
+      className={`cv-turn-note cv-turn-error cv-turn-error--${arm}${experimentArm(claudeCardSurface) === "soft" ? " cv-claude-card-soft" : ""}`}
+      data-failure-kind={kind}
+    >
       <span className="cv-turn-error__cause">
         {arm !== "note" && <AlertCircle size={arm === "card" ? 16 : 14} className="cv-turn-error__icon" />}
         <span className="text-fg">
