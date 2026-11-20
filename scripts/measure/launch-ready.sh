@@ -80,7 +80,9 @@
 #   state=fresh  the same as state=bare: no saved state, so Home
 #   front=home|tab  with state=kept (and any kept case below): the priming launch's front is made Home (a workspace
 #                made, then Home shown) or a terminal tab (a workspace made and left in front) by launch-ready-seed.py
-#                --front, and every measured launch must reopen that front: Home, or that (workspace, tab)
+#                --front, and every measured launch must reopen that front: Home, or that (workspace, tab). With session=stress3
+#                the stress seed leaves the same front: Home, or its last workspace's terminal tab (front=tab: typing into a
+#                restored terminal of a large session, type=1 windows=1 workspaces=120)
 #   case=update  with base= (dmg=build): base is the old copy, head the new one, both at head's path with head's home.
 #                The priming launch and one launch before each measured one run the old copy (its state, its front);
 #                then the copy is replaced by head's, whose first launch is measured (copy=fresh's first exec). It
@@ -393,7 +395,7 @@ probe() {
 # session and quits with Keep Sessions. The probe ends when the app does; its 600 s settle is only a backstop.
 seed() {
   local out="$1" side="$2" launch status probed
-  local seed_args=(--windows "${LR_WINDOWS:-3}")
+  local seed_args=(--windows "${LR_WINDOWS:-3}" --front "${LR_FRONT:-home}") # front=tab: the last workspace's tab
   if [[ -n "${LR_WORKSPACES:-}" ]]; then seed_args+=(--total-workspaces "$LR_WORKSPACES"); fi
   rm -f "$LR_SOCKETS/$side.sock" # the priming launch's: the seed waits for this launch's own socket
   probe "$out" "$side" seed 600 0 >"$out/seed-$side.probe" &
@@ -569,7 +571,6 @@ case_args_ok() {
     echo "state=fresh (bare) has no saved state: it takes no case=, daemon=cold, snapshot= or front=" >&2; return 1
   fi
   [[ "$LR_CASE" != update || -n "$1" ]] || { echo "case=update needs base= (the old copy), with dmg=build" >&2; return 1; }
-  [[ -z "$LR_FRONT" || "$2" == small ]] || { echo "front= seeds the priming launch's front: it takes no session=$2" >&2; return 1; }
   [[ "$LR_SNAPSHOT" != unknown || ( "$LR_FRONT" != home && "$2" == small ) ]] \
     || { echo "snapshot=unknown closes the front tab's workspace: it takes no front=home or session=$2" >&2; return 1; }
   return 0

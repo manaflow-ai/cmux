@@ -89,6 +89,20 @@ class SeedTests(unittest.TestCase):
                 self.assertEqual(json.loads(front.read_text())["top_page"], "home")
                 self.assertTrue(app.quit)
 
+    def test_front_tab_leaves_the_last_terminal_in_front(self):
+        with tempfile.TemporaryDirectory() as temp:
+            app = App()
+            front = Path(temp) / "front.json"
+            code, row = self.run_seed(app, "--windows", "1", "--total-workspaces", "120", "--front", "tab",
+                                      "--front-out", str(front))
+            self.assertEqual(code, 0, row)
+            self.assertEqual(len(app.topology()["workspaces"]), 120)
+            self.assertFalse(app.home)
+            written = json.loads(front.read_text())
+            self.assertEqual(written["top_page"], "workspace")
+            self.assertEqual(written["workspace"], app.windows["w1"][-1])
+            self.assertTrue(app.quit)
+
     def test_default_keeps_additive_fixture_and_writes_front(self):
         with tempfile.TemporaryDirectory() as temp:
             app = App()
