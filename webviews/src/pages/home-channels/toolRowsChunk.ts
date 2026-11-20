@@ -1,7 +1,7 @@
 // The agent pane's tool rows (`ToolRows` and the cards it draws) as their own chunk for Home's tool
 // groups (HomeToolGroup.tsx): about 260 KB of JS no first frame of Home needs. Loaded once, then held
 // here, so every group draws its rows synchronously from then on (no Suspense, no second paint).
-import { useSyncExternalStore } from "react";
+import { createElement, useSyncExternalStore, type ComponentProps } from "react";
 import type { ToolRows as ToolRowsComponent } from "../../agent-session/acpmux/conversation/TurnRows";
 
 let loaded: typeof ToolRowsComponent | null = null;
@@ -45,4 +45,10 @@ function subscribe(listener: () => void): () => void {
 /** The rows component once loaded, else null (the caller asks with `toolRowsLoaded`). */
 export function useToolRows(): typeof ToolRowsComponent | null {
   return useSyncExternalStore(subscribe, () => loaded);
+}
+
+/** A stable Home component that delegates to the loaded agent-pane rows. */
+export function ToolRows(props: ComponentProps<typeof ToolRowsComponent>) {
+  const LoadedToolRows = useToolRows();
+  return LoadedToolRows ? createElement(LoadedToolRows, props) : null;
 }

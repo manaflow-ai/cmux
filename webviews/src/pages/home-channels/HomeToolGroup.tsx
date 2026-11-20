@@ -2,7 +2,7 @@ import { useEffect, useState, type CSSProperties } from "react";
 import { AgentNamesContext } from "../../agent-session/acpmux/conversation/agentNames";
 import type { AcpmuxRow } from "../../agent-session/acpmux/model";
 import { homeToolGroup } from "./runBlocks";
-import { toolRowsLoaded, useToolRows } from "./toolRowsChunk";
+import { toolRowsLoaded, ToolRows, useToolRows } from "./toolRowsChunk";
 import type { HomeRunStep } from "./types";
 
 /** The compact Home representation of a contiguous tool run. The original ACP row stays behind
@@ -25,12 +25,12 @@ export function HomeToolGroup({
   collapsed?: boolean;
 }) {
   const group = homeToolGroup(steps);
-  const ToolRows = useToolRows();
+  const toolRowsReady = useToolRows();
   const [open, setOpen] = useState(!collapsed);
   useEffect(() => setOpen(!collapsed), [collapsed]);
   useEffect(() => {
-    if (!ToolRows) toolRowsLoaded(open ? "now" : "idle");
-  }, [ToolRows, open]);
+    if (!toolRowsReady) toolRowsLoaded(open ? "now" : "idle");
+  }, [toolRowsReady, open]);
   return (
     <details className="lg-home-tool-group" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
       <summary className="lg-home-tool-summary">
@@ -46,7 +46,7 @@ export function HomeToolGroup({
         )}
       </summary>
       <div className="lg-home-tool-details">
-        {ToolRows ? (
+        {toolRowsReady ? (
           <AgentNamesContext.Provider value={agentNames}>
             <ToolRows row={row} />
           </AgentNamesContext.Provider>
