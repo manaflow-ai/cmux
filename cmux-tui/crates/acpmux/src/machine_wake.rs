@@ -92,9 +92,9 @@ pub(crate) fn run_peer_wake(argv: &[String], limit: std::time::Duration) -> Resu
     let mut child = cmux_process::Command::new(program)
         .args(args)
         .env(crate::peer::WAKE_ENV, "1")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
         .process_group(0)
         .spawn()
         .map_err(|e| format!("did not start: {e}"))?;
