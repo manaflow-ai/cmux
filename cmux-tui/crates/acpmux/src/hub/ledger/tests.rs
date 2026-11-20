@@ -1078,7 +1078,9 @@ fn a_turns_line_is_in_the_file_while_the_writer_thread_is_blocked() {
     assert!((t.cost_usd - 1.0).abs() < 1e-9, "{}", t.cost_usd);
     let title = after.lock().sessions.get("a").and_then(|i| i.title.clone());
     assert_eq!(title.as_deref(), Some("claude chat"));
-    blocked.recv().unwrap();
+    blocked
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .unwrap_or_else(|e| panic!("the writer's flush reply did not arrive: {e}"));
 }
 
 /// A purge just before the stop leaves the file with its compaction: the close does not skip
@@ -1096,7 +1098,9 @@ fn a_purge_right_before_the_close_leaves_the_file() {
     l.send(Work::Flush(blocked_tx));
     l.purge("gone");
     l.stop_appends();
-    blocked.recv().unwrap();
+    blocked
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .unwrap_or_else(|e| panic!("the writer's flush reply did not arrive: {e}"));
     assert!(l.close(std::time::Duration::from_secs(10)));
     let text = std::fs::read_to_string(&file).unwrap();
     assert!(!text.contains("gone"), "the purged session is still in the file:\n{text}");
