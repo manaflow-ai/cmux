@@ -2,7 +2,7 @@
 """The perf cron's decisions (scripts/cmux-next/perf-cron.py): what a tick runs, when it yields to the fleet,
 what counts as a regression, and when the one issue opens, comments and closes. Pure functions only (no
 network, no git). Run: python3 -I scripts/cmux-next/tests/test_perf_cron.py (not a CI job, Lawrence 2026-10-23)."""
-import argparse, contextlib, datetime, hashlib, importlib.util, io, json, os, tempfile, unittest, urllib.error, urllib.request
+import argparse, contextlib, datetime, hashlib, importlib.util, io, json, os, tempfile, time, unittest, urllib.error, urllib.request
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -721,6 +721,35 @@ class WebUiTests(unittest.TestCase):
             {"name": "infinite_items.n1000.memory_vs_empty", "p50": 1.4, "p95": 1.4, "unit": "x", "floor": 0.1}]},
             budgets_mod, {"rows": {}})
         self.assertEqual(rows["webui.infinite_items.n1000.memory_vs_empty"]["p95"], 1.4)
+
+    def test_the_linux_job_cap_covers_every_run_of_the_part(self):
+        # 2026-11-17: the fixed 40-minute job cap cancelled infinite-items' build-only run three ticks running, so its
+        # job left no result and the part ended yielded_out.
+        self.assertEqual(cron.linux_job_minutes("infinite-items"), 70)
+        self.assertEqual(cron.linux_job_minutes("chat-disk"), 70)
+        self.assertEqual(cron.linux_job_minutes("web-ui"), 40)
+        # web-ui-god's paired rounds stop starting at GOD_PAIRED_DEADLINE_S, and the last may run one round more.
+        self.assertGreaterEqual(cron.linux_job_minutes("web-ui-god") * 60,
+                                cron.GOD_PAIRED_DEADLINE_S + cron.GOD_PAIRED_ROUND_TIMEOUT_S)
+
+    def test_a_run_past_its_cap_is_killed_with_its_children(self):
+        # subprocess.run's timeout killed only bash: its cargo went on building, and the suite's own cargo build then
+        # waited on that build's lock.
+        started = time.monotonic()
+        out, _, code = cron.run_capped(["bash", "-c", "sleep 30 & echo \"child $!\"; wait"], ".", dict(os.environ), 1)
+        self.assertIsNone(code)
+        self.assertLess(time.monotonic() - started, 10)
+        child = int(out.split("child ", 1)[1].split()[0])
+        for _ in range(50):
+            try:
+                os.kill(child, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.1)
+        else:
+            self.fail(f"the run's child {child} outlived its cap")
+        out, _, code = cron.run_capped(["bash", "-c", "echo '{\"rows\": []}'; exit 3"], ".", dict(os.environ), 10)
+        self.assertEqual((code, cron.last_json_object(out)), (3, {"rows": []}))
 
     def test_the_chat_100k_flat_rows_have_their_own_part(self):
         self.assertTrue(cron.is_linux_part("web-ui-flat"))
@@ -3478,6 +3507,49 @@ class LinuxClassMoveTests(OneRunRule):
                                 at(2), budgets_mod)
         self.assertEqual([r["name"] for r in state["regressions"]], [f"{chat}@{old}"])
         self.assertIn(f"the Linux runner class is now {new}", state["history"][-1].get("rebased_note") or "")
+
+
+class StalePartFirstTests(unittest.TestCase):
+    """A part whose newest stored rows (part_stored) are older than PART_STALE_HOURS runs ahead of the PARTS order, so
+    every row the cron feeds gets a pass within 24 h (2026-11-19: throughput, the last Mac part, went 38 h without one
+    while earlier parts yielded and retried, and goal terminal-throughput reads its row)."""
+
+    def mid_measurement(self, stored_hours_ago):
+        state = cron.empty_state(T0)
+        cron.decide(state, T0, "a" * 40, None, lambda sha: ALL, None)
+        cur = state["current"]
+        cron.record_part(cur, "build", {"state": "done", "worker": cron.BENCH_WORKER}, "u", T0)
+        cron.record_part(cur, "stress", {"state": "yielded", "worker": cron.BENCH_WORKER}, "u", T0)
+        self.assertIn("stress", cur["parts_todo"], "stress is mid-yield: still to do")
+        now = at(1)
+        state["part_stored"] = {
+            name: {"sha": "0" * 40, "at": cron.iso(now - datetime.timedelta(hours=stored_hours_ago.get(name, 2))), "rows": 1}
+            for name in ALL if name != "build"}
+        return state, now
+
+    def test_a_part_past_the_bound_runs_before_a_yielding_one(self):
+        state, now = self.mid_measurement({"throughput": 30, "chat-disk": 25})
+        d = cron.decide(state, now, None, None, lambda sha: ALL, None)
+        self.assertEqual((d["action"], d["part"]), ("part", "throughput"))
+        self.assertEqual(d["linux_parts"][0], "chat-disk", "a stale Linux part goes first among the Linux parts too")
+
+    def test_the_oldest_stale_part_goes_first(self):
+        state, now = self.mid_measurement({"throughput": 30, "sidebar": 40})
+        d = cron.decide(state, now, None, None, lambda sha: ALL, None)
+        self.assertEqual(d["part"], "sidebar")
+
+    def test_nothing_stale_keeps_the_parts_order(self):
+        state, now = self.mid_measurement({})
+        todo = list(state["current"]["parts_todo"])
+        d = cron.decide(state, now, None, None, lambda sha: ALL, None)
+        self.assertEqual((d["part"], d["linux_parts"][0]), ("stress", "diff-viewer"))
+        self.assertEqual(state["current"]["parts_todo"], todo)
+
+    def test_the_build_stays_first_when_a_part_is_stale(self):
+        state = cron.empty_state(T0)
+        state["part_stored"] = {"throughput": {"sha": "0" * 40, "at": cron.iso(at(-30)), "rows": 1}}
+        d = cron.decide(state, T0, "a" * 40, None, lambda sha: ALL, None)
+        self.assertEqual(d["part"], "build")
 
 
 if __name__ == "__main__":
