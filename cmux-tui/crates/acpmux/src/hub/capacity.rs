@@ -96,7 +96,7 @@ impl Route {
         if let Some(key) = &self.api_key {
             request = request.header("x-api-key", key);
         }
-        let response = request.send().await.map_err(|_| fallback())?;
+        let mut response = request.send().await.map_err(|_| fallback())?;
         if response.status().is_success() {
             return Ok(());
         }
@@ -519,7 +519,7 @@ impl Hub {
                     }
                     Action::Finish => {
                         let Some(hub) = hub.upgrade() else { return };
-                        let mut gates = hub.capacity.lock();
+                        let gates = hub.capacity.lock();
                         let mut state = gate.state();
                         if matches!(state.phase, Phase::Releasing(_))
                             && state.waiters.is_empty()

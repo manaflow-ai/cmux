@@ -10,6 +10,7 @@ use super::subsession_runs::{ClaimedTurn, TurnGuard, WaitMark};
 use super::*;
 use cmux_json::JsonSet as _;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 // A prompt dequeued for a turn that never started goes back at the head (`restore_queue`).
 #[path = "lost_start.rs"]
