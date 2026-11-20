@@ -70,9 +70,26 @@ export function wrapUpAsk(tool: Tool): NextStepAsk | undefined {
   return args ? askOf(args) : undefined;
 }
 
+// A bracket word at the very start of the question, as the rulebook tags an ask ("[trust] Trust
+// ~/fun/cmux for the new sub-session?"): any word, not only the hat's known tags; not a
+// reference such as "[#43627]" or "[PR 12]".
+const LEADING_TAG = /^\[([a-z][a-z -]{0,22})\]:?\s*/i;
+
+/// The question without its leading bracket word, and that word lowercased. Leo, 2026-11-19, on a
+/// pinned ask that read "[trust] Trust ~/fun/cmux ...": "odd looking". A tag with nothing after it
+/// stays the question.
+export function splitLeadingTag(question: string): { question: string; label?: string } {
+  const match = LEADING_TAG.exec(question);
+  const label = match?.[1]!.trim().toLowerCase();
+  const rest = match ? question.slice(match[0].length).trim() : "";
+  if (!match || !label || !rest) return { question };
+  return { question: rest.charAt(0).toUpperCase() + rest.slice(1), label };
+}
+
 function askOf(args: Record<string, unknown>): NextStepAsk | undefined {
   const recap = words(args.recap);
-  const question = words(args.ask);
+  const asked = words(args.ask);
+  const { question, label } = asked ? splitLeadingTag(asked) : { question: undefined, label: undefined };
   if (!recap && !question) return undefined;
   let options: NextStepOption[] = [];
   if (question) {
@@ -89,7 +106,14 @@ function askOf(args: Record<string, unknown>): NextStepAsk | undefined {
           { label: "Not now", key: "recap.notNow" }, // l10n-allow: a prompt to the agent, not UI
         ];
   }
-  return { tag: WRAP_UP, question: question ?? "", options, rest: "", ...(recap && { recap }) };
+  return {
+    tag: WRAP_UP,
+    ...(label && { label }),
+    question: question ?? "",
+    options,
+    rest: "",
+    ...(recap && { recap }),
+  };
 }
 
 /// The last wrap-up call among a turn's rows, read as its card.

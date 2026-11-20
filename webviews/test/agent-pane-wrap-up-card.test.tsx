@@ -54,6 +54,32 @@ describe("wrapUpAsk", () => {
     expect(alone?.options).toEqual([]);
   });
 
+  // Leo, 2026-11-19, on a pinned "[trust] Trust ~/fun/cmux for the new sub-session?": "odd looking".
+  test("a leading bracket word leaves the question and rides on the ask as its label", () => {
+    const ask = wrapUpAsk(
+      call({ recap: RECAP, ask: "[trust] Trust ~/fun/cmux for the new sub-session?", actions: ["Trust it"] }).tool!,
+    );
+    expect(ask?.tag).toBe("wrap_up");
+    expect(ask?.label).toBe("trust");
+    expect(ask?.question).toBe("Trust ~/fun/cmux for the new sub-session?");
+    // Any word counts, any case, a colon after it too; the question's first letter is capitalized.
+    expect(wrapUpAsk(call({ ask: "[Outward]: post it to the PR?" }).tool!)).toMatchObject({
+      label: "outward",
+      question: "Post it to the PR?",
+    });
+    // Brackets later in the question, or a tag with nothing after it, stay as written.
+    const later = wrapUpAsk(call({ ask: "Merge [trust] now?" }).tool!);
+    expect(later?.label).toBeUndefined();
+    expect(later?.question).toBe("Merge [trust] now?");
+    expect(wrapUpAsk(call({ ask: "[trust]" }).tool!)?.question).toBe("[trust]");
+    // A reference in brackets is not a tag.
+    expect(wrapUpAsk(call({ ask: "[#43627] Merge it now?" }).tool!)?.label).toBeUndefined();
+    // Drawn as a chip before the question, not as raw text.
+    const html = renderToStaticMarkup(createElement(NextStepCard, { ask: ask!, onAnswer: () => Promise.resolve() }));
+    expect(html).toContain('<span class="acpmux-next-step__tag">Trust</span>');
+    expect(html).not.toContain("[trust]");
+  });
+
   test("an empty or failed call, and other tools, are not a wrap-up", () => {
     expect(wrapUpAsk(call({}).tool!)).toBeUndefined();
     expect(wrapUpAsk(call({ recap: RECAP }, "mcp__acpmux__wrap_up", "failed").tool!)).toBeUndefined();

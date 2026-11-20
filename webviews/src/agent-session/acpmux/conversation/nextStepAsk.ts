@@ -18,6 +18,10 @@ export type NextStepAsk = {
   /// The tag the line carried, lowercased ("outward"), or `wrap_up` for the agent's own wrap-up
   /// call (wrapUp.ts).
   tag: string;
+  /// A wrap-up question's own leading bracket word, lowercased ("trust" from "[trust] Trust ~/fun?"),
+  /// which the card draws as a quiet chip before the question instead of as raw text (wrapUp.ts).
+  /// A tagged ask's tag is `tag` itself.
+  label?: string;
   /// What changed and where things stand, two or three sentences, muted above the question: only a
   /// wrap-up call carries one.
   recap?: string;
