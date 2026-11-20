@@ -836,6 +836,7 @@ mac_py() {{
     quit) rm -f "{temp}/running" ;;
     account) echo me@example.com ;;
     mac-id) echo mac-tagged ;;
+    space) echo dev:t ;;
   esac
 }}
 mac_apply_backend() {{ :; }}
