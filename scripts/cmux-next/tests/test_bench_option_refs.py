@@ -27,15 +27,16 @@ def sibling_source(name):
     return path.read_text(encoding="utf-8") if path.is_file() else None
 
 
-def option_dests(tree, module_source=None):
+def option_dests(tree, module_source=None, parsers=()):
     """The attribute each add_argument call defines: dest=, else the first long flag, else the first name. A call
-    `NAME.add_arguments(...)` adds what the function `add_arguments` of the module NAME defines the same way
-    (`module_source(NAME)` is that module's text, or None)."""
+    `NAME.add_arguments(PARSER)` adds what the function `add_arguments` of the module NAME defines the same way
+    (`module_source(NAME)` is that module's text, or None), when PARSER is one of PARSERS (the script's own)."""
     dests = set()
     for node in ast.walk(tree):
         if (module_source and isinstance(node, ast.Call) and getattr(node.func, "attr", None) == "add_arguments"
                 and isinstance(node.func.value, ast.Name)):
-            text = module_source(node.func.value.id)
+            handed = node.args[0] if node.args else None
+            text = module_source(node.func.value.id) if getattr(handed, "id", None) in parsers else None
             for inner in ast.parse(text).body if text else []:
                 if isinstance(inner, ast.FunctionDef) and inner.name == "add_arguments":
                     dests |= option_dests(inner)
@@ -63,7 +64,11 @@ def undefined_option_reads(source, module_source=None):
                   for target in node.targets if isinstance(target, ast.Name)}
     if not namespaces:
         return {}
-    dests, reads = option_dests(tree, module_source), {}
+    # The parsers whose parse_args() result is read: a module's options count only on one of these.
+    parsers = {node.value.func.value.id for node in tree.body if isinstance(node, ast.Assign)
+               and isinstance(node.value, ast.Call) and getattr(node.value.func, "attr", None) == "parse_args"
+               and isinstance(node.value.func.value, ast.Name)}
+    dests, reads = option_dests(tree, module_source, parsers), {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id in namespaces:
             reads.setdefault(node.attr, node.lineno)
@@ -97,6 +102,10 @@ class OptionReadsTest(unittest.TestCase):
         self.assertEqual(undefined_option_reads(source, sources.get), {"typing_loads": 7, "elsewhere": 8})
         self.assertEqual(undefined_option_reads(source, {}.get), {"window_look": 6, "typing_loads": 7, "elsewhere": 8})
         self.assertEqual(undefined_option_reads(source), {"window_look": 6, "typing_loads": 7, "elsewhere": 8})
+        # The module's options on a parser that is not the script's are not the script's options.
+        other = source.replace("add_arguments(parser)", "add_arguments(argparse.ArgumentParser())")
+        self.assertEqual(undefined_option_reads(other, sources.get),
+                         {"window_look": 6, "typing_loads": 7, "elsewhere": 8})
 
     def test_agent_engine_bench_gets_past_its_option_checks(self):
         """A native run's first lines on Linux: the Mac-only modules stubbed, it parses and checks its options and
