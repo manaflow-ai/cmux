@@ -25,6 +25,10 @@ main() {
   local out tools report="$PWD/.build/update-idle-e2e/report.tgz"
   mkdir -p "$PWD/.build" || exit 3
   out="$(mktemp -d "$PWD/.build/update-idle-e2e.XXXXXX")" || exit 3
+  # The scratch folder (two bench app builds) goes on every exit; the report is moved out of it first. Expanded now:
+  # out is local to main.
+  # shellcheck disable=SC2064
+  trap "chmod -R u+w $(printf %q "$out") 2>/dev/null; rm -rf -- $(printf %q "$out") $(printf %q "$out.tgz")" EXIT
   chmod 0777 "$out"
   local work_dirs=()
   # The harness as of this commit, whatever the sides' trees hold.
