@@ -87,7 +87,7 @@ import {
 import { shareFrameBudget, type FrameBudget, rowsMoved } from "./conversation/frameBudget";
 import { followMotion } from "./conversation/followMotion.experiment";
 import { composerDockMotion } from "./composer/dockMotion.experiment";
-import { acpmuxPerf, type MountedSpan } from "./perf";
+import { acpmuxPerf, effectNow, type MountedSpan } from "./perf";
 import { useCountedRender } from "./perfRender";
 import { drewStreamingRow, useStreamingRow } from "./streamingRow";
 import { rowsWithLiveOutput, useLiveToolRow } from "./liveToolOutput";
@@ -4794,7 +4794,7 @@ function TranscriptView({
     const layoutMs = (freshLayout ? measured.ms : 0) + (freshEstimate ? estimated.ms : 0);
     if (acpmuxPerf.enabled && freshLayout) acpmuxPerf.addLayout(layoutMs);
     if (acpmuxPerf.enabled && renderStart > 0) {
-      const now = performance.now();
+      const now = effectNow();
       acpmuxPerf.commit(now - renderStart, layoutMs, spans, now);
     }
   });
@@ -5025,7 +5025,7 @@ function TranscriptView({
         !clamped &&
         (unseenReaderMove ||
           unhandledMove ||
-          (performance.now() - inputAt <= READER_SCROLL_MS && scrolledTo.current.top - live > 0));
+          (effectNow() - inputAt <= READER_SCROLL_MS && scrolledTo.current.top - live > 0));
       if (readerLeft) follow(false);
       if (readerUpPending.current && readerLeft) readerUpPending.current = false;
       // A real wheel can move the live offset before its scroll event reaches React. Keep that
@@ -5074,12 +5074,12 @@ function TranscriptView({
         // The composer card clearing (its draft sent or cleared) gives the room back with the rows it
         // brings as one chase too; only the stack growing and the rest of it shrinking (a queue
         // card leaving) move at once.
-        const sendWindow = sends !== seenSends.current || performance.now() < sendRiseUntil.current;
+        const sendWindow = sends !== seenSends.current || effectNow() < sendRiseUntil.current;
         // Read only in a send's window: one style read per pass for at most SEND_RISE_MS.
         const sendLands = sendWindow && !(sendClockMs(node) > 0);
         const cardCleared = dockCard < box.dockCard && box.dockSpace - dockSpace <= box.dockCard - dockCard + 0.5;
         const dockMoved = box.dockSpace !== dockSpace && !((sendWindow || cardCleared) && dockSpace < box.dockSpace);
-        const now = performance.now();
+        const now = effectNow();
         if (unmeasured || box.height !== height || box.width !== width || (!chasing && box.dockSpace !== dockSpace)) {
           resizedAt.current = now;
           stopFollowMotion();
@@ -5365,7 +5365,7 @@ function TranscriptView({
         const sentHere = sentBeforeOpen.current || sends !== seenSends.current;
         if (sentHere && at < 0 && node.scrollTop - before > 0.5 && sendClockMs(node) > 0) {
           // On the send motion, one clock with the bubble's entrance, while that motion plays.
-          const sentClock = sends !== seenSends.current || performance.now() < sendClockUntil.current;
+          const sentClock = sends !== seenSends.current || effectNow() < sendClockUntil.current;
           if (chasing)
             followChase.current?.shift(
               thread.current,
@@ -5421,7 +5421,7 @@ function TranscriptView({
       Boolean(lastRow.below) &&
       turnEndCapture.current === undefined &&
       !thread.current?.hasAttribute(TURN_END_ATTR) &&
-      !(sends !== seenSends.current || performance.now() < sendRiseUntil.current);
+      !(sends !== seenSends.current || effectNow() < sendRiseUntil.current);
     const carry = pinLiveLine(thread.current, pinLive, !followingRef.current);
     // The glide reads where the rows lie from this placement (each frame's `top` is set from it), not
     // from every mounted row's box. Rows that flow (a live resize) lie where the page puts them: read.
@@ -6249,7 +6249,7 @@ function TranscriptView({
       setRoomRose((total) => total + rise);
     }
     giveRoomNearTop();
-    olderAhead.scrolled(paidAt, performance.now());
+    olderAhead.scrolled(paidAt, effectNow());
     checkOlderNow.current();
     const next = node.scrollTop;
     trimFoldRoom(node);
@@ -6307,7 +6307,7 @@ function TranscriptView({
     // alone (`programmatic`) is any input of the last second, a press or a hover after a lost
     // release too, and a layout change landing at the end inside it is not the reader's.
     const down = readerDown.current;
-    const readerMovedDown = down !== undefined && performance.now() - down.at <= READER_SCROLL_MS;
+    const readerMovedDown = down !== undefined && effectNow() - down.at <= READER_SCROLL_MS;
     // The scroller's own end counts too (Leo, 2026-11-11: "I scroll down to the bottom. I have to,
     // like, scroll down again because it didn't realize"): a row that lands as the reader gets
     // there (the thinking row, a tooltip's room) puts the layout's end past the offset the browser
