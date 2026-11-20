@@ -64,15 +64,16 @@ boundary); `--no-steer` queues it instead.
 
 | Task | Command |
 | --- | --- |
-| Sessions on every host | `cmux agent ls` |
+| Terminal agents and chats in the current cmux session’s workspaces | `cmux agent list` |
+| Named agent sessions on this host and its peers | `cmux agent ls` |
 | The same for a script | `cmux agent ls --json` |
 | A session's last reply | `cmux agent last review-27310` |
 | Its last few turns, one line each | `cmux agent history coord -n 5` |
 | Search prompts and replies across sessions on this host and its peers | `cmux agent search "failing test"` |
 | Open the session in a workspace | `cmux agent open SESSION_ID` |
 | Open it as a tab in a specific pane | `cmux agent open-tab SESSION_ID --target PANE_ID` |
-| Start a background shell command in the current session | `cmux agent bg start 'make test'` |
-| List this session's background tasks | `cmux agent bg list` |
+| Run a shell command that keeps running when the agent hibernates | `cmux agent bg start 'make test'` |
+| List the background tasks you started in this session and their latest output | `cmux agent bg list` |
 | Read this session's inbox threads | `cmux agent notices` |
 | Wait for a turn to end, then print the reply | `cmux agent wait review-27310 --timeout 1800 --print` |
 | Wait for several sessions | `cmux agent wait review-27310 review-27311 --all` |
