@@ -1526,6 +1526,12 @@ export type SessionDetail = {
    * harness process ends it (`hub/harness_sandbox.rs`). Omitted for peers.
    */
   harnessSandboxFailing?: boolean;
+  /**
+   * Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update
+   * that installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from
+   * a peer on an older acpmux.
+   */
+  hasDraft?: boolean;
   /** The status dot every client draws (`status_indicator`); null for none. */
   indicator?: (Indicator | null);
   /** Since when it waits on the person (`lane`); null while it does not. */
@@ -1752,6 +1758,13 @@ export type SessionDetail = {
   waitsForSlot?: boolean;
   /** The family of a conversation another app runs that this chat only shows; null otherwise. */
   watching?: (string | null);
+  /**
+   * Work runs below it with no turn open: a background subagent, a harness background process,
+   * or a sub-session at work (what keeps the idle pass from ending it, `hub/idle.rs`). An app
+   * update that installs when idle waits for it. Absent otherwise, and from a peer on an older
+   * acpmux.
+   */
+  workingBelow?: boolean;
 } & Record<string, unknown>;
 
 /** One record of a session's log (`server::event_value`). */
@@ -1866,6 +1879,12 @@ export type SessionSummary = {
    * harness process ends it (`hub/harness_sandbox.rs`). Omitted for peers.
    */
   harnessSandboxFailing?: boolean;
+  /**
+   * Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update
+   * that installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from
+   * a peer on an older acpmux.
+   */
+  hasDraft?: boolean;
   /** The status dot every client draws (`status_indicator`); null for none. */
   indicator?: (Indicator | null);
   /** Since when it waits on the person (`lane`); null while it does not. */
@@ -2084,6 +2103,13 @@ export type SessionSummary = {
   waitsForSlot?: boolean;
   /** The family of a conversation another app runs that this chat only shows; null otherwise. */
   watching?: (string | null);
+  /**
+   * Work runs below it with no turn open: a background subagent, a harness background process,
+   * or a sub-session at work (what keeps the idle pass from ending it, `hub/idle.rs`). An app
+   * update that installs when idle waits for it. Absent otherwise, and from a peer on an older
+   * acpmux.
+   */
+  workingBelow?: boolean;
 } & Record<string, unknown>;
 
 /** Also the page fields of `_acpmux/watch` (`hub::session_pages`). */
