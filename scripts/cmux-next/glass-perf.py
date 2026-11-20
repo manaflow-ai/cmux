@@ -262,53 +262,69 @@ class Run:
         row = self.app.call("debug.tunables", {"action": "get", "key": "glass.lens"}) or {}
         return None if row.get("error") else row.get("value")
 
-    SCROLL_EXTENT = """(() => { let best = 0;
-  for (const e of document.querySelectorAll('*')) { if (/(auto|scroll)/.test(getComputedStyle(e).overflowY) &&
-    e.scrollHeight > e.clientHeight + 200) best = Math.max(best, e.scrollHeight); }
-  return best; })()"""
+    # The tallest element that overflows, preferring a real scroller (overflow-y auto/scroll/overlay); one that
+    # only clips (overflow hidden) still moves with scrollTop, and the page's own scrolling element counts too.
+    # Both composer runs on cmux#47802's build (steps 972b27e7, 9b234c3e) found no auto/scroll element on any
+    # shown page while the baseline build's transcript was one, so the probe now says what it saw.
+    FIND_SCROLLER = """(() => {
+  const els = [...document.querySelectorAll('*')];
+  if (document.scrollingElement && !els.includes(document.scrollingElement)) els.push(document.scrollingElement);
+  let best = null, bestReal = null, overflowing = 0;
+  for (const e of els) {
+    if (e.scrollHeight <= e.clientHeight + 200) continue;
+    overflowing++;
+    const oy = getComputedStyle(e).overflowY;
+    const real = /(auto|scroll|overlay)/.test(oy) || e === document.scrollingElement;
+    if (!best || e.scrollHeight > best.scrollHeight) best = e;
+    if (real && (!bestReal || e.scrollHeight > bestReal.scrollHeight)) bestReal = e;
+  }
+  const sc = bestReal || best;
+  window.__gpScroller = sc || null;
+  const d = (e) => e ? {tag: e.tagName.toLowerCase(), cls: String(e.className || '').slice(0, 80),
+    overflow_y: getComputedStyle(e).overflowY, scroll_height: e.scrollHeight, client_height: e.clientHeight} : null;
+  return JSON.stringify({extent: sc ? sc.scrollHeight : 0, scroller: d(sc), real: !!bestReal, overflowing,
+    elements: els.length, href: location.href.slice(0, 120),
+    composer: !!document.querySelector('textarea, [contenteditable="true"]'),
+    glass: document.querySelectorAll('.ui-glass').length,
+    lens: document.documentElement.getAttribute('data-glass') || null,
+    composer_lens: !!document.querySelector('[data-composer-lens]')});
+})()"""
 
     def pick_chat_page(self, wait: float = 90.0) -> dict:
-        """Points self.browser at the shown chat page with the tallest scroller: the bench chat's transcript.
+        """Points self.browser at the shown chat page with the tallest overflowing element (FIND_SCROLLER), the
+        bench chat's transcript, and leaves it in window.__gpScroller. Waits up to `wait` s for it to render.
 
         renderers.list's order differs by host: on cmux20 (step 972b27e7, 2026-11-20) the first shown page had no
-        scroller at all and both composer rows measured nothing. Waits up to `wait` s for a transcript to render."""
-        deadline, seen = time.monotonic() + wait, []
+        scroller and both composer rows measured nothing. Returns the chosen page's facts and every page's."""
+        deadline = time.monotonic() + wait
         while True:
             seen = []
             for page in chat_pages(self.app):
                 if page.get("hidden"):
                     continue
-                extent, _error = evaluate(self.app, page["browser"], self.SCROLL_EXTENT)
-                seen.append((extent if isinstance(extent, (int, float)) else 0, page["browser"]))
+                raw, error = evaluate(self.app, page["browser"], self.FIND_SCROLLER)
+                try:
+                    facts = json.loads(raw) if isinstance(raw, str) else {"error": error or "no answer"}
+                except ValueError:
+                    facts = {"error": "unreadable"}
+                seen.append((facts.get("extent") or 0, page["browser"], facts))
             seen.sort(key=lambda s: s[0], reverse=True)
             if (seen and seen[0][0] > 0) or time.monotonic() >= deadline:
                 break
             time.sleep(2)  # test script: the transcript is still rendering
-        if seen and seen[0][0] > 0:
+        if not seen:
+            return {"error": "no shown chat page"}
+        if seen[0][0] > 0:
             self.browser = seen[0][1]
-        return {"pages": len(seen), "extent": seen[0][0] if seen else None}
+            # The chosen page's scroller: evaluate once more there so window.__gpScroller is set on it.
+            raw, _error = evaluate(self.app, self.browser, self.FIND_SCROLLER)
+        return {**seen[0][2], "pages": [s[2] for s in seen]}
 
     def composer(self, mode: str) -> dict:
         """The composer over the chat scrolled fast for --load seconds: page frames, CPU, GPU, RSS, energy."""
-        picked = self.pick_chat_page()
-        probe = self.js("""(() => {
-  const all = [...document.querySelectorAll('*')].filter((e) => /(auto|scroll)/.test(getComputedStyle(e).overflowY) &&
-    e.scrollHeight > e.clientHeight + 200);
-  all.sort((a, b) => b.scrollHeight - a.scrollHeight);
-  const sc = all[0];
-  if (!sc) return JSON.stringify({error: 'no scroller'});
-  window.__gpScroller = sc;
-  const composer = document.querySelector('textarea, [contenteditable="true"]');
-  const glass = document.querySelectorAll('.ui-glass').length;
-  return JSON.stringify({scroll_height: sc.scrollHeight, client_height: sc.clientHeight, composer: !!composer, glass,
-    lens: document.documentElement.getAttribute('data-glass') || null,
-    composer_lens: !!document.querySelector('[data-composer-lens]')});
-})()""")
-        try:
-            info = json.loads(probe or "{}")
-        except ValueError:
-            info = {"error": "unreadable probe"}
-        info["page"] = picked
+        info = self.pick_chat_page()
+        if not info.get("extent"):
+            info["error"] = info.get("error") or "no scroller"
         time.sleep(self.opts.settle)  # test script: the page rests before the window
         self.js("""(() => { const sc = window.__gpScroller; if (!sc) return 'none';
   const a = window.__gpRaf = {t: [], on: true}; let dir = 1;

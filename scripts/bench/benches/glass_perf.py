@@ -51,7 +51,9 @@ def table_row(run: dict, date: str, sha: str, host: str) -> str:
                             "live-content": " (lens: live chat)"}.get(run.get("lens_source"), "")
     gpu = f"{cell(run.get('gpu_pct'))} / {cell(run.get('gpu_ms_per_frame'), 2)}"
     frames = f"{cell(frame.get('page_p50_ms'))} / {cell(frame.get('page_p95_ms'))}" if frame else "- / -"
-    return (f"| {date} | {sha[:10]} | {host} | {state} | {run.get('mode')} | {run.get('surfaces', '-')} | "
+    total_glass = (run.get("glass") or {}).get("total")
+    surfaces = f"{run.get('surfaces', '-')}" + (f" (of {total_glass})" if total_glass is not None else "")
+    return (f"| {date} | {sha[:10]} | {host} | {state} | {run.get('mode')} | {surfaces} | "
             f"{cell(total.get('rss_mb'), 0)} | {cell(total.get('cpu_pct'))} | {gpu} | {frames} | "
             f"{cell(total.get('energy_mw'), 0)} |")
 
