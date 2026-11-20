@@ -165,6 +165,17 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 1_770_000,
     ownPart: true,
   },
+  // Composer typing under load (CMUX-571, Leo 2026-11-16: "but typing under load is not good enough"): 500 keys
+  // 20 ms apart in Chromium and WebKit, idle (L0), a focused reply and tool stream (L1), ten other streaming documents
+  // (L2) and a focused 100k-row stream (L3); keydown to paint p95/p99 against the report-only 16/33 ms targets
+  // (composerTypingRows.ts). perf-cron.py's web-ui-typing part runs it; each load ends by its 120 s safety deadline.
+  {
+    name: "composer-typing",
+    file: "composer-typing.bench.ts",
+    args: ["--mode", "L0,L1,L2,L3", "--engines", "chromium,webkit", "--lengths", "60", "--keys", "500", "--gap", "20"],
+    timeoutMs: 1_500_000,
+    ownPart: true,
+  },
   // The same clock tick and 30-row list update drawn by an app (scene ops) and by the first-party component:
   // main-thread ms and React commits per update. Run with `--only extension-parity`.
   {
