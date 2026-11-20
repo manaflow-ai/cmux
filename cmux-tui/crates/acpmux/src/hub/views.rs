@@ -406,6 +406,7 @@ pub(super) fn enforcement(m: &SessionMeta, default_policy: Option<PermissionPoli
     let harness = m.family.as_deref().unwrap_or(&m.harness);
     json!({
         "policy": policy,
+        "accessPreview": super::earned_access::preview(&policy),
         "label": "native_policy",
         "isolation": "unverified",
         "detail": format!(

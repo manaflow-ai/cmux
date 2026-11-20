@@ -11,6 +11,7 @@
 // repository is there, which the pane opens in the browser as it opens a reply's link, and Changes
 // opens the diff.
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { EarnedAccessPreview } from "./EarnedAccessPreview";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -249,6 +250,7 @@ export function EnvironmentSection({
           </button>
         )}
       </li>
+      <EarnedAccessPreview enforcement={summary?.enforcement} />
       {screenSharingLook !== "grouped" && screenSharingRows}
       {canUseCloudRepositories && cloudSession && (
         <>
