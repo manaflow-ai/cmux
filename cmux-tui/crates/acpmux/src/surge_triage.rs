@@ -350,7 +350,7 @@ pub fn triaged_record(batch: &Batch, decided: &[Decision], digest: Option<&str>)
     let items: Vec<Value> = decided
         .iter()
         .map(|d| {
-            let m = by_id.get(d.prompt_id.as_str());
+            let m = by_id.get(d.prompt_id.as_str()).copied();
             let mut v = json!({
                 "promptId": d.prompt_id, "threadId": d.thread_id,
                 "category": d.category, "decidedBy": d.decided_by,

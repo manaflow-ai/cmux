@@ -74,6 +74,13 @@ fn eligible(opts: &PromptOptions, blocks: &[Value]) -> Option<String> {
 }
 
 impl Hub {
+    /// The attach path only needs counters; it never has to group the session's messages.
+    pub(crate) fn surge_snapshot(&self, session: &Session) -> Value {
+        let state = session.inbox().surge_counts.clone();
+        let counts = state.lock().unwrap_or_else(|e| e.into_inner());
+        json!({"held": counts.held, "needYou": counts.need_you, "seq": counts.seq})
+    }
+
     /// Store a triage pass together with its current number of actionable topics.
     pub(crate) fn persist_surge_triage(
         &self,
