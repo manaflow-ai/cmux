@@ -96,6 +96,7 @@ import {
   sendMotionMs,
 } from "./conversation/followChase";
 import { shareFrameBudget, type FrameBudget, rowsMoved } from "./conversation/frameBudget";
+import { chatRenderPipeline } from "./chatRenderPipeline.experiment";
 import { followMotion } from "./conversation/followMotion.experiment";
 import { composerDockMotion } from "./composer/dockMotion.experiment";
 import { acpmuxPerf, type MountedSpan } from "./perf";
@@ -194,7 +195,7 @@ import { copyTextResult } from "./conversation/clipboard";
 import { transcriptRangeText } from "./conversation/transcriptCopy";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { chatColumnOf, useChatSizing } from "./chatWidth";
-import { useChatDisplay } from "./chatDisplay";
+import { useChatDisplay, useChatRenderPipeline } from "./chatDisplay";
 import { useComposerSettings } from "./composerSettings";
 import { type Folds } from "./conversation/viewFolds";
 import { SUBAGENT_DONE, SUBAGENT_OF, SUBAGENT_STARTED, SUBAGENT_ROW, isRunGroup } from "./subagents/subagentRows";
@@ -483,6 +484,7 @@ const RowFrame = React.memo(function RowFrame({
   lastTurn,
   index,
   setSizeRef,
+  intrinsicHeight,
   top,
   rowWidth,
   expanded,
@@ -542,6 +544,7 @@ const RowFrame = React.memo(function RowFrame({
   /// The list's length for `aria-setsize`, held in a ref so a row that arrives changes no prop here
   /// (TranscriptView, `setSize`). The row writes the attribute on the mount that puts it in the list.
   setSizeRef: React.MutableRefObject<string>;
+  intrinsicHeight: number | undefined;
   top: number;
   rowWidth: number;
   expanded: boolean;
@@ -732,7 +735,9 @@ const RowFrame = React.memo(function RowFrame({
       // Large CSS numeric offsets lose fractional bits in WebKit. Keep the integer offset and
       // its subpixel remainder separate so animated row heights remain adjacent in long chats.
       // The unread line's row takes no height and draws its mark over the gap under it
-      // (conversation/unread.css), so it reads the gap's length.
+      // (conversation/unread.css), so it reads the gap's length. Any other settled row may hold its
+      // indexed height while the browser skips it (settledRowSkip.ts); with that off its style is
+      // exactly `{top, marginTop}`.
       style={
         row.kind === SINCE_DIVIDER
           ? ({
@@ -740,7 +745,7 @@ const RowFrame = React.memo(function RowFrame({
               marginTop: placedTop - integralTop,
               "--cv-since-gap": `${gapBelow}px`,
             } as React.CSSProperties)
-          : { top: integralTop, marginTop: placedTop - integralTop }
+          : rowFrameStyle(integralTop, placedTop, intrinsicHeight)
       }
       onFocus={() => onFocus(row.id)}
     >
@@ -948,7 +953,8 @@ type RowFrameSources = {
 type RowFramesView = {
   rows: readonly AcpmuxRow[];
   mountedRanges: readonly { first: number; last: number }[];
-  geometry: { topAt(index: number): number; gapAt(index: number): number };
+  skipSettledRows: boolean;
+  geometry: { topAt(index: number): number; gapAt(index: number): number; heightAt(index: number): number };
   frameKey: string;
   registry: NativeRegistry;
   setSizeRef: React.MutableRefObject<string>;
@@ -1037,6 +1043,14 @@ function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: Row
       const inputs = cache.scratch;
       inputs.index = absoluteIndex;
       inputs.top = geometry.topAt(absoluteIndex);
+      inputs.intrinsicHeight =
+        view.skipSettledRows &&
+        !row.streaming &&
+        !row.live &&
+        !row.pending &&
+        (row.settled || row.turnEnded || row.ended || row.kind === WORKED || row.kind === "turnSummary")
+          ? geometry.heightAt(absoluteIndex)
+          : undefined;
       inputs.gapBelow = absoluteIndex + 1 < rows.length ? geometry.gapAt(absoluteIndex + 1) : 0;
       inputs.expanded = isExpanded;
       inputs.active = view.activeRowId === row.id;
@@ -1084,6 +1098,7 @@ function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: Row
           lastTurn={row.lastTurn === true}
           index={absoluteIndex}
           setSizeRef={view.setSizeRef}
+          intrinsicHeight={inputs.intrinsicHeight}
           top={inputs.top}
           gapBelow={inputs.gapBelow}
           rowWidth={view.rowWidth}
@@ -2171,6 +2186,8 @@ function TranscriptView({
   const [followArm] = useState(() => experimentArm(followMotion));
   /// Jump up's arm (jumpUp.experiment.ts), read once per transcript: `off` (the default) draws no
   /// Jump up and keeps no place for it on a scroll.
+  const [pipelineArm] = useState(() => experimentArm(chatRenderPipeline));
+  const skipSettledRows = useChatRenderPipeline() || pipelineArm === "on";
   const [jumpUpOn] = useState(() => experimentArm(jumpUpButton) === "on");
   const chasing = followArm !== "eased";
   /// The `send` arm (the product's): only a send's rise chases; a reply streaming, a row arriving
@@ -7606,6 +7623,7 @@ function TranscriptView({
   // of the last commit; when this commit changed it, the sweep that follows writes every row anyway.
   const setSizeRef = useRef(setSize);
   const rowFrames = drawRowFrames(rowFrameCache, rowFrameSources, {
+    skipSettledRows,
     rows,
     mountedRanges,
     geometry: layout.geometry,

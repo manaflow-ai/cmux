@@ -406,6 +406,7 @@ const quoteFamily = (name: string) => (/[,\s]/.test(name) && !name.includes(",")
 let current = DEFAULT_CHAT_DISPLAY;
 let raw: Values = {};
 let minimapOn = false;
+let renderPipelineOn = false;
 let pinnedPlanOn = false;
 let trayTuckedOn = false;
 let trayHandle: TrayHandleSide = "middle";
@@ -449,6 +450,7 @@ export function setChatDisplay(value: unknown): void {
   const nextHighContrastArm = experimentArm(highContrastLook);
   const next = resolveChatDisplay(highContrastLookValues(readingValues, nextHighContrastArm));
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
+  const renderPipeline = raw["experiments.chat_render_pipeline"] === true;
   const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
   const storedBanner = raw[UNREAD_BANNER_KEY];
@@ -484,6 +486,7 @@ export function setChatDisplay(value: unknown): void {
     sameLook &&
     !facesChanged &&
     minimap === minimapOn &&
+    renderPipeline === renderPipelineOn &&
     pinnedPlan === pinnedPlanOn &&
     trayTucked === trayTuckedOn &&
     handle === trayHandle &&
@@ -501,6 +504,7 @@ export function setChatDisplay(value: unknown): void {
   commandLabels = labels;
   promptCoachOn = coach;
   minimapOn = minimap;
+  renderPipelineOn = renderPipeline;
   pinnedPlanOn = pinnedPlan;
   trayTuckedOn = trayTucked;
   trayHandle = handle;
@@ -620,6 +624,9 @@ export const promptCoachEnabled = (): boolean => promptCoachOn;
 const promptCoachSnapshot = () => promptCoachOn;
 export const usePromptCoachOn = (): boolean =>
   useSyncExternalStore(subscribe, promptCoachSnapshot, promptCoachSnapshot);
+const renderPipelineSnapshot = () => renderPipelineOn;
+export const useChatRenderPipeline = (): boolean =>
+  useSyncExternalStore(subscribe, renderPipelineSnapshot, renderPipelineSnapshot);
 const pinnedPlanSnapshot = () => pinnedPlanOn;
 /// Whether the running turn's todo list is pinned in the transcript (PINNED_PLAN_KEY) instead of the hat.
 export const useChatPinnedPlan = (): boolean => useSyncExternalStore(subscribe, pinnedPlanSnapshot, pinnedPlanSnapshot);

@@ -763,6 +763,7 @@
         "agentPane.display.width",
         "agentPane.display.fullWidth",
         "agentPane.display.vscodeMinimap",
+        "experiments.chat_render_pipeline",
         "agentPane.display.pinnedPlan",
         "agentPane.display.finishSound",
         "agentPane.display.trayTucked",
