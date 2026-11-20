@@ -711,6 +711,11 @@ fn kind_of(class: PromptClass) -> &'static str {
     }
 }
 
+/// Unclassified notices are informational and can wait for the FYI flush window.
+fn default_notice_class(class: Option<PromptClass>) -> PromptClass {
+    class.unwrap_or(PromptClass::Fyi)
+}
+
 /// The first line of `text`, cut to [`PREVIEW_CHARS`]: of the message inside a relay's label
 /// ([`relay_body`]), never the label's own words.
 fn preview(text: &str) -> String {
@@ -1203,7 +1208,7 @@ impl Hub {
         if controls(&session.meta(), sender_session(provenance).as_deref()) {
             return Route::Plain;
         }
-        let class = crate::prompt_class::of_message(class, true).unwrap_or(PromptClass::Result);
+        let class = default_notice_class(class);
         Route::Inbox(agent, class)
     }
 
