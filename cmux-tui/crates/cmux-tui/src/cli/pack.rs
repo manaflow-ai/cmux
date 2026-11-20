@@ -176,6 +176,8 @@ fn store_fail(global: &GlobalArgs, error: &StoreError) -> i32 {
         StoreError::NothingApplied => "pack.none",
         StoreError::Refused(_) => "pack.refused",
         StoreError::NothingToUndo | StoreError::NothingToRedo => "pack.history_end",
+        // `cmux settings` printed its own error; its status is the result.
+        StoreError::NotPicked(status) => return *status,
     };
     fail(global, code, error.to_string())
 }
@@ -218,6 +220,16 @@ fn settings(prefix: &[String], in_use: Option<&str>, step: &Step) -> i32 {
     super::run(&command, "")
 }
 
+/// The store's pick (`Store::picking`): `settings` with this run's global
+/// options, so the store saves the moved history only once the setting moved.
+fn picker(prefix: &[String]) -> impl Fn(Option<&str>, &Step) -> Result<(), i32> + Clone + 'static {
+    let prefix = prefix.to_vec();
+    move |in_use: Option<&str>, step: &Step| match settings(&prefix, in_use, step) {
+        0 => Ok(()),
+        status => Err(status),
+    }
+}
+
 fn diagnostics_json(diagnostics: &[PackDiagnostic]) -> Value {
     Value::Array(
         diagnostics
@@ -250,8 +262,9 @@ fn resolve(store: &Store, spec: &str) -> PathBuf {
 
 pub(super) fn run(global: &GlobalArgs, prefix: &[String], request: Request) -> i32 {
     let paths = Paths::current();
-    // Pruning never removes the theme file the setting picks now.
-    let store = Store::new(&paths.config_dir).keeping(paths.in_use());
+    // Pruning never removes the theme file the setting picks now, and the
+    // store saves a moved history only after `cmux settings` picked its file.
+    let store = Store::new(&paths.config_dir).keeping(paths.in_use()).picking(picker(prefix));
     let base = paths.settings_root();
     // Before anything touches the schema, so its first touch is timed cold.
     if let Request::Bench { dirs, runs } = &request {
@@ -265,16 +278,12 @@ pub(super) fn run(global: &GlobalArgs, prefix: &[String], request: Request) -> i
             let dir = resolve(&store, &spec);
             let in_use = paths.in_use();
             let started = Instant::now();
-            let (pack, step) = match store.apply(&dir, in_use.clone(), false, &context) {
+            let (pack, step) = match store.apply(&dir, in_use, false, &context) {
                 Ok(applied) => applied,
                 Err(error) => return store_fail(global, &error),
             };
             let load_ms = milliseconds(started.elapsed());
             print_problems(&pack.diagnostics);
-            let code = settings(prefix, in_use.as_deref(), &step);
-            if code != 0 {
-                return code;
-            }
             let code = ok(
                 global,
                 &json!({
@@ -301,25 +310,21 @@ pub(super) fn run(global: &GlobalArgs, prefix: &[String], request: Request) -> i
             watch_and_reload(global, prefix, &dir, &paths, &context)
         }
         Request::Edit { key, value } => {
-            let in_use = paths.in_use();
+            // A refused edit, or one whose file was not picked, is an error
+            // from the store (no step); this one applied and is picked.
             let (pack, step) = match store.edit(&key, value.clone(), &context) {
                 Ok(applied) => applied,
                 Err(error) => return store_fail(global, &error),
             };
-            // A refused edit is an error from the store (no step); this one applied.
-            let code = settings(prefix, in_use.as_deref(), &step);
-            if code != 0 {
-                return code;
-            }
             ok(
                 global,
                 &json!({ "pack": pack.id, "theme": theme_of(&step), "key": key, "value": value, "applied": true }),
                 &format!("{}: {key} = {value}", pack.id),
             )
         }
-        Request::Undo => move_step(global, prefix, &paths, store.undo()),
-        Request::Redo => move_step(global, prefix, &paths, store.redo()),
-        Request::Off => move_step(global, prefix, &paths, store.off()),
+        Request::Undo => move_step(global, store.undo()),
+        Request::Redo => move_step(global, store.redo()),
+        Request::Off => move_step(global, store.off()),
         Request::History => history(global, &store),
         Request::Bench { .. } => 0, // answered above, before the context
     }
@@ -357,22 +362,12 @@ fn check(global: &GlobalArgs, dir: &Path, context: &Context<'_>) -> i32 {
     code
 }
 
-/// Undo, redo or off: the store wrote the step's theme file; pick it.
-fn move_step(
-    global: &GlobalArgs,
-    prefix: &[String],
-    paths: &Paths,
-    result: Result<Step, StoreError>,
-) -> i32 {
+/// Undo, redo or off: the store wrote the step's theme file and picked it.
+fn move_step(global: &GlobalArgs, result: Result<Step, StoreError>) -> i32 {
     let step = match result {
         Ok(step) => step,
         Err(error) => return store_fail(global, &error),
     };
-    let in_use = paths.in_use();
-    let code = settings(prefix, in_use.as_deref(), &step);
-    if code != 0 {
-        return code;
-    }
     let theme = step_theme(&step);
     let (kind, text) = match (&step, theme) {
         (Step::Apply { .. }, Some(theme)) => ("apply", format!("themes/{theme}.json")),
@@ -470,6 +465,7 @@ fn watch_and_reload(
     if !json {
         println!("watching {} (Ctrl-C ends)", dir.display());
     }
+    let pick = picker(prefix);
     let mut reloads = 0u64;
     loop {
         let Ok(first) = receive.recv() else {
@@ -484,15 +480,10 @@ fn watch_and_reload(
         }
         reloads += 1;
         let started = Instant::now();
-        match reload(dir, paths, context) {
-            Ok((pack, step, in_use)) => {
-                // As `use`: pick the step's file when its name changed.
-                if settings(prefix, in_use.as_deref(), &step) != 0 {
-                    eprintln!(
-                        "could not pick themes/{}.json; the watch goes on",
-                        step_theme(&step).unwrap_or("?")
-                    );
-                }
+        // As `use`: the store picks the step's file when its name changed,
+        // and keeps the history where it was when that fails.
+        match reload(dir, paths, context, pick.clone()) {
+            Ok((pack, _, _)) => {
                 let ms = milliseconds(started.elapsed());
                 print_problems(&pack.diagnostics);
                 if json {
@@ -520,17 +511,25 @@ fn watch_and_reload(
 
 /// One `--watch` reload: the pack in `dir` as a live generation, with the
 /// setting read fresh (an undo or another pack since may have changed what
-/// it picks). Returns that setting too, so the caller picks the step's file
-/// when the name differs.
+/// it picks). `pick` picks the step's file (when the name differs) before
+/// the history is saved. Returns that setting too.
 fn reload(
     dir: &Path,
     paths: &Paths,
     context: &Context<'_>,
+    pick: impl Fn(Option<&str>, &Step) -> Result<(), i32> + 'static,
 ) -> Result<(Pack, Step, Option<String>), StoreError> {
     let in_use = paths.in_use();
-    let store = Store::new(&paths.config_dir).keeping(in_use.clone());
+    let store = Store::new(&paths.config_dir).keeping(in_use.clone()).picking(pick);
     let (pack, step) = store.apply(dir, in_use.clone(), true, context)?;
     Ok((pack, step, in_use))
+}
+
+/// A fresh private folder for `bench` under the temp folder: a new random
+/// name, made with no clobber (mode 0700 on unix), never a predictable path
+/// and never one that was there before. Removed when it drops.
+fn scratch_dir() -> std::io::Result<tempfile::TempDir> {
+    tempfile::Builder::new().prefix("cmux-pack-bench-").tempdir()
 }
 
 /// The nearest-rank `percent` percentile of sorted `samples`.
@@ -548,12 +547,13 @@ fn bench(global: &GlobalArgs, store: &Store, dirs: &[String], runs: usize, base:
     let schema = Schema::embedded();
     let schema_ms = milliseconds(schema_started.elapsed());
     let dirs: Vec<PathBuf> = dirs.iter().map(|spec| resolve(store, spec)).collect();
-    let scratch = std::env::temp_dir().join(format!("cmux-pack-bench-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&scratch);
-    if let Err(error) = std::fs::create_dir_all(&scratch) {
-        return fail(global, "io", format!("{}: {error}", scratch.display()));
-    }
-    let bench_store = Store::new(&scratch);
+    let scratch = match scratch_dir() {
+        Ok(scratch) => scratch,
+        Err(error) => {
+            return fail(global, "io", format!("{}: {error}", std::env::temp_dir().display()));
+        }
+    };
+    let bench_store = Store::new(scratch.path());
     let domains = Domains::default();
     let context = Context { schema, domains: &domains, base };
     let mut samples = Vec::with_capacity(runs);
@@ -568,7 +568,8 @@ fn bench(global: &GlobalArgs, store: &Store, dirs: &[String], runs: usize, base:
             }
         }
     }
-    let _ = std::fs::remove_dir_all(&scratch);
+    // Only the folder `scratch_dir` made, removed as it drops.
+    drop(scratch);
     if let Some(error) = failure {
         return store_fail(global, &error);
     }

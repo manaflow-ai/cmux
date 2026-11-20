@@ -2494,6 +2494,7 @@ name = "cmux-theme-pack"
 version = "0.1.0"
 dependencies = [
  "cmux-config",
+ "cmux-file-lock",
  "serde",
  "serde_json",
  "tempfile",
