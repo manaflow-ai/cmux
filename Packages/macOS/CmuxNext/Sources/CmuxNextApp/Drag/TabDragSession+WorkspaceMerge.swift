@@ -17,7 +17,7 @@ enum WorkspaceMerge {
     static func run(_ workspaceID: String, at kind: TabDropKind, into window: WindowController, drag: TabDragSession.Drag,
                     session: TabDragSession) {
         let services = session.services
-        guard let source = services.workspace(id: workspaceID), let outcome = outcome(kind) else { return }
+        guard let source = services.workspace(id: workspaceID), let outcome = TabDragOutcome.workspaceMerge(kind) else { return }
         let tabs = source.screens.flatMap(\.panes).flatMap(\.tabs)
         guard let first = tabs.first, let daemon = services.machines.daemon(forWorkspace: workspaceID) else { return }
         // Into a workspace shown beside the focused one (`sidebar.multiView`): it is focused first, as a press does.
@@ -67,18 +67,6 @@ enum WorkspaceMerge {
     }
 
     private static let fixedKinds: Set<String> = ["home"]
-
-    /// The tab move a merge drop on `kind` makes for the workspace's first
-    /// tab; nil for targets a workspace never takes.
-    static func outcome(_ kind: TabDropKind) -> TabDragOutcome? {
-        switch kind {
-        case .strip(let stripID, let index, _): .strip(stripID: stripID, index: index, groupID: nil)
-        case .newSplit(let pane, let edge): .newSplit(paneID: pane, edge: edge)
-        case .newColumn(let screen, let after?): .newColumn(screenID: screen, afterColumnID: after)
-        case .newDock(let screen, let edge): .newDock(screenID: screen, edge: edge)
-        case .newColumn(_, nil), .newWorkspace, .workspace: nil
-        }
-    }
 
     /// Moves `tabs` one at a time to the end of the pane holding `anchor`.
     static func moveRest(_ tabs: [TabModel], following anchor: TabModel, services: AppServices,

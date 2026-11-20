@@ -284,7 +284,7 @@ extension WindowManager {
     /// Returns false when nothing moved (a move between an incognito
     /// window and a normal one is refused with a message).
     @discardableResult
-    func moveWorkspaces(_ ids: [String], toWindow windowID: String, select: Bool = true) -> Bool {
+    func moveWorkspaces(_ ids: [String], toWindow windowID: String, select: Bool = true, keepingSpace: Bool = false) -> Bool {
         let select = select && ActionRunScope.viewChangeAllowed()
         guard registry.value.window(windowID)?.isOpen == true, !ids.isEmpty else { return false }
         if registry.value.crossesIncognito(ids, to: windowID) {
@@ -295,7 +295,7 @@ extension WindowManager {
         // (New Window opens a new one) used to list them unseen while the window they left closed: in no sidebar.
         // The first that another space shows decides (one still unreported, or already shown here, switches nothing).
         // A window on its own incognito space never leaves it (`switchProfile`).
-        if select, incognitoSpaces[windowID] == nil, let state = states[windowID],
+        if select, !keepingSpace, incognitoSpaces[windowID] == nil, let state = states[windowID],
            let room = ids.lazy.compactMap({ WindowProfiles.room(of: $0, current: state.profileID, machines: self.services.machines) }).first {
             state.enterProfile(room)
         }

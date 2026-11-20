@@ -53,7 +53,7 @@ extension TabDragSession {
             let adapter = adapters(for: controller, drag: drag).sidebar
             adapter.sourceMachine = MachineID(ids.first.flatMap { services.machines.daemon(forWorkspace: $0)?.machineID } ?? MachineRegistry.localID)
             drag.touched[ObjectIdentifier(adapter)] = adapter
-            if let hit = adapter.hit(screenPoint: point) {
+            if let hit = adapter.hit(screenPoint: point, wholeGroup: group != nil && controller !== drag.source.window) {
                 sidebar = adapter
                 sidebarHit = WorkspaceDragResolver.target(for: hit.drop)
                 highlight = hit.highlightFrame
@@ -115,9 +115,7 @@ extension TabDragSession {
             switch target {
             case let .position(position):
                 if let group {
-                    guard services.windows.moveWorkspaces(ids, toWindow: id) else { break }
-                    controller.sidebar.sameTurn.syncNow(rows: true)
-                    controller.sidebar.handle(.reorderGroup(GroupID(group), index: position.index))
+                    controller.sidebar.accept(group: GroupID(group), members: ids, at: position, from: drag.source.window?.state.profileID)
                 } else {
                     controller.sidebar.accept(workspaceIDs, at: position)
                 }
@@ -132,12 +130,5 @@ extension TabDragSession {
         let card = drag.motion.targetRect
         land(drag, at: CGRect(x: target.midX - card.width / 2, y: target.midY - card.height / 2, width: card.width, height: card.height),
              cardness: 1, opacity: 0, scale: 0.7)
-    }
-}
-
-extension TabDragContext {
-    /// Workspace drags never resolve tab outcomes; a neutral context.
-    static func workspaces(count: Int) -> TabDragContext {
-        TabDragContext(sourcePaneID: "", sourcePaneTabCount: 0, sourceWorkspaceID: "", sourceWorkspaceTabCount: 0, draggedTabCount: count)
     }
 }

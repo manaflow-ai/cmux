@@ -77,20 +77,21 @@ enum AgentSessionWorkspace {
         // session (a launcher run again), or its stand-in (the key's first run in flight): nothing is opened twice.
         if services.machines.workspace(id: key.rawValue) != nil || daemon.store.workspaces.contains(where: { $0.key == key }) { return Task { nil } }
         let windows = services.windows
-        // Every window's sidebar: each lists only its own workspaces, and the predecessor may be in any.
+        let destination = windows.active.flatMap { windows.isIncognito(window: $0.state.id) ? nil : $0.state.id }
+            ?? windows.registry.value.mostRecentOpen()
+        // A named predecessor in this window can accept the chat without redirecting it to another window.
         if let group, let name,
-           let row = SidebarEdits.predecessor(named: name, inGroup: group, inEach: windows.controllers.map(\.sidebar.model.sections)) {
+           let row = SidebarEdits.predecessor(named: name, inGroup: group, inEach: windows.controllers.filter { $0.state.id == destination }.map(\.sidebar.model.sections)) {
             return reuse(row, session: session, key: key, host: host, focus: focus, parent: parent, services: services)
         }
         // A chat its tab would refuse (or, before localHost resolves, could not bind) makes no workspace: made first, its row listed and closed again (Leo, 2026-11-05).
         if let refusal = WorkspaceCreation.sessionTabRefusal(host: host, on: daemon, tabs: services.agentTabs) { throw ActionFailure(message: refusal) }
-        let destination = windows.active.flatMap { windows.isIncognito(window: $0.state.id) ? nil : $0.state.id }
-            ?? windows.registry.value.mostRecentOpen()
-        let room = destination.flatMap { windows.states[$0]?.profileID }.flatMap { daemon.store.profile($0)?.id }
+        let home = services.machines.local
+        let room = destination.flatMap { windows.states[$0]?.profileID }.flatMap { home.store.profile($0)?.id }
         let placed = expectPlacement(key.rawValue, group: group, top: top, parent: parent, window: destination, windows: windows)
         if let destination {
             windows.claimNew(workspaceID: key.rawValue, window: destination)
-            if let room { daemon.expectPinBeforeCreate(session: daemon.store.registryID, key: key, room: room) }
+            if let room { home.expectPinBeforeCreate(session: daemon.store.registryID, key: key, room: room) }
         }
         // The lineage parent before the row lists, so the row nests under its caller from its first frame, never moves under it later.
         SidebarSessionTreeFeed.shared.recordedParents.record(parent, of: AgentSessionParents.identity(host: targetHost, session: session))
@@ -108,7 +109,7 @@ enum AgentSessionWorkspace {
                 // the session (agent-session-tabs-v1), saved and restored with the workspace like any
                 // tab. No terminal first: one running `acpmux attach` landed as a bare "~" shell
                 // whenever its start missed the deadline (Leo, 2026-10-21 and 2026-10-28).
-                _ = try await connection.pinWorkspaceBeforeCreate(session: daemon.store.registryID, key: key, to: room, until: giveUp)
+                _ = try await home.connection?.pinWorkspaceBeforeCreate(session: daemon.store.registryID, key: key, to: room, until: giveUp)
                 if let instant { _ = try await instant.confirm(giveUp) }
                 let tab = if let instant { tabs.resolve(instant.tabKey) } else {
                     try await WorkspaceCreation.createWithFirstTab(key, name: name ?? defaultName, on: connection, repair: repair,
