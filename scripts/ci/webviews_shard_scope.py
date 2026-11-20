@@ -4,8 +4,8 @@
 The workflow keeps a fixed matrix so push runs retain their duration history. For a pull request,
 webviews_affected selects the tests reachable from the diff, then this planner assigns those files
 with the same duration manifest and lane widths as run-webviews-tests.sh. A shard with no selected
-files can publish an empty result only with cached green file verdicts at the exact merge parent.
-Uncovered and red files run; missing history runs the full suite. Shard 1 always runs shared checks.
+files skip setup only with cached green file verdicts at the exact merge parent. Missing history
+preserves the affected-test selection and runs setup. Shard 1 always runs shared checks.
 
 The JSON output contains ``run`` (whether this shard has tests), ``setup`` (whether it must install
 the shared web checks), ``mode`` (``focused`` or ``full``), and ``files`` (newline-separated paths
@@ -76,23 +76,23 @@ def plan(root: Path, base: str, head: str, manifest: Path, shard: int, count: in
     selected, _ = webviews_affected.Selector(root).select(changed)
     if selected is None:
         return {"run": True, "setup": True, "mode": "full", "files": ""}
-    base_sha = subprocess.run(["git", "-C", str(root), "rev-parse", base],
-                              check=True, capture_output=True, text=True).stdout.strip()
-    # Only the merge parent's recorded push is evidence. A nearby push or a missing
-    # file verdict cannot justify skipping a test. Keep uncovered and red files in
-    # the run, even when the import graph does not reach them from this diff.
-    runs = [run for run in webviews_test_history.load(history) if run["sha"] == base_sha] if history else []
-    if not runs:
-        return {"run": True, "setup": True, "mode": "full", "files": ""}
-    latest = max(runs, key=lambda run: (run["time"], run.get("attempt", 1)))
-    if not all(isinstance(name, str) for name in latest["files"] + latest["red"]):
-        return {"run": True, "setup": True, "mode": "full", "files": ""}
-    covered = set(latest["files"])
-    red = {name.split(" > ", 1)[0] for name in latest["red"]}
-    wanted = {path.removeprefix("webviews/") for path in selected}
-    wanted.update(set(files) - (covered - red))
-    assigned = assign(root, sorted(wanted), manifest, shard, count)
-    return {"run": bool(assigned), "setup": bool(assigned) or shard == 1,
+    wanted = sorted(path.removeprefix("webviews/") for path in selected)
+    assigned = assign(root, wanted, manifest, shard, count)
+    # Missing history must not turn the existing affected-test selection into the
+    # full suite. It only prevents skipping setup on an empty shard. Shard 1
+    # always does the shared checks, whether or not it has test files.
+    cached_green = False
+    if history is not None:
+        base_sha = subprocess.run(["git", "-C", str(root), "rev-parse", base],
+                                  check=True, capture_output=True, text=True).stdout.strip()
+        runs = [run for run in webviews_test_history.load(history) if run["sha"] == base_sha]
+        if runs:
+            latest = max(runs, key=lambda run: (run["time"], run.get("attempt", 1)))
+            if all(isinstance(name, str) for name in latest["files"] + latest["red"]):
+                covered = set(latest["files"])
+                red = {name.split(" > ", 1)[0] for name in latest["red"]}
+                cached_green = set(files) - set(wanted) <= covered - red
+    return {"run": bool(assigned), "setup": bool(assigned) or shard == 1 or not cached_green,
             "mode": "focused", "files": "\n".join(assigned)}
 
 

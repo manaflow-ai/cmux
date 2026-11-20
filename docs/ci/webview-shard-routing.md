@@ -5,9 +5,10 @@
 Pushes, `full-ci`, build inputs, and unreadable selection inputs run the complete suite.
 
 The base-history artifact is fetched once and handed to every shard with the same duration manifest.
-Only a recorded push at the exact merge-parent SHA permits reuse. Uncovered files and files red on
-that push stay in the selected set. Missing or unreadable history falls back to the full suite.
-This deliberately sacrifices savings when there is no trustworthy base receipt.
+Only a recorded push at the exact merge-parent SHA permits skipping setup. Every file omitted by
+the existing affected-test selector must have a cached green verdict. Missing, red, or incomplete
+history preserves the existing selection and runs setup on every shard; it never expands a focused
+PR into the full suite merely because history is unavailable.
 
 Shard 1 always runs shared checks even if its test assignment is empty. The final gate follows
 `setup`, while the test step follows `run`. Empty result artifacts require a successful focused

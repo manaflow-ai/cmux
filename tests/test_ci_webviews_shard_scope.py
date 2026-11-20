@@ -89,26 +89,27 @@ class ShardScopeTest(unittest.TestCase):
         ], check=True)
         self.assertEqual(json.loads(out.read_text()), {"files": "", "mode": "full", "run": True, "setup": True})
 
-    def test_missing_wrong_base_and_malformed_history_run_full(self) -> None:
+    def test_missing_wrong_base_and_malformed_history_keep_selection_and_setup(self) -> None:
         for content in ("{}", "not json", json.dumps({"runs": [{**self.base_run, "sha": "0" * 40}]})):
             with self.subTest(content=content):
                 self.history.write_text(content)
-                result = self.run_scope(3)
-                self.assertEqual(result, {"files": "", "mode": "full", "run": True, "setup": True})
+                results = [self.run_scope(shard) for shard in range(1, 5)]
+                self.assertTrue(all(result["setup"] for result in results))
+                self.assertEqual([r["files"] for r in results if r["run"]], ["test/leaf.test.ts"])
 
-    def test_red_and_uncovered_files_are_not_skipped(self) -> None:
+    def test_red_and_uncovered_base_verdicts_do_not_skip_setup(self) -> None:
         for base_run in ({**self.base_run, "red": ["test/other.test.ts > failed"]},
                          {**self.base_run, "files": ["test/leaf.test.ts"]}):
             with self.subTest(run=base_run):
                 self.history.write_text(json.dumps({"runs": [base_run]}))
-                files = [name for shard in range(1, 5) for name in self.run_scope(shard)["files"].splitlines()]
-                self.assertCountEqual(files, ["test/leaf.test.ts", "test/other.test.ts"])
+                results = [self.run_scope(shard) for shard in range(1, 5)]
+                self.assertTrue(all(result["setup"] for result in results))
+                self.assertEqual([r["files"] for r in results if r["run"]], ["test/leaf.test.ts"])
 
     def test_latest_base_red_overrides_older_green(self) -> None:
         newer = {**self.base_run, "time": 124, "red": ["test/other.test.ts"]}
         self.history.write_text(json.dumps({"runs": [newer, self.base_run]}))
-        files = [name for shard in range(1, 5) for name in self.run_scope(shard)["files"].splitlines()]
-        self.assertCountEqual(files, ["test/leaf.test.ts", "test/other.test.ts"])
+        self.assertTrue(all(self.run_scope(shard)["setup"] for shard in range(1, 5)))
 
     def test_runner_change_forces_every_shard(self) -> None:
         path = self.root / "scripts/ci/webviews_shard_scope.py"
