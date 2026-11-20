@@ -254,7 +254,7 @@ struct AgentIncomingCard: View {
     /// Markdown parser, so a fence, a rule and display math are skipped, a table shows its header
     /// cells, a list or task its first item, and inline marks (emphasis, code, strike, links) go. A
     /// closed message never previews as `swift`, `| a | b |`, `[ ] todo` or `[docs](https://…)`.
-    static func firstLine(_ text: String) -> String {
+    nonisolated static func firstLine(_ text: String) -> String {
         var math: String?
         for block in MarkdownDocument(parsing: text).blocks {
             let lines: [String]
@@ -292,7 +292,7 @@ struct AgentIncomingCard: View {
     /// A list item's first line, read as the Markdown it holds (a heading, a fence). The parser joins
     /// an item's indented lines with spaces, so a fence under the item's text (`Install:` then
     /// ```` ```bash ````) is cut off, and a fence the item opens with keeps only its code.
-    private static func itemFirstLine(_ text: String) -> String {
+    nonisolated private static func itemFirstLine(_ text: String) -> String {
         var item = text
         if let fence = item.range(of: #"\s(?:```|~~~)"#, options: .regularExpression) {
             item = String(item[..<fence.lowerBound])
@@ -305,7 +305,7 @@ struct AgentIncomingCard: View {
 
     /// Text's inline Markdown (emphasis, code, strike, links, `$math$`) as the plain characters it
     /// draws, its line breaks kept; a line of marks alone (`**`) is nothing.
-    private static func plainInline(_ text: String) -> String {
+    nonisolated private static func plainInline(_ text: String) -> String {
         // Inline math draws its formula: the TeX without its `$` (a price, `$5 and $6`, is not math).
         let unmathed = text.replacingOccurrences(
             of: #"(?<![\\$\w])\$([^\s$](?:[^$\n]*[^\s$])?)\$(?![\w$])"#, with: "$1", options: .regularExpression)

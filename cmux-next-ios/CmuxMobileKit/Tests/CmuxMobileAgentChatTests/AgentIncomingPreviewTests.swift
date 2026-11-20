@@ -1,4 +1,5 @@
 #if os(iOS)
+import Foundation
 import Testing
 @testable import CmuxMobileAgentChat
 
@@ -86,6 +87,23 @@ import Testing
     @Test func aHeadingsClosingMarksAndALoneHashGo() {
         #expect(AgentIncomingCard.firstLine("## Status ##") == "Status")
         #expect(AgentIncomingCard.firstLine("#\nText") == "Text")
+    }
+
+    /// A quote or list item is read as the Markdown it holds, and that can nest without end: a
+    /// message of 3,000 `>` must preview on a phone's 1 MB main-thread stack, and fast.
+    @Test func deepNestingPreviewsWithinAPhonesStack() async {
+        let cases = [(String(repeating: ">", count: 3000) + "text", "text"),
+                     (String(repeating: "> ", count: 3000) + "spaced", "spaced"),
+                     (String(repeating: "- ", count: 3000) + "item", "item"),
+                     (String(repeating: "> - ", count: 1500) + "mixed", "mixed")]
+        let previews: [String] = await withCheckedContinuation { done in
+            let thread = Thread {
+                done.resume(returning: cases.map { AgentIncomingCard.firstLine($0.0) })
+            }
+            thread.stackSize = 1 << 20
+            thread.start()
+        }
+        #expect(previews == cases.map(\.1))
     }
 
     @Test func plainTextIsUnchanged() {
