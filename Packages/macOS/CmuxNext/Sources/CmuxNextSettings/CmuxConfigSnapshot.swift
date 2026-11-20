@@ -14,9 +14,12 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var customDensities: [DensityTokens] = []
     /// `appearance.customDensity` when it names one of `customDensities`: it wins over `density`.
     public var customDensity: String?
-    /// The density the file selects: the custom one, else the built-in, else Default (`cozy`).
+    /// The active theme file's own density (``ThemeFileOverlay/density``): it wins over both, as the file's
+    /// settings win over cmux-next.json's.
+    public var themeDensity: DensityTokens?
+    /// The density in use: the theme file's, else the custom one, else the built-in, else Default (`cozy`).
     public var selectedDensity: DensityTokens {
-        DensitySetting.resolve(customDensity, custom: customDensities) ?? DensitySetting.resolve(density, custom: [])
+        themeDensity ?? DensitySetting.resolve(customDensity, custom: customDensities) ?? DensitySetting.resolve(density, custom: [])
             ?? DensityPreset.cozy.tokens
     }
     /// `app.uiScale` (first-party page scale) and `appearance.interfaceScale` (chrome, only with Labs on).
@@ -199,6 +202,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `ui.reducedBackgrounds`: off when unset or invalid. On, windows draw the plain theme
     /// background; ``backdropSelection`` and ``windowBackground`` keep the person's values.
     public var reducedBackgrounds: Bool = ReducedBackgroundsSetting.fallback
+    /// `appearance.agentGlow`: off when unset or invalid. On, the window background stays calm while
+    /// agents are idle and glows softly in the machine's color when an agent needs you.
+    public var agentGlow: Bool = AgentGlowSetting.fallback
     /// `appearance.experimentalControls`; off unless explicitly enabled.
     public var experimentalAppearance = false
     /// `appearance.glassTransparency`, `appearance.hue` and
@@ -421,6 +427,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.backdropSelection = BackdropSelectionSetting().parse(root, diagnostics: &snapshot.diagnostics)
         if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art } else { snapshot.backdropArt = nil }
         snapshot.take(ReducedBackgroundsSetting.parse(root), \.reducedBackgrounds)
+        snapshot.take(AgentGlowSetting.parse(root), \.agentGlow)
         snapshot.take(FontSmoothingSetting.parse(root), \.fontSmoothing)
         snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
