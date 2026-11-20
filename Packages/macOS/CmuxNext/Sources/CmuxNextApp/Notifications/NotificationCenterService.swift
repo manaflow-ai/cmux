@@ -480,29 +480,29 @@ final class NotificationCenterService {
     /// acpmux reads a turn that ends in a shown chat at once, as before #22678, and a turn that
     /// ends unseen rings through its unread notification like any tab (cmux#34447). A chat the person is looking at
     /// (the focused content of the key window) never rings, and a burst pulses once: a finish
-    /// within `burstWindow` of the last pulse rings at rest (cmuxterm-hq#2959).
+    /// within `burstWindow` of the last pulse rings at rest (cmuxterm-hq#2959). Only the chat's own tabs are read, from
+    /// the store's index by session id: a turn end of any chat on any machine never walks every tab of every workspace
+    /// (design audit 2026-11-18 finding 7).
     func agentTurnEnded(session: String) {
         guard let services else { return }
-        agentTurnEnded(session: session, in: services.daemon.store.workspaces)
+        agentTurnEnded(session: session, in: services.daemon.store)
     }
 
-    func agentTurnEnded(session: String, in workspaces: [WorkspaceModel],
+    func agentTurnEnded(session: String, in store: DaemonStore,
                         rings: Bool = DesignSettings.shared.attention.rings(agentChat: true),
                         viewed: ((String) -> Bool)? = nil, now: ContinuousClock.Instant = .now) {
         guard rings else { return }
-        for workspace in workspaces {
-            for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-            where tab.agentSession?.session == session && !(viewed?(tab.id) ?? isViewed(tab.id)) {
-                agentFinishGeneration &+= 1
-                agentFinished[tab.id] = agentFinishGeneration
-                if let last = lastAgentPulse, now - last < Self.burstWindow {
-                    quietAgentFinishes.insert(tab.id)
-                } else {
-                    quietAgentFinishes.remove(tab.id)
-                    lastAgentPulse = now
-                }
-                note("agent turn ended \(tab.id)")
+        for tab in store.tabs(agentSession: session)
+        where tab.agentSession?.session == session && !(viewed?(tab.id) ?? isViewed(tab.id)) {
+            agentFinishGeneration &+= 1
+            agentFinished[tab.id] = agentFinishGeneration
+            if let last = lastAgentPulse, now - last < Self.burstWindow {
+                quietAgentFinishes.insert(tab.id)
+            } else {
+                quietAgentFinishes.remove(tab.id)
+                lastAgentPulse = now
             }
+            note("agent turn ended \(tab.id)")
         }
     }
 
