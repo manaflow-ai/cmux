@@ -8,12 +8,9 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { PageClient, PageHandler } from "../../../pages/shared/pageClient";
-import { pageError } from "../../../pages/shared/pageClient";
 import type { SceneEvent } from "../../../apps/scene/panelsClient";
 import { teardownDom } from "../../../../test/support/domTeardown";
 import { until } from "../../../../test/support/until";
-import { newTabHost, pickedNewTabApp } from "../newTabModel";
-import { NewTabAppSlot } from "./NewTabAppSlot";
 
 /// One turn of the event loop inside act, so the deadline's timer can fire and React flushes what it did.
 const turn = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -31,6 +28,10 @@ const replacements = {
 };
 const saved = Object.keys(replacements).map((key) => [key, key in globals, globals[key]] as const);
 Object.assign(globals, replacements);
+// src/ loads after the DOM is in place (test/import-order-lint.test.ts).
+const { pageError } = await import("../../../pages/shared/pageClient");
+const { newTabHost, pickedNewTabApp } = await import("../newTabModel");
+const { NewTabAppSlot } = await import("./NewTabAppSlot");
 afterAll(async () => {
   await teardownDom(saved, { window: dom.window, scope: globals });
 });
@@ -126,6 +127,33 @@ test("the picked app's scene draws in the slot: mounted once for the newTab surf
   expect(gone).toEqual([]);
   await act(async () => root.unmount());
   expect(host.ops("unmount").map((call) => call.params)).toEqual([{ mount_id: "m1" }]);
+});
+
+test("a scene's autofocus field never takes focus from the composer; a click still focuses it", async () => {
+  const composer = document.createElement("textarea");
+  document.body.append(composer);
+  composer.focus();
+  const host = new Host();
+  const { container, root } = await render(host);
+  await act(async () => {
+    host.scene?.(
+      {
+        mount_id: "m1",
+        ops: [
+          { op: "create", id: "f", type: "TextField", props: { placeholder: "Search", autofocus: true } },
+          { op: "root", id: "f" },
+        ],
+      },
+      1,
+    );
+  });
+  const field = container.querySelector<HTMLInputElement>(".cmux-app-scene-field");
+  expect(field).not.toBeNull();
+  expect(document.activeElement).toBe(composer);
+  field!.focus();
+  expect(document.activeElement).toBe(field);
+  await act(async () => root.unmount());
+  composer.remove();
 });
 
 test("a refused mount (missing, hidden or disabled app) empties the slot only", async () => {

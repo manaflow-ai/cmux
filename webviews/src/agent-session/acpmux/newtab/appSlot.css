@@ -17,7 +17,9 @@
   min-width: 0;
   align-self: center;
   max-height: 40vh;
-  overflow: hidden;
+  /* Past the cap the scene scrolls, so controls below it stay reachable. */
+  overflow-x: hidden;
+  overflow-y: auto;
   font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
 }

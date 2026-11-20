@@ -102,7 +102,13 @@ function SlotScene({
   }, [mount, drawn, deadlineMs]);
   return (
     <div className="nt-app-slot-body" data-status={status.state} aria-busy={!drawn}>
-      <SceneRenderer store={mount.store} dispatch={mount.dispatch} resolveAsset={mount.resolveAsset} />
+      {/* The composer owns focus: a scene that arrives late never takes the rest of a prompt. */}
+      <SceneRenderer
+        store={mount.store}
+        dispatch={mount.dispatch}
+        resolveAsset={mount.resolveAsset}
+        autofocus={false}
+      />
     </div>
   );
 }
