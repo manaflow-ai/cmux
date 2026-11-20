@@ -1,0 +1,103 @@
+{
+  "title": "Markdown viewer over a picture: clear under Window Glass, like the terminals",
+  "settings": {
+    "appearance": {
+      "background": "laurence-mckinley",
+      "backgroundBlur": "glass-clear",
+      "density": "compact"
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch over the picture (Window Glass)",
+      "wait": 4,
+      "shot": false
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Reading"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Show the Reading workspace",
+      "cmux": [
+        "workspace",
+        "name:Reading",
+        "focus"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Write a Markdown file",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Reading",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "printf '# Chief cohesion plan\\n\\n## Owner decisions\\n\\n1. **One brain** is recursive, but improve local Chief.\\n2. **Automations**: two implementations, one interface.\\n\\n| Piece | Owner | Notes |\\n| --- | --- | --- |\\n| Automations spec | local Chief | one spec file |\\n| Cloud engine | recursive | routines exist |\\n\\n```swift\\nlet clear = backdrop.hidesWhatIsBehind\\n```\\n\\n- A worker never stops without a successor.\\n- The record is a durable file.\\n' > /tmp/md-window-glass.md; clear; echo 'The terminal shows the picture; the Markdown pane beside it should too.'\r"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Split right",
+      "cmux": [
+        "action",
+        "run",
+        "splitRight"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Window Glass: Markdown viewer beside a terminal, both over the picture",
+      "cmux": [
+        "open",
+        "/tmp/md-window-glass.md",
+        "--focus"
+      ],
+      "wait": 4,
+      "shot": false
+    },
+    {
+      "title": "Live change: Blur None over the picture",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.backgroundBlur",
+        "none"
+      ],
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "Live change: Blur None, then back to Window Glass",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.backgroundBlur",
+        "glass-clear"
+      ],
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "Window Glass over the picture: the Markdown viewer (right) shows the picture like the terminal (left)",
+      "wait": 2
+    }
+  ]
+}

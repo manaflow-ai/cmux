@@ -109,11 +109,14 @@ final class DaemonAppsTransport: AppsTransport {
         }
     }
 
-    func list() async throws(AppsTransportError) -> AppsListReply {
-        AppsWireDecoding().list(try await send(AppsListRequest()))
-    }
+    func list() async throws(AppsTransportError) -> AppsListReply { AppsWireDecoding().list(try await send(AppsListRequest())) }
 
     func storeCall(_ op: String) async throws(AppsTransportError) -> AppJSON { try await AppJSON(send(AppsStoreRequest(op: op))) }
+
+    func storeCall(_ op: String, args: AppJSON, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON {
+        let wire = origin.wire(userOriginAllowed: await daemon.connection?.userOriginAllowed == true)
+        return try await AppJSON(send(AppsStoreRequest(op: op, args: args.daemonValue, origin: wire)))
+    }
 
     func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord {
         let request = AppsSetRequest(idempotencyKey: idempotencyKey, app: app, origin: origin.rawValue, installed: change.installed,
@@ -138,8 +141,7 @@ final class DaemonAppsTransport: AppsTransport {
     }
 
     func run(app: String, op: String, args: AppJSON, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppJSON {
-        let userAllowed = await daemon.connection?.userOriginAllowed == true
-        let wire = origin.wire(userOriginAllowed: userAllowed)
+        let wire = origin.wire(userOriginAllowed: await daemon.connection?.userOriginAllowed == true)
         Self.logger.info("apps-run \(app, privacy: .public) \(op, privacy: .public) origin=\(wire.rawValue, privacy: .public)")
         let request = AppsRunRequest(app: app, op: op, args: args.daemonValue, idempotencyKey: idempotencyKey, origin: wire)
         return AppJSON(try await send(request, timeout: Self.runTimeout).value)
@@ -149,9 +151,7 @@ final class DaemonAppsTransport: AppsTransport {
         AppJSON(try await send(AppsPageCallRequest(app: app, page: page, message: message), timeout: Self.runTimeout))
     }
 
-    func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine] {
-        AppsWireDecoding().logs(try await send(AppsLogsRequest(app: app, follow: follow)))
-    }
+    func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine] { AppsWireDecoding().logs(try await send(AppsLogsRequest(app: app, follow: follow))) }
 
     func openLink(_ url: String, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON {
         let wire = origin.wire(userOriginAllowed: await daemon.connection?.userOriginAllowed == true)
