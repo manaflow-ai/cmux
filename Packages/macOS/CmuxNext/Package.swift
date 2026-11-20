@@ -1665,6 +1665,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextApps",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
                 "CmuxNextBrowserCore",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
@@ -1685,6 +1686,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextAppsTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
                 "CmuxNextApps",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
