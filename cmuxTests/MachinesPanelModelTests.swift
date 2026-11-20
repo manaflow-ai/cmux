@@ -177,6 +177,15 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertEqual(paid?.isPaidPlan, true)
     }
 
+    @MainActor
+    func testPlusResizeFallbacksUseProSizes() {
+        let model = MachinesPanelViewModel(client: nil, isCloudEnabled: { false })
+        // Plus keeps the plan id `go`; an older list response omits max*.
+        model.lastLimits = VMPlanLimits(maxActiveVms: 1, planId: "go", freeAccessWindowDays: 0)
+        XCTAssertEqual(model.resizeFallbackMaxMemoryMb, 16 * 1_024)
+        XCTAssertEqual(model.resizeFallbackMaxDiskGiB, 128)
+    }
+
     func testMachinesModeIsRegisteredEverywhere() {
         XCTAssertTrue(RightSidebarMode.allCases.contains(.machines))
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "machines"), .machines)
