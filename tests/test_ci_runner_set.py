@@ -122,6 +122,24 @@ class RunnerSetTests(unittest.TestCase):
                 self.assertEqual(resolve_labels(route, context={**context, "github.ref": ref, "inputs.ref": checkout}),
                                  {wanted})
 
+    def test_dispatched_unverified_macos_refs_use_ephemeral_capacity(self) -> None:
+        mobile = yaml.safe_load((WORKFLOWS / "cmux-mobile-ffi.yml").read_text())["jobs"]["apple"]
+        mobile_route = runs_on_text(mobile, "cmux-mobile-ffi.yml#apple")
+        batch = yaml.safe_load((WORKFLOWS / "cmux-next-batch.yml").read_text())["jobs"]["regen"]
+        batch_route = runs_on_text(batch, "cmux-next-batch.yml#regen")
+        context = {
+            "github.event_name": "workflow_dispatch",
+            "github.repository": "manaflow-ai/cmux",
+            "github.sha": "abc",
+            "github.ref": "refs/heads/feat-cmux-next",
+            "github.event.pull_request.head.repo.full_name": "",
+            "github.event.pull_request.head.sha": "",
+        }
+        self.assertEqual(resolve_labels(mobile_route, context={**context, "inputs.ref": "other"}),
+                         {"blacksmith-6vcpu-macos-26"})
+        self.assertEqual(resolve_labels(batch_route, context={**context, "inputs.sha": "other"}),
+                         {"blacksmith-6vcpu-macos-26"})
+
     def test_gallery_health_uses_the_pool_for_owned_work(self) -> None:
         job = workflow_jobs.jobs(WORKFLOWS / "gallery-health.yml")["health"]
         route = runs_on_text(job, "gallery-health.yml#health")
