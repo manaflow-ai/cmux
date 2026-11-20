@@ -6191,6 +6191,17 @@ class JoblessRunTests(unittest.TestCase):
         options = {"max_cancels": 5, "exclude_ids": set(), "rerun_state": True, "cmux_bot": True, **kwargs}
         return janitor.build_jobless_plan(jobless, {MACHINES: [self.pr] if prs is None else prs}, **options)
 
+    def test_a_full_branch_listing_with_no_run_ahead_is_unknown_never_jobless(self):
+        # Review of #47915 (F1): branch_runs() reads one page of the newest runs. A full page of newer, finished
+        # runs can hide an older holder, so no run ahead on it proves nothing: the run is left alone, not cancelled.
+        newer = [tui_push(status="completed", sha=f"n{i:02d}", age=10) for i in range(janitor.BRANCH_RUNS_PAGE)]
+        holders, jobless, notes = self.find([self.parked], self.jobs, listed=newer)
+        self.assertEqual((holders, jobless), ([], []))
+        self.assertTrue(any("listing" in note and str(self.parked["id"]) in note for note in notes), notes)
+        # A page short of full is the whole branch: no run ahead there is jobless, as before.
+        holders, jobless, _ = self.find([self.parked], self.jobs, listed=newer[:-1])
+        self.assertEqual([o.run["id"] for o in jobless], [self.parked["id"]])
+
     def test_the_44272405805_shape_force_cancels_its_superseded_holder(self):
         # The holder is outside the in-flight inventory, as during the 112-run backlog: the branch listing finds it.
         holders, jobless, notes = self.find([self.parked], self.jobs, listed=[self.holder])
