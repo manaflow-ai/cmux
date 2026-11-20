@@ -4983,19 +4983,37 @@ def test_web_subarea_router_keeps_expensive_lanes_narrow() -> None:
 def test_agent_pane_real_daemon_lane_is_narrower_than_react_apps() -> None:
     for path in (
         "webviews/test/agent-pane-picks-hold.test.ts",
+        "webviews/test/agent-pane-new-chat-settles.test.ts",
         "webviews/test/support/realAcpmux.ts",
+        "webviews/test/support/warmDevServer.ts",
+        "webviews/test/support/fixture.test.ts",
+        "webviews/test/preload.ts",
+        "webviews/vite.config.acpmux-pane.mjs",
+        "webviews/src/ui/NoticeDeck.tsx",
         "webviews/src/agent-session/acpmux/Composer.tsx",
         "cmux-tui/crates/acpmux/src/lib.rs",
+        "cmux-tui/crates/acpmux-book/src/lib.rs",
+        "cmux-tui/Cargo.lock",
     ):
         areas = web_subareas.classify_paths([path], ROOT)
         assert areas.react_apps is (path.startswith("webviews/"))
         assert areas.agent_pane is True, path
 
-    for path in ("webviews/src/diff/App.tsx", "webviews/src/agent-activity/view.tsx"):
+    for path in ("webviews/test/diff.test.ts", "webviews/test/agent-activity.test.tsx"):
         areas = web_subareas.classify_paths([path], ROOT)
         assert areas.react_apps is True, path
         assert areas.agent_pane is False, path
 
+
+def test_agent_pane_scope_keeps_shared_inputs_and_mixed_changes() -> None:
+    for path in web_subareas.ALL_SUBAREA_INPUTS:
+        assert web_subareas.classify_paths([path], ROOT).agent_pane, path
+    for paths in (
+        ["webviews/test/diff.test.ts", "webviews/test/support/warmDevServer.ts"],
+        ["webviews/test/diff.test.ts", "webviews/src/ui/NoticeDeck.tsx"],
+        ["webviews/src/ui/NoticeDeck.tsx", "webviews/test/diff.test.ts"],
+    ):
+        assert web_subareas.classify_paths(paths, ROOT).agent_pane, paths
 
 
 def test_docs_reference_inputs_run_web_unit_tests() -> None:

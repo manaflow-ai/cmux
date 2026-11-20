@@ -21,9 +21,7 @@ class WebSubareas:
     react_apps: bool
     typecheck: bool
     unit_tests: bool
-    # The real-daemon agent-pane lane is narrower than the general React suite.
-    # Keep it separate so unrelated React changes do not spend a 30-minute
-    # Linux runner on two agent-pane tests.
+    # The real-daemon lane need not run for unrelated standalone test edits.
     agent_pane: bool = False
 
     @classmethod
@@ -228,28 +226,17 @@ REACT_PREFIXES = (
 )
 
 # agent-pane-real-acpmux runs two browser tests against a built acpmux daemon.
-# Keep its route tied to the pane implementation and the daemon/fixtures those
-# tests exercise, rather than every React app in webviews/.
+# Browser tests load the app through Vite, beyond their static imports. Keep all
+# runtime/build inputs and support helpers; only unrelated standalone test files
+# can be excluded without losing shared or dynamically loaded dependencies.
 AGENT_PANE_EXACT = {
-    "webviews/bun.lock",
-    "webviews/package.json",
     "webviews/test/agent-pane-new-chat-settles.test.ts",
     "webviews/test/agent-pane-picks-hold.test.ts",
-    "webviews/test/support/chipValues.ts",
-    "webviews/test/support/compactModelMenu.ts",
-    "webviews/test/support/paintedFrames.ts",
-    "webviews/test/support/realAcpmux.ts",
-    "webviews/test/support/realPaneLane.ts",
-    "webviews/test/support/requireBrowserLane.ts",
-    "webviews/test/support/settleFrames.ts",
-    "scripts/ci/run-webviews-tests.sh",
 }
 AGENT_PANE_PREFIXES = (
-    "webviews/src/agent-session/",
-    "cmux-tui/crates/acpmux/",
-    "cmux-tui/crates/acpmux-client/",
-    "cmux-tui/crates/acpmux-core/",
-    "cmux-tui/crates/acpmux-list-types/",
+    "cmux-tui/",
+    ".github/actions/setup-cmux-tui-rust/",
+    ".github/actions/playwright-apt-cache/",
 )
 
 # Every other input of the web bundles (the settings schema, the What's New
@@ -314,10 +301,14 @@ def classify_paths(paths: list[str], repo_root: Path | None = None) -> WebSubare
         ):
             production_build = True
 
-        if path in REACT_EXACT or path.startswith(REACT_PREFIXES):
+        react_input = path in REACT_EXACT or path.startswith(REACT_PREFIXES)
+        if not react_input and (matcher := web_bundle_input_matcher(str(root.resolve()))) is not None:
+            react_input = matcher(path)
+        if react_input:
             react_apps = True
-        elif (matcher := web_bundle_input_matcher(str(root.resolve()))) is not None and matcher(path):
-            react_apps = True
+            standalone_test = path.startswith("webviews/test/") and path.endswith((".test.ts", ".test.tsx"))
+            if not standalone_test or path in AGENT_PANE_EXACT or path.startswith("webviews/test/support/"):
+                agent_pane = True
 
         if path in TYPECHECK_EXACT or (
             path.startswith("web/")
