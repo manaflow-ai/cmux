@@ -2393,6 +2393,14 @@ impl Orchestrator for Spawner {
         answer
     }
 
+    fn wake_tool(&self, call: crate::tools::WakeCall) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::WakeTool { call, reply })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
     fn sleep(&self, call: crate::tools::SleepCall) -> Result<String, String> {
         let (reply, answer) = channel();
         self.to_brain(Input::Sleep { call, reply })?;
