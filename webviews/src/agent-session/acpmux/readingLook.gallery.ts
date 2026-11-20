@@ -48,6 +48,9 @@ export default agentPaneEntry({
         run: async (ctx) => {
           const folded = ".cv-worked.is-toggle[aria-expanded=false]";
           if (ctx.document.querySelector(folded)) await ctx.click({ selector: folded });
+          const output = ".cv-tool.is-toggle[aria-expanded=false]";
+          await ctx.waitFor(() => ctx.document.querySelector(output), { capMs: 10_000 });
+          await ctx.click({ selector: output });
         },
       },
     ],
