@@ -175,6 +175,10 @@ def run_build(root, argv, cwd, what, log_lock):
     build running beside another stays readable. Returns (returncode, seconds, the
     lines naming a lock cargo refused to update under --locked)."""
     started = time.monotonic()
+    # A cargo build runs inside fixit-compile (ci-oops 0a): when every error has a machine-applicable fix it writes
+    # the fixup patch for fixit-compile-push and still exits with cargo's status.
+    if argv[0] == "cargo" and FIXIT_COMPILE.is_file():
+        argv = [sys.executable, "-I", str(FIXIT_COMPILE), "run", "--kind", "cargo", "--root", str(root), "--", *argv]
     proc = subprocess.Popen(argv, cwd=root / cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             text=True, errors="replace")
     # cargo's stale-lock refusal, kept for cargo-locks.py explain: the only lines a failed build's cause needs.
@@ -186,6 +190,8 @@ def run_build(root, argv, cwd, what, log_lock):
             refusals.append(output_line)
     return proc.wait(), time.monotonic() - started, refusals
 
+
+FIXIT_COMPILE = Path(__file__).resolve().parent.parent / "ci" / "oops" / "fixit_compile.py"
 
 # The words every spelling of cargo's stale-lock refusal ends with (scripts/cmux-next/cargo-locks.py knows them all).
 STALE_LOCK_HINT = "--locked was passed"
