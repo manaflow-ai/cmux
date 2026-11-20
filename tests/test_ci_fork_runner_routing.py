@@ -196,6 +196,11 @@ def without_fleet_first(runs_on: str) -> str:
         if matched:
             return FORK_BRANCH_PREFIX + rest[matched.end():]
     return runs_on
+# Ephemeral by construction like a Blacksmith label: only cmuxterm-hq's gha-runners reconciler serves it, one JIT VM
+# per job (no service account, no ingress, deleted after the job), and no persistent runner registers it
+# (cmuxterm-hq build-fleet/swift-linux-builder/gha-runners/README.md). The nightly's App-key control jobs take it on
+# attempt 1, ahead of the PR queue (Leo, 2026-11-19: "why isn't nightly getting priority then? on the linux things").
+OWNED_EPHEMERAL_LABELS = frozenset({"cmux-gcp-nightly-jit-x64"})
 # Values the selector test tries for LINUX_RUNNER: owned and hosted labels, case and list forms.
 ADVERSARIAL_VARIABLE_VALUES = (
     "", "glaeda-std-xcode-26.6", "glaeda-gui-xcode-26.6", "self-hosted", "cmux-lawrence", "ubuntu-24.04",
@@ -312,8 +317,9 @@ def runner_label_errors(runs_on: str) -> list[str]:
         return []
     expression = re.fullmatch(r"\$\{\{(.*)\}\}", runs_on.strip(), re.DOTALL)
     if expression is None:
-        if re.fullmatch(r"blacksmith-[a-z0-9-]+", runs_on) or HOSTED_LITERAL_LABEL.fullmatch(runs_on):
-            return []  # One fixed ephemeral label: a Blacksmith VM or a GitHub-hosted one.
+        if (re.fullmatch(r"blacksmith-[a-z0-9-]+", runs_on) or HOSTED_LITERAL_LABEL.fullmatch(runs_on)
+                or runs_on in OWNED_EPHEMERAL_LABELS):
+            return []  # One fixed ephemeral label: a Blacksmith VM, a GitHub-hosted one or a one-job JIT VM of ours.
         return [f"{runs_on!r} is not an ephemeral label"]
     try:
         chain = _alternatives(parse_expression(expression.group(1)))
@@ -324,7 +330,8 @@ def runner_label_errors(runs_on: str) -> list[str]:
     for index, operand in enumerate(chain):
         conditions, result = (operand[1][:-1], operand[1][-1]) if operand[0] == "and" else ([], operand)
         label = _string(result)
-        if label is not None and (blacksmith.fullmatch(label) or label in FLEET_EPHEMERAL_LABELS):
+        if label is not None and (blacksmith.fullmatch(label) or label in FLEET_EPHEMERAL_LABELS
+                                  or label in OWNED_EPHEMERAL_LABELS):
             continue
         if (label is not None and index == 0 and HOSTED_LITERAL_LABEL.fullmatch(label) and len(conditions) == 1
                 and conditions[0][0] == "cmp" and conditions[0][1] == "!="
@@ -1433,6 +1440,25 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         self.assertTrue(_trusted_fork_exclusion(parse_expression(
             "!contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)")))
         self.assertNotEqual(runner_label_errors("self-hosted"), [])
+
+    def test_only_the_one_job_jit_nightly_label_of_ours_counts_as_ephemeral(self) -> None:
+        # cmux-gcp-nightly-x64 is also served by a persistent runner on a lane VM; the JIT label never is.
+        jit = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && "
+               "'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}")
+        self.assertEqual(runner_label_errors(jit), [])
+        self.assertEqual(runner_label_errors("cmux-gcp-nightly-jit-x64"), [])
+        for owned in ("cmux-gcp-nightly-x64", "cmux-gcp-lane-build-x64"):
+            self.assertNotEqual(runner_label_errors(jit.replace("cmux-gcp-nightly-jit-x64", owned)), [], owned)
+        # cmux-fleet-linux-x64 is the janitors' one-job label (FLEET_EPHEMERAL_LABELS): an operand, never a literal.
+        for owned in ("cmux-gcp-nightly-x64", "cmux-gcp-lane-build-x64", "cmux-fleet-linux-x64"):
+            self.assertNotEqual(runner_label_errors(owned), [], owned)
+
+    def test_the_classic_nightly_app_key_pickers_start_on_the_jit_label(self) -> None:
+        jobs = yaml.load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]
+        for name in ("pick-nightly-app-runner", "pick-classic-prepare-runner"):
+            runs_on = jobs[name]["runs-on"]
+            self.assertIn("github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64'", runs_on, name)
+            self.assertTrue(runs_on.rstrip("} ").endswith("'blacksmith-2vcpu-ubuntu-2404'"), name)
 
     def test_key_holding_linux_jobs_follow_linux_runner_through_the_bounded_selector(self) -> None:
         runs_on = {(workflow, job): line for workflow, job, line in app_key_jobs()}
