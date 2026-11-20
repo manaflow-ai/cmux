@@ -14,6 +14,9 @@ use crate::keypath::key_path;
 use crate::text::ThemeSpec;
 use crate::value::value_at;
 
+/// One color map: token name to color text.
+type ColorMap = BTreeMap<String, String>;
+
 const EDITS_KEY: &str = "appearance.themeEdits";
 const THEME_KEY: &str = "appearance.theme";
 /// `AppTheme.textMinimum`: text on its background.
@@ -132,7 +135,7 @@ fn read_color_map(
     value: &Value,
     path: &str,
     colors: &mut BTreeMap<String, String>,
-    mut halves: Option<(&mut BTreeMap<String, String>, &mut BTreeMap<String, String>)>,
+    mut halves: Option<(&mut ColorMap, &mut ColorMap)>,
 ) {
     let Value::Object(entries) = value else {
         return reader.refuse(path, Some(value), "expected an object");
