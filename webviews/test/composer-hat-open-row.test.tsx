@@ -100,11 +100,17 @@ async function mount(props: Record<string, unknown>) {
   );
   const head = host.querySelector<HTMLButtonElement>('.acpmux-running-tray__head[aria-expanded="false"]');
   if (head) await act(async () => head.click());
-  const line = (name: string) =>
-    [...host.querySelectorAll<HTMLElement>(".acpmux-agent-line")].find(
-      (node) => node.querySelector(".acpmux-summary-agent__name")?.textContent === name,
-    )!;
-  return { host, line, done: async () => act(async () => root.unmount()) };
+  // A failed lookup prints every line's text, not an undefined.
+  const names = () =>
+    [...host.querySelectorAll<HTMLElement>(".acpmux-agent-line__button")].map((node) => node.textContent);
+  const find = (name: string) => {
+    const found = [...host.querySelectorAll<HTMLElement>(".acpmux-agent-line")].find((node) =>
+      node.querySelector(".acpmux-agent-line__button")?.textContent?.includes(name),
+    );
+    if (!found) throw new Error(`no line holds ${JSON.stringify(name)}: ${JSON.stringify(names())}`);
+    return found;
+  };
+  return { host, line: find, done: async () => act(async () => root.unmount()) };
 }
 
 describe("the composer hat's row arm", () => {
@@ -118,11 +124,11 @@ describe("the composer hat's row arm", () => {
     });
     try {
       expect(host.querySelector(".acpmux-running-tray")?.getAttribute("data-open-look")).toBe("row");
-      for (const name of ["Review the fold motion", "bun test --watch", "Port the history page"])
+      for (const name of ["Review the fold motion", "bun test", "Port the history page"])
         await act(async () => line(name).querySelector<HTMLButtonElement>(".acpmux-agent-line__button")!.click());
       expect(opened).toEqual(["agent:agent-reviewer", "command:s/1", "chat:c1"]);
       // Each line has one details button, and it opens nothing.
-      for (const name of ["Review the fold motion", "bun test --watch", "Port the history page"]) {
+      for (const name of ["Review the fold motion", "bun test", "Port the history page"]) {
         const disclose = line(name).querySelectorAll<HTMLButtonElement>(".acpmux-agent-line__disclose");
         expect(disclose.length).toBe(1);
         expect(disclose[0]!.getAttribute("aria-expanded")).toBe("false");
@@ -140,7 +146,7 @@ describe("the composer hat's row arm", () => {
     // No terminal to open and no chat view: the command's row and the chat's row only expand.
     const { line, done } = await mount({ onOpen: (id: string) => opened.push(`agent:${id}`), canReadTail: true });
     try {
-      for (const name of ["bun test --watch", "Port the history page"]) {
+      for (const name of ["bun test", "Port the history page"]) {
         const row = line(name);
         expect(row.querySelector(".acpmux-agent-line__disclose")).toBeNull();
         const button = row.querySelector<HTMLButtonElement>(".acpmux-agent-line__button")!;
