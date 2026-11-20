@@ -43,7 +43,6 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
 
 use acpmux::god_fixture::{self, Shape};
 use acpmux::rows::{Patch, RowTable};
-use acpmux::store::Store as _;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader, Write};
@@ -413,6 +412,12 @@ fn summarize(turns: &[Turn], len: u64) -> Value {
         "list": {
             "linesPerDelta": m(&|t: &Turn| t.per(t.tally.list_lines)),
             "bytesPerDelta": m(&|t: &Turn| t.per(t.tally.list_bytes)),
+            "linesPerTurn": m(&|t: &Turn| t.tally.list_lines as f64),
+            "bytesPerLine": m(&|t: &Turn| t.tally.list_bytes as f64 / t.tally.list_lines.max(1) as f64),
+            "linesPerSecond": m(&|t: &Turn| t.tally.list_lines as f64 * 1e6 / t.wall_us.max(1.0)),
+            "otherChatLinesPerTurn": m(&|t: &Turn| t.tally.list_other_chats as f64),
+            "largestLine": turns.last().map(|t| json!({"bytes": t.tally.list_max,
+                "ofChat": t.tally.list_max_of_chat, "keyBytes": t.tally.list_max_keys})),
         },
         "other": {
             "bytesPerDelta": m(&|t: &Turn| t.per(t.tally.other_bytes)),
