@@ -184,6 +184,7 @@ class SupersededTests(unittest.TestCase):
         api.open_heads.return_value = dict(self.heads)
         api.runs.return_value = [self.run_data]
         api.request.side_effect = [dict(self.run_data), {"state": "open", "head": {"sha": "new"}}, {}]
+        api.pull_requests_for_commit.return_value = [{"number": 5, "state": "open", "head": {"sha": "new"}}]
         self.assertEqual(self.run_main(api), 0)
         self.assertEqual(api.request.call_args_list, [
             mock.call("GET", "/repos/test/repo/actions/runs/7"),
@@ -200,8 +201,30 @@ class SupersededTests(unittest.TestCase):
                 api.open_heads.return_value = dict(self.heads)
                 api.runs.return_value = [self.run_data]
                 api.request.side_effect = [current, pr]
+                api.pull_requests_for_commit.return_value = []
                 self.assertEqual(self.run_main(api), 0)
                 self.assertNotIn("POST", [call.args[0] for call in api.request.call_args_list])
+
+    def test_another_pr_pushed_back_to_this_head_is_kept(self):
+        # The inventory saw PR 6 at "other"; by the recheck it was pushed back to this run's commit.
+        api = mock.Mock()
+        api.open_heads.return_value = dict(self.heads)
+        api.runs.return_value = [self.run_data]
+        api.request.side_effect = [dict(self.run_data), {"state": "open", "head": {"sha": "new"}}]
+        api.pull_requests_for_commit.return_value = [{"number": 6, "state": "open", "head": {"sha": "old"}}]
+        self.assertEqual(self.run_main(api), 0)
+        api.pull_requests_for_commit.assert_called_once_with("old")
+        self.assertNotIn("POST", [call.args[0] for call in api.request.call_args_list])
+
+    def test_malformed_created_at_is_kept_without_a_traceback(self):
+        for created_at in ("not-a-time", "2026-13-45T00:00:00Z", 12345):
+            with self.subTest(created_at=created_at):
+                run = dict(self.run_data, created_at=created_at)
+                self.assertIsNone(MODULE.classify_superseded(run, self.heads, now=self.now))
+        api = mock.Mock()
+        api.open_heads.return_value = dict(self.heads)
+        api.runs.return_value = [dict(self.run_data, id=8, created_at="garbage"), self.run_data]
+        self.assertEqual(self.run_main(api, cleanup="false"), 0)
 
     def test_dry_run_and_schedule_never_cancel(self):
         api = mock.Mock()
