@@ -13,7 +13,7 @@ import { afterAll, beforeAll, beforeEach, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { settleReact } from "./support/domTeardown";
-import { resetKeptTailsForTests } from "../src/agent-session/acpmux/tailCache";
+import { keptTail, rememberTail, resetKeptTailsForTests } from "../src/agent-session/acpmux/tailCache";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -193,6 +193,73 @@ function burst(socket: FakeAcpmux, chats: number, round: number): void {
     });
   }
 }
+
+test("hidden purges discard cached history and read-ahead state without a snapshot", async () => {
+  const { socket, client, snapshots } = await openPane();
+  const internal = client as any;
+  const child = id(2);
+  try {
+    rememberTail(
+      child,
+      {
+        events: [],
+        summary: summary(2),
+        turnOpener: undefined,
+        historyExhausted: true,
+        queue: [],
+        configSeq: 0,
+        usageFromSeq: 0,
+      },
+      true,
+      false,
+    );
+    internal.readAheadAt.set(child, 1);
+    internal.readAheadSeq.set(child, 1);
+    internal.readAheadQueue.push(child);
+    setVisibility("hidden");
+    flushFrames();
+    const before = snapshots();
+    socket.notify("_acpmux/session_changed", { kind: "purged", session: { sessionId: child } });
+    flushFrames();
+    expect(keptTail(child)).toBeUndefined();
+    expect(internal.readAheadAt.has(child)).toBe(false);
+    expect(internal.readAheadSeq.has(child)).toBe(false);
+    expect(internal.readAheadQueue).not.toContain(child);
+    expect(snapshots()).toBe(before);
+  } finally {
+    client.close();
+    setVisibility("visible");
+  }
+});
+
+test("an offered child changes state while hidden without publishing a snapshot", async () => {
+  const { socket, client, snapshots } = await openPane();
+  const internal = client as any;
+  try {
+    internal.addOffer(
+      { offerId: "hidden-child", title: "Child task", outcome: "accepted", childSessionId: id(2), childStatus: "idle" },
+      1,
+    );
+    setVisibility("hidden");
+    flushFrames();
+    const before = snapshots();
+    socket.notify("_acpmux/session_changed", { kind: "updated", session: summary(2, "running") });
+    flushFrames();
+    expect(internal.rows.get("offer-hidden-child").offers[0].childStatus).toBe("running");
+    expect(internal.offerChildren.attached.has(id(2))).toBe(true);
+    socket.notify("_acpmux/session_changed", { kind: "updated", session: summary(2, "idle") });
+    flushFrames();
+    expect(internal.rows.get("offer-hidden-child").offers[0].childStatus).toBe("idle");
+    expect(internal.offerChildren.attached.has(id(2))).toBe(false);
+    expect(snapshots()).toBe(before);
+    setVisibility("visible");
+    flushFrames();
+    expect(snapshots()).toBeGreaterThan(before);
+  } finally {
+    client.close();
+    setVisibility("visible");
+  }
+});
 
 test("a burst of other chats' changes draws the pane once, in the next frame", async () => {
   const { socket, client, snapshots } = await openPane();

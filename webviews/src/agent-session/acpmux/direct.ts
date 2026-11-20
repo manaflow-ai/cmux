@@ -7930,8 +7930,17 @@ export class AcpmuxDirectClient {
     // A hidden page does not need another chat's summary until it is shown. Avoid replacing the
     // entry, rebuilding its list projections and scheduling a renderer task for every busy chat;
     // refreshSessions() catches the list up once on return. The selected chat still updates so a
-    // hidden turn can finish and be shown without losing its state.
-    if (!pageShown() && session?.sessionId && session.sessionId !== this.selectedSessionId) {
+    // hidden turn can finish and be shown without losing its state. Purges, children and a chat
+    // waiting to reopen have lifecycle work that a list refresh cannot replay; preserve it.
+    if (
+      !pageShown() &&
+      session?.sessionId &&
+      session.sessionId !== this.selectedSessionId &&
+      params?.kind !== "purged" &&
+      session.sessionId !== this.missingSession &&
+      !this.isStartedChild(session) &&
+      !this.offerChildIds().includes(session.sessionId)
+    ) {
       this.listChangedWhileHidden = true;
       this.sessionPages.invalidate();
       return;
