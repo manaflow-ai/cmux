@@ -102,6 +102,12 @@ g ls-files --unmerged >"$s/unmerged" || exit 3
 if [ -s "$s/unmerged" ]; then
   echo "the index has unresolved conflicts: resolve and stage them, then move again" >&2; exit 5
 fi
+# A gitlink patch updates only the superproject index, not a submodule checkout.
+# Refuse unstaged submodule changes rather than report a move that drops them.
+g diff --raw --ignore-submodules=none --no-renames >"$s/unstaged-raw" || exit 3
+if LC_ALL=C grep -q '^:160000 ' "$s/unstaged-raw"; then
+  echo "unstaged submodule changes cannot be carried: preserve them in the submodule and stage its commit before moving" >&2; exit 5
+fi
 g diff --submodule=short --ignore-submodules=none --cached --binary --no-renames --ita-visible-in-index --full-index --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ "$base" >"$s/staged" || exit 3
 g diff --submodule=short --ignore-submodules=none --cached --name-only -z --no-renames --ita-visible-in-index "$base" >"$s/names" || exit 3
 # The two index views together include every intent entry, including an empty
@@ -366,6 +372,10 @@ if [ -s "$s/paths" ]; then
 fi
 if [ -s "$s/patch" ]; then
   git -c core.fsmonitor=false -c core.symlinks=true -C "$top" apply --binary --whitespace=nowarn --check "$s/patch" || exit 5
+  # A separate expected worktree index identifies complete files created by the
+  # carry. An absent path can also be created by somebody else during the apply.
+  GIT_INDEX_FILE="$s/expected" git read-tree "$base" || exit 5
+  GIT_INDEX_FILE="$s/expected" git apply --cached --binary --whitespace=nowarn "$s/patch" || exit 5
 fi
 if [ -s "$s/staged" ]; then
   git -c core.fsmonitor=false -c core.symlinks=true -C "$top" apply --binary --whitespace=nowarn --cached "$s/staged" || exit 5
@@ -399,11 +409,19 @@ restore_worktree() {
     done' sh "$s" <"$s/directories" || restored=1
   fi
   if [ -s "$s/absent" ]; then
-    xargs -0 sh -c '. "$1/path-guards.sh"; shift; for p do
+    xargs -0 sh -c 's=$1; . "$s/path-guards.sh"; shift; failed=0; for p do
       safe_parents "$p" || continue
-      if [ -d "$p" ] && [ ! -L "$p" ]; then rmdir -- "$p" || exit 1
-      else rm -f -- "$p" || exit 1; fi
-    done' sh "$s" <"$s/absent" || restored=1
+      if [ -d "$p" ] && [ ! -L "$p" ]; then rmdir -- "$p" || failed=1
+      elif [ -e "$p" ] || [ -L "$p" ]; then
+        if GIT_INDEX_FILE="$s/expected" git rev-parse --verify ":$p" >/dev/null 2>&1 &&
+           GIT_INDEX_FILE="$s/expected" git -c core.fsmonitor=false -c core.filemode=true -c core.symlinks=true diff --quiet --no-ext-diff --no-textconv --ignore-submodules=none -- "$p"; then
+          rm -f -- "$p" || failed=1
+        else
+          printf "preserving ambiguous target path: %s\n" "$p" >&2
+          failed=1
+        fi
+      fi
+    done; exit "$failed"' sh "$s" <"$s/absent" || restored=1
   fi
   if [ -s "$s/present" ]; then
     # A file may have become an empty directory while a later patch failed.
@@ -439,6 +457,12 @@ if [ -s "$s/patch" ]; then
   # Directory headers preserve permissions without traversing their contents.
   tar -cpf "$s/worktree-before.tar" --no-recursion --null -T "$s/present" -T "$s/directories" || exit 5
   if ! git -c core.fsmonitor=false -c core.symlinks=true -C "$top" apply --binary --whitespace=nowarn "$s/patch"; then
+    restore_worktree || exit 6
+    exit 5
+  fi
+  # Git can warn about a failed unlink yet exit successfully. Verify the final
+  # worktree before publishing staging; in particular, every deletion must hold.
+  if ! git -c core.fsmonitor=false -c core.symlinks=true -C "$top" apply --reverse --check --binary --whitespace=nowarn "$s/patch"; then
     restore_worktree || exit 6
     exit 5
   fi

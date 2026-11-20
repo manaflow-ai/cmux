@@ -440,6 +440,74 @@ fn worktree_apply_failure_preserves_the_original_index() {
 }
 
 #[test]
+fn recovery_preserves_target_files_saved_after_the_backup() {
+    for after_apply in [false, true] {
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        repo(src.path());
+        sh(src.path(), "printf carried > note.txt && git add note.txt");
+        let source_index = std::fs::read(src.path().join(".git/index")).unwrap();
+        let carry = snapshot(&here, src.path(), true).unwrap();
+        sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
+        let target_index = std::fs::read(dst.path().join(".git/index")).unwrap();
+        let write = "if ! git -c core.fsmonitor=false -c core.symlinks=true -C \"$top\" apply --binary --whitespace=nowarn \"$s/patch\"; then";
+        let racing = if after_apply {
+            APPLY_SCRIPT.replace(
+                "if ! mv -- \"$real.lock\" \"$real\"; then",
+                "printf target-only-edit > note.txt\nif ! false; then",
+            )
+        } else {
+            APPLY_SCRIPT.replace(write, &format!("printf target-only-edit > note.txt\n{write}"))
+        };
+        assert_ne!(racing, APPLY_SCRIPT);
+        let out =
+            here(&racing, &apply_input(&dst.path().to_string_lossy(), &carry).unwrap()).unwrap();
+        assert!(!out.ok, "{}", out.stderr);
+        assert!(
+            out.stderr.contains("preserving ambiguous target path: note.txt"),
+            "{}",
+            out.stderr
+        );
+        assert!(out.stderr.contains("worktree recovery needs attention"), "{}", out.stderr);
+        assert_eq!(std::fs::read(dst.path().join("note.txt")).unwrap(), b"target-only-edit");
+        assert_eq!(std::fs::read(dst.path().join(".git/index")).unwrap(), target_index);
+        assert_eq!(std::fs::read(src.path().join("note.txt")).unwrap(), b"carried");
+        assert_eq!(std::fs::read(src.path().join(".git/index")).unwrap(), source_index);
+        assert!(!dst.path().join(".git/index.lock").exists());
+        // Resolve the owned fixture conflict explicitly, then a normal retry works.
+        std::fs::rename(dst.path().join("note.txt"), dst.path().join("saved-target-note")).unwrap();
+        assert!(apply(dst.path(), &carry).ok);
+        assert_eq!(
+            std::fs::read(dst.path().join("saved-target-note")).unwrap(),
+            b"target-only-edit"
+        );
+    }
+}
+
+#[test]
+fn an_unlink_warning_cannot_publish_a_deletion_that_did_not_happen() {
+    let src = tempfile::tempdir().unwrap();
+    let dst = tempfile::tempdir().unwrap();
+    repo(src.path());
+    sh(
+        src.path(),
+        "mkdir protected && printf original > protected/file && git add protected && git commit -qm protected && git rm -q protected/file",
+    );
+    let carry = snapshot(&here, src.path(), true).unwrap();
+    sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
+    let index = std::fs::read(dst.path().join(".git/index")).unwrap();
+    let parent = dst.path().join("protected");
+    std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o500)).unwrap();
+    let out = apply(dst.path(), &carry);
+    std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(!out.ok, "a failed unlink must refuse: {}", out.stderr);
+    assert_eq!(std::fs::read(dst.path().join("protected/file")).unwrap(), b"original");
+    assert_eq!(std::fs::read(dst.path().join(".git/index")).unwrap(), index);
+    assert!(apply(dst.path(), &carry).ok);
+    assert!(!dst.path().join("protected/file").exists());
+}
+
+#[test]
 fn failed_index_publication_restores_the_worktree() {
     let src = tempfile::tempdir().unwrap();
     let dst = tempfile::tempdir().unwrap();
@@ -646,6 +714,7 @@ fn failed_apply_never_recovers_through_new_symlink_ancestors() {
         let src = tempfile::tempdir().unwrap();
         let dst = tempfile::tempdir().unwrap();
         repo(src.path());
+        sh(src.path(), "printf original > z-last.txt && git add z-last.txt && git commit -qm last");
         // The staged child is absent from the final worktree, which instead has
         // a symlink. Its destination contains target-only data outside the repo.
         let outside = tempfile::tempdir().unwrap();
@@ -710,6 +779,15 @@ fn submodule_patch_format_and_paths_ignore_display_preferences() {
             next.trim()
         ),
     );
+    // An unstaged gitlink change cannot be reproduced by applying a superproject
+    // patch. Refuse even when display preferences would hide the submodule.
+    sh(src.path(), "git reset -q HEAD -- module");
+    let unstaged_index = std::fs::read(src.path().join(".git/index")).unwrap();
+    let error = snapshot(&here, src.path(), true).unwrap_err().to_string();
+    assert!(error.contains("unstaged submodule changes cannot be carried"), "{error}");
+    assert_eq!(std::fs::read(src.path().join(".git/index")).unwrap(), unstaged_index);
+    assert_eq!(sh(src.path(), "git -C module rev-parse HEAD"), next);
+    sh(src.path(), "git add module");
     let index = std::fs::read(src.path().join(".git/index")).unwrap();
     let carry = snapshot(&here, src.path(), true).unwrap();
     assert!(carry.affected_paths.split(|b| *b == 0).any(|p| p == b"module"));

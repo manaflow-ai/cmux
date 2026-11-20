@@ -101,3 +101,20 @@ Recovery archives non-recursive directory headers as well as file contents, so
 restoring a directory cannot widen its permissions under the destination umask.
 Both real-write and publication-failure regressions restore nested directory
 modes 0700, 0710 and 0750 while the apply runs under umask 002.
+
+An absent path is not evidence that carry created whatever appears there later.
+Recovery removes a newly appeared file only when it matches the expected final
+worktree entry; otherwise it preserves the path, retains the recovery archive,
+and reports the conflict. `recovery_preserves_target_files_saved_after_the_backup`
+saves target-only bytes before apply and after apply/before failed publication,
+and verifies they survive with the original target index. Retry requires explicit
+resolution of that conflict. A partial new file whose contents cannot be identified
+also requires recovery rather than being silently removed.
+
+Before index publication, a reverse applicability check verifies worktree writes
+(including deletions): Git may warn about an unlink failure but return success.
+`an_unlink_warning_cannot_publish_a_deletion_that_did_not_happen` exercises a real
+read-only parent directory. Unstaged submodule changes refuse with guidance because
+a superproject patch cannot reproduce the submodule checkout; the submodule
+regression verifies refusal, source preservation, and staged-pointer transport
+with display preferences that hide submodule changes.
