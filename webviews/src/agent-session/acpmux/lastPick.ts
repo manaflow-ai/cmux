@@ -11,7 +11,9 @@ import { postNative } from "./native";
 export type LastPick = { harness: string; model: string };
 /// `picked`: this page picked since its storage began. The app's copy a later context carries can
 /// be older than that pick (a context built before it, a reloaded page), so it no longer seeds.
-type Stored = { global?: LastPick; folders?: Record<string, LastPick>; picked?: boolean };
+/// `seq`: how many picks this page's storage has seen, so a pick that names the same harness and model
+/// as before still counts as one (``chipPick``).
+type Stored = { global?: LastPick; folders?: Record<string, LastPick>; picked?: boolean; seq?: number };
 
 const STORAGE_KEY = "cmux.acpmux.lastPick";
 /// The folders kept; the oldest pick goes first.
@@ -70,17 +72,16 @@ export function useLastPick(folder?: string): LastPick | undefined {
 }
 
 /// The pick a new chat's agent and model chips name: `folder`'s own last pick, until a pick is made
-/// while the page is open (`newest` is then not the one it opened with); from then that newest pick,
-/// whatever folder is picked after it. A folder pick never swaps the agent or model the person just
-/// picked (cmux#47677: the folder, the place and the model are each their own pick).
+/// while the page is open (`newest.seq` past `seqAtOpen`, even one naming the same harness and model
+/// as before); from then that newest pick, whatever folder is picked after it. A folder pick never
+/// swaps the agent or model the person just picked (cmux#47677: the folder, the place and the model
+/// are each their own pick).
 export function chipPick(
   inFolder: LastPick | undefined,
-  newest: { pick?: LastPick; picked: boolean },
-  atOpen: LastPick | undefined,
+  newest: { pick?: LastPick; seq: number },
+  seqAtOpen: number,
 ): LastPick | undefined {
-  const pickedHere =
-    newest.picked && (newest.pick?.harness !== atOpen?.harness || newest.pick?.model !== atOpen?.model);
-  return pickedHere ? newest.pick : inFolder;
+  return newest.seq > seqAtOpen && newest.pick ? newest.pick : inFolder;
 }
 
 /// ``chipPick`` for this page, drawn again when a pick is remembered or the app's copy arrives.
@@ -88,23 +89,24 @@ export function useChipPick(folder?: string): LastPick | undefined {
   const inFolder = useLastPick(folder);
   const key = useSyncExternalStore(subscribe, () => {
     const stored = read();
-    return JSON.stringify({ pick: stored.global ?? null, picked: stored.picked === true });
+    return JSON.stringify({ pick: stored.global ?? null, seq: stored.seq ?? 0 });
   });
-  const [atOpen] = useState(() => read().global);
+  const [seqAtOpen] = useState(() => read().seq ?? 0);
   return useMemo(() => {
-    const parsed = JSON.parse(key) as { pick: LastPick | null; picked: boolean };
-    return chipPick(inFolder, { ...(parsed.pick ? { pick: parsed.pick } : {}), picked: parsed.picked }, atOpen);
-  }, [key, inFolder, atOpen]);
+    const parsed = JSON.parse(key) as { pick: LastPick | null; seq: number };
+    return chipPick(inFolder, { ...(parsed.pick ? { pick: parsed.pick } : {}), seq: parsed.seq }, seqAtOpen);
+  }, [key, inFolder, seqAtOpen]);
 }
 
 function read(): Stored {
   try {
     const parsed: unknown = JSON.parse(globalThis.localStorage?.getItem(STORAGE_KEY) ?? "{}");
     if (!parsed || typeof parsed !== "object") return {};
-    const { global, folders, picked } = parsed as Stored;
+    const { global, folders, picked, seq } = parsed as Stored;
     return {
       ...(isPick(global) ? { global } : {}),
       ...(picked === true ? { picked } : {}),
+      ...(typeof seq === "number" && Number.isFinite(seq) ? { seq } : {}),
       folders: Object.fromEntries(Object.entries(folders ?? {}).filter((entry) => isPick(entry[1]))),
     };
   } catch {
@@ -140,7 +142,12 @@ export function rememberPick(
     delete folders[folder];
     folders[folder] = picked;
   }
-  write({ global: picked, folders: Object.fromEntries(Object.entries(folders).slice(-MAX_FOLDERS)), picked: true });
+  write({
+    global: picked,
+    folders: Object.fromEntries(Object.entries(folders).slice(-MAX_FOLDERS)),
+    picked: true,
+    seq: (stored.seq ?? 0) + 1,
+  });
   changed();
   const params = { agent: harness, model, ...(folder ? { folder } : {}) };
   const direct = post ? undefined : window.cmuxAcpmuxActions?.["newTab.remember"];

@@ -159,9 +159,20 @@ test("a handshake's Cloud identity stays with its chat, not the next draft or ch
 // cmux#47677: a model pick on an empty new chat opens another agent's session here. Where the chat
 // runs (This Mac or Cloud) stays, for the first such session and any after, with either place picked.
 test("an empty new chat's model pick keeps it the same new chat; another page or no chat does not", () => {
-  expect(sameNewChat({ generation: 2 }, { session: "claude-1", generation: 2 }, true)).toBe(true);
-  expect(sameNewChat({ session: "claude-1", generation: 2 }, { session: "codex-1", generation: 2 }, true)).toBe(true);
-  expect(sameNewChat({ session: "claude-1", generation: 2 }, { session: "codex-1", generation: 3 }, true)).toBe(false);
-  expect(sameNewChat({ session: "claude-1", generation: 2 }, { session: "other", generation: 2 }, false)).toBe(false);
-  expect(sameNewChat({ session: "claude-1", generation: 2 }, { generation: 2 }, true)).toBe(false);
+  // The first session of the page's empty chat, and a later one while this page's switch is out.
+  expect(sameNewChat({ generation: 2 }, { session: "claude-1", generation: 2 }, true, false)).toBe(true);
+  expect(sameNewChat({ session: "claude-1", generation: 2 }, { session: "codex-1", generation: 2 }, true, true)).toBe(
+    true,
+  );
+  // Another empty chat opened in the pane, with no switch of this page's out: a different chat.
+  expect(sameNewChat({ session: "claude-1", generation: 2 }, { session: "other", generation: 2 }, true, false)).toBe(
+    false,
+  );
+  expect(sameNewChat({ session: "claude-1", generation: 2 }, { session: "codex-1", generation: 3 }, true, true)).toBe(
+    false,
+  );
+  expect(sameNewChat({ session: "claude-1", generation: 2 }, { session: "other", generation: 2 }, false, true)).toBe(
+    false,
+  );
+  expect(sameNewChat({ session: "claude-1", generation: 2 }, { generation: 2 }, true, true)).toBe(false);
 });

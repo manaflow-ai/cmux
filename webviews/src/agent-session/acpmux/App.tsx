@@ -5503,7 +5503,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // Any such session, with either place picked: a model pick never resets where the chat runs (cmux#47677).
     const shown = cloudShownView.current;
     const next = { ...(snapshot.sessionId ? { session: snapshot.sessionId } : {}), generation: newTabGeneration };
-    if (sameNewChat(shown, next, emptyLocalChat)) {
+    if (sameNewChat(shown, next, emptyLocalChat, snapshot.switching !== undefined)) {
       cloudShownView.current = next;
       return;
     }

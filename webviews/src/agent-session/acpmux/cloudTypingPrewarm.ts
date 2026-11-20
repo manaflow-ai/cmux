@@ -38,8 +38,17 @@ export function cloudIdentityKept(previous: CloudIdentityView, next: CloudIdenti
  * chat runs (cmux#47677). Before, only the first such session with Cloud picked kept them, so a
  * second model pick, or one with This Mac picked, put the place back to its default.
  */
-export function sameNewChat(shown: CloudIdentityView, next: CloudIdentityView, emptyLocalChat: boolean): boolean {
-  return emptyLocalChat && next.session !== undefined && shown.generation === next.generation;
+/// `switching`: this page's own agent or model switch is in flight (`snapshot.switching`). The empty
+/// chat's first session is that pick's too; a later one is only while a switch made here is out, so
+/// another empty chat opened in the pane never takes this one's place, Cloud start or held prompt.
+export function sameNewChat(
+  shown: CloudIdentityView,
+  next: CloudIdentityView,
+  emptyLocalChat: boolean,
+  switching: boolean,
+): boolean {
+  if (!emptyLocalChat || next.session === undefined || shown.generation !== next.generation) return false;
+  return shown.session === undefined || switching;
 }
 
 const sameTarget = (left: CloudTypingTarget | undefined, right: CloudTypingTarget) =>

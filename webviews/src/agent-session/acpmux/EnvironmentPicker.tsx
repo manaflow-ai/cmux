@@ -419,13 +419,16 @@ export function EnvironmentPicker({
   // chat's Cloud (`runMode`) is where the chat runs, a pick that makes nothing: Send signs in first
   // when it has to (cloudRun.ts `signedIn`), so its list has no sign-in row at all; Sign in for
   // Cloud stays on the control's right-click menu.
+  // Never New Cloud Machine (cmux#47677): picking Cloud only names where a chat runs. With no new chat
+  // to point there (no `runMode`), the row shows only as the place the chat already runs (a page on its
+  // Cloud machine), never as a pick that does nothing. New Cloud Machine… stays on the right-click menu.
+  const onCloudNow = environments.find((environment) => environment.id === current)?.kind === "cloud";
   const cloud: Action | undefined =
     onConnect && runMode === undefined
       ? cloudSignedIn !== false
-        ? // Never New Cloud Machine (cmux#47677): picking Cloud only names where a chat runs, so a row with
-          // no new chat to point there makes nothing (no machine, no workspace). New Cloud Machine… stays
-          // on the control's right-click menu.
-          { value: ACTION + "cloud", text: t("composer.cloud"), kind: "cloud", run: () => undefined }
+        ? onCloudNow
+          ? { value: ACTION + "cloud", text: t("composer.cloud"), kind: "cloud", run: () => undefined }
+          : undefined
         : {
             value: ACTION + "cloud",
             text: t("composer.cloudSignIn"),
