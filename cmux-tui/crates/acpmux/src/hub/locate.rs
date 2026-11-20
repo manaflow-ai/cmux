@@ -458,7 +458,8 @@ fn minted_harnesses(family: &str) -> impl Iterator<Item = &str> {
 }
 
 /// The sessions whose harness session id and family are the link's, those on the host the link
-/// names first, then this daemon's, newest first within.
+/// names first, then this daemon's, newest first within. An explicit `handle:` selector is
+/// mutable. The legacy id form never falls back to a handle after its chat disappears.
 fn by_link<'a>(
     summaries: &'a [Value],
     link: &AgentLink,
@@ -471,11 +472,14 @@ fn by_link<'a>(
         .collect();
     let on_hint =
         |s: &Value| link.host.as_deref().is_some_and(|h| host_of(s, own).eq_ignore_ascii_case(h));
-    if found.is_empty() && crate::session_handle::valid(&link.session) {
+    if found.is_empty()
+        && let Some(handle) = link.session.strip_prefix("handle:")
+        && crate::session_handle::valid(handle)
+    {
         found.extend(summaries.iter().filter(|s| {
             family_of(s) == link.harness
                 && (link.host.is_none() || on_hint(s))
-                && handle_matches(s, &link.session)
+                && handle_matches(s, handle)
         }));
         if found.iter().any(|s| s["status"] != "closed") {
             found.retain(|s| s["status"] != "closed");
@@ -483,7 +487,7 @@ fn by_link<'a>(
         if found.len() > 1 {
             return Err(RpcError::invalid_params(format!(
                 "handle {:?} names multiple sessions; add the host or use the session's ID link",
-                link.session,
+                handle,
             ))
             .with_data(json!({"reason": super::key_route::AMBIGUOUS})));
         }
@@ -663,11 +667,9 @@ impl<'q> Names<'q> {
         }
         if let Some(link) = self.link {
             return s.agent_session_id() == Some(link.session.as_str())
-                || crate::session_handle::matches(
-                    s.handle(),
-                    &r.receipt.mux_session_id,
-                    &link.session,
-                );
+                || link.session.strip_prefix("handle:").is_some_and(|handle| {
+                    crate::session_handle::matches(s.handle(), &r.receipt.mux_session_id, handle)
+                });
         }
         let q = self.query;
         let mux = r.receipt.mux_session_id.as_str();

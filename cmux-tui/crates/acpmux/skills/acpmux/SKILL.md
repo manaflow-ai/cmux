@@ -406,7 +406,10 @@ has a copy of another agent's claim. Each claim is in the session events as
 ## 6. Other machines
 
 A session on another machine is named `MACHINE/NAME` (`big-red/review-42`), and every command takes that
-form. A spoken handle (`Mango`), a bare name (`review-42`), or an id prefix also works when exactly one live session on this
+form. An agent deeplink can look up the current owner of a handle with `session=handle%3AMango`.
+Use the UUID link from `acpmux resolve Mango` when the target must survive a rename.
+
+A spoken handle (`Mango`), a bare name (`review-42`), or an id prefix also works when exactly one live session on this
 machine or the machines you added has it; when several do, the command refuses and prints the exact
 `MACHINE/NAME` command for each, so pick one and run it. A name in another case (`td2-a` for
 `td2-A`), a unique prefix of it or the name without `-`, `_` and spaces works too, and so does a
