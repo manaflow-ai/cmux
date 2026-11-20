@@ -28,10 +28,12 @@ nonisolated enum CEFFramePacing {
         help: "Chromium presents a browser page's frame as soon as it has drawn it, instead of waiting for the next display refresh (up to 16.7 ms at 60 Hz). Cuts typing and scrolling latency on a page, and lets an animating page draw more frames than the display shows, which costs GPU and CPU. Takes effect at the next launch.",
         default: false, code: "CEFFramePacing.noFrameRateLimit")
 
-    /// The switches the setting adds, empty when it is off. `disable-gpu-vsync` stops the display
-    /// from gating the compositor's BeginFrames; `disable-frame-rate-limit` stops Chromium's own
-    /// cap from replacing it (one without the other leaves the frame rate pegged to the refresh).
-    static var switches: [String] {
-        noFrameRateLimit.value ? ["disable-gpu-vsync", "disable-frame-rate-limit"] : []
-    }
+    /// The switches the setting adds. `disable-gpu-vsync` stops the display from gating the
+    /// compositor's BeginFrames; `disable-frame-rate-limit` stops Chromium's own cap from replacing
+    /// it (one without the other leaves the frame rate pegged to the refresh).
+    ///
+    /// A constant, not a read of the tunable: the launch path reads the setting once
+    /// (`CEFSwitches.current`, through `settledValue`) and carries the flag, so these cannot
+    /// disagree with the value that process launched with.
+    static let switches = ["disable-gpu-vsync", "disable-frame-rate-limit"]
 }

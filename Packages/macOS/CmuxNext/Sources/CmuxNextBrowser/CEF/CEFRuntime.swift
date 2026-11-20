@@ -359,8 +359,13 @@ final class CEFRuntime {
         case .shutDown: "shutDown"
         }
         return CEFStartReport(state: name, preloaded: preloaded, trigger: trigger, loadDuration: loadDuration,
-                              initializeDuration: initializeDuration, readyAfterLaunch: readyAfterLaunch)
+                              initializeDuration: initializeDuration, readyAfterLaunch: readyAfterLaunch,
+                              launchSwitches: launchSwitches)
     }
+
+    /// The setting-decided switches this process passed Chromium, recorded where they were built
+    /// (`startCEF`), so `debug.cef` reports what the launch used and not a later store read.
+    private(set) var launchSwitches: [String] = []
 
     var forkAPIVersion: Int32 { shim?.forkAPIVersion() ?? 0 }
 
@@ -627,6 +632,8 @@ final class CEFRuntime {
             logger.error("keychain item refused")
         }
         chromiumUsesMockKeychain = switchSet.useMockKeychain
+        // What this launch actually used, for `debug.cef` (a bench arm reads it to prove its switch landed).
+        launchSwitches = switchSet.noFrameRateLimit ? CEFFramePacing.switches.sorted() : []
         noteStartupProfile(switchSet)
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
         logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")

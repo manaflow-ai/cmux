@@ -261,7 +261,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             keepsUnpackedEnabled: keepsUnpackedEnabled,
             extraSwitches: extra,
             asyncLiveResize: asyncLiveResize,
-            noFrameRateLimit: CEFFramePacing.noFrameRateLimit.value,
+            noFrameRateLimit: CEFFramePacing.noFrameRateLimit.settledValue,
             initialProfileDirectory: initialProfileDirectory
         )
     }

@@ -277,6 +277,29 @@ def draw_on_input_frames():
     return {k[len("draw_on_input."):]: v for k, v in tracker.items() if k.startswith("draw_on_input.")}
 
 
+# What a launch-time key's arm must find in `debug.cef`'s `launch_switches` to have measured its own path.
+LAUNCH_SWITCH_PROOF = {"browserPage.noFrameRateLimit": ["disable-frame-rate-limit", "disable-gpu-vsync"]}
+
+
+def launch_switch_proof(key, arm):
+    """Whether this launch passed Chromium the switches `key`=`arm` means, read off `debug.cef`.
+
+    `launch_switches` is what `CEFRuntime` recorded where it built the command line, so it answers what the process
+    launched with and not what the store holds now. An arm cannot tell its own path from the other one without it:
+    writing the override file and reading back a row proves only that the value was stored, and a launch that raced
+    the store's load, or a build whose code ignores the key, still reports the value as set. That gap is what
+    cmux#45709 shipped. Returns (ok, detail); ok is None when the build is too old to report the field at all."""
+    expected = LAUNCH_SWITCH_PROOF.get(key)
+    if expected is None:
+        return None, {"key": key, "why": "no switch proof known for this key"}
+    report = rpc("debug.cef", timeout=20)
+    if not isinstance(report, dict) or "launch_switches" not in report:
+        return None, {"key": key, "why": "this build's debug.cef reports no launch_switches"}
+    got = sorted(report.get("launch_switches") or [])
+    want = sorted(expected) if arm else []
+    return got == want, {"key": key, "arm": bool(arm), "expected": want, "launched_with": got}
+
+
 def start_burners():
     """Mode L4's load: one spinning shell per core, each a process of ours, so the app waits its turn for a core as
     it does on a loaded Mac. Only these children are ever signalled."""
@@ -656,6 +679,10 @@ def measure_agentpane(phase, pid, pane, streams=()):
     if LOAD.get("agentpane_engine") == "cef":
         target["target"] = "page"
     frames_before = draw_on_input_frames()
+    # For a launch-time --ab key, what this launch actually passed Chromium: the row carries it so no cell is read
+    # as an arm's number before its switch is proven to have landed (`launch_switch_proof`).
+    switch_ok, switch_detail = (launch_switch_proof(launch_arm_key(), LAUNCH_ARM)
+                                if launch_arm_key() else (None, None))
     cpu_start = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
     stats_before = rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=10) or {}
     before_keys = stats_before.get("keys", 0) if isinstance(stats_before, dict) else 0
@@ -719,6 +746,9 @@ def measure_agentpane(phase, pid, pane, streams=()):
                   "frame_timing": frame_timing_validity(phase, streams),
                   # `counter: false`: this engine has no draw-on-input counter, so the mode cannot be live here
                   # whatever a setting reads, and `drew: 0` with a counter means the mode was off or opted this page out.
+                  # `ok: false` means this arm launched without the switches its label claims, so its numbers are
+                  # the other arm's; `ok: null` means the build cannot say (too old to report `launch_switches`).
+                  "launch_switch": None if switch_detail is None else {"ok": switch_ok, **switch_detail},
                   "draw_on_input": {"counter": frames_after is not None,
                                     "before": frames_before, "after": frames_after,
                                     "drew": None if frames_after is None else
@@ -1244,7 +1274,6 @@ def main():
                         run_session(native["session"], [phase], backdrop)
             MODE = None
         else:
-            global LAUNCH_ARM
             for index, session in enumerate(sessions):
                 for backdrop in opts.backdrops.split(","):
                     # As in the --modes path: a launch-time --ab key cannot be set in a running app, so each arm
