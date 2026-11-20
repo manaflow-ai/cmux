@@ -64085,127 +64085,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تبدأ أجهزة السحابة الجديدة من بيئتك الافتراضية ما لم تختر المحادثة بيئة أخرى. عدّلها لتغيير برنامج الإعداد والمتغيرات والأسرار والشبكة."
+            "value": "تبدأ أجهزة Cloud الجديدة من بيئتك الافتراضية."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nove Cloud mašine počinju od vašeg zadanog okruženja, osim ako chat ne odabere drugo. Uredite ga da promijenite skriptu za postavljanje, varijable, tajne i mrežu."
+            "value": "Nove Cloud mašine počinju od vašeg zadanog okruženja."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nye Cloud-maskiner starter fra dit standardmiljø, medmindre en chat vælger et andet. Rediger det for at ændre opsætningsscriptet, variabler, hemmeligheder og netværk."
+            "value": "Nye Cloud-maskiner starter fra dit standardmiljø."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Neue Cloud-Maschinen starten in deiner Standardumgebung, sofern ein Chat keine andere wählt. Bearbeite sie, um Setup-Skript, Variablen, Geheimnisse und Netzwerk zu ändern."
+            "value": "Neue Cloud-Maschinen starten aus deiner Standardumgebung."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Cloud machines start from your Default environment unless a chat picks another. Edit it to change the setup script, variables, secrets and network."
+            "value": "New Cloud machines start from your Default environment."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las nuevas máquinas de Cloud parten de tu entorno predeterminado, salvo que un chat elija otro. Edítalo para cambiar el script de configuración, las variables, los secretos y la red."
+            "value": "Las máquinas de Cloud parten de tu entorno predeterminado."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les nouvelles machines Cloud démarrent depuis votre environnement par défaut, sauf si un chat en choisit un autre. Modifiez-le pour changer le script de configuration, les variables, les secrets et le réseau."
+            "value": "Les machines Cloud démarrent de l’environnement par défaut."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le nuove macchine Cloud partono dal tuo ambiente predefinito, a meno che una chat non ne scelga un altro. Modificalo per cambiare lo script di configurazione, le variabili, i segreti e la rete."
+            "value": "Le nuove macchine Cloud partono dall’ambiente predefinito."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新しい Cloud マシンは、チャットが別の環境を選ばない限りデフォルト環境から起動します。編集してセットアップスクリプト、変数、シークレット、ネットワークを変更できます。"
+            "value": "新しい Cloud マシンはデフォルト環境から起動します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ម៉ាស៊ីន Cloud ថ្មីចាប់ផ្តើមពីបរិស្ថានលំនាំដើមរបស់អ្នក លុះត្រាតែការជជែកជ្រើសរើសបរិស្ថានផ្សេង។ កែសម្រួលវា ដើម្បីប្តូរស្គ្រីបរៀបចំ អថេរ អាថ៌កំបាំង និងបណ្តាញ។"
+            "value": "ម៉ាស៊ីន Cloud ថ្មីចាប់ផ្តើមពីបរិស្ថានលំនាំដើមរបស់អ្នក។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 Cloud 머신은 채팅에서 다른 환경을 고르지 않는 한 기본 환경에서 시작합니다. 편집해서 설정 스크립트, 변수, 시크릿, 네트워크를 바꿀 수 있습니다."
+            "value": "새 Cloud 머신은 기본 환경에서 시작합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nye Cloud-maskiner starter fra standardmiljøet ditt med mindre en chat velger et annet. Rediger det for å endre oppsettskriptet, variabler, hemmeligheter og nettverk."
+            "value": "Nye Cloud-maskiner starter fra standardmiljøet ditt."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nowe maszyny Cloud startują z Twojego domyślnego środowiska, chyba że czat wybierze inne. Edytuj je, aby zmienić skrypt konfiguracji, zmienne, sekrety i sieć."
+            "value": "Nowe maszyny Cloud startują z domyślnego środowiska."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Novas máquinas do Cloud começam no seu ambiente padrão, a menos que um chat escolha outro. Edite-o para mudar o script de configuração, as variáveis, os segredos e a rede."
+            "value": "Novas máquinas do Cloud começam no seu ambiente padrão."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Новые машины Cloud запускаются из вашего окружения по умолчанию, если чат не выберет другое. Измените его, чтобы поменять скрипт настройки, переменные, секреты и сеть."
+            "value": "Новые машины Cloud запускаются из окружения по умолчанию."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เครื่อง Cloud ใหม่จะเริ่มจากสภาพแวดล้อมเริ่มต้นของคุณ เว้นแต่แชตจะเลือกสภาพแวดล้อมอื่น แก้ไขเพื่อเปลี่ยนสคริปต์ตั้งค่า ตัวแปร ความลับ และเครือข่าย"
+            "value": "เครื่อง Cloud ใหม่จะเริ่มจากสภาพแวดล้อมเริ่มต้นของคุณ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yeni Cloud makineleri, bir sohbet başka bir ortam seçmedikçe varsayılan ortamınızdan başlar. Kurulum betiğini, değişkenleri, gizli anahtarları ve ağı değiştirmek için düzenleyin."
+            "value": "Yeni Cloud makineleri varsayılan ortamınızdan başlar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Нові машини Cloud запускаються з вашого середовища за замовчуванням, якщо чат не вибере інше. Змініть його, щоб змінити скрипт налаштування, змінні, секрети й мережу."
+            "value": "Нові машини Cloud запускаються з типового середовища."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Máy Cloud mới khởi động từ môi trường mặc định của bạn, trừ khi cuộc trò chuyện chọn môi trường khác. Chỉnh sửa để thay đổi tập lệnh thiết lập, biến, bí mật và mạng."
+            "value": "Máy Cloud mới khởi động từ môi trường mặc định của bạn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "新的 Cloud 机器会从你的默认环境启动，除非聊天选择了其他环境。编辑它可更改设置脚本、变量、密钥和网络。"
+            "value": "新的 Cloud 机器从你的默认环境启动。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "新的 Cloud 機器會從你的預設環境啟動，除非聊天選擇了其他環境。編輯它可變更設定指令碼、變數、密鑰和網路。"
+            "value": "新的 Cloud 機器從你的預設環境啟動。"
           }
         }
       }
