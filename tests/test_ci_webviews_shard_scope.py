@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import subprocess
 import tempfile
@@ -13,6 +14,13 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/webviews_shard_scope.py"
 sys.path.insert(0, str(SCRIPT.parent))
 import webviews_test_history as history_module
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 
 def step_script(name: str) -> str:
@@ -32,7 +40,7 @@ class ShardScopeTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        subprocess.run(["git", "-C", str(self.root), "init", "-q"], check=True)
+        git_fixture_env.init_repo(self.root)
         subprocess.run(["git", "-C", str(self.root), "config", "user.email", "tests@example.com"], check=True)
         subprocess.run(["git", "-C", str(self.root), "config", "user.name", "tests"], check=True)
         (self.root / "webviews/test").mkdir(parents=True)
@@ -150,6 +158,23 @@ class ShardScopeTest(unittest.TestCase):
                                     "FULL_CI": full_ci, "GITHUB_EVENT_NAME": "pull_request",
                                     "CMUX_WEB_TEST_FILES": files, "CMUX_WEB_TEST_JOB_MINUTES": ""})
                 self.assertEqual((run_temp / "actual-files").read_text(), files)
+
+    def test_shared_check_failure_gates_when_no_tests_are_assigned(self) -> None:
+        workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
+        gate = workflow.split("      - name: Fail on the gate checks\n", 1)[1].split("\n  react-apps-base-early:", 1)[0]
+        expression = re.search(r"if: \$\{\{ (.*?) \}\}", gate)
+        condition = expression.group(1).replace("!cancelled()", "True")
+        condition = condition.replace("steps.shard-scope.outputs.run", "'false'")
+        condition = condition.replace("steps.shard-scope.outputs.setup", "'true'")
+        condition = condition.replace("&&", "and").replace("||", "or")
+        self.assertTrue(eval(condition, {"__builtins__": {}}, {}), "the shared-check gate must be scheduled")
+        names = re.findall(r"^          ([A-Z_]+):", gate, re.M)
+        env = {**os.environ, **{name: "success" for name in names}, "SOURCE_BUILD": "failure",
+               "CMUX_NEXT_STYLE_GUARDS": "warn", "STYLE_GATES": "EAGER_JS_BUDGET REACT_COMPILER"}
+        result = subprocess.run(["bash", "-e", "-c", step_script("Fail on the gate checks")],
+                                env=env, cwd=self.root, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Verify webviews source checks", result.stdout)
 
 
 if __name__ == "__main__":
