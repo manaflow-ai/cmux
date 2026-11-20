@@ -29,8 +29,14 @@ import { setTrayTucked, type TrayHandleSide } from "../chatDisplay";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { composerHatLook } from "./composerHat.experiment";
+import { beginHatDrag } from "./hatDrag";
+import { hatMaxRows } from "./hatRows";
 import { rememberTrayOpen } from "./trayFoldMemory";
+import { HAT_MAX_SHARE } from "./trayResize";
 import { pullTabCountText } from "./trayPullTabModel";
+
+/// One row of the hat (`--ui-row-height`) where the page sets none.
+const PULL_ROW = 28;
 
 /// What the hat shows past its chevron: the needs-you dot or the running count.
 type PullMark = { kind: "dot" } | { kind: "count"; text: string };
@@ -49,6 +55,7 @@ export function TrayPullTab({
   running,
   working,
   side,
+  lines,
 }: {
   /// The chat whose hat comes back: the click sets how it opens (trayFoldMemory.ts).
   chat: string | undefined;
@@ -59,6 +66,8 @@ export function TrayPullTab({
   /// Something runs that the tab does not count (the turn's task list): the chevron takes the accent.
   working: boolean;
   side: TrayHandleSide;
+  /// The hat's lines: a drag up brings back at most this many rows past its header.
+  lines?: number;
 }) {
   const t = useT();
   const [look] = useState(() => experimentArm(composerHatLook));
@@ -115,6 +124,30 @@ export function TrayPullTab({
           // Back folded to its one line; Option-click opens it at once.
           rememberTrayOpen(chat, event.altKey);
           setTrayTucked(false);
+        }}
+        // A drag up brings the hat back a row at a time (hatRows.ts). The drag outlives the tab, which
+        // goes as the first row comes back: it captures the pointer on the page's root and removes its
+        // own listeners when the pointer lets go, the browser cancels it, or Escape (hatDrag.ts).
+        onPointerDown={(event) => {
+          if (event.button !== 0) return;
+          const tab = event.currentTarget;
+          const view = tab.ownerDocument.defaultView;
+          beginHatDrag(event.nativeEvent, {
+            chat,
+            origin: "pill",
+            measure: () => {
+              const row = Number.parseFloat(view?.getComputedStyle(tab).getPropertyValue("--ui-row-height") ?? "");
+              const rowHeight = Number.isFinite(row) && row > 0 ? row : PULL_ROW;
+              return {
+                rowHeight,
+                maxRows: hatMaxRows(lines ?? waiting + running, rowHeight, view?.innerHeight ?? 0, HAT_MAX_SHARE),
+              };
+            },
+            // Back with a row or more: the look's tuck lets go too, as the tab's click does.
+            onRelease: (_band, landed) => {
+              if (landed.view.kind !== "hidden") setTrayTucked(false);
+            },
+          });
         }}
       >
         <span className="acpmux-tray-pull__hat" data-shown={target !== undefined || undefined}>

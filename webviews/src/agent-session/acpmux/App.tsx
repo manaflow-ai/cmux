@@ -108,7 +108,6 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
-  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -117,13 +116,14 @@ import {
   useSessionAdoption,
   type SessionAdoption,
   withHandshakeNewTab,
+  useLostSharedPart,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import {
   heldPick,
-  withCloudStartFolder,
-  withDraftFolder,
   shownCloudStartPick,
+  withDraftFolder,
+  withCloudStartFolder,
   withCloudStartPick,
 } from "./newtab/draftFolder";
 import {
@@ -139,7 +139,7 @@ import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { goalHatPlace } from "./goalHat.experiment";
-import { githubFolder, githubFolderRepo } from "./githubRepos";
+import { githubFolderRepo, githubFolder } from "./githubRepos";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "./newtab/templates";
@@ -330,6 +330,7 @@ import {
 import { pendingToolCalls, waitingSubagents } from "./summary/subagentStatusListModel";
 import { SubagentTray } from "./subagents/SubagentTray";
 import { TrayPullTab } from "./subagents/TrayPullTab";
+import { useHatPulled } from "./subagents/trayFoldMemory";
 import { pullTabCounts, tuckTray } from "./subagents/trayPullTabModel";
 import { agentProgressSource } from "./subagents/agentProgressSource";
 import { AgentProgressContext, AgentProgressStore } from "./subagents/agentProgressStore";
@@ -586,8 +587,6 @@ import {
   cloudStartTeam,
   makeCloudSignInRetry,
   grantedCloudStart,
-  pickedChatCloudCall,
-  pickOnlyNewChat,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
@@ -596,6 +595,8 @@ import {
   heldPromptShown,
   cloudPickExtras,
   composerCloudStartFolder,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
@@ -848,11 +849,11 @@ import { holdWebSwap, pageEditHold, pageReleaseHold } from "../../pages/shared/w
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import {
   SandboxTab,
+  newTabRunModeRows,
   sandboxAgent,
   sandboxPageRefusal,
   sandboxRetryable,
   type RunMode,
-  newTabRunModeRows,
 } from "./sandboxRun";
 import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
@@ -3342,6 +3343,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const pinnedPlan = useChatPinnedPlan();
   // The hat tucked away to its pull tab (chatDisplay.ts TRAY_TUCKED_KEY; Leo, 2026-11-04).
   const trayTucked = useTrayTucked();
+  // Or this chat's hat dragged away past its one row (subagents/hatRows.ts), unless a drag up from
+  // the pull tab is bringing it back (trayFoldMemory.ts).
+  const trayPulled = useHatPulled(shownSessionId, trayTucked);
   // Where its tuck chevron and pull tab sit along the composer's top edge (chatDisplay.ts TRAY_HANDLE_KEY).
   const trayHandle = useTrayHandle();
   // Debug Settings agent.sessionStatus draws its activity line under the pinned list, so it pins it.
@@ -12819,12 +12823,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           actions={hatQuestionActions}
         />
         {trayPlacement === "tray" &&
-          (trayTucked && trayNode ? (
+          (trayPulled && trayNode ? (
             <TrayPullTab
               chat={shownSessionId}
               {...pullTabCounts(trayList, waitingAgents)}
               working={hatPlan !== undefined && hatPlan.length > 0}
               side={trayHandle}
+              lines={trayList.length + trayFinished.length + (hatPlan?.length ?? 0)}
             />
           ) : (
             trayNode
