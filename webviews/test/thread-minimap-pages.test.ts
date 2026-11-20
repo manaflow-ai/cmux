@@ -10,6 +10,7 @@ import {
   foldIncoming,
   hasIncoming,
   minimapTurns,
+  replyMore,
   turnRow,
   type MinimapTick,
   type MinimapTurn,
@@ -248,5 +249,37 @@ describe("the rail's model over pages of older history", () => {
       expect(said(folded.turns.at(-1)!)).toBe(text);
       expect(drawn(read)).toEqual(drawn(minimapTurns(rows, "s")));
     }
+  });
+
+  test("a reply that streams on past its preview: a folded run's card expands to all of it", () => {
+    // Past the preview each token keeps the turn, the turn list and the fold; the card still reads
+    // the last message's reply row as it is now.
+    const note = (id: string, name: string): AcpmuxRow =>
+      ({
+        id,
+        kind: "user",
+        text: `note ${id}`,
+        version: 1,
+        at: 0,
+        incoming: { kind: "message", message: { name, sessionId: name, text: `note ${id}`, raw: `note ${id}` } },
+      }) as AcpmuxRow;
+    const head = [note("a", "peer/a"), note("b", "peer/b")];
+    const more = (turn: MinimapTurn) =>
+      replyMore(turn)
+        .flatMap((block) => block.spans.map((span) => span.text))
+        .join("");
+    let text = "";
+    let rows: AcpmuxRow[] = head;
+    let read = minimapTurns(rows, "s");
+    for (let token = 1; token <= 60; token += 1) {
+      text += `word${token} `.repeat(8);
+      const last = rows;
+      rows = [...head, { id: "r", kind: "assistant", text, version: token, at: 0 }];
+      read = minimapTurns(rows, "s", read, { base: last, rows, from: head.length });
+      const folded = foldIncoming(read.turns, read.ticks, read.loadedStart ?? 0);
+      expect(folded.turns).toHaveLength(1);
+      expect(more(folded.turns[0]!)).toBe(more(read.turns.at(-1)!));
+    }
+    expect(more(read.turns.at(-1)!).length).toBeGreaterThan(1000);
   });
 });

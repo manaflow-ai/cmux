@@ -542,6 +542,10 @@ const turnsByPrompt = new WeakMap<AcpmuxRow, { turn: MinimapTurn; sessionId: str
 /// Each turn's reply row, for the longer excerpt the card reads only when the pointer moves into it
 /// (`replyMore`). Weak by the turn, so a turn that goes takes its entry with it.
 const replyRows = new WeakMap<MinimapTurn, AcpmuxRow>();
+/// A folded run's turn and its last message's turn, whose reply row the run's card expands to: read
+/// through it, so a reply that streams on past its preview (the same turn, and a fold foldIncoming
+/// keeps) still reaches the card.
+const foldLast = new WeakMap<MinimapTurn, MinimapTurn>();
 /// The longer excerpt of a reply row's text, kept while the row's text is the same.
 const moreOf = new WeakMap<AcpmuxRow, { text: string; blocks: readonly ReplyBlock[] }>();
 
@@ -549,7 +553,7 @@ const moreOf = new WeakMap<AcpmuxRow, { text: string; blocks: readonly ReplyBloc
 /// once per reply text, and only for the turn whose card the pointer moved into. A turn with no reply
 /// row (an earlier prompt the index names) keeps its own preview.
 export function replyMore(turn: MinimapTurn): readonly ReplyBlock[] {
-  const row = replyRows.get(turn);
+  const row = replyRows.get(foldLast.get(turn) ?? turn);
   const text = row?.text;
   if (!row || !text) return turn.reply;
   const held = moreOf.get(row);
@@ -1431,12 +1435,7 @@ function foldedTurn(run: readonly MinimapTurn[]): MinimapTurn {
   const first = run[0]!;
   const held = foldedTurns.get(first);
   const last = run.at(-1)!;
-  // The run's card expands to its last message's reply (`replyMore`), which streams on in place.
-  const lastReply = replyRows.get(last);
-  if (held && held.run.length === run.length && held.run.every((turn, i) => turn === run[i])) {
-    if (lastReply) replyRows.set(held.turn, lastReply);
-    return held.turn;
-  }
+  if (held && held.run.length === run.length && held.run.every((turn, i) => turn === run[i])) return held.turn;
   const turn: MinimapTurn = {
     ...first,
     from: senders(run),
@@ -1444,7 +1443,8 @@ function foldedTurn(run: readonly MinimapTurn[]): MinimapTurn {
     metadata: last.metadata,
     members: run.map((member) => member.id),
   };
-  if (lastReply) replyRows.set(turn, lastReply);
+  // The run's card expands to its last message's reply (`replyMore`), which streams on in place.
+  foldLast.set(turn, last);
   foldedTurns.set(first, { run, turn });
   return turn;
 }
