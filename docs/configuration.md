@@ -697,17 +697,17 @@ Turn it on in Settings > General > Start Agent from Any App. Its key is a separa
 
 ## Background mode and `app.hideDockIconWithoutWindows`
 
-When you close the last cmux window, cmux keeps running, and so do your terminals and agents. By default it then leaves the Dock and the app switcher (Cmd-Tab). The cmux menu bar item (`app.showMenuBarIcon`, below) stays as the way back; with that item off, a smaller menu bar item shows instead, with Show cmux, New Window, Settings and Quit. Opening any window brings the Dock icon back: the menu bar item, opening cmux again from Finder or Spotlight, a notification, a link, or the `cmux` CLI. To keep the Dock icon while no window is open:
+When you close the last cmux window, cmux keeps running, and so do your terminals and agents. By default its Dock icon stays, so a click on it opens a window again. To have cmux leave the Dock and the app switcher (Cmd-Tab) while no window is open, turn it on:
 
 ```json
 {
   "app": {
-    "hideDockIconWithoutWindows": false
+    "hideDockIconWithoutWindows": true
   }
 }
 ```
 
-Or turn off Settings > General > Hide Dock Icon When No Windows Are Open.
+Or turn on Settings > General > Hide Dock Icon When No Windows Are Open. The cmux menu bar item (`app.showMenuBarIcon`, below) then stays as the way back; with that item off, a smaller menu bar item shows instead, with Show cmux, New Window, Settings and Quit. Opening any window brings the Dock icon back: the menu bar item, opening cmux again from Finder or Spotlight, a notification, a link, or the `cmux` CLI.
 
 ## The menu bar item and `app.showMenuBarIcon`
 
