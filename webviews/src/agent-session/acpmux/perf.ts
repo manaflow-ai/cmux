@@ -5,6 +5,13 @@
 
 import { type KeyPresentation, KeyPresentationMarks } from "./keyPresentation";
 
+/** `performance.now()` for a read that runs in an effect, an event handler or a committed event
+ * (useCommittedEvent.ts), never during render. React Compiler cannot tell such a callback from render
+ * (react-hooks-js/purity); a read during render keeps `performance.now()` so the linter still counts it. */
+export function effectNow(): number {
+  return performance.now();
+}
+
 /** Rounds to hundredths, as the native pane's stats do. */
 export function round2(value: number): number {
   return Math.round(value * 100) / 100;
