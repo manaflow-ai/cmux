@@ -163,6 +163,12 @@ acpmux-build-id = { path = "../acpmux-build-id" }
 # A device row's kind and glyph (`devices/model.rs`).
 cmux-device-kind = { path = "../cmux-device-kind" }
 
+# The hidden `__computer-use-worker` mode (computer_use_worker.rs): the Linux
+# and Windows Computer Use worker the daemon supervises. macOS runs it in the
+# signed cmux Remote host instead.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+cmux-computer-use = { workspace = true, features = ["desktop", "server"] }
+
 [target.'cfg(unix)'.dependencies]
 # The browser host and the app host run from this binary, chosen by argv[0]
 # (`cmux-browser-host`, `cmux-app-host` links beside bin/cmux; `main` in

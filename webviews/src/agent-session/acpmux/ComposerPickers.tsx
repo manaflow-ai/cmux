@@ -86,6 +86,8 @@ import {
 } from "../../ui/Menu";
 import { cx } from "../../ui/cx";
 import { registerPicker } from "./pickerOpeners";
+import { PLAN_TOGGLE_OPENER } from "./composerControls";
+import { SHORTCUT_ACTIONS, tooltipProps, useShortcut } from "./shortcuts";
 import { experimentArm } from "../../experiments/experiment";
 import { contextRingLook } from "./contextRingLook.experiment";
 import { contextRingMotion } from "./contextRingMotion.experiment";
@@ -1346,15 +1348,11 @@ export function ComposerPickers({
             },
           ]}
         >
-          <button
-            type="button"
-            className="acpmux-plan"
-            aria-pressed={planning}
-            onClick={() => onMode(planning ? (lastMode.current.mode ?? modes[0]?.id ?? plan.id) : plan.id)}
-          >
-            {planning ? <PlanIcon /> : <BuildIcon />}
-            <span>{planning ? t(PICKER_LABELS.plan) : t(PICKER_LABELS.build)}</span>
-          </button>
+          <PlanToggle
+            planning={planning}
+            label={planning ? t(PICKER_LABELS.plan) : t(PICKER_LABELS.build)}
+            onToggle={() => onMode(planning ? (lastMode.current.mode ?? modes[0]?.id ?? plan.id) : plan.id)}
+          />
         </ContextMenu>
       )}
       {/* A custom harness's other settings: each config option no chip above owns, picked like the
@@ -1450,6 +1448,7 @@ function AccessMenu({
   const [open, setOpen] = useState(false);
   // Right-click and automation open it by its label (pickerOpeners.ts).
   useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
+  const modeShortcut = useShortcut(SHORTCUT_ACTIONS.composerSwitchMode);
   // A pick draws at once, until the session reports a mode: the picked one, or (once the agent
   // answered) any other than the one the pick left, which the agent runs instead (it mapped the
   // pick onto its own mode, or another window changed it). A pick kept until the session reported
@@ -1547,7 +1546,7 @@ function AccessMenu({
           className="acpmux-picker-button acpmux-access-trigger"
           label={label}
           /* tooltip-allow: the chip is its shield alone; the tooltip names the mode and what the control is */
-          title={tooltip}
+          {...tooltipProps(tooltip, modeShortcut)}
           aria-haspopup="menu"
         >
           <ModeIcon modeId={value} icon={currentMode?.icon} />
@@ -1676,6 +1675,7 @@ export function ContextRing({
   /// harness family, which names the usage page.
   plan?: { limits?: AcpmuxUsageLimits; family?: string };
 }) {
+  const ringShortcut = useShortcut(SHORTCUT_ACTIONS.composerShowContextUsage);
   const t = useT();
   const planFraction = plan ? planUsedFraction(plan.limits) : undefined;
   const planShown = planFraction !== undefined;
@@ -1800,7 +1800,7 @@ export function ContextRing({
         data-menu={t("context.title")}
         aria-label={label}
         // tooltip-allow: unknown usage has no hover card; explain the empty ring without inventing a percentage.
-        title={known ? undefined : label}
+        {...(known ? {} : tooltipProps(label, ringShortcut))}
         aria-haspopup="dialog"
         aria-expanded={shown}
         // Before the first usage report there is nothing to show: the ring keeps its place, off.
@@ -1945,6 +1945,27 @@ export type Section = { title?: string; choices: Choice[]; current?: string; onP
 /// focus stays on the button, which names the active option. Each section is
 /// a group with a check on its current choice; arrows move, Enter, Space or a
 /// click picks, and Escape, a click elsewhere or focus leaving the pane closes.
+/// The Plan and Build toggle: a click, or its shortcut (Toggle Plan Mode, composerControls.ts),
+/// flips it; the tooltip names the mode it is in and the key.
+function PlanToggle({ planning, label, onToggle }: { planning: boolean; label: string; onToggle(): void }) {
+  const shortcut = useShortcut(SHORTCUT_ACTIONS.composerTogglePlan);
+  const latest = useRef(onToggle);
+  latest.current = onToggle;
+  useEffect(() => registerPicker(PLAN_TOGGLE_OPENER, () => latest.current()), []);
+  return (
+    <button
+      type="button"
+      className="acpmux-plan"
+      aria-pressed={planning}
+      {...tooltipProps(label, shortcut)}
+      onClick={onToggle}
+    >
+      {planning ? <PlanIcon /> : <BuildIcon />}
+      <span>{label}</span>
+    </button>
+  );
+}
+
 export function Picker({
   label,
   className,
@@ -1954,6 +1975,7 @@ export function Picker({
   warnUnrestricted = false,
   heading,
   tooltip,
+  shortcut,
   onOpen,
 }: {
   label: string;
@@ -1964,6 +1986,8 @@ export function Picker({
   warnUnrestricted?: boolean;
   heading?: string;
   tooltip?: string;
+  /// The keycaps of the shortcut that opens it, shown after the tooltip (shortcuts.ts).
+  shortcut?: string | undefined;
   onOpen?: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -1988,7 +2012,7 @@ export function Picker({
           buttonRef={trigger}
           className="acpmux-picker-button"
           label={label}
-          title={tooltip}
+          {...tooltipProps(tooltip ?? label, shortcut)}
           aria-haspopup="menu"
           data-menu={label}
         >

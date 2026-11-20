@@ -115147,7 +115147,17 @@
     },
     {
       "arguments" : [
-
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "name",
+          "suggestions" : null,
+          "title" : "Name"
+        }
       ],
       "category" : "window",
       "cliName" : "automation show-page",
