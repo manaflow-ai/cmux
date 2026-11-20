@@ -11,8 +11,9 @@
 # timeline (the receiver whose reply rate decides the surge).
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
-from="$(date -u -d "$1" +%s)000"
-to="$(date -u -d "$2" +%s)000"
+ms() { jq -n --arg t "$1" '$t | fromdateiso8601 * 1000'; }
+from="$(ms "$1")"
+to="$(ms "$2")"
 shift 2
 keep='"kind":"(user_message|queued|inbox|turn_started|turn_result|turn_end|turn_error|status|permission_[a-z]+)"'
 tmp="$(mktemp -d)"
