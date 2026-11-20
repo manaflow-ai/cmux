@@ -149,11 +149,12 @@ TRUSTED_RUNNER_JOBS = (
 # GLAEDA_ROUTE_APP_KEY; LINUX_RUNNER moved a dozen more such jobs (#27540, #27557).
 APP_KEY_MARKER = re.compile(r"create-github-app-token@|^\s*private-key:", re.MULTILINE)
 # The one selector a key-holding Linux job may read a variable through: LINUX_RUNNER only
-# when it names one of these Blacksmith Linux sizes (.github/runners.json), else 4 vCPU.
+# when it names one of these Blacksmith Linux sizes (.github/runners.json) or the hosted
+# label, else 4 vCPU. A hosted machine runs one job and is destroyed, like the sizes.
 # So a 4 vCPU stall can move these jobs (the overflow switch or a person sets LINUX_RUNNER),
 # and no value reaches a reused machine. The bound is in the expression, not the variable.
 BOUNDED_LINUX_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404",
-                        "blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404")
+                        "blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404", "ubuntu-24.04")
 BOUNDED_LINUX_SELECTOR = (
     "contains(fromJSON('" + json.dumps(list(BOUNDED_LINUX_LABELS), separators=(",", ":"))
     + "'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'"
@@ -1653,3 +1654,26 @@ class ForkRunnerRoutingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# 2026-11-19: the runner pool variables moved to the hosted label, and every size-bounded
+# runs-on, the queue janitor's included, kept asking for a third-party label that had stopped
+# starting jobs. The janitor is what finds a job queued with no runner, so it could not find its
+# own. Every bounded list that names a third-party Linux label and reads a repository variable
+# also names the hosted label, so a pool moved there is followed. Every workflow file is read,
+# so a new one copied from an old one is caught too.
+BOUNDED_RUNNER_LIST = re.compile(r"contains\(fromJSON\('(\[[^'\]]*\])'\), (?:fromJSON\()?vars\.")
+
+
+class BoundedListsFollowTheHostedPool(unittest.TestCase):
+    def test_every_bounded_runner_list_reading_a_variable_names_the_hosted_label(self):
+        missing = []
+        for path in sorted((ROOT / ".github" / "workflows").glob("*.y*ml")):
+            for number, line in enumerate(path.read_text().splitlines(), 1):
+                for found in BOUNDED_RUNNER_LIST.finditer(line):
+                    labels = json.loads(found.group(1))
+                    if any(label.startswith("blacksmith-") and "ubuntu" in label for label in labels) \
+                            and "ubuntu-24.04" not in labels:
+                        missing.append(f"{path.name}:{number}")
+        self.assertEqual(missing, [], "bounded runner lists without the hosted label 'ubuntu-24.04'")
+
