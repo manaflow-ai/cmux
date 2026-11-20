@@ -167,19 +167,31 @@ impl fmt::Display for Finding {
     }
 }
 
-/// Every finding in the crate at `crate_dir` (its `src`), paths from the repository root.
+/// Every finding in the crate at `crate_dir` (its `src`), paths from the repository root. Each
+/// file's module comes from the `#[path]` declarations of the tree ([`PathMods`]), then from its
+/// path.
 pub fn judge_tree(crate_dir: &Path) -> Vec<Finding> {
+    let files: Vec<(String, String)> = rust_files(&crate_dir.join("src"))
+        .iter()
+        .map(|path| (rel_path(crate_dir, path), std::fs::read_to_string(path).unwrap_or_default()))
+        .collect();
+    let mods = PathMods::of(&files);
     let mut found = Vec::new();
-    for path in rust_files(&crate_dir.join("src")) {
-        let rel = rel_path(crate_dir, &path);
-        let text = std::fs::read_to_string(&path).unwrap_or_default();
-        found.extend(judge_source(&format!("{CRATE_REL}{rel}"), &text));
+    for (rel, text) in &files {
+        found.extend(judge_source_in(&format!("{CRATE_REL}{rel}"), text, mods.module(rel)));
     }
     found
 }
 
-/// The findings of one file, `rel` its path from the repository root.
+/// The findings of one file, `rel` its path from the repository root; its module in its crate
+/// is read from `rel` ([`crate_module`]).
 pub fn judge_source(rel: &str, text: &str) -> Vec<Finding> {
+    judge_source_in(rel, text, crate_module(rel))
+}
+
+/// [`judge_source`] with the file's module given: None when it is not known, so a `crate::`
+/// import in it is read as another module's.
+fn judge_source_in(rel: &str, text: &str, root: Option<Vec<String>>) -> Vec<Finding> {
     let file = match syn::parse_file(text) {
         Ok(file) => file,
         Err(error) => {
@@ -191,7 +203,7 @@ pub fn judge_source(rel: &str, text: &str) -> Vec<Finding> {
             }];
         }
     };
-    let mut names = Names { root: crate_module(rel), ..Names::default() };
+    let mut names = Names { root, ..Names::default() };
     Collect { names: &mut names, module: Vec::new(), blocks: 0 }.visit_file(&file);
     let mut sites = Sites { out: Vec::new(), test_depth: 0, test_file: is_test_file(rel) };
     sites.visit_file(&file);
@@ -262,6 +274,124 @@ fn crate_module(rel: &str) -> Option<Vec<String>> {
         all => all,
     };
     Some(parts.iter().map(|p| (*p).to_string()).collect())
+}
+
+/// The `#[path = ".."] mod NAME;` declarations of a crate's tree (review of cmux#41523 F2): the
+/// file a declaration names is the declared module, whatever its own path says, and a file whose
+/// path says it is a module some declaration moved elsewhere (a `model.rs` beside
+/// `#[path = "actual.rs"] mod model;`), or one under a moved file's folder, is no module the
+/// tree can name: its module is unknown. Not read: a `path` under `cfg_attr`, or one in a macro.
+#[derive(Default)]
+struct PathMods {
+    /// A declared file, from the crate's folder (`src/actual.rs`), and the module it is.
+    targets: HashMap<String, Vec<String>>,
+    /// The modules a declaration moved, and the folders of the files they moved to.
+    moved: Vec<Vec<String>>,
+}
+
+impl PathMods {
+    /// `files`: each file's path from the crate's folder (`src/lib.rs`) and its text.
+    fn of(files: &[(String, String)]) -> PathMods {
+        let mut out = PathMods::default();
+        for (rel, text) in files {
+            let (Some(module), Ok(file)) = (crate_module(rel), syn::parse_file(text)) else {
+                continue;
+            };
+            let dir = rel.rsplit_once('/').map_or("", |(dir, _)| dir).to_string();
+            // An inline module's `#[path]` is read under the file's own folder for a mod-rs file
+            // (lib.rs, main.rs, mod.rs), and under a folder named for the file otherwise.
+            let name = rel.rsplit('/').next().unwrap_or(rel);
+            let stem = name.strip_suffix(".rs").unwrap_or(name);
+            let nested_dir = if matches!(stem, "lib" | "main" | "mod") {
+                dir.clone()
+            } else {
+                format!("{dir}/{stem}")
+            };
+            out.items(&file.items, &module, &mut Vec::new(), &dir, &nested_dir);
+        }
+        out
+    }
+
+    fn items(
+        &mut self,
+        items: &[Item],
+        module: &[String],
+        inline: &mut Vec<String>,
+        dir: &str,
+        nested_dir: &str,
+    ) {
+        for item in items {
+            let Item::Mod(m) = item else {
+                continue;
+            };
+            match &m.content {
+                Some((_, inner)) => {
+                    inline.push(m.ident.to_string());
+                    self.items(inner, module, inline, dir, nested_dir);
+                    inline.pop();
+                }
+                None => {
+                    let Some(path) = path_attr(&m.attrs) else {
+                        continue;
+                    };
+                    let base = if inline.is_empty() {
+                        dir.to_string()
+                    } else {
+                        format!("{nested_dir}/{}", inline.join("/"))
+                    };
+                    let declared: Vec<String> = module
+                        .iter()
+                        .chain(inline.iter())
+                        .cloned()
+                        .chain(std::iter::once(m.ident.to_string()))
+                        .collect();
+                    let target = normalize(&format!("{base}/{path}"));
+                    if let Some(at) = crate_module(&target) {
+                        self.moved.push(at);
+                    }
+                    self.moved.push(declared.clone());
+                    self.targets.insert(target, declared);
+                }
+            }
+        }
+    }
+
+    /// The module of the file at `rel` (from the crate's folder), None when the tree does not
+    /// say which module it is.
+    fn module(&self, rel: &str) -> Option<Vec<String>> {
+        if let Some(declared) = self.targets.get(rel) {
+            return Some(declared.clone());
+        }
+        let module = crate_module(rel)?;
+        let moved = self.moved.iter().any(|m| !m.is_empty() && module.starts_with(m));
+        (!moved).then_some(module)
+    }
+}
+
+/// The value of a `#[path = ".."]` attribute.
+fn path_attr(attrs: &[Attribute]) -> Option<String> {
+    attrs.iter().find_map(|a| match &a.meta {
+        syn::Meta::NameValue(nv) if nv.path.is_ident("path") => match &nv.value {
+            syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) => Some(s.value()),
+            _ => None,
+        },
+        _ => None,
+    })
+}
+
+/// `path` with its `.` and `..` parts taken out (`src/a/../b.rs` is `src/b.rs`).
+fn normalize(path: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            part => parts.push(part),
+        }
+    }
+    parts.join("/")
 }
 
 fn is_test_file(rel: &str) -> bool {

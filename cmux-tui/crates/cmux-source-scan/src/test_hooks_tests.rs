@@ -178,6 +178,51 @@ fn a_name_bound_two_ways_serializes_iff_every_binding_does() {
     );
 }
 
+/// A `HOOK_TEST` guard and the hook it serializes, in a file whose test module imports the
+/// guard's `Gate` (a Mutex in the file) as `crate::model::Gate`.
+const GATED_HOOK: &str = "type Gate = std::sync::Mutex<()>;\n\
+    mod tests {\n    use crate::model::Gate;\n    static HOOK_TEST: Gate = Gate::new(());\n}\n\
+    type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;\n\
+    // test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it\n\
+    #[cfg(test)]\n\
+    static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();\n";
+
+/// Review of cmux#41523 F2: `#[path = "actual.rs"] mod model;` makes actual.rs `crate::model`, so
+/// a model.rs beside it is not `crate::model` and its `use crate::model::Gate` is not its own
+/// `type Gate` (the module's Gate is actual.rs's). The tree reads module paths from the
+/// declarations, and actual.rs's same import is its own definition.
+#[test]
+fn a_path_attribute_names_the_module_its_file_is() {
+    let dir = std::env::temp_dir().join(format!("cmux-source-scan-hooks-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let write = |rel: &str, text: &str| {
+        let path = dir.join(rel);
+        std::fs::create_dir_all(path.parent().expect("a parent")).expect("make the dir");
+        std::fs::write(path, text).expect("write");
+    };
+    write("src/lib.rs", "#[path = \"actual.rs\"]\nmod model;\n");
+    write("src/actual.rs", GATED_HOOK);
+    // Not the module: `crate::model::Gate` is actual.rs's Gate, which this file does not show.
+    write("src/model.rs", GATED_HOOK);
+    let found: Vec<String> = judge_tree(&dir).iter().map(ToString::to_string).collect();
+    let _ = std::fs::remove_dir_all(&dir);
+    let refused = |file: &str| {
+        found.iter().any(|f| {
+            f.starts_with(&format!("{CRATE_REL}src/{file}:"))
+                && f.contains("READ_HOOK")
+                && f.contains("no `static HOOK_TEST: Mutex<()>`")
+        })
+    };
+    assert!(
+        refused("model.rs"),
+        "model.rs is not crate::model, so its import is not its own: {found:#?}"
+    );
+    assert!(
+        !refused("actual.rs"),
+        "actual.rs is crate::model, so its import is its own: {found:#?}"
+    );
+}
+
 /// The property, run by hand: ACPMUX_TEST_HOOKS_CHAINS names a directory of generated chains,
 /// `N.rs` each with `N.base` holding 1 when the python check refused it. Writes `N.new` (1 when
 /// this check refuses) and fails on a chain the python check refused that this one passes.
