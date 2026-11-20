@@ -11,7 +11,7 @@ The rule this test keeps: in every workflow with a `schedule` trigger, a job wit
 runs `gh` or uses actions/github-script first checks out this commit's
 scripts/ci/gh_budget_wait.sh (and .cjs) and runs `gh_budget_wait.sh --install`, which puts a
 retrying gh first on PATH; each github-script step installs the octokit half
-(`require(process.env.GH_BUDGET_WAIT_JS).install({ github, core })`); and the job's timeout
+(`if (process.env.GH_BUDGET_WAIT_JS) require(...).install({ github, core })`); and the job's timeout
 leaves room for its wait cap (GH_BUDGET_WAIT_MAX_SECONDS, default 3600) so a wait ends in the
 wrapper's own loud failure, not a job timeout. A new scheduled workflow with a bare call
 fails here. The wrappers themselves are tested in tests/test_gh_budget_wait.py.
@@ -32,7 +32,7 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 # backticks or prose (an error message telling a person what to run) is not a call.
 GH_CALL = re.compile(r"(?:^|[;&|(!{]|\$\(|\b(?:if|then|else|do|in)\s)\s*gh\s+[a-z]")
 INSTALL = re.compile(r"^bash\s+(?:(\S+)/)?scripts/ci/gh_budget_wait\.sh\s+--install$")
-JS_INSTALL = "require(process.env.GH_BUDGET_WAIT_JS).install({ github, core })"
+JS_INSTALL = "if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core })"
 DEFAULT_CAP = 3600
 # Room in the job's timeout beyond the wait cap, for the calls and steps themselves.
 MARGIN_SECONDS = 300
@@ -109,6 +109,9 @@ def job_problems(name: str, job: dict) -> list[str]:
             script = str((step.get("with") or {}).get("script", ""))
             if JS_INSTALL not in script:
                 problems.append(f"{name}: github-script step {i} ({step.get('name')}) lacks `{JS_INSTALL};`")
+            for client in re.findall(r"\b(?:const|let|var)\s+(\w+)\s*=\s*getOctokit\(", script):
+                if f"install({{ github: {client}, core }})" not in script:
+                    problems.append(f"{name}: github-script step {i} leaves its {client} client without retries")
     cap = int((job.get("env") or {}).get("GH_BUDGET_WAIT_MAX_SECONDS", DEFAULT_CAP))
     timeout = job.get("timeout-minutes", 360)
     if isinstance(timeout, int) and timeout * 60 < cap + MARGIN_SECONDS:
@@ -165,6 +168,13 @@ class ScheduledWorkflowGhRetryTests(unittest.TestCase):
             }
         self.assertEqual(job_problems("j", job(15)), [])
         self.assertTrue(job_problems("j", job(10)))
+
+        writer_job = job(15)
+        script_step = writer_job["steps"][-1]["with"]
+        script_step["script"] += "\nconst writer = getOctokit(process.env.APP_TOKEN);"
+        self.assertTrue(job_problems("j", writer_job))
+        script_step["script"] += "\nrequire(process.env.GH_BUDGET_WAIT_JS).install({ github: writer, core });"
+        self.assertEqual(job_problems("j", writer_job), [])
 
 
 if __name__ == "__main__":
