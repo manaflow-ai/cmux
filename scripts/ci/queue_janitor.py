@@ -3569,6 +3569,15 @@ def build_orphan_plan(
     return decisions
 
 
+def pull_request_target_head(run: Mapping[str, Any]) -> str | None:
+    """The pull request head a pull_request_target run was made for: the one head its `pull_requests` list records,
+    or None when it records none or more than one (the run is then kept, never judged by its base-branch head_sha)."""
+    heads = {str((pr.get("head") or {}).get("sha") or "") for pr in run.get("pull_requests") or ()
+             if isinstance(pr, Mapping)}
+    heads.discard("")
+    return heads.pop() if len(heads) == 1 else None
+
+
 def superseded_queued_plan(candidates: Sequence[Orphan],
                            prs_by_branch: Mapping[str, Sequence[Mapping[str, Any]]]) -> list[OrphanDecision]:
     """Cancel find_superseded_queued()'s candidates whose pull request moved on, oldest first, under their own cap.
@@ -3591,10 +3600,17 @@ def superseded_queued_plan(candidates: Sequence[Orphan],
             cancels += 1
             continue
         branch_prs = prs_by_branch.get(str(run.get("head_branch") or ""), ())
-        if open_pr_at_head(run, branch_prs) is not None:
+        judged = run
+        if run.get("event") == "pull_request_target":
+            # Its head_sha can be the base branch's commit, never the pull request's head: judge it by the head it
+            # recorded for its pull request, and keep it when it recorded none (an unchanged open PR's only run).
+            head = pull_request_target_head(run)
+            if head is None:
+                continue
+            judged = {**run, "head_sha": head}
+        if open_pr_at_head(judged, branch_prs) is not None:
             continue
-        # pull_request_target runs carry the pull request's head branch and commit too; judge them alike.
-        state, pr, why = lost_pr_state({**run, "event": "pull_request"}, branch_prs)
+        state, pr, why = lost_pr_state({**judged, "event": "pull_request"}, branch_prs)
         if state != "stale" or pr is None or JANITOR_OPT_OUT_LABEL in pr_labels(pr):
             continue
         if cancels >= SUPERSEDED_QUEUED_MAX_CANCELS:

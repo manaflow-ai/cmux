@@ -1281,12 +1281,27 @@ class SupersededQueuedTests(unittest.TestCase):
         self.assertEqual(orphan_plan(self.candidates(run), {"topic": [make_pr(7, head="aaa")]}), [])
 
     def test_a_pull_request_target_check_is_judged_by_its_pull_request_too(self):
-        # risk-tier.yml and most short checks run on pull_request_target; the feed shows their head branch and sha.
-        run = make_run(status="queued", age=45, sha="old", event="pull_request_target", branch="topic",
-                       path=".github/workflows/risk-tier.yml")
-        decisions = orphan_plan(self.candidates(run), {"topic": [make_pr(7, head="new")]})
+        # risk-tier.yml and most short checks run on pull_request_target. Its head_sha can be the base branch's
+        # commit, so it is judged by the head it recorded for its pull request (pull_requests[].head.sha).
+        def target(recorded):
+            run = make_run(status="queued", age=45, sha="base", event="pull_request_target", branch="topic",
+                           path=".github/workflows/risk-tier.yml", prs=(7,))
+            run["pull_requests"] = [{"number": 7, "head": {"sha": recorded}}] if recorded else [{"number": 7}]
+            return run
+
+        decisions = orphan_plan(self.candidates(target("old")), {"topic": [make_pr(7, head="new")]})
         self.assertEqual([d.action for d in decisions], ["cancel"])
-        self.assertEqual(orphan_plan(self.candidates(run), {"topic": [make_pr(7, head="old")]}), [])
+        self.assertEqual(orphan_plan(self.candidates(target("old")), {"topic": [make_pr(7, head="old")]}), [])
+
+    def test_an_unchanged_pull_requests_only_risk_tier_run_is_kept(self):
+        # router-review BLOCK on #41558 (752e8aa71ee6): the run's head_sha was the base commit, so an unchanged open
+        # PR looked superseded and lost its only risk-evidence run. A run that recorded no head is kept too.
+        run = make_run(status="queued", age=45, sha="base", event="pull_request_target", branch="topic",
+                       path=".github/workflows/risk-tier.yml", prs=(7,))
+        run["pull_requests"] = [{"number": 7, "head": {"sha": "head"}}]
+        self.assertEqual(orphan_plan(self.candidates(run), {"topic": [make_pr(7, head="head")]}), [])
+        run["pull_requests"] = [{"number": 7}]
+        self.assertEqual(orphan_plan(self.candidates(run), {"topic": [make_pr(7, head="head")]}), [])
 
     def test_the_pull_request_lookup_is_bounded(self):
         runs = [make_run(status="queued", age=45 + i, sha="old", prs=(i,), branch=f"b{i:03d}")
