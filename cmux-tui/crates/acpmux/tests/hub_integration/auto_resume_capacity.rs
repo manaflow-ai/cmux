@@ -304,7 +304,15 @@ async fn a_cut_turn_with_no_retry_records_the_decision_for_watchers() {
     let mut w = connect(&hub).await;
     w.request(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
     let id = new_session(&mut c, "cap-off").await;
-    cap_fail(&mut c, &id, "p-off").await;
+    // A provider's 529: the SR2 pool's 503 goes on by itself even with retries off
+    // (`hub/pool_hold.rs`).
+    let r = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "recover-once: API Error: 529 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}"}], "_meta": {"acpmux": {"promptId": "p-off"}}}),
+        )
+        .await;
+    assert!(r.is_err());
     let settled = w
         .wait_for(method::MUX_SESSION_CHANGED, |p| {
             p["sessionId"] == id && p["kind"] == "auto_resume_settled"

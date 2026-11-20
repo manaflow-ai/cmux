@@ -200,6 +200,12 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(default)]
     pub rate_limited_until: Option<u64>,
+    /// This chat's turns that failed on a rate limit (an account's 429, the pool's 503) in the
+    /// last hour: each was a request the limit refused (`hub/rate_hold.rs`). `acpmux ls` shows
+    /// "N retries/1h". Absent when none, and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub rate_limit_retries_1h: Option<u32>,
     /// Since when (Unix ms) this chat is parked on the rate limit: six turns in a row failed on
     /// it, or Stop came while the limit had it, so it starts nothing by itself until `acpmux
     /// retry` or the person's own prompt (`hub/rate_hold.rs`). Absent otherwise, and from a peer

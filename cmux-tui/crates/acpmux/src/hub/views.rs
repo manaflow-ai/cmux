@@ -775,7 +775,9 @@ impl Hub {
             // A daemon start holds its queue until a person opens it (`protected_hold.rs`).
             person_hold: self.person_hold(session),
             // The account's rate limit holds every turn until the reset (`rate_hold.rs`).
-            rate_limited_until: session.rate_hold.until(),
+            rate_limited_until: session.rate_hold.until().max(self.pool_until(session)),
+            // Its turns that failed on a limit in the last hour (`rate_hold.rs`).
+            rate_limit_retries_1h: Some(session.rate_hold.retries_last_hour()).filter(|n| *n > 0),
             // Parked after six failed turns in a row: goes on at `acpmux retry` (`rate_hold.rs`).
             rate_limit_parked: session.rate_hold.parked(),
             // Its queued prompt waits for a run slot of its parent (`subsession_runs.rs`).

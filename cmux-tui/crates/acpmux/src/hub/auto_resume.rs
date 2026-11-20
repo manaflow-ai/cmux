@@ -393,6 +393,13 @@ pub(super) fn rate_compaction_runs(session: &Session) -> bool {
         && session.auto_resume.compacting.lock().unwrap_or_else(|e| e.into_inner()).is_some()
 }
 
+/// A limit's continuation waits ([`Hub::schedule_auto_resume`]): the configured ones, or one
+/// minute when continuations are off (`[]`); past the last, the last again. Its strikes and the
+/// hold decide how long it really waits (`rate_hold.rs`).
+pub(super) fn rate_limit_waits(delays: Vec<u64>, min_hold: u64) -> Vec<u64> {
+    if delays.is_empty() { vec![min_hold] } else { delays }
+}
+
 /// Up to a fifth more than `delay`, the same for a chat each time.
 pub(super) fn staggered(delay: u64, session_id: &str) -> u64 {
     use std::hash::{Hash, Hasher};
@@ -638,7 +645,13 @@ impl Hub {
                 return;
             }
             let delays = if context { compact_first::waits(&delays) } else { delays };
-            let Some(&delay) = delays.get(done) else {
+            // A limit's continuation is the chat's way back at the reset, on by itself: it is
+            // not the configured waits' to turn off or use up (`rate_hold.rs`).
+            let limited =
+                reason == RetryReason::RateLimit || super::pool_hold::is_pool_exhausted(&error);
+            let delays = if limited { rate_limit_waits(delays, hub.min_hold_ms()) } else { delays };
+            let found = if limited { delays.get(done).or(delays.last()) } else { delays.get(done) };
+            let Some(&delay) = found else {
                 let ours = hub.take_pending(&session, &turn_id);
                 if done > 0 {
                     let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": reason.as_str()});
@@ -662,6 +675,8 @@ impl Hub {
                 let base = super::rate_hold::backoff_base(&delays);
                 let backoff = super::rate_hold::backoff_ms(session.rate_hold.strikes(), base);
                 next_at = next_at.max(now.saturating_add(staggered(backoff, &session.id)));
+                // Never sooner than the hold the failure set (`hold_at_failure`).
+                next_at = next_at.max(session.rate_hold.until().unwrap_or(next_at));
             }
             let delay = next_at.saturating_sub(now);
             let retry = RetrySummary {

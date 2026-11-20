@@ -194,12 +194,17 @@ fn stuck(row: &Value, now: u64, pauses: &BTreeMap<String, String>) -> String {
     }
     // Parked on the rate limit: nothing starts until `acpmux retry` or the person's own prompt
     // (`hub/rate_hold.rs`).
+    // With the turns the limit refused in the last hour, when any.
+    let retries = |line: String| match row.get("rateLimitRetries1h").and_then(Value::as_u64) {
+        Some(n) if n > 0 => format!("{line}, {n} retries/1h"),
+        _ => line,
+    };
     if row.get("rateLimitParked").and_then(Value::as_u64).is_some() {
-        return "rate-limited, parked: acpmux retry".into();
+        return retries("rate-limited, parked: acpmux retry".into());
     }
     // The account's rate limit holds every turn until its reset (`hub/rate_hold.rs`).
     if let Some(until) = row.get("rateLimitedUntil").and_then(Value::as_u64) {
-        return crate::hub::rate_hold::until_line(until);
+        return retries(crate::hub::rate_hold::until_line(until));
     }
     match row.get_str("stuckReason").unwrap_or("") {
         "" => {}
