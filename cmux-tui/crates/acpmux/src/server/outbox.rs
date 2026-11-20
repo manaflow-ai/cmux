@@ -53,7 +53,28 @@ pub(super) enum Next {
     /// was purged and made again): a first delivery reads the session again and tries again; a
     /// delivery again of a prompt that session took fails (`hub/open_delivery.rs`).
     Stale,
+    /// The chat moved to another daemon (`transfer.moved`, its `movedTo`): nothing ran here, and
+    /// the delivery follows it to this `HOST/SESSION` at once (`follow_move`).
+    Moved(String),
+    /// The chat is being moved right now (`transfer.moving`): tried again after
+    /// [`MOVING_RETRY`], without spending a retry delay, until the move commits (then
+    /// [`Next::Moved`]) or aborts (then it runs here).
+    Moving,
 }
+
+/// How long a delivery to a chat in the middle of a move waits before it tries again. A move
+/// freezes the chat only while its bundle is copied, so a short fixed wait keeps the message
+/// right behind the chat instead of minutes behind it on the back-off.
+const MOVING_RETRY: Duration = Duration::from_millis(250);
+
+/// How long a delivery tries a chat mid-move every [`MOVING_RETRY`]. A move that takes longer
+/// (a large bundle on a slow link, a stuck client its watch has not ended yet) is tried on the
+/// usual back-off from then on.
+const MOVING_FAST_FOR: Duration = Duration::from_secs(120);
+
+/// How many moves one delivery follows in a row before it fails: a chat moving in a loop
+/// (`movedTo` chains that point back) must not keep a message bouncing for its whole day.
+const MAX_MOVES_FOLLOWED: u32 = 16;
 
 /// How long one attempt waits for the target's acceptance.
 const ATTEMPT_WAIT: Duration = Duration::from_secs(120);
@@ -558,6 +579,10 @@ fn spawn(hub: Arc<Hub>, id: String) {
 
 async fn deliver(hub: &Arc<Hub>, id: &str) {
     let mut delays = RETRY_DELAYS_SECS.iter();
+    // How many moves of its chat this delivery followed (`Next::Moved`).
+    let mut moves_followed = 0u32;
+    // When it first found its chat mid-move (`Next::Moving`).
+    let mut moving_since: Option<std::time::Instant> = None;
     loop {
         let Some(delivery) = hub.outbox.get(id) else { return };
         if delivery.settled() {
@@ -712,6 +737,35 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                         (error, Next::Retry)
                     }
                     Next::Stale => (error, Next::Fail),
+                    // The chat moved away before this prompt ran: it goes where the chat went,
+                    // now, under the same prompt id (the new daemon runs it once). One that
+                    // followed too many moves fails, saying where it last went.
+                    Next::Moved(to) => {
+                        if follow_move(hub, id, &to, moves_followed) {
+                            moves_followed += 1;
+                            continue;
+                        }
+                        let why = format!("{error}; followed {moves_followed} moves, last to {to}");
+                        (why, Next::Fail)
+                    }
+                    // Mid-move: tried again shortly, on no back-off, while the delivery's day
+                    // lasts (`expired`, above).
+                    Next::Moving
+                        if moving_since.get_or_insert_with(std::time::Instant::now).elapsed()
+                            > MOVING_FAST_FOR =>
+                    {
+                        (error, Next::Retry)
+                    }
+                    Next::Moving => {
+                        hub.outbox.update(id, |d| {
+                            if !d.settled() {
+                                d.state = State::Queued;
+                                d.error = Some(error.clone());
+                            }
+                        });
+                        tokio::time::sleep(MOVING_RETRY).await;
+                        continue;
+                    }
                     next => (error, next),
                 };
                 let delay = matches!(next, Next::Retry | Next::Unsent)
@@ -1128,6 +1182,12 @@ pub(super) async fn attempt_once(
 /// peer or a timeout is tried again.
 fn next(e: &RpcError) -> Next {
     let data = e.data.as_ref();
+    if let Some(to) = data.and_then(|d| moved_address(d.get("movedTo")?)) {
+        return Next::Moved(to);
+    }
+    if e.message.starts_with("transfer.moving") {
+        return Next::Moving;
+    }
     if data.and_then(|d| d.get("held")).and_then(Value::as_bool) == Some(true) {
         return Next::Held;
     }
@@ -1153,6 +1213,65 @@ fn next(e: &RpcError) -> Next {
         Some(false) => Next::Fail,
         None if e.code != RpcError::invalid_params("").code => Next::Retry,
         None => Next::Fail,
+    }
+}
+
+/// The address a `movedTo` record names (`transfer_out.rs` `moved_error`): `HOST/SESSION`, or
+/// the bare session id when the move named no machine (a `session transfer` to a sibling daemon
+/// on this machine). None when it names no session.
+fn moved_address(to: &Value) -> Option<String> {
+    let session = to.get("sessionId").and_then(Value::as_str).filter(|s| !s.is_empty())?;
+    let host = to.get("host").and_then(Value::as_str).filter(|h| !h.is_empty());
+    Some(host.map_or_else(|| session.to_owned(), |h| format!("{h}/{session}")))
+}
+
+/// Points delivery `id` at where its chat moved (`to`, `HOST/SESSION`): its target and its
+/// request's `sessionId`, with its pin dropped (the pin named the copy that moved away). The
+/// moved-away copy refused the prompt before it ran, so the delivery has reached no one and the
+/// mesh relay may carry it if the new machine's link is down. False when the delivery already
+/// followed [`MAX_MOVES_FOLLOWED`] moves, or could not be saved.
+fn follow_move(hub: &Hub, id: &str, to: &str, followed: u32) -> bool {
+    if followed >= MAX_MOVES_FOLLOWED {
+        return false;
+    }
+    hub.outbox.update_saved(id, |d| {
+        if d.settled() {
+            return;
+        }
+        tracing::info!(delivery = %d.id, from = %d.target, to, "outbox: following a moved chat");
+        d.target = to.to_owned();
+        d.request.set("sessionId", json!(to));
+        d.pin = None;
+        d.never_sent = true;
+        d.state = State::Queued;
+        d.error = Some(format!("the chat moved; following it to {to}"));
+    })
+}
+
+#[cfg(test)]
+mod moved_next_tests {
+    use super::*;
+
+    /// What `transfer_out.rs` `moved_error` answers.
+    fn moved_error(to: &Value) -> RpcError {
+        RpcError::new(-32000, "transfer.moved: this chat moved; it runs there, never here")
+            .with_data(json!({"movedTo": to}))
+    }
+
+    /// A moved chat's refusal names where it went, and the delivery goes there; a chat in the
+    /// middle of a move is tried again soon, and neither is a refusal that fails the delivery.
+    #[test]
+    fn a_moved_chat_is_followed_and_a_moving_one_is_waited_for() {
+        let to = json!({"host": "gcp-1", "sessionId": "m1", "cwd": "/w"});
+        let moved = moved_error(&to);
+        assert_eq!(next(&moved), Next::Moved("gcp-1/m1".into()));
+        let here = moved_error(&json!({"sessionId": "m2"}));
+        assert_eq!(next(&here), Next::Moved("m2".into()));
+        let nowhere = moved_error(&json!({"host": "gcp-1"}));
+        assert_eq!(next(&nowhere), Next::Retry);
+        let moving =
+            RpcError::new(-32000, "transfer.moving: this chat is being moved to another daemon");
+        assert_eq!(next(&moving), Next::Moving);
     }
 }
 
