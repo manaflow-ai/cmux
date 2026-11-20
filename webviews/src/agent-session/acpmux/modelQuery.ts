@@ -33,6 +33,10 @@ export type ParsedQuery = {
   effort?: string;
   /// The query turned fast mode on.
   fast?: true;
+  /// The words at the end still being typed that can become an effort or "fast" ("m", "me" and
+  /// "medi" of "medium", "extra hig"). They are also in `words`; ``matchingModels`` drops them
+  /// when, as typed, they match no model.
+  typing?: string[];
 };
 
 /// Every effort word the catalog knows, plus the common ones.
@@ -45,6 +49,7 @@ export function effortWords(models: Iterable<{ efforts?: string[] }>): Set<strin
 export function parseQuery(query: string, efforts: ReadonlySet<string>): ParsedQuery {
   const parsed: ParsedQuery = { words: [] };
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const typing = typingWords(query, words, efforts);
   for (let index = 0; index < words.length; index += 1) {
     const word = words[index]!;
     // "extra high" is one effort in two words.
@@ -56,7 +61,48 @@ export function parseQuery(query: string, efforts: ReadonlySet<string>): ParsedQ
       if (pair) index += 1;
     } else parsed.words.push(word);
   }
+  // Only words the query kept as model words, after at least one other: a query of a half-typed
+  // word alone searches as typed.
+  if (
+    typing.length > 0 &&
+    parsed.words.length > typing.length &&
+    parsed.words.slice(-typing.length).join(" ") === typing.join(" ")
+  )
+    parsed.typing = typing;
   return parsed;
+}
+
+/// The words a still-open query ends with (no space after them) that are the start of an effort
+/// or fast word the catalog knows: the last word, or "extra" and the start of "high".
+function typingWords(query: string, words: readonly string[], efforts: ReadonlySet<string>): string[] {
+  if (/\s$/.test(query) || words.length === 0) return [];
+  const last = words.at(-1)!;
+  const forms = [
+    ...FAST_WORDS,
+    ...efforts,
+    ...Object.entries(EFFORT_ALIASES)
+      .filter(([, effort]) => efforts.has(effort))
+      .map(([alias]) => alias),
+  ];
+  if (words.at(-2) === "extra" && efforts.has("xhigh") && "high".startsWith(last)) return ["extra", last];
+  return forms.some((form) => form !== last && form.startsWith(last)) ? [last] : [];
+}
+
+/// The models a query finds: those that fit it. When none fits and the query ends with an effort
+/// or fast word still being typed, those words wait: the models the rest of the query finds stay
+/// listed, so the list does not empty out and come back while "medium" is typed.
+///
+/// - Parameter fits: whether one model fits a query (``fitsQuery`` with the model's harness name).
+export function matchingModels<Model>(
+  models: readonly Model[],
+  query: ParsedQuery,
+  fits: (model: Model, query: ParsedQuery) => boolean,
+): Model[] {
+  const found = models.filter((model) => fits(model, query));
+  if (found.length > 0 || !query.typing) return found;
+  const words = query.words.slice(0, query.words.length - query.typing.length);
+  const { typing: _typing, ...rest } = query;
+  return models.filter((model) => fits(model, { ...rest, words }));
 }
 
 export type QueryModel = { id: string; name: string; efforts?: string[]; fast?: boolean };
