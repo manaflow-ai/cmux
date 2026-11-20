@@ -105,6 +105,12 @@ def check(a):
                 reject(f"the app still uses the kept Cloud backend {have}")
         elif have.rstrip("/").lower() != a.cloud_backend.rstrip("/").lower():
             reject(f"the app uses the Cloud backend {have}, not {a.cloud_backend}")
+    # A tag's stack (review.sh --backend tag-stack) brings its own mobile Worker, where the tag's Mac registers:
+    # the phone must use it too (CloudBackendOverride.mobileAPI), or it never finds that Mac.
+    if a.mobile_api:
+        have = receipt.get("api_base_url")
+        if not isinstance(have, str) or have.rstrip("/").lower() != a.mobile_api.rstrip("/").lower():
+            reject(f"the app uses the mobile service {have or 'none'}, not the tag stack's {a.mobile_api}")
     signed_out = receipt.get("signed_in") is False or receipt["session_source"] == "signed_out"
     if a.session == "signed_out":
         # --no-auth: the app must sit at the welcome screen, signed in to no account.
@@ -253,6 +259,7 @@ def main(argv=None):
     c.add_argument("--git-sha", default="")
     c.add_argument("--dev-tag", default="")
     c.add_argument("--cloud-backend", default="")
+    c.add_argument("--mobile-api", default="")
     c.add_argument("--build-space", default=None)
     i = sub.add_parser("phone-ids")
     i.add_argument("receipt")
