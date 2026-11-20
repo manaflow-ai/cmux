@@ -95,6 +95,10 @@ impl Mux {
         if tree_revision::changes_tree(&event) {
             self.tree_revision.bump();
         }
+        if matches!(event, MuxEvent::TerminalRegistryChanged { .. }) {
+            // One atomic swap; wakes the freeing timer only while it has no deadline.
+            self.note_launch_for_freeing();
+        }
         self.activity.observe(&event);
         if let MuxEvent::Conversation(conversation) = &event {
             self.chiefs().brains.observe(conversation);

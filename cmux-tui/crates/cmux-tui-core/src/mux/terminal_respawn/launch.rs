@@ -141,6 +141,17 @@ impl Mux {
         );
         options.command = Some(integrated.command);
         options.extra_env = integrated.env;
+        // A parked tab's restart: the shell state its last shell saved goes to
+        // the new shell, which reads it after the startup files and deletes
+        // it (`shell_state`). Any other respawn starts a fresh shell, with no
+        // older state left to read.
+        if let Some(dir) = self.shell_state_dir() {
+            if plan.kept.is_empty() {
+                dir.discard(&plan.public_id);
+            } else {
+                dir.take_for_restore(&plan.public_id);
+            }
+        }
         // What it ran: an agent's resume command, else the command line,
         // else a freed shell's last command.
         let ran = self.respawn_ran(&plan.terminal_id, record).or_else(|| {

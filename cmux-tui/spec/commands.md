@@ -2787,6 +2787,20 @@ shell could not be asked to exit keeps running and loses its kept record.
 `parked` lists the named tabs whose terminal was chosen to park, before any
 shell is asked to exit; it can name a tab whose terminal then kept running.
 
+The daemon parks only a terminal that is safe to end, whoever asks: its shell
+sits at its prompt (OSC 133 `A`) with no command running and runs no process
+of its own (no foreground, background or suspended job), no program reports a
+status in it (OSC 7501), no client is attached to any of its views, and it is
+not kept (`set-terminal-keep`). A fact that cannot be read keeps it running.
+Two exceptions follow the settings: an idle agent TUI whose session a respawn
+resumes parks while `workspaces.freeing.agents` is on, and a running command
+parks with its shell under `workspaces.freeing.runningCommands: relaunch`. A
+shell nobody used yet that has not drawn its first prompt parks too (the
+classic migration). `refused` lists each named tab whose terminal keeps
+running, with the reason: `attached`, `kept`, `state_not_saved`,
+`program_status`, `command_running`, `children`, `children_unknown` or
+`no_prompt`. Clients that read only `parked` are unaffected.
+
 Params:
 
 | Name | JSON type | Required/default | Constraints |
@@ -2796,7 +2810,7 @@ Params:
 Result:
 
 ```text
-object{parked:[Id]}
+object{parked:[Id], refused:[object{surface:Id, reason:string}]}
 ```
 
 ### set-frontend-browser-history

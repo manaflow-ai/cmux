@@ -217,6 +217,7 @@ mod host_close;
 #[cfg(all(test, unix))]
 mod host_death_tests;
 mod idle_close;
+mod idle_freeing;
 mod journal;
 mod journal_maintenance;
 mod journal_plugin_host;
@@ -226,10 +227,12 @@ mod kitty_reservation;
 mod launch_identity;
 mod ledger_maintenance;
 mod output_cleanup;
+mod park_eligibility;
 mod pinned_columns;
 #[cfg(unix)]
 mod project_chats;
 mod pty_reclaim;
+mod shell_state_save;
 mod tree_revision;
 mod viewport_scroll;
 mod workspace_name;
@@ -920,6 +923,8 @@ pub struct Mux {
     idle_close_waker: Mutex<Option<std::sync::mpsc::Sender<idle_close::ReaperMessage>>>,
     /// A launch failed for lack of PTYs: the next reclaim pass runs at once (`pty_reclaim.rs`).
     pty_reclaim_forced: AtomicBool,
+    /// The idle freeing timer (`workspaces.freeing.*`, `idle_freeing.rs`).
+    idle_freeing: idle_freeing::IdleFreeing,
     /// Hosts of closed terminals that were asked to exit.
     terminal_host_closes: Arc<host_close::TerminalHostCloses>,
     /// Reap grace period for unplaced terminals, in milliseconds.
@@ -1153,6 +1158,17 @@ impl Mux {
     /// local terminals are reaped after the creator closes the insert race.
     fn reap_if_dead(self: &Arc<Self>, surface: &Arc<Surface>) {
         if surface.is_dead() {
+            // A never-started lazy tab is parked, not reaped
+            // (mux/terminal_respawn/lazy.rs). Its park waits for the end of
+            // its creating request: a park inside the creation is overwritten
+            // when the creation commits the tab and its terminal.
+            #[cfg(unix)]
+            if surface
+                .terminal_host_identity()
+                .is_some_and(|host| self.lazy_never_started(&host.terminal_id))
+            {
+                return;
+            }
             if self.resource_creation_active.load(Ordering::Acquire) {
                 // The reader's exit callback is fenced by the creation
                 // execution lock. It will reap this surface after the public
