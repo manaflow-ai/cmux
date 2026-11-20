@@ -201,6 +201,7 @@ test("the page names the missing step, then the host's status, requests and phon
   fake.set({ ...BASE, state: "ready", allowed: true, account: "me@example.com", connectedPhones: 1, host: HOST });
   await act(async () => fake.emit());
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(host.querySelector(".pairing-local-phones")).toBeNull();
   expect(host.querySelector("img.pairing-qr")).toBeNull();
   expect(host.querySelector(".pairing-how")?.textContent).toBe(HOST.how);
   expect(host.querySelector(".pairing-host-status")?.textContent).toBe("Online · 1 phone connected");
@@ -249,4 +250,44 @@ test("the page names the missing step, then the host's status, requests and phon
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   expect(host.querySelector("img.pairing-qr")).toBeNull();
   expect(host.querySelector(".pairing-failure-detail")?.textContent).toBe("relay refused");
+});
+
+test("Labs local revoke preserves the other approval and works with phone access off", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { MobilePairingPage } = await import("../src/pages/mobile-pairing/MobilePairingPage");
+  const { MobilePairingStore } = await import("../src/pages/mobile-pairing/store");
+  const { MockMobilePairingProvider, localPhoneFixtures } = await import("../src/pages/mobile-pairing/mockProvider");
+  const { createStrings } = await import("../src/pages/shared/i18n");
+  const table = (await import("../src/pages/mobile-pairing/generated/strings.json")).default;
+  const store = new MobilePairingStore(
+    new MockMobilePairingProvider({
+      ...BASE,
+      state: "accessOff",
+      localPhones: localPhoneFixtures(),
+    }),
+  );
+  root = createRoot(host);
+  act(() => root!.render(<MobilePairingPage store={store} strings={createStrings(table, ["en"])} />));
+  await act(async () => await store.start());
+  expect(host.querySelectorAll("[data-phone]").length).toBe(2);
+  await act(async () => host.querySelector<HTMLButtonElement>('[data-phone="phone-1"] button')!.click());
+  expect(host.querySelector('[data-phone="phone-1"]')).toBeNull();
+  expect(host.querySelector('[data-phone="phone-offline"]')).not.toBeNull();
+  await act(async () => host.querySelector<HTMLButtonElement>('[data-phone="phone-offline"] button')!.click());
+  expect(host.textContent).toContain("No phones approved on this Mac.");
+  store.stop();
+});
+
+test("a refused revoke keeps the row and permits retry; default status exposes no controls", async () => {
+  const { MobilePairingStore } = await import("../src/pages/mobile-pairing/store");
+  const fake = fakeHost({ ...BASE, localPhones: HOST.phones });
+  const store = new MobilePairingStore(fake.client);
+  await store.start();
+  await store.revokePhone("phone-1");
+  expect(store.getSnapshot().revokeFailed).toBe("phone-1");
+  expect(store.getSnapshot().revoking).toBeUndefined();
+  expect(store.getSnapshot().status?.localPhones).toEqual(HOST.phones);
+  await store.revokePhone("phone-1");
+  expect(fake.calls.filter((call) => call.op === "cmux.mobilePairing.revokePhone").length).toBe(2);
+  store.stop();
 });

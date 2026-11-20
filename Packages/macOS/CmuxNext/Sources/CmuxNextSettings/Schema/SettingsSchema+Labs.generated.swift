@@ -20,6 +20,9 @@ extension CmuxConfigSnapshot {
     /// `customize.fromTheApp`: Opt-in Customize surfaces in the window: holding Option over a big part shows the Customize Inspector (its settings, theme colors, Change This… and Reset), and the right-click menus of those parts end with Customize…. Off by default; off hides both, and nothing else changes. Leo 2026-11-15 (ask-9634dbcdac): opt-in UI needs a way back, which is turning this off.
     public nonisolated static let customizeFromTheAppPath = ["customize", "fromTheApp"]
     public nonisolated static let customizeFromTheAppDefault = false
+    /// `labs.mobileDeviceRevoke`: Local phone approvals in Mobile Pairing. Off by default; uses the existing host pairing store and targeted disconnect.
+    public nonisolated static let mobileDeviceRevokePath = ["labs", "mobileDeviceRevoke"]
+    public nonisolated static let mobileDeviceRevokeDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -87,6 +90,16 @@ nonisolated enum LabsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.customizeFromTheAppDefault),
                 keywords: ["customize", "inspector", "option", "hover", "right-click", "theme", "labs"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.mobileDeviceRevokePath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.mobileDeviceRevoke", "Revoke iPhone Access"),
+                help: SettingsText.keyed("settings.labs.mobileDeviceRevoke.help", "Show locally approved iPhones and revoke their access from Mobile Pairing."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.mobileDeviceRevokeDefault),
+                keywords: ["labs", "iphone", "mobile", "pairing", "revoke", "device"]
             ),
         ]
     }

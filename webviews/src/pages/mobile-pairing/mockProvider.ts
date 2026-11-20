@@ -35,7 +35,10 @@ export class MockMobilePairingProvider implements PageClient {
   };
   private listeners = new Set<() => void>();
 
-  constructor(initial?: Partial<MobilePairingStatus>) {
+  constructor(
+    initial?: Partial<MobilePairingStatus>,
+    private readonly revokeExperiment = false,
+  ) {
     this.status = { ...this.status, ...initial };
   }
 
@@ -53,6 +56,12 @@ export class MockMobilePairingProvider implements PageClient {
         const id = (params as { id?: string }).id;
         const host = this.status.host;
         if (host) this.update({ host: { ...host, pending: host.pending.filter((request) => request.id !== id) } });
+        return {} as R;
+      }
+      case MobilePairingOps.revokePhone: {
+        const id = (params as { id?: string }).id;
+        if (!this.status.localPhones?.some((phone) => phone.id === id)) throw pageError("cmux.op.unknown", op);
+        this.update({ localPhones: this.status.localPhones.filter((phone) => phone.id !== id) });
         return {} as R;
       }
       case ACTION_RUN: {
@@ -81,11 +90,25 @@ export class MockMobilePairingProvider implements PageClient {
 
   private ready(): Partial<MobilePairingStatus> {
     // The code lasts five minutes; the page asks again a minute before.
-    return { state: "ready", connectedPhones: 1, host: HOST, qr: { ...QR, expiresAt: Date.now() + 240_000 } };
+    return {
+      state: "ready",
+      connectedPhones: 1,
+      host: HOST,
+      ...(this.revokeExperiment ? { localPhones: localPhoneFixtures() } : {}),
+      qr: { ...QR, expiresAt: Date.now() + 240_000 },
+    };
   }
 
   private update(change: Partial<MobilePairingStatus>) {
     this.status = { ...this.status, ...change };
     for (const listener of this.listeners) listener();
   }
+}
+
+// l10n-allow: browser development fixtures, never native host data.
+export function localPhoneFixtures() {
+  return [
+    { id: "phone-1", title: "iPhone 17 Pro", subtitle: "WireGuard · direct · Key 3F2A 91C0", connected: true },
+    { id: "phone-offline", title: "Travel iPhone", subtitle: "Not connected · Key 8B21 6D40", connected: false },
+  ];
 }

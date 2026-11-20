@@ -75,6 +75,19 @@ extension IPhoneHostService {
         }
     }
 
+    /// Local approvals, including offline phones. Account-directory registration is separate.
+    /// Reading `paired` also makes the page observe changes published by the store.
+    public var locallyApprovedPhoneRows: [JSONValue] {
+        _ = paired
+        return (pairedStore.current?.devices ?? []).filter { $0.transport == .hostd && $0.kind == "phone" }.map { phone in
+            let link = state.phones.first { $0.phoneDeviceID.lowercased() == phone.id.lowercased() }
+            let subtitle = [link.map(Self.subtitle) ?? IPhoneHostStrings.notConnected,
+                            IPhoneHostStrings.pairKey(phone.fingerprint)].joined(separator: " · ")
+            return ["id": .string(phone.id), "title": .string(phone.name), "subtitle": .string(subtitle),
+                    "connected": .bool(link != nil)]
+        }
+    }
+
     private var phoneRows: [JSONValue] {
         let local = (pairedStore.current?.devices ?? []).filter { $0.transport == .iroh }.map { phone -> JSONValue in
             ["id": .string("iroh:" + phone.id), "title": .string(IPhoneHostStrings.phoneAccessPhone(phone.name)),

@@ -1,6 +1,268 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.labs.mobileDeviceRevoke": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revoke iPhone Access"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إلغاء وصول iPhone"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opozovi pristup iPhoneu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilbagekald iPhone-adgang"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone-Zugriff widerrufen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revocar acceso del iPhone"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Révoquer l’accès de l’iPhone"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revoca accesso iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhoneのアクセスを取り消す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដកសិទ្ធិចូលប្រើរបស់ iPhone"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone 접근 취소"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilbakekall iPhone-tilgang"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cofnij dostęp iPhone’a"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revogar acesso do iPhone"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отозвать доступ iPhone"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкликати доступ iPhone"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thu hồi quyền truy cập iPhone"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "撤销 iPhone 访问权限"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "撤銷 iPhone 存取權限"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เพิกถอนสิทธิ์การเข้าถึงของ iPhone"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone Erişimini İptal Et"
+          }
+        }
+      }
+    },
+    "settings.labs.mobileDeviceRevoke.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show locally approved iPhones and revoke their access from Mobile Pairing."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اعرض أجهزة iPhone المعتمدة محليًا وألغِ وصولها من إقران الهاتف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikažite lokalno odobrene iPhone uređaje i opozovite njihov pristup kroz uparivanje telefona."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis lokalt godkendte iPhones, og tilbagekald deres adgang fra telefonparring."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokal genehmigte iPhones anzeigen und ihren Zugriff über die Telefonkopplung widerrufen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra los iPhone autorizados localmente y revoca su acceso desde el enlace del teléfono."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affichez les iPhone autorisés localement et révoquez leur accès depuis le jumelage du téléphone."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra gli iPhone autorizzati localmente e revoca il loro accesso dall’abbinamento del telefono."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacで承認したiPhoneを表示し、電話のペアリング画面からアクセスを取り消します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ iPhone ដែលបានអនុម័តនៅលើម៉ាស៊ីននេះ ហើយដកសិទ្ធិចូលប្រើពីការផ្គូផ្គងទូរស័ព្ទ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 승인한 iPhone을 표시하고 휴대폰 페어링에서 접근을 취소합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis lokalt godkjente iPhoner og tilbakekall tilgangen deres fra telefonparing."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż lokalnie zatwierdzone iPhone’y i cofnij ich dostęp w parowaniu telefonu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostre os iPhones aprovados localmente e revogue o acesso pelo pareamento do celular."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать локально одобренные iPhone и отзывать их доступ на странице сопряжения телефона."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати локально схвалені iPhone та відкликати їхній доступ на сторінці сполучення телефона."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiển thị iPhone được phê duyệt cục bộ và thu hồi quyền truy cập từ trang ghép đôi điện thoại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示本机已批准的 iPhone，并在手机配对页面撤销其访问权限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示本機已核准的 iPhone，並在手機配對頁面撤銷其存取權限。"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดง iPhone ที่อนุมัติในเครื่องนี้และเพิกถอนสิทธิ์การเข้าถึงจากหน้าจับคู่โทรศัพท์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yerel olarak onaylanan iPhone’ları gösterin ve telefon eşleme ekranından erişimlerini iptal edin."
+          }
+        }
+      }
+    },
     "settings.agentPane.display.thinking.shimmer": {
       "comment": "Settings > Chat > Transcript > Thinking Shimmer: title of the setting for how the agent chat's live status line shimmers",
       "extractionState": "manual",

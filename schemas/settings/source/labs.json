@@ -152,6 +152,28 @@
             "theme",
             "labs"
           ]
+        },
+        {
+          "key": "labs.mobileDeviceRevoke",
+          "note": "Local phone approvals in Mobile Pairing. Off by default; uses the existing host pairing store and targeted disconnect.",
+          "title": {
+            "key": "settings.labs.mobileDeviceRevoke",
+            "text": "Revoke iPhone Access"
+          },
+          "help": {
+            "key": "settings.labs.mobileDeviceRevoke.help",
+            "text": "Show locally approved iPhones and revoke their access from Mobile Pairing."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "iphone",
+            "mobile",
+            "pairing",
+            "revoke",
+            "device"
+          ]
         }
       ]
     }
