@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextFiles
 @testable import CmuxNextApp
 import CmuxNextDesign
@@ -30,6 +31,7 @@ import Testing
     @Test func fileIdentityMatchesTheRecordedRustURI() throws {
         #expect(FilePageSourceContext.sourceURI(URL(fileURLWithPath: "/tmp/a b/#100%/é.md")) == "file:///tmp/a%20b/%23100%25/%C3%A9.md")
         #expect(FilePageSourceContext.sourceURI(URL(fileURLWithPath: "/tmp/a%20b.md")) == "file:///tmp/a%2520b.md")
+        #expect(FilePageSourceContext.sourceURI("/tmp/workspace-link/README.md") == "file:///tmp/workspace-link/README.md")
         #expect(FilePageSourceContext.sourceURI(try #require(URL(string: "https://example.test/a.md"))) == nil)
     }
     @Test func onlyServedReplyPairsCanOpenAndSessionChangesRevokeThem() async throws {

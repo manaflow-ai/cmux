@@ -273,6 +273,9 @@ public final class AgentPaneModel {
     @ObservationIgnored var dictationUploads = AgentPaneDictationUploads()
     /// Opens a changed file the page names; false when it could not.
     @ObservationIgnored public var onOpenFile: (@MainActor (URL, AgentPaneFileTarget) async -> Bool)?
+    /// Opens a file while retaining the page's original absolute spelling for source provenance.
+    /// The URL remains the checked file authority; the optional path is metadata only.
+    @ObservationIgnored public var onOpenFileWithSource: (@MainActor (URL, AgentPaneFileTarget, String?) async -> Bool)?
     /// Opens a file of a Cloud chat's machine (an absolute path there) in cmux's file pages, read through that machine's
     /// daemon with no symlink followed, or a folder there in the Files tree; never this Mac's of the same path. False
     /// when it could not, or when the path reaches through a symlink there.

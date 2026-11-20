@@ -11,7 +11,12 @@ extension AgentPaneModel {
         case .success(let checked): url = checked
         case .failure(let refusal): return Self.transportFailure(refusal)
         }
-        guard await onOpenFile(url, target) else {
+        let opened = if let onOpenFileWithSource {
+            await onOpenFileWithSource(url, target, path)
+        } else {
+            await onOpenFile(url, target)
+        }
+        guard opened else {
             return AgentPaneReply.failure(code: "open_failed", message: Self.openFileFailedMessage)
         }
         return AgentPaneReply.success()
