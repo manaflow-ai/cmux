@@ -167,9 +167,8 @@ final class FilePageService: InternalPageProvider {
         let tab = Tab(file: real, userChose: userChose, readOnly: readOnly, recoveredText: files.isLocal ? recoveredText : nil,
                       reveal: reveal, files: files, machine: machineID, sourceUses: files.isLocal ? sourceUses : nil)
         let key = show(in: pane, focus: focus, placed: placed, shownInPlace: shownInPlace, tab) { key in
-            self.file(key) == real && self.tabs[key]?.machine == machineID && (!noFollow || (self.tabs[key]?.files as? RemoteFilePageFiles)?.noFollow == true)
+            self.file(key) == real && self.tabs[key]?.machine == machineID && (!noFollow || (self.tabs[key]?.files as? RemoteFilePageFiles)?.noFollow == true) && (sourceUses == nil || sourceUses.map { self.tabs[key]?.sourceUses = $0 } != nil)
         }
-        if let sourceUses, files.isLocal { tabs[key]?.sourceUses = sourceUses }
         if let reveal { revealAt(reveal, in: key) }
         // The user opened a file a tab already shows (perhaps one an agent opened): it is theirs now.
         if userChose {

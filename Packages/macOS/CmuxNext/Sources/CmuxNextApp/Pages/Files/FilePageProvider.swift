@@ -210,8 +210,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             guard files.isLocal, let chosen = await host.chooseFile(start: start) else { return .null }
             userChose(chosen)
             return ["path": .string(chosen.path)]
-        case kind.op("sourceUses") where kind == .markdown: return try await AgentSourceUsesPageBridge.sourceUses(local: files.isLocal, file: file, requested: try path(params["path"]), matches: canonical(try path(params["path"])) == file, source: host.sourceUses, read: { !isClosed && self.file == file && host.sourceUses != nil }, stillCurrent: { self.file == file && host.sourceUses != nil }, cursor: params["cursor"]?.stringValue)
-        case kind.op("revealSourceUse") where kind == .markdown: return try AgentSourceUsesPageBridge.reveal(gesture: context.userGesture, local: files.isLocal, file: file, requested: try path(params["path"]), matches: canonical(try path(params["path"])) == file, source: host.sourceUses, reply: params["replyId"]?.stringValue, turn: params["turnId"]?.stringValue)
+        if let sourceResult = try await AgentSourceUsesPageBridge.call(op: op, params: params, gesture: context.userGesture, markdown: kind == .markdown, local: files.isLocal, file: file, canonical: { self.canonical($0) }, source: host.sourceUses, read: { !isClosed && self.file == file && host.sourceUses != nil }, stillCurrent: { self.file == file && host.sourceUses != nil }, cursor: params["cursor"]?.stringValue) { return sourceResult }
         case kind.op("openLink"):
             try await openLink(params, host: host, userGesture: context.userGesture)
             return .object([:])
@@ -370,8 +369,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             config["readOnlyReason"] = .string(reason.rawValue)
         }
         switch kind {
-        case .markdown:
-            config.merge(AgentSourceUsesPageBridge.config(local: files.isLocal, file: file.url, source: host?.sourceUses)) { _, new in new }
+        case .markdown: config.merge(AgentSourceUsesPageBridge.config(local: files.isLocal, file: file.url, source: host?.sourceUses)) { _, new in new }
             // The folder's images are read from this Mac's disk (``resource(for:)``).
             if files.isLocal { config["assetBase"] = .string("\(origin)/\(MarkdownPageResource.asset)/\(assetToken)/") }
             config["libBase"] = .string("\(origin)/\(MarkdownPageResource.library)/")

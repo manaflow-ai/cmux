@@ -38,6 +38,16 @@ public enum AgentSourceUsesPageBridge {
         guard local, let source, source.matches(file) else { return [:] }
         return ["sourceUses": true, "sourceContext": .string(source.sourceContextID)]
     }
+    @MainActor public static func call(op: String, params: JSONValue, gesture: Bool, markdown: Bool, local: Bool, file: URL?, canonical: (URL) -> URL, source: (any AgentSourceUsesPageContext)?, read: @escaping () -> Bool, stillCurrent: @escaping () -> Bool, cursor: String?) async throws -> JSONValue? {
+        guard markdown, op == "sourceUses" || op == "revealSourceUse" else { return nil }
+        guard let raw = params["path"]?.stringValue, raw.hasPrefix("/") else { throw PageError.invalidParams("path is not absolute") }
+        let requested = URL(fileURLWithPath: raw)
+        guard local, let file, canonical(requested) == file, let source, source.matches(file) else { throw PageError.invalidParams("no source context for this page's file") }
+        if op == "sourceUses" { let result = try await source.read(cursor: cursor); guard read(), stillCurrent() else { throw PageError.closed }; return result }
+        guard gesture, let reply = params["replyId"]?.stringValue, let turn = params["turnId"]?.stringValue, source.reveal(reply: reply, turn: turn) else { throw PageError.invalidParams("reply is not a recorded use of this page's file") }
+        return .object([:])
+    }
+
     @MainActor public static func sourceUses(
         local: Bool, file: URL?, requested: URL, matches: Bool, source: (any AgentSourceUsesPageContext)?,
         read: @escaping () -> Bool, stillCurrent: @escaping () -> Bool, cursor: String?
