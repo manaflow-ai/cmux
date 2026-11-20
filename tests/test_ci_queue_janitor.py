@@ -141,6 +141,26 @@ class PaidPortablePoolSnapshotTests(unittest.TestCase):
         self.assertEqual(snapshot["pools"][MAC]["running"], 1)
         self.assertEqual(snapshot["label_started"][LINUX], iso(10))
 
+    def test_owned_linux_vm_queue_and_starts_reach_the_snapshot(self):
+        # runner_pools.py moves linux_owned_small to Blacksmith from these: the fleet's Linux VMs are a few clones,
+        # and a job that waited the cutoff there means every one is taken (runner_pools.label_evidence()).
+        owned = "glaeda-linux-arm64"
+        run = make_run(event="push", branch="feat-cmux-next")
+        jobs = [
+            {"name": "Guard status", "status": "queued", "labels": [owned], "created_at": iso(14)},
+            {"name": "web-status", "status": "queued", "labels": [owned], "created_at": iso(3)},
+            {"name": "web-subarea-scope", "status": "in_progress", "labels": [owned],
+             "created_at": iso(9), "started_at": iso(2), "runner_name": "glaeda-linux-arm64-mini1-x"},
+            # A lookalike is no owned VM label: owned labels are named, never matched by pattern.
+            {"name": "other", "status": "queued", "labels": ["glaeda-linux-x64"], "created_at": iso(30)},
+        ]
+        snapshot = janitor.pool_load_snapshot([run], {run["id"]: jobs}, now=NOW)
+        self.assertEqual(snapshot["pools"][owned], {
+            "queued": 2, "running": 1, "reserved_queued": 0, "oldest_queued_minutes": 14,
+        })
+        self.assertNotIn("glaeda-linux-x64", snapshot["pools"])
+        self.assertEqual(snapshot["label_started"], {owned: iso(2)})
+
     def test_paid_linux_labels_share_the_rescues_narrow_label_predicate(self):
         run = make_run()
         labels = (LINUX, "blacksmith-2vcpu-linux-2404", "blacksmith-4vcpu-ubuntu-2404-arm")

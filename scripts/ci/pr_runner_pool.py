@@ -367,6 +367,12 @@ CAPABILITY_LABELS = ("glaeda-ios-sim",)
 # `glaeda-ios-sim` (queue_janitor.capabilities()).
 SIM_FIRST_LABEL = re.compile(r"glaeda-sim-xcode-[0-9]+(?:\.[0-9]+)*")
 SIM_FIRST_CAPABILITY = "glaeda-ios-sim"
+# The owned Mac fleet's Linux VMs (arm64 Ubuntu 24.04): each runner is a just-in-time runner on a fresh clone of
+# the VM image, takes one job and is then discarded, so a job there leaves nothing for the next one, as on a
+# Blacksmith label. Named one by one, never by pattern: a label here may lead a RUNNER_POOLS pool
+# (runner_pools.owned_ephemeral()), and the janitor's snapshot counts its queue and starts
+# (queue_janitor.pool_load_snapshot(), label_started()) so a full fleet moves its pool to Blacksmith.
+OWNED_EPHEMERAL_LINUX = ("glaeda-linux-arm64",)
 # A warm key (owned_warm_state.py): a main commit's first 12 hex digits, or
 # `pr-<number>` for a kept build of that pull request.
 WARM_KEY = re.compile(r"[0-9a-f]{12}|pr-[1-9][0-9]{0,8}")
