@@ -37,7 +37,7 @@ public struct TerminalLinkDemoRoot: View {
 
 @MainActor @Observable
 final class TerminalLinkDemo {
-    static let url = "https://example.com/?from=cmux-phone-link-demo"
+    nonisolated static let url = "https://example.com/?from=cmux-phone-link-demo"
     let model: TerminalModel
     let host: TerminalTabHost
     private(set) var step = "start"
