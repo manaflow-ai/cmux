@@ -145,7 +145,8 @@ class SelectTest(unittest.TestCase):
     def test_package_names_and_empty_import_examples_are_not_dynamic_inputs(self) -> None:
         (self.root / "webviews/src/tools.ts").write_text(
             'export const tools = ["vite", "playwright", "child_process"];\n'
-            '// A static import is synchronous; import() yields.\n')
+            '// A static import is synchronous; import() yields.\n'
+            '// Generated from\n// schemas/motion.json; do not edit.\n')
         self.assertEqual(self.change("webviews/src/leaf.ts"), with_always("webviews/test/leaf.test.ts"))
 
     def test_spaced_static_imports_stay_in_the_import_graph(self) -> None:

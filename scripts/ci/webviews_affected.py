@@ -50,6 +50,7 @@ EVERYTHING = re.compile(
 # an alias, run Vite or a browser (which load the app themselves), or spawn a process. App code
 # under src/ names things like readFile as data, so there it counts only by the import it needs.
 JS_GAP = r"(?:\s|/\*[\s\S]*?\*/|//[^\n]*\n)*"
+JS_COMMENT = r"(?:/\*[\s\S]*?\*/|//[^\n]*\n)"
 UNTRACKED = re.compile(
     rf"(?:\bfrom{JS_GAP}|\bimport{JS_GAP}(?:\({JS_GAP})?|\brequire{JS_GAP}\({JS_GAP})[\"']"
     r"(?:(?:node:)?fs(?:/promises)?|vite|playwright|(?:node:)?child_process)[\"']"
@@ -59,7 +60,8 @@ UNTRACKED = re.compile(
     # example in prose is not an expression either.
     # The graph does not parse comments inside imports. Keep those unresolved,
     # including static relative imports, until its parser can follow them.
-    r"|\b(?:import|from)\s*/[/*]"
+    r"|\bfrom\s*" + JS_COMMENT + JS_GAP + r"[\"']"
+    r"|\bimport\s*" + JS_COMMENT + JS_GAP + r"(?=[({*\"'`])"
     r"|\brequire" + JS_GAP + r"\("
     r"|import" + JS_GAP + r"\((?!\s*[\"'`])\s*(?=[\w$({\[/])"
     r"|import" + JS_GAP + r"\(" + JS_GAP + r"`[^`]*\$\{"
