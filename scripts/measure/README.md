@@ -27,6 +27,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | xbench | `perf-bench.sh` (`scripts/perf-bench/xbench.py`); `--import` reads `results.json` and `scripts/perf-bench/baseline/*.json` | Against other browsers, and the resource budget rows. |
 | idle | `perf-10x-idle.sh` | Idle CPU, wakeups and footprint per process kind. |
 | tui-idle | `tui-idle-ram.sh` (`tui-idle-ram.py`, `dhat-top.py`) on Linux CI | The idle cmux-tui daemon's anonymous PSS, PSS, threads, binary sections and (dhat=1) Rust heap at commits. |
+| daemon-latency | `tui-idle-ram.sh runs=0 latency=1` (`cmux-tui/scripts/bench-daemon-latency.py`, acpmux `start_under_load_bench`) on Linux CI | bin/cmux hot paths at commits in alternating rounds: daemon requests, the CLI end to end, acpmux send to first token (cold and warm). One run per commit, so `compare` matches the sides. |
 | typing | `webviews/bench/composer-typing.bench.ts` (load modes L0-L3, Chromium and WebKit) on Linux CI | Composer keydown-to-paint p95/p99 and key integrity under idle, stream, ten streaming documents and a 100k-row stream. |
 | mcp-fanout | `mcp-fanout.sh` (`mcp-fanout.py`) on a fleet Mac, any published app (`app=`) | MCP tool-server processes, RSS, idle CPU per kind at N open chats; first cmux tool call latency. |
 | workspace-factory | `workspace-factory.sh` (`workspace-factory/`, the `wsfactory` Rust factory) on a fleet Mac | A per-job throwaway workspace (APFS clone of a read-only seed) against today's cold and warm-slot step workspaces: start, build, cache hit, disk left behind. |
@@ -142,7 +143,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `infinite-items.py` | Time-compressed run of N workspaces, tabs and chats against the daemons. | CMUX-571 | 2026-11-15 | active |
 | `infinite-items-linux.sh` | Infinite items on Linux, daemons plus headless chat pages. | CMUX-571 | 2026-11-15 | active |
 | `infinite-items-profile.sh` | dhat heap profile of the daemons per item. | CMUX-571 | 2026-11-15 | active |
-| `tui-idle-ram.sh` | Idle cmux-tui daemon memory on Linux at commits (bench tui-idle). | CMUX-571 | 2026-11-16 | active |
+| `tui-idle-ram.sh` | Idle cmux-tui daemon memory on Linux at commits (bench tui-idle); with latency=1 its hot-path latency (bench daemon-latency). | CMUX-571 | 2026-11-16 | active |
 | `tui-idle-ram.py` | One idle headless daemon: smaps, threads, mappings, children. | CMUX-571 | 2026-11-16 | active |
 | `chat-disk-growth.py` | One live chat's history bytes per simulated hour. | - | 2026-11-15 | active |
 | `chat-disk-growth-linux.sh` | Linux entry for chat-disk-growth.py at 100,000 rows. | - | 2026-11-15 | active |
