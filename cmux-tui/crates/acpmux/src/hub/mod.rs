@@ -425,10 +425,14 @@ mod background_cause;
 pub mod background_turn;
 #[cfg(test)]
 mod background_turn_end_tests;
+pub(crate) mod finished;
+#[cfg(test)]
+mod finished_tests;
 mod goal_tools;
 pub mod plan_build;
 #[cfg(test)]
 mod refused_append_tests;
+mod resume_admission;
 #[cfg(feature = "sim")]
 mod sim_startup;
 #[cfg(all(test, unix))]
@@ -1218,6 +1222,7 @@ pub struct Hub {
     pub(super) races_running: StdMutex<std::collections::HashSet<String>>,
     /// Creates admitted and still starting (`admission.rs`).
     pub(super) admitting: admission::Admitting,
+    pub(super) resume_admission: resume_admission::Admission,
     /// Run slots of each session's sub-sessions (`subsession_runs.rs`).
     pub(super) subsession_runs: Arc<subsession_runs::Runs>,
     /// `_acpmux/wait` requests subscribed and not yet answered (`server/wait.rs`), shown
@@ -1368,6 +1373,7 @@ impl Hub {
         let suggestion_gate = StdMutex::new(crate::suggestion_gate::Gate::open(home.as_deref()));
         // Beside the session store in its home; a memory store keeps it in memory only.
         let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
+        let resume_admission = resume_admission::Admission::open(home.as_deref());
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let audit = audit_log::AuditLog::open(store.audit_dir());
@@ -1586,6 +1592,7 @@ impl Hub {
             subsessions: Default::default(),
             races_running: Default::default(),
             admitting: Default::default(),
+            resume_admission,
             subsession_runs: Default::default(),
             open_waits: Default::default(),
             session_update_encodes: Default::default(),

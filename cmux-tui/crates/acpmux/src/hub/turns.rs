@@ -204,6 +204,17 @@ impl Hub {
         // of a turn adoption recovers.
         // Read this log now, ahead of queued background loads, while keeping the prompt
         // behind adoption's recovered turn below.
+        self.check_finished(session)?;
+        let _resume_permit = if super::resume_admission::automatic(&opts) {
+            Some(
+                self.resume_admission
+                    .enter(super::resume_admission::priority(&opts, session))
+                    .await?,
+            )
+        } else {
+            None
+        };
+        self.check_finished(session)?;
         self.session_log(session).await;
         self.wait_adopted(session).await;
         // A watched Claude chat whose app still runs it takes the prompt into that app (`bridge.rs`).
@@ -762,6 +773,7 @@ impl Hub {
         if let Err(e) = super::auto_resume::check_cut(session, after_turn.as_deref(), waiting)
             // Its queue entry's provenance: an edit made it the person's, a restart restored it.
             .and_then(|()| super::goal_tools::check_goal_mark(session, run.provenance.as_ref()))
+            .and_then(|()| self.check_finished(session))
         {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
@@ -1989,6 +2001,9 @@ impl Hub {
         self.send_offer_result(session);
         self.lane_turn_ended(session, true, turn);
         self.inbox_turn_ended(session, turn_id, turn, true);
+        if self.check_finished(session).is_err() {
+            self.detach_child(session).await;
+        }
         match stopped_early {
             Some(e) => Err(e),
             None => result,

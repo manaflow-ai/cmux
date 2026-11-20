@@ -406,6 +406,9 @@ impl Hub {
     /// (`ensure_child`). A failure is logged and the prompt that follows starts the agent itself
     /// (and shows its error, with Retry, if that fails too).
     pub fn wake_for(self: &Arc<Self>, session: &Arc<Session>, web: bool, cause: &'static str) {
+        if self.check_finished(session).is_err() {
+            return;
+        }
         // Use: a chat being typed into or opened does not hibernate meanwhile.
         self.touch(session);
         // The person asked for it: what a daemon start held in its protected folder goes on.

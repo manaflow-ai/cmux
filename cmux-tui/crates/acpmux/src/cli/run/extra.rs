@@ -76,7 +76,52 @@ fn moved_line(host: &str) -> String {
 }
 
 pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> Result<()> {
+    let fleet_paused = matches!(&cmd, Command::FleetPause { .. });
     match cmd {
+        Command::FleetPause { reason } | Command::FleetResume { reason } => {
+            let paused = fleet_paused;
+            let client = connect(true).await?;
+            let reply = client
+                .request(
+                    crate::hub::finished::METHOD,
+                    json!({"op": if paused { "pause" } else { "resume" }, "reason": reason}),
+                )
+                .await?;
+            print_json(&reply);
+            Ok(())
+        }
+        Command::Finish { session, handoff } => {
+            let client = connect(true).await?;
+            let id = resolve_id(&client, &session).await?;
+            let reply = client
+                .request(
+                    crate::hub::finished::METHOD,
+                    json!({"sessionId": id, "op": "finish", "handoff": handoff}),
+                )
+                .await?;
+            if json_out {
+                print_json(&reply);
+            } else {
+                println!("finished");
+            }
+            Ok(())
+        }
+        Command::Wake { session, reason } => {
+            let client = connect(true).await?;
+            let id = resolve_id(&client, &session).await?;
+            let reply = client
+                .request(
+                    crate::hub::finished::METHOD,
+                    json!({"sessionId": id, "op": "wake", "reason": reason}),
+                )
+                .await?;
+            if json_out {
+                print_json(&reply);
+            } else {
+                println!("reopened: {reason}");
+            }
+            Ok(())
+        }
         Command::ClearPeerSnapshots => crate::daemon::clear_peer_snapshots().await,
         Command::Session(control) => crate::cli::mesh_control::run(control, json_out).await,
         Command::Retention(args) => {

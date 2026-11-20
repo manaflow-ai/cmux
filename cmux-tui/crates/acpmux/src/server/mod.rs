@@ -2423,6 +2423,7 @@ mod prompt_coach;
 pub(crate) mod queue_gauge;
 mod review_queue;
 mod run_elsewhere;
+mod session_lifecycle;
 mod sign_in_follow;
 pub use pairing::serve_connection_device;
 pub(crate) mod host_power;

@@ -22,6 +22,28 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Pause automatic resumes on this daemon durably; fresh user work remains available.
+    FleetPause {
+        #[arg(long)]
+        reason: String,
+    },
+    /// Resume automatic work through the staggered admission queue.
+    FleetResume {
+        #[arg(long)]
+        reason: String,
+    },
+    /// Finish a session durably. Sends and retries cannot wake it.
+    Finish {
+        session: String,
+        #[arg(long)]
+        handoff: String,
+    },
+    /// Intentionally reopen a finished session, recording why.
+    Wake {
+        session: String,
+        #[arg(long)]
+        reason: String,
+    },
     /// Run a task on several models in separate worktrees and compare the reviewer's winner.
     #[command(subcommand)]
     Race(crate::cli::race::RaceCmd),

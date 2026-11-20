@@ -144,7 +144,7 @@ impl Hub {
             .goal
             .as_ref()
             .is_some_and(|g| generic_goal::is_generic(g) && g.lifecycle() == "running");
-        if !running || self.claude_stdio(session) {
+        if !running || self.claude_stdio(session) || self.check_finished(session).is_err() {
             return;
         }
         let (step, mark) = {
