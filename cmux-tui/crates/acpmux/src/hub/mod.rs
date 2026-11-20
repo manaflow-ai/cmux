@@ -33,6 +33,7 @@ pub use crate::build_info::{build, install_build, version_line};
 pub(crate) mod auto_resume;
 mod bg_notify;
 mod bg_tasks;
+mod capacity;
 pub use bg_tasks::{BgScope, bg_owner_words};
 mod bounded;
 mod btw;
@@ -1231,6 +1232,7 @@ pub struct Hub {
     /// the chats it waits on. A streamed token must cost none (HOT PATH AUDIT area F, row A1).
     pub(crate) wait_evaluations: std::sync::atomic::AtomicU64,
     /// Failed subagents waiting to be resumed, by chat (`subagent_retry.rs`).
+    pub(super) capacity: capacity::Gates,
     pub(super) subagent_retries: subagent_retry::Retries,
     /// Each chat's top-level subagents and their briefs, for a Resume (`subagent_resume.rs`).
     pub(super) subagent_resumes: subagent_resume::Resumes,
@@ -1590,6 +1592,7 @@ impl Hub {
             open_waits: Default::default(),
             session_update_encodes: Default::default(),
             wait_evaluations: Default::default(),
+            capacity: Default::default(),
             subagent_retries: Default::default(),
             subagent_resumes: Default::default(),
             transfer_lease_changed: Notify::new(),

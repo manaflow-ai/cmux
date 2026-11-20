@@ -1471,9 +1471,23 @@ impl ContextOverrides {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct CapacityConfig {
+    pub release_per_min: std::num::NonZeroU16,
+}
+
+impl Default for CapacityConfig {
+    fn default() -> Self {
+        Self { release_per_min: std::num::NonZeroU16::new(5).unwrap_or(std::num::NonZeroU16::MIN) }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
+    #[serde(default)]
+    pub capacity: CapacityConfig,
     /// Opt-in agent service v2 surfaces (`books`, `list`, `chat`, `peers`, `start`).
     #[serde(rename = "acpmux.v2", default, skip_serializing_if = "V2Surfaces::is_empty")]
     pub acpmux_v2: V2Surfaces,
