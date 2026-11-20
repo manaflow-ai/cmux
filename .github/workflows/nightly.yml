@@ -199,7 +199,7 @@ jobs:
           PUSH_MIN_INTERVAL_HOURS: ${{ vars.NIGHTLY_PUSH_MIN_INTERVAL_HOURS || '2' }}
         with:
           script: |
-            require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
             const forceBuild = process.env.FORCE_BUILD === 'true';
             const seedOnly = process.env.SEED_ONLY === 'true';
             // A build-only run measures the unsigned universal app build (cold
@@ -611,7 +611,7 @@ jobs:
         with:
           github-token: ${{ steps.read-token.outputs.token || github.token }}
           script: |
-            require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
             const fs = require('fs');
             const guard = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/promote-nightly-next.mjs`);
             github.hook.wrap('request', guard.quotaResetRetry({ core }));
@@ -665,10 +665,11 @@ jobs:
           DECISION: ${{ steps.decide.outputs.decision }}
         with:
           script: |
-            require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
             const guard = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/promote-nightly-next.mjs`);
             const { owner, repo } = context.repo;
             const writer = getOctokit(process.env.APP_TOKEN);
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github: writer, core });
             core.notice(await guard.move({ writer, github, owner, repo, decision: JSON.parse(process.env.DECISION) }));
 
   # Legacy approval waiter retained for contract compatibility; validated moves
@@ -775,7 +776,7 @@ jobs:
           EXPECTED_CURRENT: ${{ needs.promote-nightly-next.outputs.current }}
         with:
           script: |
-            require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
             const fs = require('fs');
             const guard = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/promote-nightly-next.mjs`);
             const { owner, repo } = context.repo;
@@ -823,10 +824,11 @@ jobs:
           DECISION: ${{ steps.ack.outputs.decision }}
         with:
           script: |
-            require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
             const guard = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/promote-nightly-next.mjs`);
             const { owner, repo } = context.repo;
             const writer = getOctokit(process.env.APP_TOKEN);
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github: writer, core });
             core.notice(await guard.move({ writer, github, owner, repo, decision: JSON.parse(process.env.DECISION) }));
 
   probe-nightly-tag-permission:
@@ -3381,7 +3383,7 @@ jobs:
           CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
         with:
           script: |
-            require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
             const { owner, repo } = context.repo;
             const channel = process.env.CHANNEL;
             const appName = process.env.CHANNEL_APP_NAME;

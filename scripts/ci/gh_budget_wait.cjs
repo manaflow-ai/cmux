@@ -1,6 +1,6 @@
 // gh_budget_wait.sh's waits for an actions/github-script step's octokit.
 //
-//   require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
+//   if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
 //
 // (gh_budget_wait.sh --install copies this file next to its gh wrapper and sets
 // GH_BUDGET_WAIT_JS.) Every later request the step's `github` client sends, REST

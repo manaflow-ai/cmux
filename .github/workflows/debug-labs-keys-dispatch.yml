@@ -50,7 +50,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
-            require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
             const { owner, repo } = context.repo;
             const source = 'feat-cmux-next';
             const workflow = 'debug-labs-keys-report.yml';

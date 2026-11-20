@@ -76,7 +76,7 @@ jobs:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
         with:
           script: |
-            require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
             const { owner, repo } = context.repo;
             // `api` (the App token when minted) for reads and the publisher
             // dispatch. The DEV build dispatch below stays on GITHUB_TOKEN

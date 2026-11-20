@@ -30,7 +30,8 @@
 #
 # --install also copies gh_budget_wait.cjs, the same waits for actions/github-script
 # steps, next to the wrapper and names it in GH_BUDGET_WAIT_JS (GITHUB_ENV):
-#   require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
+#   if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
+# (The guard keeps the scripts runnable by test harnesses that have no wrapper.)
 # Runs on macOS's bash 3.2.
 
 REAL_GH=gh # --install writes the real gh's path here
@@ -153,6 +154,8 @@ if [ "${1:-}" = "--install" ]; then
   js="$(dirname "$0")/gh_budget_wait.cjs"
   if [ -f "$js" ] && mkdir -p "$ledger_dir" && cp "$js" "$ledger_dir/gh_budget_wait.cjs"; then
     [ -z "${GITHUB_ENV:-}" ] || echo "GH_BUDGET_WAIT_JS=$ledger_dir/gh_budget_wait.cjs" >>"$GITHUB_ENV"
+  else
+    echo "::warning title=GitHub API budget::no gh_budget_wait.cjs beside this script; github-script steps in this job will not wait through a rate limit"
   fi
   real="$(command -v gh 2>/dev/null || true)"
   if [ -z "$real" ] || [ -z "${GITHUB_PATH:-}" ]; then

@@ -76,7 +76,7 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
         with:
           script: |
-            require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
             const fs = require('fs');
             const { owner, repo } = context.repo;
             const label = 'iroh-v2-production-drift';

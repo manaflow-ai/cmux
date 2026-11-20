@@ -84,7 +84,7 @@ jobs:
         with:
           github-token: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           script: |
-            require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
             const { owner, repo } = context.repo;
             const agent = process.env.AGENT;
             // GITHUB_RUN_ATTEMPT, not context: a rerun must never find the run an earlier attempt started.

@@ -85,7 +85,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
-            require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
             const { plan } = require(`${process.env.GITHUB_WORKSPACE}/scripts/ci/tip_swift_suite_plan.js`);
             const p = await plan({ github, context, suite: process.env.SUITE });
             core.notice(`${p.action}: ${p.reason} (tip ${p.tip})`);
@@ -142,7 +142,7 @@ jobs:
           SUITE: ${{ matrix.suite }}
         with:
           script: |
-            require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
             const { dispatch } = require(`${process.env.GITHUB_WORKSPACE}/scripts/ci/tip_swift_suite_plan.js`);
             if (await dispatch({ github, context, suite: process.env.SUITE, core })) {
               core.notice(`Requested the ${process.env.SUITE} suite on feat-cmux-next ${process.env.TIP}`);
