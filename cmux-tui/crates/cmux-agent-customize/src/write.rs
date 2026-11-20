@@ -84,4 +84,26 @@ mod tests {
         assert_eq!(fs::read_to_string(&fresh).unwrap(), "{}");
         assert!(!backup_path(&fresh).exists());
     }
+
+    /// A project can ship a symlink where a backup goes; writing a backup must replace the link,
+    /// never write through it to the file it points at.
+    #[cfg(unix)]
+    #[test]
+    fn backups_never_write_through_a_planted_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = dir.path().join("outside.txt");
+        fs::write(&outside, "keep me").unwrap();
+        let project = dir.path().join("project");
+        fs::create_dir(&project).unwrap();
+        let settings = project.join("settings.json");
+        fs::write(&settings, "old").unwrap();
+        std::os::unix::fs::symlink(&outside, backup_path(&settings)).unwrap();
+        std::os::unix::fs::symlink(&outside, last_backup_path(&settings)).unwrap();
+        replace(&settings, "new").unwrap();
+        assert_eq!(fs::read_to_string(&outside).unwrap(), "keep me");
+        assert_eq!(fs::read_to_string(&settings).unwrap(), "new");
+        let last = last_backup_path(&settings);
+        assert!(!fs::symlink_metadata(&last).unwrap().file_type().is_symlink());
+        assert_eq!(fs::read_to_string(&last).unwrap(), "old");
+    }
 }
