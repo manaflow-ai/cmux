@@ -338,6 +338,7 @@ final class FocusEffectApplier: FocusEffectApplying {
     /// Only a click into a page is the user's choice.
     private func childWindowDidBecomeKey(_ child: NSWindow) {
         guard let window = controller.window, child !== window else { return }
+        controller.services.keyRouter.newTabInputCoordinator.flush(in: window) // a New Tab key hold that waits for a Chromium page's grant
         let devTools = paneShowingDevTools(window: child)
         let clicked = [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(NSApp.currentEvent?.type)
         let pane = paneShowingChildWindowPage(at: child.frame)

@@ -33,6 +33,7 @@ final class NewTabInputCoordinator {
     /// The same for a page that does not exist yet (Cmd-N): the daemon makes the workspace and its
     /// first tab first, so the field comes later than in a pane that already shows.
     var incomingHoldLimit: Duration = .seconds(4)
+    var appIsActive: () -> Bool = { NSApp.isActive } // injected for tests, whose app never is (``chromiumPageTakesKeys(_:)``)
     /// Injected for tests; the hold limit is the only time this coordinator reads.
     var now: () -> ContinuousClock.Instant = { ContinuousClock.now }
     /// Runs `fire` once `limit` from now (injected for tests), detached: never inside the opening run's `ActionRunScope`.
@@ -117,7 +118,7 @@ final class NewTabInputCoordinator {
         let keyboard = NewTabHoldKeyboard(in: window, persons: ActionRunScope.isPersonsAction(), replacing: replaced?.keyboard, standIn: TerminalHostView.keyboardOwner)
         // The pane focus had at the opening, when the opening may move focus (a person's, not a script's).
         var focusedAtOpening = ActionRunScope.viewChangeAllowed() ? pane.services.windowController(showing: pane)?.focus.state.pane : nil
-        let buffer = NewTabInputBuffer(began: now(), held: earlier, focusField: { [weak pane, weak window] in
+        let buffer = NewTabInputBuffer(began: now(), held: earlier, focusField: { [weak self, weak pane, weak window] in
             // The native page (tabs.nativeNewTabPage): its field, once the page is in the pane.
             if let pane, let window, let key = pane.currentTabKey, LocalPageTab.page(of: key) == .nativeNewTab {
                 guard let field = nativeNewTabHost(in: pane.view)?.fieldView, field.window === window else { return false }
@@ -144,11 +145,7 @@ final class NewTabInputCoordinator {
                 focusedAtOpening = nil
                 focus.send(.focusPane(pane.paneKey, source: .programmatic))
             }
-            // A Chromium page takes the keys in its own window (a child of this one).
-            if view.chromiumPage != nil {
-                view.focusChat()
-                return true
-            }
+            if view.chromiumPage != nil { return self?.chromiumPageTakesKeys(view) ?? true }
             return FocusRoute(.person, "the new tab the person opened: its page").moveKeyboard(in: window, to: view.webView)
         }, deliver: { [weak router, weak window] event in
             guard let router, let window else { return }
@@ -172,7 +169,7 @@ final class NewTabInputCoordinator {
         let target = IncomingPage()
         target.followsNewWindow = followsNewWindow
         let services = router.services
-        let buffer = NewTabInputBuffer(began: now(), held: earlier, focusField: { [weak services, weak window] in
+        let buffer = NewTabInputBuffer(began: now(), held: earlier, focusField: { [weak self, weak services, weak window] in
             // The page shows in this window (FirstTabHold), or a New Window's, before it takes keys.
             guard let services, let window, let key = target.key,
                   let view = target.view ?? (services.agentTabs.isNewTabPage(key) ? services.agentTabs.existingView(key) : nil),
@@ -182,10 +179,7 @@ final class NewTabInputCoordinator {
             // Chromium page's grant (below) moves the keys itself: one key-window change (#24913).
             if !shown.isKeyWindow, NSApp.isActive, view.chromiumPage == nil { FocusRoute(.system, "an incoming new tab: its window").makeKey(shown) }
             target.pageWindow = shown
-            if view.chromiumPage != nil {
-                view.focusChat()
-                return true
-            }
+            if view.chromiumPage != nil { return self?.chromiumPageTakesKeys(view) ?? true }
             return FocusRoute(.system, "an incoming new tab: its page").moveKeyboard(in: shown, to: view.webView)
         }, deliver: { [weak router, weak window] event in
             // Ready: the page's window. Not ready (the limit, a failed creation): the key window.
@@ -227,6 +221,11 @@ final class NewTabInputCoordinator {
         entry.buffer.acknowledge(token)
         flush(in: window)
     }
+
+    /// A Chromium page takes the keys in its own window (a child of this one) once its grant lands, which may wait
+    /// (`CEFTab.grantFocus`). Until then no held key goes on: it would reach the window that had the keys at Cmd-N (Lawrence
+    /// 2026-11-19). That window's key change flushes the hold (`FocusEffectApplier`). An inactive app has no key window.
+    private func chromiumPageTakesKeys(_ view: AgentPaneView) -> Bool { view.focusChat(); return view.chromiumPage?.hasKeys != false || !appIsActive() }
 
     /// `event` as typed into `window` (a key held in one window and replayed in another).
     private static func retarget(_ event: NSEvent, to window: NSWindow) -> NSEvent {
