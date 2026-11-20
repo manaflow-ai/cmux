@@ -169,6 +169,9 @@ pub struct Injector {
     /// Where the person's pointer was last sent, restored when the master is made again.
     last_pointer: Option<(i32, i32)>,
     hold: HoldGuard,
+    /// The core keyboard's focus at the person's last key press: a key follows the core
+    /// focus only once it moved (see [`Injector::follow_core_focus`]).
+    core_focus_seen: Option<Window>,
     /// Events with no XTest mapping (for example text), counted for stats.
     pub unsupported: u64,
 }
@@ -194,6 +197,7 @@ impl Injector {
             last_input: None,
             last_pointer: None,
             hold: HoldGuard::default(),
+            core_focus_seen: None,
             unsupported: 0,
         })
     }
@@ -202,13 +206,34 @@ impl Injector {
     /// with XIChangeHierarchy has a focus of its own, and window managers and apps set only
     /// the core keyboard's (XSetInputFocus), so without this the person's keys reach no
     /// window (CMUX-572: 0 of 20 key presses arrived on an Xvfb desktop).
-    fn follow_core_focus(&self, m: PersonMaster) -> Res<()> {
+    ///
+    /// It copies the core focus only when the person keyboard has no window of its own yet,
+    /// or when the core focus moved since the last key. A window manager that focuses on a
+    /// click (openbox) does so while it holds the person pointer's grab, and the server
+    /// then sets the person keyboard's focus, not the core one: copying the older core focus
+    /// over it sent the keys to the window the person had just clicked away from (CMUX-572,
+    /// a viewer's clicks moved windows but no typed key arrived).
+    fn follow_core_focus(&mut self, m: PersonMaster) -> Res<()> {
         if m.core_keyboard == 0 {
             return Ok(());
         }
-        let focus = self.conn.xinput_xi_get_focus(m.core_keyboard)?.reply()?.focus;
-        self.conn.xinput_xi_set_focus(focus, x11rb::CURRENT_TIME, m.keyboard)?;
+        let core = self.conn.xinput_xi_get_focus(m.core_keyboard)?.reply()?.focus;
+        let moved = self.core_focus_seen.is_some_and(|seen| seen != core);
+        let first = self.core_focus_seen.is_none();
+        self.core_focus_seen = Some(core);
+        let follow = moved || (first && self.person_focus_unset(m)?);
+        if !follow {
+            return Ok(());
+        }
+        self.conn.xinput_xi_set_focus(core, x11rb::CURRENT_TIME, m.keyboard)?;
         Ok(())
+    }
+
+    /// The person keyboard routes keys to no window of its own: None, PointerRoot (1) or
+    /// the root window, as a newly made master keyboard does.
+    fn person_focus_unset(&self, m: PersonMaster) -> Res<bool> {
+        let mine = self.conn.xinput_xi_get_focus(m.keyboard)?.reply()?.focus;
+        Ok(mine == x11rb::NONE || mine == 1 || mine == self.root)
     }
 
     fn fake(&self, ty: u8, detail: u8, x: i32, y: i32) -> Res<()> {
@@ -314,6 +339,7 @@ impl Injector {
     fn detach(&mut self) {
         let Person::Attached(_) = self.person else { return };
         self.person = Person::Detached;
+        self.core_focus_seen = None;
         self.property_stale = false;
         self.last_property = None;
         let mut guard = PERSON_USERS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -866,7 +892,7 @@ pub(crate) mod tests {
         let _wm = Openbox::start(&display);
         let (app, screen) = x11rb::connect(Some(&display)).unwrap();
         let root = app.setup().roots[screen].root;
-        let mut make = |x: i16| {
+        let make = |x: i16| {
             let win = app.generate_id().unwrap();
             app.create_window(
                 0,
