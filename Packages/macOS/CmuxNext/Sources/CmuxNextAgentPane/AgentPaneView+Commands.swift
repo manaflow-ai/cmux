@@ -32,6 +32,9 @@ extension AgentPaneView {
     /// then opens its model picker, or the composer's file search (a pick mentions the file).
     public func showModelPicker() { showWithKeyboard("openModelPicker") }
     public func showFileSearch() { showWithKeyboard("searchFiles") }
+    /// One of the composer bar's controls from its shortcut: the page takes the keyboard, then
+    /// opens the control as a click does.
+    public func showComposerControl(_ control: AgentComposerControl) { showWithKeyboard(control.pageCommand) }
     /// Ask a Side Question… focuses this chat's composer and prefills `/btw `.
     /// The session id travels with the event so a palette run cannot land in a replacement chat.
     public func askSideQuestion() {
