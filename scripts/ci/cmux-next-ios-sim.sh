@@ -1277,15 +1277,18 @@ if [[ "$mode" == shots ]]; then
     for look in dark light; do
       simctl ui "$udid" appearance "$look" >/dev/null 2>&1 || true
       env "${envs[@]}" xcrun simctl --set "$sims" launch "$udid" "$bundle_id" ${args[@]+"${args[@]}"} >/dev/null
-      launched=$SECONDS
       if [[ ${#times[@]} -eq 0 ]]; then
         # A bounded wait for the scene to draw; demo drivers have no signal to wait on.
         sleep "${CMUX_NEXT_IOS_SHOT_WAIT:-5}"
         simctl io "$udid" screenshot "$out/screens/$name-$look.png" >/dev/null
         shots+=("screens/$name-$look.png")
       else
-        for t in $(printf '%s\n' "${times[@]}" | sort -n); do
-          if (( SECONDS - launched < t )); then sleep $(( t - (SECONDS - launched) )); fi
+        # Each gap since the last mark is slept in full (whole seconds, from the launch's return), so a
+        # shot is never early; the screenshot's own time only makes later shots a little late.
+        prev=0
+        for t in $(printf '%s\n' "${times[@]}" | sort -n -u); do
+          sleep $(( t - prev ))
+          prev=$t
           simctl io "$udid" screenshot "$out/screens/$name-$look-t$t.png" >/dev/null
           shots+=("screens/$name-$look-t$t.png")
         done
