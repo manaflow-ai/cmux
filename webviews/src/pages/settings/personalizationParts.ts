@@ -3,9 +3,15 @@
 // (sectionQueries.routeSection) reads it without importing the page's components (an import cycle).
 import { DENSITY_CARD_ROWS, DENSITY_ROWS } from "./density";
 
-/** A part of the page: its jump-bar id, the categories that are the homes of what it draws (each
+/** A part of the page: its sidebar id and symbol, the categories that are the homes of what it draws (each
  * gets a More in … link), the keys its cards draw and the schema rows drawn under them. */
-export type Part = { id: PartID; homes: readonly string[]; cardKeys: readonly string[]; rows: readonly string[] };
+export type Part = {
+  id: PartID;
+  symbol: string;
+  homes: readonly string[];
+  cardKeys: readonly string[];
+  rows: readonly string[];
+};
 export type PartID = "theme" | "background" | "chief" | "text" | "sounds";
 
 /** The background rows the picker draws while it shows; without art they are rows of their own. */
@@ -19,9 +25,16 @@ const BACKGROUND_ROWS = [
 
 export const PERSONALIZATION_PARTS: readonly Part[] = [
   // The theme's one home is this page (the Theme page's card moved here), so its part links nowhere.
-  { id: "theme", homes: [], cardKeys: ["appearance.theme", "appearance.appTheme", "appearance.accent"], rows: [] },
+  {
+    id: "theme",
+    symbol: "paintpalette",
+    homes: [],
+    cardKeys: ["appearance.theme", "appearance.appTheme", "appearance.accent"],
+    rows: [],
+  },
   {
     id: "background",
+    symbol: "photo",
     homes: ["appearance"],
     cardKeys: [
       "appearance.background",
@@ -31,9 +44,16 @@ export const PERSONALIZATION_PARTS: readonly Part[] = [
     ],
     rows: BACKGROUND_ROWS,
   },
-  { id: "chief", homes: ["chief"], cardKeys: ["home.chiefPetEnabled", "home.chiefPetMascot"], rows: [] },
+  {
+    id: "chief",
+    symbol: "pawprint",
+    homes: ["chief"],
+    cardKeys: ["home.chiefPetEnabled", "home.chiefPetMascot"],
+    rows: [],
+  },
   {
     id: "text",
+    symbol: "textformat",
     // The density tiles are Appearance's; the chat text rows (Chat's whole Chat Text card) are Chat's.
     homes: ["appearance", "chat"],
     cardKeys: [...DENSITY_ROWS],
@@ -49,6 +69,7 @@ export const PERSONALIZATION_PARTS: readonly Part[] = [
   },
   {
     id: "sounds",
+    symbol: "speaker.wave.2",
     homes: ["notifications"],
     cardKeys: [],
     rows: ["notifications.sound", "notifications.sounds.volume", "notifications.sounds.when"],
@@ -69,10 +90,14 @@ export function personalizationPartOf(key: string): PartID | null {
   return PERSONALIZATION_PARTS.find((part) => part.cardKeys.includes(key) || part.rows.includes(key))?.id ?? null;
 }
 
-/** `#/settings/personalization?focus=personalization.background` opens on that part (Change Background…);
- * `?focus=<key>` (a search result) opens on the part that draws the key. */
-export function personalizationPart(focus: string | null): PartID | null {
-  if (focus && !focus.startsWith(FOCUS_PREFIX)) return personalizationPartOf(focus);
-  const id = focus?.slice(FOCUS_PREFIX.length) ?? null;
-  return PERSONALIZATION_PARTS.some((part) => part.id === id) ? (id as PartID) : null;
+export function parsePersonalizationPart(id: unknown): PartID | null {
+  return PERSONALIZATION_PARTS.find((part) => part.id === id)?.id ?? null;
+}
+
+/** A setting link opens the part that draws it. Change Background… links to the part by name. */
+export function personalizationPart(focus: string | null, part: PartID | null): PartID {
+  if (focus?.startsWith(FOCUS_PREFIX)) {
+    return parsePersonalizationPart(focus.slice(FOCUS_PREFIX.length)) ?? part ?? "theme";
+  }
+  return (focus && personalizationPartOf(focus)) || part || "theme";
 }

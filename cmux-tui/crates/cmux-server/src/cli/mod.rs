@@ -13,6 +13,7 @@ mod binary;
 mod db;
 mod lifecycle;
 mod pairing;
+mod session_service;
 
 use std::io::Write;
 use std::process::ExitCode;
@@ -45,6 +46,9 @@ pub struct Context<'a> {
     pub reexec_guard: Option<String>,
     pub env: LayoutEnv,
     pub now_ms: u64,
+    /// The binary the session service copies into place; `None`: this
+    /// process's own executable.
+    pub self_exe: Option<std::path::PathBuf>,
 }
 
 impl Context<'_> {
@@ -88,6 +92,7 @@ pub fn run_code(args: &[String], guard: Option<String>, running_cmux: &str) -> u
         reexec_guard: guard.filter(|v| !v.is_empty()),
         env: host::layout_env(),
         now_ms: host::now_ms(),
+        self_exe: None,
     };
     run_with_code(&ctx, args)
 }

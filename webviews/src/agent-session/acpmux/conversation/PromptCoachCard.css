@@ -85,7 +85,7 @@
 .cv-coach__action:hover,
 .cv-coach__toggle:hover {
   color: var(--agent-text);
-  background: var(--ds-color-hover);
+  background: var(--ds-surface-hover);
 }
 .cv-coach__action:active,
 .cv-coach__toggle:active {

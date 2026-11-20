@@ -193,7 +193,10 @@ extension AgentTabStore {
         }, peerApprover: tabs.peerApprover)
         (tabs.chiefHost, tabs.chiefPaneHost) = (chief.host, chief.paneHost)
         // A subagent tab made under another Chief home of this Mac attaches there (#25262).
-        tabs.chiefHomes = ChiefHomeDirectory(parents: ChiefHomeDirectory.homeParents(of: home), work: services.work,
+        // Only homes of this build's cloud space: a dev build its own, nightly never a dev build's.
+        let devBuild = services.cloud.configuration.buildSpace != .nightly
+        tabs.chiefHomes = ChiefHomeDirectory(parents: ChiefHomeDirectory.homeParents(of: home),
+                                             admits: ChiefHomeDirectory.admission(of: home, devBuild: devBuild), work: services.work,
                                              environment: { ChiefHomeAcpmux.environment(home: $0) }) { [daemons = services.acpmuxDaemons, peerApprover = tabs.peerApprover] in
             AcpmuxHost(daemons: daemons, environment: $0, startsDaemons: $1, peerApprover: peerApprover)
         }
@@ -434,7 +437,7 @@ extension AgentTabStore {
             // and the machine holds no provider login, so its chats offer no on-machine sign-in.
             host.servesLogin = host.cloudMachineID == nil && daemon.supports(DaemonCapability.agentSessionLogin.rawValue)
             (host.cloudAccount, host.personName) = host.cloudMachineID == nil ? (nil, nil) : (services.cloud.account, services.cloud.auth.user?.displayName)
-            // A chat on one of the account's Cloud machines names each turn's hand-off, behind Labs,
+            // A chat on one of the account's Cloud machines names each turn's hand-off (not behind Labs)
             // once the machine list loaded for the account signed in now (never a previous team's).
             host.cloudHandoffs = host.cloudMachineID != nil && CloudHandoffTurnOpener.refusal(services) == nil
             if host.cloudMachineID != nil, services.cloudTurnRewindHost.offered {
