@@ -2390,7 +2390,7 @@ function ComposerFrame({
   // a line here (Shift-Return does): it sends, or picks the menu's command, as a Return key would.
   const returnInput = () => {
     if (shell) return;
-    if (mentionAt && mentions[mentionSelected]) return pickMention(mentions[mentionSelected]);
+    if (mentionAt) return mentions[mentionSelected] ? pickMention(mentions[mentionSelected]) : undefined;
     if (emojiAt && emojiRows[emojiSelected]) return pickEmoji(emojiRows[emojiSelected]);
     if (returnSends()) return void sendOnReturn({ preventDefault() {} });
     if (matches.length > 0) pick(matches[selected].command);
@@ -2470,6 +2470,12 @@ function ComposerFrame({
       if ((event.key === "Enter" || event.key === "Tab") && plain && mentions[mentionSelected]) {
         event.preventDefault();
         pickMention(mentions[mentionSelected]);
+        return;
+      }
+      // The list shows with no row yet ("Searching…", "No files"): Return waits for one, never sends
+      // the `@word` under an open list. Esc closes it, and then Return sends.
+      if (event.key === "Enter" && plain) {
+        event.preventDefault();
         return;
       }
     }

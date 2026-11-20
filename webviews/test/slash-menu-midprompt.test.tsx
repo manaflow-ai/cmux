@@ -353,6 +353,45 @@ test("Return takes the highlighted row whenever the list shows; Esc keeps the wo
   expect(escaped.sent).toEqual(["fix it /pr"]);
 });
 
+test("the @ list showing no row yet never lets Return send; Esc closes it and Return sends", async () => {
+  // While files are still being searched the @ list shows no row. Return waits; it does not send.
+  const snapshot = chat();
+  const sent: string[] = [];
+  let handle: ComposerHandle | null = null;
+  const { createRoot } = await import("react-dom/client");
+  const { Composer } = await import("../src/agent-session/acpmux/Composer");
+  root ??= createRoot(host);
+  await act(async () =>
+    root!.render(
+      <Composer
+        handle={(value) => void (handle = value)}
+        snapshot={snapshot}
+        sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
+        chips={Chips}
+        searchFiles={() => new Promise(() => {})}
+        onSend={(text) => {
+          sent.push(text);
+          return true;
+        }}
+        onStop={() => {}}
+        localName="studio"
+      />,
+    ),
+  );
+  await act(async () => handle!.restore("fix @zz", []));
+  const field = host.querySelector<HTMLElement>("[role=combobox]")!;
+  const prompt = host.querySelector<MarkdownFieldElement>(".acpmux-md-field")!.acpmuxMarkdownField!;
+  await act(async () => prompt.setCaret("fix @zz".length));
+  expect(host.querySelector("#acpmux-mention-menu")).not.toBeNull();
+  await press(field, "Enter");
+  expect(sent).toEqual([]);
+  expect(prompt.plainText()).toBe("fix @zz");
+  await press(field, "Escape");
+  expect(host.querySelector("#acpmux-mention-menu")).toBeNull();
+  await press(field, "Enter");
+  expect(sent).toEqual(["fix @zz"]);
+});
+
 test("a list that closes and comes back highlights its first row again, and Return takes it", async () => {
   const snapshot = chat();
   const { field, prompt, sent } = await composer(snapshot, "fix it /pr");
