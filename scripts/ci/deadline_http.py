@@ -29,6 +29,18 @@ more before any answer is returned (Codex review of #40631, F1: a buffered 204 r
 succeeded at 1.28 s against a 1 s deadline), and by stream() before its status and headers and after each
 read of the body.
 
+Where it differs from urlopen it must not surprise a caller written for urlopen (Codex review of #40714):
+an error status whose body is cut short is still that HTTPError, its partial body in it, as urlopen raises
+it before the body is read (F1: a 503 with a truncated body raised IncompleteRead, which skipped
+github_release_download's fallback); and a connect that stalls on one resolved address moves on to the
+next, as socket.create_connection does, each with the time left (F2). tests/test_deadline_http_conformance.py
+runs one table of server behaviors through both and fails on any other difference than the bound.
+
+RequestTimeout.sent says whether any byte of the request went out (Codex review of #40718, F1: a comment POST
+whose answer came late was retried and posted twice). sent=False (the lookup, a connect, TLS, a send that wrote
+nothing) is safe to retry; after sent=True the server may have acted, so a write is retried only after
+reading back what it holds. tests/test_ci_timeout_retry_sent.py fails on a write retried without that.
+
 tests/test_ci_no_bare_urlopen.py fails on any other urlopen call in scripts/ci outside the legacy list
 there; every new caller comes through here.
 """
@@ -46,6 +58,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Iterable
 from typing import Callable, Iterator
 
 
@@ -56,8 +69,15 @@ _SOCKET_TIMEOUT = (TimeoutError, socket.timeout)
 
 class RequestTimeout(TimeoutError):
     """A call that did not finish by its deadline. It ran on the caller's thread and stopped at the
-    deadline: nothing was sent after it. A write sent before it (a dispatch, a cancel) may have reached
-    the server, so the caller treats it as unknown, never as done and never as refused."""
+    deadline: nothing was sent after it. SENT says whether any byte of the request went out before it: when
+    False the server saw nothing and the call may be retried as is; when True a write (a dispatch, a cancel,
+    a comment) may have reached the server, so the caller treats it as unknown, never as done and never as
+    refused, and reads back what the server holds before it sends the write again. A timeout that cannot
+    tell says True."""
+
+    def __init__(self, *args, sent: bool = True):
+        super().__init__(*args)
+        self.sent = sent
 
 
 class Stalled(RequestTimeout):
@@ -76,32 +96,42 @@ class Deadline:
         self.at = clock() + seconds
         self.seconds = seconds
 
-    def left(self, what: str) -> float:
-        """The time left, or RequestTimeout naming WHAT when none is."""
+    def left(self, what: str, sent: bool = True) -> float:
+        """The time left, or RequestTimeout naming WHAT (with SENT) when none is."""
         left = self.at - self.clock()
         if left <= 0:
-            raise RequestTimeout(f"{what}: past the {self.seconds:g} s deadline")
+            raise RequestTimeout(f"{what}: past the {self.seconds:g} s deadline", sent=sent)
         return left
 
 
-def _wait(deadline: Deadline, stall: float | None, what: str) -> tuple[float, bool]:
+class _Progress:
+    """One call's progress across its connections (a followed redirect opens another): whether any byte of
+    the request went out yet. A Deadline can be shared by several calls, so this is the call's own."""
+
+    def __init__(self) -> None:
+        self.wrote = False
+
+
+def _wait(deadline: Deadline, stall: float | None, what: str, sent: bool = True) -> tuple[float, bool]:
     """(seconds one socket wait may block, whether STALL bounds it): what is left of DEADLINE, or STALL when
-    that is shorter. RequestTimeout naming WHAT when nothing is left."""
-    left = deadline.left(what)
+    that is shorter. RequestTimeout naming WHAT (with SENT) when nothing is left."""
+    left = deadline.left(what, sent)
     if stall is not None and stall < left:
         return stall, True
     return left, False
 
 
-def _timed_out(what: str, deadline: Deadline, stall: float | None, stalled: bool) -> RequestTimeout:
+def _timed_out(what: str, deadline: Deadline, stall: float | None, stalled: bool,
+               sent: bool = True) -> RequestTimeout:
     if stalled:
-        return Stalled(f"{what}: nothing for {stall:g} s")
-    return RequestTimeout(f"{what}: past the {deadline.seconds:g} s deadline")
+        return Stalled(f"{what}: nothing for {stall:g} s", sent=sent)
+    return RequestTimeout(f"{what}: past the {deadline.seconds:g} s deadline", sent=sent)
 
 
-def _resolve(host: str, port: int, deadline: Deadline) -> list:
-    """socket.getaddrinfo for HOST, waited on for the time left on DEADLINE (see the module docstring)."""
-    deadline.left(f"resolving {host}")  # no lookup starts once nothing is left
+def _resolve(host: str, port: int, deadline: Deadline, sent: bool = False) -> list:
+    """socket.getaddrinfo for HOST, waited on for the time left on DEADLINE (see the module docstring). SENT:
+    whether the call wrote anything before this lookup (a redirect's first request)."""
+    deadline.left(f"resolving {host}", sent)  # no lookup starts once nothing is left
     found: dict[str, object] = {}
 
     def lookup() -> None:
@@ -116,18 +146,22 @@ def _resolve(host: str, port: int, deadline: Deadline) -> list:
     # The time left is read here, at the wait: a thread that was slow to start has spent part of it.
     thread.join(max(deadline.at - deadline.clock(), 0))
     if thread.is_alive():
-        raise RequestTimeout(f"resolving {host}: past the {deadline.seconds:g} s deadline")
+        raise RequestTimeout(f"resolving {host}: past the {deadline.seconds:g} s deadline", sent=sent)
     if "error" in found:
         raise found["error"]
     return found["infos"]
 
 
 def _connect(address: tuple[str, int], deadline: Deadline, source_address=None,
-             stall: float | None = None) -> socket.socket:
+             stall: float | None = None, progress: _Progress | None = None) -> socket.socket:
     """socket.create_connection, with the lookup checked against DEADLINE and each connect bounded by it
-    (and by STALL)."""
+    (and by STALL). As create_connection does, an address that fails or stalls hands over to the next one,
+    which gets the time left; the last one's failure is raised, or RequestTimeout once no time is left. A
+    connect sends nothing of the request, so its timeouts carry PROGRESS's sent (False on the first
+    connection)."""
     host, port = address
-    infos = _resolve(host, port, deadline)
+    sent = progress.wrote if progress else False
+    infos = _resolve(host, port, deadline, sent)
     error: OSError | None = None
     for family, kind, proto, _, sockaddr in infos:
         sock = socket.socket(family, kind, proto)
@@ -135,8 +169,8 @@ def _connect(address: tuple[str, int], deadline: Deadline, source_address=None,
         try:
             if source_address:
                 sock.bind(source_address)
-            # The time left is read at the connect, after the socket's setup.
-            wait, stalled = _wait(deadline, stall, f"connecting to {host}")
+            # The time left is read at the connect, after the socket's setup; none left ends the walk.
+            wait, stalled = _wait(deadline, stall, f"connecting to {host}", sent)
             sock.settimeout(wait)
             sock.connect(sockaddr)
             return sock
@@ -144,8 +178,10 @@ def _connect(address: tuple[str, int], deadline: Deadline, source_address=None,
             sock.close()
             raise
         except _SOCKET_TIMEOUT:
+            # The stalled socket never connected and is closed, so nothing went to it; the next address
+            # gets its turn with what is left (Codex review of #40714, F2).
             sock.close()
-            raise _timed_out(f"connecting to {host}", deadline, stall, stalled) from None
+            error = _timed_out(f"connecting to {host}", deadline, stall, stalled, sent)
         except OSError as failed:
             sock.close()
             error = failed
@@ -185,35 +221,63 @@ class _DeadlineMixin:
     _deadline: Deadline
     _stall: float | None
 
-    def _bind_deadline(self, deadline: Deadline, stall: float | None = None) -> None:
+    def _bind_deadline(self, deadline: Deadline, stall: float | None = None,
+                       progress: _Progress | None = None) -> None:
         self._deadline, self._stall = deadline, stall
+        self._progress = progress = progress or _Progress()
         self._create_connection = lambda address, _timeout=None, source=None: _connect(address, deadline, source,
-                                                                                       stall)
+                                                                                       stall, progress)
         self.response_class = lambda sock, *args, **kwargs: http.client.HTTPResponse(
             _SockView(sock, deadline, stall), *args, **kwargs)
 
     def send(self, data) -> None:
+        """http.client's send, written out so the call knows whether any byte of the request went out
+        (RequestTimeout.sent): sock.sendall cannot say how much it wrote before a timeout."""
         if self.sock is None:
             self.connect()
-        # Never start a write past the deadline: a timed-out call sends nothing after it.
-        wait, stalled = _wait(self._deadline, self._stall, "sending the request")
-        self.sock.settimeout(wait)
+        if hasattr(data, "read"):
+            encode = self._is_textIO(data)
+            while datablock := data.read(self.blocksize):
+                self._send_bytes(datablock.encode("iso-8859-1") if encode else datablock)
+            return
         try:
-            super().send(data)
-        except _SOCKET_TIMEOUT:
-            raise _timed_out("sending the request", self._deadline, self._stall, stalled) from None
+            view = memoryview(data)
+        except TypeError:
+            if not isinstance(data, Iterable):
+                raise TypeError(f"data should be a bytes-like object or an iterable, got {type(data)!r}") from None
+            for datablock in data:
+                self._send_bytes(datablock)
+            return
+        self._send_bytes(view)
+
+    def _send_bytes(self, data) -> None:
+        view = memoryview(data).cast("B")
+        while view:
+            # Never start a write past the deadline: a timed-out call sends nothing after it.
+            sent = self._progress.wrote
+            wait, stalled = _wait(self._deadline, self._stall, "sending the request", sent)
+            self.sock.settimeout(wait)
+            try:
+                wrote = self.sock.send(view)
+            except _SOCKET_TIMEOUT:
+                raise _timed_out("sending the request", self._deadline, self._stall, stalled, sent) from None
+            if wrote:
+                self._progress.wrote = True
+            view = view[wrote:]
 
 
 class DeadlineHTTPConnection(_DeadlineMixin, http.client.HTTPConnection):
-    def __init__(self, host, *, deadline: Deadline, stall: float | None = None, **kwargs):
+    def __init__(self, host, *, deadline: Deadline, stall: float | None = None, progress: _Progress | None = None,
+                 **kwargs):
         super().__init__(host, **kwargs)
-        self._bind_deadline(deadline, stall)
+        self._bind_deadline(deadline, stall, progress)
 
 
 class DeadlineHTTPSConnection(_DeadlineMixin, http.client.HTTPSConnection):
-    def __init__(self, host, *, deadline: Deadline, stall: float | None = None, **kwargs):
+    def __init__(self, host, *, deadline: Deadline, stall: float | None = None, progress: _Progress | None = None,
+                 **kwargs):
         super().__init__(host, **kwargs)
-        self._bind_deadline(deadline, stall)
+        self._bind_deadline(deadline, stall, progress)
 
     def connect(self) -> None:
         http.client.HTTPConnection.connect(self)
@@ -230,32 +294,34 @@ class DeadlineHTTPSConnection(_DeadlineMixin, http.client.HTTPSConnection):
                 wanted = ([sock], [])
             except ssl.SSLWantWriteError:
                 wanted = ([], [sock])
-            wait, stalled = _wait(self._deadline, self._stall, f"TLS with {server_hostname}")
+            # The handshake is not the request: its timeout carries what the call sent before it.
+            sent = self._progress.wrote
+            wait, stalled = _wait(self._deadline, self._stall, f"TLS with {server_hostname}", sent)
             if not any(select.select(*wanted, [], wait)):
                 sock.close()
-                raise _timed_out(f"TLS with {server_hostname}", self._deadline, self._stall, stalled)
+                raise _timed_out(f"TLS with {server_hostname}", self._deadline, self._stall, stalled, sent)
         sock.setblocking(True)
         self.sock = sock
 
 
 class _HTTPHandler(urllib.request.HTTPHandler):
-    def __init__(self, deadline: Deadline, stall: float | None = None):
+    def __init__(self, deadline: Deadline, stall: float | None, progress: _Progress):
         super().__init__()
-        self._deadline, self._stall = deadline, stall
+        self._deadline, self._stall, self._progress = deadline, stall, progress
 
     def http_open(self, req):
-        return self.do_open(functools.partial(DeadlineHTTPConnection, deadline=self._deadline, stall=self._stall),
-                            req)
+        return self.do_open(functools.partial(DeadlineHTTPConnection, deadline=self._deadline, stall=self._stall,
+                                              progress=self._progress), req)
 
 
 class _HTTPSHandler(urllib.request.HTTPSHandler):
-    def __init__(self, deadline: Deadline, stall: float | None = None):
+    def __init__(self, deadline: Deadline, stall: float | None, progress: _Progress):
         super().__init__()
-        self._deadline, self._stall = deadline, stall
+        self._deadline, self._stall, self._progress = deadline, stall, progress
 
     def https_open(self, req):
-        return self.do_open(functools.partial(DeadlineHTTPSConnection, deadline=self._deadline, stall=self._stall),
-                            req, context=self._context)
+        return self.do_open(functools.partial(DeadlineHTTPSConnection, deadline=self._deadline, stall=self._stall,
+                                              progress=self._progress), req, context=self._context)
 
 
 class Headers(dict):
@@ -289,7 +355,8 @@ def _start(req: urllib.request.Request | str, seconds: float | None,
 
 def _open(req: urllib.request.Request, deadline: Deadline, follow_redirects: bool, stall: float | None = None):
     """The answer of one call, its body unread: urllib's response, or its HTTPError for an error status."""
-    handlers = [_HTTPHandler(deadline, stall), _HTTPSHandler(deadline, stall)]
+    progress = _Progress()
+    handlers = [_HTTPHandler(deadline, stall, progress), _HTTPSHandler(deadline, stall, progress)]
     if not follow_redirects:
         handlers.append(_NoRedirect())
     opener = urllib.request.build_opener(*handlers)
@@ -310,6 +377,33 @@ def _http_error(req: urllib.request.Request, status: int, response, raw, body: b
     return urllib.error.HTTPError(req.full_url, status, getattr(response, "reason", "") or "", raw, io.BytesIO(body))
 
 
+_ERROR_BODY_BLOCK = 64 * 1024
+
+
+def _error_body(response, limit: int | None = None) -> bytes:
+    """An error answer's body (up to LIMIT bytes), as far as it came. urlopen raises an error status's
+    HTTPError before its body is read, so a body cut short (a 503 whose Content-Length runs past what came, a
+    reset) is still that HTTPError: reading it here must not turn it into an IncompleteRead or a reset, which
+    a caller catching HTTPError, or OSError as github_release_download.download() does, would miss (Codex
+    review of #40714, F1). Running out of time still raises RequestTimeout."""
+    chunks: list[bytes] = []
+    size = 0
+    try:
+        while limit is None or size < limit:
+            chunk = response.read(_ERROR_BODY_BLOCK if limit is None else min(_ERROR_BODY_BLOCK, limit - size))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
+    except RequestTimeout:
+        raise
+    except http.client.IncompleteRead as cut:
+        chunks.append(cut.partial)
+    except (http.client.HTTPException, OSError):
+        pass
+    return b"".join(chunks)
+
+
 def _headers(raw) -> Headers:
     return Headers({k.lower(): v for k, v in (raw or {}).items()})
 
@@ -322,17 +416,22 @@ def request(req: urllib.request.Request | str, seconds: float | None = None, *, 
     or with raise_errors raised as urllib's HTTPError (its body read, its headers as urllib has them).
     With follow_redirects=False a redirect is an answer too (its Location in the headers). A redirect that
     is followed drops headers added with add_unredirected_header, so a token stays on its host. A body over
-    MAX_BYTES raises ValueError."""
+    MAX_BYTES raises ValueError. An error status's body cut short is returned (or raised in its HTTPError) as
+    far as it came, as urlopen's HTTPError carries it; a success's body cut short raises IncompleteRead, as
+    urlopen's read() does."""
     req, deadline = _start(req, seconds, deadline)
     with _open(req, deadline, follow_redirects) as response:
-        if max_bytes is None:
-            body = response.read()
-        else:
-            body = response.read(max_bytes + 1)
-            if len(body) > max_bytes:
-                raise AnswerTooLarge(f"{req.get_method()} {req.full_url}: answered over {max_bytes} bytes")
         status = response.status
         raw = response.headers
+        limit = None if max_bytes is None else max_bytes + 1
+        if status >= 400:
+            body = _error_body(response, limit)
+        elif limit is None:
+            body = response.read()
+        else:
+            body = response.read(limit)
+        if max_bytes is not None and len(body) > max_bytes:
+            raise AnswerTooLarge(f"{req.get_method()} {req.full_url}: answered over {max_bytes} bytes")
     # The answer may have finished from bytes already buffered, with no receive left to check the time.
     deadline.left("reading the answer")
     if raise_errors and status >= 400:
@@ -366,11 +465,12 @@ def stream(req: urllib.request.Request | str, seconds: float | None = None, *, d
     body's reads too, ends by the one deadline (SECONDS, or DEADLINE shared with other calls): a body still
     coming at the deadline raises RequestTimeout from read(). With STALL, each wait also ends after STALL
     seconds of silence (Stalled). With raise_errors an error status raises urllib's HTTPError, its body
-    read, as request() does; otherwise it is an answer like any other."""
+    read as far as it came, as request() does; otherwise it is an answer like any other, whose body the
+    caller reads as it would urlopen's HTTPError."""
     req, deadline = _start(req, seconds, deadline)
     with _open(req, deadline, follow_redirects, stall) as response:
         if raise_errors and response.status >= 400:
-            body = response.read()
+            body = _error_body(response)
             deadline.left("reading the answer")
             raise _http_error(req, response.status, response, response.headers, body)
         # The status and headers may have come from bytes already buffered, as in request().

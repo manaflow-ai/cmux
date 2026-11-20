@@ -31,7 +31,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import deadline_http  # noqa: E402
@@ -83,7 +83,16 @@ def rate_limit_delay(headers: Any, attempt: int) -> int | None:
     return None
 
 
-def request(method: str, url: str, token: str, payload: dict[str, Any] | None = None) -> Any:
+READS = ("GET", "HEAD")
+
+
+def request(method: str, url: str, token: str, payload: dict[str, Any] | None = None, *,
+            reconcile: Callable[[], Any] | None = None) -> Any:
+    """One GitHub call, retried on a rate limit or a failed connection. A write whose answer timed out after
+    it was sent (RequestTimeout.sent) may have been applied: GitHub can create a comment and answer too late,
+    and retrying it made two (Codex review of #40718, F1). So it is retried only when RECONCILE, which reads
+    back what GitHub holds, finds it not done (None); what RECONCILE returns otherwise is the answer. With no
+    RECONCILE such a write is not retried."""
     body = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(url, data=body, method=method)
     req.add_header("Accept", "application/vnd.github+json")
@@ -106,7 +115,16 @@ def request(method: str, url: str, token: str, payload: dict[str, Any] | None = 
                 continue
             raise ApiError(method, url, error.code, detail) from error
         except (urllib.error.URLError, deadline_http.RequestTimeout) as error:
-            # urlopen raised a connect timeout as URLError; the deadline's timeout is retried the same way.
+            # urlopen raised a connect timeout as URLError; a timeout before anything was sent is retried the
+            # same way, and so is a read. A write that went out is retried only once reconciled as not done.
+            if isinstance(error, deadline_http.RequestTimeout) and error.sent and method not in READS:
+                if reconcile is None:
+                    raise SystemExit(f"{method} {url}: no answer within 30 s after it was sent; not retried, "
+                                     f"since it may have been applied") from error
+                done = reconcile()
+                if done is not None:
+                    print(f"  {method} {url}: its answer timed out, but it was applied", flush=True)
+                    return done
             if attempt < 3:
                 time.sleep(5 * (attempt + 1))
                 continue
@@ -195,6 +213,7 @@ def apply_to_issue(
         f"{API}/repos/{repo}/issues/{number}/labels",
         token,
         {"labels": additions},
+        reconcile=lambda: reconcile_labels(repo, token, number, additions),
     )
     if comment:
         request(
@@ -202,8 +221,35 @@ def apply_to_issue(
             f"{API}/repos/{repo}/issues/{number}/comments",
             token,
             {"body": render_comment(result)},
+            reconcile=lambda: reconcile_comment(repo, token, number),
         )
     return additions
+
+
+def reconcile_labels(repo: str, token: str, number: int, labels: list[str]) -> list[str] | None:
+    """LABELS, when the issue carries them all already (a label POST that timed out landed); else None."""
+    have = request("GET", f"{API}/repos/{repo}/issues/{number}/labels?per_page=100", token) or []
+    names = {str(label.get("name")) for label in have}
+    return labels if all(label in names for label in labels) else None
+
+
+def reconcile_comment(repo: str, token: str, number: int) -> dict[str, Any] | None:
+    """The issue's auto-triage comment (COMMENT_MARKER), when there is one already; else None, so it is posted."""
+    page = 1
+    while True:
+        batch = request("GET", f"{API}/repos/{repo}/issues/{number}/comments?per_page=100&page={page}", token) or []
+        for item in batch:
+            if COMMENT_MARKER in str(item.get("body") or ""):
+                return item
+        if len(batch) < 100:
+            return None
+        page += 1
+
+
+def reconcile_label_removed(repo: str, token: str, number: int, label: str) -> list[Any] | None:
+    """The issue's labels, when LABEL is gone from them (a DELETE that timed out landed); else None."""
+    have = request("GET", f"{API}/repos/{repo}/issues/{number}/labels?per_page=100", token) or []
+    return None if any(item.get("name") == label for item in have) else have
 
 
 class Receipt:
@@ -299,7 +345,8 @@ def revert(repo: str, token: str, receipt: Path, *, dry_run: bool) -> int:
                 continue
             quoted = urllib.parse.quote(label)
             try:
-                request("DELETE", f"{API}/repos/{repo}/issues/{number}/labels/{quoted}", token)
+                request("DELETE", f"{API}/repos/{repo}/issues/{number}/labels/{quoted}", token,
+                        reconcile=lambda: reconcile_label_removed(repo, token, number, label))
             except ApiError as error:
                 # "Label does not exist" means a human removed it already, and
                 # that is the outcome we wanted. Any other 404 is a wrong
