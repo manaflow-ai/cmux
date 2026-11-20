@@ -401,6 +401,9 @@ fn set_up_for_join(args: &Args) -> Res<()> {
     // down now, not left running when a later step fails.
     let joined = machine::current()?;
     let from_join = joined.is_some();
+    // The join this machine was signed in for before this run signs it in again: a join from
+    // before consent-join.json existed keeps its consent through that ([`join_consent`]).
+    let before = machine::Joined::load(&dir).ok().flatten();
     let mark = joined.as_ref().map(|(home, credential)| machine::Joined::of(home, credential));
     let Some(device) = join_device(&dir, args.get("hub"), joined, &serving::HostUnit)? else {
         println!("{NOT_INSTALLED}");
@@ -409,7 +412,7 @@ fn set_up_for_join(args: &Args) -> Res<()> {
     let desktop = setup::detect_desktop();
     // The portal's grant is asked for only with consent this run wrote: a join's kept (or
     // withdrawn) choice is never asked again on someone's screen.
-    let consent = join_consent(&dir, mark.as_ref(), args, &mut |control| {
+    let consent = join_consent(&dir, before.as_ref(), mark.as_ref(), args, &mut |control| {
         grant_capture_now(control, &desktop, Some(JOIN_GRANT_WAIT))
     })?;
     let virtual_display = desktop == setup::Desktop::None;
@@ -612,6 +615,10 @@ fn enable_consent(args: &Args) -> LocalConsent {
 /// joined machine is never left unshared by a crash.
 const CONSENT_JOIN_FILE: &str = "consent-join.json";
 
+fn write_consent_join(dir: &std::path::Path, mark: &machine::Joined) -> Res<()> {
+    identity::write_private(&dir.join(CONSENT_JOIN_FILE), &serde_json::to_vec_pretty(mark)?)
+}
+
 /// The join `consent.json` was written for, if a run finished writing it.
 fn consent_join(dir: &std::path::Path) -> Res<Option<machine::Joined>> {
     match identity::read_private(&dir.join(CONSENT_JOIN_FILE))? {
@@ -620,16 +627,34 @@ fn consent_join(dir: &std::path::Path) -> Res<Option<machine::Joined>> {
     }
 }
 
+/// Whether `a` and `b` are one join for its consent: the same machine from the same acpmux
+/// home. The credential generation is not part of it: the hub raises it for the same machine
+/// (recovery), and that is no choice made at this screen.
+fn one_join(a: &machine::Joined, b: &machine::Joined) -> bool {
+    !a.machine_id.is_empty() && a.machine_id == b.machine_id && a.acpmux_home == b.acpmux_home
+}
+
 /// The consent `enable --non-interactive` leaves in `dir` for the join `mark` (None: not a
 /// join), asking `grant` for the portal's grant (with control or not) only when it wrote it.
+/// `before` is joined.json as this run found it, before signing in: with no marker, a join it
+/// already names and a consent.json are a join from before the marker, and that consent stays.
 fn join_consent(
     dir: &std::path::Path,
+    before: Option<&machine::Joined>,
     mark: Option<&machine::Joined>,
     args: &Args,
     grant: &mut dyn FnMut(bool),
 ) -> Res<Res<LocalConsent>> {
     let same_join = match (mark, consent_join(dir)?) {
-        (Some(mark), Some(written)) => !mark.machine_id.is_empty() && written == *mark,
+        (Some(mark), Some(written)) => one_join(mark, &written),
+        (Some(mark), None) => {
+            let upgraded = before.is_some_and(|before| one_join(mark, before))
+                && LocalConsent::load(dir).is_ok();
+            if upgraded {
+                write_consent_join(dir, mark)?;
+            }
+            upgraded
+        }
         _ => false,
     };
     if same_join {
@@ -648,10 +673,7 @@ fn join_consent(
     consent.save(dir)?;
     // The consent first, then whose it is: a run cut off between the two writes it again.
     match mark {
-        Some(mark) => identity::write_private(
-            &dir.join(CONSENT_JOIN_FILE),
-            &serde_json::to_vec_pretty(mark)?,
-        )?,
+        Some(mark) => write_consent_join(dir, mark)?,
         None => match std::fs::remove_file(dir.join(CONSENT_JOIN_FILE)) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
             _ => {}
@@ -1889,7 +1911,7 @@ mod join_consent_tests {
     fn finished(tag: &str, consent: Option<LocalConsent>) -> std::path::PathBuf {
         let d = dir(tag);
         let mut asked = |_| {};
-        join_consent(&d, Some(&mark("m-a")), &args(&[]), &mut asked).unwrap().unwrap();
+        join_consent(&d, None, Some(&mark("m-a")), &args(&[]), &mut asked).unwrap().unwrap();
         mark("m-a").save(&d).unwrap();
         match consent {
             Some(consent) => consent.save(&d).unwrap(),
@@ -1901,7 +1923,10 @@ mod join_consent_tests {
     /// Runs the enable's consent step for `join` in `d`: the consent left, and each grant asked.
     fn rerun(d: &std::path::Path, join: &str, extra: &[&str]) -> (Res<LocalConsent>, Vec<bool>) {
         let mut grants = Vec::new();
-        let got = join_consent(d, Some(&mark(join)), &args(extra), &mut |c| grants.push(c));
+        let before = machine::Joined::load(d).unwrap();
+        let got = join_consent(d, before.as_ref(), Some(&mark(join)), &args(extra), &mut |c| {
+            grants.push(c)
+        });
         (got.unwrap(), grants)
     }
 
@@ -1973,11 +1998,15 @@ mod join_consent_tests {
         let next = machine::Joined { credential_generation: 2, ..mark("m-a") };
         let d = finished("generation-view-only", Some(LocalConsent { view: true, full: false }));
         let mut grants = Vec::new();
-        let kept = join_consent(&d, Some(&next), &args(&[]), &mut |c| grants.push(c)).unwrap();
+        let kept =
+            join_consent(&d, Some(&mark("m-a")), Some(&next), &args(&[]), &mut |c| grants.push(c))
+                .unwrap();
         assert!(!kept.unwrap().full && !LocalConsent::load(&d).unwrap().full, "view-only stays");
         assert!(grants.is_empty(), "no portal grant is asked: {grants:?}");
         let d = finished("generation-withdrawn", None);
-        let kept = join_consent(&d, Some(&next), &args(&[]), &mut |c| grants.push(c)).unwrap();
+        let kept =
+            join_consent(&d, Some(&mark("m-a")), Some(&next), &args(&[]), &mut |c| grants.push(c))
+                .unwrap();
         assert!(kept.is_err() && LocalConsent::load(&d).is_err(), "a withdrawn grant stays");
         assert!(grants.is_empty(), "no portal grant is asked: {grants:?}");
     }
