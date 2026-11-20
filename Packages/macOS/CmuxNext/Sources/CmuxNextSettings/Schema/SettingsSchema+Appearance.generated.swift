@@ -107,6 +107,12 @@ extension ExperimentalAppearanceSetting {
     public nonisolated static let fallback = false
 }
 
+extension AppearanceSettingsSchema {
+    /// `appearance.glassControls`.
+    nonisolated static let glassControlsPath = ["appearance", "glassControls"]
+    nonisolated static let glassControlsDefault = false
+}
+
 extension WindowBackgroundSetting {
     /// `appearance.backgroundOpacity`.
     public nonisolated static let opacityPath = ["appearance", "backgroundOpacity"]
