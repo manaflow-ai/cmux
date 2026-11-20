@@ -77,6 +77,10 @@ extension MacScreenPages {
         let frames = session.frameCounter?.timings
         row["frame_interval_ms"] = frames.map { summary($0.intervals) } ?? .null
         row["present_ms"] = frames.map { summary($0.present) } ?? .null
+        // The viewer's stages to the glass (design D8): Decode, Present and the two together.
+        row["decode_ms"] = frames.map { summary($0.decode) } ?? .null
+        row["glass_ms"] = frames.map { summary($0.glass) } ?? .null
+        row["decode_present_ms"] = frames.map { summary($0.decodePresent) } ?? .null
         return .object(row)
     }
 
