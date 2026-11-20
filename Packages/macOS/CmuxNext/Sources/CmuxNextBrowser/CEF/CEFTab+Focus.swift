@@ -91,11 +91,18 @@ extension CEFTab {
         isGrantingFocus = true
         defer { isGrantingFocus = false }
         runtime.shim?.setFocus(browser, 1)
+        defer { keyedPageWindow = pageWindow.flatMap { keyWindows.keyWindow() === $0 ? $0 : nil } }
         // From the cmux window, or from another page window of it: Cmd-N typed in a page left that page's window key, and
         // the new page's held keys went to it, a page the switch hid (Lawrence 2026-11-19, "i did cmd n and started typing
         // and it didnt have focus").
         guard let window = pageWindow, let owner = window.parent, let key = keyWindows.keyWindow(), key !== window,
               key === owner || key.parent === owner else { return }
         keyWindows.makeKey(window)
+    }
+
+    /// Whether this page's window still has the keys its last grant gave it: that window is in the cmux window and key.
+    var pageWindowHasTheKeys: Bool {
+        guard let window = keyedPageWindow, window.parent != nil, window.parent === container.window else { return false }
+        return keyWindows.keyWindow() === window
     }
 }
