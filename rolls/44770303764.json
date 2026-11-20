@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44770303764",
+  "recorded_at": "2026-11-20T17:44:48Z",
+  "reason": "image inputs changed in c3667d98fa1e2ec650a59d231df7726797002015..a050bd3c8edf879c6c5645bf509b6a884e19312c",
+  "dry_run": false,
+  "cmux_tui": "325ccecb4faf286dfca9eed992f28a97fe07b27e",
+  "fixes": [
+    {
+      "sha": "a050bd3c8edf879c6c5645bf509b6a884e19312c",
+      "mergedAt": "2026-11-20T08:08:08-08:00",
+      "subject": "Claude Code started by cmux NEXT accepts messages from the person's other sessions (#46095)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-20T17:44:48Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
