@@ -224,6 +224,11 @@ pub fn install(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     if args.has("user") && args.has("system") {
         return Err(Error::usage("--user and --system do not go together"));
     }
+    if args.has("label") {
+        return Err(Error::usage(
+            "--label names a machine set up over ssh://; it does not go with an install here",
+        ));
+    }
     let layout = mutating_layout(ctx, args.has("system"))?;
     let mode = layout.mode;
     // Flags that ask for the signed store keep its refusals; without them a

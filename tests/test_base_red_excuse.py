@@ -947,6 +947,8 @@ class GlaedaKeptLog(unittest.TestCase):
     # nothing (cmux#41244's replay: about 150 reads, stopped at 51 runs).
     UNCACHED_LOG_READERS = {
         "base_red_checks.py": "runs in the push workflow with the Actions token (urllib), where no glaeda-gh is",
+        "ci_receipt.py": "verifies a receipt: it reads the log of a passed job, and glaeda-gh keeps the logs of "
+                         "failed jobs only; GitHub is the signer, so the log must come from the Actions API itself",
         "cmux_next_tree_notify.py": "not switched yet: follow-up to the glaeda job-log cache",
         "cmux_tui_tree_handoff.py": "not switched yet: follow-up to the glaeda job-log cache",
         "nightly_ghostty_helper_reuse.py": "not switched yet: follow-up to the glaeda job-log cache",
@@ -15517,6 +15519,12 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-next-react-doctor.yml",
             # The tab switch check: a display Mac measures the pull request head's tab switches (advisory).
             "cmux-next-tab-switch.yml",
+            # Type-checks the measuring probes (scripts/measure/*.swift) on a Mac when a change touches them.
+            "measure-swift-typecheck.yml",
+            # Push-only checks that also run, advisory and path-gated, on PRs into feat-cmux-next (#47445): the
+            # acpmux simulator sweep, Chief's evals, the mobile FFI, the cmux-next terminal and the Windows RD host.
+            "acpmux-sim-sweep.yml", "chief-evals.yml", "cmux-mobile-ffi.yml", "cmux-next-terminal.yml",
+            "cmux-rd-windows.yml",
             # Calls ci.yml, cmux-next-guards.yml and the other docs-only-filtered workflows when their filter can
             # be wrong (scripts/ci/docs_only_paths.py FALLBACK); a called guard job's check name carries the
             # caller's prefix, so no guard job declaration matches it and its red is judged as any job's.

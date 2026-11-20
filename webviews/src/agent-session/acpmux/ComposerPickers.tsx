@@ -39,6 +39,7 @@ import {
   type HarnessSetup,
 } from "./harnessSetup";
 import { INSTALL_COMMANDS } from "./harnesses/harnessRows";
+import { installProgress, plainInstallFailure } from "./harnesses/installRetry";
 import { postNative } from "./native";
 import { rememberPick } from "./lastPick";
 import { defaultModel } from "./harnessSwitch";
@@ -289,6 +290,9 @@ export function ComposerPickers({
   if (lastMode.current.sessionId !== summary?.sessionId) lastMode.current = { sessionId: summary?.sessionId };
   if (currentId && !planning) lastMode.current.mode = currentId;
   const mode = modes.find((choice) => choice.id === (planning ? lastMode.current.mode : currentId));
+  // With no Plan toggle drawn (the app's composer: the + menu's Plan row, /plan and Toggle Plan Mode
+  // switch it), the Mode chip is the one place that says the chat runs Plan, so it names Plan then.
+  const planFace = planning && !showPlan ? plan : undefined;
   const effort = summary?.configOptions?.find(isEffortOption);
   // The running model's catalog row (live list_models / model/list when known): which levels it
   // supports and which one is its own default. A chat on the agent's default model is described
@@ -1336,8 +1340,10 @@ export function ComposerPickers({
           label={t(PICKER_LABELS.mode)}
           modes={accessModes.length > 0 ? accessModes : pendingAccessModes}
           current={
-            (cloudAsking ? undefined : mode?.id) ?? (pendingAccessModes.length > 0 ? shownStart?.modeId : undefined)
+            (cloudAsking ? undefined : planFace ? planFace.id : mode?.id) ??
+            (pendingAccessModes.length > 0 ? shownStart?.modeId : undefined)
           }
+          {...(planFace && !cloudAsking ? { offMenu: planFace } : {})}
           sessionId={summary?.sessionId}
           warning={t(PICKER_LABELS.fullAccessWarning)}
           managed={fullAccessManaged}
@@ -1444,10 +1450,14 @@ function AccessMenu({
   onMode,
   heading,
   numbered = true,
+  offMenu,
 }: {
   label: string;
   modes: ModeChoice[];
   current?: string;
+  /// A mode the chat can run that the menu does not list (Plan, which the + menu toggles): the chip
+  /// names it while `current` is its id, and every listed mode is a pick that leaves it.
+  offMenu?: ModeChoice;
   sessionId?: string;
   warning: string;
   /// Full access is managed off for this chat (`useFullAccessManaged`, this Mac's chats only).
@@ -1499,7 +1509,7 @@ function AccessMenu({
   // A chat that has not reported its mode (one acpmux has not started) names none, not the first,
   // and every mode, the first included, is a pick.
   const value = optimisticMode ?? current ?? "";
-  const reportedMode = modes.find((choice) => choice.id === value);
+  const reportedMode = modes.find((choice) => choice.id === value) ?? (offMenu?.id === value ? offMenu : undefined);
   // A harness mode that asks under a policy that answers every prompt (approve-all) acts without
   // asking: the chip says full access, not the harness's Manual (cmux#27847). The menu still marks
   // the harness's own mode, the one a pick changes.
@@ -2375,7 +2385,12 @@ function setupView(setup: HarnessSetup, t: ReturnType<typeof useT>): { strip: Qu
     case "installing": {
       const text = t("picker.setup.installing", { harness });
       return {
-        strip: { text, ...(phase.line ? { detail: phase.line } : {}), busy: true, actions: [cancel] },
+        strip: {
+          text,
+          ...(phase.line ? { detail: installProgress(phase.line, t) } : {}),
+          busy: true,
+          actions: [cancel],
+        },
         chip: text,
       };
     }
@@ -2406,7 +2421,10 @@ function setupView(setup: HarnessSetup, t: ReturnType<typeof useT>): { strip: Qu
       return {
         strip: {
           text,
-          detail: phase.reason ?? t(phase.reasonKey ?? "harnesses.commandFailed"),
+          // Plain words for a dropped network or a terminal-only hint ("--force"): first-run finding 6.
+          detail: phase.reason
+            ? (plainInstallFailure(phase.reason, t) ?? phase.reason)
+            : t(phase.reasonKey ?? "harnesses.commandFailed"),
           busy: false,
           actions: [
             { label: t("picker.tryAgain"), run: retryHarnessSetup },
