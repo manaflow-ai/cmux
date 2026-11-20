@@ -55,12 +55,12 @@ never because it exists. The person's own instructions win.
 ## Slide decks
 
 Fastest: the `slides` tool (cmux MCP server): `{path: "slides/topic.slides.md", markdown}`.
-Markdown, Marp format: optional front matter with `title:`, slides split by a `---` line, a slide
+Markdown in the common Markdown slide format: optional front matter with `title:`, slides split by a `---` line, a slide
 of only headings is a title slide, `<!-- _class: center -->` centers one, any other
 `<!-- comment -->` or a `Notes:` line is speaker notes, raw HTML (`div.cols`, inline `<svg>`, an
 `<img>` from the deck's folder) passes through. It opens beside the chat with the slide strip,
 Present (F), Export PDF and Export .pptx; call it again with the same path and the open tab
-updates in place. A `.slides.md` file (or front matter `marp: true`) opened with `open` shows as
+updates in place. A `.slides.md` file (or front matter `slides: true`) opened with `open` shows as
 slides too.
 
 By hand, for full control of the layout: a deck is one HTML file, one `<section>` per slide. Copy `templates/deck.html` (beside this file)
