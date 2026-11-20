@@ -1,3 +1,7 @@
+//! Run against a deployed build with `CMUX_PROOF_BIN`, its release receipt's full
+//! `CMUX_PROOF_COMMIT`, the registry's `CMUX_PROOF_MACHINE` and `CMUX_PROOF_HOSTNAME`
+//! (the output of `hostname` read independently on the test VM). The two harnesses must
+//! be signed in on that VM and allowed to run `hostname`. Only startup is timed.
 #![cfg(unix)]
 
 use std::collections::HashSet;
@@ -38,9 +42,13 @@ fn invoke(binary: &str, args: &[&str], limit: Duration) -> (Duration, Value) {
 fn ten_consecutive_named_machine_launches() {
     let machine = std::env::var("CMUX_PROOF_MACHINE").expect("name one joined lane machine");
     let binary = std::env::var("CMUX_PROOF_BIN").expect("path to the deployed cmux CLI");
+    let commit = std::env::var("CMUX_PROOF_COMMIT").expect("full commit from the build receipt");
+    let hostname = std::env::var("CMUX_PROOF_HOSTNAME").expect("hostname read on the test VM");
+    assert!(commit.len() == 40 && commit.bytes().all(|c| c.is_ascii_hexdigit()));
+    assert!(!hostname.is_empty() && !hostname.contains(char::is_whitespace));
     let (_, version) = invoke(&binary, &["--version", "--json"], LAUNCH_LIMIT);
     let build = version["build_commit"].as_str().expect("deployed binary has no build commit");
-    assert!(!build.is_empty());
+    assert_eq!(build, commit.as_str(), "wrong build; no sessions were started");
     let dir = tempfile::tempdir().unwrap();
     let run = dir.path().file_name().unwrap().to_str().unwrap();
     println!("cmux={build} machine={machine}");
@@ -48,11 +56,11 @@ fn ten_consecutive_named_machine_launches() {
     for attempt in 1..=10 {
         let harness = if attempt % 2 == 1 { "codex" } else { "claude" };
         let suffix = format!("{run}-{attempt}");
-        let expected = format!("received-{suffix}");
+        let expected = format!("received-{suffix} {hostname}");
         let path = dir.path().join(format!("prompt-{attempt}.txt"));
         std::fs::write(
             &path,
-            format!("Join `received-` and `{suffix}`. Reply with only the result; use no tools."),
+            format!("Run `hostname` in your shell. Join `received-` and `{suffix}`, then add a space and the hostname you read. Reply with that single line."),
         )
         .unwrap();
         let (elapsed, result) = invoke(

@@ -11,6 +11,8 @@ cmux-next is the rewrite of cmux on the `feat-cmux-next` branch: a Swift shell, 
 Pick DEV if you also want to keep classic NIGHTLY. Pick nightly-next only if you're ready for it
 to take classic NIGHTLY's place, because both use the same bundle id and socket.
 
+To join a team machine and start your first agent there, follow [Start a Cloud chat from a clean Mac](../cloud-teammate-setup.md). It includes a prompt you can paste into a chat.
+
 ## cmux NEXT DEV
 
 The install script is on the `feat-cmux-next` branch, not on `main`. You don't need a checkout:
