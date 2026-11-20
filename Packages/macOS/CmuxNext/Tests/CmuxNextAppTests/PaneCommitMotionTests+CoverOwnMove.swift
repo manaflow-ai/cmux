@@ -118,12 +118,34 @@ extension PaneCommitMotionTests {
         #expect(left.isEmpty && motion.covers.isEmpty, "at the motion's end a pane host is not at rest: \(left.prefix(3)); windows that the motion keeps: \(motion.covers.count)")
     }
 
-    /// An unzoom in a glass window, and in its move the zoom of another pane. In each frame from the one that shows
-    /// that zoom, no part of another pane that shows is inside the rect of the pane that grows now. The pane that the
-    /// unzoom closes still has its own move, and the zoom's window is on its layer too: the 2 are read each at its
-    /// own part of its act.
-    @Test(arguments: movingSpeeds)
-    func aZoomOfAnotherPaneInAnUnzoomsMoveShowsNoOtherPaneInsideIt(_ speed: MotionSpeed) throws {
+    /// The 5 panes of the 6 that an unzoom of the last one does not close: the zoom in that unzoom's move is of one of them.
+    nonisolated static let othersOfSix = ["p", "paab", "pab", "pb", "pbab"]
+
+    /// How far `host` is from its place at rest, in points, when the moves of each act are at `part(act)` of their
+    /// way: how far its content is from where it is at rest, how far an edge of its layer is past its rect at rest,
+    /// and how far the size of its inner clip is from the one at rest; the largest of them. A window on the pane
+    /// gives 0: it keeps the content where it is, and shows the pane inside its rect.
+    static func awayFromRest(_ host: PaneHostView, at part: (Int) -> CGFloat) -> CGFloat {
+        guard let layer = host.layer else { return 0 }
+        let cell = rect(of: layer, at: part), end = move(of: layer, only: []).end
+        let own = origin(of: layer, at: part), still = layer.bounds.origin
+        var far = max(abs(cell.minX - end.minX - (own.x - still.x)), abs(cell.minY - end.minY - (own.y - still.y)))
+        far = max(far, end.minX - cell.minX, end.minY - cell.minY, cell.maxX - end.maxX, cell.maxY - end.maxY)
+        if let inner = host.clipView.layer {
+            let now = rect(of: inner, at: part), rest = move(of: inner, only: []).end
+            far = max(far, abs(now.width - rest.width), abs(now.height - rest.height))
+        }
+        return far
+    }
+
+    /// An unzoom in a glass window, and in its move the zoom of another pane (`name`). In each frame from the one that
+    /// shows that zoom, no part of another pane that shows is inside the rect of the pane that grows now, and the
+    /// pane that the unzoom closed is at its place at rest: its own move ends in the pass that shows the zoom, so the
+    /// zoom's window is on a pane at rest. The eye gets that pane at its place in one frame. The row prints how far
+    /// the pane was from its place in the frame before, and how much of it shows past the edge of the pane that grows
+    /// in the frame of the jump. A layer's animations are read each at its own part of its act.
+    @Test(arguments: movingSpeeds, othersOfSix)
+    func aZoomOfAnotherPaneInAnUnzoomsMoveShowsNoOtherPaneInsideIt(_ speed: MotionSpeed, _ name: String) throws {
         let over = try Self.overPicture("unzoom", panes: 6, gap: "glass", speed: speed)
         defer { over.harness.window.closeAfterTest() }
         try Self.requireKind("glass", of: over)
@@ -132,15 +154,17 @@ extension PaneCommitMotionTests {
         for _ in 0..<Self.framesBeforeTheKey { _ = harness.root.advanceFrame(Self.dt) }
         try #require(Self.inFlight(screen), "SETUP: no pane moves \(Self.framesBeforeTheKey) frames after the frame that showed the unzoom")
         let first = motion.serial
-        let found = Self.paneHosts(screen).first { host in host !== mover && !host.isHidden && motion.covers[ObjectIdentifier(host)] != nil }
-        let next = try #require(found, "SETUP: no other pane has a window in the unzoom's move")
+        let found = Self.paneHosts(screen).first { host in host !== mover && !host.isHidden && host.pane == PaneID(name) }
+        let next = try #require(found, "SETUP: the screen shows no other pane `\(name)` in the unzoom's move")
+        let jump = Self.awayFromRest(mover, at: { _ in Self.way(of: "unzoom", at: speed, tick: Self.framesBeforeTheKey) })
+        try #require(jump > 0.5, "SETUP: the pane that the unzoom closes is at its place \(Self.framesBeforeTheKey) frames into its move")
 
         harness.model.focus(next.pane, notify: false)
         try Self.secondAct(on: over, zoomed: next.pane, of: 6, closing: nil)
         try #require(motion.serial == first + 1, "SETUP: the zoom of \(next.pane) in the unzoom's move shows in one frame: no second act moves")
         try #require(!Self.hasFullGround(next), "SETUP: the pane that grows has a ground in a glass window")
         let others = Self.paneHosts(screen).filter { $0 !== next }
-        var faults: [String] = [], under = 0, tick = 0
+        var faults: [String] = [], under = 0, tick = 0, away: [String] = [], past: CGFloat = 0
         while Self.inFlight(screen), tick < 2 * Commit.frames {
             let now = tick
             let part: (Int) -> CGFloat = { act in
@@ -153,16 +177,24 @@ extension PaneCommitMotionTests {
                 var shows: [String] = []
                 for other in others {
                     if !other.isHidden, Self.area(other.frame.intersection(rect)) >= 1 { under += 1 }
-                    let inside = Self.showing(other, on: screen, at: part).reduce(CGFloat(0)) { $0 + Self.area($1.intersection(rect)) }
+                    let shown = Self.showing(other, on: screen, at: part)
+                    let inside = shown.reduce(CGFloat(0)) { $0 + Self.area($1.intersection(rect)) }
                     if inside >= 1 { shows.append("\(other.pane) in \(Int(inside)) pt2") }
+                    if other === mover, tick == 0 { past = shown.reduce(CGFloat(0)) { $0 + Self.area($1) } - inside }
                 }
                 if !shows.isEmpty { faults.append("tick \(tick), inside \(next.pane) at \(rect): \(shows.joined(separator: ", "))") }
             }
+            let far = mover.isHidden ? 0 : Self.awayFromRest(mover, at: part)
+            if far > 0.5 { away.append("tick \(tick): \((far * 10).rounded() / 10) pt") }
             _ = harness.root.advanceFrame(Self.dt)
             tick += 1
         }
         try #require(!Self.inFlight(screen), "SETUP: a pane still moves \(tick) frames after the frame that showed the zoom of \(next.pane)")
         try #require(under > 0, "SETUP: in no frame after the zoom is the place of another pane under the pane that grows")
+        print("ROW (A): \(speed), the zoom of \(next.pane) in the unzoom of \(mover.pane): in the frame before, \(mover.pane) is",
+              "\((jump * 10).rounded() / 10) pt from its place; in the frame of the jump it shows \(Int(past)) pt2 past the edge of the pane",
+              "that grows; its place has \(Int(Self.area(mover.frame))) pt2; frames read: \(tick); frames with \(mover.pane) not at its place: \(away.count)")
+        #expect(away.isEmpty, "in \(away.count) frames from the one that shows the zoom of \(next.pane), \(mover.pane) is not at its place; the first: \(away.prefix(3))")
         #expect(faults.isEmpty, "\(faults.count) reads after the zoom of \(next.pane) in the unzoom's move show another pane inside it; the first: \(faults.prefix(3))")
     }
 
@@ -274,7 +306,9 @@ extension PaneCommitMotionTests {
         }
         try #require(!Self.inFlight(screen), "SETUP: a pane still moves \(frames) frames after the frame that showed the \(second)")
         try #require(!state.unstable, "SETUP: a layer gives 2 objects for one animation: the frames of an animation can not be counted")
-        try #require(strongest > 0.2, "SETUP: no other pane has a veil in the 2 acts: the strongest is \(strongest)")
+        // An unzoom's veils come back on their ramps, and the zoom in its move takes them away again: they stay low.
+        let least: CGFloat = look.scene == "zoom" ? 0.2 : 0.05
+        try #require(strongest > least, "SETUP: no other pane has a veil above \(least) in the 2 acts: the strongest is \(strongest)")
         print("LIGHT ROW: \(look.testDescription), then the \(second): the brightest other pane has the light \((most * 100).rounded() / 100);",
               "a pane with a veil has \(rest) at rest; the brightest in each frame: \(series)")
         #expect(faults.isEmpty, "\(faults.count) reads show another pane brighter than at rest by more than 0.05; the first: \(faults.prefix(3))")
