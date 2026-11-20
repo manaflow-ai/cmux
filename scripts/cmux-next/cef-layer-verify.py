@@ -743,7 +743,7 @@ def check_popup():
         seen["screen"] = bars[:2] if bars else None
     row("popup.pixels", any(b and bars_ok(b[0], b[1]) for b in seen.values()),
         {name: ({"red_rows": [min(b[0]), max(b[0])] if b[0] else None, "blue_rows": [min(b[1]), max(b[1])] if b[1] else None}
-                if b else None) for name, b in seen.items()} | {"frame": panel.get("frame")})
+                if b else None) for name, b in seen.items()} | {"frame": panel.get("frame"), "census": page_census()})
     # The page's own window over the popup (a child window) when there is one, else the popup's middle under its bar.
     children = [c for c in panel.get("child_windows") or [] if c.get("visible")]
     target = rect_center(children[0]["frame"]) if children else rect_center(panel["frame"], 20)
@@ -757,6 +757,16 @@ def check_popup():
                                       "child_windows": children[:2]})
     rpc("debug.popups", {"action": "close"})
     wait(lambda: popup_panel() is None, 5)
+
+
+def page_census():
+    """In-tree pages (and the DevTools entries) as the app reports them, for a row's evidence: a blank page then says
+    whether it was in tree, in which pane, and whether its content view was in the window."""
+    views = [v for w in (rpc("debug.layers") or {}).get("windows") or [] for v in w.get("page_views") or []]
+    cef = rpc("debug.cef") or {}
+    return {"page_views": views[:6], "refused": (cef.get("tracker") or {}).get("in_tree_refused"),
+            "devtools": [{k: d.get(k) for k in ("open", "dock", "devtools_frame", "presentation", "in_tree")}
+                         for d in cef.get("devtools") or []][:3]}
 
 
 def devtools_entry():
@@ -777,7 +787,7 @@ def check_devtools():
     entry = devtools_entry() or entry
     image = screen_image(appkit_rect(entry["devtools_frame"]), "devtools-screen")
     detail = image_detail(image) if image else 0
-    row("devtools.pixels", detail > 8, {"colours": detail, "devtools_frame": entry.get("devtools_frame"),
+    row("devtools.pixels", detail > 8, {"colours": detail, "census": page_census(), "devtools_frame": entry.get("devtools_frame"),
                                          "via": "cua" if opts.input == "cua" else "screencapture"})
     def devtools_key():
         found = devtools_entry()
@@ -966,7 +976,7 @@ def main():
             return bool(red) and min(red) <= max(8, rows * 0.05) and (not blue or max(red) < min(blue))
         row("resize.top", at_top(moving) and at_top(settled),
             {name: ({"red_rows": [min(b[0]), max(b[0])] if b[0] else None, "rows": b[2]} if b else None)
-             for name, b in (("moving", moving), ("settled", settled))})
+             for name, b in (("moving", moving), ("settled", settled))} | {"census": page_census()})
     finally:
         if not opts.keep:
             rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
