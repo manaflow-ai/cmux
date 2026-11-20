@@ -647,6 +647,11 @@ impl Session {
     pub fn meta(&self) -> SessionMeta {
         self.meta.lock().unwrap().clone()
     }
+    /// A test's stand-in for an agent's `available_commands_update`: a detail of any size.
+    #[cfg(test)]
+    pub(crate) fn set_available_commands_for_test(&self, commands: Value) {
+        self.meta.lock().unwrap().available_commands = Some(commands.into());
+    }
     /// Read only the needed fields without copying large metadata payloads. The
     /// callback must not acquire other session/hub locks or call back into this session.
     pub(crate) fn read_meta<T>(&self, read: impl FnOnce(&SessionMeta) -> T) -> T {
