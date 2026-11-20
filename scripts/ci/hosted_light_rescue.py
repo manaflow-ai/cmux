@@ -882,7 +882,7 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
 # - pull request runs only (pull_request and pull_request_target, attempt 1, of this repository's own branches),
 #   never a push, schedule, dispatch, nightly, DEV, promote or release run, never nightly.yml;
 # - created BACKLOG_STALL to BACKLOG_WINDOW ago, except a run the minute pass owns (a declared workflow's run under
-#   WINDOW old), so the two never act on the same run;
+#   WINDOW old, never a `pending` one, which the minute pass does not list), so the two never act on the same run;
 # - every unfinished job queued, with no runner, on GitHub-hosted Ubuntu labels only, for BACKLOG_STALL or more
 #   (a run with anything running or waiting otherwise is left alone);
 # - a run at its pull request's current head is cancelled and its failed jobs re-run (attempt 2: each job takes its
@@ -928,10 +928,13 @@ BACKLOG_WAITING = ("queued", "pending")
 # Waiting runs are read oldest first, but a pass reads about 110 of them (one call each) and the same oldest ones stay
 # queued on Blacksmith for hours: on 2026-11-20 each pass listed 489 candidates, read the same 116 oldest, found 0
 # stalled, and never reached the hosted-bound runs created after them. The oldest BACKLOG_OLDEST_FIRST keep their place;
-# the rest rotate by BACKLOG_ROTATE_STEP a pass (passes are ten minutes apart), so each waiting run is read within a few
-# passes however deep the queue is.
+# the rest fall in BACKLOG_ROTATE_BUCKETS buckets by run id, read from the bucket of their listing's visit on. A page
+# listed every pass is visited every pass (passes are ten minutes apart); a page between, or a newer slice, listed
+# every m passes counts its own visits, so each of its visits starts from the next bucket. A shift by the pass alone
+# repeated with the page between: with 790 queued runs both came round every five passes, so each page between was
+# read from the same place every time and 364 runs never had their jobs read (cmux#47786 review).
 BACKLOG_OLDEST_FIRST = 40
-BACKLOG_ROTATE_STEP = 70
+BACKLOG_ROTATE_BUCKETS = 11
 BACKLOG_PASS_SECONDS = 600
 # Journalled cancels: at most BACKLOG_PENDING_MAX wait at once, and each costs at most BACKLOG_RECOVER_CALLS to re-run
 # (the run, its pull request, its head's runs, the re-run), so BACKLOG_RECOVER_SHARE covers the rate-limit read, the
@@ -1067,38 +1070,63 @@ def backlog_oldest(client: Any, status: str, event: str, start: dt.datetime, end
 
     A quiet repository costs one read. A listing over one page reads its last (oldest) page instead, and one over
     the 1,000 runs GitHub serves is walked in BACKLOG_SLICE slices from the oldest, so the runs that waited longest
-    are found first however deep the queue is. Under 1,000 runs the first page (the newest, read anyway for the
-    count) is kept too, and one of the pages between is read by `turn` (the pass), so a run created after the
-    oldest `want` is still listed within a few passes."""
+    are found first however deep the queue is. The first page (the newest, read anyway for the count) is kept too,
+    and `turn` (the pass) picks more between, so a run created after the oldest `want` is still listed within a few
+    passes: under 1,000 runs one of the pages between, over it one of the slices the oldest-first walk did not reach
+    (and one of that slice's pages between). Over 1,000 runs the pass once kept only the oldest slices: with 1,001
+    runs in one slice, 200 of them were ever listed and the newest aged out unread (cmux#47786 review)."""
     total, rows = backlog_listing(client, status, event, start, end)
     if total <= LIST_PAGE:
         return rows
     if total <= 10 * LIST_PAGE:
         return oldest_pages(client, status, event, start, end, total, want, turn=turn) + rows
-    found: list[dict[str, Any]] = []
+    slices: list[tuple[dt.datetime, dt.datetime]] = []
     cut = start
-    while cut < end and len(found) < want and reads_left(client) > BACKLOG_READS // 2:
-        upper = min(end, cut + BACKLOG_SLICE)
-        part_total, part = backlog_listing(client, status, event, cut, upper)
-        if part_total > LIST_PAGE:
-            part = oldest_pages(client, status, event, cut, upper, min(part_total, 10 * LIST_PAGE), want - len(found))
-        found.extend(part)
-        cut = upper
+    while cut < end:
+        slices.append((cut, min(end, cut + BACKLOG_SLICE)))
+        cut = slices[-1][1]
+    found, walked = list(rows), 0
+    while walked < len(slices) and len(found) - len(rows) < want and reads_left(client) > BACKLOG_READS // 2:
+        found.extend(slice_runs(client, status, event, *slices[walked], want - (len(found) - len(rows)), turn=turn))
+        walked += 1
+    rest = slices[walked:]
+    if rest and reads_left(client) > BACKLOG_READS // 2:
+        # Each slice comes round every len(rest) passes; its runs are read by its own visits (see backlog_rotate).
+        visit = turn // len(rest)
+        found.extend(visited(slice_runs(client, status, event, *rest[turn % len(rest)], 0, turn=visit), visit))
     return found
+
+
+def slice_runs(client: Any, status: str, event: str, start: dt.datetime, end: dt.datetime, want: int,
+               turn: int | None = None) -> list[dict[str, Any]]:
+    """One slice's runs: all of them under one page, else its oldest pages back to `want` runs, with `turn` one page
+    between chosen by it, and its newest page."""
+    total, rows = backlog_listing(client, status, event, start, end)
+    if total <= LIST_PAGE:
+        return rows
+    return oldest_pages(client, status, event, start, end, min(total, 10 * LIST_PAGE), want, turn=turn) + rows
 
 
 def oldest_pages(client: Any, status: str, event: str, start: dt.datetime, end: dt.datetime, total: int,
-                 want: int, turn: int = 0) -> list[dict[str, Any]]:
+                 want: int, turn: int | None = None) -> list[dict[str, Any]]:
     """The last pages of a listing of `total` runs (the oldest), back to at least `want` runs; with `turn`, also one
-    of the unread pages after page 1, chosen by it."""
+    of the unread pages after page 1, chosen by it. Page 1 is never read: the caller has it."""
     found: list[dict[str, Any]] = []
     page = -(-total // LIST_PAGE)
-    while page >= 1 and len(found) < want and reads_left(client) > BACKLOG_READS // 2:
+    while page >= 2 and len(found) < want and reads_left(client) > BACKLOG_READS // 2:
         found.extend(backlog_listing(client, status, event, start, end, page=page)[1])
         page -= 1
-    if turn and page >= 2 and reads_left(client) > BACKLOG_READS // 2:
-        found.extend(backlog_listing(client, status, event, start, end, page=2 + turn % (page - 1))[1])
+    if turn is not None and page >= 2 and reads_left(client) > BACKLOG_READS // 2:
+        between = page - 1
+        rows = backlog_listing(client, status, event, start, end, page=2 + turn % between)[1]
+        found.extend(visited(rows, turn // between))
     return found
+
+
+def visited(rows: Sequence[dict[str, Any]], visit: int) -> list[dict[str, Any]]:
+    """`rows` marked with the listing's visit count (rows already marked keep theirs): backlog_rotate reads a page
+    listed only every few passes by its own visits, so each visit starts from a new place."""
+    return [row if "_visit" in row else {**row, "_visit": visit} for row in rows]
 
 
 def backlog_pulls(client: Any, run: Mapping[str, Any]) -> list[tuple[str, str]]:
@@ -1393,12 +1421,11 @@ def backlog_sweep(client: Any, *, now: dt.datetime, dry_run: bool, declared: Seq
 
 
 def backlog_rotate(waiting: Sequence[Mapping[str, Any]], now: dt.datetime) -> list[Mapping[str, Any]]:
-    """`waiting` (oldest first) with its oldest BACKLOG_OLDEST_FIRST in place and the rest rotated by this pass."""
+    """`waiting` (oldest first) with its oldest BACKLOG_OLDEST_FIRST in place and the rest by bucket, from the bucket
+    of the run's listing visit on (this pass, for a page listed every pass), oldest first within each bucket."""
     head, tail = list(waiting[:BACKLOG_OLDEST_FIRST]), list(waiting[BACKLOG_OLDEST_FIRST:])
-    if not tail:
-        return head
-    offset = (int(now.timestamp()) // BACKLOG_PASS_SECONDS * BACKLOG_ROTATE_STEP) % len(tail)
-    return head + tail[offset:] + tail[:offset]
+    turn = int(now.timestamp()) // BACKLOG_PASS_SECONDS
+    return head + sorted(tail, key=lambda run: (int(run["id"]) - int(run.get("_visit", turn))) % BACKLOG_ROTATE_BUCKETS)
 
 
 def backlog_scan(client: Any, journal: dict[int, Journalled] | None, *, now: dt.datetime, dry_run: bool,
@@ -1430,8 +1457,10 @@ def backlog_scan(client: Any, journal: dict[int, Journalled] | None, *, now: dt.
         if not (start <= created <= end):
             return f"created {run.get('created_at')}, outside {int(BACKLOG_STALL.total_seconds() // 60)} min to 24 h ago"
         # The minute pass owns a declared workflow's run under WINDOW old; unread declarations leave every run under
-        # WINDOW to it.
-        if created >= minute_pass_from and (declared is None or workflow in declared):
+        # WINDOW to it. It lists IN_FLIGHT runs only, so a `pending` run is this pass's from BACKLOG_STALL old: left
+        # to the minute pass, a 60-minute-old pending run went unread until it was WINDOW old (cmux#47786 review).
+        if (created >= minute_pass_from and run.get("status") in IN_FLIGHT
+                and (declared is None or workflow in declared)):
             return "the minute pass's run"
         return ""
 
