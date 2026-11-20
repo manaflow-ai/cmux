@@ -470,7 +470,11 @@ private struct DriveRun {
             // A tick's waits for WebKit end at `stop` too: on a covered window each would run its whole bound.
             let sentTick = await input.wheelTick(at: point, deltaY: Double(wheel.delta), before: stop)
             let took = AgentPaneSpareOpening.milliseconds(since: tickStarted)
-            var paused = 0.0
+            // Counted before the pause: a run cancelled during it still reports the tick it sent.
+            if sentTick.sent {
+                sent += 1
+                perTick.append(Self.record(sentTick, took: took, paused: 0))
+            }
             if tick + 1 < wheel.ticks {
                 // Between two ticks (`tick_ms` from this one's start, never past `stop`; DriveCadence) the person,
                 // the window and the app are watched every DriveWatch.step, as in a hold; what it sees, the next
@@ -481,11 +485,10 @@ private struct DriveRun {
                                                                             stop: stop), isUsing: {
                     Self.outside(surroundings, release) != nil || person.isUsing(since: started)
                 })
-                paused = AgentPaneSpareOpening.milliseconds(since: pauseStarted)
-            }
-            if sentTick.sent {
-                sent += 1
-                perTick.append(Self.record(sentTick, took: took, paused: paused))
+                if sentTick.sent {
+                    perTick[perTick.count - 1] = Self.record(sentTick, took: took,
+                                                             paused: AgentPaneSpareOpening.milliseconds(since: pauseStarted))
+                }
             }
         }
         return false
