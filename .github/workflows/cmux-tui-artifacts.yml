@@ -4670,6 +4670,12 @@ jobs:
       name: artifacts
       deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     name: point the feat-cmux-next channel at this tree
+    # One waiting point per channel: a newer commit's point replaces a pending one (the point is a
+    # forward-only compare-and-swap, so only the newest tree matters). With none, every commit queued
+    # its own point on the one-job label: 31 stale ones waited there on 2026-11-20.
+    concurrency:
+      group: cmux-tui-point-feat-${{ github.ref }}
+      cancel-in-progress: false
     needs: [tree-preflight, publish-tree-tested]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && needs.publish-tree-tested.result != 'failure' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
@@ -4711,6 +4717,12 @@ jobs:
       name: artifacts
       deployment: false
     name: point the windows-feat-cmux-next channel at this tree
+    # One waiting point per channel: a newer commit's point replaces a pending one (the point is a
+    # forward-only compare-and-swap, so only the newest tree matters). With none, every commit queued
+    # its own point on the one-job label: 31 stale ones waited there on 2026-11-20.
+    concurrency:
+      group: cmux-tui-point-windows-${{ github.ref }}
+      cancel-in-progress: false
     # After publish-tree-tested, whatever its result: the script points only at a tree with its
     # daemon-tests marker, and a dispatch is the only run that builds Windows to point at.
     needs: [tree-preflight, publish-tree-windows, publish-tree-tested]
@@ -4993,6 +5005,12 @@ jobs:
       name: artifacts
       deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     name: point the Cloud machine channel at this commit's Linux build
+    # One waiting point per channel: a newer commit's point replaces a pending one (the point is a
+    # forward-only compare-and-swap, so only the newest tree matters). With none, every commit queued
+    # its own point on the one-job label: 31 stale ones waited there on 2026-11-20.
+    concurrency:
+      group: cmux-tui-point-machine-early-${{ github.ref }}
+      cancel-in-progress: false
     needs: [tree-preflight, tree-owner-wait, build-linux]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.build-linux.result == 'success' && (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
     continue-on-error: true
@@ -5065,6 +5083,12 @@ jobs:
       name: artifacts
       deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     name: point the Cloud machine channel at this commit
+    # One waiting point per channel: a newer commit's point replaces a pending one (the point is a
+    # forward-only compare-and-swap, so only the newest tree matters). With none, every commit queued
+    # its own point on the one-job label: 31 stale ones waited there on 2026-11-20.
+    concurrency:
+      group: cmux-tui-point-machine-${{ github.ref }}
+      cancel-in-progress: false
     needs: [publish, verify-publish, adopt-commit-manifest]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && (needs.verify-publish.result == 'success' || (needs.adopt-commit-manifest.result == 'success' && (needs.adopt-commit-manifest.outputs.state == 'adopted' || needs.adopt-commit-manifest.outputs.state == 'present'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
@@ -5076,7 +5100,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          # The Mac live update file walks first parents back up to 400 commits (hot-apply.py live-from).
+          # cmux-tui-tree-key.sh --same-tree reads history: a single-commit checkout cannot name the tree's key inputs.
           fetch-depth: 402
 
       # The owned GCP build lanes reuse the workspace: after an earlier job's sparse checkout a full checkout there left tracked files missing (run 44398113924), so write HEAD's files again.
@@ -5137,11 +5161,41 @@ jobs:
             echo "::warning::the signed Linux release file of $GITHUB_SHA was not published; the next push signs its own"
           fi
 
+  # Mac delivery must not wait for or be skipped by the unrelated Cloud channel or
+  # Linux release signing. Manual artifact repairs must publish the same live file
+  # as a landing push. The payload maker re-downloads and hashes every Mac binary.
+  point-mac-live-channel:
+    name: publish the Mac live update
+    needs: [publish, verify-publish, adopt-commit-manifest]
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && (needs.verify-publish.result == 'success' || (needs.adopt-commit-manifest.result == 'success' && (needs.adopt-commit-manifest.outputs.state == 'adopted' || needs.adopt-commit-manifest.outputs.state == 'present'))) }}
+    environment:
+      name: artifacts
+      deployment: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # live-from walks at most 400 first parents, including a merge's parents.
+          fetch-depth: 402
+
+      - name: Repair a reused self-hosted checkout
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+            git sparse-checkout disable 2>/dev/null || true
+            git reset -q --hard HEAD
+          fi
+
       # cmuxterm-hq docs/design/nightly-live-updates.md step 1: cmux-tui/<sha>/mac-live.json (written once; `cmux app
       # try SHA` takes it live) and cmux-tui/channels/mac-live.json (forward only), the same envelope and key with
       # purpose cmux-mac-live-update. It names the commit's darwin daemon binaries from the manifest (the Cloud
       # machine channel's trust: the darwin build is not this job's) and live_from, the app commits that can take
-      # them live. Delivery, not a gate: a failure is a warning and holds nothing above.
+      # them live. Failure fails this delivery job so it can be retried and alerted; builds do not wait on it.
       - name: Sign the Mac live update file
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
@@ -5154,16 +5208,14 @@ jobs:
           ml="$RUNNER_TEMP/mac-live"
           mkdir -p "$ml" && chmod 700 "$ml"
           export ml GITHUB_SHA GITHUB_RUN_ID
-          if ! timeout 900 bash -euo pipefail -c '
+          timeout 900 bash -euo pipefail -c '
                  curl -fsS --retry 3 --max-time 60 -o "$ml/manifest.json" "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json?mac-live=$GITHUB_RUN_ID"
                  python3 scripts/cmux-next/hot-apply.py live-from "$GITHUB_SHA" > "$ml/live-from.json"
                  python3 scripts/ci/cmux-machine-channel.py payload --purpose mac-live --manifest "$ml/manifest.json" \
                    --live-from "$ml/live-from.json" --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" \
                    --download-dir "$ml/binaries" --out "$ml/payload.json"
                  rm -rf "$ml/binaries"
-                 scripts/ci/cmux-machine-channel-point.sh "$ml/payload.json" "$ml"'; then
-            echo "::warning::the signed Mac live update file of $GITHUB_SHA was not published; the next push signs its own"
-          fi
+                 scripts/ci/cmux-machine-channel-point.sh "$ml/payload.json" "$ml"'
 
   # The fallback for publish's "Request the Cloud VM image roll": only when that dispatch failed, after the
   # read-back of the same commit manifests point-machine-channel reads. The roll's plan decides whether the
@@ -5413,7 +5465,7 @@ jobs:
   # 300 an hour, must not spend the 1,000-an-hour budget every workflow shares.
   drop-build-artifacts:
     name: drop this run's build artifacts
-    needs: [reject-untrusted-pin-ref, push-gate, tree-preflight, tree-owner-wait, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, sweep-pending-tree-notify, point-machine-channel-early, point-machine-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
+    needs: [reject-untrusted-pin-ref, push-gate, tree-preflight, tree-owner-wait, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, sweep-pending-tree-notify, point-machine-channel-early, point-machine-channel, point-mac-live-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
     # Not after notify-unpublished-tree ran: it must stay the run's last job so the
     # deferred run it re-runs finds this owner ended (cx-urd.26). Those runs keep
     # their artifacts to the 1-day retention.
