@@ -19,6 +19,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "machine-auth",
+        &[
+            (
+                "Check how this Cloud machine's agents reach models (the edge, the placeholder key, no login)",
+                "acpmux machine-auth",
+            ),
+            ("The same report as JSON", "acpmux --json machine-auth"),
+        ],
+    ),
+    (
         "who-else",
         &[
             (
@@ -272,6 +282,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ("Open the TUI on coord", "acpmux attach coord"),
             ("Open the TUI on the session list", "acpmux attach"),
             ("Follow a session as plain text", "acpmux attach review-27310 --plain"),
+        ],
+    ),
+    (
+        "resume-here",
+        &[
+            (
+                "Run a Claude Code or Codex chat in this terminal once its turn ends",
+                "acpmux resume-here review-27310",
+            ),
+            ("Print the resume command instead of running it", "acpmux resume-here coord --print"),
         ],
     ),
     (

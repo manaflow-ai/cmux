@@ -80,7 +80,7 @@ pub(crate) fn child_env(entries: Vec<Given>) -> Vec<(String, String)> {
 
 /// The value a launch would have without the vault: the login env's, else
 /// the daemon's own.
-fn inherited(name: &str) -> Option<String> {
+pub(super) fn inherited(name: &str) -> Option<String> {
     crate::login_env::allowed_var(name)
         .or_else(|| std::env::var(name).ok())
         .filter(|v| !v.is_empty())

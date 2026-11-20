@@ -1,3 +1,4 @@
+import { acpmuxPerf } from "./perf";
 import { authChipText, authLoginText, authText, canSessionLogin } from "./sessionAuth";
 import {
   useCallback,
@@ -31,7 +32,8 @@ import { useHarnessUpdates } from "./harnessUpdateList";
 import { HarnessUpdatesSection } from "./HarnessUpdates";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, type ModelPickerProps } from "./modelPickerLayout";
 import { curatedSections, modelSections } from "./modelSections";
-import { effortWords, fitsQuery, modelEffort, parseQuery, type ParsedQuery } from "./modelQuery";
+import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
+import { effortWords, fitsQuery, matchingModels, modelEffort, parseQuery, type ParsedQuery } from "./modelQuery";
 import { listsFeedModels } from "./feedHarnesses";
 import { INSTALL_COMMANDS } from "./harnesses/harnessRows";
 import { groupVariants } from "./modelVariants";
@@ -56,6 +58,8 @@ import {
 import { ScrollArea } from "../../ui/ScrollArea";
 import { quantizePickerRail } from "./pickerRailGeometry";
 import { CLAUDE_STDIO_KIND, type HarnessChoice, uniqueHarnesses, withoutVendor } from "./modelPickerModel";
+import { ClaudeConnectRow } from "./ClaudeConnectRow";
+import type { ClaudeConnectRowProps } from "./claudeConnect";
 import { pickerHeightBounds } from "./modelPickerLayout";
 type ModelChoice = {
   id: string;
@@ -185,11 +189,8 @@ function searchModels(
   query: ParsedQuery,
   lang?: string,
 ): { model: ModelChoice; entry: HarnessChoice }[] {
-  return entries.flatMap((entry) =>
-    choicesFor(entry, lang)
-      .filter((model) => fitsQuery(model, entry.name, query))
-      .map((model) => ({ model, entry })),
-  );
+  const choices = entries.flatMap((entry) => choicesFor(entry, lang).map((model) => ({ model, entry })));
+  return matchingModels(choices, query, ({ model, entry }, parsed) => fitsQuery(model, entry.name, parsed));
 }
 
 /// A model as a row of the compact menu's tab `family`, with its providers' rows when it has several.
@@ -354,6 +355,9 @@ const modelRow =
 /// The active row (pointer or arrows) has the hover wash; any other row gets it on hover.
 const rowFill = (active: boolean) => (active ? "bg-hover" : "bg-transparent hover:bg-hover");
 const emptyNote = "px-2.5 py-2 text-body text-muted";
+/// Whether the Claude Connect row (ClaudeConnectRow.tsx) leads `entry`'s section: its mark is the row's brand.
+const claudeConnectHere = (connect: ClaudeConnectRowProps | undefined, entry: Pick<HarnessChoice, "id" | "mark">) =>
+  !!connect && agentBrand(entry.mark ?? entry.id) === connect.brand;
 /// The update row's Update and Skip This Version: row-height text buttons, as wide as their words.
 const updateButton =
   "flex h-[var(--ui-row-height,28px)] flex-none cursor-default items-center rounded-[var(--ui-row-radius,5px)] border-0 px-2 font-[inherit] text-control text-fg";
@@ -391,11 +395,13 @@ export function ModelPicker(props: ModelPickerProps) {
     catalogRefresh,
     signedOut,
     onLogIn,
+    claudeConnect,
     usage,
     quick,
     fork,
     onSetUpPick,
   } = props;
+  acpmuxPerf.render("composer:model");
   /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
   const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
   /// A harness that cannot start a chat until it is set up: not installed here, or signed out.
@@ -550,6 +556,8 @@ export function ModelPicker(props: ModelPickerProps) {
     [harnesses, modelsNeeded],
   );
   const parsed = useMemo(() => parseQuery(query, vocabulary), [query, vocabulary]);
+  // Switch Model's keys (Ctrl-Cmd-M by default) after the chip's tooltip.
+  const switchModelShortcut = useShortcut(SHORTCUT_ACTIONS.switchModel);
   const searching = query.trim() !== "";
   // The chat's model, on its own harness's tab only.
   const runsHere = selected?.ids.includes(harness ?? "") ? props.model : undefined;
@@ -781,17 +789,6 @@ export function ModelPicker(props: ModelPickerProps) {
       ),
     [modelText, quick, open, close],
   );
-  // The footer's harness item opens this menu: its rail is the composer's harness switcher.
-  const opener = props.opener;
-  const compact = quick !== undefined;
-  useEffect(() => {
-    if (!opener) return;
-    const openMenu = () => (compact ? (open ? close() : setQuickOpen(true)) : showRef.current());
-    opener.current = openMenu;
-    return () => {
-      if (opener.current === openMenu) opener.current = undefined;
-    };
-  }, [opener, compact, open, close]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       // Cmd-Ctrl-M opens the picker (Lawrence 2026-10-08); typing then searches every harness.
@@ -957,6 +954,7 @@ export function ModelPicker(props: ModelPickerProps) {
         ...(signedOutHere && loginFor(entry) && onLogIn
           ? { logIn: () => onLogIn(entry.acpmuxHarness ?? entry.id, loginFor(entry)!) }
           : {}),
+        ...(claudeConnectHere(claudeConnect, entry) ? { connect: claudeConnect } : {}),
       });
     }
     // One tab per model family (QuickModelMenu's familyTabs): the entries that run one brand's
@@ -997,6 +995,7 @@ export function ModelPicker(props: ModelPickerProps) {
     onLogIn,
     props.profiles,
     signedOut,
+    claudeConnect,
   ]);
   /// A compact-menu pick: this harness's model lands in place; another harness's starts a chat there.
   /// A searched row with an effort or fast mode lands as one combo, as the full picker's does.
@@ -1355,6 +1354,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 title: [chipLabel, forkText, fastOn ? fastModeText : undefined, sessionAuthText, usage, updateText]
                   .filter(Boolean)
                   .join(" · "),
+                "data-tooltip-shortcut": switchModelShortcut,
               }}
               menu={{
                 ...quick,
@@ -1470,6 +1470,7 @@ export function ModelPicker(props: ModelPickerProps) {
               title={[chipLabel, forkText, fastOn ? fastModeText : undefined, sessionAuthText, usage, updateText]
                 .filter(Boolean)
                 .join(" · ")}
+              data-tooltip-shortcut={switchModelShortcut}
               keyboard={(event) => {
                 if (open && event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
                   event.preventDefault();
@@ -1695,6 +1696,21 @@ export function ModelPicker(props: ModelPickerProps) {
                     ))}
                   </div>
                 )}
+                {selected &&
+                  !searching &&
+                  !starredView &&
+                  claudeConnect &&
+                  claudeConnectHere(claudeConnect, selected) && (
+                    <ClaudeConnectRow
+                      name={selected.name}
+                      mark={selected.mark ?? selected.id}
+                      connected={claudeConnect.connected}
+                      onConnect={() => {
+                        claudeConnect.onConnect();
+                        close();
+                      }}
+                    />
+                  )}
                 {selected && !searching && !starredView && selected.notInstalled ? (
                   <>
                     <div className={emptyNote}>{t("harnesses.notInstalled")}</div>

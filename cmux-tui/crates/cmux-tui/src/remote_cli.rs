@@ -25,13 +25,13 @@ use cmux_remote::client::WorkspaceClient;
 use cmux_remote::connection::ReconnectPolicy;
 use cmux_remote::crypto::ClientAuthMode;
 use cmux_remote::identity::{
-    ClientIdentityStore, EnrollmentInvitation, EnrollmentRelayAccess, KnownDaemon, KnownDaemonAuth,
-    MAX_INVITATION_URI_BYTES, credential_free_route_hint, default_state_dir,
+    BoundDevice, ClientIdentityStore, EnrollmentInvitation, EnrollmentRelayAccess, KnownDaemon,
+    KnownDaemonAuth, MAX_INVITATION_URI_BYTES, credential_free_route_hint, default_state_dir,
 };
 use cmux_remote::provider::{
-    Dialer, IrohPathMode, ProviderError, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL,
-    RelayCredentialSource, SocksDialer, SshProvider, SshProviderConfig, SupportedClientAuthModes,
-    WireGuardDialer, sanitized_route,
+    Dialer, IrohPathMode, MachinePipeDialer, ProviderError, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID,
+    ROUTING_RELAY_URL, RelayCredentialSource, SocksDialer, SshProvider, SshProviderConfig,
+    SupportedClientAuthModes, WireGuardDialer, sanitized_route,
 };
 use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
 use cmux_remote_protocol::{
@@ -57,12 +57,14 @@ use crate::session::{RemoteSession, Session};
 mod acpmux_peer;
 mod daemon_lifecycle;
 mod enroll;
+mod exec_cp;
 #[cfg(test)]
 mod remote_link_binding_tests;
 mod remote_link_mux;
 mod self_install;
 use daemon_lifecycle::*;
 use enroll::*;
+use exec_cp::{ExitWith, run_cp, run_exec};
 use remote_link_mux::{mux_owner_args, socket_for};
 use self_install::*;
 
@@ -88,6 +90,14 @@ pub fn run(
     match run_inner(args, usage, load_config) {
         Ok(()) => 0,
         Err(error) => {
+            // `exec` exits with the remote command's status, and with 255
+            // (after its message) when the connection or the CLI failed.
+            if let Some(exit) = error.downcast_ref::<ExitWith>() {
+                if let Some(error) = &exit.error {
+                    crate::client_log::stderr_log!("remote", "{BIN}: {error:#}");
+                }
+                return exit.code;
+            }
             crate::client_log::stderr_log!("remote", "{BIN}: {error:#}");
             1
         }
@@ -99,82 +109,104 @@ fn run_inner(
     usage: &str,
     load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
 ) -> anyhow::Result<()> {
-    if remote_help_requested(&args[1..]) {
-        print!("{}", remote_help(args.first().map(String::as_str)));
+    let rest = args.get(1..).unwrap_or_default();
+    if remote_help_requested(rest) {
+        let help = remote_help(args.first().map(String::as_str));
+        // `cmux remote --help` also lists the cmux app's `remote …` verbs (cli/app_action_help.rs).
+        match args.first().map(String::as_str) {
+            Some("remote") => match crate::cli::app_action_help::append("remote", help) {
+                Some(text) => print!("{text}"),
+                None => print!("{help}"),
+            },
+            _ => print!("{help}"),
+        }
         return Ok(());
     }
     match args.first().map(String::as_str) {
-        Some("connect") => run_connect(&args[1..], None, load_config),
-        Some("ssh") => run_ssh(&args[1..], load_config),
-        Some("forward") => run_forward(&args[1..]),
-        Some("dial-tcp") => run_dial_tcp(args.get(1..).unwrap_or_default()),
-        Some("browser-proxy") => run_browser_proxy(&args[1..]),
-        Some("rpc") => run_rpc(&args[1..]),
-        Some("enroll") => run_enroll(&args[1..], load_config),
-        Some("known-daemons") => run_known_daemons(&args[1..]),
-        Some("remote-probe") => run_probe(&args[1..]),
-        Some("remote-link") => run_remote_link(&args[1..]),
-        Some("remote-sidecar") => run_remote_sidecar(&args[1..]),
-        Some("remote-stop") => run_remote_stop(&args[1..]),
-        Some("remote-update-need") => run_update_need(&args[1..]),
-        Some("install-self") => run_install_self(&args[1..]),
-        Some("wg") => run_wg(&args[1..]),
+        Some("connect") => run_connect(rest, None, load_config),
+        Some("ssh") => run_ssh(rest, load_config),
+        Some("forward") => run_forward(rest),
+        Some("dial-tcp") => run_dial_tcp(rest),
+        Some("browser-proxy") => run_browser_proxy(rest),
+        Some("rpc") => run_rpc(rest),
+        Some("remote-exec") => run_exec(rest),
+        Some("remote-cp") => run_cp(rest),
+        Some("enroll") => run_enroll(rest, load_config),
+        Some("known-daemons") => run_known_daemons(rest),
+        Some("remote-device-key") => run_device_key(rest),
+        Some("remote-probe") => run_probe(rest),
+        Some("remote-link") => run_remote_link(rest),
+        Some("remote-sidecar") => run_remote_sidecar(rest),
+        Some("remote-stop") => run_remote_stop(rest),
+        Some("remote-update-need") => run_update_need(rest),
+        Some("install-self") => run_install_self(rest),
+        Some("wg") => run_wg(rest),
         Some("remote") => Err(anyhow!(catalog().remote_client.remote_lifecycle_help)),
         _ => Err(anyhow!("unknown remote command\n\n{usage}")),
     }
 }
 
-fn remote_help_requested(args: &[String]) -> bool {
-    const VALUE_OPTIONS: &[&str] = &[
-        "--invite-file",
-        "--daemon",
-        "--lanes",
-        "--reconnect-attempts",
-        "--reconnect-initial-ms",
-        "--reconnect-max-ms",
-        "--reconnect-attempt-timeout-ms",
-        "--reconnect-jitter",
-        "--heartbeat-interval-ms",
-        "--heartbeat-timeout-ms",
-        "--connect-timeout-seconds",
-        "--device-name",
-        "--state-dir",
-        "--local-socket",
-        "--relay-route",
-        "--relay-slot",
-        "--relay-ticket-file",
-        "--relay-ticket-command",
-        "--relay-ticket-command-arg",
-        "--iroh-relay",
-        "--iroh-address",
-        "--iroh-path",
-        "--session",
-        "--ssh-binary",
-        "--remote-binary",
-        "--remote-state-dir",
-        "--remote-mux-socket",
-        "--agent-hooks",
-        "--wireguard-config",
-        "--wireguard-hub",
-        "--ssh-arg",
-        "--workspace-root",
-        "--host",
-        "--port",
-        "--listen",
-        "--scheme",
-        "--request",
-        "--ttl",
-        "--advertise",
-        "--admin-socket",
-        "--link-socket",
-        "--mux-socket",
-        "--destination",
-    ];
+/// Options of the remote commands that take the next word as their value, so a
+/// scan for `--help` (and `exec`/`cp`, which pass connect options through)
+/// never reads a value as an option.
+const REMOTE_VALUE_OPTIONS: &[&str] = &[
+    "--invite-file",
+    "--daemon",
+    "--lanes",
+    "--reconnect-attempts",
+    "--reconnect-initial-ms",
+    "--reconnect-max-ms",
+    "--reconnect-attempt-timeout-ms",
+    "--reconnect-jitter",
+    "--heartbeat-interval-ms",
+    "--heartbeat-timeout-ms",
+    "--connect-timeout-seconds",
+    "--device-name",
+    "--state-dir",
+    "--local-socket",
+    "--relay-route",
+    "--relay-slot",
+    "--relay-ticket-file",
+    "--relay-ticket-command",
+    "--relay-ticket-command-arg",
+    "--iroh-relay",
+    "--iroh-address",
+    "--iroh-path",
+    "--session",
+    "--ssh-binary",
+    "--remote-binary",
+    "--remote-state-dir",
+    "--remote-mux-socket",
+    "--agent-hooks",
+    "--wireguard-config",
+    "--wireguard-hub",
+    "--via-machine",
+    "--ssh-arg",
+    "--workspace-root",
+    "--vm-kind",
+    "--host",
+    "--port",
+    "--listen",
+    "--scheme",
+    "--request",
+    "--ttl",
+    "--advertise",
+    "--admin-socket",
+    "--link-socket",
+    "--mux-socket",
+    "--destination",
+    "--cwd",
+    "--env",
+    "--timeout-seconds",
+];
 
+fn remote_help_requested(args: &[String]) -> bool {
     let mut index = 0;
     let mut requested = false;
     while index < args.len() {
         match args[index].as_str() {
+            // After `--` come `exec`'s command and `cp`'s paths, not options.
+            "--" => break,
             "-h" | "--help" => {
                 requested = true;
                 index += 1;
@@ -185,7 +217,7 @@ fn remote_help_requested(args: &[String]) -> bool {
             {
                 return false;
             }
-            option if VALUE_OPTIONS.contains(&option) => index += 2,
+            option if REMOTE_VALUE_OPTIONS.contains(&option) => index += 2,
             _ => index += 1,
         }
     }
@@ -206,8 +238,11 @@ fn remote_help(command: Option<&str>) -> &'static str {
         Some("dial-tcp") => client.dial_tcp_help,
         Some("browser-proxy") => client.browser_proxy_help,
         Some("rpc") => client.rpc_help,
+        Some("remote-exec") => client.exec_help,
+        Some("remote-cp") => client.cp_help,
         Some("enroll") => client.enroll_help,
         Some("known-daemons") => client.known_daemons_help,
+        Some("remote-device-key") => client.device_key_help,
         Some("remote-probe") => client.remote_probe_help,
         Some("remote-link") => client.remote_link_help,
         Some("remote-stop") => catalog().remote.remote_stop_help,
@@ -241,6 +276,9 @@ struct ConnectFlags {
     /// Read the hub's client token (`wg hub --client-token-stdin`) as one line on
     /// stdin, so it never appears in argv, the environment or a file.
     wireguard_hub_token_stdin: bool,
+    /// `--via-machine M`: dial the route, a loopback daemon on machine M, through this
+    /// machine's acpmux and its hub carrier (`MachinePipeDialer`).
+    via_machine: Option<String>,
     /// Dial `ws`/`wss` routes with carrier authentication: no enrollment, no
     /// invitation. Only a daemon serving a trusted-network listener accepts it.
     carrier: bool,
@@ -485,6 +523,12 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
                     return Err(anyhow!(catalog().remote_client.option_once("--wireguard-hub")));
                 }
             }
+            "--via-machine" => {
+                let machine = value("--via-machine")?;
+                if flags.via_machine.replace(machine).is_some() {
+                    return Err(anyhow!(catalog().remote_client.option_once("--via-machine")));
+                }
+            }
             "--wireguard-hub-token-stdin" => flags.wireguard_hub_token_stdin = true,
             "--exit-with-parent" => flags.exit_with_parent = true,
             "--vm-kind" => flags.vm_owner = value("--vm-kind")? == "owner",
@@ -557,6 +601,11 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
     }
     if flags.wireguard_config.is_some() && flags.wireguard_hub.is_some() {
         return Err(anyhow!(catalog().remote_client.wireguard_hub_conflict));
+    }
+    if flags.via_machine.is_some()
+        && (flags.wireguard_config.is_some() || flags.wireguard_hub.is_some())
+    {
+        return Err(anyhow!(catalog().remote_client.via_machine_conflict));
     }
     if flags.wireguard_hub_token_stdin && flags.wireguard_hub.is_none() {
         return Err(anyhow!(catalog().remote_client.wireguard_hub_token_needs_hub));
@@ -679,7 +728,34 @@ struct ConnectedRuntime {
     route: String,
 }
 
-fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
+/// Starts the connection `connect`, `exec`, `cp` and the rest share. A far machine's refusal no
+/// redial cures (`--via-machine`'s `consent_required`, ...) ends it at once with what to do;
+/// with `--json` it is also one stdout line, `{"event":"refused","reason","error","machine"}`.
+fn start_connected(flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
+    let json = flags.json;
+    let machine = flags.via_machine.clone();
+    start_connected_inner(flags).map_err(|error| {
+        let Some(refusal) = crate::remote_runtime::startup_refusal(&error) else {
+            return error;
+        };
+        let said = catalog().remote_client.machine_refused(&refusal.reason, &refusal.message);
+        if json {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "event": "refused",
+                    "reason": refusal.reason,
+                    "error": said,
+                    "machine": machine,
+                })
+            );
+            let _ = io::stdout().flush();
+        }
+        anyhow!(said)
+    })
+}
+
+fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
     let startup_started = Instant::now();
     let owner = flags.exit_with_parent.then(current_parent_process_id);
     let invitation = flags
@@ -714,7 +790,14 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
                     dialer
                 }))
             }
-            (None, None) => None,
+            (None, None) => match flags.via_machine.take() {
+                Some(machine) => {
+                    let socket = crate::acp::daemon_socket_path()
+                        .ok_or_else(|| anyhow!(catalog().remote_client.acpmux_socket_unknown))?;
+                    Some(Arc::new(MachinePipeDialer::new(socket, machine)))
+                }
+                None => None,
+            },
         };
     let mut relay_routes = client_relay_options(
         flags.route.as_deref(),
@@ -1536,10 +1619,16 @@ fn start_wireguard(
     Ok(Arc::new(net))
 }
 
-/// The ultra mode Settings asks for (`remote.ultraMode`, read at each tunnel
-/// start); `CMUX_WG_ULTRA` still wins over it ([`cmux_wg::UltraMode::resolve`]).
-fn ultra_setting() -> Option<cmux_wg::UltraMode> {
-    cmux_tui_core::user_settings::ultra_mode().then_some(cmux_wg::UltraMode::SETTING)
+/// The ultra choice Settings asks for (`remote.ultra`, Auto by default, read
+/// at each tunnel start); `CMUX_WG_ULTRA` still wins over it
+/// ([`cmux_wg::UltraChoice::resolve`]).
+fn ultra_setting() -> cmux_wg::UltraChoice {
+    use cmux_tui_core::user_settings::{UltraConnection, ultra};
+    match ultra() {
+        UltraConnection::Off => cmux_wg::UltraChoice::Off,
+        UltraConnection::Auto => cmux_wg::UltraChoice::AUTO,
+        UltraConnection::Always => cmux_wg::UltraChoice::ALWAYS,
+    }
 }
 
 fn read_wireguard_config(path: &Path) -> anyhow::Result<cmux_wg::WgConfig> {

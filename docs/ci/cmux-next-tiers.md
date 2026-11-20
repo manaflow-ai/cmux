@@ -29,6 +29,11 @@ every tier on a branch, not just the routed ones, dispatch the workflow on it:
 gh workflow run cmux-next.yml --ref <branch>
 ```
 
+On a working branch (not feat-cmux-next or `next-batch/*`) that dispatch skips the two heavy
+Mac compiles, `cmux app scheme compile (Debug)` and the Release compile; add `-f full=true` to
+run them too (2026-11-15: lane dispatches starved glaeda-side-std-xcode-26.6;
+`docs/ci/cmux-next-workflow-notes.md#note-365`).
+
 Dispatch runs every tier on any ref of this repository (feat-cmux-next, a
 `next-batch/*` branch or a working branch). A newer plain dispatch on the same
 working branch cancels the older one, as a push to a pull request does, so a
@@ -51,15 +56,23 @@ is routed.
 | swift | `cmux-next swift test` (a pull request only with `full-ci`; the tip suite dispatch runs it on the `feat-cmux-next` tip) | the test targets the target graph reaches | mini |
 | daemon | `cmux-next daemon tests` (`same-tree cmux-tui` reports a tree that nothing will publish) | cmux-tui tree inputs, daemon capabilities, `pin-cmux-tui.sh`, CmuxNextDaemon or CmuxNextMobile and their dependencies, CmuxNextControl | a mini, once the tree is published |
 
-An app FFI re-pin runs only the app compile. When a pull request changes
-Package.swift alone, only the CCmuxAppFFI url's release sha and its checksum
-change, and that release's source commit has the head's FFI sources
-(`pure_ffi_repin` in the router), the native tier is its only Mac tier: the
-build fleet's app compile, with the Mac Release compile as the fallback when the
-fleet gives no verdict. `cmux-next checks` still runs "Check the app FFI pin".
-Any other Package.swift change runs every tier, as before. On 2026-11-10 re-pin
-#40576 waited 2 h 49 min behind the Mac queue that every tier took, and the base
-stayed red on the pin check for about five hours.
+An app FFI re-pin runs the app compile and `HandlerCoverageTests` in the existing
+Mac fast-tier job. A pure re-pin changes only `app-ffi-pin.json` and the checksum
+line in Package.swift, and its release source matches the head's FFI sources
+(`pure_ffi_repin`). The app compile retains the Mac Release fallback; the runtime
+check binds the app actions against the newly pinned catalog and rejects missing
+handlers before launch. Both fast-tier routes select only this suite for a pure
+re-pin; the other test, generated, daemon and scheme tiers stay off.
+`cmux-next checks` still runs "Check the app FFI pin". A source-only catalog PR
+still tests the current pin; this check catches the mismatch when the new pin arrives.
+The direct-base pin helper compares the candidate release's action catalog crate
+with the installed pin's source. Any catalog change goes through the re-pin PR
+and this runtime check, even when its C headers are additive. Unrelated additive
+FFI releases keep the direct-base path.
+
+Other Package.swift changes keep their usual routing. On 2026-11-10 re-pin
+#40576 waited 2 h 49 min behind the full Mac tier queue. The narrow runtime
+check addresses the later missing-handler launch crash without restoring those tiers.
 
 A web nit runs no Mac tier. When every changed file is under `webviews/`, the
 webviews app, the agent-pane bundle (`CmuxNextAgentPane/Resources/agent-pane/`)

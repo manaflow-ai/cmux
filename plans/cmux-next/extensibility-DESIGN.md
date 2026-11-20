@@ -472,3 +472,18 @@ These continue section 9's table.
 Generations, safe mode and profiles each need an iPhone row in `cmux-next-ios/verify/parity-mac.md`
 when they ship: the phone lists generations and can go back one. Safe mode itself is "not from a
 phone" (it is how the Mac app starts).
+
+## 13. One capability manifest
+
+Leo (2026-11-11): "how about that extensibility and, like, the capabilities of stuff, like the SDK thing I was thinking about?" The store keeps the name App Store.
+
+What an App Store app can read and do is one table, typed in Rust: `cmux_app_manifest::capabilities`. It reads `generated/scopes.json` (the scope and class of each op, and the ops apps never reach) and `schema/v2/scope-classes.json` (each scope's risk class and consent text) once. It also holds the rules that used to live only in the daemon: which ops need a user gesture, and which ops need `workspace:execute` when they are given a command. The daemon's per-call check (`apps/grants.rs`) and the install-time check (`rules.rs`) both read it. A Rust test checks the two tables against each other: every op scope must be decided by one rule, not by which of two generic rules comes first, and every rule must classify an op scope or name what else it gates (`gates`). The daemon serves the table as `apps-capabilities`, together with the live `cmux-app.d.ts`, its digest and the API version. `cmux ext capabilities [--op NAME] [--json]` prints it. `cmux ext dev` writes the running cmux's `cmux-app.d.ts` into the project whenever it differs, at start and whenever the daemon's digest changes, so the editor's types match the API being served.
+
+What is still left, in order:
+
+1. The SDKs (python and the 6 others under `bindings/`) are built from `spec/sdk-schema.json` (protocol-12), a different catalog from `resource-operations-v2.json`, and no op name appears in both. Generate the SDK op surface from the capability manifest, so an SDK call and a JS extension call name the same op and need the same scope.
+2. The catalog is still assembled, and scopes are still derived, in TS: `gen-cmux-global.ts` merges 4 catalogs plus a hand-written `hostOps` list, and works out scopes with `SCOPE_FAMILY`, `NEVER_FAMILIES`, `EXECUTE`, `NEVER`, `NEVER_OPS` and `scopeFor`. Move both into Rust, leaving the TS to emit `.d.ts` text only, and have Rust produce scopes.json.
+3. The provider families the Mac app answers in Swift (`coderouter.*` keys, `fs.pick` and others) are typed nowhere. Their scopes are known only from `gates` notes and hand lists (`PANEL_OPS`). Declare each one in the catalog with params, result and scope.
+4. No test checks that every op has a handler. Add one: every op in the manifest is answered by the daemon, a provider family, or a first-party app server, and every handler names an op in the manifest.
+5. App catalog fragments use JSON Schema for input and output, while the core catalogs use the `kind` IR. Pick one, convert the other, and give the d.ts and the SDKs a single type path.
+6. Cloud ops are authored in TS (`backend/catalog/cloud-operations.json`, which the backend writes). Generate that catalog from the same typed source, or check it against the Rust manifest in CI.

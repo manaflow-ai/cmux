@@ -149,6 +149,7 @@ impl Class {
             | ResourceOperation::GitCheckpointDiff
             | ResourceOperation::GitFilesList
             | ResourceOperation::GitFilesSearch
+            | ResourceOperation::GitFingerprint
             | ResourceOperation::GitBranches => Self::LongRead,
             ResourceOperation::GitCheckpointList
                 if fields.get("include_candidates").and_then(Value::as_bool) == Some(true) =>
@@ -797,6 +798,8 @@ mod tests {
         assert_eq!(class(ResourceOperation::GitDiff), Class::LongRead);
         assert_eq!(class(ResourceOperation::GitCheckpointDiff), Class::LongRead);
         assert_eq!(class(ResourceOperation::GitFilesSearch), Class::LongRead);
+        // One run over the whole index and the untracked files.
+        assert_eq!(class(ResourceOperation::GitFingerprint), Class::LongRead);
         // A git child for each branch: work of the size of the repository.
         assert_eq!(class(ResourceOperation::GitBranches), Class::LongRead);
         assert_eq!(class(ResourceOperation::GitCommit), Class::Mutation);

@@ -53,7 +53,7 @@ BROKER_ISSUES_FIELDS = frozenset({
     "nodes", "number", "pageInfo", "state", "title",
 })
 BROKER_SCOPED_FIELD_NAMES = frozenset({
-    "associatedPullRequests", "baseRepository", "checkSuites", "compare", "headRepository",
+    "associatedPullRequests", "baseRef", "baseRepository", "checkSuites", "compare", "headRepository",
     "headRepositoryOwner", "history", "isRequired", "issueOrPullRequest", "issues", "owner", "pullRequests",
     "ref", "repository", "statusCheckRollup",
 })

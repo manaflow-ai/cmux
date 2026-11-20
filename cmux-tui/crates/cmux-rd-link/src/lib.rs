@@ -40,6 +40,12 @@ pub const TAG_HANDSHAKE_1: u8 = 0xD0;
 pub const TAG_HANDSHAKE_2: u8 = 0xD1;
 pub const TAG_HANDSHAKE_3: u8 = 0xD2;
 pub const TAG_SEALED: u8 = 0xD3;
+/// A responder's hole punch: one byte, sent to each of the initiator's routes
+/// until the handshake finishes, so the responder's own NAT or firewall lets
+/// the initiator's message 1 in (a responder behind address-dependent
+/// filtering that only listens never hears it). Every side drops it unread;
+/// an older initiator does too, as an unknown tag.
+pub const TAG_PUNCH: u8 = 0xD4;
 /// Bytes a sealed packet adds to its payload: tag, nonce, inner kind, AEAD tag.
 pub const SEAL_OVERHEAD: usize = 1 + 8 + 1 + 16;
 /// Largest handshake message (two keys, payloads and tags fit well inside).
@@ -57,6 +63,10 @@ mod inner {
     pub const PROBE: u8 = 3;
     pub const PROBE_REPLY: u8 = 4;
     pub const CLOSE: u8 = 5;
+    /// Nothing to deliver: the packet only keeps the radios on the path awake
+    /// ([`crate::endpoint::KEEP_AWAKE_US`]). A peer that predates it drops it as
+    /// an unknown kind, so it needs no version or cap.
+    pub const KEEP_AWAKE: u8 = 6;
 }
 
 /// Which side opens the handshake. The viewer initiates; the host responds.
@@ -348,6 +358,8 @@ impl Link {
                 self.state = State::Failed;
                 events.push(Event::Closed);
             }
+            // Its only job, waking this side's radio, is done by arriving.
+            inner::KEEP_AWAKE => {}
             _ => {}
         }
         Ok(())
@@ -394,6 +406,11 @@ impl Link {
         self.seal(inner::PROBE, &id.to_le_bytes())
     }
 
+    /// A keep-awake packet (no payload, never answered), sealed, for the current path.
+    pub fn keep_awake(&mut self) -> Result<Vec<u8>, LinkError> {
+        self.seal(inner::KEEP_AWAKE, &[])
+    }
+
     /// Tells the peer the link ends.
     pub fn close(&mut self) -> Result<Vec<u8>, LinkError> {
         let packet = self.seal(inner::CLOSE, &[])?;
@@ -404,16 +421,9 @@ impl Link {
     /// Packets to send now, on the current path: handshake messages and their
     /// retries, control records and their retransmissions, acks and probe replies.
     pub fn poll_transmit(&mut self, now_us: u64) -> Result<Vec<Vec<u8>>, LinkError> {
-        if let State::Handshake(_) = self.state
-            && now_us.saturating_sub(self.started_us) > HANDSHAKE_TIMEOUT_US
+        if self.poll_handshake_timers(now_us)?
+            && let Some((packet, _)) = &self.last_handshake
         {
-            self.state = State::Failed;
-            return Err(LinkError::HandshakeTimeout);
-        }
-        if let Some((packet, sent)) = &mut self.last_handshake
-            && now_us.saturating_sub(*sent) >= HANDSHAKE_RETRY_US
-        {
-            *sent = now_us;
             self.out.push_back(packet.clone());
         }
         if self.is_established() {
@@ -423,6 +433,26 @@ impl Link {
             }
         }
         Ok(self.out.drain(..).collect())
+    }
+
+    /// Advances handshake timers without creating another packet.  Endpoints
+    /// use this while signaling has not supplied a route, so the queued first
+    /// message stays available without a retry storm or a lost timeout.
+    pub(crate) fn poll_handshake_timers(&mut self, now_us: u64) -> Result<bool, LinkError> {
+        if let State::Handshake(_) = self.state
+            && now_us.saturating_sub(self.started_us) > HANDSHAKE_TIMEOUT_US
+        {
+            self.state = State::Failed;
+            return Err(LinkError::HandshakeTimeout);
+        }
+        let mut retry = false;
+        if let Some((_, sent)) = &mut self.last_handshake
+            && now_us.saturating_sub(*sent) >= HANDSHAKE_RETRY_US
+        {
+            *sent = now_us;
+            retry = true;
+        }
+        Ok(retry)
     }
 
     /// When the caller should call [`Link::poll_transmit`] next without input.

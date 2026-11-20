@@ -4,6 +4,7 @@
 // The page prices nothing and computes no limit; "See plans" links the public plans page. Get opens
 // the create sheet on that size, the host confirms the create natively (a money op), and the new
 // machine opens in a workspace once it runs (store `openWhenRunning`).
+import { useLoadingShown } from "../../ui/lasting";
 import type { Strings } from "../shared/i18n";
 import { AccountPanel } from "./AccountPanel";
 import { formatMegabytes, memoryChoices } from "./model";
@@ -34,6 +35,7 @@ export function Storefront({ store, state, strings }: { store: CloudStore; state
   // machine (the platform pauses an idle one of the person's, else the host asks which to pause).
   const full = !!plan && plan.limits.max_active > 0 && plan.usage.active >= plan.limits.max_active;
   const firstAllowed = choices.find((choice) => choice.allowed)?.mb;
+  const planLoadingShown = useLoadingShown(signedIn && !plan && !state.planFailed);
   const cta = () => {
     if (!signedIn)
       return state.unavailable.includes(AccountOps.signIn) ? (
@@ -98,7 +100,8 @@ export function Storefront({ store, state, strings }: { store: CloudStore; state
               </button>
             </p>
           ) : !plan ? (
-            <p className="cloud-muted cloud-store-no-plan">{t(L.loading)}</p>
+            // The plan read says nothing while it is quick, as the page's first read (ui/lasting.ts).
+            <p className="cloud-muted cloud-store-no-plan">{planLoadingShown ? t(L.loading) : null}</p>
           ) : choices.length === 0 ? (
             <p className="cloud-muted cloud-store-no-plan">{t(L.storeNoPlan)}</p>
           ) : (

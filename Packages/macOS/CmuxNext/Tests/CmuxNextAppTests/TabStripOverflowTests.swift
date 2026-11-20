@@ -97,10 +97,12 @@ import Testing
         #expect(isInView(harness.selected, strip), "the selected last tab is scrolled out of view")
         #expect(strip.edgeFade.edges.leading && !strip.edgeFade.edges.trailing, "\(strip.edgeFade.edges)")
 
-        // No banner: the tabs' viewport runs up to the +, and the strip holds no label or button of its own.
+        // No banner: the tabs' viewport runs up to the +, less the + 's own leading gap (#41212, Lucas 2026-11-11: the
+        // split +'s fill touched the last tab), and the strip holds no label or button of its own.
         let metrics = strip.metrics
-        let plusX = strip.bounds.width - metrics.stripHorizontalPadding - metrics.newTabButtonWidth
-        #expect(abs(strip.tabsClip.frame.maxX - plusX) <= 0.5, "something takes \(plusX - strip.tabsClip.frame.maxX) pt beside the tabs")
+        let plusX = strip.bounds.width - metrics.stripHorizontalPadding - strip.newTabControlsWidth
+        #expect(abs(strip.tabsClip.frame.maxX + strip.newTabLeadingGap - plusX) <= 0.5,
+                "something takes \(plusX - strip.newTabLeadingGap - strip.tabsClip.frame.maxX) pt beside the tabs")
         func controls(in view: NSView) -> [NSView] {
             view.subviews.flatMap { ($0 is NSButton || $0 is NSTextField ? [$0] : []) + controls(in: $0) }
         }

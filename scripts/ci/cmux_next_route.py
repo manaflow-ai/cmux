@@ -31,10 +31,11 @@ runs the tiers its changed files reach (docs/ci/cmux-next-tiers.md):
               app-host-only route (cmux-tui Rust, App/) does; swift test, the
               daemon and scheme tiers carry those.
 
-An app FFI re-pin (the app-ffi-repin bot's pull request) runs no tier but native: its diff is only the
+An app FFI re-pin runs native and the fast tier's HandlerCoverageTests only: its diff is only the
 pin in app-ffi-pin.json and the checksum line of Package.swift's loader block, and that release's source commit has
 HEAD's FFI sources (pure_ffi_repin, read with `--base-rev`). The app compile is its compile verdict, with the Mac Release
 compile as the fallback when the build fleet gives none; "Check the app FFI pin" (checks) proves the pin.
+HandlerCoverageTests binds the app actions against that pin so a catalog-only addition cannot trap at launch.
 
 A change to .github/workflows/cmux-next.yml runs every tier, unless `--base-rev`
 names the base and the change leaves every job a Mac job runs or needs as it was
@@ -42,6 +43,12 @@ names the base and the change leaves every job a Mac job runs or needs as it was
 .github/workflows. A changed job that never runs on a pull request adds no tier, and a
 changed Mac job WORKFLOW_JOB_TIERS lists runs only its own tiers. When the base workflow
 cannot be read or parsed, every tier runs.
+
+A pull request a running app takes live is hot-only (hot_only_layers): each changed file is a web bundle
+source or daemon Rust that scripts/cmux-next/hot-apply.py swaps in (live_apply.py's web-live and daemon kinds,
+less Rust the app links or bundles, the web ABI and files a Swift test reads), or a file that reaches no app
+tier by itself. It runs no app compile or package test tier: ci-web, the cargo jobs, the signed tree publish,
+hot-verify and the daemon tier check it. `hot_only` and `hot_layers` say so.
 
 Pushes, dispatches and pull requests labeled `full-ci` run every tier. The
 workflow runs the tiers picked here on every same-repository pull request; a
@@ -151,6 +158,7 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-app-ffi/",
     "cmux-tui/crates/cmux-focus-core/",
     "cmux-tui/crates/cmux-cloud-start-core/",
+    "cmux-tui/crates/cmux-tab-discard/",
     "cmux-tui/crates/cmux-cloud-config/",
     "cmux-tui/crates/cmux-cloud-handlers/",
     "cmux-tui/crates/cmux-cloud-machine/",
@@ -522,7 +530,7 @@ class Route:
     # The fast tier's own registry, runner or job action changed.
     fast_registry: bool = False
     vendored_pin: bool = False
-    # A pure app FFI re-pin (pure_ffi_repin): the app compile alone, never the Mac fast tier.
+    # A pure app FFI re-pin (pure_ffi_repin): the app compile and only handler coverage in the Mac fast tier.
     ffi_repin: bool = False
     # A change to the swift test job's own steps (WORKFLOW_JOB_TIERS): every test target runs.
     all_tests: bool = False
@@ -532,6 +540,10 @@ class Route:
     priority_suites: set[str] = field(default_factory=set)
     swift_canary_targets: set[str] = field(default_factory=set)
     reasons: list[str] = field(default_factory=list)
+    # Every changed file is web or daemon Rust a running app takes live, or a file no app tier reads
+    # (hot_only_layers): the app build and test tiers are off, the daemon tier stays.
+    hot_only: bool = False
+    hot_layers: dict[str, list[str]] = field(default_factory=dict)
 
     def everything(self, reason: str) -> None:
         self.full = self.native = self.scheme = self.generated = self.swift = self.daemon = True
@@ -545,8 +557,8 @@ class Route:
     def fast_tier(self) -> bool:
         """The Mac fast tier's package build or suites can change: a package target's sources, a file its
         suites' test targets read, a package it builds, its registry, runner or job action, an input only
-        the Mac Release compile sees, or an input of every tier. Never for a pure app FFI re-pin."""
-        return not self.ffi_repin and (self.full or self.package_build or self.fast_reads or self.fast_package or self.mac_release
+        the Mac Release compile sees, or an input of every tier. A pure app FFI re-pin runs only handler coverage."""
+        return (self.ffi_repin or self.full or self.package_build or self.fast_reads or self.fast_package or self.mac_release
                 or self.swift_canary or self.fast_registry)
 
 
@@ -1047,7 +1059,7 @@ REPIN_MANIFEST = PACKAGE + "Package.swift"
 REPIN_PIN_FILE = PACKAGE + "app-ffi-pin.json"
 # A re-pin writes the pin file and the checksum line of Package.swift's loader block together (app_ffi_pin.rewrite).
 REPIN_PATHS = sorted((REPIN_MANIFEST, REPIN_PIN_FILE))
-REPIN_REASON = "(an app FFI re-pin: no other Mac tier)"
+REPIN_REASON = "(an app FFI re-pin: compile and handler coverage only)"
 
 
 def pure_ffi_repin(root: Path, changed: list[str] | None, base_rev: str | None) -> str | None:
@@ -1096,6 +1108,101 @@ def pure_ffi_repin(root: Path, changed: list[str] | None, base_rev: str | None) 
 
 def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
           base_workflow: str | None = None, repin: str | None = None) -> Route:
+    """The tiers `changed` reaches (path_route), then hot_only: a pull request whose files a running app takes
+    live (hot_only_layers) keeps only the daemon tier of the Mac tiers."""
+    result = path_route(root, event, changed, labels, base_workflow, repin)
+    layers = None if result.full else hot_only_layers(root, event, changed, labels, base_workflow, repin)
+    if layers:
+        for name in HOT_ONLY_OFF:
+            setattr(result, name, False)
+        result.tests, result.priority_suites, result.swift_canary_targets = set(), set(), set()
+        result.hot_only, result.hot_layers = True, layers
+        what = " and ".join(f"{len(paths)} {HOT_LAYER_NAMES[layer]}" for layer, paths in sorted(layers.items()))
+        result.reasons.append(f"hot-only: {what} file(s) a running app takes live (hot-apply.py) and nothing an app "
+                              f"tier reads: the app build and test matrix is skipped, the daemon tier stays "
+                              f"{HOT_ONLY_REASON}")
+    return result
+
+
+# Leo, 2026-11-15: "if it's only needing to swap out the app, isn't there like a more minimal set of CI that we can
+# get it to do". A pull request whose every changed file is either a web bundle source or daemon Rust that
+# scripts/cmux-next/hot-apply.py swaps into a running app (live_apply.py's web-live and daemon kinds), or a file that
+# by itself reaches no app tier, needs no new app: ci-web, the cargo jobs, the signed tree publish and hot-verify check
+# it, and the daemon tier keeps the live-daemon suites. Not hot: Rust the app links (CCmuxAppFFI, the swift test job's
+# crates) or bundles through the scheme's build phases (hot-apply leaves those to a new app), the web ABI file
+# (hot-verify: a new ABI needs a new app), and any file a Swift test target reads.
+HOT_ONLY_REASON = "(hot-only: no app build)"
+HOT_LAYER_NAMES = {"web": "web", "rust": "daemon Rust"}
+HOT_WEB_NEEDS_APP = ("webviews/src/web-abi.json",)
+# The Route fields hot_only turns off: every app compile and package test tier. `daemon` stays.
+HOT_ONLY_OFF = ("native", "scheme", "webview", "swift", "generated", "mac_release", "swift_canary", "cmuxnext_swift",
+                "package_build", "fast_reads", "fast_package", "fast_registry", "all_tests", "ffi_repin")
+# What `--hot-only` writes. On a hot-only pull request cmux-next-guards.yml keeps tooling-tests off the minis (it
+# still runs, on Linux) and fleet-test-compile.yml compiles no Swift test target: both read this router's verdict on
+# the same merge-commit diff, never a copy of its rule.
+HOT_ONLY_OUTPUTS = ("hot_only", "hot_layers")
+# A part of the rest that keeps hot_only off: any of these tiers.
+APP_TIERS = ("native", "scheme", "webview", "swift", "generated", "mac_release", "swift_canary", "cmuxnext_swift")
+
+
+def live_apply_module():
+    """scripts/cmux-next/live_apply.py, imported by name (one module object: tests/test_script_module_loads.py);
+    None when this copy of the router came without it, and then nothing is hot."""
+    folder = str(ROOT / "scripts" / "cmux-next")
+    if folder not in sys.path:
+        sys.path.append(folder)
+    try:
+        import live_apply  # noqa: PLC0415
+    except ImportError:
+        return None
+    return live_apply
+
+
+def hot_layer(root: Path, path: str, read) -> str | None:
+    """"web" or "rust" when hot-apply.py takes PATH into a running app with no new build, else None."""
+    module = live_apply_module()
+    if module is None or read(path) or path in NATIVE_SCRIPT_INPUTS or path in FULL_INPUTS or path in VENDORED_PINS:
+        return None
+    kind = module.classify([("M", path)], {})["verdict"]
+    if kind == "web-live":
+        return None if path in HOT_WEB_NEEDS_APP else "web"
+    if kind == "daemon":
+        if app_ffi_input(root, path) or any(
+                matches(path, prefix) for prefix in SWIFT_JOB_INPUTS + tuple(scheme_phase_rust_inputs(root))):
+            return None  # linked into the app (FFI) or bundled by its build phases: a new app
+        return "rust"
+    return None
+
+
+def hot_only_layers(root: Path, event: str, changed: list[str] | None, labels: set[str],
+                    base_workflow: str | None = None, repin: str | None = None) -> dict[str, list[str]] | None:
+    """The hot layers ({"web"|"rust": paths}) of a pull request into feat-cmux-next whose change a running app takes
+    live, or None. Pushes, dispatches, full-ci, dev-build (its dogfood app is the scheme compile's) and an FFI re-pin
+    are never hot; nor is a pull request whose other files, routed by themselves, reach an app tier."""
+    if event != "pull_request" or not changed or labels & {"full-ci", "dev-build"} or repin is not None:
+        return None
+    graph = load_graph(root)
+    tests = [name for name, target in graph["targets"].items() if target["kind"] == "test"]
+    read = lambda path: any(matches(path, r) for name in tests for r in graph["targets"][name].get("reads", []))  # noqa: E731
+    layers: dict[str, list[str]] = {}
+    rest = []
+    for path in changed:
+        layer = hot_layer(root, path, read)
+        if layer:
+            layers.setdefault(layer, []).append(path)
+        else:
+            rest.append(path)
+    if not layers:
+        return None
+    if rest:
+        other = path_route(root, event, rest, labels, base_workflow, repin)
+        if other.full or other.tests or other.fast_tier() or any(getattr(other, name) for name in APP_TIERS):
+            return None
+    return layers
+
+
+def path_route(root: Path, event: str, changed: list[str] | None, labels: set[str],
+               base_workflow: str | None = None, repin: str | None = None) -> Route:
     """`base_workflow`: the base's cmux-next.yml, for a pull request that changes it (None: every tier).
     `repin`: pure_ffi_repin's reason when the pull request is a pure app FFI re-pin (None: it is not)."""
     result = Route()
@@ -1120,10 +1227,10 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
         return result
     if repin is not None and sorted(changed) == REPIN_PATHS and "dev-build" not in labels:
         # The pin and Package.swift are inputs of every package test, but a pure re-pin changes only which published
-        # release the app links: the app compile decides it (mac_release keeps the Mac Release compile as the
-        # fallback when the build fleet gives no verdict), and checks' "Check the app FFI pin" proves the pin.
+        # release the app links. Compile plus runtime handler coverage decide it; ffi_repin limits both
+        # fast-tier routes to that suite. mac_release remains the compile fallback.
         result.native = result.mac_release = result.ffi_repin = True
-        result.reasons.append(f"{repin}: only the app compile runs {REPIN_REASON}")
+        result.reasons.append(f"{repin}: the app compile and handler coverage run {REPIN_REASON}")
         return result
 
     # The workflow defines the native build and its routing contract. A change
@@ -1356,6 +1463,7 @@ def outputs(result: Route) -> dict[str, str]:
         "mac_release": flag(result.mac_release),
         "macos": flag(macos),
         "fast_tier": flag(fast_tier),
+        "ffi_repin": flag(result.ffi_repin),
         "scheme": flag(result.scheme or result.webview or result.full),
         "generated": flag(result.generated),
         "swift": flag(result.swift),
@@ -1366,6 +1474,8 @@ def outputs(result: Route) -> dict[str, str]:
         "swift_priority_filter": swift_priority_filter(result),
         "swift_targets": "all" if result.full or result.all_tests else " ".join(sorted(result.tests)),
         "swift_canary_targets": " ".join(sorted(result.swift_canary_targets)),
+        "hot_only": flag(result.hot_only),
+        "hot_layers": " ".join(sorted(result.hot_layers)),
     }
 
 
@@ -1378,6 +1488,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--base-rev", help="the pull request's base commit, to compare a change to the workflow")
     parser.add_argument("--github-output", type=Path)
     parser.add_argument("--summary", type=Path)
+    parser.add_argument("--hot-only", action="store_true",
+                        help="write only hot_only and hot_layers (HOT_ONLY_OUTPUTS), for a workflow outside "
+                             "cmux-next.yml that skips its Mac part on a hot-only pull request")
     args = parser.parse_args(argv)
 
     changed = None
@@ -1392,15 +1505,24 @@ def main(argv: list[str]) -> int:
         repin = pure_ffi_repin(args.root, changed, args.base_rev)
     result = route(args.root, args.event, changed, labels, base_workflow, repin)
     values = outputs(result)
+    if args.hot_only:
+        values = {key: values[key] for key in HOT_ONLY_OUTPUTS}
     lines = [f"{key}={value}" for key, value in values.items()]
     print("\n".join(lines))
     if args.github_output:
         with args.github_output.open("a", encoding="utf-8") as stream:
             stream.write("\n".join(lines) + "\n")
-    if args.summary:
+    if args.summary and args.hot_only:
+        with args.summary.open("a", encoding="utf-8") as stream:
+            stream.write(f"### hot-only route\n\nhot_only: {values['hot_only']} "
+                         f"(layers: {values['hot_layers'] or 'none'})\n\n")
+            for reason in dict.fromkeys(result.reasons):
+                if HOT_ONLY_REASON in reason:
+                    stream.write(f"- {reason}\n")
+    elif args.summary:
         with args.summary.open("a", encoding="utf-8") as stream:
             stream.write("### cmux-next tiers\n\n| tier | runs |\n| --- | --- |\n")
-            for key in ("generated", "native", "swift_canary", "cmuxnext_swift", "mac_release", "scheme", "swift", "daemon", "fast_tier", "full"):
+            for key in ("generated", "native", "swift_canary", "cmuxnext_swift", "mac_release", "scheme", "swift", "daemon", "fast_tier", "full", "hot_only"):
                 stream.write(f"| {key} | {values[key]} |\n")
             stream.write(f"\nSwift test targets: {values['swift_targets'] or 'none'}\n\n")
             stream.write(f"Swift canary targets: {values['swift_canary_targets'] or 'none'}\n\n")

@@ -123,7 +123,7 @@ fn setup(enabled: bool) -> (Arc<Hub>, Arc<FakeHub>) {
     let hub = Hub::new(config, store);
     assert!(hub.resolve(OWN).is_ok());
     let fake = Arc::new(FakeHub::default());
-    assert!(hub.mesh.set(fake.clone()).is_ok());
+    hub.mesh.set(fake.clone());
     (hub, fake)
 }
 

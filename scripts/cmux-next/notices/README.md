@@ -48,7 +48,7 @@ The gzip module's zlib copy and ft-hb.c are not compiled (system zlib, no HarfBu
 their terms do not ship; the note in MANIFEST.json gives the symbol evidence.
 
 musl: GhosttyNextKit's Termio inlines Zig's `std.math.cbrt` (ported from musl), so the
-app binary (`Contents/MacOS/cmux`) and the iOS pane carry musl's COPYRIGHT (hand-written
+app code (`Contents/Frameworks/CmuxNextApp.framework`) and the iOS pane carry musl's COPYRIGHT (hand-written
 section, checked by `ios_notices.py check-repo`; the pane takes the reviewed file of
 `cmux-tui/dist/notices/package-notices.json`). The cmux-tui Darwin packages link no
 musl-derived code (`package-notices.json` `darwin.review`); `package_notices.py
@@ -114,8 +114,8 @@ build.rs change until the graph is regenerated on a Testbox for the new commit;
 its error gives the commands.
 
 The bundle check scans every Mach-O whose entries (and `copy_of` source) need
-no `rust-std` for rustc std paths (Release merges Iroh's Rust code into the app
-binary). A change to that code adds a red test first as its own commit, as the
+no `rust-std` for rustc std paths (a static Rust library can land in a binary
+the map does not expect, as Iroh.framework's code once did in the app binary). A change to that code adds a red test first as its own commit, as the
 `copy_of` change did (sign run 43387981953).
 
 Planned: the Ghostty section of THIRD_PARTY_LICENSES.md from that collector

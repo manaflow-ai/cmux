@@ -22,6 +22,11 @@ on:
         required: false
         default: false
         type: boolean
+      lifecycle:
+        description: Also run the agent-VM lifecycle leg (fork, snapshot, stop/start, auto-delete, self-delete, key revoke; API and CLI)
+        required: false
+        default: false
+        type: boolean
       confirm_production:
         description: Required when target is production (creates one paid VM for a few minutes)
         required: false
@@ -134,7 +139,7 @@ jobs:
   journey:
     needs: installer
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 45
+    timeout-minutes: ${{ inputs.lifecycle && 80 || 45 }}
     # The cmux VM API's own environments (cmux-vm.yml smokes with the same keys).
     environment: cmux-vm-${{ inputs.target }}
     steps:
@@ -200,6 +205,7 @@ jobs:
       - name: Journey
         env:
           SKIP_SLEEP: ${{ inputs.skip_sleep }}
+          LIFECYCLE: ${{ inputs.lifecycle }}
           CMUX_VM_SMOKE_API_KEY: ${{ secrets.CMUX_VM_SMOKE_API_KEY }}
           CMUX_VM_SMOKE_SERVICE_KEY: ${{ secrets.CMUX_VM_SMOKE_SERVICE_KEY }}
           CMUX_VM_SMOKE_SERVICE_TEAM: ${{ vars.CMUX_VM_SMOKE_SERVICE_TEAM }}
@@ -208,6 +214,16 @@ jobs:
           mkdir -p "$RUNNER_TEMP/dogfood"
           args=(--result-file "$RUNNER_TEMP/dogfood/result.json")
           if [ "$SKIP_SLEEP" = "true" ]; then args+=(--skip-sleep); fi
+          if [ "$LIFECYCLE" = "true" ]; then
+            args+=(--lifecycle --cmux "$RUNNER_TEMP/trusted-cmux/cmux")
+            # The public cmux is built from main and has no `cmux vm` yet: the CLI legs run the headless VM CLI
+            # (the library `cmux vm` links) built from this checkout; a failed build fails the job. Without cargo the
+            # journey skips them with a note.
+            if command -v cargo >/dev/null; then
+              (cd workers/cmux-vm/cli && cargo build --release --locked -p cmux-vm)
+              args+=(--cmux-vm "$PWD/workers/cmux-vm/cli/target/release/cmux-vm")
+            fi
+          fi
           bun scripts/cmux-next/cloud-vm-dogfood-journey.ts "${args[@]}"
 
       - name: Summary
@@ -231,6 +247,7 @@ jobs:
             echo
             jq -r 'if .statusAfterPauseSeries then "Pause status series: " + ([.statusAfterPauseSeries[] | "\(.atMs)ms=\(.status)"] | join(", ")) else empty end' "$result"
             jq -r 'if has("memoryKept") then "Memory kept across pause: \(.memoryKept)" else empty end' "$result"
+            jq -r '(.lifecycleApi, .lifecycleCli, .lifecycleCleanup) // empty | to_entries[] | "- \(.key): \(.value)"' "$result"
             jq -r '.notes[]? | "- \(.)"' "$result"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -241,4 +258,4 @@ jobs:
           name: cloud-vm-dogfood-${{ inputs.target }}
           path: ${{ runner.temp }}/dogfood
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 3

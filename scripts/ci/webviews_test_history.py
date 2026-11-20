@@ -15,7 +15,7 @@
     webviews_test_history.py known HISTORY --inputs KEY --names NAMES.json --out BASE.json
         write to BASE the base verdicts the history already holds for NAMES' reds (a head's results):
         a red name whose file ran on a push with the same inputs KEY takes the newest such push's
-        verdict. Print, one a line, the files the history cannot answer for,
+        verdict, a green one only when at least GREEN_SAMPLES such pushes gave it a verdict. Print, one a line, the files the history cannot answer for,
         which the base must still run
     webviews_test_history.py known-reds HISTORY --before EPOCH --out BASE_REDS.json
         write {"sha", "inputs", "red": [...]} for the newest push no newer than EPOCH (a merge parent's commit
@@ -85,6 +85,10 @@ import urllib.parse
 import urllib.request
 import zipfile
 
+# Pushes at the merge parent's inputs that must give a red name a verdict before the history answers it green. One
+# green push is one sample of a test that may flap: cmux#41254 (run 43006460063) was charged with a webkit timing test
+# on one base sample that passed it. A red needs one (it only excuses, and flaky() names a name those pushes flip on).
+GREEN_SAMPLES = 2
 KEEP = 120  # push runs kept: several hours of feat-cmux-next pushes, a few MB
 # The history itself, uploaded by every push's webviews-test-history job and read by the next push and by each pull
 # request's replay. An artifact, not an Actions cache: on 2026-11-08 no push restored the cache the one before it saved
@@ -242,15 +246,17 @@ def known(runs: list[dict], key: str, head: dict[str, bool]) -> tuple[dict[str, 
     react-apps-base-check replays each head red file once on the merge parent. A push with the same
     inputs key ran the same webview tree, so its verdict answers the same question without the replay's
     install, bundle build and browsers (3 to 11 min a shard). A name takes the newest such push's
-    verdict, as the replay would take its one run's (flaky() still names a name those pushes flip on). A file with any
+    verdict, a green one only from GREEN_SAMPLES pushes (flaky() still names a name those pushes flip on). A file with any
     name the history cannot answer runs whole, as before, and its names keep the replay's verdicts."""
     at = [run for run in runs if run["inputs"] == key]
     base: dict[str, bool] = {}
     replay: set[str] = set()
     for name in sorted(name for name, ok in head.items() if not ok):
         found = [ok for _, ok in verdicts(at, name)]
-        if found:
-            base[name] = found[-1]  # the newest such push: one old flake does not excuse a change for the whole window
+        # The newest such push: one old flake does not excuse a change for the whole window. A green from fewer than
+        # GREEN_SAMPLES pushes is one sample: the file replays instead (and replays again while it passes there).
+        if found and (not found[-1] or len(found) >= GREEN_SAMPLES):
+            base[name] = found[-1]
         else:
             replay.add(name.split(" > ", 1)[0])
     return {name: ok for name, ok in base.items() if name.split(" > ", 1)[0] not in replay}, sorted(replay)

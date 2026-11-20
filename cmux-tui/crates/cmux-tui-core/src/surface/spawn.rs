@@ -200,6 +200,7 @@ impl Surface {
             },
             terminal: Arc::new(PtyTerminalRuntime {
                 event_surface_id: id,
+                pid: terminal_runtime::terminal_seat(&mux, pid, &terminal_public_id),
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation: Arc::from(format!(
                     "local-{}",
@@ -223,6 +224,7 @@ impl Surface {
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(terminal_metadata),
                 tail_pin: Default::default(),
+                port_mark: Default::default(),
                 command_tracker: Mutex::new(Default::default()),
                 mouse_encoders: RankedMutex::new(
                     LockRank::Leaf,
@@ -253,7 +255,6 @@ impl Surface {
                 pending_host_binding: Mutex::new(None),
                 #[cfg(any(unix, windows))]
                 host_exit_record_path: None,
-                pid: terminal_runtime::terminal_seat(&mux, pid),
                 command: argv,
                 cwd,
                 exit: Mutex::new(None),
@@ -262,6 +263,8 @@ impl Surface {
                 dead: AtomicBool::new(false),
                 owner_detaching: AtomicBool::new(false),
                 recover_requested: AtomicBool::new(false),
+                #[cfg(unix)]
+                host_fence_wait: Default::default(),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
                 host_fallback: std::sync::OnceLock::new(),
                 dirty: AtomicBool::new(false),
@@ -385,7 +388,26 @@ impl Surface {
                                     local_output::readable(fd, 0).unwrap_or(false)
                                 });
                             let result = if ready {
-                                output.read(pty, |buf| reader.read(buf)).map(Some)
+                                output
+                                    .read(pty, |buf| {
+                                        let mut count = reader.read(buf)?;
+                                        // A flood: the bytes already waiting are parsed with
+                                        // this read, not one parse per PTY read (1 KiB on
+                                        // macOS). A lone echo finds nothing more.
+                                        #[cfg(unix)]
+                                        if count > 0
+                                            && let Some(fd) = read_fd
+                                        {
+                                            local_output::fill_waiting(
+                                                fd,
+                                                buf,
+                                                &mut count,
+                                                |rest| reader.read(rest),
+                                            );
+                                        }
+                                        Ok(count)
+                                    })
+                                    .map(Some)
                             } else {
                                 Ok(None)
                             };

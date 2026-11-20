@@ -16,7 +16,7 @@ import os
 ///   listed acpmux's phone records (``MobileHostPhoneCredentials``).
 /// - Each paired phone the account lists gets its own acpmux credential
 ///   (``MobileHostPhoneCredentials``), handed to hostd, so the phone's Full-access setting
-///   (Settings > Devices, off by default) can cover it.
+///   (Settings > Devices, on by default for a phone) can cover it.
 @MainActor
 final class MobileHostApproverSync {
     private let environment: AcpmuxEnvironment

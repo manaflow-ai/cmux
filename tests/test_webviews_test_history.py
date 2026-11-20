@@ -14,6 +14,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import zipfile
 
@@ -32,6 +33,103 @@ _git_fixture_spec.loader.exec_module(git_fixture_env)
 
 FILE = "test/agent-pane-suggested-tasks.test.ts"
 TEST = f"{FILE} > sends the image"
+
+SAME_REPO, FORK = "manaflow-ai/cmux", "someone/cmux"
+WEBVIEW_JOBS = ("react-apps-check-shard", "react-apps-base-early", "react-apps-base-check")
+
+
+POOLS = {"linux_4": "blacksmith-4vcpu-ubuntu-2404"}
+
+
+def evaluate(expression, context: dict[str, str], pools: dict[str, str] = POOLS):
+    """A GitHub expression of ==, !=, &&, ||, contains() and quoted strings over `github.*`, `vars.*` and
+    `fromJSON(vars.RUNNER_POOLS).<pool>`, in Python. A name the context lacks is '' (an unset variable); a pool the
+    map lacks raises KeyError, so a read of any other pool (linux_16) fails the test that evaluates it."""
+    body = str(expression).strip()
+    if not body.startswith("${{"):
+        return body
+    body = body.removeprefix("${{").removesuffix("}}")
+    body = re.sub(r"fromJSON\(vars\.RUNNER_POOLS\)\.(\w+)", lambda m: repr(pools[m.group(1)]), body)
+    body = re.sub(r"\b(?:github|vars)(?:\.[A-Za-z_][\w-]*)+", lambda m: repr(context.get(m.group(0), "")), body)
+    return eval(body.replace("&&", " and ").replace("||", " or "), {"__builtins__": {}},  # noqa: S307
+                {"contains": lambda haystack, needle: needle in haystack})
+
+
+def event(kind: str, owner="manaflow-ai", head=SAME_REPO, **extra) -> dict[str, str]:
+    context = {"github.repository_owner": owner, "github.repository": f"{owner}/cmux", "github.event_name": kind}
+    if kind == "pull_request":
+        context["github.event.pull_request.head.repo.full_name"] = head
+    return {**context, **extra}
+
+
+EVENTS = {
+    "push": event("push"),
+    "same-repository pull request": event("pull_request"),
+    "fork pull request": event("pull_request", head=FORK),
+    "fork repository": event("push", owner="someone"),
+}
+VCPU = {"blacksmith-2vcpu-ubuntu-2404": 2, "blacksmith-4vcpu-ubuntu-2404": 4, "blacksmith-16vcpu-ubuntu-2404": 16,
+        "ubuntu-24.04": 4}
+
+
+class ShardSize(unittest.TestCase):
+    """The head shards' widths are declared for 16 vCPU (8 jobs, 4 dev-server files). On 2026-11-18 the pool writer
+    marked 8, 16 and 32 vCPU dead and RUNNER_POOLS.linux_16 held 4, then 2 vCPU: every shard of run 44249075431
+    (attempt 2) and shards 1, 4, 6 and 8 of run 44258208231 ran 8 files at once on 2 cores into the 40 min limit, and
+    run 44304196887's attempt 2 shards queued over an hour on 2 vCPU. The jobs now read the 4 vCPU pool (linux_4, which
+    the pool writer keeps on a member that starts jobs), run at the share of the widths the runner has, and get the
+    minutes that takes."""
+
+    # About 690 s of tests a shard at 16 vCPU (run 43342256133's manifest split 12 ways) and 8 min for setup,
+    # uploads and the slack the retries leave.
+    TESTS_AT_16 = 690
+    SETUP = 8 * 60
+
+    def setUp(self):
+        import yaml
+        self.jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        self.shard = self.jobs["react-apps-check-shard"]
+        self.test_step = next(s for s in self.shard["steps"] if s["name"] == "Test webviews")
+
+    def test_the_webview_jobs_read_the_4_vcpu_pool_not_linux_16(self):
+        for name in WEBVIEW_JOBS:
+            runs_on = self.jobs[name]["runs-on"]
+            self.assertNotIn("linux_16", runs_on, name)
+            self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}"), name)
+            small = evaluate(runs_on, EVENTS["push"], {"linux_4": "blacksmith-2vcpu-ubuntu-2404"})
+            self.assertEqual(small, "blacksmith-2vcpu-ubuntu-2404", f"{name} follows the pool")
+            self.assertEqual(evaluate(runs_on, EVENTS["push"]), "blacksmith-4vcpu-ubuntu-2404", name)
+            self.assertEqual(evaluate(runs_on, EVENTS["same-repository pull request"]), "blacksmith-4vcpu-ubuntu-2404", name)
+            self.assertEqual(evaluate(runs_on, EVENTS["fork pull request"]), "blacksmith-16vcpu-ubuntu-2404", name)
+            self.assertEqual(evaluate(runs_on, EVENTS["fork repository"]), "ubuntu-24.04", name)
+            owned = {**EVENTS["push"], "vars.CI_LINUX_GATE_OWNED_RUNNER": "glaeda-linux-gate"}
+            self.assertEqual(evaluate(runs_on, owned), "glaeda-linux-gate", name)
+
+    def test_each_runner_gets_minutes_for_its_share_of_the_work(self):
+        for label, context in EVENTS.items():
+            runner = evaluate(self.shard["runs-on"], context)
+            minutes = evaluate(self.shard["timeout-minutes"], context)
+            vcpu = VCPU[runner]
+            need = self.TESTS_AT_16 * max(1, 16 / vcpu) + self.SETUP
+            self.assertGreaterEqual(minutes * 60, need * 1.25, f"{label} on {runner}: {minutes} min")
+        self.assertEqual(evaluate(self.shard["timeout-minutes"], EVENTS["fork pull request"]), 40)
+        # While the pool holds 2 vCPU, a shard runs 1 file at a time and gets the minutes for that.
+        small = {"linux_4": "blacksmith-2vcpu-ubuntu-2404"}
+        for label in ("push", "same-repository pull request"):
+            runner = evaluate(self.shard["runs-on"], EVENTS[label], small)
+            minutes = evaluate(self.shard["timeout-minutes"], EVENTS[label], small)
+            need = self.TESTS_AT_16 * 16 / VCPU[runner] + self.SETUP
+            self.assertGreaterEqual(minutes * 60, need * 1.25, f"{label} on {runner}: {minutes} min")
+
+    def test_the_test_step_reads_the_jobs_minutes_and_its_declared_size(self):
+        env = self.test_step["env"]
+        self.assertEqual(env["CMUX_WEB_TEST_JOB_MINUTES"], self.shard["timeout-minutes"])
+        self.assertNotIn("CMUX_WEB_TEST_RETRY_DEADLINE", env)
+        self.assertIn("left=$(( job_started + CMUX_WEB_TEST_JOB_MINUTES * 60 - 480 - now ))", self.test_step["run"])
+        self.assertEqual(env["CMUX_WEB_TEST_JOBS"], "8")
+        self.assertEqual(env["CMUX_WEB_TEST_SIZED_FOR_VCPU"], "16")
+        early = next(s for s in self.jobs["react-apps-base-early"]["steps"] if s["name"] == "Run the base reds")
+        self.assertEqual(early["env"]["CMUX_WEB_TEST_SIZED_FOR_VCPU"], env["CMUX_WEB_TEST_SIZED_FOR_VCPU"])
 
 
 def runs(*verdicts, keys=None):
@@ -120,12 +218,21 @@ class Known(unittest.TestCase):
         self.assertEqual(history.known([], "same", {TEST: False}), ({}, [FILE]))
 
     def test_a_file_red_without_names_reads_the_files_own_verdict(self):
-        self.assertEqual(history.known(runs(True), "same", {FILE: False}), ({FILE: True}, []))
+        self.assertEqual(history.known(runs(True, True), "same", {FILE: False}), ({FILE: True}, []))
         self.assertEqual(history.known(runs(None), "same", {FILE: False}), ({FILE: False}, []))
+
+    def test_one_green_push_is_one_sample_and_the_file_replays(self):
+        # cmux#41254 (run 43006460063): one green base sample of a test that flaps called its red the change's. A green
+        # takes two pushes at the key; a red is answered by one (it only excuses, and flaky() still names a flip).
+        self.assertEqual(history.known(runs(True), "same", {TEST: False}), ({}, [FILE]))
+        self.assertEqual(history.known(runs(True), "same", {FILE: False}), ({}, [FILE]))
+        self.assertEqual(history.known(runs(True, keys=["older"]) + runs(True), "same", {TEST: False}), ({}, [FILE]))
+        self.assertEqual(history.known(runs(False), "same", {TEST: False}), ({TEST: False}, []))
 
     def test_a_file_no_such_push_ran_replays_and_a_file_one_ran_answers_every_name(self):
         other = "test/other.test.ts"
         pushes = history.record([], "sha0", 1000, {FILE: True, other: True}, "same")
+        pushes = history.record(pushes, "sha1", 1001, {FILE: True, other: True}, "same")
         head = {TEST: False, f"{other} > x": False, f"{FILE} > new test": False}
         base, replay = history.known(pushes, "same", head)
         # FILE's "new test" is answered too (its file ran green); a red name the push never ran keeps the file
@@ -133,6 +240,7 @@ class Known(unittest.TestCase):
         self.assertEqual(replay, [])
         self.assertEqual(base, {TEST: True, f"{other} > x": True, f"{FILE} > new test": True})
         pushes = history.record([], "sha0", 1000, {FILE: True}, "same")
+        pushes = history.record(pushes, "sha1", 1001, {FILE: True}, "same")
         base, replay = history.known(pushes, "same", head)
         self.assertEqual((base, replay), ({TEST: True, f"{FILE} > new test": True}, [other]))
 
@@ -831,6 +939,7 @@ class Workflow(unittest.TestCase):
                 (ROOT / "scripts/ci/webviews_test_results.py").read_text(encoding="utf-8"), encoding="utf-8")
             (runner / "real_history.py").write_text(SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
             pushes = history.record([], "sha0", 1000, {FILE: True}, "same")
+            pushes = history.record(pushes, "sha1", 1001, {FILE: True}, "same")  # a green takes two samples
             # fetch writes this history; every other command is the real script's.
             (runner / "webviews_test_history.py").write_text(
                 "import json, pathlib, runpy, sys\n"
@@ -921,7 +1030,7 @@ class Workflow(unittest.TestCase):
         sys.path.insert(0, str(ROOT / "tests"))
         import workflow_jobs  # noqa: PLC0415
         self.assertEqual(workflow_jobs.runs_on(early), workflow_jobs.runs_on(check))
-        self.assertLess(early["timeout-minutes"], jobs["react-apps-check-shard"]["timeout-minutes"])
+        self.assertLess(early["timeout-minutes"], min(evaluate(jobs["react-apps-check-shard"]["timeout-minutes"], context) for context in EVENTS.values()))
         # 2 shards (run 43409592440's 12 ran 54 files one at a time; shard 1's 600 s timeout alone ended at 15.0 min),
         # each running its files at the head shards' widths, so the slowest file still ends before the head shards.
         include = early["strategy"]["matrix"]["include"]
@@ -953,6 +1062,163 @@ class Workflow(unittest.TestCase):
         for name in ("Setup Bun", "Install webview dependencies", "Build base web bundles", "Install headless engines",
                      "Run the base reds", "Upload the early base results"):
             self.assertEqual(steps[name]["if"], "${{ steps.pick.outputs.files != '0' }}", name)
+
+    def step_script(self, name):
+        base = self.job("react-apps-base-check")
+        step = base[base.index(f"      - name: {name}\n"):]
+        step = step[:step.index("\n      - name:", 10)] if "\n      - name:" in step[10:] else step
+        body = step[step.index("        run: |\n") + len("        run: |\n"):].splitlines()
+        return "\n".join(line[10:] for line in itertools.takewhile(
+            lambda line: line.startswith(" " * 10) or not line.strip(), body))
+
+    def compare_env(self):
+        import yaml
+        steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["react-apps-base-check"]["steps"]
+        return {k: str(v) for k, v in next(s for s in steps if s["name"] == "Run base reds and compare")["env"].items()}
+
+    def replay(self, head, results, rerun=None, elapsed=0, source="test\n"):
+        """Run the compare step (and the head re-run step when it asks for one) with a stub test runner whose Nth call
+        writes RESULTS[N-1] ({} past the end), ELAPSED seconds into the job. Returns (compare exit, compare output,
+        rerun output, calls' files)."""
+        red = "test/agent-pane-stream-row-overlap.test.ts"
+        budget = {k: v for k, v in self.compare_env().items() if k in ("JOB_TIMEOUT_MINUTES", "REPLAY_RESERVE")}
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp, "repo")
+            git_fixture_env.init_repo(repo)
+            Path(repo, "webviews/test").mkdir(parents=True)
+            Path(repo, f"webviews/{red}").write_text(source, encoding="utf-8")
+            env = git_fixture_env.fixture_env({
+                "PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin", "RUNNER_TEMP": temp,
+                "HEAD_RESULTS": str(Path(temp, "head.json")), "BASE_RESULTS": str(Path(temp, "base-results.json")),
+                "HEAD_RERUN": str(Path(temp, "head-rerun.json")), "KNOWN_REPLAY": "1",
+                "GITHUB_OUTPUT": str(Path(temp, "output")), **budget})
+            Path(temp, "job-started").write_text(f"{int(time.time()) - elapsed}\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, env=env)
+            subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x"],
+                           check=True, env=env)
+            Path(temp, "head.json").write_text(json.dumps(head), encoding="utf-8")
+            Path(temp, "base-replay-files").write_text(f"{red}\n", encoding="utf-8")
+            Path(temp, "base-known.json").write_text("{}\n", encoding="utf-8")
+            runner = Path(temp, "head-results/runner")
+            runner.mkdir(parents=True)
+            (runner / "guards_new_reds.py").write_text(
+                (ROOT / "scripts/ci/guards_new_reds.py").read_text(encoding="utf-8"), encoding="utf-8")
+            (runner / "webviews_test_history.py").write_text("", encoding="utf-8")  # no flakes on record
+            (runner / "test_reds.py").write_text("", encoding="utf-8")
+            for i, found in enumerate(results, 1):
+                (runner / f"result-{i}.json").write_text(json.dumps(found), encoding="utf-8")
+            (runner / "run-webviews-tests.sh").write_text(
+                'here="$(dirname "$0")"; n=$(( $(cat "$here/calls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$here/calls"\n'
+                'printf "%s\\n" "$CMUX_WEB_TEST_FILES" > "$here/files-$n"\n'
+                'cp "$here/result-$n.json" "$CMUX_WEB_TEST_RESULTS" 2>/dev/null || echo "{}" > "$CMUX_WEB_TEST_RESULTS"\n',
+                encoding="utf-8")
+            compare = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", self.step_script("Run base reds and compare")],
+                                     cwd=repo / "webviews", capture_output=True, text=True, env=env)
+            again = ""
+            if Path(temp, "output").exists() and "rerun=true" in Path(temp, "output").read_text(encoding="utf-8"):
+                again = subprocess.run(
+                    ["bash", "-e", "-o", "pipefail", "-c", self.step_script("Re-run the change's reds alone on the head")],
+                    cwd=repo / "webviews", capture_output=True, text=True, env=env).stdout
+            calls = int((runner / "calls").read_text()) if (runner / "calls").exists() else 0
+            files = [(runner / f"files-{n}").read_text(encoding="utf-8").split() for n in range(1, calls + 1)]
+            return compare.returncode, compare.stdout + compare.stderr, again, files
+
+    def test_a_red_the_base_passes_once_replays_there_again_before_it_is_the_changes(self):
+        # cmux#41254 (run 43006460063): attempt 2's one base replay passed the webkit overlap test the head failed
+        # twice, and the verdict called it the change's; attempt 3's base replay failed it. A second replay on the
+        # base settles it as flaky there.
+        red = "test/agent-pane-stream-row-overlap.test.ts > webkit: followed, no lag"
+        file = red.split(" > ")[0]
+        status, out, _, files = self.replay({red: False}, [{red: True}, {red: False}])
+        self.assertEqual(status, 0, out)
+        self.assertIn(f"webview test red step (flaky): {red}", out)
+        self.assertEqual(files, [[file], [file]])  # stops once the base failed it
+        # A real break: the base passes every bounded replay (three in all) and the head fails it again alone.
+        status, out, again, files = self.replay({red: False}, [{red: True}, {red: True}, {red: True}, {red: False}])
+        self.assertEqual(status, 1, out)
+        self.assertIn(f"::error title=Webview test red on this change::{red}", out)
+        self.assertEqual(files, [[file], [file], [file], [file]])  # three base replays, then the head re-run
+        self.assertIn(f"::error title=Webview test red on this change::{red}", again)
+        # A red the first replay already fails on the base replays no more.
+        status, out, _, files = self.replay({red: False}, [{red: False}])
+        self.assertEqual((status, files), (0, [[file]]), out)
+
+    def test_a_new_test_file_red_on_the_head_reaches_the_verdict_and_never_replays_on_the_base(self):
+        # #41414 review BLOCK: a red in a file the base does not have (a new test file) has no base result, so it is a
+        # new red and the replay loop listed its file; reading that missing file's declared limit failed under
+        # -e -o pipefail and ended the step with no verdict and no head re-run. It stays the change's, unreplayed,
+        # and the other file's reds still replay.
+        red = "test/agent-pane-stream-row-overlap.test.ts > webkit: followed, no lag"
+        file = red.split(" > ")[0]
+        new = "test/only-on-the-head.test.ts > draws"
+        status, out, _, files = self.replay({red: False, new: False}, [{red: True}, {red: False}])
+        self.assertEqual(status, 1, out)
+        self.assertIn(f"not on the base, the change's own, not replayed: {new.split(' > ')[0]}", out)
+        self.assertIn(f"::error title=Webview test red on this change::{new}", out)
+        self.assertIn(f"webview test red step (flaky): {red}", out)
+        self.assertEqual(files[:2], [[file], [file]])  # the first replay and one more, neither with the new file
+
+    def test_the_base_replays_fit_the_job_timeout(self):
+        # #41414 review F1: three base replays of a 900 s file plus the head re-run is 60 minutes, past the job's 55,
+        # and a job cut at its timeout gives the required check no verdict. The replays after the first share one
+        # budget, what is left of timeout-minutes less REPLAY_RESERVE for the head re-run and the verdict; this sums
+        # that worst case against timeout-minutes, as cmuxterm-hq#9496's test_skills_workflow_budget does.
+        import yaml
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["react-apps-base-check"]
+        env = self.compare_env()
+        timeout = int(job["timeout-minutes"]) * 60
+        self.assertEqual(int(env["JOB_TIMEOUT_MINUTES"]) * 60, timeout, "the budget must read this job's timeout-minutes")
+        runner = (ROOT / "scripts/ci/run-webviews-tests.sh").read_text(encoding="utf-8")
+        ceiling = int(re.search(r'maximum="\$\{CMUX_WEB_TEST_MAX_FILE_TIMEOUT:-(\d+)\}"', runner).group(1))
+        # The head re-run: its checkout, bun, install, bundles and browsers (3 to 11 min a shard), one file at the
+        # runner's ceiling, the verdict, and the checkout before the job's clock starts.
+        head_rerun = 11 * 60 + ceiling + 60 + 60
+        self.assertGreaterEqual(int(env["REPLAY_RESERVE"]), head_rerun)
+        # Before the replays: the base's setup (11 min) and the first replay of one file at the ceiling. The replays
+        # after it get only what is left, so the sum stays inside timeout-minutes; the first replay itself must fit.
+        before = 11 * 60 + ceiling
+        self.assertLess(before + int(env["REPLAY_RESERVE"]), timeout)
+        compare = self.step_script("Run base reds and compare")
+        self.assertIn('"$RUNNER_TEMP/job-started"', compare)
+        self.assertIn("JOB_TIMEOUT_MINUTES * 60", compare)
+        self.assertIn("REPLAY_RESERVE", compare)
+        self.assertIn('date +%s > "$RUNNER_TEMP/job-started"', self.step_script("Use the merge parent as the base"))
+
+    def test_a_replay_the_budget_cannot_fit_is_not_run_and_its_reds_stay_the_changes(self):
+        red = "test/agent-pane-stream-row-overlap.test.ts > webkit: followed, no lag"
+        file = red.split(" > ")[0]
+        timeout = int(self.compare_env()["JOB_TIMEOUT_MINUTES"]) * 60
+        reserve = int(self.compare_env()["REPLAY_RESERVE"])
+        # No time left after the first replay: no second one, and the red is the change's, not replayed (never excused).
+        status, out, _, files = self.replay({red: False}, [{red: True}, {red: False}], elapsed=timeout - reserve)
+        self.assertEqual(status, 1, out)
+        self.assertEqual(files[0], [file])
+        self.assertNotIn("replaying on the base again", out)
+        self.assertIn("not replayed", out)
+        self.assertIn(f"::error title=Webview test red on this change::{red}", out)
+        # 600 s left fits a file at the default 120 s limit, not one that declares 900 s.
+        status, out, _, files = self.replay({red: False}, [{red: True}, {red: False}], elapsed=timeout - reserve - 600)
+        self.assertEqual((status, files), (0, [[file], [file]]), out)
+        status, out, _, files = self.replay({red: False}, [{red: True}, {red: False}], elapsed=timeout - reserve - 600,
+                                            source="// cmux-web-test-timeout: 900\ntest\n")
+        self.assertEqual(status, 1, out)
+        self.assertIn("not replayed", out)
+        # A job long past its budget replays nothing more.
+        status, out, _, files = self.replay({red: False}, [{red: True}, {red: False}], elapsed=10**6)
+        self.assertEqual(status, 1, out)
+        self.assertNotIn("replaying on the base again", out)
+
+    def test_the_head_rerun_keeps_a_base_replay_flake_flaky(self):
+        # The re-run's verdict line is the replay's final one (base_red_excuse reads it): a name another base replay
+        # failed stays flaky there while a different red is the change's.
+        flake = "test/agent-pane-stream-row-overlap.test.ts > webkit: followed, no lag"
+        broken = "test/agent-pane-stream-row-overlap.test.ts > chromium: followed"
+        status, out, again, _ = self.replay({flake: False, broken: False},
+                                            [{flake: True, broken: True}, {flake: False, broken: True},
+                                             {flake: True, broken: True}, {flake: False, broken: False}])
+        self.assertEqual(status, 1, out)
+        self.assertIn(f"webview test red step (flaky): {flake}", again)
+        self.assertIn(f"webview test red step (new): {broken}", again)
 
     def test_only_the_install_build_and_browsers_wait_on_the_replay(self):
         import yaml

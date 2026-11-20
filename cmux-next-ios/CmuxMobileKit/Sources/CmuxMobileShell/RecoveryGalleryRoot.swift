@@ -2,6 +2,7 @@
 import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileTerminal
+import CmuxMobileWorkspaces
 import CmuxSpinner
 import SwiftUI
 

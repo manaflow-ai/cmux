@@ -1,3 +1,79 @@
+# Sidebar section customization
+
+## Prior art used for this slice
+
+Leo's “BB and Herder” reference maps to [get-bb/bb](https://github.com/get-bb/bb)
+and [Herdr](https://herdr.dev/). BB's public plugin model lets community code add
+side-panel tabs, sidebar sections, footer content, settings, and renderers, with
+live activation and rollback when a plugin fails. Its marketplace is an index of
+pinned sources; it does not install code automatically. Herdr is an agent-aware
+terminal multiplexer: its panes expose working, blocked, or idle state while the
+session stays persistent and can be attached from another client. The workspace
+research links [the Herdr/exe.dev field report](https://rares.blog/articles/stop-making-agents-commute-with-you)
+and records the same pane-state model in `docs/live-migrate-terminal-processes.md`.
+
+Those references led to this bounded native slice: users can shape the existing
+sidebar document through settings, while the document remains the source of
+placement truth and community widgets remain a later app-host primitive. A
+settings reload is atomic and reversible, so a malformed customization falls
+back to the native projection without affecting the session.
+
+CMUX-383 adds a native projection layer for the sidebar document. The document
+continues to own placement and persistence; \`cmux-next.json\` supplies bounded
+user overrides that Rust validates before the Swift view applies them. The
+projection is re-read on every settings watcher update, including an atomic
+file replacement, so saving the file is the hot-reload action.
+
+## Settings surface
+
+The settings live under two keys:
+
+\`\`\`json
+{
+  "sidebar": {
+    "sections": {
+      "hidden": ["recents"],
+      "order": ["projects", "pinned"]
+    },
+    "workspaces": {
+      "workspace-id": {
+        "hidden": false,
+        "group": "group-id",
+        "order": 20
+      }
+    }
+  }
+}
+\`\`\`
+
+Section \`hidden\` accepts section ids or their stable keys. \`order\` ranks
+sections within their existing \`top\`, \`middle\`, or \`bottom\` region; it never
+crosses those fixed bands. Workspace entries can hide a row, assign it to a
+same-section group by id or unambiguous display name, and rank it within its
+current loose/group list. Unknown ids, malformed values, duplicate ids, and
+oversized lists produce diagnostics and leave document placement intact.
+The selected workspace always keeps its section and row visible.
+
+## Rows, sections, density, and scope
+
+The native row content and density tokens remain the existing sidebar design.
+Customization changes projection only: section visibility/order, workspace
+visibility/order, and valid group membership. App sections, machine sections,
+fixed bands, row icons, status lines, and density are not recreated by the
+settings layer, so a reload cannot cause a layout jump or a second density
+system.
+
+The settings apply to the current profile's sidebar projection. The underlying
+sidebar document remains shared and editable by its normal drag and section
+operations. A later document update is projected through the current settings,
+and a settings reload projects the latest unfiltered document so a previous
+hide or move never becomes permanent state.
+
+The gallery covers the default projection, hidden/reordered sections, and a
+workspace moved and ranked within its section. The watcher test writes a
+temporary \`cmux-next.json\` through an atomic replacement and observes the new
+projection without a restart.
+
 # Customizing the sidebar's hover card and rows
 
 cmux-next lets you redraw a workspace row's hover card and decorate sidebar rows with a short

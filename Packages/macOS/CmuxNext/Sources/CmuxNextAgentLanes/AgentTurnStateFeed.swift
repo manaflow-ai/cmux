@@ -231,7 +231,8 @@ public final class AgentTurnStateFeed {
         case initialized(follows: Bool)
         /// A follow's reply (id 2, ``AgentWatchFollow``).
         case follow(AgentWatchFollow)
-        /// `_acpmux/lagged {watch: true}`: acpmux dropped pushes of the watch.
+        /// `_acpmux/lagged` with no `sessionIds` (acpmux sends `{dropped}`, `server/fanout.rs`;
+        /// `{watch: true}` too): acpmux dropped pushes of the watch.
         case lagged
 
         /// A pending push of a chat (or of a peer's row of it) is replaced by a newer one of the
@@ -280,7 +281,7 @@ public final class AgentTurnStateFeed {
                       let peer = params["peer"] as? String, !peer.isEmpty, let state = params["state"] as? String {
                 self = .peerState(peer: peer, state: state)
             } else if message["method"] as? String == "_acpmux/lagged",
-                      (message["params"] as? [String: Any])?["watch"] as? Bool == true {
+                      (message["params"] as? [String: Any])?["sessionIds"] == nil {
                 self = .lagged
             } else {
                 return nil
@@ -384,13 +385,13 @@ public final class AgentTurnStateFeed {
                 held = whole
             }
             if let peerRow { paging?.changedPeers[session, default: []].insert(peerRow.name) } else { paging?.changed.insert(session) }
-            // Most session records leave the indicator as it was: the store writes (and so
-            // redraws the tabs and rows that read this session) only what differs.
+            // Most records leave the indicator as it was: the store writes (and redraws) only what differs.
             turns.apply(session: session, sessionName: sessionName, state: state, lastMessage: lastMessage, muted: muted, title: title,
                         generatedTitle: generatedTitle, detail: detail, source: source, peer: peerRow?.row)
             if let peerRow, peerRow.row == nil { turns.removePeerRow(peerRow.name, session: session) }
             turns.setStartedBy(startedBy, session: session, source: source)
             if lanes.lanes[session] != lane { lanes.set(session, lane) }
+            if deleted { turns.sessionEnded(session) } // the chat is gone: its record goes too
             if deleted, !isMirror { Self.purged?(session) }
             if let peer, !isMirror { peerSessionChanged?(peer.name, peer.stale) }
         case .usage(let numbers, let next):

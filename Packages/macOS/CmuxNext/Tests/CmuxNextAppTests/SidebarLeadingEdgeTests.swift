@@ -119,7 +119,11 @@ import Testing
             let inset = try Self.inset(list)
             var starts: [(String, CGFloat)] = []
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
-            starts.append(("Home's glyph", Self.x(list, try #require(home.glyphInkFrame, "Home drew no glyph").minX, in: home)))
+            // Home's house stands at the rows' glyph height, a little wider than its column, spilling evenly past both edges:
+            // its column starts that spill after its ink.
+            let homeInk = try #require(home.glyphInkFrame, "Home drew no glyph")
+            let homeSpill = max(0, (homeInk.width - SidebarStyle.rowGlyphOpticalSide) / 2)
+            starts.append(("Home's glyph", Self.x(list, homeInk.minX + homeSpill, in: home)))
             for id in Self.iconRows {
                 let row = try HomePinnedRowAlignmentTests.row(list, id)
                 let ink = try #require(try Self.inkMinX(row.icon), "\(id.rawValue) drew no icon")
@@ -129,8 +133,11 @@ import Testing
                 let row = try HomePinnedRowAlignmentTests.row(list, id)
                 starts.append(("\(id.rawValue)'s title", Self.x(list, row.title.frame.minX, in: row)))
             }
+            // A glyph snaps to the window's pixel grid on its own, so on a 1x screen its ink can start one device pixel off
+            // an inset on a half point (as HomePinnedRowAlignmentTests allows).
+            let pixel = max(Self.tolerance, 1 / max(1, window.backingScaleFactor))
             for (name, x) in starts {
-                #expect(abs(x - inset) <= Self.tolerance, "\(c.testDescription): \(name) starts at \(x), the row inset is \(inset)")
+                #expect(abs(x - inset) <= pixel, "\(c.testDescription): \(name) starts at \(x), the row inset is \(inset)")
             }
         }
     }
