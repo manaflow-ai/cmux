@@ -14,6 +14,17 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 FOLDERS = ("looks", "last-demo", "glass", "widgets")
+SIDEBAR_DEPTH_KEYS = {
+    "sidebar.style",
+    "sidebar.groupHeader.background",
+    "sidebar.groupPalette",
+    "sidebar.workspaceRow.directory",
+    "sidebar.workspaceRow.branch",
+    "sidebar.workspaceRow.agentStatus",
+    "sidebar.workspaceRow.tabCount",
+    "sidebar.workspaceRow.secondLineOrder",
+    "workspaceColors.indicatorStyle",
+}
 
 
 def profiles() -> list[str]:
@@ -49,6 +60,13 @@ def main() -> int:
                 return 1
         elif not profile.get("settings"):
             print(f"{relative}: has neither app surfaces nor settings", file=sys.stderr)
+            return 1
+        sidebar_keys = set(profile.get("settings", {})) & SIDEBAR_DEPTH_KEYS
+        if len(sidebar_keys) < 6:
+            print(
+                f"{relative}: sidebar customization is shallow ({len(sidebar_keys)}/6 depth keys)",
+                file=sys.stderr,
+            )
             return 1
 
     if len(expected) != 13:

@@ -34,7 +34,32 @@
     "focus.inactiveTabStyle": "quiet",
     "layout.paneCornerRadius": 12,
     "sidebar.controlsOnHover": true,
-    "sidebar.groupHeader.background": "sections"
+    "sidebar.groupHeader.background": "sections",
+    "sidebar.side": "left",
+    "sidebar.showProfileControl": true,
+    "sidebar.showSearchButton": true,
+    "sidebar.showNewWorkspaceChooser": true,
+    "sidebar.workspacesAsTabs": false,
+    "sidebar.chromeGroups": true,
+    "sidebar.sideBySide": false,
+    "sidebar.noFade": false,
+    "sidebar.groupHeader.memberCount": true,
+    "sidebar.groupHeader.unreadCount": true,
+    "sidebar.groupPalette": "theme",
+    "sidebar.workspaceRow.directory": true,
+    "sidebar.workspaceRow.agentStatus": true,
+    "sidebar.workspaceRow.tabCount": true,
+    "sidebar.workspaceRow.lastActivity": true,
+    "sidebar.workspaceRow.secondLineOrder": [
+      "notification",
+      "directory",
+      "branch",
+      "agentStatus",
+      "lastActivity"
+    ],
+    "sidebar.style": "standard",
+    "sidebar.workspaceRow.notification": true,
+    "sidebar.workspaceRow.working": true
   },
   "files": {
     "agent-pane/theme.css": "/* The Claude app's chat: your prompt in a warm dark pill, inline code in a warm chip, clay links,\n   soft warm cards with a faint ring, and a dark rounded composer.\n   From the claude-code-app recipe (manaflow-ai/cmux#45804) and a warm reading look.\n   Colors and radii only: sizes stay with the settings, so rows keep their measured heights. */\n:root {\n  --cv-bubble: #2d2c29;\n  --cv-code-bg: #302f2c;\n  --cv-link: #e08a6c;\n  --agent-link: #e08a6c;\n  --cv-text-muted: #b7b2a7;\n  --cv-text-dim: #9a958b;\n  --cv-card-fill: rgb(255 248 235 / 0.035);\n  --cv-card-ring: rgb(255 240 220 / 0.08);\n}\n.cv-user__bubble {\n  border-radius: 18px;\n}\n.acpmux-shell {\n  --acpmux-composer-bg: #2a2926;\n  --acpmux-composer-edge: rgb(255 255 255 / 10%);\n}\n.acpmux-composer-box {\n  --acpmux-composer-radius: 18px;\n}\n",

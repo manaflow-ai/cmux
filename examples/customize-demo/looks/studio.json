@@ -37,7 +37,32 @@
     "focus.inactiveTabStyle": "tonal",
     "layout.paneCornerRadius": 6,
     "sidebar.controlsOnHover": true,
-    "tabs.plusButton": "always"
+    "tabs.plusButton": "always",
+    "sidebar.side": "left",
+    "sidebar.showProfileControl": true,
+    "sidebar.showSearchButton": true,
+    "sidebar.showNewWorkspaceChooser": true,
+    "sidebar.workspacesAsTabs": false,
+    "sidebar.chromeGroups": true,
+    "sidebar.sideBySide": false,
+    "sidebar.noFade": false,
+    "sidebar.groupPalette": "theme",
+    "sidebar.workspaceRow.directory": true,
+    "sidebar.workspaceRow.branch": true,
+    "sidebar.workspaceRow.agentStatus": true,
+    "sidebar.workspaceRow.tabCount": true,
+    "sidebar.workspaceRow.lastActivity": true,
+    "sidebar.workspaceRow.secondLineOrder": [
+      "notification",
+      "directory",
+      "branch",
+      "agentStatus",
+      "lastActivity"
+    ],
+    "sidebar.style": "standard",
+    "sidebar.workspaceRow.process": true,
+    "sidebar.workspaceRow.ports": false,
+    "sidebar.workspaceRow.notification": true
   },
   "files": {
     "agent-pane/theme.css": "/* Studio's chat: hairline cards on a faint fill, a square-ish prompt with an edge, rose links,\n   and a graphite composer with small corners.\n   Colors and radii only: sizes stay with the settings, so rows keep their measured heights. */\n:root {\n  --cv-bubble: #1c1c20;\n  --cv-code-bg: #1a1a1e;\n  --cv-link: #f08cb6;\n  --agent-link: #f08cb6;\n  --cv-text-muted: #a8a8b0;\n  --cv-text-dim: #8f8f98;\n  --cv-card-fill: rgb(255 255 255 / 0.035);\n  --cv-card-ring: rgb(255 255 255 / 0.09);\n}\n.cv-user__bubble {\n  border-radius: 6px;\n  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.1);\n}\n.acpmux-shell {\n  --acpmux-composer-bg: #16161a;\n  --acpmux-composer-edge: rgb(255 255 255 / 12%);\n}\n.acpmux-composer-box {\n  --acpmux-composer-radius: 8px;\n}\n",
