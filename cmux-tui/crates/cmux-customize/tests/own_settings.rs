@@ -45,9 +45,9 @@ impl Home {
     }
 }
 
-/// The person's file as it was on the nightly: one flat key with a value
-/// this build does not take, beside ones it does.
-const STALE: &str = "{\n  \"workspaceColors.indicatorStyle\": \"solidFill\",\n  \"sidebar\": { \"density\": \"expanded\" }\n}\n";
+/// The person's file as it was on the nightly: one value this build does
+/// not take, beside ones it does. Nested, as the settings reader reads it.
+const STALE: &str = "{\n  \"workspaceColors\": { \"indicatorStyle\": \"solidFill\" },\n  \"sidebar\": { \"density\": \"expanded\" }\n}\n";
 
 fn profile(path: &str) -> Profile {
     let home = Home::new("{}\n");
@@ -59,8 +59,7 @@ fn profile(path: &str) -> Profile {
             "files":{"themes/night.json":"{ \"name\": \"night\" }\n"}}"#,
     )
     .unwrap();
-    let profile = home.customize().load_profile(file.to_str().unwrap()).unwrap();
-    profile
+    home.customize().load_profile(file.to_str().unwrap()).unwrap()
 }
 
 fn stale_is_reported(customize: &Customize) {
@@ -81,10 +80,7 @@ fn a_stale_value_in_the_persons_settings_never_blocks_a_profile_preview_or_apply
     customize.preview_profile(&profile, "cli", 1).expect("the preview was refused");
     let live = home.settings();
     assert!(live.contains("\"compact\""), "{live}");
-    assert!(
-        live.contains("\"workspaceColors.indicatorStyle\": \"solidFill\""),
-        "rewritten: {live}"
-    );
+    assert!(live.contains("\"indicatorStyle\": \"solidFill\""), "rewritten: {live}");
     stale_is_reported(&customize);
     let applied = customize.apply(None, "cli", 2).expect("the apply was refused");
     assert!(applied.recorded);
@@ -135,4 +131,26 @@ fn a_profile_that_brings_a_value_the_setting_does_not_take_is_still_refused() {
     };
     assert_eq!(problems.len(), 1, "{problems:?}");
     assert!(problems[0].line().contains("workspaceColors.indicatorStyle"), "{problems:?}");
+}
+
+#[test]
+fn a_stale_value_in_the_persons_settings_never_blocks_a_save_and_stays_out_of_the_profile() {
+    let home = Home::new(
+        "{\n  \"workspaceColors\": { \"indicatorStyle\": \"solidFill\" },\n  \"appearance\": { \"density\": \"compact\" }\n}\n",
+    );
+    let customize = home.customize();
+    let saved = customize.save_profile("mine", "my setup", 1).expect("the save was refused");
+    assert!(
+        saved.left_out.iter().any(|line| line.contains("workspaceColors.indicatorStyle")),
+        "{:?}",
+        saved.left_out
+    );
+    let text = fs::read_to_string(&saved.path).unwrap();
+    assert!(!text.contains("solidFill"), "{text}");
+    assert!(text.contains("compact"), "{text}");
+    // The saved profile is one someone else can use.
+    let theirs = Home::new("{}\n");
+    let theirs_customize = theirs.customize();
+    let profile = theirs_customize.load_profile(saved.path.to_str().unwrap()).unwrap();
+    theirs_customize.preview_profile(&profile, "cli", 2).expect("the saved profile was refused");
 }
