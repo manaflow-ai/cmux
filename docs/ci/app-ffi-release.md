@@ -47,11 +47,14 @@ paths on a macOS worker (the default source is a currently published release):
 
 ```sh
 cmux-ci run --class light --os macos \
-  --script scripts/ci/ffi-warm-swap-experiment.sh --ref <40-char-PR-head>
+  --script scripts/ci/ffi-warm-swap-experiment.sh \
+  --ref <40-char-merged-sha> --key ffi-loader-<40-char-merged-sha>
 ```
 
 The script must first be registered in the controller's ci-step allowlist; an
-unregistered script is refused by name. It records the archive SHA-256 and
+unregistered script is refused by name. The script blob must also land on
+`feat-cmux-next` before the worker will run it. The explicit key identifies this
+manual run outside Actions. It records the archive SHA-256 and
 reports success only after the matching ABI loads and an intentionally
 mismatched expected value exits 3 with the loader's ABI diagnostic.
 
