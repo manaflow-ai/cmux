@@ -568,7 +568,14 @@ public final class AgentTurnStateStore {
             apply(session: id, sessionName: sessionNames[id], state: states[id], lastMessage: lastMessages[id], muted: muted.contains(id),
                   title: titles[id], generatedTitle: generatedTitles[id], detail: details[id], source: source)
             let rows = peers[id] ?? [:]
-            if record(id).peers != rows { record(id).peers = rows }
+            let held = record(id)
+            if held.peers != rows {
+                // A peer's turn that ran ended when the follow has its row no longer working (or gone), as the whole replace rings it.
+                if held.peers.contains(where: { $0.value.state == .working && rows[$0.key]?.state != .working }) {
+                    turnEnded(id, folder: (details[id] ?? held.detail)?.cwd)
+                }
+                held.peers = rows
+            }
             // A session of this watch that its list no longer has: acpmux dropped it.
             if own, !listed { sessionEnded(id) }
         }
