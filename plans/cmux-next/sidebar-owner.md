@@ -2494,3 +2494,8 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   densities. The shared trailing column still reserves the local Share Screen action. Regression coverage:
   `SidebarSearchButtonTests`, `SidebarEvenRowInsetsTests`, `NowPlayingCardTests`.
   Sidebar-Look: every density is Default scaled by one factor.
+
+- 2026-11-20 (Claude capacity gate): Leo approved with “Yes, do both”. A workspace with Claude prompts
+  waiting for gateway capacity shows “Waiting for capacity (N)” in the existing secondary text style.
+  The title keeps its line. A compact row adds a detail line for the hold and returns to its usual height
+  when the count clears. The regression test is `SidebarCapacityStatusTests`.

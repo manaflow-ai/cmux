@@ -56,14 +56,11 @@ enum SidebarLaneStatus {
                     }
                     row.chiefAvatar = owned.first.flatMap(chiefAvatar)
                 }
-                let capacityWaitCount = local.reduce(0) { $0 + $1.capacityWaitCount }
-                if capacityWaitCount > 0 {
-                    row.agentStep = String(localized: "Waiting for capacity (\(capacityWaitCount))", bundle: .module)
-                }
+                row.capacityWaitCount = local.reduce(0) { $0 + $1.capacityWaitCount }
                 guard mergesState || namesState || saysStep else { return row }
                 if mergesState { merge(local, into: &row) }
                 if namesState { row.agentChip = chip(local, marks: marks.state) }
-                if saysStep && capacityWaitCount == 0 { row.agentStep = step(local) }
+                if saysStep { row.agentStep = step(local) }
                 return row
             }
             // With no feed the row maps now, in a batch of its own.
