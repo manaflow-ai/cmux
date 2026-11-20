@@ -204,6 +204,30 @@ async fn surge_hold_at_the_prompt_entry_point_has_no_second_chat_row_on_retry() 
         e.kind.as_str(),
         "user_message" | "_acpmux/message" | "turn_started" | "queued"
     )));
+
+    // A daemon re-dispatch (queue resume, steer or composed inbox digest) is not a
+    // second network arrival. Exercise the same internal entry the queue uses and
+    // inspect its acceptance without waiting for a user to read the ordinary inbox.
+    let (tx, mut accepted) = tokio::sync::oneshot::channel();
+    let opts = PromptOptions {
+        prompt_id: Some("already-admitted".into()),
+        inbox: true,
+        on_accepted: Some(Box::new(move |v| {
+            let _ = tx.send(v);
+        })),
+        ..options()
+    };
+    let dispatch = hub.run_prompt(&session, blocks, "cli", false, opts);
+    tokio::pin!(dispatch);
+    let receipt = tokio::select! {
+        biased;
+        receipt = &mut accepted => receipt.unwrap(),
+        result = &mut dispatch => accepted.try_recv().unwrap_or_else(|_| panic!("no acceptance: {result:?}")),
+        _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => panic!("no inbox acceptance"),
+    };
+    assert_eq!(receipt["promptId"], "already-admitted");
+    assert_eq!(receipt["inbox"], true);
+    assert_ne!(receipt["surgeHeld"], true);
 }
 
 #[tokio::test]

@@ -709,6 +709,7 @@ impl Hub {
         let steer = steer && !held;
         (opts.interrupt, opts.steer_now) = (opts.interrupt && !held, opts.steer_now && !held);
         self.agent_pair_check(session, &blocks, client, steer, &mut opts)?;
+        opts.new_inbox_arrival = true;
         self.run_prompt(session, blocks, client, steer, opts).await
     }
 
