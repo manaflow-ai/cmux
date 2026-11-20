@@ -112,3 +112,53 @@ async fn a_streaming_chats_row_is_told_once_per_window_however_often_the_list_is
         );
     }
 }
+
+/// A row held back for its window is told at the first read after it, at a later list position:
+/// a follow from a cursor taken before it sends the row (#42091 F1), and a change no stream
+/// makes (an attach, a respawn's mark) is still told at the next read whatever the window.
+#[tokio::test]
+async fn a_held_streaming_row_is_told_at_the_first_read_after_its_window() {
+    let (hub, chats) = hub_with_streaming_chats();
+    hub.events.set_stream_tell_every(std::time::Duration::from_millis(200));
+    let chat = &chats[0];
+    let mut heard = hub.events.subscribe();
+    stream(&hub, chat, 0);
+    let _ = hub.list_cursor();
+    assert_eq!(
+        told(&hub, &mut heard).0.get(&chat.id),
+        Some(&1),
+        "the first change is told at once"
+    );
+
+    stream(&hub, chat, 1);
+    let head = hub.list_cursor().0;
+    assert_eq!(told(&hub, &mut heard).0.get(&chat.id), None, "held within its window");
+    assert!(hub.events.stream_untold(&chat.id));
+
+    // Not a stream change: told at the next read, window or not.
+    hub.mark_profile_respawn(chat);
+    let _ = hub.list_cursor();
+    assert_eq!(
+        told(&hub, &mut heard).0.get(&chat.id),
+        Some(&1),
+        "a respawn's mark waits for no window"
+    );
+    assert!(!hub.events.stream_untold(&chat.id), "its row carried the stream too");
+
+    stream(&hub, chat, 2);
+    let head_held = hub.list_cursor().0;
+    assert!(hub.events.stream_untold(&chat.id));
+    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    let _ = hub.list_cursor();
+    let follow = hub.list_follow(head_held, false, false, usize::MAX).expect("the log follows it");
+    let follow: Value = serde_json::from_str(&follow.text).unwrap();
+    let ids: Vec<&str> = follow["sessions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|r| r["sessionId"].as_str())
+        .collect();
+    assert_eq!(ids, [chat.id.as_str()], "a follow from before it sends the held row");
+    assert!(head_held >= head);
+    assert_eq!(told(&hub, &mut heard).0.get(&chat.id), Some(&1), "told once its window passed");
+}
