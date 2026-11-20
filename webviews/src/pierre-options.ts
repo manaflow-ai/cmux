@@ -5,11 +5,12 @@ import type { CodeViewOptions } from "@pierre/diffs";
 import type { WorkerInitializationRenderOptions } from "@pierre/diffs/worker";
 import {
   appearanceBackgroundColor,
+  syntaxColorsFor,
   readableColor,
   type DiffChangeColors,
   type DiffViewerAppearance,
 } from "./appearance";
-import { pageSyntaxVariable, syntaxRoleColors, syntaxTokenRules, type SyntaxRoleName } from "./syntax-theme";
+import { pageSyntaxVariable, syntaxTokenRules, type SyntaxRoleName } from "./syntax-theme";
 import { MOTION_MS } from "./motion/scale.generated";
 
 export type DiffViewerOptions = {
@@ -435,7 +436,8 @@ function syntaxTokenColors(
   variables: boolean,
 ) {
   const type = theme.type === "light" ? "light" : "dark";
-  const colors = syntaxRoleColors(theme.palette ?? {}, type, contrastBackground, foreground);
+  // The same colors applyDiffViewerAppearance sets as the page variables (over a see-through window too).
+  const colors = syntaxColorsFor({ ...theme, background: contrastBackground, foreground }, type);
   const color = (role: SyntaxRoleName) =>
     variables ? `var(${pageSyntaxVariable(type, role)}, ${colors[role]})` : colors[role];
   // Plain text reads the `variable` role (the foreground), so it follows a theme change too.

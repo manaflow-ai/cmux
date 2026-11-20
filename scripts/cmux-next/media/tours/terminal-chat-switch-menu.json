@@ -1,0 +1,178 @@
+{
+  "title": "Switch to Chat / Switch to Terminal in the ⋮ menus (user 2026-11-20): a terminal running a Claude Code session, its pane's ⋮, the chat it switches to, the chat's ⋮, and back; light then dark. Needs --whole-host for the menu shots",
+  "harnessFixture": {
+    "harnesses": {
+      "claude": {
+        "kind": "claude-stdio",
+        "argv": [
+          "claude"
+        ],
+        "family": "claude",
+        "description": "Synthetic capture harness (Toggle Terminal and Chat tours)"
+      }
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "New workspace Switch",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Switch"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Show Switch",
+      "cmux": [
+        "workspace",
+        "name:Switch",
+        "focus"
+      ],
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Seed: a short Claude Code transcript, and the terminal reports its session (agent hook SessionStart)",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Switch",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; mkdir -p \"$HOME/switch-menu\" && cd \"$HOME/switch-menu\" && C=$(pwd -P); cmux setup trust | tr , \"\\n\" | grep -m1 state; S=5a7e5a7e-0000-4000-8000-000000002000; D=\"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$(printf %s \"$C\" | tr -c \"A-Za-z0-9\" -)\"; mkdir -p \"$D\" && python3 -c 'import json,sys;p,c,s=sys.argv[1:4];u=lambda i:\"5a7e0000-0000-4000-9000-%012d\"%i;open(p,\"w\").write(\"\".join(json.dumps({\"type\":(\"user\",\"assistant\")[i%2],\"uuid\":u(i),\"parentUuid\":u(i-1) if i else None,\"sessionId\":s,\"timestamp\":\"2026-11-01T%02d:%02d:%02d.000Z\"%(i//3600,i//60%60,i%60),\"cwd\":c,\"message\":{\"role\":\"user\",\"content\":\"Turn %d: how does pane %d keep its place when the view swaps?\"%(i//2,i%7)} if i%2==0 else {\"id\":\"msg_%d\"%i,\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-5-5\",\"content\":[{\"type\":\"text\",\"text\":\"Answer %d: both views stay mounted.\\n\\n- the terminal keeps its scrollback\\n- the chat keeps its offset\\n\\n`swap %d`\"%(i//2,i)}],\"stop_reason\":\"end_turn\"}})+\"\\n\" for i in range(12)))' \"$D/$S.jsonl\" \"$C\" \"$S\" && seq -f \"scrollback %g of 3000: terminal and chat swap bench\" 1 3000 && echo TRANSCRIPT-READY && cmux agent hook emit --source claude --event SessionStart --payload-json \"{\\\"session_id\\\":\\\"$S\\\"}\" && echo HOOK-SENT\r"
+      ],
+      "wait": 8,
+      "shot": false
+    },
+    {
+      "title": "Light: the app in light",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "light"
+        }
+      },
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Light: the terminal's ⋮ leads with Switch to Chat",
+      "rpc": {
+        "method": "debug.object_menu",
+        "params": {
+          "menu": "paneMore"
+        }
+      },
+      "wait": 2,
+      "display": true
+    },
+    {
+      "title": "Light: pick Switch to Chat",
+      "rpc": {
+        "method": "debug.object_menu",
+        "params": {
+          "choose": "Switch to Chat"
+        }
+      },
+      "wait": 6,
+      "display": true
+    },
+    {
+      "title": "Light: the chat's ⋮ leads with Switch to terminal",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "click",
+          "selector": ".acpmux-header-more"
+        }
+      },
+      "wait": 2.5,
+      "display": true
+    },
+    {
+      "title": "Light: pick Switch to terminal",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "click",
+          "text": "Switch to terminal"
+        }
+      },
+      "wait": 4,
+      "display": true
+    },
+    {
+      "title": "Dark: the app in dark",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "dark"
+        }
+      },
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Dark: the terminal's ⋮ leads with Switch to Chat",
+      "rpc": {
+        "method": "debug.object_menu",
+        "params": {
+          "menu": "paneMore"
+        }
+      },
+      "wait": 2,
+      "display": true
+    },
+    {
+      "title": "Dark: pick Switch to Chat",
+      "rpc": {
+        "method": "debug.object_menu",
+        "params": {
+          "choose": "Switch to Chat"
+        }
+      },
+      "wait": 6,
+      "display": true
+    },
+    {
+      "title": "Dark: the chat's ⋮ leads with Switch to terminal",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "click",
+          "selector": ".acpmux-header-more"
+        }
+      },
+      "wait": 2.5,
+      "display": true
+    },
+    {
+      "title": "Dark: pick Switch to terminal",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "click",
+          "text": "Switch to terminal"
+        }
+      },
+      "wait": 4,
+      "display": true
+    }
+  ]
+}
