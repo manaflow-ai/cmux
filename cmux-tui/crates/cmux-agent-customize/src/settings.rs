@@ -253,7 +253,11 @@ pub fn report(ctx: &Context, agent: Agent) -> Value {
                 keys_on_disk += 1;
                 let key = render_key(&leaf.parts);
                 if active && let Some(at) = index.iter().position(|k| *k == key) {
-                    if let Some(list) = entries[at]["overridden"].as_array_mut() {
+                    if let Some(list) = entries
+                        .get_mut(at)
+                        .and_then(|e| e.get_mut("overridden"))
+                        .and_then(Value::as_array_mut)
+                    {
                         list.push(json!({"scope": layer.scope, "display": leaf.display}));
                         keys_shown += 1;
                     }
@@ -270,8 +274,8 @@ pub fn report(ctx: &Context, agent: Agent) -> Value {
                     "curated": curated_keys.contains(&key.as_str()),
                     "merged": agent == Agent::Claude && merged_list(&leaf.parts),
                 });
-                if let Some(why) = &layer.inactive {
-                    entry["inactive"] = json!(why);
+                if let (Some(why), Some(obj)) = (&layer.inactive, entry.as_object_mut()) {
+                    obj.insert("inactive".to_owned(), json!(why));
                 }
                 if active {
                     index.push(key);
@@ -327,8 +331,8 @@ pub fn report(ctx: &Context, agent: Agent) -> Value {
                 "keys": l.leaves.len(),
                 "error": l.error,
             });
-            if let Some(why) = &l.inactive {
-                file["inactive"] = json!(why);
+            if let (Some(why), Some(obj)) = (&l.inactive, file.as_object_mut()) {
+                obj.insert("inactive".to_owned(), json!(why));
             }
             file
         })
@@ -352,17 +356,18 @@ pub fn report(ctx: &Context, agent: Agent) -> Value {
         // Every agent answers with a list, empty for Claude Code, so a reader never meets a gap.
         "profiles": profiles,
     });
-    if agent == Agent::Codex {
-        answer["activeProfile"] = Value::Null;
+    if agent == Agent::Codex
+        && let Some(obj) = answer.as_object_mut()
+    {
+        obj.insert("activeProfile".to_owned(), Value::Null);
     }
     answer
 }
 
 /// Claude Code's permission rule lists, which merge across scopes instead of overriding.
 fn merged_list(parts: &[String]) -> bool {
-    parts.len() == 2
-        && parts[0] == "permissions"
-        && matches!(parts[1].as_str(), "allow" | "deny" | "ask" | "additionalDirectories")
+    matches!(parts, [table, list] if table == "permissions"
+        && matches!(list.as_str(), "allow" | "deny" | "ask" | "additionalDirectories"))
 }
 
 fn writable_scopes(ctx: &Context, agent: Agent, layers: &[Layer]) -> Vec<String> {
@@ -735,13 +740,15 @@ fn render_key(parts: &[String]) -> String {
 fn secret(parts: &[String]) -> bool {
     let normalized: Vec<String> =
         parts.iter().map(|p| p.to_ascii_lowercase().replace('-', "_")).collect();
-    let parents = &normalized[..normalized.len().saturating_sub(1)];
+    let parents: &[String] = normalized.split_last().map_or(&[], |(_, rest)| rest);
     if parents.iter().any(|p| {
         matches!(
             p.as_str(),
             "env" | "environment" | "headers" | "http_headers" | "env_http_headers"
         )
-    }) || parents.windows(2).any(|w| w[0] == "shell_environment_policy" && w[1] == "set")
+    }) || parents
+        .windows(2)
+        .any(|w| matches!(w, [table, key] if table == "shell_environment_policy" && key == "set"))
     {
         return true;
     }
@@ -930,7 +937,7 @@ fn scope_path(ctx: &Context, agent: Agent, scope: &str) -> Result<PathBuf, Setti
             Ok(root.join(".codex/config.toml"))
         }
         (Agent::Codex, other) if other.starts_with("profile:") => {
-            let name = &other["profile:".len()..];
+            let name = other.strip_prefix("profile:").unwrap_or_default();
             if !valid_profile(name) {
                 return Err(SettingsError::new(
                     "agent_config.scope",
