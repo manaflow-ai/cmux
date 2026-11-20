@@ -26,7 +26,9 @@ extension UpdaterService {
         let activity = UpdateAgentActivity(environment: QuitAgents.environment(services))
         relaunchBlockers = { [weak self, weak services, activity] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
         // Before the settings apply (`apply(_:)`): Update When Idle installs nothing without its gate (UpdateIdleGate).
-        let idle = UpdateIdleGate(activity: activity, daemon: services.machines.local) { [weak services] in services?.agentTabs.unsentDrafts.count }
+        let idle = UpdateIdleGate(activity: activity, daemon: services.machines.local) { [weak services] in
+            services.map { $0.agentTabs.unsentDrafts.count + $0.quitUnsaved.unsaved().count }
+        }
         useIdleGate { idle.hold(idleMinutes: $0, lastInput: $1)?.rawValue }
         // The windows leave the screen when Sparkle commits to the relaunch,
         // not at the click (`UpdateWindowHandoff`); a failed install brings them back.

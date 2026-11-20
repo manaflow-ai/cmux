@@ -284,13 +284,13 @@ extension UpdaterService {
             // with Update When Idle, never before its idle time could have passed.
             relaunchMomentHold.surfaceAfter = max(.seconds(idleInstall.maxWait), installWhenIdle ?? .zero)
         }
-        // Update When Idle installs what it downloaded: it downloads found updates too.
-        downloadSetting = (downloadAutomatically || installWhenIdle != nil, metered)
+        // Download and install preferences are independent; an explicit download opt-out is respected.
+        downloadSetting = (downloadAutomatically, metered)
         settingsApplied = true
         stagedRefresh.reschedule(automatic: checkAutomatically, interval: checkInterval, updater: self)
         tipCheck.reschedule(automatic: checkAutomatically, updater: self)
         refreshReleasePush()
-        let automaticDownloads = downloadAutomatically || installWhenIdle != nil
+        let automaticDownloads = downloadAutomatically
         if automaticUpdates != automaticDownloads { automaticUpdates = automaticDownloads }
         controller?.setSchedule(automaticChecks: checkAutomatically, interval: checkInterval)
         if controller != nil { followNetwork() }

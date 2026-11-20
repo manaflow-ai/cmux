@@ -81,6 +81,8 @@ private final class PlainHost: UpdateActionDelegate {
         driver.installsWhenIdle = true
         driver.idlePolicyChanged()
         #expect(host.asked == 2)
+        stale?()
+        #expect(reply.choice == nil)
         host.ready?()
         #expect(reply.choice == .install)
     }

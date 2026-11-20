@@ -65918,127 +65918,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Off: cmux asks before downloading. Automatic installs wait for a quiet moment and never interrupt drafts or active work."
+            "value": "Off: cmux asks before downloading."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "إيقاف: يسأل cmux قبل التنزيل. ويسأل دائمًا قبل إعادة التشغيل."
+            "state": "translated",
+            "value": "إيقاف: يسأل cmux قبل التنزيل."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Isključeno: cmux pita prije preuzimanja. Uvijek pita prije ponovnog pokretanja."
+            "state": "translated",
+            "value": "Isključeno: cmux pita prije preuzimanja."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Fra: cmux spørger, før den henter. Den spørger altid, før den genstarter."
+            "state": "translated",
+            "value": "Fra: cmux spørger, før den henter."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Aus: cmux fragt vor dem Laden. Vor dem Neustart fragt es immer."
+            "state": "translated",
+            "value": "Aus: cmux fragt vor dem Laden."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Desactivado: cmux pregunta antes de descargar. Siempre pregunta antes de reiniciarse."
+            "state": "translated",
+            "value": "Desactivado: cmux pregunta antes de descargar."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Désactivé : cmux demande avant de télécharger. Il demande toujours avant de redémarrer."
+            "state": "translated",
+            "value": "Désactivé : cmux demande avant de télécharger."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Disattivato: cmux chiede prima di scaricare. Chiede sempre prima di riavviarsi."
+            "state": "translated",
+            "value": "Disattivato: cmux chiede prima di scaricare."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "オフ：ダウンロードする前に確認します。再起動の前には常に確認します。"
+            "state": "translated",
+            "value": "オフ：ダウンロードする前に確認します。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "បិទ៖ cmux សួរមុនពេលទាញយក។ វាតែងតែសួរមុនពេលចាប់ផ្ដើមឡើងវិញ។"
+            "state": "translated",
+            "value": "បិទ៖ cmux សួរមុនពេលទាញយក។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "끄면 다운로드하기 전에 묻습니다. 다시 시작하기 전에는 항상 묻습니다."
+            "state": "translated",
+            "value": "끄면 다운로드하기 전에 묻습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Av: cmux spør før nedlasting. Den spør alltid før omstart."
+            "state": "translated",
+            "value": "Av: cmux spør før nedlasting."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Wył.: cmux pyta przed pobraniem. Zawsze pyta przed ponownym uruchomieniem."
+            "state": "translated",
+            "value": "Wył.: cmux pyta przed pobraniem."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Desativado: o cmux pergunta antes de baixar. Ele sempre pergunta antes de reiniciar."
+            "state": "translated",
+            "value": "Desativado: o cmux pergunta antes de baixar."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Выкл.: cmux спрашивает перед загрузкой. Перед перезапуском он спрашивает всегда."
+            "state": "translated",
+            "value": "Выкл.: cmux спрашивает перед загрузкой."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ปิด: cmux จะถามก่อนดาวน์โหลด และจะถามก่อนรีสตาร์ทเสมอ"
+            "state": "translated",
+            "value": "ปิด: cmux จะถามก่อนดาวน์โหลด"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Kapalı: cmux indirmeden önce sorar. Yeniden başlatmadan önce her zaman sorar."
+            "state": "translated",
+            "value": "Kapalı: cmux indirmeden önce sorar."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Вимк.: cmux питає перед завантаженням. Перед перезапуском cmux питає завжди."
+            "state": "translated",
+            "value": "Вимк.: cmux питає перед завантаженням."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Tắt: cmux hỏi trước khi tải xuống. cmux luôn hỏi trước khi khởi động lại."
+            "state": "translated",
+            "value": "Tắt: cmux hỏi trước khi tải xuống."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "关闭：cmux 在下载前询问。重新启动前始终会询问。"
+            "state": "translated",
+            "value": "关闭：cmux 在下载前询问。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "關閉：cmux 會在下載前詢問。重新啟動前一律會詢問。"
+            "state": "translated",
+            "value": "關閉：cmux 會在下載前詢問。"
           }
         }
       }

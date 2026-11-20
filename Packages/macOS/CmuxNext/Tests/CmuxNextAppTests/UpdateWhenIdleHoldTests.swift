@@ -83,4 +83,22 @@ import Testing
         #expect(updater.downloadsFoundUpdates)
         #expect(updater.relaunchMomentHold.idleGate == nil)
     }
+    @Test func managedDisableNeverArmsTheIdleGate() {
+        let updater = UpdaterService(policy: ManagedUpdatePolicy { true }, enableSparkle: false, recordsUpdates: false)
+        updater.idleInstallGate = { .notIdle }
+        updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: true,
+                          installWhenIdleMinutes: 15)
+        #expect(!updater.downloadsFoundUpdates)
+        #expect(updater.relaunchMomentHold.idleGate == nil)
+    }
+
+    @Test func installPreferenceDoesNotOverrideDownloadOptOut() {
+        let updater = UpdaterService(enableSparkle: false, recordsUpdates: false)
+        updater.idleInstallGate = { .notIdle }
+        updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: false,
+                          installWhenIdleMinutes: 15)
+        #expect(!updater.downloadsFoundUpdates)
+        #expect(updater.relaunchMomentHold.idleGate != nil)
+    }
+
 }

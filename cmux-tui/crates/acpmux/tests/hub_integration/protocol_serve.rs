@@ -17,6 +17,22 @@ async fn the_daemon_serves_its_protocol_ir() {
     }
 }
 
+/// Explicit false distinguishes a safe idle snapshot from an older daemon that lacks these fields.
+#[tokio::test]
+async fn idle_update_census_always_reports_draft_and_background_state() {
+    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "idle-update-census").await;
+    let result = c.request("_acpmux/sessions", json!({})).await.unwrap();
+    let row = result["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["sessionId"] == id)
+        .expect("new session is listed");
+    assert_eq!(row["hasDraft"], json!(false));
+    assert_eq!(row["workingBelow"], json!(false));
+}
+
 /// A request's answer and the `session/update` notices this connection got before it.
 async fn request_seeing_updates(c: &mut TestClient, m: &str, params: Value) -> (Value, Vec<Value>) {
     c.next += 1;

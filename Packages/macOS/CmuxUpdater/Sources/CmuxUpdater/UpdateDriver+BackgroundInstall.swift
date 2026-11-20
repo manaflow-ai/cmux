@@ -65,6 +65,8 @@ extension UpdateDriver {
     /// hold on it goes and it waits for a click. An install already under way is left alone.
     func idlePolicyChanged() {
         guard stagedInstall != nil, !installsWhenStaged else { return }
+        // A policy cycle invalidates the previous hold, even if it releases after re-enabling.
+        stagedGeneration &+= 1
         guard installsWhenIdle else {
             actionDelegate?.updaterEndsAutomaticInstallHold()
             return

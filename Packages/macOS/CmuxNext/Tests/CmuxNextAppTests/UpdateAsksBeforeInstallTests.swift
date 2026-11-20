@@ -3,14 +3,8 @@ import Foundation
 @testable import CmuxNextUpdater
 import Testing
 
-/// Leo 2026-10-27: "and the whole check for updates thing, we can do it more properly to ask
-/// before the download + install step, and likewise for the reboot... to make it more like how
-/// it'd be in prod". On every channel (stable, NIGHTLY, the tip app, DEV) a found update asks
-/// before it downloads (the update-found step: Update / Release Notes / Hide), and the downloaded
-/// update asks before the relaunch (the Update Ready card: Restart to Update / Hide). Hide, or no
-/// answer, never relaunches; a quit installs it only with `updates.installOnQuit` on (the nightly
-/// restart policy keeps it off by default). The automatic-download opt-in
-/// (`updates.downloadAutomatically`) can be turned off to restore the two-step prompt flow.
+/// Manual update flow with automatic installation explicitly off. Driver staging and automatic
+/// relaunches are exercised by AutomaticInstallDeferralTests and the update-idle end-to-end harness.
 @MainActor @Suite(.serialized) struct UpdateAsksBeforeInstallTests {
     nonisolated static let stable = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app", shortVersion: "0.70.0", build: "100",
                                                         minimumSystemVersion: nil, infoFeedURL: TipAppTrackTests.stableFeed, hasPublicKey: true)
@@ -63,9 +57,8 @@ import Testing
         }
     }
 
-    /// On the nightly ring's default a found update stages with no click, and nothing relaunches
-    /// until Restart to Update, the one click.
-    @Test func aNightlyStagesByItselfAndRestartToUpdateIsTheOneClick() async throws {
+    /// Automatic downloads with idle installation off stage until Restart to Update.
+    @Test func aNightlyWithIdleInstallOffWaitsForRestartToUpdate() async throws {
         let (updater, effects) = Self.make(Self.nightly, optIn: nil)
         #expect(updater.identity.track == .nightlyNext)
         updater.debugIndicatorPhase = .checking
@@ -154,7 +147,7 @@ import Testing
     /// download by themselves, a click on one whose download was deferred (a metered link) only
     /// downloads it, and the staged update still waits for Restart to Update.
     @Test(arguments: UpdateAsksBeforeInstallTests.channels)
-    func theOptInDownloadsButStillAsksBeforeTheRelaunch(identity: UpdateBuildIdentity) async throws {
+    func automaticDownloadsWithIdleInstallOffWaitForTheRelaunchClick(identity: UpdateBuildIdentity) async throws {
         let (updater, effects) = Self.make(identity, optIn: true)
         #expect(updater.downloadsFoundUpdates && updater.automaticUpdates, "\(identity.track): the opt-in does not download by itself")
         updater.debugIndicatorPhase = .available(version: "2.0.0")

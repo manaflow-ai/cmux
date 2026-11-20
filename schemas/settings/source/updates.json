@@ -115,7 +115,7 @@
           },
           "help": {
             "key": "settings.updates.downloadAutomatically.help",
-            "text": "Off: cmux asks before downloading. Automatic installs wait for a quiet moment and never interrupt drafts or active work."
+            "text": "Off: cmux asks before downloading."
           },
           "kind": "toggle",
           "default": false,
