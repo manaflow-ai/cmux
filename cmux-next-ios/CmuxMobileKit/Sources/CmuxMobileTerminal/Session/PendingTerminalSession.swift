@@ -59,7 +59,9 @@ public enum TerminalSessionChoice {
             // A Codex-like inline TUI streaming history (reproduction harness).
             if ProcessInfo.processInfo.arguments.contains("-cmux-mobile-term-fake-codex") { return FakeCodexSession() }
             if ProcessInfo.processInfo.arguments.contains("-cmux-mobile-term-fake-codex-idle") { return FakeCodexSession(idleRedraw: true) }
-            return MockTerminalSession(roundTrip: .milliseconds(Self.mockRoundTripMilliseconds))
+            // `-cmux-mobile-term-no-intro`: the prompt at once, no scripted commands (LaunchTTIUITests types into it).
+            let intro = !ProcessInfo.processInfo.arguments.contains("-cmux-mobile-term-no-intro")
+            return MockTerminalSession(playsIntro: intro, roundTrip: .milliseconds(Self.mockRoundTripMilliseconds))
         }
         #endif
         return PendingTerminalSession(macName: macName, programName: programName)
