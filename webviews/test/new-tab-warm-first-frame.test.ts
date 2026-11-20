@@ -130,13 +130,19 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
 
   /// Loads a page with `context` injected as the document commits (AgentPaneNavigation) and
   /// records each distinct Chats list and location strip it paints. A held host answers the
-  /// handshake and the project list once the test calls the page's `__openHost()`.
-  async function load(browserContext: BrowserContext, context: Context, holdHost = true): Promise<Page> {
+  /// handshake and the project list once the test calls the page's `__openHost()`. The handshake's
+  /// reply has `reply`, the context of the tab that has the page view then (the same tab by default).
+  async function load(
+    browserContext: BrowserContext,
+    context: Context,
+    holdHost = true,
+    reply: Context = context,
+  ): Promise<Page> {
     const page = await browserContext.newPage();
     await installPaintedFrames(page);
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.addInitScript(
-      ({ endpoint, context, holdHost, device }) => {
+      ({ endpoint, context, holdHost, device, reply }) => {
         const w = window as unknown as Record<string, unknown> & {
           cmuxAcpmuxBridge?: { applyDeviceChats?(chats: unknown): void };
         };
@@ -150,9 +156,23 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
         const posts: string[] = [];
         w.__posts = posts;
         w.__projectsListed = false;
-        const answer = (request: { method: string; params?: { warm?: unknown } }): unknown => {
+        // Each token with which the page said that its field is ready for typed keys
+        // (`newTab.inputReady`), and each wait for one.
+        const reports: string[] = [];
+        const waits: (() => void)[] = [];
+        w.__reports = reports;
+        w.__reported = (token: string) =>
+          new Promise<void>((resolve) => {
+            const look = () => (reports.includes(token) ? resolve() : void waits.push(look));
+            look();
+          });
+        // Settles as the page asks for its handshake.
+        let sentReady!: () => void;
+        w.__sentReady = new Promise<void>((resolve) => (sentReady = resolve));
+        const answer = (request: { method: string; params?: { warm?: unknown; token?: unknown } }): unknown => {
           switch (request.method) {
             case "ready":
+              sentReady();
               // The host pushes the device chats as it accepts the handshake (AgentPaneBridge).
               void host.then(() => setTimeout(() => w.cmuxAcpmuxBridge?.applyDeviceChats?.(device), 0));
               return held({
@@ -161,10 +181,14 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
                 endpoint,
                 token: "t",
                 newSession: true,
-                newTab: context,
-                ...(typeof context.cwd === "string" ? { cwd: context.cwd } : {}),
+                newTab: reply,
+                ...(typeof reply.cwd === "string" ? { cwd: reply.cwd } : {}),
                 machineName: "cosmic-gray",
               });
+            case "newTab.inputReady":
+              reports.push(String(request.params?.token));
+              for (const look of waits.splice(0)) look();
+              return later(null);
             case "newTab.context":
               return later({ newTab: context });
             case "newTab.warm":
@@ -206,7 +230,7 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
         });
         window.cmuxAfterPaint(read);
       },
-      { endpoint, context, holdHost, device },
+      { endpoint, context, holdHost, device, reply },
     );
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
@@ -334,6 +358,62 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
       expect(painted[0]).toStartWith("atlas This Mac ::");
     },
   );
+
+  // A tab can take a page view whose page did not ask for its handshake yet (a held New Tab key takes
+  // the page view of the tab that its pane leaves). That page drew the context of the tab before, A,
+  // from its document. The host's reply to `ready` has the context of the tab that has it now, B.
+  // The page says with a tab's token that its field is ready for typed keys (`newTab.inputReady`);
+  // the host takes that report only with the token of the tab that has the page view.
+  const tabA = { ...base, cwd: ATLAS, location: ATLAS, inputToken: "token-a" };
+  const tabB = { ...base, cwd: BILLING, location: BILLING, inputToken: "token-b" };
+  /// When the host's adopt event with B's context comes to the page (AgentPaneView.adoptNewTab).
+  const takes: [string, "never" | "before the reply" | "after the reply", string][] = [
+    // The reply alone does not give the page B's context: a page that drew from its document keeps
+    // its context and takes only a missing folder and missing actions from a reply.
+    ["with no adopt event keeps the token of the tab before", "never", "token-a"],
+    // The page listens for the event before it sends `ready`.
+    ["with the adopt event before the reply has the new tab's token", "before the reply", "token-b"],
+    ["with the adopt event after the reply has the new tab's token", "after the reply", "token-b"],
+  ];
+  for (const [what, when, token] of takes) {
+    test.each(engines.map(([name]) => name))(
+      `%s: a page that another tab took before its handshake, ${what}`,
+      async (name) => {
+        const browserContext = await browsers.get(name)!.newContext({ viewport: { width: 1000, height: 900 } });
+        const chats = holdList();
+        const page = await load(browserContext, tabA, true, tabB);
+        const adopt = () =>
+          page.evaluate(
+            (detail) => void window.dispatchEvent(new CustomEvent("acpmux-newtab-adopt", { detail })),
+            tabB,
+          );
+        await page.evaluate(() => (window as unknown as { __sentReady: Promise<void> }).__sentReady);
+        if (when === "before the reply") await adopt();
+        await page.evaluate(() => (window as unknown as { __openHost(): void }).__openHost());
+        // The page asks the daemon of the reply for its chats after it took the reply's context.
+        await chats.asked;
+        await twoFrames(page);
+        if (when === "after the reply") await adopt();
+        // A report that waits for the page's focus goes at the window's next `focus` event.
+        await page.evaluate(() => void window.dispatchEvent(new Event("focus")));
+        await page.evaluate(
+          (token) => (window as unknown as { __reported(token: string): Promise<void> }).__reported(token),
+          token,
+        );
+        const reports = await page.evaluate(() => (window as unknown as { __reports: string[] }).__reports);
+        const bar = await page.evaluate(() =>
+          (document.querySelector<HTMLElement>(".nt-location")?.innerText ?? "").replace(/\s+/g, " ").trim(),
+        );
+        chats.open();
+        await page.close();
+        await browserContext.close();
+        console.info(`${name} taken page, ${when}: reports ${JSON.stringify(reports)}, bar ${JSON.stringify(bar)}`);
+        // With no event, each report has A's token. With the event, the last report has B's.
+        if (when === "never") expect([...new Set(reports)]).toEqual(["token-a"]);
+        else expect(reports.at(-1)).toBe("token-b");
+      },
+    );
+  }
 
   test.each(engines.map(([name]) => name))(
     "%s: a cold launch with nothing listed yet fills the list once",
