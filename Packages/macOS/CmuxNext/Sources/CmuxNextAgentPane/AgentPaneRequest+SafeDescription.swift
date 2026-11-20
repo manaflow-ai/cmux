@@ -92,7 +92,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .tryAnotherApproach: "tryAnotherApproach"
         case .cloudTurnRewind(let request): request.method
         case .appAction: "appAction"
-        case .paneAction, .moveToMachine, .diffTurn, .diffPatch: "paneAction"
+        case .paneAction, .renameTab, .moveToMachine, .diffTurn, .diffPatch: "paneAction"
         case .preview: "preview"
         case .setQuickActions: "setQuickActions"
         case .tabState: "tabState"

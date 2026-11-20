@@ -234,6 +234,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// header/quickActions.ts) closes the split this tab's button opened
     /// when it is still there, else opens one.
     case paneAction(String, cwd: String? = nil, toggle: Bool = false)
+    /// The header's inline rename form (`pane.action {id: "renameTab", name}`, the elevation-ladder
+    /// experiment): names this chat's tab `name` with no prompt; an empty name clears it.
+    case renameTab(String)
     /// Moves the current chat to one of the eligible Cloud machines advertised by `pane.tabState`.
     /// The host validates the id against its live target list before dispatching the existing
     /// `cloudMove` action, so the page cannot target an arbitrary machine. `session` is the chat

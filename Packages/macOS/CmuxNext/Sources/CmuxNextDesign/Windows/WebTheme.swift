@@ -50,6 +50,12 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// The filled personality slots (``ThemeDecorations/payload``): `data-cmux-decoration-<slot>` on
     /// `<html>`, which the page draws. Empty sends no `decorations` key at all.
     public let decorations: [String: String]
+    /// `experiments.elevationLadder`: `data-elevation-ladder` on `<html>`, under which the page's
+    /// floating surfaces take one radius and lift ladder.
+    public let elevationLadder: Bool
+    /// `experiments.focusDimming`'s amount, 0 while off (``DesignSettings/focusDim``):
+    /// `data-focus-dimming` and `--cmux-focus-dim` on `<html>` while above 0.
+    public let focusDim: Double
 
     /// The terminal colors a page highlights code with: the scope's opaque background and
     /// readable foreground, and its ANSI palette as the theme names it (the page lifts each
@@ -212,6 +218,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         self.glass = (glass ?? .current).rawValue
         decorations = ThemeDecorations.current.payload
         fontSmoothing = DesignSettings.shared.fontSmoothing.rawValue
+        elevationLadder = DesignSettings.shared.elevationLadder
+        focusDim = DesignSettings.shared.focusDim
     }
 
     /// `data-cmux-motion` for `policy`: `off` when the web category, the master switch or speed
@@ -232,7 +240,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     public var payloadJSON: String {
         var object: [String: Any] = ["variables": variables, "colorScheme": colorScheme, "scrollers": scrollers,
                                      "terminal": terminal.json, "transition": transition, "statusIndicators": statusIndicators,
-                                     "workingLook": workingLook, "motion": motion, "glass": glass, "fontSmoothing": fontSmoothing]
+                                     "workingLook": workingLook, "motion": motion, "glass": glass, "fontSmoothing": fontSmoothing,
+                                     "elevationLadder": elevationLadder, "focusDim": focusDim]
         if !decorations.isEmpty { object["decorations"] = decorations }
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
@@ -382,6 +391,16 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           if (payload.motion) root.setAttribute('data-cmux-motion', payload.motion);
           if (payload.glass) root.setAttribute('data-glass', payload.glass);
           if (payload.fontSmoothing) root.setAttribute('data-cmux-font-smoothing', payload.fontSmoothing);
+          // Taste experiments (Settings > Advanced > Labs), both off by default: the elevation
+          // ladder, and focus dimming with its amount.
+          root.toggleAttribute('data-elevation-ladder', payload.elevationLadder === true);
+          if (payload.focusDim > 0) {
+            root.setAttribute('data-focus-dimming', '');
+            root.style.setProperty('--cmux-focus-dim', String(payload.focusDim));
+          } else {
+            root.removeAttribute('data-focus-dimming');
+            root.style.removeProperty('--cmux-focus-dim');
+          }
           // The filled personality slots (ThemeDecorations): one attribute per slot; a slot the
           // last theme filled and this one leaves empty loses its attribute.
           var decorations = payload.decorations || {};
@@ -477,7 +496,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     public static var pushInputs: [String] {
         let design = DesignSettings.shared
         return [Borders.current.mode.rawValue, design.fontSmoothing.rawValue, "\(ChromeTunables.dividerStrength.value)", design.titleAreaTone.rawValue,
-                "\(design.titleAreaContrast)", "\(Metrics.mainPaneChromeShade(isDark: false))", "\(Metrics.mainPaneChromeShade(isDark: true))"]
+                "\(design.titleAreaContrast)", "\(Metrics.mainPaneChromeShade(isDark: false))", "\(Metrics.mainPaneChromeShade(isDark: true))",
+                "\(design.elevationLadder)", "\(design.focusDim)"]
     }
 
     /// `rgba(r, g, b, a)` with 0-255 channels.

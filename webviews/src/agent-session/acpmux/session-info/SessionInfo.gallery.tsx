@@ -13,10 +13,11 @@
 // worktree of its own, its environment, tokens, background test run and diffs its own, under three
 // ways to say whose panel it is (the head's title, the one drawn; a path; a card); one sharing the
 // chat's checkout; and the chat's panel beside them, its Subagents listing it.
-import { useState, type ComponentProps, type CSSProperties } from "react";
+import { useLayoutEffect, useState, type ComponentProps, type CSSProperties } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
 import { WAVE_CLASS } from "../../../ui/wave";
+import { ELEVATION_LADDER_ATTRIBUTE } from "../../../ui/elevationLadder";
 import { activity, assistant, chat, CONTEXT_BREAKDOWN, CWD, tool } from "../../../gallery/fixtures/acpmux";
 import type { StartedSession } from "../started/startedSessions";
 import type { Subagent } from "../subagents/subagentFold";
@@ -58,6 +59,8 @@ type Props = ComponentProps<typeof SessionInfo> & {
   scroller?: "thumb";
   /// Gallery-only: a compared head or fold look (FOLD_LOOKS), for comparison with the shipped one.
   look?: keyof typeof FOLD_LOOKS;
+  /// Gallery-only: experiments.elevationLadder on, as the host sets it on the root (ui/elevationLadder.css).
+  ladder?: boolean;
 };
 
 /// Compared section heads and fold curves (sessionInfo.css), as style overrides on the shipped ones.
@@ -143,9 +146,15 @@ function GallerySessionInfo({
   panelWidth = 320,
   scroller,
   look,
+  ladder = false,
   more: moreAtFirst,
   ...props
 }: Props) {
+  useLayoutEffect(() => {
+    if (!ladder) return;
+    document.documentElement.setAttribute(ELEVATION_LADDER_ATTRIBUTE, "");
+    return () => document.documentElement.removeAttribute(ELEVATION_LADDER_ATTRIBUTE);
+  }, [ladder]);
   // The panel's Show more, held here so a variant starts where it says and a play can open it.
   const [more, setMore] = useState(moreAtFirst);
   return (
@@ -1559,6 +1568,18 @@ export default componentEntry<Props>({
     "layout-groups": {
       note: "Alternative (not shipped): the same three blocks as the shipped layout, each one hairline card (three boxes in place of eight). Groups well, but it is still boxes in a box.",
       props: { ...full, layout: "groups" },
+    },
+    "elevation-ladder": {
+      note: "experiments.elevationLadder on: the panel is a popover on the elevation ladder (12px corner, the popover lift) and its three blocks are grouped inner cards, a soft fill each with no hairline around or between them, one step in from the panel's edge and one step apart, each corner the panel's less that step.",
+      props: { ...full, ladder: true },
+    },
+    "elevation-ladder-over-chat": {
+      note: "The same over the chat's column: the panel's glass over the transcript, the grouped cards on it.",
+      props: { ...full, ladder: true, transcript: true },
+    },
+    "elevation-ladder-open": {
+      note: "The grouped cards with Context and Connectors open and Show less open: no rule under Show less.",
+      props: { ...full, ladder: true, more: true, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
     },
     "chrome-close-only": {
       note: "Chosen: the side panel has no title row, matching Codex and Claude desktop. Its close control floats at the top edge while the first Environment row starts below it, so the panel's content gets the space instead of repeating Session Info.",

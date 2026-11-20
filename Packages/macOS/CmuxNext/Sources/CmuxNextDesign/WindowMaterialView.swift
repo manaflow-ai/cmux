@@ -45,6 +45,9 @@ public final class WindowMaterialView: NSView {
     private var keyFamily: WindowKeyFamily?
     /// Posted when `appearance.inactiveWindowDim` changes (``DesignSettings/inactiveWindowDim``).
     public static let inactiveDimDidChange = Notification.Name("WindowMaterialView.inactiveDimDidChange")
+    /// The focus-dimming experiment's wash: no saturation of its own, so its saturation blend
+    /// greys what is under it.
+    static let desaturatingWash = CGColor(gray: 0.5, alpha: 1)
     /// The keyboard left the window's family: another app, or a window that is not this one, its
     /// child (a Chromium page window, popup, palette) or its sheet. Only then does the window look
     /// inactive (Leo 2026-10-21: "on itself? that should never happen"); a window whose family
@@ -203,10 +206,15 @@ public final class WindowMaterialView: NSView {
     /// `appearance.inactiveWindowDim` lands as one change, not a second step after it (Leo
     /// 2026-10-25: "it frosts the glass before the background").
     func updateInactiveTint(fades: Bool = true) {
+        // The focus-dimming experiment (`experiments.focusDimming`, off by default) takes the wash
+        // over: a neutral gray in saturation blend, so the glass loses its color by the amount
+        // instead of taking more of the theme's.
+        let focusDim = CGFloat(DesignSettings.shared.focusDim)
         let alpha = washColor == nil ? 0 : Self.inactiveTintAlpha(material: material, isKeyWindow: !resignedKey,
-                                                                   dim: CGFloat(DesignSettings.shared.inactiveWindowDim))
-        let wash = alpha > 0 ? washColor : nil
+                                                                   dim: focusDim > 0 ? focusDim : CGFloat(DesignSettings.shared.inactiveWindowDim))
+        let wash = alpha > 0 ? (focusDim > 0 ? Self.desaturatingWash : washColor) : nil
         guard let layer = inactiveTintView.layer else { return }
+        layer.compositingFilter = focusDim > 0 ? "saturationBlendMode" : nil
         let previous = inactiveTintTarget
         inactiveTintTarget = alpha
         // A window not on screen, or a key change, applies at once.

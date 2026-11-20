@@ -514,6 +514,8 @@ extension AgentPaneRequest {
         case "pane.action":
             if params?["id"] as? String == AgentPaneModel.previewAction {
                 self = Self.preview(params, method: method)
+            } else if params?["id"] as? String == "renameTab", let name = params?["name"] as? String {
+                self = name.count <= 512 ? .renameTab(name) : .unsupported(method)
             } else if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 {
                 let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder)
                 let toggle = params?["mode"] as? String == "toggle"

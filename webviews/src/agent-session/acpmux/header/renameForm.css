@@ -1,0 +1,28 @@
+/* The inline rename form (RenameForm.tsx): a popover on the elevation ladder with a title, one line of
+   description and a label and field row, on the shared type scale and controls (ui/controls.css). Its
+   frame follows Text Size (--ui-px). */
+.acpmux-rename-form {
+  width: calc(300 * var(--ui-px, 1px));
+  padding: var(--ds-space-3);
+}
+.acpmux-rename-form__title {
+  font-weight: var(--weight-emphasis);
+}
+.acpmux-rename-form__description {
+  margin: var(--ds-space-1) 0 var(--ds-space-3);
+  color: var(--ui-fg-2, var(--agent-muted));
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+.acpmux-rename-form__row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+}
+.acpmux-rename-form__label {
+  flex: none;
+}
+.acpmux-rename-form__field {
+  flex: 1 1 auto;
+  min-width: 0;
+}

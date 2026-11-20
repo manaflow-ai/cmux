@@ -547,7 +547,7 @@ import { sessionLink } from "./links";
 import { ChatHeaderInlineStatus, ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools } from "./header/ChatHeaderTools";
 import { HEADER_ACTIONS, guardedChatMenu, menuGroups, type ChatMenuItem } from "./header/chatHeaderToolsModel";
-import { ThreadTitle } from "./header/ThreadTitle";
+import { RenamableTitle, requestInlineRename } from "./header/RenameForm";
 import { deleteChatRow, moveMachineRow } from "./header/chatRows";
 import { moveToTerminal, terminalMoveRow } from "./header/terminalMoveRow";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
@@ -11247,7 +11247,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           label: t("chatMenu.rename"),
           icon: "action.edit",
           shortcutAction: HEADER_ACTIONS.rename,
-          onSelect: () => runHeaderAction(HEADER_ACTIONS.rename),
+          // With the elevation ladder on, the title's inline form; else the App's prompt.
+          onSelect: () => {
+            if (!requestInlineRename()) runHeaderAction(HEADER_ACTIONS.rename);
+          },
         },
         {
           key: "pin",
@@ -14082,7 +14085,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 >
                   <ChatHeaderStatus status={header.status} detail={header.detail}>
                     {!inTabRow && !showNewTab && snapshot.sessionId && (
-                      <ThreadTitle key={snapshot.sessionId} title={chatName} onRename={renameFromTitle} />
+                      <RenamableTitle
+                        key={snapshot.sessionId}
+                        title={chatName}
+                        onRename={renameFromTitle}
+                        onCommit={(name) =>
+                          ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.rename, name }))
+                        }
+                      />
                     )}
                   </ChatHeaderStatus>
                   <div className="acpmux-handoff-header-tools" ref={tabRowTools}>

@@ -1,0 +1,94 @@
+/* FOCUS DIMMING (experiments.focusDimming; HIG windows: key, main and inactive states). Off by
+   default: every rule here is scoped under [data-focus-dimming], which the host sets on <html>
+   only while the switch is on, with the slider as --cmux-focus-dim (0..1, default 0.35) on the
+   root's style. Without the attribute nothing here matches and the page looks as it always has.
+
+   Two states, each one amount the rest derives from:
+   - Inactive window (pageKey.ts marks the root data-page-inactive): the chrome loses its colour.
+     The accent and lit-glyph tokens lose chroma (oklch relative colour: lightness and alpha stay,
+     so text and glyphs keep their contrast and stay crisp), and glass desaturates what it blurs.
+     The tokens are remapped, not the subtree filtered: a filter on a large subtree forces it into
+     its own compositing layer and re-filters it every frame it paints, and it would grey the
+     content too. Content colours (text, status, code, images) are not touched, as the inactive
+     windows of the system keep their content legible.
+   - Unfocused pane (the host marks the root data-pane-unfocused): the content fades toward the
+     window's own background by half the slider (opacity on body: one layer, only while it moves).
+
+   One transition: the two amounts are registered numbers, so each eases over one standard step
+   and every token, glass and opacity built from it moves with it, together, never a pop.
+
+   The rules also apply to a subtree: an element carrying data-focus-dimming (and
+   data-page-inactive) scopes them like the root does, and an element marked data-focus-pane
+   inside it takes the pane fade (the gallery draws key and inactive windows side by side this
+   way, ui/FocusDimming.gallery.tsx). */
+
+@property --cmux-focus-window-dim {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
+@property --cmux-focus-pane-dim {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
+[data-focus-dimming] {
+  --cmux-focus-window-dim: 0;
+  --cmux-focus-pane-dim: 0;
+  transition:
+    --cmux-focus-window-dim var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out),
+    --cmux-focus-pane-dim var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out);
+  /* The theme's own values, read here where the theme sets them (the root's style), so the
+     children can derive their greyed copies from them without a cycle. An unset token stays
+     unset: its copy is invalid, and so is the remap built from it. */
+  --cmux-focus-from-agent-accent: var(--agent-accent);
+  --cmux-focus-from-agent-accent-soft: var(--agent-accent-soft);
+  --cmux-focus-from-agent-accent-text: var(--agent-accent-text);
+  --cmux-focus-from-agent-lit-glyph: var(--agent-lit-glyph);
+  --cmux-focus-from-cmux-accent: var(--cmux-accent);
+  --cmux-focus-from-cmux-app-accent: var(--cmux-app-accent);
+  --cmux-focus-from-ds-color-accent: var(--ds-color-accent);
+}
+
+[data-focus-dimming][data-page-inactive] {
+  --cmux-focus-window-dim: clamp(0, var(--cmux-focus-dim, 0.35), 1);
+}
+
+[data-focus-dimming] > * {
+  --cmux-focus-chroma: calc(1 - var(--cmux-focus-window-dim));
+  --agent-accent: oklch(from var(--cmux-focus-from-agent-accent) l calc(c * var(--cmux-focus-chroma)) h / alpha);
+  --agent-accent-soft: oklch(
+    from var(--cmux-focus-from-agent-accent-soft) l calc(c * var(--cmux-focus-chroma)) h / alpha
+  );
+  --agent-accent-text: oklch(
+    from var(--cmux-focus-from-agent-accent-text) l calc(c * var(--cmux-focus-chroma)) h / alpha
+  );
+  --agent-lit-glyph: oklch(from var(--cmux-focus-from-agent-lit-glyph) l calc(c * var(--cmux-focus-chroma)) h / alpha);
+  --cmux-accent: oklch(from var(--cmux-focus-from-cmux-accent) l calc(c * var(--cmux-focus-chroma)) h / alpha);
+  --cmux-app-accent: oklch(from var(--cmux-focus-from-cmux-app-accent) l calc(c * var(--cmux-focus-chroma)) h / alpha);
+  --ds-color-accent: oklch(from var(--cmux-focus-from-ds-color-accent) l calc(c * var(--cmux-focus-chroma)) h / alpha);
+}
+
+/* Glass desaturates what it blurs. Same specificity as the glass's own rule (glass.css), so a
+   surface that sets its own backdrop keeps it. A glass with no backdrop (--glass-backdrop none:
+   Reduce Transparency) makes this value invalid, which is none again. */
+:where([data-focus-dimming]) .ui-glass {
+  -webkit-backdrop-filter: var(--glass-backdrop) saturate(calc(1 - var(--cmux-focus-window-dim)));
+  backdrop-filter: var(--glass-backdrop) saturate(calc(1 - var(--cmux-focus-window-dim)));
+}
+
+[data-focus-dimming] [data-focus-pane] {
+  --cmux-focus-pane-dim: 0;
+  transition: --cmux-focus-pane-dim var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out);
+}
+
+:is([data-focus-dimming], [data-focus-dimming] [data-focus-pane])[data-pane-unfocused] {
+  --cmux-focus-pane-dim: calc(clamp(0, var(--cmux-focus-dim, 0.35), 1) * 0.5);
+}
+
+:root[data-focus-dimming] > body,
+[data-focus-dimming] [data-focus-pane] {
+  opacity: calc(1 - var(--cmux-focus-pane-dim));
+}
