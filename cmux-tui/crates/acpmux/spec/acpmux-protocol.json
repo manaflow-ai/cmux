@@ -5921,7 +5921,6 @@
           "type": "boolean"
         },
         "capacityWaitCount": {
-          "default": 0,
           "description": "Number of queued turns or retries waiting for gateway capacity.",
           "format": "uint64",
           "minimum": 0,
@@ -6638,7 +6637,6 @@
           "type": "boolean"
         },
         "capacityWaitCount": {
-          "default": 0,
           "description": "Number of queued turns or retries waiting for gateway capacity.",
           "format": "uint64",
           "minimum": 0,
