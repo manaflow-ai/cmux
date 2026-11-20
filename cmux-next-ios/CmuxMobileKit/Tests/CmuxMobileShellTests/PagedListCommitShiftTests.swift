@@ -22,6 +22,8 @@ import UIKit
         let window: UIWindow
         let list: UICollectionView
         let seen: Seen
+        /// The hosting controller's view: what moves the list without SwiftUI putting it back.
+        var container: UIView { window.rootViewController?.view ?? list }
     }
 
     private func host() throws -> Hosted {
@@ -47,11 +49,12 @@ import UIKit
     }
 
     /// A row being read that moves on screen and stays there is a shift of its full size, even when
-    /// nothing lays the list out again (its container moved it).
+    /// nothing lays the list out again (its container moved it; the screen's root view here, which
+    /// SwiftUI does not place, unlike the collection itself).
     @Test func aJumpThatDrawsCountsInFull() throws {
         let hosted = try host()
         defer { hosted.window.isHidden = true }
-        hosted.list.transform = CGAffineTransform(translationX: 0, y: 10)
+        hosted.container.transform = CGAffineTransform(translationX: 0, y: 10)
         settle()
         #expect(abs(hosted.seen.worst - 10) < 0.5, "a drawn 10 pt jump measured \(hosted.seen.shifts)")
     }
@@ -60,9 +63,9 @@ import UIKit
     @Test func aOneFrameJumpCountsThereAndBack() throws {
         let hosted = try host()
         defer { hosted.window.isHidden = true }
-        hosted.list.transform = CGAffineTransform(translationX: 0, y: 10)
+        hosted.container.transform = CGAffineTransform(translationX: 0, y: 10)
         turn()
-        hosted.list.transform = .identity
+        hosted.container.transform = .identity
         settle()
         let big = hosted.seen.shifts.filter { abs($0) > 0.5 }
         #expect(big.count == 2 && abs(abs(big[0]) - 10) < 0.5 && abs(abs(big[1]) - 10) < 0.5,
