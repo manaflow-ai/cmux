@@ -7,7 +7,7 @@ import type { Named } from "@gdp-ts/core";
 import { Clock, Effect } from "effect";
 import { MAX_LABELS, type CreateVmRequest } from "../api.ts";
 import { AgentStore } from "../db/agents.ts";
-import { estimatedUsdPerHour, sizeOfCreate } from "../domain/agents.ts";
+import { estimatedUsdPerHour, sizeOfCreate, type AgentBudget } from "../domain/agents.ts";
 import { actorRef, type Principal } from "../domain/principal.ts";
 import { badRequest, Forbidden, QuotaExceeded, unavailable } from "../errors.ts";
 import type { TenantId } from "../lib/ids.ts";
@@ -68,7 +68,14 @@ export const withRunCap = (principal: Principal, requested: CreateVmRequest): Cr
  * slot to settle once the create ends (`settleAgentCreate`); undefined when the
  * caller has no agent budget.
  */
-export const agentBudgetAllows = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, size: SizeRequest | undefined) =>
+/** The refusal of a create past the live-VM cap, naming the holder and the cap. */
+const overVmCap = (budget: AgentBudget) =>
+  new QuotaExceeded({
+    message: `This ${budget.holder ?? "agent key"} already has its maxVms cap of ${budget.maxVms} VMs; delete one or resume a paused one`,
+    budget: "agent_vms",
+  });
+
+export const agentBudgetAllows =<C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, size: SizeRequest | undefined) =>
   Effect.gen(function* () {
     const budget = caller.value.agent;
     if (budget === undefined) return undefined;
@@ -80,17 +87,13 @@ export const agentBudgetAllows = <C>(caller: Named<C, Principal>, scope: KeyHasS
         Effect.catchAll((error) => (error.status === 404 ? Effect.succeed(0) : Effect.fail(unavailable(error)))),
       ),
     ).pipe(Effect.catchTag("StoreError", (error) => Effect.fail(unavailable(error))));
-    if (page.results.length >= budget.maxVms) {
-      return yield* Effect.fail(
-        new QuotaExceeded({ message: `This agent key already has its limit of ${budget.maxVms} VMs; delete one first`, budget: "agent_vms" }),
-      );
-    }
+    if (page.results.length >= budget.maxVms) return yield* Effect.fail(overVmCap(budget));
     const next = sizeOfCreate(size);
     const total = page.results.reduce((sum, usd) => sum + usd, 0) + estimatedUsdPerHour(next.vcpus, next.memoryMib);
     if (total > budget.maxUsdPerHour + 1e-9) {
       return yield* Effect.fail(
         new QuotaExceeded({
-          message: `This VM would bring the agent's estimated cost to ${total.toFixed(2)} USD/h, over its ${budget.maxUsdPerHour} USD/h budget`,
+          message: `This VM would bring the ${budget.holder ?? "agent key"}'s estimated cost to ${total.toFixed(2)} USD/h, over its maxUsdPerHour cap of ${budget.maxUsdPerHour} USD/h`,
           budget: "agent_usd_per_hour",
         }),
       );
@@ -105,11 +108,7 @@ export const agentBudgetAllows = <C>(caller: Named<C, Principal>, scope: KeyHasS
     const admitted = yield* (yield* TenantLimits)
       .admitAgentSlot(caller.value.tenantId, agent, budget.maxVms, owned.results, slotId)
       .pipe(Effect.mapError(unavailable));
-    if (!admitted) {
-      return yield* Effect.fail(
-        new QuotaExceeded({ message: `This agent key already has its limit of ${budget.maxVms} VMs; delete one first`, budget: "agent_vms" }),
-      );
-    }
+    if (!admitted) return yield* Effect.fail(overVmCap(budget));
     return { agent, slotId };
   });
 
