@@ -724,7 +724,9 @@
 .onb-cu-head .onb-sentence {
   margin-top: var(--ds-space-1);
 }
-.onb-grants {
+/* Under `.onb-cu`, so the list reset above (`.onboarding :is(h1, h2, p, ul)`, more specific than one
+   class) does not take the space below the line away (Lucas 2026-11-21). */
+.onb-cu .onb-grants {
   display: flex;
   flex-direction: column;
   gap: var(--ds-space-3);
