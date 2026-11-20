@@ -41,6 +41,19 @@ public struct PushHistory: Sendable, Equatable {
         notifiedIndex = messages.count - 1
     }
 
+    /// One id per message, stable as the window slides (a newer message in, the oldest out):
+    /// the message's role and text, and which repeat of the same message it is. With position
+    /// ids every row took the next one's id on each new message and all of them redrew.
+    public static func rowIDs(_ messages: [PushSnapshot.Message]) -> [String] {
+        var seen: [String: Int] = [:]
+        return messages.map { message in
+            let key = "\(message.role.rawValue)\u{0}\(message.text)"
+            let repeatIndex = seen[key, default: 0]
+            seen[key] = repeatIndex + 1
+            return "\(key)\u{0}\(repeatIndex)"
+        }
+    }
+
     /// The message the push is about: a reply, a finished turn's last lines, or an error.
     static func notified(_ payload: PushPayload) -> PushSnapshot.Message? {
         switch payload.kind {

@@ -158,11 +158,15 @@ struct TranscriptPreview: View {
     let messages: [PushSnapshot.Message]
 
     var body: some View {
+        // Ids that stay with their message (``PushHistory/rowIDs(_:)``): a newer message
+        // draws its row, the kept ones are not redrawn.
+        let ids = PushHistory.rowIDs(messages)
         VStack(spacing: 0) {
-            ForEach(Array(messages.enumerated()), id: \.offset) { index, message in
+            ForEach(Array(zip(ids, messages.indices)), id: \.0) { _, index in
+                let message = messages[index]
                 let next = index + 1 < messages.count ? messages[index + 1] : nil
                 let endsRun = next.map { side($0) != side(message) } ?? true
-                MessageBubble(message: message, tail: endsRun)
+                MessageBubble(message: message, tail: endsRun).equatable()
                     .padding(.bottom, next == nil ? ConversationBubbleGeometry.iOSTailDrop(radius: ConversationLook.bubbleCornerRadius) : (endsRun ? 10 : 4))
             }
         }
@@ -174,9 +178,11 @@ struct TranscriptPreview: View {
     }
 }
 
-struct MessageBubble: View {
+struct MessageBubble: View, Equatable {
     let message: PushSnapshot.Message
     let tail: Bool
+
+    nonisolated static func == (a: Self, b: Self) -> Bool { a.tail == b.tail && a.message == b.message }
 
     var body: some View {
         let mine = message.role == .user
