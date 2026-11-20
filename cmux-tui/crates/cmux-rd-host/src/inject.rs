@@ -1046,6 +1046,84 @@ pub(crate) mod tests {
         );
     }
 
+    /// On a real Xvfb: text the viewer sends as text (an emoji, an accented letter, a
+    /// character typed by a tool that posts each one with key code 0) reaches the focused
+    /// window as those characters, also while the person holds Shift. Before, the host
+    /// dropped every text event, so a viewer that typed through text sent nothing and one
+    /// that fell back to the key code typed "a" for each character (CMUX-572).
+    #[test]
+    #[ignore = "needs Xvfb; run with --ignored on a Linux host"]
+    fn person_text_reaches_the_focused_window_as_typed() {
+        use x11rb::protocol::xproto::{
+            CreateWindowAux, EventMask, InputFocus, KeyButMask, WindowClass,
+        };
+        use x11rb::protocol::Event;
+        let xvfb = Xvfb::start();
+        let display = xvfb.display.clone();
+        let (app, screen) = x11rb::connect(Some(&display)).unwrap();
+        let root = app.setup().roots[screen].root;
+        let win = app.generate_id().unwrap();
+        app.create_window(
+            0,
+            win,
+            root,
+            10,
+            10,
+            100,
+            100,
+            0,
+            WindowClass::INPUT_OUTPUT,
+            0,
+            &CreateWindowAux::new().event_mask(EventMask::KEY_PRESS),
+        )
+        .unwrap();
+        app.map_window(win).unwrap();
+        app.set_input_focus(InputFocus::PARENT, win, x11rb::CURRENT_TIME).unwrap();
+        app.sync().unwrap();
+
+        let mut person = Injector::new(&display).unwrap();
+        person.apply(&InputEvent::Pointer { x: 700, y: 500 }).unwrap();
+        person.apply(&InputEvent::Text("é😀>a".into())).unwrap();
+        // Shift held by the person must not change a character sent as text.
+        person.apply(&InputEvent::Key { usage: 0x0007_00E1, down: true }).unwrap();
+        person.apply(&InputEvent::Text("b".into())).unwrap();
+        person.apply(&InputEvent::Key { usage: 0x0007_00E1, down: false }).unwrap();
+        person.conn.sync().unwrap();
+
+        let mut presses = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            while let Some(event) = app.poll_for_event().unwrap() {
+                if let Event::KeyPress(k) = event {
+                    presses.push((k.detail, u16::from(k.state)));
+                }
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        // Read the keys as a client does: the mapping now, the level from Shift.
+        let setup = app.setup();
+        let (min, count) = (setup.min_keycode, setup.max_keycode - setup.min_keycode + 1);
+        let map = app.get_keyboard_mapping(min, count).unwrap().reply().unwrap();
+        let per = usize::from(map.keysyms_per_keycode);
+        let shift = u16::from(KeyButMask::SHIFT);
+        let typed: Vec<u32> = presses
+            .iter()
+            .map(|&(code, state)| {
+                let row = usize::from(code - min) * per;
+                let level = usize::from(state & shift != 0);
+                let sym = map.keysyms[row + level];
+                if sym == 0 {
+                    map.keysyms[row]
+                } else {
+                    sym
+                }
+            })
+            .filter(|sym| !(0xffe1..=0xffee).contains(sym))
+            .collect();
+        person.release_all().unwrap();
+        assert_eq!(typed, vec![0xe9, 0x0100_0000 + 0x1f600, 0x3e, 0x61, 0x62], "keysyms typed");
+    }
+
     /// openbox on a test display, ended with the test. It reads no config of the host's
     /// session: `--sm-disable` and an empty HOME for its rc lookup.
     struct Openbox(std::process::Child);
