@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-20",
+  "row": "app_lines",
+  "allow": 111,
+  "why": "Rebase of cmux #22857 (lucasr1b): file links open at their line and chat tools stay beside a chat with only New Tab pages. The pure placement helpers (loneChat, newTabPages, followNewTabPages, waitForDockUpdate) live in CmuxNextLayout (ChatPlacement+NewTabPages.swift); the App keeps only the glue that reads App-only state: ChatColumnPlacement.moveNewTabPages (AppServices.locateTab, TabMoves.move, daemon.whenApplied, WorkspaceContentController selection and focus), ChatDockRules.accepts/isChatDock, and the `line:`/`revealExistingLine` threading through ViewerService, FilePageService, FilePageOpener and LinkOpener.",
+  "author": "lucas-rebase-22857 lane (claude opus 5.5)",
+  "owner": "lucas-rebase-22857 lane (claude opus 5.5)",
+  "receipt": "Review (claude opus subagent a3b36f7662050ba13): SHIP at 162e98b4b97af29973762f0af369ee7b39b979bb",
+  "expiry": "2026-12-04"
+}
