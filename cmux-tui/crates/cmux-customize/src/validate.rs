@@ -149,7 +149,11 @@ fn settings(path: &str, text: &str, found: &mut Vec<Problem>) {
                     .filter(|_| !diagnostic.path.is_empty())
                     .and_then(|document| written_at(document, &diagnostic.path));
                 (
-                    format!("{} has a value this setting does not accept", diagnostic.path),
+                    if diagnostic.path == "workspaceColors.indicatorStyle" {
+                        "workspaceColors.indicatorStyle has an unsupported value; use \"dot\", \"leftRail\" or \"fill\" (legacy \"solidFill\" is accepted)".to_owned()
+                    } else {
+                        format!("{} has a value this setting does not accept", diagnostic.path)
+                    },
                     written.map(|value| (diagnostic.path.clone(), digest(value))),
                 )
             }
@@ -366,6 +370,21 @@ mod tests {
             check(SETTINGS, "{\n  // mine\n  \"appearance\": {\n    \"density\": 42\n  }\n}\n");
         assert_eq!(lines.len(), 1, "{lines:?}");
         assert!(lines[0].starts_with("settings.json:4:5: "), "{lines:?}");
+    }
+
+    #[test]
+    fn an_invalid_workspace_indicator_names_the_repair_values() {
+        let lines = check(
+            SETTINGS,
+            "{\n  \"workspaceColors\": { \"indicatorStyle\": \"__not_a_choice__\" }\n}\n",
+        );
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(
+            lines[0].contains("workspaceColors.indicatorStyle")
+                && lines[0].contains("\"fill\"")
+                && lines[0].contains("legacy \"solidFill\" is accepted"),
+            "{lines:?}"
+        );
     }
 
     #[test]

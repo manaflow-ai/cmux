@@ -362,6 +362,23 @@ fn a_hostile_or_broken_profile_writes_nothing() {
     assert!(!home.config("themes").exists() && !home.config("customize").exists());
 }
 
+#[test]
+fn a_profile_applies_over_a_legacy_workspace_indicator_style() {
+    let home = Home::new();
+    home.write(
+        "cmux-next.json",
+        "{\n  \"appearance\": { \"density\": \"cozy\" },\n  \"workspaceColors\": { \"indicatorStyle\": \"solidFill\" }\n}\n",
+    );
+    let customize = home.customize();
+    let profile = profile_of("{\"appearance.density\":\"compact\"}", "{}");
+
+    customize.preview_profile(&profile, "cli", 1).unwrap();
+
+    let settings = home.read("cmux-next.json").unwrap();
+    assert!(settings.contains("\"density\": \"compact\""), "{settings}");
+    assert!(settings.contains("\"indicatorStyle\": \"solidFill\""), "{settings}");
+}
+
 const SECRET_SETTINGS: &str = "{\n  \"browser\": { \"newTabPage\": \"https://alice:credential@example.com\" },\n  \"appearance\": { \"density\": \"compact\" },\n  \"updates\": { \"channel\": \"nightly\" }\n}\n";
 
 fn diff_text(diffs: &[cmux_customize::FileDiff]) -> String {
