@@ -159,7 +159,7 @@ describe("the fold keeps a subagent's retry", () => {
     let agent = fold.all()[0]!;
     expect([agent.state, agent.retry, agent.retryable]).toEqual([
       "failed",
-      { attempt: 1, of: 2, reason: "capacity" },
+      { attempt: 1, of: 2, reason: "capacity", pool: "Claude" },
       true,
     ]);
     // A progress report that says nothing of the retry keeps it.
