@@ -1106,7 +1106,8 @@ jobs:
 
       - name: Validate runner label policy
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_runner_label_policy.py
+        # check_runs_on_pools: same-repo Linux jobs read fromJSON(vars.RUNNER_POOLS), never a literal label.
+        run: python3 tests/test_runner_label_policy.py && python3 scripts/ci/tests/test_check_runs_on_pools.py
 
       - name: Validate side-lane runs-on reads the capability label array
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1858,6 +1859,10 @@ jobs:
       - name: Validate the nightly publishes no red webview tree and no known-bad commit
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_publish_guard.py
+
+      - name: Validate lint-class webview checks are fixed forward on the nightly
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_lint_fix_forward.py
 
       - name: Validate the published feed read-back and the shipped app's channels
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

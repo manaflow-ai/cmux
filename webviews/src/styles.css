@@ -1255,7 +1255,8 @@ body[data-status-only="true"] #status {
   background: transparent;
   text-align: center;
   text-wrap: balance;
-  font-size: 14px;
+  /* The field step (14 px at 100%), so the message grows with Text Size as the chrome around it. */
+  font-size: var(--text-field);
   line-height: 1.55;
   color: color-mix(in lab, var(--cmux-diff-fg) 58%, var(--cmux-diff-bg));
 }
@@ -1851,7 +1852,8 @@ body[data-loading="true"] #status::before {
   justify-content: center;
   width: 22px;
   height: 22px;
-  border-radius: 5px;
+  /* Every button's corner (the toolbar pill's buttons, the host's Metrics.buttonCornerRadius). */
+  border-radius: var(--ds-radius-control);
 }
 .file-review-viewed:hover .file-review-eye {
   background: var(--cmux-diff-hover-bg);
@@ -2315,7 +2317,8 @@ svg[data-icon-fill] {
   display: contents;
 }
 /* One opaque 38 px row per file with a hairline under it (screenshot
-   5.20.56): 14 px text, a 15 px icon at 17 px, the counts and controls at
+   5.20.56): the field step's text (14 px at 100%; it follows Text Size, not
+   the code's Cmd-= zoom), a 15 px icon at 17 px, the counts and controls at
    the right edge. */
 .file-header {
   flex: 1 1 auto;
@@ -2325,8 +2328,8 @@ svg[data-icon-fill] {
   gap: 6px;
   padding: 0 12px 0 17px;
   font-family: var(--cmux-diff-ui-font-family);
-  font-size: 14px;
-  line-height: 20px;
+  font-size: var(--text-field);
+  line-height: calc(20px * var(--cmux-interface-scale, 1));
   /* Regular weight, as the code below it (diffWeight.ts). */
   font-weight: 400;
   color: var(--cmux-diff-fg);
@@ -2405,7 +2408,8 @@ button.file-header-open:focus-visible {
   align-items: center;
   justify-content: center;
   margin-left: -2px;
-  border-radius: 5px;
+  /* Every button's corner, as the Viewed eye beside it. */
+  border-radius: var(--ds-radius-control);
   color: var(--cmux-diff-text-muted);
 }
 /* The whole bar is the toggle; the caret shows its hover and state. The file
