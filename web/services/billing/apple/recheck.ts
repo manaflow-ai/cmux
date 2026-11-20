@@ -9,11 +9,14 @@
 // paths that already retry durably: notifications (and the history
 // backfill) through the ledger, and the time-based lapse sweep, which now
 // expires a row only when Apple agrees, Apple has no status for it, or the
-// Server API is not configured.
+// Server API is not configured. A Production row can only exist once the app
+// is released, so a Production host that still looks locked until release
+// (productionAccess.ts) is an outage here, never a reason to expire early.
 
 import { isSignedAppleEnvironment } from "./config";
 import { applyEntitlements, captureEntitlementGranted, errorText, tokenOwner } from "./effects";
 import { appleStatusGrantsAt } from "./entitlement";
+import { isProductionLocked, productionAccessOf } from "./productionAccess";
 import type { AppleIapDependencies } from "./service";
 import {
   appleSubscriptionStateFrom,
@@ -71,12 +74,14 @@ type AppleAnswer =
 async function askApple(target: RecheckTarget, deps: AppleIapDependencies): Promise<AppleAnswer> {
   const environment = target.environment;
   if (!deps.serverApi || !isSignedAppleEnvironment(environment)) return { kind: "error" };
+  const access = environment === "Production" ? productionAccessOf(deps) : null;
   try {
     const snapshot = await deps.serverApi.subscriptionStatus({
       originalTransactionId: target.originalTransactionId,
       bundleId: target.bundleId,
       environment,
     });
+    access?.markOk(target.bundleId);
     if (!snapshot) return { kind: "unknown" };
     const transaction = await deps.verifier.verifyTransaction(snapshot.signedTransactionInfo);
     if (transaction.originalTransactionId !== target.originalTransactionId || transaction.bundleId !== target.bundleId) {
@@ -94,6 +99,10 @@ async function askApple(target: RecheckTarget, deps: AppleIapDependencies): Prom
   } catch (error) {
     // An unknown product can never grant here; Apple's answer is final.
     if (error instanceof AppleStateError) return { kind: "unknown" };
+    if (await isProductionLocked(access, error, target.bundleId)) {
+      reportLockedWithSubscription(target, deps);
+      return { kind: "error" };
+    }
     console.warn("apple_iap.status_lookup_failed", {
       metric: "apple_iap.status_lookup_failed",
       originalTransactionId: target.originalTransactionId,
@@ -102,6 +111,22 @@ async function askApple(target: RecheckTarget, deps: AppleIapDependencies): Prom
     });
     return { kind: "error" };
   }
+}
+
+/**
+ * Production answered 401 while the Sandbox accepts the key, the signature
+ * of an app without an App Store release, yet this Production subscription
+ * exists, so the app is released. Treated as an outage (the sweep defers,
+ * capped at APPLE_MAX_LAPSE_DEFER_MS), logged as an error, and recorded as
+ * `unauthorized` for the run, so the cron fails and the backfill is loud.
+ */
+function reportLockedWithSubscription(target: RecheckTarget, deps: AppleIapDependencies): void {
+  deps.productionAccess?.markReleasedButRefused(target.bundleId);
+  console.error("apple_iap.production_api_locked_with_subscription", {
+    metric: "apple_iap.production_api_locked_with_subscription",
+    originalTransactionId: target.originalTransactionId,
+    bundleId: target.bundleId,
+  });
 }
 
 /**
@@ -117,6 +142,11 @@ export async function refreshSubscriptionFromApple(
 ): Promise<AppleRefreshOutcome> {
   if (!deps.serverApi || !isSignedAppleEnvironment(target.environment) || budget.remaining <= 0) {
     return { kind: "skipped" };
+  }
+  // Known locked this run: an outage for this row too, without another call.
+  if (target.environment === "Production" && deps.productionAccess?.isLocked(target.bundleId)) {
+    reportLockedWithSubscription(target, deps);
+    return { kind: "error" };
   }
   budget.remaining -= 1;
   const answer = await askApple(target, deps);
