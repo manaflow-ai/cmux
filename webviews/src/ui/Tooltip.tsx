@@ -142,7 +142,11 @@ export function Tooltip({
             <BaseTooltip.Popup
               ref={setPopup}
               className={cx("ui-tooltip ui-glass", className)}
-              {...(wraps && { "data-host-glass": "popover", "data-tooltip-card": "" })}
+              // On the App's glass under the page (glass/hostGlass.ts): a card at the popover level, a
+              // label at the chip level, the native tooltip's glass, blurring what it covers in place.
+              {...(wraps
+                ? { "data-host-glass": "popover", "data-tooltip-card": "" }
+                : { "data-host-glass": "chip", "data-host-glass-cover": "" })}
             >
               {shortcut && <span className="ui-tooltip-hint">{shortcut}</span>}
               {typeof label === "string" || typeof label === "number" ? (
