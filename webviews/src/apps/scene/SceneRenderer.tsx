@@ -639,6 +639,7 @@ function LazyStackChildren({ node, store, dispatch }: { node: SceneNode; store: 
   }, [stack, indexOf]);
 
   const itemKey = useCallback((index: number) => items[index]!, [items]);
+  // react-doctor-disable-next-line react-hooks-js/incompatible-library -- TanStack Virtual returns functions the React Compiler cannot memoize safely, so this stack stays uncompiled on purpose; its range comes from the host slice and it measures each child itself, so ui/VirtualList does not fit.
   const virtualizer = useVirtualizer<HTMLElement, HTMLElement>({
     count,
     enabled: windowed,
