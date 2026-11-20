@@ -129,7 +129,7 @@ await requireBrowserLane("composer-emoji.browser.test.ts", async () => {
     await page.close();
   });
 
-  test(":pl lists 🥺 first, highlighted, and turns off the system's own completion while it shows", async () => {
+  test(":plead lists 🥺 first, highlighted, and turns off the system's own completion while it shows", async () => {
     const page = await stage("pleading");
     const state = await read(page);
     expect(state.rows[0]).toBe("🥺 :pleading_face:");

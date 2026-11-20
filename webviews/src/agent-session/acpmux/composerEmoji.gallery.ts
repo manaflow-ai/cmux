@@ -51,8 +51,8 @@ export default agentPaneEntry({
       (ctx) => typeToMenu(ctx, "Ship it :tedd"),
     ),
     pleading: variant(
-      "Play: Leo's `:pl` (2026-11-20): 🥺 :pleading_face: first, highlighted as Claude Code draws it.",
-      (ctx) => typeToMenu(ctx, "aw :pl"),
+      "Play: Leo's `:plead` (2026-11-20): 🥺 :pleading_face: first, highlighted as Claude Code draws it.",
+      (ctx) => typeToMenu(ctx, "aw :plead"),
     ),
     "emoticon-dd": variant(
       "Play: the emoticon `:DD` lists a laughing face first (Claude desktop offered a middle finger), highlighted.",
@@ -71,8 +71,8 @@ export default agentPaneEntry({
       if (!second || !promptText(ctx).includes(`Ship it ${second}`))
         throw new Error(`pick did not write the second emoji ${second}: ${promptText(ctx)}`);
     }),
-    "return-picks": variant("Play: `:pl` then Return writes the highlighted 🥺 and never sends.", async (ctx) => {
-      await typeToMenu(ctx, "aw :pl");
+    "return-picks": variant("Play: `:plead` then Return writes the highlighted 🥺 and never sends.", async (ctx) => {
+      await typeToMenu(ctx, "aw :plead");
       await ctx.press("Enter");
       await ctx.waitFor(() => ctx.document.querySelector(ROW) === null);
       if (!promptText(ctx).includes("aw 🥺")) throw new Error(`Return did not write 🥺: ${promptText(ctx)}`);
