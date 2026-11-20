@@ -31,7 +31,7 @@
   /* The light blur the surface itself keeps while the lens draws, so page text under a menu, a
      hover card or the composer frosts instead of reading crisp through the tint. Small enough that
      the lens's bend still shows through it. */
-  --glass-frost: var(--ds-blur-scrim); /* the lens mode's frost, the radius of --ds-glass-lens-blur */
+  --glass-frost: var(--ds-blur-scrim, 8px); /* the lens mode's frost, the radius of --ds-glass-lens-blur */
   /* How far the rim bends the wallpaper, CSS px (the lens's displacement at the edge). */
   --glass-refraction: 22px;
   /* --glass-refract (unset here: rimRefraction.ts's default, ios): how a floating glass's rim

@@ -242,8 +242,8 @@
   }
 
   .scroll-edge > span:nth-child(4) {
-    backdrop-filter: blur(var(--ds-blur-scrim)); /* the stack's last step: the scrim radius */
-    -webkit-backdrop-filter: blur(var(--ds-blur-scrim)); /* the stack's last step: the scrim radius */
+    backdrop-filter: blur(var(--ds-blur-scrim, 8px)); /* the stack's last step: the scrim radius */
+    -webkit-backdrop-filter: blur(var(--ds-blur-scrim, 8px)); /* the stack's last step: the scrim radius */
     mask-image: linear-gradient(to bottom, black 30%, transparent 55%);
   }
 }

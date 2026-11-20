@@ -184,7 +184,7 @@
    test/chat-header-solo-tab.test.ts keeps it so. */
 .acpmux-shell[data-tab-row][data-solo-tab]{background:linear-gradient(var(--agent-page-bg),var(--agent-page-bg)),var(--cmux-surface-background,transparent)}
 /* The solo tab row's soft edge fade over the chat: the scrim radius. */
-.acpmux-stage[data-solo-tab]{--acpmux-solo-blur:var(--ds-blur-scrim)}
+.acpmux-stage[data-solo-tab]{--acpmux-solo-blur:var(--ds-blur-scrim, 8px)}
 /* A line under the header (header/underHeader.ts: a Create Checkpoint review, a live chat's choice, a peer copy, a watched
    chat, a handoff error) keeps the transcript below it; the App drops data-solo-tab from the stage then
    (App.tsx soloUnder), this is the backstop. */

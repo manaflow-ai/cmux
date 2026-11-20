@@ -4,7 +4,7 @@
 .acpmux-outputs-edges {
   --outputs-edge-visible: 1;
   --cmux-scroll-edge-band: 12px;
-  --cmux-scroll-edge-blur: var(--ds-blur-scrim); /* a scroll edge's fade band (#26720): the scrim radius */
+  --cmux-scroll-edge-blur: var(--ds-blur-scrim, 8px); /* a scroll edge's fade band (#26720): the scrim radius */
   --cmux-scroll-edge-opacity: 0.58;
   position: relative;
   min-width: 0;
@@ -37,12 +37,12 @@
 /* Comparison variants stay in the gallery; the app uses the restrained treatment above. */
 [data-outputs-edge-variant="balanced"] .acpmux-outputs-edges {
   --cmux-scroll-edge-band: 16px;
-  --cmux-scroll-edge-blur: var(--ds-blur-scrim); /* a scroll edge's fade band (#26720): the scrim radius */
+  --cmux-scroll-edge-blur: var(--ds-blur-scrim, 8px); /* a scroll edge's fade band (#26720): the scrim radius */
   --cmux-scroll-edge-opacity: 0.82;
 }
 [data-outputs-edge-variant="roomy"] .acpmux-outputs-edges {
   --cmux-scroll-edge-band: 24px;
-  --cmux-scroll-edge-blur: var(--ds-blur-scrim); /* a scroll edge's fade band (#26720): the scrim radius */
+  --cmux-scroll-edge-blur: var(--ds-blur-scrim, 8px); /* a scroll edge's fade band (#26720): the scrim radius */
   --cmux-scroll-edge-opacity: 0.9;
 }
 /* Respect the same transparency switch as the summary cards: decoration disappears entirely. */
