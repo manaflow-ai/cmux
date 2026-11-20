@@ -519,6 +519,9 @@ fn masks() {
     );
     assert_eq!(mask_url("https://h.example/mcp"), "https://h.example/mcp");
     assert_eq!(mask_url("https://tok@h.example/"), "https://*****@h.example/");
+    assert_eq!(mask_url("https://u:pw@h.example:8/a?b=1"), "https://u:*****@h.example:8/a?b=1");
+    assert_eq!(mask_url("https://h.example/a@b"), "https://h.example/a@b");
+    assert_eq!(mask_url("https://u@h.example?token=x"), "https://*****@h.example?token=*****");
     assert_eq!(
         mask_url("https://h.example/?key=1&token=2&q=3"),
         "https://h.example/?key=*****&token=*****&q=3"

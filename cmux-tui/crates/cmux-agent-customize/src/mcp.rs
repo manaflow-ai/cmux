@@ -274,17 +274,18 @@ fn secret_name(name: &str) -> bool {
 /// query values that look secret.
 pub fn mask_url(url: &str) -> String {
     let mut out = url.to_owned();
-    if let Some(scheme_end) = out.find("://") {
-        let rest_start = scheme_end + 3;
-        let authority_end =
-            out[rest_start..].find(['/', '?', '#']).map(|i| rest_start + i).unwrap_or(out.len());
-        if let Some(at) = out[rest_start..authority_end].rfind('@') {
-            let userinfo = &out[rest_start..rest_start + at];
+    if let Some((scheme, rest)) = url.split_once("://") {
+        // The authority runs to the first `/`, `?` or `#`; the userinfo is what precedes its last `@`.
+        let (authority, tail) = match rest.find(['/', '?', '#']) {
+            Some(end) => (rest.get(..end).unwrap_or(rest), rest.get(end..).unwrap_or("")),
+            None => (rest, ""),
+        };
+        if let Some((userinfo, host)) = authority.rsplit_once('@') {
             let masked = match userinfo.split_once(':') {
                 Some((user, _)) => format!("{user}:{MASK}"),
                 None => MASK.to_owned(),
             };
-            out.replace_range(rest_start..rest_start + at, &masked);
+            out = format!("{scheme}://{masked}@{host}{tail}");
         }
     }
     if let Some(query_start) = out.find('?') {
@@ -306,17 +307,19 @@ pub fn mask_url(url: &str) -> String {
 /// Marks every server but the one that runs, for each name: the first scope in `order` wins.
 fn mark_shadowed(servers: &mut [Server], order: &[Scope]) {
     let rank = |scope: Scope| order.iter().position(|s| *s == scope).unwrap_or(order.len());
-    let mut winner: BTreeMap<String, usize> = BTreeMap::new();
+    // Per name: the index of the server that runs and its scope's rank.
+    let mut winner: BTreeMap<String, (usize, usize)> = BTreeMap::new();
     for (index, server) in servers.iter().enumerate() {
+        let server_rank = rank(server.scope);
         match winner.get(&server.name) {
-            Some(&best) if rank(servers[best].scope) <= rank(server.scope) => {}
+            Some(&(_, best_rank)) if best_rank <= server_rank => {}
             _ => {
-                winner.insert(server.name.clone(), index);
+                winner.insert(server.name.clone(), (index, server_rank));
             }
         }
     }
     for (index, server) in servers.iter_mut().enumerate() {
-        server.shadowed = winner.get(&server.name) != Some(&index);
+        server.shadowed = winner.get(&server.name).map(|&(best, _)| best) != Some(index);
     }
 }
 
