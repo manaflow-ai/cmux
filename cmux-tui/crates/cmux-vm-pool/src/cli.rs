@@ -141,7 +141,7 @@ fn parse(words: &[String]) -> Result<Args, String> {
             "--count" => {
                 args.count = Some(
                     u32::try_from(number(flag, value(flag)?)?).map_err(|_| "--count too big")?,
-                )
+                );
             }
             "--at" => args.at_ms = Some(number(flag, value(flag)?)?),
             "--since" => args.since_ms = Some(number(flag, value(flag)?)?),
@@ -154,7 +154,7 @@ fn parse(words: &[String]) -> Result<Args, String> {
             "--max" => {
                 args.max = Some(
                     usize::try_from(number(flag, value(flag)?)?).map_err(|_| "--max too big")?,
-                )
+                );
             }
             "--prefix" => args.prefixes.push(value(flag)?),
             "--org" => args.org = value(flag)?,
@@ -164,8 +164,8 @@ fn parse(words: &[String]) -> Result<Args, String> {
             "--repo" => args.repos.push(value(flag)?),
             "--idle-minutes" => args.idle_minutes = number(flag, value(flag)?)?,
             "--keep-idle" => {
-                args.keep_idle =
-                    u32::try_from(number(flag, value(flag)?)?).map_err(|_| "--keep-idle too big")?
+                args.keep_idle = u32::try_from(number(flag, value(flag)?)?)
+                    .map_err(|_| "--keep-idle too big")?;
             }
             "--tick" => args.tick_s = number(flag, value(flag)?)?.max(1),
             "--demand-file" => args.demand_file = Some(value(flag)?),
@@ -672,6 +672,7 @@ async fn schedule(
         keep_idle: args.keep_idle,
         prefixes: args.prefixes.clone(),
         label: args.label.clone(),
+        ..Policy::default()
     });
     loop {
         let tick_started = Instant::now();
