@@ -100,6 +100,31 @@ const commentToken = async (env: Env, http: Http, installation: number, repo: st
 export const githubScopesOf = (permissions: Readonly<Record<string, unknown>>): Array<string> =>
   Object.entries(permissions).filter((e): e is [string, string] => typeof e[1] === "string").map(([k, v]) => `${k}:${v}`).sort()
 
+/** What an organization member's install request answers: GitHub sent it to the owners; the person connects again after. */
+export const GITHUB_REQUEST_SENT = "GitHub sent your request to install the cmux GitHub App to the organization's owners. When an owner approves it, choose Connect GitHub in cmux again"
+
+/** The GitHub user token a setup or OAuth callback's `code` exchanges for (never stored). */
+export const githubUserToken = async (env: Env, http: Http, code: string): Promise<string> => {
+  const tok = await http(
+    new Request("https://github.com/login/oauth/access_token", {
+      method: "POST",
+      headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded" },
+      body: form({ client_id: env.GITHUB_APP_CLIENT_ID!, client_secret: env.GITHUB_APP_CLIENT_SECRET!, code })
+    })
+  )
+  const t = await json(tok)
+  if (!tok.ok || typeof t.access_token !== "string") throw new ProviderError("integration.state_invalid", "GitHub code exchange failed")
+  return t.access_token
+}
+
+/** `GET /user` with a user token: the GitHub user it belongs to (the numeric id is the identity; a login can be renamed). */
+export const githubUserOf = async (http: Http, userToken: string): Promise<{ id: number; login: string } | null> => {
+  const res = await http(new Request(`${GH_API}/user`, { headers: ghHeaders(userToken) }))
+  if (!res.ok) return null
+  const me = await json(res)
+  return typeof me.id === "number" && Number.isSafeInteger(me.id) && me.id > 0 && typeof me.login === "string" && me.login.length > 0 && me.login.length <= 39 ? { id: me.id, login: me.login } : null
+}
+
 export const github: ProviderImpl = {
   configured: (env) => Boolean(env.GITHUB_APP_SLUG && env.GITHUB_APP_CLIENT_ID && env.GITHUB_APP_CLIENT_SECRET && env.GITHUB_APP_PRIVATE_KEY),
   defaultScopes: [],
@@ -110,23 +135,15 @@ export const github: ProviderImpl = {
     const installation = Number(p.installation_id)
     // An organization member's install is a request until an owner approves it: GitHub comes back with
     // `setup_action=request` and no installation yet. Nothing to link; say what happens next.
-    if (p.setup_action === "request" && !Number.isSafeInteger(installation)) {
-      throw new ProviderError("integration.state_invalid", "GitHub sent your request to install the cmux GitHub App to the organization's owners. When an owner approves it, choose Connect GitHub in cmux again")
-    }
+    // ConnectionDO records a request itself (githubInstallRequest); this answers any other caller the same way.
+    if (p.setup_action === "request" && !Number.isSafeInteger(installation)) throw new ProviderError("integration.state_invalid", GITHUB_REQUEST_SENT)
     if (!p.code || !Number.isSafeInteger(installation)) {
       throw new ProviderError("integration.state_invalid", "GitHub returned no installation_id or code (enable 'Request user authorization during installation')")
     }
     // Prove the signed-in GitHub user can access this installation; an installation id alone is guessable.
-    const tok = await http(
-      new Request("https://github.com/login/oauth/access_token", {
-        method: "POST",
-        headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded" },
-        body: form({ client_id: env.GITHUB_APP_CLIENT_ID!, client_secret: env.GITHUB_APP_CLIENT_SECRET!, code: p.code })
-      })
-    )
-    const t = await json(tok)
-    if (!tok.ok || typeof t.access_token !== "string") throw new ProviderError("integration.state_invalid", "GitHub code exchange failed")
-    const userToken = t.access_token
+    const userToken = await githubUserToken(env, http, p.code)
+    // Who linked: a repository added to the installation later joins only if this user can reach it (github-handoffs.ts).
+    const linker = await githubUserOf(http, userToken).catch(() => null)
     const res = await http(new Request(`${GH_API}/user/installations?per_page=100`, { headers: ghHeaders(userToken) }))
     if (!res.ok) throw failed("github", res, "installation check")
     const list = ((await json(res)).installations ?? []) as Array<{ id: number; account?: { login?: string; type?: string; html_url?: string }; permissions?: Record<string, string> }>
@@ -141,8 +158,7 @@ export const github: ProviderImpl = {
         const mb = await json(m)
         if (!m.ok || mb.state !== "active" || mb.role !== "admin") throw new ProviderError("integration.state_invalid", `the team policy requires a ${login} organization admin to link GitHub`)
       } else {
-        const me = await json(await http(new Request(`${GH_API}/user`, { headers: ghHeaders(userToken) })))
-        if (String(me.login ?? "").toLowerCase() !== login.toLowerCase()) throw new ProviderError("integration.state_invalid", "the team policy requires the account owner to link GitHub")
+        if ((linker?.login ?? "").toLowerCase() !== login.toLowerCase()) throw new ProviderError("integration.state_invalid", "the team policy requires the account owner to link GitHub")
       }
     }
 
@@ -165,7 +181,8 @@ export const github: ProviderImpl = {
       account: { key: `github:installation:${installation}`, name: login || String(installation), ...(inst.account?.html_url ? { url: inst.account.html_url } : {}) },
       scopes_granted: githubScopesOf(inst.permissions ?? {}),
       credential: { kind: "github_installation", installation_id: installation },
-      resources: { repos }
+      resources: { repos },
+      ...(linker ? { github_user: linker } : {})
     }
   },
   call: async (env, http, credential, op, params, beforeEffect) => {

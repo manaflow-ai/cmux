@@ -16,6 +16,8 @@ export interface Approved {
   readonly scopes_granted: ReadonlyArray<string>
   readonly credential: Credential
   readonly resources?: { readonly repos: ReadonlyArray<string> | null }
+  /** GitHub: the user who linked (their own sign-in proved it), so a repository added later can be checked against them. */
+  readonly github_user?: { readonly id: number; readonly login: string }
 }
 
 /** The parts of the team integration policy a provider needs while linking. */

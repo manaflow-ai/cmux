@@ -6,12 +6,14 @@ import {
   IntegrationPolicySet,
   IntegrationRevoke,
   EXPIRED_CONNECTION_RETENTION_MS,
+  GITHUB_INSTALL_REQUEST_TTL_MS,
   PENDING_CONNECTION_TTL_MS,
   type Connection,
   type TeamIntegrationPolicy
 } from "@cmux/protocol"
 import { admit, decodeParams, reject, requirePersonalTeamAdmin } from "./common.ts"
 import { personalTeamIdFor } from "./user.ts"
+import { MAX_LINKED_REPOS } from "../integrations/provider-core.ts"
 
 /**
  * ConnectionDO's reducer (spec integrations.md): the integration connections
@@ -34,7 +36,41 @@ export interface ConnectionsState {
    * its version is lower than the last one it recorded.
    */
   readonly lock_epoch?: string
+  /**
+   * Organization members' GitHub App install requests waiting for an owner (`setup_action=request`), by the
+   * connection id an approval links. Absent in objects created before them.
+   */
+  readonly github_requests?: Readonly<Record<string, GithubInstallRequest>>
 }
+
+/**
+ * One member's install request to an organization's owners. GitHub's request callback names no organization,
+ * so the account is known only once an owner approves (`approved_account`, when that approval could not link).
+ */
+export interface GithubInstallRequest {
+  readonly id: string
+  readonly requested_by: string
+  readonly sharing: Connection["sharing"]
+  readonly scopes_requested: ReadonlyArray<string>
+  /** The requester's GitHub user, proven by the callback's OAuth code; null when GitHub sent no code (no approval can link then). */
+  readonly github_user: { readonly id: number; readonly login: string } | null
+  readonly requested_at: number
+  readonly approved_account?: string
+  readonly approved_detail?: string
+}
+
+/** Requests kept per team; a newer one from the same person replaces theirs. */
+export const MAX_GITHUB_REQUESTS = 20
+
+/** Pending connections past their lifetime read as expired even before the expiry alarm runs. */
+export const asSeen = (c: Connection, now: number): Connection =>
+  c.status === "pending" && now >= c.created_at + PENDING_CONNECTION_TTL_MS ? { ...c, status: "expired" } : c
+
+/** Install requests, oldest first, with the instant each leaves owner state. */
+export const githubRequestExpiries = (s: ConnectionsState): Array<{ request: string; at: number }> =>
+  Object.values(s.github_requests ?? {})
+    .map((r) => ({ request: r.id, at: r.requested_at + GITHUB_INSTALL_REQUEST_TTL_MS }))
+    .sort((a, b) => a.at - b.at)
 
 /** The SSO or MDM source holding the policy, or null. */
 export const lockOf = (p: TeamIntegrationPolicy): "sso" | "mdm" | null => (p.source === "sso" || p.source === "mdm" ? p.source : null)
@@ -141,7 +177,12 @@ export const connectionsDomain: Domain<ConnectionsState> = {
         // Reuse before asking: a connection this person may use already covers the repository, so there is nothing to approve.
         const reused = d.value.repo === undefined ? undefined : githubConnectionFor(state, p, d.value.repo)
         if (reused) return { ok: true, state, value: reused, changed: false }
-        if (Object.values(state.connections).filter((c) => c.status !== "revoked" && c.status !== "expired").length >= MAX_CONNECTIONS) {
+        // One pending connect per person and provider: a new Connect ends the earlier one, whose page the person no
+        // longer has (an install cancelled on GitHub, a relaunch); a callback for it is then refused as expired.
+        const superseded = Object.values(state.connections)
+          .filter((x) => x.status === "pending" && x.provider === d.value.provider && x.created_by === p.user)
+          .map((x): Connection => ({ ...x, status: "expired", updated_at: ctx.now }))
+        if (Object.values(state.connections).filter((c) => c.status !== "revoked" && c.status !== "expired").length - superseded.length >= MAX_CONNECTIONS) {
           return reject("integration.limit", `at most ${MAX_CONNECTIONS} connections per team`)
         }
         const c: Connection = {
@@ -157,7 +198,8 @@ export const connectionsDomain: Domain<ConnectionsState> = {
           created_at: ctx.now,
           updated_at: ctx.now
         }
-        return { ok: true, state: { ...state, owner, connections: { ...state.connections, [c.id]: c } }, value: c, outbox: [outbox(c)] }
+        const connections = { ...state.connections, ...Object.fromEntries(superseded.map((x) => [x.id, x])), [c.id]: c }
+        return { ok: true, state: { ...state, owner, connections }, value: c, outbox: [...superseded.map(outbox), outbox(c)] }
       }
 
       case "integration.revoke": {
@@ -208,18 +250,21 @@ export const connectionsDomain: Domain<ConnectionsState> = {
       }
 
       case "connection.github.sync": {
-        const d = decodeParams<{ connection: string; scopes_granted?: Array<string>; repos_removed?: Array<string> }>(internalByName.get(op)!, params)
+        const d = decodeParams<{ connection: string; scopes_granted?: Array<string>; repos_removed?: Array<string>; repos_added?: Array<string> }>(internalByName.get(op)!, params)
         if (!d.ok) return d
         const c = state.connections[d.value.connection]
         if (!c) return reject("selector.not_found", "connection not found")
         if (c.provider !== "github" || c.status === "revoked" || c.status === "pending" || c.status === "expired") return { ok: true, state, value: c, changed: false }
         const gone = new Set((d.value.repos_removed ?? []).map((r) => r.toLowerCase()))
         const repos = c.resources?.repos
-        // A recorded list loses the repositories that left the installation; `null` (the whole installation) stays.
-        const kept = Array.isArray(repos) ? repos.filter((r) => !gone.has(r.toLowerCase())) : repos
+        // A recorded list loses the repositories that left the installation and gains the ones the linking user is
+        // proven to reach (integrations/github-handoffs.ts githubReposAdded), up to the cap; `null` (the whole installation) stays.
+        const byName = new Map<string, string>()
+        for (const r of [...(repos ?? []), ...(d.value.repos_added ?? [])]) if (!gone.has(r.toLowerCase()) && !byName.has(r.toLowerCase())) byName.set(r.toLowerCase(), r)
+        const kept = Array.isArray(repos) ? [...byName.values()].sort().slice(0, MAX_LINKED_REPOS) : repos
         const scopes = d.value.scopes_granted ? [...d.value.scopes_granted].sort() : c.scopes_granted
-        const sameScopes = scopes.length === c.scopes_granted.length && scopes.every((s, i) => s === c.scopes_granted[i])
-        if (sameScopes && kept?.length === repos?.length) return { ok: true, state, value: c, changed: false }
+        const same = (a: ReadonlyArray<string> | null | undefined, b: ReadonlyArray<string> | null | undefined) => a === b || (!!a && !!b && a.length === b.length && a.every((s, i) => s === b[i]))
+        if (same(scopes, c.scopes_granted) && same(kept, repos)) return { ok: true, state, value: c, changed: false }
         const next: Connection = { ...c, scopes_granted: scopes, ...(c.resources ? { resources: { repos: kept ?? null } } : {}), updated_at: ctx.now }
         return { ok: true, state: { ...state, connections: { ...state.connections, [c.id]: next } }, value: next, outbox: [outbox(next)] }
       }
@@ -233,6 +278,76 @@ export const connectionsDomain: Domain<ConnectionsState> = {
         if (!c || c.status !== "pending" || at < c.created_at + PENDING_CONNECTION_TTL_MS) return { ok: true, state, value: c ?? null, changed: false }
         const next: Connection = { ...c, status: "expired", updated_at: ctx.now }
         return { ok: true, state: { ...state, connections: { ...state.connections, [c.id]: next } }, value: next, outbox: [outbox(next)] }
+      }
+
+      case "connection.github.requested": {
+        const d = decodeParams<{ connection: string; request: string; github_user: { id: number; login: string } | null }>(internalByName.get(op)!, params)
+        if (!d.ok) return d
+        const c = state.connections[d.value.connection]
+        if (!c || c.provider !== "github") return reject("selector.not_found", "connection not found")
+        if (c.status !== "pending") return reject("validation.invalid", `this connection is ${c.status}`)
+        const requests = state.github_requests ?? {}
+        if (requests[d.value.request] || state.connections[d.value.request]) return reject("validation.invalid", "request id in use")
+        const r: GithubInstallRequest = { id: d.value.request, requested_by: c.created_by, sharing: c.sharing, scopes_requested: [...c.scopes_requested], github_user: d.value.github_user, requested_at: ctx.now }
+        // A person's newer request replaces theirs (an approval links one); the team keeps the newest MAX_GITHUB_REQUESTS.
+        const others = Object.values(requests).sort((a, b) => a.requested_at - b.requested_at)
+        const kept = others.filter((x) => !(x.requested_by === r.requested_by && (x.github_user?.id ?? null) === (r.github_user?.id ?? null))).slice(-(MAX_GITHUB_REQUESTS - 1))
+        const dropped = others.filter((x) => !kept.includes(x)).map((x) => x.id)
+        const ended: Connection = { ...c, status: "expired", updated_at: ctx.now }
+        return {
+          ok: true,
+          state: { ...state, connections: { ...state.connections, [c.id]: ended }, github_requests: Object.fromEntries([...kept, r].map((x) => [x.id, x])) },
+          value: { request: r, dropped: dropped.map((id) => requests[id]!) },
+          outbox: [outbox(ended)]
+        }
+      }
+
+      case "connection.github.approved": {
+        const d = decodeParams<{ request: string; account: { key: string; name: string; url?: string }; scopes_granted: Array<string>; resources: { repos: Array<string> | null } }>(internalByName.get(op)!, params)
+        if (!d.ok) return d
+        const r = state.github_requests?.[d.value.request]
+        const linked = state.connections[d.value.request]
+        if (!r) return linked ? { ok: true, state, value: linked, changed: false } : reject("selector.not_found", "request not found")
+        if (linked || !state.owner) return reject("validation.invalid", "request id in use")
+        const { [r.id]: _done, ...rest } = state.github_requests ?? {}
+        // The team already has this installation (the person connected it meanwhile): the request is served by it.
+        const existing = Object.values(state.connections).find((x) => x.account?.key === d.value.account.key && x.status !== "revoked" && x.status !== "expired")
+        if (existing) return { ok: true, state: { ...state, github_requests: rest }, value: existing }
+        if (!providerAllowed(policyOf(state), "github")) return reject("policy.denied", "the team policy does not allow github")
+        if (Object.values(state.connections).filter((x) => x.status !== "revoked" && x.status !== "expired").length >= MAX_CONNECTIONS) return reject("integration.limit", `at most ${MAX_CONNECTIONS} connections per team`)
+        const c: Connection = {
+          id: r.id,
+          owner: state.owner,
+          created_by: r.requested_by,
+          provider: "github",
+          account: d.value.account,
+          scopes_requested: [...r.scopes_requested],
+          scopes_granted: [...d.value.scopes_granted].sort(),
+          status: "active",
+          sharing: r.sharing,
+          resources: { repos: d.value.resources.repos === null ? null : [...d.value.resources.repos].sort() },
+          created_at: ctx.now,
+          updated_at: ctx.now
+        }
+        return { ok: true, state: { ...state, connections: { ...state.connections, [c.id]: c }, github_requests: rest }, value: c, outbox: [outbox(c)] }
+      }
+
+      case "connection.github.request_seen": {
+        const d = decodeParams<{ request: string; account: string; reason: string }>(internalByName.get(op)!, params)
+        if (!d.ok) return d
+        const r = state.github_requests?.[d.value.request]
+        if (!r || (r.approved_account === d.value.account && r.approved_detail === d.value.reason)) return { ok: true, state, value: r ?? null, changed: false }
+        const next: GithubInstallRequest = { ...r, approved_account: d.value.account, approved_detail: d.value.reason }
+        return { ok: true, state: { ...state, github_requests: { ...state.github_requests, [r.id]: next } }, value: next }
+      }
+
+      case "connection.github.request_expire": {
+        const d = decodeParams<{ request: string; at: number }>(internalByName.get(op)!, params)
+        if (!d.ok) return d
+        const r = state.github_requests?.[d.value.request]
+        if (!r || Math.max(ctx.now, d.value.at) < r.requested_at + GITHUB_INSTALL_REQUEST_TTL_MS) return { ok: true, state, value: null, changed: false }
+        const { [r.id]: _gone, ...rest } = state.github_requests ?? {}
+        return { ok: true, state: { ...state, github_requests: rest }, value: r }
       }
 
       case "connection.forget": {
@@ -312,3 +427,25 @@ export const expiredForgets = (s: ConnectionsState): Array<{ connection: string;
     .filter((c) => c.status === "expired")
     .map((c) => ({ connection: c.id, at: c.updated_at + EXPIRED_CONNECTION_RETENTION_MS }))
     .sort((a, b) => a.at - b.at)
+
+/**
+ * GET /v1/integrations/github/status `pending_approval`: this principal's newest visible install request to an
+ * organization's owners, or null. `links_on_approval`: the approval connects it with no further click (the
+ * requester's GitHub user is known and the policy lets a member link); `approved_account` and `detail`: an owner
+ * approved but it could not link by itself, so the person chooses Connect GitHub again.
+ */
+export const pendingApprovalOf = (s: ConnectionsState, p: Principal) => {
+  const r = Object.values(s.github_requests ?? {})
+    .filter((x) => x.sharing === "team" || x.requested_by === p.user)
+    .sort((a, b) => b.requested_at - a.requested_at)[0]
+  if (!r) return null
+  return {
+    requested_at: r.requested_at,
+    expires_at: r.requested_at + GITHUB_INSTALL_REQUEST_TTL_MS,
+    requested_by: r.requested_by,
+    github_login: r.github_user?.login ?? null,
+    links_on_approval: r.github_user !== null && r.approved_account === undefined && !policyOf(s).github.require_org_admin,
+    approved_account: r.approved_account ?? null,
+    detail: r.approved_detail ?? null
+  }
+}

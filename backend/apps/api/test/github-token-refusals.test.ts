@@ -110,7 +110,8 @@ describe("GitHub token refusals", { timeout: 60_000 }, () => {
     // GitHub's redirect for a member's request: a code (user authorization during installation) and no installation.
     const done = await op(a.session, "integration.complete", { state, code: "c", setup_action: "request" })
     expect(done.body.ok).toBe(false)
-    expect(done.body.error.message).toContain("When an owner approves it, choose Connect GitHub in cmux again")
-    expect(gh.calls).toHaveLength(0)
+    // The code proves who asked (github-handoffs.test.ts follows the approval); nothing else is asked of GitHub.
+    expect(done.body.error.message).toContain("When an owner approves it, cmux connects it to this team without another Connect")
+    expect(gh.calls.map((c) => c.url)).toEqual(["https://github.com/login/oauth/access_token", "https://api.github.com/user"])
   })
 })

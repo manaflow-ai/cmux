@@ -1,6 +1,7 @@
 import type { Env } from "../env.ts"
 import { verifyGitHub, verifyLinear, verifySlack, type Provider, type Verified } from "./providers.ts"
 import { readRawBody } from "./verify.ts"
+import { requesterKey, userIdOf } from "../integrations/github-handoffs.ts"
 
 /**
  * Provider webhooks: `POST /v1/hooks/{github,slack,linear}`. Verify first
@@ -37,5 +38,15 @@ export const handleProviderHook = async (request: Request, env: Env, provider: P
     const r = (await stub.ingest(team, connection, { provider, account: d.account, delivery_id: d.delivery_id, event: d.event, payload: d.payload })) as { runs: number }
     runs += r.runs
   }
-  return json(200, { ok: true, delivery: d.delivery_id, connections: links.length, runs })
+  // An organization owner approved a member's install request: the installation is new (nothing links it yet), and the
+  // team that recorded the request from that GitHub user (`requester`, a signed field) links it (ConnectionDO.githubRequestApproved).
+  const requester = d.event === "installation.created" ? userIdOf((d.payload as { requester?: unknown } | null)?.requester) : undefined
+  let approved = 0
+  if (requester !== undefined) {
+    for (const { team, connection } of await env.ACCOUNT_INDEX_DO.get(env.ACCOUNT_INDEX_DO.idFromName(requesterKey(requester))).list()) {
+      const stub = env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(team))
+      if ((await stub.githubRequestApproved(team, connection, { provider, account: d.account, delivery_id: d.delivery_id, event: d.event, payload: d.payload })) === "linked") approved += 1
+    }
+  }
+  return json(200, { ok: true, delivery: d.delivery_id, connections: links.length, runs, ...(requester !== undefined ? { approved } : {}) })
 }
