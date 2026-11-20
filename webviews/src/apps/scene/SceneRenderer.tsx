@@ -13,7 +13,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { measureElement as measureBox, useVirtualizer, type Range, type Virtualizer } from "@tanstack/react-virtual";
+import { measureElement as measureBox, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { Spinner } from "../../agent-session/acpmux/conversation/icons";
 import { Switch } from "../../ui/Switch";
 import { offsetRange, sliceBand, type VisibleSlice } from "../../ui/visibleSlice";
@@ -639,7 +639,6 @@ function LazyStackChildren({ node, store, dispatch }: { node: SceneNode; store: 
   }, [stack, indexOf]);
 
   const itemKey = useCallback((index: number) => items[index]!, [items]);
-  const instance = useRef<Virtualizer<HTMLElement, HTMLElement> | null>(null);
   const virtualizer = useVirtualizer<HTMLElement, HTMLElement>({
     count,
     enabled: windowed,
@@ -661,8 +660,10 @@ function LazyStackChildren({ node, store, dispatch }: { node: SceneNode; store: 
       scrollToFn: noScroll,
     }),
     rangeExtractor: (range: Range) => {
-      const self = instance.current;
-      const measured = self?.measurementsCache;
+      // Called only from the virtualizer's own reads (it draws and scrolls after the hook returns), never
+      // from inside the hook, so `virtualizer` is always set here: the hook keeps one for the stack's life.
+      const self = virtualizer;
+      const measured = self.measurementsCache;
       let band: { low: number; high: number } | null;
       if (scroll.host) {
         // A slice holds until the host's next one, so it carries over to later revisions by design. When a
@@ -676,8 +677,8 @@ function LazyStackChildren({ node, store, dispatch }: { node: SceneNode; store: 
               ? sliceBand(slice)
               : null;
       } else {
-        const height = self?.scrollRect?.height ?? 0;
-        const offset = self?.scrollOffset ?? 0;
+        const height = self.scrollRect?.height ?? 0;
+        const offset = self.scrollOffset ?? 0;
         band = height > 0 ? { low: offset - height, high: offset + 2 * height } : null;
       }
       const indexes: number[] = [];
@@ -698,7 +699,6 @@ function LazyStackChildren({ node, store, dispatch }: { node: SceneNode; store: 
       return indexes;
     },
   });
-  instance.current = virtualizer;
   // The mounted `display: contents` children: no observer sees them resize (they have no box), so they are
   // measured again whenever the stack's own box resizes (a row in one grew, or the width changed).
   const wrappers = useRef(new Set<HTMLElement>());
