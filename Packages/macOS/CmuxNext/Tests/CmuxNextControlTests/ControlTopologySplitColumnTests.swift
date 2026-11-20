@@ -16,11 +16,12 @@ import Testing
     }
 
     /// The topology of one workspace whose screen is `layout` (in `columns` when it scrolls), one terminal per pane.
-    static func topology(_ layout: LayoutNode, columns: [ColumnSnapshot] = []) -> ControlTopology {
+    static func topology(_ layout: LayoutNode, columns: [ColumnSnapshot] = [], floating: [PaneID] = []) -> ControlTopology {
         let panes = (columns.isEmpty ? layout.paneIDs : columns.flatMap(\.layout.paneIDs)).map { id in
             PaneSnapshot(id: id, tabs: [TabSnapshot(surface: SurfaceID(rawValue: id.rawValue + 100))])
         }
-        let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: layout, columns: columns, panes: panes)
+        let floats = floating.map { FloatingPaneSnapshot(pane: $0, frame: .init(x: 0.2, y: 0.2, w: 0.5, h: 0.5)) }
+        let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: layout, columns: columns, panes: panes, floating: floats)
         let store = DaemonStore()
         _ = store.apply(.connected(DaemonIdentity(generation: "boot"), generationChanged: true))
         store.apply(snapshot: DaemonTree(workspaces: [
@@ -70,6 +71,37 @@ import Testing
         let tree = Self.split(.right, first.layout, second.layout)
         let columns = Self.columns(Self.topology(tree, columns: [first, second]))
         #expect(columns == ["1": 0, "2": 1, "3": 2, "4": 2], "\(columns)")
+    }
+
+    /// A docked column is one column whatever it holds, and a top or bottom band is no column.
+    @Test func aDockIsOneColumnAndABandIsNone() {
+        let dock = ColumnSnapshot(id: ColumnID(rawValue: 10), width: 0.3, layout: Self.split(.right, Self.leaf(1), Self.leaf(2)),
+                                  dock: DockSnapshot(edge: .left, mode: .docked, role: .agentChat))
+        let strip = ColumnSnapshot(id: ColumnID(rawValue: 11), width: 1, layout: Self.leaf(3))
+        let band = ColumnSnapshot(id: ColumnID(rawValue: 12), width: 1, layout: Self.leaf(4),
+                                  dock: DockSnapshot(edge: .bottom, mode: .docked, role: nil))
+        let tree = Self.split(.down, Self.split(.right, dock.layout, strip.layout), band.layout)
+        let columns = Self.columns(Self.topology(tree, columns: [dock, strip, band]))
+        #expect(columns == ["1": 0, "2": 0, "3": 1, "4": nil], "\(columns)")
+    }
+
+    /// A floating pane (the quick terminal) is a leaf the daemon keeps on the right of the pane it came from. It
+    /// is shown above the layout, not beside that pane: it is no column of its own, in a tree and in a column.
+    @Test func aFloatingPaneIsNoColumnRightOfItsPane() {
+        let tree = Self.split(.right, Self.split(.right, Self.leaf(1), Self.leaf(9)), Self.leaf(2))
+        let inTree = Self.columns(Self.topology(tree, floating: [9]))
+        #expect(inTree == ["1": 0, "9": 0, "2": 1], "\(inTree)")
+        let first = ColumnSnapshot(id: ColumnID(rawValue: 10), width: 1, layout: Self.split(.right, Self.leaf(1), Self.leaf(9)))
+        let second = ColumnSnapshot(id: ColumnID(rawValue: 11), width: 0.5, layout: Self.leaf(2))
+        let inColumns = Self.columns(Self.topology(Self.split(.right, first.layout, second.layout), columns: [first, second], floating: [9]))
+        #expect(inColumns == ["1": 0, "9": 0, "2": 1], "\(inColumns)")
+    }
+
+    /// A floating pane above a split down leaves the panes below it side by side.
+    @Test func aFloatingPaneAtTheTopOfTheTreeDoesNotHideTheColumnsBelowIt() {
+        let tree = Self.split(.down, Self.leaf(9), Self.split(.right, Self.leaf(1), Self.leaf(2)))
+        let columns = Self.columns(Self.topology(tree, floating: [9]))
+        #expect(columns == ["9": 0, "1": 0, "2": 1], "\(columns)")
     }
 
     /// The whole path of the look: the chat's workspace, which no window shows, already has a page on the
