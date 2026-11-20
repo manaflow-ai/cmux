@@ -5,7 +5,8 @@
 //   `--cmux-interface-scale`), as the rest of the chrome does, where they were fixed at 14 px;
 // - the header bar's icon buttons (Viewed's eye, the collapse caret) round as every other button
 //   (`--ds-radius-control`, the toolbar pill's buttons), where they had their own 5 px;
-// - copying code rows gives the code only: no +/- signs (bars or classic) and no line numbers.
+// - copying code rows gives the code only: no +/- signs (bars, classic or none) and no line numbers, also
+//   when the drag starts on a line's first character, where the hover comment button once sat.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
@@ -105,7 +106,7 @@ await requireBrowserLane("diff-chrome-browser.test.ts", async () => {
     }
   });
 
-  for (const indicators of ["bars", "classic"]) {
+  for (const indicators of ["bars", "classic", "none"]) {
     test(`copying code rows (${indicators} signs) gives the code only`, async () => {
       const page = await open(`?indicators=${indicators}`, "#viewer diffs-container");
       try {
@@ -126,8 +127,8 @@ await requireBrowserLane("diff-chrome-browser.test.ts", async () => {
         expect(rows.map((row) => row.text.trim())).toEqual(["#!/bin/sh", "retries=3", "retries=5", "done"]);
         // Drag from the first character of the first row to the end of the last, as a person selects
         // code (a drag that starts in a row's left padding selected nothing in headless Chromium). The rows
-        // are in the diff's shadow root, whose selection only the root itself reports (Chromium's
-        // `ShadowRoot.getSelection`); the document's selection stops at the host.
+        // are in the diff's shadow root: Chromium reports their selection on the root
+        // (`ShadowRoot.getSelection`) and sometimes only on the document, so the test reads both.
         const start = await page.evaluate(() => {
           const row = document.querySelector("#viewer diffs-container")!.shadowRoot!.querySelector("[data-line]")!;
           const text = document.createTreeWalker(row, NodeFilter.SHOW_TEXT).nextNode()!;
@@ -153,8 +154,10 @@ await requireBrowserLane("diff-chrome-browser.test.ts", async () => {
           const root = document.querySelector("#viewer diffs-container")!.shadowRoot as ShadowRoot & {
             getSelection?: () => Selection | null;
           };
-          return root.getSelection?.()?.toString() ?? "";
+          return root.getSelection?.()?.toString() || document.getSelection()?.toString() || "";
         });
+        // The browser's clipboard outlives a context: clear it, so a stale copy cannot pass.
+        await page.evaluate(() => navigator.clipboard.writeText(""));
         await page.keyboard.press("ControlOrMeta+KeyC");
         const copied = await page.evaluate(() => navigator.clipboard.readText());
         expect({ selected: lines(selected), copied: lines(copied) }).toEqual({
