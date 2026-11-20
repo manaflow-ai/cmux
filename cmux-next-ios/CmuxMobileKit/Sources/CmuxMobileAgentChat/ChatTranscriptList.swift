@@ -668,7 +668,17 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         guard readsAhead, loaded, !surface.holdsTranscript, store.hasEarlierHistory, !store.isLoadingEarlier else { return }
         let screen = collectionView.bounds.height
         guard screen > 0 else { return }
-        let above = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
+        // A reader following the newest turn is at the bottom, wherever the offset is: before the
+        // list's first layout places it there (a chat opened past its window has earlier history
+        // on its first build), the offset still reads the top, and a page read in then went
+        // above rows the open never showed (the list rig's chat-200: a blank screen).
+        let above: CGFloat
+        if surface.following {
+            guard layout.contentHeight > 0 else { return }
+            above = layout.contentHeight - screen
+        } else {
+            above = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
+        }
         store.readAhead(screensAbove: max(above, 0) / screen)
     }
 
