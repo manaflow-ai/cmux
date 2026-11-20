@@ -311,9 +311,13 @@ struct AgentPaneHandOff {
         if let chat = start.replacesChat, chat == model.sessionId { model.cloudStartReplaces = chat }
         // A Send needs no key press or click (#45429; Leo, 2026-11-17: "go remove this"), and a new chat's first
         // Send in Cloud is a Send. The gesture stays only where it is the person's pick of a folder to copy off this
-        // Mac: one under none of the tab's roots. No folder (the App uses the tab's) or a root's is the tab's own.
-        let roots = model.transport.roots().compactMap(AcpmuxPathPolicy.canonical).filter { $0 != "/" }
-        let picksFolder = start.cwd.map { cwd in !roots.contains { AcpmuxPathPolicy.contains(root: $0, path: cwd) } } ?? false
+        // Mac: what it copies (``isTabsOwn(_:roots:home:)``) is not the tab's own. No folder: the App uses the tab's.
+        var picksFolder = false
+        if let upload = start.uploadRoot {
+            let roots = model.transport.roots()
+            let home = model.transport.homeFolder
+            picksFolder = await Task.detached(priority: .userInitiated) { !AgentPaneCloudStart.isTabsOwn(upload, roots: roots, home: home) }.value
+        }
         return await held("cloud.startChat", replacing: start.replacesChat, gestureTicket: start.gestureTicket, gestureParams: ["key": start.key],
                           signInGrant: grantKey, needsGesture: picksFolder) { [start] replacements in
             let reply = await run(start)

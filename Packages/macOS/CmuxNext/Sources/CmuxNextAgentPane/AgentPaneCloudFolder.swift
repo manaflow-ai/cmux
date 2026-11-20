@@ -93,6 +93,17 @@ extension AgentPaneCloudStart {
         return .success((folder, root))
     }
 
+    /// Whether a Cloud start's upload root (``checkedFolder(_:home:)``'s `root`, canonical) is the tab's own, so its
+    /// Send needs no gesture: under one of `roots` that is not home or above it (a terminal at `~` lists `~`; the same
+    /// rule as ``AcpmuxPathPolicy``), with every git folder it copies inside it (a linked worktree's are not).
+    /// Reads the disk: call it off the main thread.
+    nonisolated static func isTabsOwn(_ upload: String, roots: [String], home: String?) -> Bool {
+        let userHome = home.flatMap(AcpmuxPathPolicy.canonical)
+        let homeOrAbove = { (path: String) in path == "/" || userHome.map { AcpmuxPathPolicy.contains(root: path, path: $0) } == true }
+        let own = roots.compactMap(AcpmuxPathPolicy.canonical).filter { !homeOrAbove($0) }
+        return own.contains { AcpmuxPathPolicy.contains(root: $0, path: upload) } && gitFoldersAreInside(upload)
+    }
+
     /// `path` canonical when it is a real folder that is not the home folder or above it, and neither
     /// is nor holds one of home's credential folders (``AgentPaneCloudFolderRefusal/secretFolders``);
     /// the refusal otherwise. A Cloud start copies such a folder only on the Send's own gesture (`held`),

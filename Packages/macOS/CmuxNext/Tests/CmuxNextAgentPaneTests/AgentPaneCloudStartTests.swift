@@ -89,6 +89,14 @@ struct AgentPaneCloudStartTests {
         defer { try? FileManager.default.removeItem(atPath: otherRoot) }
         let outside = await Self.pane(starts, root: otherRoot).respond(to: Self.start(Self.good.merging(["cwd": folder]) { $1 }))
         #expect(Self.code(outside) == "transport.gesture_required")
+        // A root that is home or above it is no root (a terminal at `~` lists `~`): the folder is still a pick.
+        let homeRooted = Self.pane(starts, root: root)
+        homeRooted.transport.homeFolder = root
+        #expect(Self.code(await homeRooted.respond(to: Self.start(Self.good.merging(["cwd": folder]) { $1 }))) == "transport.gesture_required")
+        // A tab rooted inside a Git working copy copies the whole copy, which is above its root: still a pick.
+        try FileManager.default.createDirectory(atPath: (root as NSString).appendingPathComponent(".git"), withIntermediateDirectories: true)
+        let narrow = Self.pane(starts, root: folder)
+        #expect(Self.code(await narrow.respond(to: Self.start(Self.good.merging(["cwd": folder]) { $1 }))) == "transport.gesture_required")
         var noFolder = Self.good
         noFolder["cwd"] = nil
         let seeded = Self.pane(starts)
@@ -364,9 +372,9 @@ struct AgentPaneCloudStartTests {
         #expect(model.transport.replacements.beginSandbox())
     }
 
-    @Test func noGestureAStartedOrRemoteChatOrABadRequestStartsNothing() async {
+    /// (Where a gesture is still needed: ``aSendWithNoGestureStillPicksNoOutsideFolderAndSendsNoSeededPrompt``.)
+    @Test func aStartedOrRemoteChatOrABadRequestStartsNothing() async {
         let starts = Starts()
-        _ = await Self.pane(starts).respond(to: Self.start(Self.good))
         let started = Self.pane(starts, sessionId: "chat")
         started.transport.gestures.record()
         _ = await started.respond(to: Self.start(Self.good))
