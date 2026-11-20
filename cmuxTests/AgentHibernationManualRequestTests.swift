@@ -74,6 +74,49 @@ struct AgentHibernationManualRequestTests {
         #expect(try refusal() == .notRunning)
     }
 
+    /// A manual request waits for its committed termination's exit
+    /// observation, and answers hibernated once the pane settles there.
+    @Test
+    func aManualRequestWhoseExitObservationSucceedsReportsTheHibernation() async throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        panel.beginAgentHibernationTermination(
+            agent: agent(),
+            lastActivityAt: Date(timeIntervalSince1970: 1)
+        )
+        let controller = AgentHibernationController.shared
+        let processExitCompletion = AgentHibernationProcessExitCompletion()
+        let requestID = controller.registerCommittedTerminationObservation(
+            panelID: panel.id,
+            processExitCompletion: processExitCompletion
+        )
+        controller.observeCommittedTermination(
+            panelID: panel.id,
+            requestID: requestID,
+            terminations: [],
+            processExitCompletion: processExitCompletion,
+            waitForExit: { _ in true },
+            onExit: {
+                panel.completeAgentHibernationTermination()
+                return true
+            },
+            onRecovery: {
+                panel.completeAgentHibernationTermination()
+            }
+        )
+
+        let hibernated = await controller.committedTerminationOutcome(
+            trigger: .manual,
+            panelID: panel.id,
+            requestID: requestID,
+            terminalPanel: panel
+        )
+
+        #expect(hibernated)
+        #expect(panel.isAgentHibernated)
+        #expect(controller.committedTerminationObservationsByPanelID[panel.id] == nil)
+    }
+
     @Test
     func theManualTriggerNeverSelectsThroughThePlanner() {
         let key = AgentHibernationPanelKey(workspaceId: UUID(), panelId: UUID())

@@ -148,6 +148,78 @@ struct AgentHibernationProcessTerminationTests {
         #expect(epoch.signalableProcessIdentities == [rootIdentity])
         #expect(probedProcessIDs.withLock { $0 } == [101, 202])
     }
+
+    /// After the agent's group exits, the panel's `login` (setuid, so its
+    /// argv cannot be read) and shell stay on the terminal in their own
+    /// groups until it closes. Passed as known survivors they end the epoch,
+    /// whether or not the exited agent is still listed, unreaped.
+    @Test(arguments: [false, true])
+    func knownShellAncestorsLeftOnTheTerminalEndTheExitEpoch(
+        exitedAgentIsStillListed: Bool
+    ) async throws {
+        let fixture = AgentHibernationShellAncestorsFixture.self
+        let listed = exitedAgentIsStillListed
+            ? [fixture.login, fixture.shell, fixture.agent]
+            : [fixture.login, fixture.shell]
+
+        let epoch = try #require(
+            await fixture.coordinator(listing: listed).refreshedExitEpoch(
+                processGroupLeaders: [fixture.agent.pid: fixture.agent],
+                processScopeKey: fixture.scopeKey,
+                ttyDevice: fixture.ttyDevice,
+                excluding: [fixture.agent],
+                knownSurvivors: fixture.knownSurvivors
+            )
+        )
+
+        #expect(epoch.terminations.isEmpty)
+        #expect(epoch.processGroupLeaders.isEmpty)
+    }
+
+    enum UnknownTerminalProcess: CaseIterable, Sendable {
+        /// A process the census never saw, with unreadable argv.
+        case unlisted
+        /// `login`'s PID, reused by another process generation.
+        case reusedSurvivorPID
+    }
+
+    /// Only the known survivors' exact generations end the epoch. Anything
+    /// else on the terminal whose argv cannot be read still fails it closed.
+    @Test(arguments: UnknownTerminalProcess.allCases)
+    func anUnknownTerminalProcessStillFailsTheExitEpochClosed(
+        _ unknown: UnknownTerminalProcess
+    ) async {
+        let fixture = AgentHibernationShellAncestorsFixture.self
+        let listed: [AgentPIDProcessIdentity]
+        switch unknown {
+        case .unlisted:
+            listed = [
+                fixture.login,
+                fixture.shell,
+                AgentPIDProcessIdentity(pid: 70, startSeconds: 70, startMicroseconds: 1),
+            ]
+        case .reusedSurvivorPID:
+            listed = [
+                AgentPIDProcessIdentity(
+                    pid: fixture.login.pid,
+                    startSeconds: fixture.login.startSeconds + 1,
+                    startMicroseconds: 1
+                ),
+                fixture.shell,
+            ]
+        }
+
+        let epoch = await fixture.coordinator(listing: listed).refreshedExitEpoch(
+            processGroupLeaders: [fixture.agent.pid: fixture.agent],
+            processScopeKey: fixture.scopeKey,
+            ttyDevice: fixture.ttyDevice,
+            excluding: [fixture.agent],
+            knownSurvivors: fixture.knownSurvivors
+        )
+
+        #expect(epoch == nil)
+    }
+
     @MainActor
     @Test
     func terminationSignalsValidatedProcessGroupWithoutRedundantPIDSignal() async {
@@ -1047,5 +1119,77 @@ struct AgentHibernationProcessTerminationTests {
             )
 
         #expect(didExit)
+    }
+}
+
+/// A pane's terminal after its agent exits: `login` (setuid, so its argv
+/// cannot be read) and the shell stay on it, each leading its own process
+/// group, until the terminal closes.
+enum AgentHibernationShellAncestorsFixture {
+    static let scopeKey = AgentHibernationPanelKey(workspaceId: UUID(), panelId: UUID())
+    static let ttyDevice = Int64(0x456)
+    static let login = AgentPIDProcessIdentity(pid: 50, startSeconds: 50, startMicroseconds: 1)
+    static let shell = AgentPIDProcessIdentity(pid: 60, startSeconds: 60, startMicroseconds: 1)
+    static let agent = AgentPIDProcessIdentity(pid: 101, startSeconds: 101, startMicroseconds: 1)
+    static let knownSurvivors: Set<AgentPIDProcessIdentity> = [login, shell]
+    private static let shellArguments = CmuxTopProcessArguments(
+        arguments: ["-zsh"],
+        environment: [
+            "CMUX_WORKSPACE_ID": scopeKey.workspaceId.uuidString,
+            "CMUX_SURFACE_ID": scopeKey.panelId.uuidString,
+        ]
+    )
+
+    static var agentTermination: AgentHibernationController.ScopedProcessTermination {
+        .init(
+            processID: Int(agent.pid),
+            processIdentity: agent,
+            processGroupID: agent.pid,
+            ttyDevice: ttyDevice
+        )
+    }
+
+    /// A coordinator whose fresh snapshot lists `processes` on the terminal,
+    /// each leading its own group and still running. Only the shell's argv
+    /// can be read.
+    static func coordinator(
+        listing processes: [AgentPIDProcessIdentity] = [login, shell]
+    ) -> AgentHibernationProcessSnapshotCoordinator {
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: processes.map { identity in
+                CmuxTopProcessInfo(
+                    pid: Int(identity.pid),
+                    processIdentity: identity,
+                    parentPID: 1,
+                    name: "test",
+                    path: nil,
+                    ttyDevice: ttyDevice,
+                    cmuxWorkspaceID: nil,
+                    cmuxSurfaceID: nil,
+                    cmuxAttributionReason: nil,
+                    processGroupID: Int(identity.pid),
+                    terminalProcessGroupID: Int(shell.pid),
+                    cpuPercent: 0,
+                    residentBytes: 0,
+                    virtualBytes: 0,
+                    threadCount: 1
+                )
+            },
+            sampledAt: .now,
+            includesProcessDetails: false,
+            includesCMUXScope: false
+        )
+        let identities = Dictionary(
+            processes.map { ($0.pid, $0) },
+            uniquingKeysWith: { _, last in last }
+        )
+        return AgentHibernationProcessSnapshotCoordinator(
+            captureSnapshot: { snapshot },
+            processArgumentsProvider: { processID in
+                processID == Int(shell.pid) ? shellArguments : nil
+            },
+            processIdentityProvider: { identities[$0] },
+            processGroupProvider: { $0 }
+        )
     }
 }
