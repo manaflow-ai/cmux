@@ -686,6 +686,17 @@ pub(super) fn run_action(
                 index += 1;
                 continue;
             }
+            // `--no-focus` (the CLI's word: `workspace create`, `agent start`, `app open`): the run may not change
+            // what the app shows, said in the request (`focus: false`), never sent as an argument the action
+            // does not take. An agent's or a probe's `cloud start-session` passes it (cloud_start_chat.rs).
+            "no-focus" => {
+                if super::action_hint::action_takes_argument(action, "focus") {
+                    arguments.insert("focus".into(), json!(false));
+                }
+                params.insert("focus".into(), json!(false));
+                index += 1;
+                continue;
+            }
             _ => {}
         }
         // `--name value`, `--name=value`, or a bare `--name` (true) when no
@@ -1183,6 +1194,10 @@ fn created_target(output: OutputMode, params: &Value, value: &Value) -> Option<S
     if output != OutputMode::Human || params.get("action")?.as_str()? != "cloud new-machine" {
         return None;
     }
+    // `--no-focus`: the run asked to leave the app's view alone, so nothing opens after it either.
+    if params.get("focus").and_then(Value::as_bool) == Some(false) {
+        return None;
+    }
     let result = value.get("result")?;
     if result.get("pending").and_then(Value::as_bool) == Some(true) {
         return None;
@@ -1402,11 +1417,18 @@ const NO_DAEMON_STATE: [&str; 5] =
 /// app opens an agent's tabs in the column right of its chat
 /// (`beside_caller`), or in its session's workspace when no tab shows the
 /// chat, and marks the caller in `snapshot.get` and `system.identify`.
-/// `browser.open_link` is one: the `BROWSER` and `open` shims of an agent's
-/// shell run it with no terminal, and with no caller its page opened in the
-/// focused pane, Home (user, 2026-11-18).
-const CALLER_METHODS: [&str; 5] =
-    ["action.run", "browser.open_link", "browser.open_split", "snapshot.get", "system.identify"];
+/// `browser.open_link` and `file.open` are ones: the `BROWSER` and `open`
+/// shims of an agent's shell and its `cmux open FILE` run them with no
+/// terminal, and with no caller they opened in the focused pane, Home
+/// (user, 2026-11-18).
+const CALLER_METHODS: [&str; 6] = [
+    "action.run",
+    "browser.open_link",
+    "browser.open_split",
+    "file.open",
+    "snapshot.get",
+    "system.identify",
+];
 
 /// Who calls, from the environment: the acpmux agent session
 /// (`CMUX_AGENT_SESSION`, set by acpmux for the agent and its cmux MCP

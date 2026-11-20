@@ -8,6 +8,7 @@ import { rowsByKey, type SchemaRow } from "../schema";
 import { managedText, type SettingsStore } from "../store";
 import { t, text } from "../strings";
 import { Highlight } from "./Highlight";
+import { RowNotes } from "./RowNotes";
 import { RowNotice } from "./RowNotice";
 
 /**
@@ -137,6 +138,7 @@ export function RowFrame({
       {...attributes}
     >
       {state?.diagnostics && <RowNotice settingKey={settingKey} messages={state.diagnostics} disabled={disabled} />}
+      {state?.notes && <RowNotes notes={state.notes} disabled={disabled} />}
       {children}
     </div>
   );
