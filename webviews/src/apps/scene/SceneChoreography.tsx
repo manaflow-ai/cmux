@@ -27,7 +27,10 @@ export function SceneChoreography({ node }: { node: SceneNode }) {
   const colors = node.props.colors;
   const color = sceneColor(Array.isArray(colors) ? colors[0] : undefined) ?? sceneColor(doc?.color);
   const requestRef = useRef(request);
-  requestRef.current = request;
+  // Declared before the mount effect, so a remount starts from this render's request.
+  useEffect(() => {
+    requestRef.current = request;
+  });
 
   useEffect(() => {
     const host = hostRef.current;
