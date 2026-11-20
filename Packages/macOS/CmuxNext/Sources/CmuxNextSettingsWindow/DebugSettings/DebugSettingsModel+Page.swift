@@ -156,4 +156,33 @@ extension DebugSettingsModel {
         guard let value = overrides[descriptor.key] else { return false }
         return value != descriptor.defaultValue
     }
+
+    /// One tunable as the `debug.tunables` verb reports it: value, default, whether it differs,
+    /// and when the app reads it.
+    ///
+    /// `read_cadence` lets automation (an A/B harness) tell a key it can change now from one this
+    /// process read at launch; `applies` is false, with `applies_why`, for a launch-time key whose
+    /// stored value the running app is not using, so a caller cannot read success into a change
+    /// that did nothing (the trap cmux#45709 shipped).
+    public static func tunableRow(_ descriptor: TunableDescriptor, _ store: TunableStore) -> JSONValue {
+        let value = store.override(descriptor.key) ?? descriptor.defaultValue
+        let launch = descriptor.readCadence == .launch
+        var fields: [String: JSONValue] = [
+            "key": .string(descriptor.key), "section": .string(descriptor.section.id), "label": .string(descriptor.label),
+            "value": json(value), "default": json(descriptor.defaultValue), "changed": .bool(isChanged(descriptor, store)),
+            "read_cadence": .string(descriptor.readCadence.rawValue),
+            "applies": .bool(!launch),
+        ]
+        if launch {
+            fields["applies_why"] = .string(
+                "\(descriptor.key) is read once while the app starts, so this launch keeps the value it started with; relaunch to use the stored one")
+        }
+        return .object(fields)
+    }
+
+    /// Whether the store holds a value for `descriptor` that differs from its default.
+    public static func isChanged(_ descriptor: TunableDescriptor, _ store: TunableStore) -> Bool {
+        guard let value = store.override(descriptor.key) else { return false }
+        return value != descriptor.defaultValue
+    }
 }
