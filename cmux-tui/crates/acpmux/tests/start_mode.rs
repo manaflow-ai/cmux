@@ -1728,3 +1728,66 @@ async fn harnesses_report_the_startup_probes_choices_before_any_chat() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Pi has no permission mode (Lawrence 2026-11-19: "pi should not have a "mode""). pi-acp 0.0.33
+/// answers `session/new` with its thinking levels twice: its `thought_level` config option, and
+/// again as ACP `modes` ("Thinking: off" … "Thinking: xhigh") for clients older than config
+/// options. acpmux keeps no modes for it, so every client (the Mac's panes, the phone's chat and
+/// New Task, acpmux's own start mode) sees none: not in the new chat's answer, not in its info, not
+/// in the harness list's `reported` (from its startup probe or from a chat), and its thinking
+/// levels stay as the option they are.
+#[tokio::test]
+async fn pi_keeps_no_modes_that_only_copy_its_thinking_option() {
+    let dir = home("pi-modes", json!({}));
+    let path = dir.join("config.json");
+    let mut config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    config["harnesses"]["pi"] =
+        json!({"argv": ["python3", FAKE_AGENT], "family": "pi", "env": {"FAKE_PI_MODES": "1"}});
+    std::fs::write(&path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let reported_modes = |r: &Value| -> Vec<String> {
+        r["result"]["harnesses"]["pi"]["reported"]["modes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|m| m["id"].as_str().map(str::to_owned))
+            .collect()
+    };
+    let option_ids = |options: &Value| -> Vec<String> {
+        options
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|o| o["id"].as_str().map(str::to_owned))
+            .collect()
+    };
+
+    // Its startup probe's answer, before any chat of it.
+    daemon.set_probe_only(Some(["pi".to_owned()].into_iter().collect()));
+    daemon.refresh_models().await;
+    let r = app.call("_acpmux/harnesses", json!({})).await;
+    assert_eq!(reported_modes(&r), Vec::<String>::new(), "probed: {r}");
+    assert!(
+        option_ids(&r["result"]["harnesses"]["pi"]["reported"]["configOptions"])
+            .contains(&"thought_level".to_owned()),
+        "probed, its thinking option stays: {r}"
+    );
+
+    // A chat of it.
+    let r = app.new_chat(&dir, "pi").await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert!(r["result"]["modes"].is_null(), "session/new: {r}");
+    assert_eq!(option_ids(&r["result"]["configOptions"]), ["model", "thought_level"], "{r}");
+    let info = app.call("_acpmux/info", json!({"sessionId": id})).await;
+    assert!(info["result"]["modes"].is_null(), "_acpmux/info (the phone's chat): {info}");
+    let load = app
+        .call("session/load", json!({"sessionId": id, "cwd": dir.join("work"), "mcpServers": []}))
+        .await;
+    assert!(load["result"]["modes"].is_null(), "session/load: {load}");
+    let r = app.call("_acpmux/harnesses", json!({})).await;
+    assert_eq!(reported_modes(&r), Vec::<String>::new(), "from its chat: {r}");
+    let start = start_mode(&mut app, &dir, "pi").await;
+    assert!(start["modeId"].is_null(), "no start mode: {start}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

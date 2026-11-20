@@ -7,7 +7,7 @@ mod common;
 use cmux_server::cli::{Context, dispatch, parse};
 use cmux_server::exec::RecordingExec;
 use cmux_server::host;
-use cmux_server::process::RecordingRunner;
+use cmux_server::process::{Output, RecordingRunner};
 use common::*;
 
 fn words(s: &str) -> Vec<String> {
@@ -25,9 +25,19 @@ struct Env {
 
 impl Env {
     fn new() -> Env {
+        let runner = RecordingRunner::new();
+        // systemd knows no cmux-server.service here (tests answer otherwise).
+        runner.answer_always(
+            "--property=LoadState",
+            Output {
+                code: Some(0),
+                stdout: b"LoadState=not-found\nFragmentPath=\nTransient=no\n".to_vec(),
+                ..Output::default()
+            },
+        );
         Env {
             tmp: tempfile::tempdir().unwrap(),
-            runner: RecordingRunner::new(),
+            runner,
             fetcher: MapFetcher::default(),
             exec: RecordingExec::default(),
             signer: Signer::new(3),

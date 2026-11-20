@@ -233,6 +233,56 @@ class DedupeTests(unittest.TestCase):
             self.assertEqual(git(old, "status", "--porcelain").stdout, " M src/edit.txt\n")
 
 
+    def test_a_stopped_dedupe_leaves_no_lock_and_no_half_clone(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Fixture(Path(tmp).resolve())
+            many = f.repo / "many"
+            many.mkdir()
+            for number in range(20000):
+                (many / f"f{number}.txt").write_text(f"{number}\n" * 64)
+            git(f.repo, "add", "-A")
+            git(f.repo, "commit", "-qm", "many")
+            self.assertEqual(tool(f.repo, f.seed, "seed", "HEAD").returncode, 0)
+            old = f.tmp / "old"
+            git(f.repo, "worktree", "add", "-q", "--detach", str(old), "HEAD")
+            time.sleep(1.1)
+            git(old, "update-index", "-q", "--really-refresh", check=False)
+            env = git_fixture_env.fixture_env()
+            proc = subprocess.Popen([sys.executable, "-I", str(TOOL), "-C", str(f.repo), "--seed-dir", str(f.seed),
+                                     "dedupe", "--apply", "--only", str(old)], env=env,
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            gdir = Path(git(old, "rev-parse", "--path-format=absolute", "--git-dir").stdout.strip())
+            deadline = time.monotonic() + 60
+            while not (gdir / "index.lock").exists() and proc.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.01)  # until it holds the index: stopped while it clones
+            time.sleep(0.05)
+            self.assertIsNone(proc.poll(), "dedupe ended before it could be stopped; make the fixture bigger")
+            proc.terminate()
+            proc.wait(timeout=60)
+            self.assertFalse((gdir / "index.lock").exists(), "a stopped dedupe left the index locked")
+            self.assertEqual(list(old.rglob("*.cmux-dedupe")), [])
+            self.assertEqual(git(old, "status", "--porcelain").stdout, "")
+            self.assertEqual((old / "many" / "f17.txt").read_text(), "17\n" * 64)
+
+
+class StatMatchTests(unittest.TestCase):
+    def test_a_new_device_number_alone_is_not_a_change(self) -> None:
+        spec = importlib.util.spec_from_file_location("cmux_worktree", TOOL)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module  # its dataclasses look their module up
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "f"
+            path.write_text("x")
+            fresh = module.stat_fields(os.lstat(path), 0o100644)
+            renumbered = list(fresh)
+            renumbered[4] += 1  # the volume's st_dev after a restart
+            self.assertTrue(module.same_stat(fresh, renumbered))
+            moved = list(fresh)
+            moved[5] += 1  # another inode: a different file
+            self.assertFalse(module.same_stat(fresh, moved))
+
+
 class GcTests(unittest.TestCase):
     def test_gc_removes_only_landed_clean_idle_worktrees(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

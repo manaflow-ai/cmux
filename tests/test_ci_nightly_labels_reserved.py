@@ -74,6 +74,16 @@ REPO_FILE = re.compile(r"(?<![A-Za-z0-9_./-])((?:scripts|\.github|tests)/[A-Za-z
 # Producing jobs whose text names a reserved label but provably never hands it to a
 # PR job. Each entry needs a reason; none is needed today.
 PRODUCER_EXEMPTIONS: dict[tuple[str, str], str] = {}
+# Files a PR workflow's producing job only names as text, never runs or reads, though they name a reserved label.
+# (PR workflow, file) -> why. Only the file is exempt: the producer's own text and every other file it names are
+# still checked.
+NAMED_FILE_EXEMPTIONS: dict[tuple[str, str], str] = {
+    # nightly.yml's hosted tail jobs take cmux-gcp-nightly-jit-x64 on attempt 1 (Leo, 2026-11-19, ask-b3e8183722:
+    # "why isn't nightly getting priority then? on the linux things"; test_nightly_trusted_routing.JIT_ARM_JOBS).
+    # ci.yml's `changes` names the file only as a changed-path case pattern that sets remote_daemon=true; no step
+    # runs or reads it, and nightly.yml has no PR or merge-queue trigger.
+    ("ci.yml", ".github/workflows/nightly.yml"): "a changed-path pattern in `changes`; nothing runs or reads it",
+}
 
 
 @functools.lru_cache(maxsize=None)
@@ -302,6 +312,8 @@ def _producer_findings(workflow: str, document: Mapping, job_name: str, text: st
         if (workflow, producer) in PRODUCER_EXEMPTIONS:
             continue
         for where, body in _producer_files(document, producer, set()):
+            if (workflow, where) in NAMED_FILE_EXEMPTIONS:
+                continue
             if names_reserved(body):
                 findings.append(f"{workflow} jobs.{job_name} reads needs.{producer}.outputs.{output}, "
                                 f"and {where} names a reserved label")
