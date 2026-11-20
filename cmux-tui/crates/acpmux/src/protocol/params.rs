@@ -222,7 +222,7 @@ keyed! {
     /// `_acpmux/inbox_subscription_remove`.
     InboxSubscriptionRemoveParams: ["sessionId", "threadId"];
     /// `_acpmux/inbox_subscriptions`.
-    InboxSubscriptionsParams: ["sessionId"];
+    InboxSubscriptionsParams: ["sessionId", "threadId"];
     /// `_acpmux/inbox_subscription_grant`.
     InboxSubscriptionGrantParams: ["sessionId", "threadId", "ownerSessionId"];
     /// `_acpmux/inbox_subscription_revoke`.

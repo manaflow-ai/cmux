@@ -153,12 +153,30 @@ async fn nothing_actionable_sends_no_digest_and_a_model_outage_wakes_no_one() {
 
 /// One request over a connection of session `id`'s own agent (its caller token).
 async fn rpc_as(hub: &Arc<Hub>, id: &str, method: &str, params: Value) -> Value {
+    rpc_with(
+        hub,
+        id,
+        method,
+        params,
+        crate::server::Origin::Local,
+        crate::server::ConnAuth::LocalSocket,
+    )
+    .await
+}
+
+async fn rpc_with(
+    hub: &Arc<Hub>,
+    id: &str,
+    method: &str,
+    params: Value,
+    origin: crate::server::Origin,
+    auth: crate::server::ConnAuth,
+) -> Value {
     let (in_tx, in_rx) = tokio::sync::mpsc::channel(8);
     let (out_tx, mut out_rx) = tokio::sync::mpsc::channel(256);
-    let origin = crate::server::Origin::Local;
     hub.scope.spawn_named(
         "test-conn",
-        crate::server::serve_connection_with(hub.clone(), in_rx, out_tx, origin),
+        crate::server::serve_connection_authed(hub.clone(), in_rx, out_tx, origin, auth),
     );
     let token = crate::hub::person::caller_token(id);
     let init = json!({"protocolVersion": 1,
@@ -180,6 +198,63 @@ async fn rpc_as(hub: &Arc<Hub>, id: &str, method: &str, params: Value) -> Value 
         }
     }
     unreachable!()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn subscription_rpc_rejects_unrelated_sessions_and_unverified_peer_probes() {
+    use crate::rpc::method;
+    use crate::server::{ConnAuth, Origin};
+    let (hub, owner) = chat(None).await;
+    let stranger = hub
+        .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..Default::default() })
+        .await
+        .unwrap();
+    let params =
+        json!({"sessionId": owner.id, "threadId": "private-topic", "ownerSessionId": stranger.id});
+    for method in [
+        method::MUX_INBOX_SUBSCRIPTION_SET,
+        method::MUX_INBOX_SUBSCRIPTION_REMOVE,
+        method::MUX_INBOX_SUBSCRIPTIONS,
+        method::MUX_INBOX_SUBSCRIPTION_GRANT,
+        method::MUX_INBOX_SUBSCRIPTION_REVOKE,
+    ] {
+        let denied = rpc_as(&hub, &stranger.id, method, params.clone()).await;
+        assert!(denied.get("error").is_some(), "{method}: {denied}");
+    }
+    rpc_as(&hub, &owner.id, method::MUX_INBOX_SUBSCRIPTION_SET, params.clone()).await;
+    for auth in [ConnAuth::ListenerToken, ConnAuth::Device] {
+        let denied = rpc_with(
+            &hub,
+            &stranger.id,
+            method::MUX_INBOX_SUBSCRIPTIONS,
+            params.clone(),
+            Origin::Peer,
+            auth,
+        )
+        .await;
+        assert!(denied.get("error").is_some(), "{auth:?}: {denied}");
+    }
+    let probe = rpc_with(
+        &hub,
+        &stranger.id,
+        method::MUX_INBOX_SUBSCRIPTIONS,
+        params.clone(),
+        Origin::Peer,
+        ConnAuth::PeerToken,
+    )
+    .await;
+    assert_eq!(probe["result"]["subscribed"], true, "{probe}");
+    assert!(probe["result"].get("subscriptions").is_none());
+    let enumerate = rpc_with(
+        &hub,
+        &stranger.id,
+        method::MUX_INBOX_SUBSCRIPTIONS,
+        json!({"sessionId": owner.id}),
+        Origin::Peer,
+        ConnAuth::PeerToken,
+    )
+    .await;
+    assert!(enumerate.get("error").is_some(), "{enumerate}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -514,6 +589,126 @@ fn digested(hub: &Hub, who: &str) -> Vec<Value> {
         .filter(|p| p["kind"] == PROVENANCE_KIND)
         .map(|p| p["promptIds"].clone())
         .collect()
+}
+
+/// Two isolated hubs on a real loopback WebSocket, with both listener and peer-token proof.
+/// No display row stands in for transport authentication or remote self-subscription.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn remote_surge_requires_subscription_grant_and_verified_peer() {
+    use crate::rpc::method;
+    let (hub, recipient) = chat(Some("1 owner")).await;
+    let (remote, owner) = chat(None).await;
+    let home = tempfile::tempdir().unwrap();
+    let auth = Arc::new(crate::server::peer_auth::PeerAuth::create(home.path()).unwrap());
+    let peer_token = std::fs::read_to_string(auth.path()).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("ws://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(crate::server::serve_ws_with(
+        remote.clone(),
+        listener,
+        "surge-test-listener".into(),
+        crate::server::WsAuth { peer: Some(auth), ..Default::default() },
+    ));
+    let (notices, mut receiver) = tokio::sync::mpsc::channel(128);
+    let peer = crate::peer::Peer::new(
+        "remote",
+        &url,
+        Some("surge-test-listener".into()),
+        Some(peer_token.trim().to_owned()),
+        notices,
+    );
+    hub.peers.lock().unwrap().insert(peer.name.clone(), peer.clone());
+    let run = tokio::spawn(peer.clone().run());
+    let target = format!("remote/{}", owner.id);
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+    let (source, key) = (hub.clone(), target.clone());
+    let projection = tokio::spawn(async move {
+        let mut ready = Some(ready_tx);
+        while let Some((name, generation, notice)) = receiver.recv().await {
+            source.apply_peer_notice(&name, generation, notice);
+            if source.resolve_remote(&key).is_some()
+                && let Some(tx) = ready.take()
+            {
+                let _ = tx.send(());
+            }
+        }
+    });
+    tokio::time::timeout(Duration::from_secs(20), ready_rx).await.unwrap().unwrap();
+    assert!(hub.resolve(&target).is_err(), "remote owner stays outside local resolution");
+    let grant = json!({"sessionId": recipient.id, "threadId": "review", "ownerSessionId": target});
+    let denied =
+        rpc_as(&hub, &recipient.id, method::MUX_INBOX_SUBSCRIPTION_GRANT, grant.clone()).await;
+    assert!(denied.get("error").is_some(), "grant without self-subscription: {denied}");
+    let subscription = json!({"sessionId": owner.id, "threadId": "review"});
+    let subscribed =
+        rpc_as(&remote, &owner.id, method::MUX_INBOX_SUBSCRIPTION_SET, subscription.clone()).await;
+    assert_eq!(subscribed["result"]["subscribed"], true, "{subscribed}");
+    let granted =
+        rpc_as(&hub, &recipient.id, method::MUX_INBOX_SUBSCRIPTION_GRANT, grant.clone()).await;
+    assert_eq!(granted["result"]["granted"], true, "{granted}");
+    let mut named = grant.clone();
+    named["ownerSessionId"] = json!("remote/self-asserted-display-name");
+    assert!(
+        rpc_as(&hub, &recipient.id, method::MUX_INBOX_SUBSCRIPTION_GRANT, named)
+            .await
+            .get("error")
+            .is_some()
+    );
+
+    hold(&hub, &recipient, "remote-m1", "review", "result", "Choose the release base");
+    // Simulate a crash after acceptance, before the delivered marker. The retry must reuse
+    // the durable outbox id and the remote daemon's duplicate receipt.
+    FAIL_WRITES.lock().unwrap().insert((recipient.id.clone(), "marker"), 1);
+    assert!(hub.surge_triage_pass(&recipient).await.is_err());
+    hub.surge_triage_journals.lock().unwrap().clear();
+    hub.surge_subscribers.lock().unwrap().take();
+    assert_eq!(hub.surge_triage_pass(&recipient).await.unwrap(), PassEnd::Done);
+    assert_eq!(digested(&remote, &owner.id), vec![json!(["remote-m1"])]);
+    let (deliveries, _) = hub.outbox.list(Some(&recipient.id), 100);
+    let mut pending = deliveries
+        .into_iter()
+        .find(|d| {
+            d.request.pointer("/_meta/acpmux/provenance/kind") == Some(&json!(PROVENANCE_KIND))
+        })
+        .expect("durable remote digest");
+    pending.id = "surge-digest-retry-after-revoke".into();
+    pending.request["_meta"]["acpmux"]["promptId"] = json!(pending.id);
+    pending.state = crate::hub::outbox::State::Queued;
+    pending.proof = None;
+    pending.accepted = None;
+    let revoked =
+        rpc_as(&hub, &recipient.id, method::MUX_INBOX_SUBSCRIPTION_REVOKE, grant.clone()).await;
+    assert_eq!(revoked["result"]["granted"], false, "{revoked}");
+    assert!(hub.authorize_remote_surge_delivery(&pending).await.is_err());
+    let pending = hub.outbox.add(pending).unwrap();
+    crate::server::outbox::resume(&hub, vec![pending.clone()]);
+    tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            let changed = hub.outbox.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if hub.outbox.get(&pending.id).unwrap().settled() {
+                break;
+            }
+            changed.await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(hub.outbox.get(&pending.id).unwrap().state, crate::hub::outbox::State::Failed);
+    hold(&hub, &recipient, "remote-m2", "review", "result", "Review the urgent rollback");
+    hub.surge_triage_pass(&recipient).await.unwrap();
+    assert_eq!(digested(&remote, &owner.id), vec![json!(["remote-m1"])]);
+
+    // Subscriber consent is independently revocable even while the recipient grant remains.
+    let granted = rpc_as(&hub, &recipient.id, method::MUX_INBOX_SUBSCRIPTION_GRANT, grant).await;
+    assert_eq!(granted["result"]["granted"], true);
+    rpc_as(&remote, &owner.id, method::MUX_INBOX_SUBSCRIPTION_REMOVE, subscription).await;
+    assert!(hub.authorize_remote_surge_delivery(&pending).await.is_err());
+    peer.stop();
+    run.abort();
+    projection.abort();
+    server.abort();
 }
 
 fn item<'a>(events: &'a [EventRecord], id: &str) -> &'a Value {

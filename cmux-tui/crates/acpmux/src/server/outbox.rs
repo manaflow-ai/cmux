@@ -642,6 +642,9 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         let outcome = if !saved {
             // Nothing went on the link.
             Err(("the outbox could not be saved; tried again".to_owned(), Next::Retry))
+        } else if let Err(error) = hub.authorize_remote_surge_delivery(&delivery).await {
+            let retry = next(&error);
+            Err((error.message, retry))
         } else if request.pointer("/_meta/acpmux/forwardProjection").is_some() {
             // A projection reconciles with the receiver's log; it never uses the link to send.
             link_unsent = false;
@@ -668,6 +671,8 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             // again; one that may have reached it is tried again only as a resend of the same
             // prompt id, never through the mesh relay.
             if link_unsent
+                && delivery.request.pointer("/_meta/acpmux/provenance/kind")
+                    != Some(&json!("surge_digest"))
                 && attempt >= super::ssh_carry::CARRY_FROM_ATTEMPT
                 && let Some(carry) = super::ssh_carry::carry(hub, &delivery).await
             {
@@ -917,6 +922,12 @@ async fn redeliver_one(
         Step::Release => close_open(hub, d, od::release).await,
         Step::Wait | Step::Check => {}
         Step::Again | Step::Unproven => {
+            if let Err(error) = hub.authorize_remote_surge_delivery(d).await {
+                if matches!(next(&error), Next::Fail | Next::NoSession | Next::Stale) {
+                    close_open(hub, d, |d| d.fail_open(error.message)).await;
+                }
+                return;
+            }
             if step == Step::Unproven {
                 // Proven by records no restore gave back and no journal holds (review of #37284
                 // at 27f3761b, F1): delivered again, as one never proven.
@@ -1000,6 +1011,11 @@ async fn relay_attempt(
     hub: &Arc<Hub>,
     delivery: &Delivery,
 ) -> Option<Result<Value, (String, Next)>> {
+    // Surge consent is checked on the verified peer link; an asynchronously accepted relay
+    // cannot enforce a later recipient revocation before it forwards private content.
+    if delivery.request.pointer("/_meta/acpmux/provenance/kind") == Some(&json!("surge_digest")) {
+        return None;
+    }
     let outcome = super::mesh_send::relay(hub, delivery).await?;
     Some(outcome.map_err(|e| {
         let held =

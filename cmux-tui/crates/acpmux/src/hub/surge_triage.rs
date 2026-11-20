@@ -702,13 +702,15 @@ impl Hub {
         lines: &[&Line],
     ) -> Result<(), RpcError> {
         let prompt_ids: Vec<&str> = lines.iter().map(|l| l.prompt_id.as_str()).collect();
+        let thread_ids: BTreeSet<&str> = lines.iter().map(|l| l.thread_id.as_str()).collect();
         let request = json!({
             "sessionId": target,
             "prompt": [{"type": "text", "text": text}],
             "_meta": {"acpmux": {
                 "promptId": id,
                 "messageId": id,
-                "provenance": {"kind": PROVENANCE_KIND, "digestId": id, "promptIds": prompt_ids}
+                "provenance": {"kind": PROVENANCE_KIND, "digestId": id,
+                    "promptIds": prompt_ids, "threadIds": thread_ids}
             }}
         });
         let now = now_ms();
@@ -732,6 +734,7 @@ impl Hub {
             created_at: now,
             updated_at: now,
         };
+        self.authorize_remote_surge_delivery(&delivery).await?;
         let (hub, delivery) = (self.clone(), delivery.clone());
         let added = tokio::task::spawn_blocking(move || hub.outbox.add(delivery))
             .await
@@ -743,6 +746,8 @@ impl Hub {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
         loop {
             let changed = self.outbox.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
             if let Some(current) = self.outbox.get(id) {
                 match current.state {
                     crate::hub::outbox::State::Delivered | crate::hub::outbox::State::Held => {
@@ -768,6 +773,48 @@ impl Hub {
                 .await
                 .map_err(|_| RpcError::internal("remote surge digest delivery timed out"))?;
         }
+    }
+
+    /// Revalidate the journal grant and the peer's own subscription before every durable
+    /// outbox attempt, including attempts resumed after a daemon restart. No model address or
+    /// sender label participates in this decision.
+    pub(crate) async fn authorize_remote_surge_delivery(
+        &self,
+        delivery: &crate::hub::outbox::Delivery,
+    ) -> Result<(), RpcError> {
+        let Some(provenance) = delivery.request.pointer("/_meta/acpmux/provenance") else {
+            return Ok(());
+        };
+        if provenance["kind"] != PROVENANCE_KIND {
+            return Ok(());
+        }
+        let refused = || {
+            RpcError::invalid_params("surge owner grant or subscription was revoked")
+                .with_data(json!({"reason": "surge.owner_revoked", "retryable": false}))
+        };
+        let caller = delivery.caller.as_deref().ok_or_else(refused)?;
+        let recipient = self.resolve(caller)?;
+        let threads =
+            provenance["threadIds"].as_array().filter(|v| !v.is_empty()).ok_or_else(refused)?;
+        for thread in threads {
+            let thread = thread.as_str().ok_or_else(refused)?;
+            if !self.remote_inbox_subscribed(&delivery.target, thread).await? {
+                return Err(refused());
+            }
+        }
+        // Read after the peer lookup: a revocation while it waited must win.
+        let mut grants = Owners::default();
+        self.scan_for_rebuild(&recipient, &[triage::GRANT_KIND], &mut |record| {
+            grants.apply(&record.msg);
+            true
+        })
+        .map_err(|e| RpcError::internal(format!("read surge grants: {e}")))?;
+        for thread in threads {
+            if grants.0.get(thread.as_str().ok_or_else(refused)?) != Some(&delivery.target) {
+                return Err(refused());
+            }
+        }
+        Ok(())
     }
 
     /// One digest prompt, accepted (queued, steered or a duplicate) before this returns. Its

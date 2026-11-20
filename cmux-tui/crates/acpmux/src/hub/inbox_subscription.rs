@@ -83,7 +83,7 @@ impl Hub {
         Ok(format!("{host}/{remote_id}"))
     }
 
-    fn inbox_subscription_bindings(
+    pub(crate) fn inbox_subscription_bindings(
         &self,
         session: &Session,
     ) -> Result<BTreeMap<String, String>, RpcError> {
@@ -94,6 +94,31 @@ impl Hub {
         })
         .map_err(|e| RpcError::internal(format!("read inbox subscriptions: {e}")))?;
         Ok(replay(&session.id, records))
+    }
+
+    /// Ask only the configured peer daemon whether this exact session opted into this thread.
+    /// The reply contains no inbox data and is never inferred from a display name.
+    pub(crate) async fn remote_inbox_subscribed(
+        &self,
+        owner: &str,
+        thread: &str,
+    ) -> Result<bool, RpcError> {
+        let canonical = self.inbox_subscription_owner_key(owner)?;
+        let (peer, id, _) = self
+            .resolve_remote(&canonical)
+            .ok_or_else(|| RpcError::invalid_params("remote subscription owner is unavailable"))?;
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            peer.request(
+                crate::rpc::method::MUX_INBOX_SUBSCRIPTIONS,
+                json!({"sessionId": id, "threadId": thread}),
+            ),
+        )
+        .await
+        .map_err(|_| RpcError::internal("remote subscription lookup timed out"))??;
+        Ok(response["sessionId"] == id
+            && response["threadId"] == thread
+            && response["subscribed"] == true)
     }
 
     /// Set the target session's own durable binding for `thread`.
@@ -233,10 +258,18 @@ impl Hub {
         owner_key: &str,
     ) -> Result<Value, RpcError> {
         let thread = thread_id(thread)?;
+        // Revocation must remain possible when the peer or owner disappeared. A stored
+        // canonical identity is enough to remove access; it never grants any new access.
         let owner_id = if let Ok(owner) = self.resolve(owner_key) {
             owner.id.clone()
+        } else if owner_key
+            .split_once('/')
+            .is_some_and(|(host, id)| !host.is_empty() && uuid::Uuid::try_parse(id).is_ok())
+            || uuid::Uuid::try_parse(owner_key).is_ok()
+        {
+            owner_key.to_owned()
         } else {
-            self.inbox_subscription_owner_key(owner_key)?
+            return Err(RpcError::invalid_params("revoke requires a stable owner session id"));
         };
         if recipient.id == owner_id {
             return Err(RpcError::invalid_params(

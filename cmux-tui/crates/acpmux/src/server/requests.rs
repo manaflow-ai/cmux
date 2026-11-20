@@ -1883,6 +1883,25 @@ async fn dispatch_request_with_identity(
         method::SESSION_LIST => super::list_reply::acp_list(hub, conn, &params).await,
         method::SESSION_PROMPT => {
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
+            if let Some(p) = params.pointer("/_meta/acpmux/provenance")
+                && p["kind"] == "surge_digest"
+                && p.get("threadIds").is_some()
+            {
+                if conn.origin != Origin::Peer || !conn.auth.peer_daemon() {
+                    return Err(RpcError::invalid_params(
+                        "remote surge digests require a verified peer daemon",
+                    ));
+                }
+                hub.session_log(&s).await;
+                let bindings = hub.inbox_subscription_bindings(&s)?;
+                let threads = p["threadIds"].as_array().filter(|v| !v.is_empty());
+                if threads.is_none_or(|threads| {
+                    threads.iter().any(|t| t.as_str().is_none_or(|t| !bindings.contains_key(t)))
+                }) {
+                    return Err(RpcError::invalid_params("surge owner no longer subscribed")
+                        .with_data(json!({"reason": "surge.owner_revoked", "retryable": false})));
+                }
+            }
             // A delivery again names the generation it first reached (`outbox.rs`
             // `redeliver_open`): a session purged and made again under its id never runs it.
             if let Some(generation) =
@@ -3164,6 +3183,17 @@ async fn dispatch_request_with_identity(
         | method::MUX_INBOX_SUBSCRIPTION_GRANT
         | method::MUX_INBOX_SUBSCRIPTION_REVOKE => {
             let s = hub.resolve(session_key(&params)?)?;
+            // A verified daemon may probe one explicitly named subscription. It may neither
+            // enumerate another chat's topics nor mutate its bindings on this connection.
+            if m == method::MUX_INBOX_SUBSCRIPTIONS
+                && conn.origin == Origin::Peer
+                && conn.auth.peer_daemon()
+                && let Some(thread) = params.get("threadId").and_then(Value::as_str)
+            {
+                hub.session_log(&s).await;
+                return Ok(json!({"sessionId": s.id, "threadId": thread,
+                    "subscribed": hub.inbox_subscription_bindings(&s)?.contains_key(thread)}));
+            }
             // A binding belongs to the resolved recipient.  The person's connection may manage
             // it, or the recipient's own agent may manage its own threads; no other session may
             // claim an owner by putting a different id in the request.
@@ -3200,9 +3230,24 @@ async fn dispatch_request_with_identity(
                 }
                 method::MUX_INBOX_SUBSCRIPTIONS => hub.inbox_subscriptions(&s),
                 method::MUX_INBOX_SUBSCRIPTION_GRANT => {
-                    hub.grant_inbox_subscription_key(&s, thread()?, &owner()?)
+                    let owner = owner()?;
+                    if hub.resolve(&owner).is_err()
+                        && !hub.remote_inbox_subscribed(&owner, thread()?).await?
+                    {
+                        return Err(RpcError::invalid_params(
+                            "inbox_subscription.owner_not_subscribed: owner must subscribe first",
+                        ));
+                    }
+                    hub.grant_inbox_subscription_key(&s, thread()?, &owner)
                 }
-                _ => hub.revoke_inbox_subscription_key(&s, thread()?, &owner()?),
+                _ => hub.revoke_inbox_subscription_key(
+                    &s,
+                    thread()?,
+                    params
+                        .get("ownerSessionId")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| RpcError::invalid_params("ownerSessionId is required"))?,
+                ),
             }
         }
         method::MUX_INBOX_THREADS | method::MUX_INBOX_THREAD | method::MUX_INBOX_REPLY => {
