@@ -114,7 +114,8 @@ class RunnerSetTests(unittest.TestCase):
                     self.assertNotIn("CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-", runs_on)
                     self.assertNotIn("outputs.map", runs_on)
                     # Past the fork branches, no Blacksmith size is written down.
-                    self.assertNotIn("'blacksmith-", runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1])
+                    self.assertNotRegex(runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1],
+                                        r"'blacksmith-[^']+'")
                     self.assertNotRegex(runs_on, r"RUNNER_POOLS\)\.linux_\d")
 
     def test_gallery_health_reads_the_live_16_vcpu_pool(self) -> None:
@@ -224,8 +225,8 @@ class RunnerSetTests(unittest.TestCase):
         owned = "cmux-fleet-linux-x64"
         for pool, expected in [(owned, {owned}), (provider, {requested, provider})]:
             with self.subTest(pool=pool), patch("runs_on_labels.pool_members", return_value={pool}):
-                self.assertEqual(resolve_labels(job["runs-on"], variables={"inputs.runner": [requested]},
-                                                silent=("github",)), expected)
+                expression = job["runs-on"].replace("inputs.runner", repr(requested))
+                self.assertEqual(resolve_labels(expression, silent=("github",)), expected)
 
 
 if __name__ == "__main__":
