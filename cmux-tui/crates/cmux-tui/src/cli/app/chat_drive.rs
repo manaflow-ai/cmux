@@ -216,6 +216,34 @@ fn fill(template: &str, pairs: &[(&str, String)]) -> String {
     })
 }
 
+/// The typing line, if the run typed: a count of what it typed; a page from before that sent the
+/// text itself, and the summary counts it (in graphemes, as the page does) rather than printing it.
+/// A run cut off before its text was all typed (time ran out, the person typed, focus left) says how
+/// much of it went in; an older page sends no `type_asked`.
+fn typing(
+    page: &Value,
+    catalog: &AppControlMessages,
+) -> Option<(&'static str, Vec<(&'static str, String)>)> {
+    let messages = &catalog.chat_drive;
+    let typed = match &page["typed"] {
+        Value::Number(count) => count.as_u64().unwrap_or(0),
+        Value::String(typed) => typed.graphemes(true).count() as u64,
+        _ => 0,
+    };
+    match (page["type_asked"].as_u64(), page["type_stopped"].as_str()) {
+        (Some(asked), Some(why)) if asked > typed => Some((
+            messages.typed_cut,
+            vec![
+                ("count", typed.to_string()),
+                ("asked", asked.to_string()),
+                ("why", why.to_owned()),
+            ],
+        )),
+        _ if typed > 0 => Some((messages.typed, vec![("count", typed.to_string())])),
+        _ => None,
+    }
+}
+
 /// The summary `cmux app chat drive` prints without `--json`.
 pub(super) fn human(report: &Value, catalog: &AppControlMessages) -> String {
     let messages = &catalog.chat_drive;
@@ -264,6 +292,10 @@ pub(super) fn human(report: &Value, catalog: &AppControlMessages) -> String {
     }
     if page["measured"].as_bool() == Some(false) {
         line(messages.unmeasured, &[("reason", text(&page["unmeasured_reason"]))]);
+        // Typing goes on with no frames (a hidden or throttled chat): what went in still shows.
+        if let Some((template, pairs)) = typing(page, catalog) {
+            line(template, &pairs);
+        }
         return out;
     }
     line(
@@ -303,22 +335,8 @@ pub(super) fn human(report: &Value, catalog: &AppControlMessages) -> String {
             ("frames", frames.len().to_string()),
         ],
     );
-    // A count of what the run typed; a page from before that sent the text itself, and the
-    // summary counts it (in graphemes, as the page does) rather than printing it.
-    let typed = match &page["typed"] {
-        Value::Number(count) => count.as_u64().unwrap_or(0),
-        Value::String(typed) => typed.graphemes(true).count() as u64,
-        _ => 0,
-    };
-    // A run cut off before its text was all typed (time ran out, the person typed, focus left) says how
-    // much of it went in; an older page sends no `type_asked`.
-    match (page["type_asked"].as_u64(), page["type_stopped"].as_str()) {
-        (Some(asked), Some(why)) if asked > typed => line(
-            messages.typed_cut,
-            &[("count", typed.to_string()), ("asked", asked.to_string()), ("why", why.to_owned())],
-        ),
-        _ if typed > 0 => line(messages.typed, &[("count", typed.to_string())]),
-        _ => {}
+    if let Some((template, pairs)) = typing(page, catalog) {
+        line(template, &pairs);
     }
     match report["engine_counters"].as_object() {
         Some(counters) => {

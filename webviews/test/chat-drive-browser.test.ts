@@ -254,6 +254,32 @@ await requireBrowserLane("chat-drive-browser.test.ts", async () => {
         await page.close();
       });
 
+      // The person's draft, all of it selected, as their own select-all leaves it: with the caret still
+      // in the composer, and after they left it (the drive's typing puts focus back through its route).
+      for (const left of [false, true])
+        test(`typing over a selected draft goes after it and replaces none of it${left ? ", the composer left" : ""}`, async () => {
+          current = browsers.get(name);
+          const page = await open();
+          const draft = "keep this draft";
+          await page.locator(COMPOSER_EDITOR).click();
+          await page.keyboard.type(draft);
+          await page.keyboard.press("ControlOrMeta+a");
+          expect(await page.evaluate(() => document.getSelection()?.toString().trim())).toBe(draft);
+          if (left) await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+          expect(await call(page, "begin", { type: { text: "x", allow_draft: true }, seconds: 20 })).toMatchObject({
+            ok: true,
+          });
+          // One character, one frame: the draft changes once.
+          await page.waitForFunction((draft) => window.cmuxAcpmuxBridge!.composerState!()?.text !== draft, draft, {
+            timeout: 5_000,
+          });
+          const report = await call(page, "end");
+          expect(report.typed).toBe(1);
+          expect(await page.evaluate(() => window.cmuxAcpmuxBridge!.composerState!()?.text)).toBe(`${draft}x`);
+          expect(await page.locator(COMPOSER_EDITOR).textContent()).toBe(`${draft}x`);
+          await page.close();
+        });
+
       test("a real pointer on a sent image: :hover, no page card, and typing that drives the composer", async () => {
         current = browsers.get(name);
         const page = await open();

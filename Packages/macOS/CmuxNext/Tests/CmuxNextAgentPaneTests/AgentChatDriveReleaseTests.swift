@@ -289,6 +289,55 @@ struct AgentChatDriveReleaseTests {
         #expect(!pane.trackingAreas.contains { ($0.owner as AnyObject?) === watch })
     }
 
+    private actor NoHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
+    /// A tracking area does not keep its owner: the release registered on its view holds its pointer watch
+    /// for as long as it is pending (nothing else does), and every end drops it, its tracking area with it.
+    /// Nothing is left holding the release or the view after it: no cycle through the watch.
+    @Test(arguments: ["person_pointer", "window", "teardown", "later"])
+    func aPendingReleaseHoldsItsPointerWatchUntilItEnds(_ end: String) async throws {
+        _ = NSApplication.shared
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(URL(filePath: "/dev/null"))))
+        let sends = Sends(Array(repeating: .failed, count: Self.round))
+        weak var watch: DrivePointerWatch?
+        weak var held: DriveRelease?
+        autoreleasepool {
+            let release = sends.release(later: end == "later" ? [.milliseconds(20)] : [])
+            release.register(on: view)
+            watch = release.pointerWatch
+            held = release
+        }
+        #expect(watch != nil, "the pointer watch was freed while its release is pending")
+        #expect(view.trackingAreas.contains { ($0.owner as AnyObject?) === watch })
+        do {
+            let release = try #require(held)
+            // A round that fails: the release stays pending, and keeps its watch.
+            await release.release("end")
+            release.runEnded = true
+            #expect(!release.released && watch != nil)
+            switch end {
+            case "person_pointer":
+                // Through the watch's own callback: the release drops the watch while AppKit is calling it.
+                let event = try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0,
+                                                                windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
+                watch?.mouseEntered(with: event)
+            case "teardown": view.close()
+            case "later": break
+            default: release.trigger(end)
+            }
+            try await settled(release)
+            #expect(release.released && release.how == end)
+        }
+        #expect(watch == nil, "the pointer watch outlived its release")
+        #expect(!view.trackingAreas.contains { $0.owner is DrivePointerWatch }, "the watch's tracking area stayed on the pane")
+        #expect(view.heldDrives.isEmpty)
+        let deadline = ContinuousClock.now + .seconds(5)
+        while held != nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(held == nil, "something still holds the ended release")
+    }
+
     /// During the run the person's pointer in the pane is the person: the run stops and releases.
     @Test func theRealPointerDuringTheRunInterruptsIt() async throws {
         let release = Sends().release()
@@ -367,5 +416,22 @@ struct AgentChatDriveReleaseTests {
         try await settled(release)
         #expect(release.released && release.triggered == "person")
         #expect(sends.count == 1, "an armed release sends its pointer-leave rather than counting nothing as released")
+    }
+
+    /// The backstop fires while the run is still starting (a slow `startEngineCounters`): a release has
+    /// started, so the run makes no hover whether that round went in or failed, and it names the timer,
+    /// not the person.
+    @Test(arguments: [true, false])
+    func aBackstopDuringStartupLeavesNoHoverAndNamesTheTimer(wentIn: Bool) async throws {
+        let sends = Sends(wentIn ? [] : Array(repeating: .failed, count: Self.round))
+        let release = sends.release(armed: true)
+        #expect(release.mayHover && release.interruption == nil)
+        release.armBackstop(after: .milliseconds(10))
+        let deadline = ContinuousClock.now + .seconds(5)
+        while sends.count < (wentIn ? 1 : Self.round), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(release.released == wentIn)
+        #expect(!release.mayHover, "the run would hover after the backstop started the release")
+        #expect(release.interruption == "timer", "the run would say the person interrupted it")
+        #expect(release.triggered == nil, "the timer is no trigger from outside the run")
     }
 }
