@@ -355,6 +355,15 @@ fn a_retry_of_a_terminal_opened_right_of_a_lone_chat_replays_it() {
     let again = create();
     assert_eq!(again["ok"], true, "the retry did not replay: {again}");
     assert_eq!(again["result"]["value"]["tab_id"], first["result"]["value"]["tab_id"], "{again}");
+    // The same key with another name is other input: refused, not answered.
+    let other = v2(
+        &server,
+        "tab.create_terminal",
+        json!({"workspace": workspace, "name": "another name"}),
+        "dock-tab-lone-retry-1",
+    );
+    assert_eq!(other["ok"], false, "the same key with another name was answered: {other}");
+    assert_eq!(other["error"]["code"], "idempotency.conflict", "{other}");
     let last = screen(&server, name);
     assert_eq!(pane_count(&last), 2, "the retry made another column: {last}");
     let right = last["panes"]

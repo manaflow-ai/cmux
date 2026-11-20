@@ -69,6 +69,10 @@ pub(super) fn dispatch(
     if !open_url::names_only_workspace(&request.selectors) {
         return Ok(None);
     }
+    // No chat that is not docked: nothing to decide, so no wait for the lock.
+    if open_url::undocked_chat(mux, &request.selectors).is_none() {
+        return Ok(None);
+    }
     let _one = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
     let Some(chat) = open_url::undocked_chat(mux, &request.selectors) else { return Ok(None) };
     let correlation = params.get("correlation_key").and_then(Value::as_str).unwrap_or(key);
@@ -100,14 +104,16 @@ pub(super) fn dispatch(
         }
         rename.insert("tab".to_string(), json!(tab));
         rename.insert("name".to_string(), name.clone());
-        // The terminal is made: a name that cannot be set (its tab closed
-        // meanwhile) does not fail the creation, which a caller would send
-        // again and get a second terminal.
-        if let Ok(renamed) =
-            inner(mux, request, ResourceOperation::TabRename, rename, &name_key(key))
-        {
+        match inner(mux, request, ResourceOperation::TabRename, rename, &name_key(key)) {
             // The revision a caller chains from is the one after the name.
-            created["revision"] = renamed["revision"].clone();
+            Ok(renamed) => created["revision"] = renamed["revision"].clone(),
+            // The same key with another name: refused, as the daemon's own
+            // path refuses a key sent again with other input.
+            Err(error) if error.code == "idempotency.conflict" => return Err(error),
+            // The terminal is made: a name that cannot be set (its tab
+            // closed meanwhile) does not fail the creation, which a caller
+            // would send again and get a second terminal.
+            Err(_) => {}
         }
     }
     Ok(Some(created))
