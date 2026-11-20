@@ -710,7 +710,7 @@ impl Hub {
         let summary = SessionSummary {
             session_id: m.id.clone(),
             name: m.name.clone(),
-            handle: m.spoken_handle().into_owned(),
+            handle: Some(m.spoken_handle().into_owned()),
             name_given: m.name_given,
             harness: m.harness.clone(),
             family: m.family.clone(),
