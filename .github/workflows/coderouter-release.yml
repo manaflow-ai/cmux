@@ -115,7 +115,7 @@ jobs:
             npm_target: darwin-x64
             executable: coderouter
             maturin_container: "off"
-          - runner: blacksmith-4vcpu-ubuntu-2404-arm
+          - runner: ${{ github.repository_owner != 'manaflow-ai' && 'blacksmith-4vcpu-ubuntu-2404-arm' || fromJSON(vars.RUNNER_POOLS).linux_arm64 }}
             rust_target: aarch64-unknown-linux-gnu
             npm_target: linux-arm64
             executable: coderouter
@@ -660,7 +660,7 @@ jobs:
   release:
     needs: [validate, prepare_release, build, build-linux, sign-linux]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/coderouter-v')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux }}
     permissions:
       contents: write
     steps:

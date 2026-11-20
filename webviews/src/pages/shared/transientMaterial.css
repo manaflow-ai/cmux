@@ -10,7 +10,8 @@
 :is(:root[data-transient-material], .transient-material-scope) :is(.ui-popup.ui-glass, .ui-card.ui-glass, .page-menu) {
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent);
   --glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
-  --host-glass-fill: color-mix(in srgb, var(--glass-surface) calc(var(--ds-transient-host-veil) * 100%), transparent);
+  /* The App's surface under it carries its veil (glass.css, Glass.makeHostSurface). */
+  --host-glass-fill: transparent;
 }
 
 :is(:root[data-transient-material], .transient-material-scope) .ui-dialog.ui-glass {
