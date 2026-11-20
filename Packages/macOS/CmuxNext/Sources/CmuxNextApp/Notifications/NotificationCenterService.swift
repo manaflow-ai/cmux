@@ -397,6 +397,7 @@ final class NotificationCenterService {
         let owner = known ?? self.owner(of: tab), local = owner?.isLocal ?? true
         // Going into a tab a strip press held ends the hold: its focus is a look again.
         if [.click, .keystroke, .open].contains(trigger), !viewHolds.isEmpty { viewHolds.remove(tab.id) }
+        markWorkspaceSeen(trigger, tab: tab, owner: owner)
         // Any look at the tab sees its OSC 7501 done and error records and an
         // agent chat's completed turn (client view state; the owners keep the facts).
         ProgramStatusSeenStore.shared.markSeen(tab)
@@ -417,6 +418,20 @@ final class NotificationCenterService {
         acknowledge(tab, owner: owner)
     }
 
+    /// One workspace-level read path for every row symbol. This runs for a
+    /// focus as well as an explicit open, so the sidebar's width or grouping
+    /// never changes whether a symbol is cleared.
+    private func markWorkspaceSeen(_ trigger: NotificationTrigger, tab: TabModel, owner: DaemonService?) {
+        guard [.focus, .click, .keystroke, .open].contains(trigger),
+              let daemon = owner ?? services?.machines.daemon(forTab: tab),
+              let workspace = WorkspaceUnreadMark.workspace(ofTab: tab.id, in: daemon.store) else { return }
+        let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
+        SidebarStatusSeenStore.shared.markSeen(tabs: tabs, status: workspace.status, workspaceID: workspace.id)
+        if workspace.markedUnread {
+            WorkspaceUnreadMark.set(false, on: [workspace], daemon: daemon)
+        }
+    }
+
     /// The person went into a tab an agent marked (a click, a key, opening it, or focus under the `focus` dismissal): its ring has done its job,
     /// the mark stays until the agent clears it or the page changes.
     func dismissAttention(_ trigger: NotificationTrigger, tab: TabModel) {
@@ -427,15 +442,21 @@ final class NotificationCenterService {
         hideAttentionRing(of: tab)
     }
 
-    /// Going into a pane (a click or a key) reads its tab's Mark as Unread, as it reads an unread
-    /// notification: the ring both draw goes with it. Focus alone keeps the mark (a tab marked
-    /// while viewed stays marked until it is viewed again, ``clearTabMarks(entering:)``).
+    /// Going into a pane reads its tab's Mark as Unread and attention request,
+    /// as it reads an unread notification. Focus and opening count as seeing it.
     private func readMark(_ trigger: NotificationTrigger, tab: TabModel, owner: DaemonService?) {
         dismissAttention(trigger, tab: tab)
-        guard tab.markedUnread, trigger == .click || trigger == .keystroke && tab.keyMayRead(), let daemon = owner ?? services?.daemon else { return }
-        note("\(trigger.rawValue) read mark \(tab.id)")
-        if DesignSettings.shared.attention.flashesOnEntry(trigger) { entryReads.insert(tab.id) }
-        try? TabUnreadMark.set(false, tab: tab, daemon: daemon)
+        guard let daemon = owner ?? services?.daemon else { return }
+        let reads = trigger == .click || trigger == .open || trigger == .focus || trigger == .keystroke && tab.keyMayRead()
+        guard reads else { return }
+        if tab.markedUnread {
+            note("\(trigger.rawValue) read mark \(tab.id)")
+            if DesignSettings.shared.attention.flashesOnEntry(trigger) { entryReads.insert(tab.id) }
+            try? TabUnreadMark.set(false, tab: tab, daemon: daemon)
+        }
+        if tab.attention != nil {
+            try? TabUnreadMark.clearAttention(tab: tab, daemon: daemon)
+        }
     }
 
     /// Typing into a terminal clears its workspace's manual unread mark, as

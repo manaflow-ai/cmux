@@ -17,10 +17,14 @@ public struct StatusMapping {
     let turns: AgentTurnStateStore
     /// This client's seen OSC 7501 `done` and `error` records.
     let seen: ProgramStatusSeenStore
+    /// Shared workspace-row seen state for every mapped status source.
+    let statusSeen: SidebarStatusSeenStore
 
-    public init(turns: AgentTurnStateStore = .shared, seen: ProgramStatusSeenStore = .shared) {
+    public init(turns: AgentTurnStateStore = .shared, seen: ProgramStatusSeenStore = .shared,
+                statusSeen: SidebarStatusSeenStore = .shared) {
         self.turns = turns
         self.seen = seen
+        self.statusSeen = statusSeen
     }
 
     /// The reports one tab contributes.
@@ -171,14 +175,15 @@ public struct StatusMapping {
     }
 
     /// A workspace's merged status over its tabs and its `cmux status set` entries.
-    public func summary(tabs: [TabModel], status: WorkspaceStatus? = nil) -> StatusSummary {
-        StatusStack.resolve(tabs.flatMap(reports) + reports(status), honoring: honored)
+    public func summary(tabs: [TabModel], status: WorkspaceStatus? = nil, workspaceID: String? = nil) -> StatusSummary {
+        let reports = tabs.flatMap(reports) + reports(status)
+        return StatusStack.resolve(statusSeen.visible(reports, workspaceID: workspaceID ?? status?.workspaceID.rawValue), honoring: honored)
     }
 
     /// A workspace's merged status, each tab's own (a hover card tab row's mark) and whether any tab has
     /// agent work, from one read of each tab's reports: ``summary(tabs:status:)``, ``summary(_:)``
     /// per tab and ``isWorking(tabs:)`` at once (u9696, Lawrence's scratch/a-hover-tabs).
-    public func summaries(tabs: [TabModel], status: WorkspaceStatus? = nil)
+    public func summaries(tabs: [TabModel], status: WorkspaceStatus? = nil, workspaceID: String? = nil)
         -> (workspace: StatusSummary, tabs: [StatusIndicatorState], working: Bool) {
         let honored = honored
         var all: [StatusReport] = []
@@ -195,7 +200,8 @@ public struct StatusMapping {
             working = working || own.contains { $0.state.isWorking }
             all += own
         }
-        return (StatusStack.resolve(all + reports(status), honoring: honored), states, working)
+        let workspaceReports = statusSeen.visible(all + reports(status), workspaceID: workspaceID ?? status?.workspaceID.rawValue)
+        return (StatusStack.resolve(workspaceReports, honoring: honored), states, working)
     }
 
     /// The reports of a workspace's status entries that carry a state (`cmux status set --state`,
