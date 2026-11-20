@@ -347,6 +347,8 @@ pub struct UsageStats {
     /// read and cache write.
     #[serde(rename = "tokens24h")]
     pub tokens24h: Option<u64>,
+    #[serde(rename = "tokensByModel1h")]
+    pub tokens_by_model1h: Option<BTreeMap<String, u64>>,
     /// Those tokens at the model catalog's list prices, USD; null when no model
     /// they ran on has a price, or when `tokens24h` is null.
     #[serde(rename = "costUsd24h")]

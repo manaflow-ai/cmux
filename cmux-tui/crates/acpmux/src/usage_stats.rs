@@ -134,9 +134,10 @@ impl Source {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 struct Bucket {
     tokens: u64,
+    by_model: BTreeMap<String, u64>,
     cost_usd: f64,
     priced: bool,
     compactions: u64,
@@ -276,6 +277,7 @@ impl Tracker {
     fn stats(&self, source: &Source, now: u64, window: Option<u64>) -> UsageStats {
         let known = |n: u64| self.complete.then_some(n);
         let (mut day, mut hour_spawns, mut priced) = (Bucket::default(), 0_u64, false);
+        let mut hourly = BTreeMap::<String, u64>::new();
         for (minute, b) in &self.minutes {
             day.tokens = day.tokens.saturating_add(b.tokens);
             day.cost_usd += b.cost_usd;
@@ -288,6 +290,10 @@ impl Tracker {
             priced |= b.priced;
             if minute.saturating_add(MINUTE_MS) > now.saturating_sub(HOUR_MS) {
                 hour_spawns = hour_spawns.saturating_add(b.spawns);
+                for (model, tokens) in &b.by_model {
+                    let total = hourly.entry(model.clone()).or_default();
+                    *total = total.saturating_add(*tokens);
+                }
             }
         }
         let (autocompact, autocompact_cap) = autocompact(source, window);
@@ -305,6 +311,7 @@ impl Tracker {
             subagents1h: known(hour_spawns),
             subagents24h: known(day.spawns),
             tokens24h: known(day.tokens),
+            tokens_by_model1h: self.complete.then_some(hourly),
             // Rounded to the cent's hundredth: a sum of list prices, not a bill.
             cost_usd24h: (self.complete && priced)
                 .then(|| (day.cost_usd * 10_000.0).round() / 10_000.0),
@@ -416,6 +423,11 @@ impl Tracker {
                 let cost = models.prices(&model).map(|p| t.cost(&p));
                 if let Some(b) = self.bucket(at, now) {
                     b.tokens = b.tokens.saturating_add(t.total);
+                    let total = b
+                        .by_model
+                        .entry(if model.is_empty() { "unknown".into() } else { model })
+                        .or_default();
+                    *total = total.saturating_add(t.total);
                     b.calls = b.calls.saturating_add(1);
                     b.prompt_read = b.prompt_read.saturating_add(t.cache_read);
                     b.prompt_rest =

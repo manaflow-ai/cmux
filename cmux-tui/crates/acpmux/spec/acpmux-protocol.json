@@ -7824,6 +7824,17 @@
             "null"
           ]
         },
+        "tokensByModel1h": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
         "updatedAt": {
           "description": "Unix ms of the read these come from.",
           "format": "uint64",
@@ -7846,6 +7857,7 @@
         "subagents24h",
         "subagentsLive",
         "tokens24h",
+        "tokensByModel1h",
         "updatedAt"
       ],
       "type": "object"
