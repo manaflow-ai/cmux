@@ -1,0 +1,22 @@
+{
+  "title": "Status Pills in All Chats (taste prototype, opt-in): live chats in the New Tab's All Chats list end with a Running, Needs you, Done or Failed pill",
+  "steps": [
+    {"title": "Launch", "wait": 3, "shot": false},
+    {
+      "title": "A chat so All Chats has a live row",
+      "cmux": ["workspace", "new", "--name", "pills"],
+      "wait": 2,
+      "shot": false,
+      "optional": "needs the daemon"
+    },
+    {"title": "New Tab: All Chats with the setting off (today's rows)", "cmux": ["tab", "new-page"], "wait": 3},
+    {
+      "title": "Turn on Status Pills in All Chats",
+      "cmux": ["settings", "set", "agentPane.display.chatListStatusPills", "true"],
+      "wait": 2,
+      "shot": false
+    },
+    {"title": "New Tab: live chats now end with a status pill; idle and older chats show none", "cmux": ["tab", "new-page"], "wait": 3},
+    {"title": "The pills stay as the list updates", "wait": 3}
+  ]
+}

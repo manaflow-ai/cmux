@@ -13,6 +13,9 @@ extension AgentPaneDisplaySettingsSchema {
     /// `agentPane.display.vscodeMinimap`: The VS Code-style picture of the whole chat at its right edge (webviews chatMinimap/ChatMinimap.tsx). Off by default; the thread rail at the left (Toggle Thread Minimap) is its own thing.
     nonisolated static let vscodeMinimapPath = ["agentPane", "display", "vscodeMinimap"]
     nonisolated static let vscodeMinimapDefault = false
+    /// `agentPane.display.chatListStatusPills`: A taste prototype (Taste Board #19, winner and finalist list rows): a small status pill (Running, Needs you, Done, Failed) at the end of each live chat's row in All Chats (webviews newtab/AllChatsList.tsx ChatStatusPill), from the state the row already has; idle and indexed rows show none. Off by default: the rows are as before.
+    nonisolated static let chatListStatusPillsPath = ["agentPane", "display", "chatListStatusPills"]
+    nonisolated static let chatListStatusPillsDefault = false
     /// `agentPane.display.pinnedPlan`: The running turn's task list pinned under its latest message (webviews conversation/turns.ts). Off by default: the composer's hat shows it (subagents/SubagentTray.tsx plan; Leo, 2026-11-03).
     nonisolated static let pinnedPlanPath = ["agentPane", "display", "pinnedPlan"]
     nonisolated static let pinnedPlanDefault = false

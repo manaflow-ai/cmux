@@ -38,6 +38,16 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 keywords: ["agent", "chat", "acp", "display", "reading", "minimap", "vscode", "vs code", "code", "map", "overview", "scroll", "scrollbar", "right", "toggle"]
             ),
             SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.chatListStatusPillsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.chatListStatusPills", "Status Pills in All Chats"),
+                help: SettingsText.keyed("settings.agentPane.display.chatListStatusPills.help", "Shows Running, Needs you, Done or Failed as a small pill on each live chat in All Chats."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.chatListStatusPillsDefault),
+                keywords: ["agent", "chat", "all chats", "list", "status", "pill", "badge", "running", "needs you", "done", "failed", "toggle"]
+            ),
+            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.pinnedPlanPath,
                 section: .appearance,
                 group: group,

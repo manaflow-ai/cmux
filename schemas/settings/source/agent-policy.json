@@ -733,6 +733,7 @@
         "agentPane.display.width",
         "agentPane.display.fullWidth",
         "agentPane.display.vscodeMinimap",
+        "agentPane.display.chatListStatusPills",
         "agentPane.display.pinnedPlan",
         "agentPane.display.finishSound",
         "agentPane.display.trayTucked",

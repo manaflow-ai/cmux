@@ -35,6 +35,7 @@ import {
   watchable,
 } from "./allChatsListModel";
 import { pressToOpen } from "../../../ui/pressToOpen";
+import { useChatListStatusPills } from "../chatDisplay";
 /// A chat that is running or waits on the user (acpmux's own sessions): it leads the list with
 /// its state where the age would be.
 export type ActiveChat = {
@@ -272,6 +273,38 @@ const ProjectRow = memo(function ProjectRow({
   );
 });
 
+/// A live chat's status as a small pill (Taste Board #19, `agentPane.display.chatListStatusPills`):
+/// Running, Needs you, Done or Failed, from the state the row already has. An idle chat shows none.
+function ChatStatusPill({ state }: { state: ActiveChat["state"] }) {
+  const t = useT();
+  const nt = useNt();
+  const tone = PILL_TONE[state];
+  if (!tone) return null;
+  const word =
+    tone === "running"
+      ? nt("card.running")
+      : tone === "input"
+        ? t("needsYou.title")
+        : tone === "done"
+          ? nt("filter.done")
+          : t("header.failed");
+  return (
+    <span className="nt-all-pill" data-tone={tone}>
+      {word}
+    </span>
+  );
+}
+
+/// The pill each state shows: a broken turn or a lost agent reads Failed; idle draws no pill.
+const PILL_TONE: Record<ActiveChat["state"], "running" | "input" | "done" | "failed" | undefined> = {
+  running: "running",
+  input: "input",
+  unread: "done",
+  failed: "failed",
+  error: "failed",
+  idle: undefined,
+};
+
 /// A live chat's row, a leader's too: its right-click menu is Open, as its click (cx-2lm4). It takes
 /// the chat's values, not the chat: the page builds new chat objects on each of its renders.
 const LiveChatRow = memo(function LiveChatRow({
@@ -280,6 +313,8 @@ const LiveChatRow = memo(function LiveChatRow({
   harness,
   state,
   label,
+  pill,
+  labelIsState,
   onOpen,
 }: {
   id: string;
@@ -287,8 +322,14 @@ const LiveChatRow = memo(function LiveChatRow({
   harness: string | undefined;
   state: ActiveChat["state"];
   label: string;
+  /// Status Pills in All Chats is on: the row ends with its state's pill (ChatStatusPill).
+  pill: boolean;
+  /// The label says the state (a live chat's); the pill then stands in its place. A leader's
+  /// label ("13 reporting") stays, with the pill after it.
+  labelIsState: boolean;
   onOpen(id: string): void;
 }) {
+  const pillShown = pill && PILL_TONE[state] !== undefined;
   const nt = useNt();
   return (
     <li>
@@ -306,7 +347,8 @@ const LiveChatRow = memo(function LiveChatRow({
           <span className="nt-all-title" title={title}>
             {title}
           </span>
-          <span className="nt-all-state">{label}</span>
+          {pillShown && labelIsState ? null : <span className="nt-all-state">{label}</span>}
+          {pillShown && <ChatStatusPill state={state} />}
         </button>
       </ContextMenu>
     </li>
@@ -376,7 +418,8 @@ export function AllChatsList({
   // The callbacks rows take keep their identity and read this render's values when called.
   const latest = useRef({ openFeedback, onOpenActive, onBring, selection: NO_KEYS as string[] });
   const openActive = useCallback((id: string) => latest.current.onOpenActive?.(id), []);
-  const liveRow = (chat: ActiveChat) => (
+  const pills = useChatListStatusPills();
+  const liveRow = (chat: ActiveChat, lead: boolean) => (
     <LiveChatRow
       key={chat.id}
       id={chat.id}
@@ -384,6 +427,8 @@ export function AllChatsList({
       harness={chat.harness}
       state={chat.state}
       label={chat.label}
+      pill={pills}
+      labelIsState={!lead}
       onOpen={openActive}
     />
   );
@@ -622,12 +667,12 @@ export function AllChatsList({
             <span className="nt-all-group-name">{nt("leads")}</span>
             <span className="nt-all-group-count">{leadsShown.length}</span>
           </li>
-          {leadsShown.map(liveRow)}
+          {leadsShown.map((chat) => liveRow(chat, true))}
         </ul>
       )}
       {activeShown.length > 0 && (
         <ul className="nt-all-active" aria-label={t("sidebar.active")}>
-          {activeShown.map(liveRow)}
+          {activeShown.map((chat) => liveRow(chat, false))}
         </ul>
       )}
       {!indexed ? (
