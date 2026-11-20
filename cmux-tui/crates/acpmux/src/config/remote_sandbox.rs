@@ -144,7 +144,7 @@ mod tests {
     fn a_malformed_hook_list_is_refused_with_its_place() {
         let cmd = |h: Value| json!({"hooks": {"PreToolUse": [{"hooks": [h]}]}});
         for (bad, says) in [
-            (json!({"hooks": []}), "must be"),
+            (json!({"hooks": []}), "invalid type"),
             (json!({"hooks": {"PreToolUse": {}}}), "invalid type"),
             (json!({"hooks": {"": [{"hooks": []}]}}), "not a Claude Code hook event"),
             (json!({"hooks": {"Pre Tool": [{"hooks": []}]}}), "not a Claude Code hook event"),
