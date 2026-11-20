@@ -766,7 +766,7 @@ client <selector> metadata set
 client <selector> sizing set|release
 client <selector> cell pixels set
 
-workspace list [--order session|personal] [--name <name>] [--cwd <path>]
+workspace list [--order session|personal] [--name <name>] [--cwd <path>] [--id <id,...>] [--tree]
 workspace create
 workspace create --worktree <name> [--repo <path>] [--base <revision>] [workspace create options]
 workspace <selector> show|rename|move|focus|close|run

@@ -28,7 +28,7 @@ remote_head() {
 # Step-A pushes change the FFI sources faster than releases publish, so the
 # base's sources may be ahead of the release picked here; it reads that
 # release's SOURCE_SHA and SHA256SUMS itself (a 404 skips the release), and
-# merge_hold accepts the pin once the app compiles against it.
+# land-judge accepts the pin once the app compiles against it.
 picked="$(python3 scripts/cmux-next/newest_app_ffi_release.py)"
 read -r pin_sha CHECKSUM <<<"$picked"
 [[ "$pin_sha" =~ ^[0-9a-f]{40}$ && "$CHECKSUM" =~ ^[0-9a-f]{64}$ ]] \
@@ -294,7 +294,7 @@ cleanup() {
 trap cleanup EXIT
 git push origin "$tip:refs/heads/$staging"
 # One signed contents-API commit per file, the pin file first: a reviewer of the
-# PR sees both, and merge_hold's pin-only rule reads the PR's whole diff.
+# PR sees both, and land-judge's pin-only rule reads the PR's whole diff.
 put_file() {
   local file="$1" blob pinned on_branch attempt
   blob="$(git rev-parse "$tip:$file")"
