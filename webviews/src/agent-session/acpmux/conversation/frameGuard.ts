@@ -37,7 +37,7 @@ export class FrameGuard {
   private readonly requestFrame: (callback: () => void) => number;
   private readonly cancelFrame: (handle: number) => void;
 
-  constructor(private readonly options: FrameGuardOptions) {
+  constructor(private options: FrameGuardOptions) {
     this.now = options.now ?? (() => performance.now());
     this.requestFrame = options.requestFrame ?? ((callback) => requestAnimationFrame(callback));
     this.cancelFrame = options.cancelFrame ?? ((handle) => cancelAnimationFrame(handle));
@@ -52,6 +52,12 @@ export class FrameGuard {
     return this.options.observer?.(() => {
       if (!this.stopped) this.options.read();
     });
+  }
+
+  /// The read, frame and node given later than the guard was made (the transcript's, once it mounted):
+  /// the observer stays the one made at once.
+  connect(hooks: Pick<FrameGuardOptions, "read" | "frame" | "node">): void {
+    this.options = { ...this.options, ...hooks };
   }
 
   /// Frames the guard has asked for and not yet run (0 or 1).
