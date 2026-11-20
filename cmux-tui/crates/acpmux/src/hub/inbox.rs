@@ -1512,7 +1512,7 @@ impl Hub {
             "mux",
             "inbox_read",
             json!({"threadId": thread, "promptIds": prompt_ids,
-                "surge": {"held": counts.held, "needYou": need_you}}),
+                "surge": {"held": counts.held(), "needYou": need_you}}),
         );
         counts.restore(&event);
         self.append(
@@ -2256,7 +2256,7 @@ impl Hub {
         let mut counts = surge_counts.lock().unwrap_or_else(|e| e.into_inner());
         let need_you = counts.need_you_after_removing(&[prompt_id.to_owned()]);
         let mut why = why;
-        why["surge"] = json!({"held": counts.held, "needYou": need_you});
+        why["surge"] = json!({"held": counts.held(), "needYou": need_you});
         let event = self.append(session, "mux", "inbox_removed", why);
         counts.restore(&event);
         if let Some(answer) = removed.answer {
@@ -2465,7 +2465,7 @@ impl Hub {
             let mut counts = surge_counts.lock().unwrap_or_else(|e| e.into_inner());
             let need_you = counts.need_you_after_removing(&marked);
             let msg = json!({"threadId": thread, "promptIds": marked, "surgePromptIds": surge_marked,
-                "surge": {"held": counts.held, "needYou": need_you}});
+                "surge": {"held": counts.held(), "needYou": need_you}});
             let event = self.append(session, "mux", "inbox_read", msg);
             counts.restore(&event);
         }

@@ -125,7 +125,7 @@ impl Hub {
                 "mux",
                 "inbox_read",
                 json!({"threadId": thread, "promptIds": ids,
-                    "surge": {"held": counts.held, "needYou": need_you}}),
+                    "surge": {"held": counts.held(), "needYou": need_you}}),
             );
             counts.restore(&event);
         }

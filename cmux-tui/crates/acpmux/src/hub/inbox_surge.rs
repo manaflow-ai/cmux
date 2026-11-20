@@ -20,6 +20,10 @@ impl Counts {
         json!({"held": self.held, "needYou": self.need_you, "seq": self.seq})
     }
 
+    pub(super) fn held(&self) -> u64 {
+        self.held
+    }
+
     fn add_actionable(&mut self, prompt_id: &str, thread_id: &str) {
         if prompt_id.is_empty()
             || thread_id.is_empty()
@@ -432,7 +436,7 @@ mod tests {
 
     #[test]
     fn actionable_deltas_ignore_read_before_triage_and_count_distinct_threads() {
-        let event = |seq, kind, msg| EventRecord {
+        let event = |seq: u64, kind: &str, msg| EventRecord {
             seq,
             at: seq,
             kind: kind.into(),
