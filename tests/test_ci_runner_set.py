@@ -71,11 +71,11 @@ class RunnerSetTests(unittest.TestCase):
         # scripts, retries only on ephemeral Blacksmith; the rest may take the reconciled pool.
         ephemeral = "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"
         cases = {
-            ("pr-red-checks-comment.yml", "comment"): ephemeral,
+            ("pr-red-checks-comment.yml", "comment"): "|| 'cmux-linux' }}",
             ("cmux-next.yml", "path_route"): ephemeral,
             ("ci-guards.yml", "guard-status"): f"|| {POOL} }}}}",
-            ("pr-checks.yml", "size"): f"|| {POOL} }}}}",
-            ("pr-checks.yml", "ui-review"): f"|| {POOL} }}}}",
+            ("pr-checks.yml", "size"): "|| 'cmux-linux' }}",
+            ("pr-checks.yml", "ui-review"): "|| 'cmux-linux' }}",
         }
         for (workflow, name), tail in cases.items():
             with self.subTest(job=f"{workflow}#{name}"):
@@ -92,7 +92,7 @@ class RunnerSetTests(unittest.TestCase):
         # On 2026-11-18 jobs that finished on GitHub-hosted had waited a median 10,768 s, so every pull request's
         # `changes` router sat there and its required checks never started. #45861 first added a release valve
         # (hosted_saturated in RUNNER_POOLS); the hosted attempt-1 branch is now gone from every non-nightly
-        # workflow (Blacksmith for all CI, cmux#45898), so no valve is needed. Nightlies keep their own routes.
+        # workflow (Blacksmith for all CI, cmux#45898) and the valve is gone. Nightlies keep their own routes.
         hosted = re.compile(r"github\.run_attempt == 1 && [^|]*'ubuntu-24\.04'")
         for path in sorted(WORKFLOWS.glob("*.y*ml")):
             if path.name == "nightly.yml":  # nightlies never run on Blacksmith; their hosted routes stay
@@ -109,15 +109,20 @@ class RunnerSetTests(unittest.TestCase):
             for name in names:
                 with self.subTest(workflow=workflow, job=name):
                     runs_on = runs_on_text(jobs[name], f"{workflow}#{name}")
-                    self.assertIn(POOL, runs_on)
+                    direct = ((workflow == "web-validation.yml" and name == "web-validation") or
+                              (workflow == "pr-checks.yml" and name in {"size", "ui-review", "split"}))
+                    if direct:
+                        self.assertTrue(runs_on.endswith("|| 'cmux-linux' }}"), runs_on)
+                        self.assertIn("github.event.pull_request.head.repo.full_name != github.repository", runs_on)
+                        self.assertNotIn("needs.", runs_on)
+                    else:
+                        self.assertIn(POOL, runs_on)
                     self.assertNotIn("vars.LINUX_RUNNER || 'blacksmith-", runs_on)
                     self.assertNotIn("CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-", runs_on)
                     self.assertNotIn("outputs.map", runs_on)
                     # Past the fork branches, no Blacksmith size is written down.
                     self.assertNotIn("'blacksmith-", runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1])
-                    self.assertNotRegex(runs_on.replace(
-                        "fromJSON(vars.RUNNER_POOLS).hosted_saturated && fromJSON(vars.RUNNER_POOLS).linux_2", ""),
-                        r"RUNNER_POOLS\)\.linux_\d")
+                    self.assertNotRegex(runs_on, r"RUNNER_POOLS\)\.linux_\d")
 
     def test_gallery_health_reads_the_live_16_vcpu_pool(self) -> None:
         # A CPU-bound render (ask-378f0fa70e: 4 vCPU 30.5 s, 16 vCPU 13.4 s for the same cases): the 16 vCPU

@@ -88,7 +88,7 @@ const works: MuseumArtResult[] = Array.from({ length: 36 }, (_, index) => ({
 }));
 
 test("Browse More Art: typing and a search answering the same works draw no tile again", async () => {
-  const page = await renderPage({ path: "/settings/personalization", mock: { museumArt: works } });
+  const page = await renderPage({ path: "/settings/personalization?part=background", mock: { museumArt: works } });
   const open = Array.from(page.container.querySelectorAll<HTMLButtonElement>('[data-card="backdrop"] button')).find(
     (button) => button.hasAttribute("aria-expanded"),
   )!;

@@ -1,7 +1,7 @@
 // A Cloud chat with no folder is a first-class start (folderlessCloud.ts). Leo, 2026-11-09: "We need
 // to be able to have it so, like, this no folder selected should be, like, good as well."
 //   - Cloud picked and no folder: the folder chip reads No folder, not dimmed, and says where the
-//     chat starts (a fresh folder on the machine) as its description and in the folder menu;
+//     chat starts (a fresh folder on the machine) as its description (the folder menu has no line of it);
 //   - it never reads an empty "Choose folder" while Cloud is the pick;
 //   - This Mac with no folder reads No folder too, with no Cloud detail; a picked folder keeps its
 //     name under Cloud;
