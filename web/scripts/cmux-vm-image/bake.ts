@@ -103,6 +103,7 @@ import {
   AGENT_TOOLS_PROFILE,
   agentToolsDaemonEnv,
   agentToolsFiles,
+  agentToolsCmuxCheckCommand,
   agentToolsLinkCommand,
   browserRoleBakePhases,
   daemonEnvLines,
@@ -972,8 +973,13 @@ async function installAgentTools(ctx: Ctx): Promise<void> {
   const files = agentToolsFiles(lock);
   for (const phase of browserRoleBakePhases(lock)) await L.step(vm, phase.name, phase.command);
   for (const file of files) await writeGuestFile(vm, file.path, file.text, file.mode);
-  ctx.result.agentTools = (await L.step(vm, "agent-tools-link", `sh -n ${AGENT_TOOLS_PROFILE} && ${agentToolsLinkCommand()}`)).trim().split("\n").at(-2);
+  await L.step(vm, "agent-tools-link", `sh -n ${AGENT_TOOLS_PROFILE} && ${agentToolsLinkCommand()}`);
   await L.step(vm, "agent-tools-desktop", rdSetupCommand());
+}
+
+/** The tool dir's cmux (the store's cmux-tui) runs: only where cmux-tui is wired, never in the agents layer. */
+async function checkAgentToolsCmux(ctx: Ctx): Promise<void> {
+  ctx.result.agentTools = (await ctx.L.step(ctx.vm, "agent-tools-cmux", agentToolsCmuxCheckCommand())).trim().split("\n").at(-1);
 }
 
 /** The npm cache a first `npm install` finds (dep-cache.ts); the image record's size is read after clean. */
@@ -1175,7 +1181,10 @@ async function baseSteps(ctx: Ctx): Promise<void> {
   await configureSshd(ctx);
   if (options.teamVm) ctx.result.teamFilesRoot = (await L.step(ctx.vm, "team-files-root", teamVmDirsCommand())).trim();
   await configureRoles(ctx);
-  if (options.agentTools) await installAgentTools(ctx);
+  if (options.agentTools) {
+    await installAgentTools(ctx);
+    await checkAgentToolsCmux(ctx);
+  }
   // A layered bake fills it in the agents layer (overlaySteps), not twice.
   if (!options.layered) await prefillDepCaches(ctx);
   if (options.devTree) await installDevTree(ctx);
@@ -1207,6 +1216,7 @@ async function overlaySteps(ctx: Ctx, layer: "agents" | "app"): Promise<void> {
     return;
   }
   await wireCmuxTui(ctx);
+  if (ctx.options.agentTools) await checkAgentToolsCmux(ctx);
   await installHostConfig(ctx);
   await startDaemon(ctx);
   await writeModelPlane(ctx);
