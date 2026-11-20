@@ -340,7 +340,8 @@ suite() {
   check "acpmux installed" installed
   check "joins with --hub and --name" grep -q -- "--hub $origin --name" "$d/log/joins"
   check "the cmux CLI installed" test -x "$d/home/.cmux/bin/cmux"
-  check "the consent line" out_has "Screen sharing and control are off on this machine."
+  check "linux without cmux-rd: says the screen is not shared and why" out_has "This machine's screen is not shared: cmux-rd is not installed at $d/home/.local/bin/cmux-rd."
+  check "linux: no consent line (cmux-rd's host serves your own account)" eval '! out_has "Screen sharing and control are off"'
   check "no token in output" no_token_in_output
   check "no printf binary was exec'd (it is a builtin)" eval '! grep -q "^printf" "$d/log/argv"'
 
@@ -535,11 +536,17 @@ suite() {
   check "bad token downloads nothing" eval '! grep -q "^curl" "$d/log/argv"'
 
   new_case no-token
+  # cmux-rd is installed, but nothing joined this machine: its screen is not shared.
+  mkdir -p "$d/home/.local/bin"
+  printf '#!/bin/sh\n. "%s/record.sh"\nexit 0\n' "$fakes" >"$d/home/.local/bin/cmux-rd"
+  chmod 755 "$d/home/.local/bin/cmux-rd"
   run_join none
   check "no token: exit 0 (got $rc)" rc_is 0
   check "no token: installed" installed
   check "no token: service and daemon" grep -q "^acpmux daemon start" "$d/log/argv"
   check "no token: nothing redeemed" no_redeem
+  check "no token, not joined: the screen is not shared" out_has "This machine is not joined, so its screen is not shared."
+  check "no token, not joined: never says it is shared" eval '! out_has "Your own account can view this machine'"'"'s screen"'
 
   new_case doctor
   JT_DOCTOR=1
@@ -580,6 +587,20 @@ suite() {
   run_join env
   check "macos exit 0 (got $rc): $(cat "$d/out")" rc_is 0
   check "macos fetches the darwin build" grep -q "cmux-tui-acpmux-aarch64-apple-darwin" "$d/log/argv"
+  check "macos: the consent line" out_has "Screen sharing and control are off on this machine."
+
+  # Linux with cmux-rd where the screen host unit runs it: the daemon shares the
+  # screen with the joining account by itself, after the join's restart.
+  new_case linux-cmux-rd
+  mkdir -p "$d/home/.local/bin"
+  printf '#!/bin/sh\n. "%s/record.sh"\nexit 0\n' "$fakes" >"$d/home/.local/bin/cmux-rd"
+  chmod 755 "$d/home/.local/bin/cmux-rd"
+  run_join env
+  check "linux-cmux-rd exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "linux-cmux-rd: your own account, nothing to do here" out_has "Your own account can view this machine's screen from your other devices, with nothing to do here. Other accounts can't reach it."
+  check "linux-cmux-rd: no consent line" eval '! out_has "Screen sharing and control are off"'
+  check "linux-cmux-rd: the daemon restarts onto the join" grep -q "^acpmux daemon restart" "$d/log/argv"
+  check "linux-cmux-rd: the script never runs cmux-rd itself" eval '! grep -q "^cmux-rd" "$d/log/argv"'
 
   # A join cut off after redeem (joinIncomplete) wins over a present
   # credential: the rerun resumes through acpmux, never "already joined".
@@ -713,7 +734,8 @@ suite() {
   check "signed in: nothing of claude's status is shown" eval '! out_has "x@example.com"'
 
   new_case harnesses-none
-  run_join env CMUX_JOIN_HARNESSES=none
+  # A fixed name: the host name (gcp-codex-lane-11) would put "codex" in the join's argv.
+  run_join env CMUX_JOIN_HARNESSES=none CMUX_JOIN_NAME=box
   check "none: exit 0 (got $rc)" rc_is 0
   check "none: no installer" eval '! grep -q "claude.ai" "$d/log/argv"'
   check "none: no codex" eval '! grep -q "codex" "$d/log/argv"'

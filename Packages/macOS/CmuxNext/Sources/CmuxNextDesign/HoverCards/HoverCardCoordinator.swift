@@ -604,6 +604,26 @@ public final class HoverCardCoordinator {
         return bad
     }
 
+    /// Presses the button named `label` (its accessibility label: "Show details") in the shown card, as a click
+    /// would (`debug.hover_cards {press: ...}`: live recordings of the card's resize). False: no such button shows.
+    public func pressShownButton(_ label: String) -> Bool {
+        func find(_ view: NSView) -> NSView? {
+            if !view.isHidden, view.accessibilityRole() == .button, view.accessibilityLabel() == label { return view }
+            for sub in view.subviews { if let hit = find(sub) { return hit } }
+            return nil
+        }
+        guard let body = panel?.body, let button = find(body) else { return false }
+        return button.accessibilityPerformPress()
+    }
+
+    /// `debug.hover_cards`' commands, run before its report: `dismiss` dismisses the shown card as an app action
+    /// would; `press` presses that button in it (``pressShownButton(_:)``). Returns an error to answer, or nil.
+    public func debugCommand(dismiss: Bool, press: String?) -> String? {
+        if dismiss { self.dismiss(.action) }
+        if let press, !pressShownButton(press) { return "no shown card has a \(press) button" }
+        return nil
+    }
+
     /// State for `debug.hover_cards`.
     public var report: [String: String] {
         [
