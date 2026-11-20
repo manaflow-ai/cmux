@@ -4,6 +4,7 @@
 //!
 //! - [`schema`]: the settings schema exported from Swift, embedded, with
 //!   write validation per kind.
+//! - [`glass`]: the glass look (`appearance.glass.<role>`), resolved and clamped.
 //! - [`keybindings`]: keybindings.json (R59): entries with per-entry
 //!   diagnostics and comment-preserving edits.
 //! - [`jsonc`]: a comment-preserving JSONC parser and in-place editor.
@@ -17,6 +18,7 @@ pub mod diagnostics;
 pub mod domains;
 pub mod effective;
 pub mod fsio;
+pub mod glass;
 pub mod guard;
 pub mod jsonc;
 pub mod keybindings;
