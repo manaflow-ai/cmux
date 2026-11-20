@@ -52,6 +52,17 @@ extension AgentPaneView {
         return nil
     }
 
+    /// The Chromium page window (a child of `window`) that takes `window`'s held keys: the key window
+    /// when it is one, else the window of a shown agent page in Chromium whose view has the
+    /// keyboard in its own window (it was focused while the app was not active).
+    public static func chromiumPageWindow(in window: NSWindow) -> NSWindow? {
+        if let key = NSApp.keyWindow, key !== window, key.parent === window { return key }
+        guard window.firstResponder === window || window.firstResponder == nil else { return nil }
+        return window.childWindows?.first { child in
+            child.isVisible && chromiumAgentPane(under: child, in: window) != nil
+        }
+    }
+
     private static func screenFrame(of view: NSView) -> CGRect? {
         guard let window = view.window else { return nil }
         return window.convertToScreen(view.convert(view.bounds, to: nil))

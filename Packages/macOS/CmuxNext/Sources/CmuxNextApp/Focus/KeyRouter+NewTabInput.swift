@@ -71,8 +71,9 @@ final class NewTabInputCoordinator {
             self.incoming = incoming
         }
 
-        /// Whether the opening still owns the window's keys: its pane, in its window, shows its New Tab page (or, until the
-        /// page shows, the tab it showed before). An incoming page's hold owns them until its readiness, its creation's end or its limit.
+        /// Whether the opening still owns the window's keys: its pane, in its window, shows its New
+        /// Tab page (or, until the page shows, the tab it showed before). An incoming page's hold
+        /// owns them until its readiness, its creation's end or its limit.
         /// After the page showed, the tab that the pane showed before is not the opening's, also when it is a New Tab page: the person went back to it.
         var owns: Bool {
             guard let window else { return false }
@@ -247,7 +248,7 @@ final class NewTabInputCoordinator {
             guard !router.interceptKeyDown(event, in: window, heldBefore: true) else { return }
             // A page in Chromium has the keys in its own window, a child of this one: the key window,
             // or (the app not active yet) the shown agent page's window.
-            if let page = Self.chromiumPageWindow(in: window) {
+            if let page = AgentPaneView.chromiumPageWindow(in: window) {
                 if keyboard?.drops(keyFor: page) == true { return }
                 AgentPaneView.chromiumAgentPane(under: page, in: window)?.judge(held, eventWindow: page)
                 return page.sendEvent(event)
@@ -258,15 +259,6 @@ final class NewTabInputCoordinator {
             (view as? AgentPaneView)?.judge(held, eventWindow: window)
             window.sendEvent(event)
         }
-    }
-
-    /// The Chromium page window (a child of `window`) that takes `window`'s held keys: the key window
-    /// when it is one, else the window of a shown agent page in Chromium whose view has the
-    /// keyboard in its own window (it was focused while the app was not active).
-    private static func chromiumPageWindow(in window: NSWindow) -> NSWindow? {
-        if let key = NSApp.keyWindow, key !== window, key.parent === window { return key }
-        guard window.firstResponder === window || window.firstResponder == nil else { return nil }
-        return window.childWindows?.first { $0.isVisible && AgentPaneView.chromiumAgentPane(under: $0, in: window) != nil }
     }
 
     private func install(_ entry: Entry, in window: NSWindow) {
@@ -282,8 +274,9 @@ final class NewTabInputCoordinator {
     /// The open put the page's tab on screen: leaving it now ends the hold at once.
     func didShow(in window: NSWindow?) { if let window { held(in: window)?.shown = true } }
 
-    /// The daemon made the tab that the app made under the id `first`: a hold whose key came on that tab knows it by the store's id from now on.
-    /// The store answers for `first` only until its tree no longer lists that id (`AgentTabStore.releaseGoneTabs`), so a later key can not ask the store.
+    /// The daemon made the tab that the app made under the id `first`: a hold whose key came on that tab knows it by
+    /// the store's id from now on. The store answers for `first` only until its tree no longer lists that id
+    /// (`AgentTabStore.releaseGoneTabs`), so a later key can not ask the store.
     func tabMade(_ first: String, in tabs: AgentTabStore) {
         for entry in buffers.values where entry.opened == first {
             entry.opened = tabs.resolve(first)
@@ -390,11 +383,4 @@ final class NewTabInputCoordinator {
     /// hold ends, and its keys run again in typing order through the key router, into that hold. Before, keys typed after Cmd-N
     /// then Ctrl-` waited for the New Tab page and went to its field (#30271 smoke, step 16).
     func creationTookKeys(in window: NSWindow) { release(in: router?.focus(for: window).0?.window ?? window, why: "a creation took the keys") }
-}
-
-/// The shown native New Tab page under `view`, depth first.
-@MainActor func nativeNewTabHost(in view: NSView) -> NativeNewTabHostingView? {
-    if let host = view as? NativeNewTabHostingView, !host.isHiddenOrHasHiddenAncestor { return host }
-    for subview in view.subviews { if let host = nativeNewTabHost(in: subview) { return host } }
-    return nil
 }
