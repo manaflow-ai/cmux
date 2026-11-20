@@ -451,6 +451,32 @@ mod tests {
     }
 
     #[test]
+    fn a_lone_escape_key_then_any_key_is_typed_text() {
+        // vim's Esc then `P` (paste), `[` / `]` (motions), `_` or `^` (line start): each is a key,
+        // never a CSI or string introducer that swallows the keys after it.
+        for key in [b'P', b'[', b']', b'_', b'^', b'O'] {
+            let mut policy = FitPolicy::new([]);
+            policy.observe(alt("vim notes.md"));
+            assert!(!policy.typed(b"\x1b").claims);
+            assert!(!policy.typed(&[key]).claims, "{}", key as char);
+            assert!(!policy.typed(b"a").claims, "{}", key as char);
+            let fit = policy.typed(b"b");
+            assert!(fit.claims && fit.changed, "Esc, {}, a, b: three typed characters", key as char);
+        }
+    }
+
+    #[test]
+    fn a_new_tui_run_starts_outside_an_escape_sequence() {
+        let mut policy = FitPolicy::new([]);
+        policy.observe(alt("vim notes.md"));
+        // An unterminated string sequence (DCS) typed into vim, then vim quits.
+        policy.typed(b"\x1bP");
+        policy.observe(Foreground::default());
+        policy.observe(alt("htop"));
+        assert!(policy.typed(b"abc").claims, "htop's typing is not inside vim's sequence");
+    }
+
+    #[test]
     fn a_paste_or_a_word_at_once_claims() {
         let mut policy = FitPolicy::new([]);
         policy.observe(alt("codex"));
