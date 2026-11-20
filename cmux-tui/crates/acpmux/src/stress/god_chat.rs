@@ -285,19 +285,8 @@ fn costs(bytes: u64) -> Costs {
         let restart_read = (process_read() - read) as f64;
         let restart_ms = wall.elapsed().as_secs_f64() * 1e3;
         let restart_after_read = settle().await as f64;
-        // A second restart over the same home, once the first one's load settled: whether the
-        // read repeats on every start or only on the first one after the log was written.
-        let second_restart_read = {
-            let read = process_read();
-            let cfg = config();
-            let again = Hub::new(cfg.clone(), crate::store::open(&cfg.store, home.path()).unwrap());
-            let r = (process_read() - read) as f64;
-            drop(again);
-            r
-        };
         eprintln!(
-            "STRESS god chat split: store open read={store_open_read:.0} B; hub read={:.0} B; \
-             second restart read={second_restart_read:.0} B",
+            "STRESS god chat split: store open read={store_open_read:.0} B; hub read={:.0} B",
             restart_read - store_open_read
         );
         let session =
@@ -399,6 +388,15 @@ fn costs(bytes: u64) -> Costs {
         drop((stalled_tx, stalled_rx));
         drop(session);
         drop(hub);
+        // A second restart over the same home, once the first hub let it go: whether the read
+        // repeats on every start or only on the first one after the log was written.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let read = process_read();
+        let cfg = config();
+        let again = Hub::new(cfg.clone(), crate::store::open(&cfg.store, home.path()).unwrap());
+        let second_restart_read = (process_read() - read) as f64;
+        drop(again);
+        eprintln!("STRESS god chat second restart read={second_restart_read:.0} B");
         Costs {
             log_mb,
             restart_read,
