@@ -156,7 +156,9 @@ class SelectTest(unittest.TestCase):
 
     def test_computed_imports_and_package_loads_still_run(self) -> None:
         for expression in ('import(name)', 'import( name )', 'import(/* runtime */ name)',
-                           'import("vite")', 'require("child_process")'):
+                           'import("vite")', 'require("child_process")',
+                           'import /* package */ ( "vite" )', 'require ( "child_process" )',
+                           'require /* package */ (/* load */ "child_process")'):
             with self.subTest(expression=expression):
                 (self.root / "webviews/src/tools.ts").write_text(f'export const load = () => {expression};\n')
                 selected, _ = wa.Selector(self.root).select(["webviews/src/leaf.ts"])

@@ -20,7 +20,8 @@ it from missing a test:
     name found in a non-code file (a fixture, a config) selects everything;
   - a test always runs when it, or any module it imports, does what no import graph follows:
     reads files (sync or async, a glob, Bun.file), imports a computed path or an alias, starts
-    Vite or a browser, or spawns a process;
+    Vite or a browser, or spawns a process. The content-pinned generated frame-table reader
+    is exempt only when all changed files are isolated tests that cannot feed its bundle;
   - a build or runner input (webviews/package.json, bun.lock, bunfig, tsconfig, vite configs,
     webviews/scripts/, the test support dir, the preload bunfig loads before every file and
     what it imports, the runner scripts, this file, ci-web.yml) selects everything, as does
@@ -48,8 +49,9 @@ EVERYTHING = re.compile(
 # What a module does that the import graph cannot follow: read files, import a computed path or
 # an alias, run Vite or a browser (which load the app themselves), or spawn a process. App code
 # under src/ names things like readFile as data, so there it counts only by the import it needs.
+JS_GAP = r"(?:\s|/\*[\s\S]*?\*/|//[^\n]*\n)*"
 UNTRACKED = re.compile(
-    r"(?:from\s+|import\s*(?:\(\s*)?|require\(\s*)[\"']"
+    rf"(?:\bfrom{JS_GAP}|\bimport{JS_GAP}(?:\({JS_GAP})?|\brequire{JS_GAP}\({JS_GAP})[\"']"
     r"(?:(?:node:)?fs(?:/promises)?|vite|playwright|(?:node:)?child_process)[\"']"
     r"|Bun\.Glob|new Glob|import\.meta\.glob|globSync|Bun\.file\("
     # Look ahead BEFORE consuming spaces: otherwise regex backtracking treats the
