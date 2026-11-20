@@ -293,6 +293,15 @@ function folderItems(files: readonly FileMatch[], query: string): MentionItem[] 
   });
 }
 
+/// Whether a typed `@word` lists files (Lucas 2026-11-21, as Codex's @ lists them "only once you get very
+/// specific"): it holds a `.` or `/` (`app.ts`, `src/`), or has at least MENTION_FILE_LETTERS letters. A
+/// bare `@` or a short word lists the plugins and chats only, and asks the host for no files.
+export const MENTION_FILE_LETTERS = 4;
+export function mentionWantsFiles(query: string): boolean {
+  const text = query.trim();
+  return /[./]/.test(text) || text.length >= MENTION_FILE_LETTERS;
+}
+
 /// The picker's rows for `query`: chats, then folders, then the host's files in its order. A query
 /// with a `.` or `/` is a path (`app.ts`, `src/`), so its folders and files come before the chats.
 export function mentionItems({
@@ -315,6 +324,7 @@ export function mentionItems({
 }): MentionItem[] {
   const text = query.trim();
   const chats = sessionItems(sessions, chatId, text);
+  const wantsFiles = mentionWantsFiles(text);
   const harnessRows = text ? harnessItems(harnesses, text) : [];
   // The built-in tools show for a bare @ too (CMUX-682: always offered, set up or not).
   const toolRows = toolMentionsFor(text).map((tool): MentionItem => {
@@ -338,21 +348,22 @@ export function mentionItems({
       const indexes = text ? fuzzyIndices(text, entry.path) : undefined;
       return { kind: "folder", key: `folder:${entry.path}`, path: entry.path, ...matchRuns(entry.path, indexes) };
     });
-  const paths = [
-    ...(text ? [...searchedFolders, ...recentFolders] : [...recentFolders, ...searchedFolders]),
-    ...allFiles.map((file): MentionItem => ({
-      kind: "file",
-      key: `file:${file.path}`,
-      path: file.path,
-      ...matchRuns(file.path, file.matches),
-    })),
-  ];
+  const paths = !wantsFiles
+    ? []
+    : [
+        ...(text ? [...searchedFolders, ...recentFolders] : [...recentFolders, ...searchedFolders]),
+        ...allFiles.map((file): MentionItem => ({
+          kind: "file",
+          key: `file:${file.path}`,
+          path: file.path,
+          ...matchRuns(file.path, file.matches),
+        })),
+      ];
   // A harness follows the chats: a chat row being typed toward stays put as "@c" grows to
   // "@coord", and a bare @ (no query, so no harness) keeps its height.
   if (/[./]/.test(text)) return [...paths, ...chats, ...harnessRows, ...toolRows];
-  // The tools lead the paths only for a bare @ (always offered); a typed word keeps finding its file
-  // first (`@bro` is `broker.ts` before Browser Use).
-  if (text) return [...chats, ...harnessRows, ...paths, ...toolRows];
+  // The plugins lead the paths, typed word or not, as Codex's @ lists them first (Lucas 2026-11-21):
+  // files follow, and a word specific enough to name no plugin lists only them.
   return [...chats, ...harnessRows, ...toolRows, ...paths];
 }
 
@@ -362,12 +373,7 @@ export function mentionItems({
 export function mentionSelection(items: readonly MentionItem[], activeKey: string | undefined, pending: boolean) {
   const chosen = activeKey === undefined ? -1 : items.findIndex((item) => item.key === activeKey);
   if (chosen >= 0) return chosen;
-  // A tool is not picked unasked either: `@bro⏎` still means the file that lists a moment later.
-  return pending
-    ? items.findIndex((item) => item.kind !== "session" && item.kind !== "tool")
-    : items.length > 0
-      ? 0
-      : -1;
+  return pending ? items.findIndex((item) => item.kind !== "session") : items.length > 0 ? 0 : -1;
 }
 
 /// What a pick writes in place of the `@word`: a file's or folder's `@path ` (a folder's with its
