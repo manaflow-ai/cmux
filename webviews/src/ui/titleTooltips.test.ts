@@ -501,3 +501,19 @@ test("a data-tooltip-force element shows its tooltip even when its text is in fu
   await hover(doc.getElementById("name")!);
   expect(text()).toBe("Sonnet");
 });
+
+test("a control whose own text says the tooltip still shows it when it names a key", async () => {
+  // Fleet check 2026-11-20: a chat with one agent option reads "Verbosity: Terse" on its Options
+  // chip and in its tooltip, so the label rule hid the tooltip and its ⌃⌥⌘G never showed. The key
+  // is what the tooltip adds (test/tooltip-rules.ts lets a labeled control carry one).
+  const doc = page(
+    `<button id="options" title="Verbosity: Terse" data-tooltip-shortcut="⌃⌥⌘G" data-tooltip-instant="">Verbosity: Terse</button>`,
+  );
+  doc.getElementById("options")!.getBoundingClientRect = () =>
+    ({ left: 10, top: 10, width: 120, height: 24 }) as DOMRect;
+  const tip = () => doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
+  await hover(doc.getElementById("options")!);
+  await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
+  expect(tip().hidden).toBe(false);
+  expect(tip().querySelector(".ui-tooltip-hint")?.textContent).toBe("⌃⌥⌘G");
+});
