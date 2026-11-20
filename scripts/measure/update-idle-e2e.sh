@@ -103,9 +103,7 @@ build_app() {
   CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag autoupdate47824 --no-global-cli-links --config bench >>"$out/build-$side.log" 2>&1
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/build-$side.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
-    cp "$out/ffi-$side/macos/libcmux_app_ffi.dylib" "$out/$side/cmux DEV autoupdate47824.app/Contents/Frameworks/libcmux_app_ffi.dylib" || return 3
-  codesign --force --deep --sign - "$out/$side/cmux DEV autoupdate47824.app" >>"$out/build-$side.log" 2>&1 || return 3
-  echo "UIE build $side failed: no app path" >&2
+    echo "UIE build $side failed: no app path" >&2
     grep -E "error:|BUILD FAILED" "$out/build-$side.log" | head -n 60 >&2
     tail -n 40 "$out/build-$side.log" >&2
     return 3
