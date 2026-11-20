@@ -15,6 +15,16 @@ extension AgentPaneDisplaySettingsSchema {
                 default: .array(AgentPaneDisplaySettingsSchema.commandLabelsDefault.map { .string($0) }),
                 keywords: ["agent", "chat", "acp", "display", "reading", "command", "label", "rule", "preset", "background", "tray", "shell"]
             ).hiddenFromSettingsPage("a list of preset names and rule objects, edited in cmux-next.json"),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.chatRenderPipelinePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.chat_render_pipeline", "Chat Render Pipeline"),
+                help: SettingsText.keyed("settings.experiments.chat_render_pipeline.help", "Skip rendering offscreen rows from completed turns while keeping their place in the chat."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.chatRenderPipelineDefault),
+                keywords: ["experiment", "chat", "render", "scroll"]
+            ),
         ]
     }
 }
