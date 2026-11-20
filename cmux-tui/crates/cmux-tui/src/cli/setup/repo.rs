@@ -361,7 +361,7 @@ pub(super) fn check_text(report: &setup::Report, dir: &Path, strict: bool) -> St
     // Every string comes from the folder: shown inert.
     let value = inert(&serde_json::to_value(report).unwrap_or(Value::Null));
     let mut lines = Vec::new();
-    for finding in at(value, "/findings").as_array().into_iter().flatten() {
+    for finding in at(&value, "/findings").as_array().into_iter().flatten() {
         let text = |key: &str| finding[key].as_str().unwrap_or_default().to_owned();
         let mut place = text("path");
         if let Some(line) = at(finding, "/line").as_u64() {
@@ -375,14 +375,14 @@ pub(super) fn check_text(report: &setup::Report, dir: &Path, strict: bool) -> St
             lines.push(format!("  fix: {fix}"));
         }
     }
-    for skipped in at(value, "/skipped").as_array().into_iter().flatten() {
+    for skipped in at(&value, "/skipped").as_array().into_iter().flatten() {
         lines.push(format!(
             "note: not checked: {}",
             at(skipped, "/why").as_str().unwrap_or_default()
         ));
     }
     let name =
-        at(value, "/setup_id").as_str().map_or_else(|| dir.display().to_string(), str::to_owned);
+        at(&value, "/setup_id").as_str().map_or_else(|| dir.display().to_string(), str::to_owned);
     let (errors, warnings) = (report.errors(), report.warnings());
     let count = |n: usize, what: &str| format!("{n} {what}{}", if n == 1 { "" } else { "s" });
     lines.push(if errors > 0 {
@@ -987,7 +987,7 @@ pub(super) fn install_as(
         "installed": receipt,
         "card": card,
         "extension_errors": extension_errors,
-        "undo": at(card, "/undo"),
+        "undo": at(&card, "/undo"),
         "page": opened.source.reference().map(Reference::page_url),
     }))
 }
@@ -1253,7 +1253,7 @@ pub(super) fn preview(
                 .as_u64()
                 .is_some_and(|at| now_ms.saturating_sub(at) < looks::PREVIEW_MAX_AGE_SECS * 1000)
     }) {
-        let Some(path) = at(kept, "/path").as_str() else { return Err(missing()) };
+        let Some(path) = at(&kept, "/path").as_str() else { return Err(missing()) };
         if let Ok(bytes) = std::fs::read(&image)
             && looks::is_png(&bytes)
         {
