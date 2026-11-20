@@ -63,10 +63,11 @@ extension SettingsFileClient {
     /// recorded (what `settings.restore` takes).
     public func historyWrite(_ write: HistoryWrite, params: [String: JSONValue],
                              idempotencyKey: String, origin: String = "app") async throws -> (keys: [String], revision: String?) {
-        var params = params
-        params["origin"] = .string(origin)
+        var fields = params
+        fields["origin"] = .string(origin)
+        let sent = fields
         let result = try await connection.resourceRequest({ id in
-            ResourceRequestEnvelope(id: id, operation: write.rawValue, params: params, idempotencyKey: idempotencyKey)
+            ResourceRequestEnvelope(id: id, operation: write.rawValue, params: sent, idempotencyKey: idempotencyKey)
         }, as: ResourceMutationResult<HistoryChange>.self, requiring: Self.historyCapability)
         return (result.value.keys, result.revision)
     }
