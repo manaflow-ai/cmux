@@ -3,6 +3,7 @@
 
 /** Send's arrow: a plain outline glyph with the mic's stroke (Leo 2026-10-21: no disc). */
 export const ArrowUpIcon = () => (
+  // icon-scale-allow: the composer's own 18 glyph set (ComposerPickers' Icon size), moved here unchanged
   <svg
     className="acpmux-icon"
     width={18}
