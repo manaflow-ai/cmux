@@ -904,7 +904,7 @@ impl Hub {
                     // comparison work without it. The single-consumer notice loop keeps another
                     // notice for this peer from changing the baseline while this one is built.
                     let (changed, gone) = loop {
-                        let (mut old, epoch, purged) = {
+                        let (mut old, live, epoch, purged) = {
                             let Some(current) =
                                 self.peer(&peer).filter(|p| p.generation == generation)
                             else {
@@ -928,6 +928,9 @@ impl Hub {
                                 map.of_peer(&peer)
                                     .map(|(id, r)| (id.clone(), Arc::clone(r)))
                                     .collect::<HashMap<_, _>>(),
+                                map.stale_of_peer(&peer)
+                                    .map(|(id, r)| (id.clone(), Arc::clone(r)))
+                                    .collect::<HashMap<_, _>>(),
                                 epoch,
                                 purged,
                             )
@@ -949,6 +952,12 @@ impl Hub {
                             let previous = previous.as_ref().map(|r| &r.summary);
                             let summary =
                                 PeerRow::new(&Self::retain_summary_tools(summary, previous));
+                            // A row back as it was before its link dropped keeps that row's
+                            // text, which its outage's announcements share too.
+                            let summary = match live.get(&id) {
+                                Some(live) if live.summary == summary => live.summary.clone(),
+                                _ => summary,
+                            };
                             listed.push((receipt.mux_session_id.clone(), summary.created_at()));
                             // Compared as text.
                             if previous != Some(&summary) {

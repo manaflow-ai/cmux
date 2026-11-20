@@ -115,12 +115,16 @@ pub struct PeerRow {
     /// The title a list without tools shows (`views::without_summary_tools`), when it is cut.
     short_title: Option<Box<str>>,
     hot: Hot,
+    /// A stale mark not yet written into the text (`PeerRow::stale_announced`): `Some(last_seen)`
+    /// reads as `peer_cache::mark_stale` would write the row. Only a hub event holds one, so an
+    /// outage announces each row as the row it already has, with no copy of its text.
+    mark: Option<Option<u64>>,
 }
 
 /// Two rows are the same when their text is: what changed detection compares.
 impl PartialEq for PeerRow {
     fn eq(&self, other: &Self) -> bool {
-        self.base == other.base && self.apart == other.apart
+        self.base == other.base && self.apart == other.apart && self.mark == other.mark
     }
 }
 
@@ -166,13 +170,19 @@ impl PeerRow {
             base.push_str(&json_text(value));
         }
         base.push('}');
-        Self { base: base.into(), apart: apart.into(), short_title, hot }
+        Self { base: base.into(), apart: apart.into(), short_title, hot, mark: None }
     }
 
     /// The row as JSON text: every member, `stale` as `stale` says (else as kept), `peerState`
     /// as `peer_state` says (else as kept), and without tools (`tools`, `toolsMutable`, a long
     /// title cut) unless `tools`.
     fn text_with(&self, stale: Option<bool>, peer_state: Option<&str>, tools: bool) -> String {
+        if let Some(last_seen) = self.mark {
+            let plain = Self { mark: None, ..self.clone() };
+            let mut summary = plain.value();
+            super::peer_cache::mark_stale(&mut summary, last_seen);
+            return Self::new(&summary).text_with(stale, peer_state, tools);
+        }
         let Some(open) = self.base.strip_suffix('}') else {
             return self.base.to_string();
         };
@@ -260,6 +270,14 @@ impl PeerRow {
             *self = Self::new(&summary);
         }
         changed
+    }
+
+    /// The row `before` marked stale with `last_seen` (`marked`, which `mark_stale` made of
+    /// `before`), as a hub event announces it: `before`'s text, shared, the mark kept apart until
+    /// a connection writes the row, and `marked`'s hot fields. A peer's outage announces every row
+    /// of it, and the 8,192-event ring holds each announcement until every connection read it.
+    pub(super) fn stale_announced(before: &Self, marked: &Self, last_seen: Option<u64>) -> Self {
+        Self { hot: marked.hot.clone(), mark: Some(last_seen), ..before.clone() }
     }
 
     pub fn session_id(&self) -> Option<&str> {
