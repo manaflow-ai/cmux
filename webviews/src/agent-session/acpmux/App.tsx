@@ -10379,7 +10379,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }
     // /rename opens the tab's name editor, as ⌘R and the header's Rename do. New Tab has no chat tab.
     if (command.action === "rename") {
-      if (fresh || quick) return t("composer.cmuxUnavailable");
+      if (fresh || quick || !snapshot.sessionId) return t("composer.cmuxUnavailable");
       runHeaderAction(HEADER_ACTIONS.rename);
       return true;
     }
