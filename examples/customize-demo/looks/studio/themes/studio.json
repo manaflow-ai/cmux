@@ -1,0 +1,40 @@
+// Studio: graphite chrome, a hairline between the sidebar and the chat, a rose
+// accent, an arc while work runs, small radii and a tight strip.
+// Edit and save, the window repaints at once.
+{
+  "name": "Studio",
+  "description": "Graphite chrome, a hairline sidebar edge, a rose accent, small radii, compact density.",
+
+  "appearance.theme": "Builtin Dark",
+  "colors": { "background": "#111113", "foreground": "#e6e6e9", "selection": "#2a2a30", "cursor": "#e6e6e9", "accent": "#e0679a" },
+  "appearance.accent": "theme",
+
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "appearance.chromeStyle": "flat-sidebar-line",
+  "appearance.borders": "default",
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#0d0d0f",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.agentPane.color": "#111113",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "sidebar.sectionLook": "quiet",
+  "sidebar.controlsOnHover": true,
+  "appearance.statusIndicator.style": "arc",
+
+  // A studio's tight shapes: small radii everywhere, a narrow tab gap and a slimmer sidebar.
+  "density": {
+    "basedOn": "compact",
+    "tokens": {
+      "tabCornerRadius": 5, "tabCloseCornerRadius": 4, "verticalTabCornerRadius": 5, "sidebarCornerRadius": 5,
+      "itemCornerRadius": 5, "panelCornerRadius": 6, "tabGap": 2, "sidebarRowGap": 1, "sidebarWidth": 280
+    }
+  },
+  "layout.paneCornerRadius": 6,
+  "focus.inactiveTabStyle": "tonal",
+  "tabs.plusButton": "always",
+
+  "appearance.density": "compact",
+  "ui.animationSpeed": "fast"
+}

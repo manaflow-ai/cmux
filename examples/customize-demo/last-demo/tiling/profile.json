@@ -1,0 +1,21 @@
+{
+  "name": "tiling",
+  "description": "A scrolling tiling window manager, redone: panes as floating glass cards over Hokusai's Great Wave, a cyan focus border, new terminals and browsers in columns of their own that scroll sideways, focus follows the mouse, links open in a new column, and a thin rail sidebar with numbered workspaces and a status bar of panes, tabs, agents at work and the time.",
+  "settings": {
+    "appearance.themeFile": "last-demo-tiling",
+    "layout.mainPane": "off",
+    "layout.newPanePlacement": "split",
+    "layout.tileBrowsers": true,
+    "layout.scrollAreas": true,
+    "layout.rows": false,
+    "layout.newColumnWidth": "fixed",
+    "layout.defaultColumnWidth": 0.5,
+    "layout.centerFocusedColumn": "on-overflow",
+    "layout.focusFollowsMouse": true,
+    "layout.linkPlacement": "new-column",
+    "layout.paneSeparation": "cards",
+    "appearance.focusIndicator": "border",
+    "sidebar.style": "rail",
+    "sidebar.controlsOnHover": true
+  }
+}
