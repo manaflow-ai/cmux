@@ -1639,6 +1639,13 @@ const RESTORE_POINT: &str = "restore-point.json";
 /// A chat's adoption checkpoint, beside its `session.json` (`hub/hosts/checkpoint.rs`).
 const ADOPTION_CHECKPOINT: &str = "adoption-checkpoint.json";
 
+/// `path`'s bytes, read in the held home (`None` when it is missing or unreadable).
+fn held_file_bytes(path: &Path) -> Option<Vec<u8>> {
+    let mut bytes = Vec::new();
+    crate::home_fs::private_state_file(path).ok()?.read_to_end(&mut bytes).ok()?;
+    Some(bytes)
+}
+
 pub struct LocalStore {
     root: PathBuf,
     segment_bytes: u64,
@@ -2434,7 +2441,7 @@ impl Store for LocalStore {
     /// in place (`store/compact.rs`), which a fold of them would read differently. The file's
     /// first line is the digest of the compaction marker it was saved under.
     fn adoption_checkpoint(&self, id: &str) -> Option<Vec<u8>> {
-        let bytes = std::fs::read(self.dir(id).join(ADOPTION_CHECKPOINT)).ok()?;
+        let bytes = held_file_bytes(&self.dir(id).join(ADOPTION_CHECKPOINT))?;
         let nl = bytes.iter().position(|&b| b == b'\n')?;
         let (head, body) = bytes.split_at(nl);
         (head == self.compaction_digest(id).as_bytes()).then(|| body[1..].to_vec())

@@ -129,9 +129,9 @@ impl LocalStore {
     /// writes a new one. A fold saved beside the log (`Store::save_adoption_checkpoint`) is tied
     /// to it.
     pub(super) fn compaction_digest(&self, id: &str) -> String {
-        match std::fs::read(self.marker(id)) {
-            Ok(bytes) => crate::sha256::sha256_hex(&bytes),
-            Err(_) => "none".to_owned(),
+        match held_file_bytes(&self.marker(id)) {
+            Some(bytes) => crate::sha256::sha256_hex(&bytes),
+            None => "none".to_owned(),
         }
     }
 
