@@ -9,7 +9,7 @@ import Foundation
 /// What a file page tab asks of its owner (``FilePageService``): the workspace roots, the
 /// recents and picker, the look (settings section, theme.css), preference writes, and where a
 /// followed link opens.
-protocol FilePageHosting: AnyObject {
+protocol FilePageHosting: AnyObject, AgentSourceUsesPageHosting {
     var roots: FileWorkspaceRoots { get }
     /// `markdown.remoteImages`: load web images without a per-document click (default false).
     var remoteImages: Bool { get }

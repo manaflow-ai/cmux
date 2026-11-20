@@ -26,6 +26,7 @@ extension AgentPaneModel {
 }
 
 /// File-page reverse links consume only a context created by the originating agent pane.
+public protocol AgentSourceUsesPageHosting: AnyObject { var sourceUses: FilePageSourceContext? { get } }
 public protocol AgentSourceUsesPageContext: AnyObject {
     var sourceContextID: String { get }
     func matches(_ file: URL) -> Bool
