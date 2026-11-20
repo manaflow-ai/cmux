@@ -2,6 +2,44 @@
 
 - 2026-11-19 (lane/chat-move-drag): Sidebar-Look: Leo, 2026-11-19, approving the visible move between machines ("all of them": drag a chat onto a machine or Cloud in the sidebar, with an animated move, progress, then resume; the move feature itself, so default behavior). A drag of one row whose workspace holds one agent chat offers a slot in another machine's section, or on its remote group header, when that machine is one of the chat's Move to… targets (Rust `sidebar_drop` `move_to`; the app reads them once per drag base, `SidebarModel.chatMoveTargets`). Every other row keeps its machine as before. The drop runs the chat's Move to… (`ChatMoveDrop`). While any move of a chat runs (a drop, Move to…, the palette, the CLI), its row sits at the end of the target machine's section, which the list draws as the row sliding there (same row key). It keeps its title and look, its second line says the move's step and about how long is left (Rust `moves::progress`, or "Moving…" before the first line), and its bar fills by Rust's fraction (never back). It is pending (its own `SidebarRowState.moving`: no select, menu, close or drag). When the move is done it stays until the store it left no longer lists its workspace (the moved chat's own row is there by then; at most 10 s), so it never slides back first; on a stop the row slides back. A chat that shares its workspace with other tabs shows the move in place and stays interactive, since those tabs stay. The sidebar document's drag (the normal path) refuses another machine's slot; `SidebarDocDrag.chatMove` opens a top-level one there for the chat's targets, and its drop sends `.reorder`. Each move's next state is Rust's (`moves::chat_moves`, op `cloud_move_chat_move`); `ChatMoves` only keeps the map and the landing wait. Tests: `SidebarChatMoveTests`, `ChatMovesTests`, Rust `chat_moves` tests, `a_chat_that_can_move_drops_on_another_machine`, `the_fraction_fills_step_by_step`.
 
+- 2026-11-19 (lane/needs-you-glow): Sidebar-Look: Leo, 2026-11-19, on eight new features: "all of them" and "some of
+  them maybe just as customizations lol if it affects default looks". "Needs you" as motion, off by default: with
+  `notifications.attention.mark` `glow` (default `badge`, no change), a workspace row that waits for the person (an
+  error, needs you or Ready: what its one badge says) draws no trailing mark; its fill breathes a soft halo in that
+  mark's status color until the row is selected, and a selected row that still waits shows its badge again. The marks
+  only go transparent, so nothing in the row moves. The breath is the indicators gate's `breathAnimation` on the render
+  server, still under Reduce Motion and while the window is covered (`SidebarListView.setWindowVisible`). Tabs do the
+  same (`TabCell+NeedsYouGlow`). Regression: `NeedsYouGlowTests` (CmuxNextAppTests). Review fixes: a row parked and
+  shown again keeps its glow (the reuse reset no longer clears the tone an equal configure would not set again); a
+  row made while its window is covered starts paused (`viewDidMoveToWindow`); loops turned off at runtime stop every
+  row's breath (the list's `Motion.changes` subscription). Cost fix: an endless breath kept WindowServer at 24 %
+  CPU and the GPU at 6 % with 18 glowing tabs and rows (badges: 0.7 % and 0.9 %; M4 mini, `idle_attention` bench),
+  so the halo breathes three times at most 30 fps (`MotionGate.attentionBreathAnimation`), then rests until seen,
+  and breathes again each time its covered window shows.
+
+- 2026-11-20 (a-move-pinned-top): Sidebar-Look: no visual change. User, 2026-11-20 (msg 42511): "move pinned
+  workspace to top should not fail". A pinned workspace is an item of Pinned, not a row of the workspace list, and
+  Move Workspace to Top, to Bottom and Above/Below only searched the list rows (`WorkspaceSlot.reorder`), so they
+  refused with "the workspace is not in the sidebar". Every Move verb on a workspace with no list row now goes
+  through one planner, `SidebarLayoutDocument.bandMove` (`SidebarBandPlacement`: step, top, bottom, above, below),
+  on the sidebar document (`SidebarDocument.moveBand`) or the layout document (`AppActions.moveBandWorkspace`).
+  Move to Top keeps a leading Home item first: the workspace goes first in Pinned, under Home. The first item's
+  Move to Top and the last one's Move Down are a no-op, not a refusal. Move Up/Down off personal mode steps among
+  Pinned's items too (it moved an invisible daemon index). An unpinned row keeps its rule (top of its group or of
+  the loose rows). Regression: `PinnedWorkspaceMoveToTopTests`, `PinnedWorkspaceShortcutsTests`; tour
+  `pinned-move-to-top`.
+- 2026-11-17 (lane/widget-sidebar): Sidebar-Look: Leo, 2026-11-16: "For the customization, the widget ecosystem needs to be improved, I still haven't seen a good weather/time/calendar thing, like apple's iOS or desktop widgets". A Widgets section joins the end of the band below the list while the person has a widget placed or edits them; it is not in the layout document (`SidebarAppSectionProvider.providedSections`), so with no widget placed the sidebar draws as before. Tiles sit on the New Tab tile unit (`AppWidgetGrid`, `Metrics.space2` gaps and inset): small two per row, medium the full width, each a card on `Palette.hoverFill` with the surface corner. A stale widget keeps its scene at 45% with a caption "Retrying". Edit mode adds a minus badge (`Palette.badgeFill`, pressed fill only) per tile and an Add Widget / Done bar; Add Widget opens a native popup gallery on the menu glass. Edit Widgets is in the section header's and the sidebar background's menus. Motion: `Motion.sidebar`. Tests: `AppWidgetSidebarTests`.
+
+- 2026-11-19 (a590, pinned row shown-tab icon): Sidebar-Look: user, 2026-11-19 (msg 40501): "vault h1 h2 is pinned
+  workspace but it shows gh logo instead of the pin logo". A workspace with no icon or color of its own takes its
+  shown tab's page icon, favicon or globe as its row icon (`SidebarMapping` face), and a pinned row drew that mark in
+  the pin's place as the workspace's own icon (`SidebarPinnedRowLeading.ownIcon`, #38061). The row now says where its
+  icon came from (`SidebarWorkspace.iconFromShownTab`), and a pinned row drops a shown tab's mark
+  (`SidebarItemInfo.droppingShownTabIcon`): it draws its pin, its title at Home's label x, whatever tab it shows. An
+  icon or color the user chose still takes the pin's place; the list row and a pinned tile keep the tab's favicon.
+  Regression: `PinnedRowShownTabIconTests`; stills `AAPinnedShownTabIconGalleryTests` (`pinned-tab-icon-gallery.tar`).
+
+- 2026-11-19 (tip-card-padding): Sidebar-Look: Lawrence, 2026-11-19 (msg 40504), on the "Did you know?" tip card: "need more padding here". Every notice card (tips, announcements, asks, the star prompt, the update notice) holds its rows, buttons and shortcut `Metrics.cardPadding` in from each edge (`space5`: 12 pt at the default density, was `space3`, 6 pt) and keeps its button row `Metrics.cardRowGap` under the text (`space4`, 8 pt, was `space2`, 4 pt). Its corner still rounds from its buttons (`Metrics.buttonContainer(padding: Metrics.cardPadding)`: 8 + 12 = 20 pt, was 14), and the x stays concentric with it (`Metrics.cornerControl`). Both scale with the density and the interface scale. The Update Ready card keeps its compact 5 pt (Leo 2026-10-19), and toasts keep their own tuned padding. Regression: `SidebarTipCardPaddingTests` (every density).
 - 2026-11-18 (a590, hover card grid base red): Sidebar-Look: the workspace hover card's tab rows line up with its
   header again, icons on one column and text on one edge, as before #44449. d8917c9 (#44449) scaled every density
   from Default by one factor, so the card's padding (7.5 pt), its icon-to-text gap and the tab rows' fill outset

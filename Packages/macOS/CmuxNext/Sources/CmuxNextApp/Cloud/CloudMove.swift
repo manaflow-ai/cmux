@@ -394,7 +394,7 @@ struct CloudMove {
 
     /// A moved chat's workspace name: its workspace's here, but never Home's (a machine's "Home" hid the chat): its folder's.
     static func movedName(_ workspace: WorkspaceModel?, folder: String) -> String? {
-        workspace?.kind == SidebarMapping.homeKind ? URL(fileURLWithPath: folder).lastPathComponent : workspace?.name
+        workspace?.kind == SidebarMapping.homeKind ? (folder as NSString).lastPathComponent : workspace?.name
     }
 
     private func toast(_ id: String, _ message: String, duration: Duration, working: Bool = false) { Self.toast(services, id, message, duration: duration, working: working) }

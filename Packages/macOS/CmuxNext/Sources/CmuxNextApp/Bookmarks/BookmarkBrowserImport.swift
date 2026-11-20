@@ -146,8 +146,9 @@ struct BookmarkBrowserImport {
     /// one undo step on `target`'s bookmarks.
     func run(_ profiles: [BrowserSourceProfile], target: String) async -> Outcome {
         var outcome = Outcome()
+        let reader = services.browserDataReader
         for profile in profiles {
-            let read = await Task.detached { () -> [ImportedBookmark]? in try? BrowserImporter.readBookmarks(profile) }.value
+            let read = try? await reader.bookmarks(profile)
             guard let bookmarks = read else {
                 outcome.failed.append(Self.pickerTitle(profile))
                 continue
