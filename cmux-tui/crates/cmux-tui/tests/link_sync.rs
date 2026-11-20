@@ -1564,8 +1564,11 @@ fn a_no_follow_push_never_writes_through_a_link_the_machine_changed() {
     assert_eq!(std::fs::read_to_string(remote.join("secret.txt")).unwrap(), "secret\n");
     assert_eq!(std::fs::read_link(remote.join("a.txt")).unwrap(), Path::new("secret.txt"));
     assert!(!remote.join("elsewhere/b.txt").exists(), "{pushed}");
+    // The machine swapped a.txt and sub/b.txt for links since the last push: they stay as the
+    // machine has them, counted as kept, and nothing is written through them.
     let skipped = skipped_by_path(&pushed);
-    assert!(skipped.contains_key("a.txt") && skipped.contains_key("sub/b.txt"), "{pushed}");
+    assert_eq!(pushed["kept"], json!(2), "{pushed}");
+    assert!(!skipped.contains_key("a.txt") && !skipped.contains_key("sub/b.txt"), "{pushed}");
     assert_eq!(std::fs::read_link(remote.join("c.txt")).unwrap(), Path::new("hollow"));
     assert!(skipped.contains_key("c.txt"), "{pushed}");
     assert_eq!(std::fs::read_to_string(remote.join("new.txt")).unwrap(), "new\n");
