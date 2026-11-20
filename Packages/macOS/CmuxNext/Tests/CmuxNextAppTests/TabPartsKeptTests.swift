@@ -272,7 +272,7 @@ struct TabPartsKeptTests {
         /// The ids of the storm workspace's tabs in the store, in order.
         func stored() -> [String] { store.workspace(key: WorkspaceKey(rawValue: Self.storm))?.screens.flatMap(\.panes).flatMap(\.tabs).map(\.id) ?? [] }
         var tree = Self.tree(fixture.keys, storm: Self.sizes[0])
-        let at = try #require(tree.workspaces.firstIndex { $0.key.rawValue == Self.storm }, "setup: the tree has no storm workspace")
+        let at = try #require(tree.workspaces.firstIndex { $0.key?.rawValue == Self.storm }, "setup: the tree has no storm workspace")
         var want = stored()
         let before = fixture.shown()
         try #require(want.count == Self.sizes[0] && Rows.stormTabs(before.rows) == want && before.isTheWalk,
@@ -299,8 +299,8 @@ struct TabPartsKeptTests {
         #expect(ordered.isTheWalk, "the sidebar's rows are not the walk's rows after a tab moved in its pane")
 
         print("TAB-PARTS sidebar row, a workspace of \(Self.sizes[0]) tabs: a tab in the middle closed = \(closed), a tab moved in its pane = \(reordered)")
-        #expect([closed.rowsMade, reordered.rowsMade] == [1, 1], "the 2 changes mapped \([closed.rowsMade, reordered.rowsMade]) rows, want 1 each: the workspace's own row")
-        #expect([closed.items, reordered.items] == [0, 0],
+        #expect(closed.rowsMade == 1 && reordered.rowsMade == 1, "the 2 changes mapped \(closed.rowsMade) and \(reordered.rowsMade) rows, want 1 each: the workspace's own row")
+        #expect(closed.items == 0 && reordered.items == 0,
                 "the row made \(closed.items) items of the tab list for a tab closed in the middle and \(reordered.items) for a tab moved, want 0: no tab is new")
     }
 
