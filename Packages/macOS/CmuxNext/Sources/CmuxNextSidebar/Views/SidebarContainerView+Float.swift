@@ -26,7 +26,7 @@ extension SidebarContainerView {
     func applyFloatLook() {
         let on = showsCardLook
         let inset = isFloatOverlay ? Self.floatInset : glassDocked ? glassDockedInset : 0
-        let radius = on && inset > 0 ? floatCornerRadius : 0
+        let radius = isFloatOverlay || (glassDocked && inset > 0) ? floatCornerRadius : 0
         panelTop.constant = inset
         panelBottom.constant = -inset
         panel.wantsLayer = true
@@ -38,7 +38,8 @@ extension SidebarContainerView {
             layer.masksToBounds = on
         }
         clipLayer?.masksToBounds = !on
-        floatShadowLayer.isHidden = !on || radius == 0
+        // Existing hover cards keep their shadow, including square cards in Bare chrome.
+        floatShadowLayer.isHidden = !on || (!isFloatOverlay && glassDocked && radius == 0)
         CATransaction.commit()
         mountFloatGlass()
         floatGlass.isHidden = !on

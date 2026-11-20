@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-20 (glass landing repair, #47161): the Glass Sidebar experiment must preserve every existing hover
+  card when it is off. Hover cards retain their corner radius and shadow, including square cards in Bare
+  chrome; only the new flush docked glass card suppresses its shadow. Do not apply a new docked variant's
+  radius/shadow rule to the shared floating-card path. Detector: `FloatingSidebarTests` covers square and
+  rounded hover cards with the experiment off and on, plus flush/inset docked glass.
+
 - 2026-11-19 (lane/taste-glass-sidebar): Sidebar-Look: Leo, 2026-11-19, on the taste builds: "we might as well just
   build out a bunch that are really promising and just see how they fare, like without waiting." Settings >
   Experimental > Experiments > Glass Sidebar (`experiments.glassSidebarExtension`, off by default): the docked sidebar
