@@ -18,7 +18,8 @@ dylib="$(find "$work/CCmuxAppFFI.xcframework" -name libcmux_app_ffi.dylib -type 
 test -n "$dylib" && test -f "$dylib"
 
 run_loader() {
-  local expected="$1" log="$work/loader-$expected.log" status
+  local expected="$1" status
+  local log="$work/loader-$expected.log"
   set +e
   (cd cmux-tui && cargo run --locked --manifest-path crates/cmux-app-ffi/Cargo.toml \
     --example ffi_warm_swap -- "$dylib" --expect-abi "$expected") >"$log" 2>&1
