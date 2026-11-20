@@ -422,7 +422,6 @@ export default agentPaneEntry({
     },
     "controls-single-row": {
       note: "The chat composer with plain footer styling off: the model and mode keep the shared footer, while mic and Send stay in the box.",
-      // Claude's look: Codex's (the default) draws the model and mode inside the box (composerLook.ts).
       composerLook: "claude",
       snapshot: withControls(chat(finished)),
       play: async (ctx) => {
