@@ -445,6 +445,30 @@ pub(super) fn app_step(global: &GlobalArgs, args: &[String]) -> Result<Value, Va
     step_result(&runner.cmux(&args))
 }
 
+/// One app Cloud verb run as this binary's own `--json` step with every one of the caller's globals (`--session` and
+/// `--machine` too, so the step reaches the app the caller named or is refused as the caller would be), as it ran.
+pub(super) fn app_step_as_caller(global: &GlobalArgs, args: &[String]) -> Ran {
+    let mut runner = SelfRunner { globals: caller_globals(global), ..SelfRunner::new(global) };
+    let mut args = args.to_vec();
+    args.push("--json".to_owned());
+    runner.cmux(&args)
+}
+
+/// Every global a step run as the caller is given: [`forwarded_globals`], `--session`, `--machine` and the key.
+pub(super) fn caller_globals(global: &GlobalArgs) -> Vec<String> {
+    let mut globals = forwarded_globals(global);
+    if let Some(session) = &global.session {
+        globals.extend(["--session".to_owned(), session.clone()]);
+    }
+    if let Some(machine) = &global.machine {
+        globals.extend(["--machine".to_owned(), machine.clone()]);
+    }
+    if let Some(key) = &global.idempotency_key {
+        globals.extend(["--idempotency-key".to_owned(), key.clone()]);
+    }
+    globals
+}
+
 /// `rest` without the output flags the global scan left in it, which set `output`. A value of
 /// one of this command's own flags (`--prompt --json`) stays a value.
 pub(super) fn lift_output(rest: &[String], output: &mut OutputMode) -> Vec<String> {
@@ -906,14 +930,17 @@ fn failed(code: &str, message: impl Into<String>, details: Value, exit: i32) -> 
     }
 }
 
+/// A step's printed JSON: the whole text, or else its last line that is JSON.
+pub(super) fn step_json(text: &str) -> Option<Value> {
+    let text = text.trim();
+    serde_json::from_str::<Value>(text).ok().or_else(|| {
+        text.lines().rev().find_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
+    })
+}
+
 /// The app's answer to one `--json` step: its `result`, or its error object.
 pub(super) fn step_result(ran: &Ran) -> Result<Value, Value> {
-    let parsed = |text: &str| -> Option<Value> {
-        let text = text.trim();
-        serde_json::from_str::<Value>(text).ok().or_else(|| {
-            text.lines().rev().find_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
-        })
-    };
+    let parsed = step_json;
     if ran.code == 0
         && let Some(value) = parsed(&ran.stdout)
     {

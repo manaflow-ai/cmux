@@ -4,7 +4,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 
-use super::{Marks, chat, claim_to_bound, table, take_flag, with_create_stages};
+use super::super::GlobalArgs;
+use super::super::cloud_start_chat::{Ran, caller_globals};
+use super::{Marks, chat, claim_to_bound, create_answer, table, take_flag, with_create_stages};
 
 fn strings(words: &[&str]) -> Vec<String> {
     words.iter().map(|word| (*word).to_owned()).collect()
@@ -85,4 +87,66 @@ fn a_create_answer_gets_created_and_total() {
     );
     assert_eq!(answer["stages"], json!({"created": 2_345, "total": 2_345}));
     assert!(answer.get("claim_to_bound").is_none());
+}
+
+/// `cmux vm new --json` answers the app's whole response as it always printed it (`.result.machine_id`, the
+/// `idempotency_key`), with `stages` and the create's own split beside them; a failed create keeps its own error and
+/// exit status (3: no app answered).
+#[test]
+fn a_json_create_keeps_the_whole_answer_and_its_exit_status() {
+    let began = Instant::now();
+    let created = Ran {
+        code: 0,
+        stdout: concat!(
+            r#"{"idempotency_key":"k-1","result":{"machine_id":"vm-1","#,
+            r#""stages_ms":[{"step":"claim","ms":7},{"step":"bound","ms":3}]}}"#,
+            "\n"
+        )
+        .to_owned(),
+        stderr: String::new(),
+    };
+    let answer = create_answer(&created, began, began + Duration::from_millis(500)).unwrap();
+    assert_eq!(answer["result"]["machine_id"], "vm-1");
+    assert_eq!(answer["idempotency_key"], "k-1");
+    assert_eq!(answer["stages"], json!({"created": 500, "total": 500}));
+    assert_eq!(answer["claim_to_bound"], json!({"claim_answer_ms": 7, "bound_ms": 10}));
+
+    let unreachable = Ran {
+        code: 3,
+        stdout: String::new(),
+        stderr: r#"{"code":"app.unreachable","message":"no app answered"}"#.to_owned(),
+    };
+    let (error, code) = create_answer(&unreachable, began, began).unwrap_err();
+    assert_eq!((error["code"].as_str(), code), (Some("app.unreachable"), 3));
+    let refused = Ran {
+        code: 1,
+        stdout: String::new(),
+        stderr: r#"{"code":"forbidden","message":"not this session's"}"#.to_owned(),
+    };
+    assert_eq!(create_answer(&refused, began, began).unwrap_err().1, 1);
+}
+
+/// The create runs with the caller's own route: `--session` and `--machine` go with the sockets and the key.
+#[test]
+fn the_create_step_keeps_the_callers_session() {
+    let global = GlobalArgs {
+        session: Some("S".to_owned()),
+        machine: Some("m".to_owned()),
+        app_socket: Some(std::path::PathBuf::from("/tmp/app.sock")),
+        idempotency_key: Some("k-1".to_owned()),
+        ..GlobalArgs::default()
+    };
+    assert_eq!(
+        caller_globals(&global),
+        strings(&[
+            "--app-socket",
+            "/tmp/app.sock",
+            "--session",
+            "S",
+            "--machine",
+            "m",
+            "--idempotency-key",
+            "k-1"
+        ])
+    );
 }

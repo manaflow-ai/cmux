@@ -161,9 +161,12 @@ pub(super) fn print_table(wanted: bool, answer: &Value) {
 }
 
 /// `cmux vm new` with no `--wait`, with `--json` or `--timings`: the app's create as one step (`cloud new-machine
-/// --json`, which prints the same `result` the app's own run prints), its answer with `stages` (`created` and `total`)
-/// and the create's own `claim_to_bound` when it carries one. For a person (`--timings` without `--json`) the app's
-/// own run, which prints its line and opens the machine's workspace, then the table; None when no app answers it.
+/// --json`, run with every one of the caller's globals: `--session`, `--machine`, the sockets and the key), its whole
+/// answer as `cmux vm new --json` always printed it (the `action.run` response: `result`, `idempotency_key`) with
+/// `stages` (`created` and `total`) and the create's own `claim_to_bound` beside them. A failed create answers its
+/// own error with its own exit status (3: no app answered; 1: the app refused). For a person (`--timings` without
+/// `--json`) the app's own run, which prints its line and opens the machine's workspace, then the table; None when no
+/// app answers it.
 pub(super) fn app_create(
     global: &super::GlobalArgs,
     words: &[String],
@@ -179,19 +182,43 @@ pub(super) fn app_create(
     }
     let mut args = vec!["cloud".to_owned(), "new-machine".to_owned()];
     args.extend(words.iter().cloned());
-    match super::cloud_start_chat::app_step(global, &args) {
+    let ran = super::cloud_start_chat::app_step_as_caller(global, &args);
+    match create_answer(&ran, began, Instant::now()) {
         Ok(answer) => {
-            let answer = with_create_stages(answer, began, Instant::now());
             print_table(timings, &answer);
             Some(super::wire::print_local_success(&answer, global.output))
         }
-        Err(error) => Some(super::wire::print_local_error(&error, global.output, 1)),
+        Err((error, code)) => Some(super::wire::print_local_error(&error, global.output, code)),
     }
 }
 
-/// A create's answer with its `stages` (it answered at `now`) and the create's own split.
+/// The create step's whole `--json` answer with its `stages` (it answered at `now`), or its error and exit status.
+pub(super) fn create_answer(
+    ran: &super::cloud_start_chat::Ran,
+    began: Instant,
+    now: Instant,
+) -> Result<Value, (Value, i32)> {
+    let whole = (ran.code == 0)
+        .then(|| super::cloud_start_chat::step_json(&ran.stdout))
+        .flatten()
+        .filter(Value::is_object);
+    match whole {
+        Some(whole) => Ok(with_create_stages(whole, began, now)),
+        None => {
+            let error = match super::cloud_start_chat::step_result(ran) {
+                Err(error) => error,
+                Ok(_) => json!({"code": "step.failed", "message": "the create printed no answer"}),
+            };
+            Err((error, if ran.code == 0 { 1 } else { ran.code }))
+        }
+    }
+}
+
+/// A create's answer (its `result`, or the whole response around it) with its `stages` (it answered at `now`)
+/// and the create's own split.
 pub(super) fn with_create_stages(mut answer: Value, began: Instant, now: Instant) -> Value {
-    let split = claim_to_bound(&answer);
+    // The whole `action.run` response carries the create's own times in its `result`.
+    let split = claim_to_bound(&answer).or_else(|| answer.get("result").and_then(claim_to_bound));
     if let Some(object) = answer.as_object_mut() {
         let mut marks = Marks::new(began);
         marks.mark("created", now);
