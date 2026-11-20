@@ -1960,6 +1960,36 @@ class CmuxNextWiring(unittest.TestCase):
                 if name != "release-compile":
                     self.assertEqual(job_env(job)["CMUX_NEXT_RUNNER"], label_copy(runs_on_route(job, name)))
 
+    def test_the_app_ffi_repin_pull_request_runs_its_mac_jobs_on_the_nightly_slot(self):
+        """2026-11-20: the bot's re-pin PR cmux#48065 (head app-ffi-repin, only app-ffi-pin.json and Package.swift)
+        queued its fast tier 96+ min on glaeda-side-std-xcode-26.6 behind ordinary PR jobs. A pure re-pin (path_route's
+        ffi_repin: exactly those two files, the pin moved and nothing else) on that branch takes the stack-blocker
+        route, the nightly slot, unlabelled; an ordinary PR, or a PR on that branch touching other files, does not."""
+        slot = "glaeda-nightly-std-xcode-26.6"
+        place = next(step for step in self.workflow()["jobs"][self.PLACEMENT]["steps"] if step.get("id") == "place")
+        self.assertIn("path_route", self.workflow()["jobs"][self.PLACEMENT]["needs"])
+        expression = place["env"]["STACK_SLOT"]
+        for name, head_ref, repin, fork, attempt, event_name, want in (
+                ("the re-pin PR", "app-ffi-repin", "true", False, "1", "pull_request", slot),
+                ("an ordinary PR", "feature-x", "false", False, "1", "pull_request", ""),
+                ("a pure re-pin diff on another branch", "feature-x", "true", False, "1", "pull_request", ""),
+                ("the re-pin branch touching other files", "app-ffi-repin", "false", False, "1", "pull_request", ""),
+                ("the re-pin branch, route unread", "app-ffi-repin", None, False, "1", "pull_request", ""),
+                ("a fork's branch of that name", "app-ffi-repin", "true", True, "1", "pull_request", ""),
+                ("a rescue re-run", "app-ffi-repin", "true", False, "2", "pull_request", ""),
+                ("a push", "app-ffi-repin", "true", False, "1", "push", "")):
+            with self.subTest(name):
+                context = self.context(attempt=attempt, fork=fork)
+                context["github"]["head_ref"] = head_ref
+                context["github"]["event"]["pull_request"]["head"]["ref"] = head_ref
+                context["github"]["event_name"] = event_name
+                outputs = context["needs"]["path_route"]["outputs"]
+                if repin is None:
+                    outputs.pop("ffi_repin", None)
+                else:
+                    outputs["ffi_repin"] = repin
+                self.assertEqual(evaluate(expression, context), want)
+
     def test_a_stack_blocker_pull_request_runs_its_mac_jobs_on_the_nightly_slot(self):
         """STACK_SLOT (cmux#45498, 2026-11-17): a labelled same-repository PR's Mac jobs take the nightly slot, a label
         no other PR job asks for, instead of queueing behind the side label's backlog. The placement's real output,
