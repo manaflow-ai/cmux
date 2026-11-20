@@ -1712,28 +1712,36 @@ body {
   background: var(--cmux-md-accent-background);
 }
 
+/* Each depth sets its dash's inset (`--md-dash-inset`); the dash fills the rest of the rail. */
 .md-outline-dash {
+  --md-dash-inset: 0%;
   flex: 0 0 auto;
   height: 2px;
-  width: 100%;
+  width: calc(100% - var(--md-dash-inset));
+  margin-left: var(--md-dash-inset);
   border-radius: 1px;
   background: var(--cmux-md-faint-color);
   opacity: 0.7;
 }
 
 .md-outline-dash[data-depth="1"] {
-  width: 75%;
-  margin-left: 25%;
+  --md-dash-inset: 25%;
 }
 
 .md-outline-dash[data-depth="2"],
 .md-outline-dash[data-depth="3"] {
-  width: 50%;
-  margin-left: 50%;
+  --md-dash-inset: 50%;
 }
 
+/* The current section: the accent color, thicker, and reaching 4px further left than its level's
+   dash, so it reads at a glance in light and dark. */
 .md-outline-dash[data-active] {
-  background: var(--cmux-md-text-color);
+  height: 3px;
+  margin-block: -0.5px;
+  width: calc(100% - var(--md-dash-inset) + 4px);
+  margin-left: calc(var(--md-dash-inset) - 4px);
+  border-radius: 1.5px;
+  background: var(--cmux-md-link-color);
   opacity: 1;
 }
 
