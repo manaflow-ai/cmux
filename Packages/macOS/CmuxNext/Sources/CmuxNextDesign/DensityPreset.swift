@@ -61,10 +61,13 @@ public nonisolated enum DensityPreset: String, Sendable, CaseIterable {
         // 5 pt, Chrome's tab top) and the omnibar row's gap (Chrome's 6 pt, ``chromeToolbarGap``). Ultra-compact and Compact
         // keep Default-times-their-factor's 3 pt.
         if t >= 1 {
-            let padding = Double(DensityTokens.half(Self.defaultStripPadding * t))
+            // Spacious's 37.5 pt bar takes half-point gaps, 6.5 and 7.5 (Lucas 2026-11-21): with 6 and 7 its toolbar row
+            // put the bar where AppKit drew it 0.5 pt taller (`OmnibarDensityTests.nothingClipsOrOverlaps`).
+            let nudge = self == .spacious ? Self.spaciousGapNudge : 0
+            let padding = Double(DensityTokens.half(Self.defaultStripPadding * t)) + nudge
             sizes["browserRowGap"] = padding
             sizes["tabStripHeight"] = rowHeight + 2 * padding
-            sizes["omnibarRowGap"] = Double(DensityTokens.half(Self.chromeToolbarGap * t))
+            sizes["omnibarRowGap"] = Double(DensityTokens.half(Self.chromeToolbarGap * t)) + nudge
         }
         // Compact's tabs sit a point further from the omnibar than their strip padding (Lucas 2026-11-20: "give compact 1
         // more px of bottom padding below the tab"): 3.5 pt from the tab pills to the bar, 2.5 above the tabs and under the bar.
@@ -104,6 +107,8 @@ public nonisolated enum DensityPreset: String, Sendable, CaseIterable {
     /// The sizes ``omnibarScaleFactor`` scales: every `omnibar*` token and the toolbar glyphs beside the bar.
     static func isOmnibarToken(_ key: String) -> Bool { key.hasPrefix("omnibar") || key == "toolbarGlyphSize" }
 
+    /// What Spacious's strip padding and omnibar row gap add to Default's times 1.2, so its half-point bar keeps whole-point rows.
+    static let spaciousGapNudge: Double = 0.5
     /// What Compact's gap from its tabs to the omnibar adds to its strip padding (`tabToOmnibarGap`).
     static let compactTabToOmnibarExtra: Double = 1
     /// Default's location bar: Chrome's 34 pt (`kLocationBarHeight` in Chrome's layout constants).

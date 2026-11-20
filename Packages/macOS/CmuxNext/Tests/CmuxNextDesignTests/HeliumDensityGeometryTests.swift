@@ -20,10 +20,11 @@ import Testing
     }
 
     /// The strip padding: Default's 3 pt times the factor below Default, and Default's own 5 (`defaultStripPadding`,
-    /// Lucas 2026-11-20) times the factor from Default up: 5, 5.5 and 6.
+    /// Lucas 2026-11-20) times the factor from Default up: 5, 5.5 and 6.5 (Spacious's half point more, `spaciousGapNudge`).
     nonisolated static func stripPadding(_ preset: DensityPreset) -> CGFloat {
         switch preset {
-        case .cozy, .comfortable, .spacious: return CGFloat((DensityPreset.defaultStripPadding * preset.scaleFactor * 2).rounded() / 2)
+        case .cozy, .comfortable: return CGFloat((DensityPreset.defaultStripPadding * preset.scaleFactor * 2).rounded() / 2)
+        case .spacious: return CGFloat((DensityPreset.defaultStripPadding * preset.scaleFactor * 2).rounded() / 2 + DensityPreset.spaciousGapNudge)
         default: return CGFloat((3 * preset.scaleFactor * 2).rounded() / 2)
         }
     }

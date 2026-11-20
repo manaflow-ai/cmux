@@ -225,8 +225,8 @@
     "tokens": {
       "sidebarRowHeight": 33.5,
       "browserRowHeight": 36,
-      "browserRowGap": 6,
-      "tabStripHeight": 48,
+      "browserRowGap": 6.5,
+      "tabStripHeight": 49,
       "tabTitleSize": 16.8,
       "sidebarTitleSize": 16.8,
       "chatEditorMin": 42,
@@ -266,7 +266,7 @@
       "omnibarPopupBottomPadding": 5,
       "densityScale": 1.2,
       "composerZoom": 1.2,
-      "omnibarRowGap": 7
+      "omnibarRowGap": 7.5
     }
   }
 ]

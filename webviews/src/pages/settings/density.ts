@@ -114,9 +114,11 @@ function preset(id: string, name: string, nameKey: string, factor: number, row: 
   // Default and the densities above it take Default's Chrome spacing times their factor (Swift `DensityPreset`): the strip
   // padding (Default's 5 pt) and the omnibar row's gap (Chrome's 6 pt). Ultra-compact and Compact keep 3 pt times theirs.
   if (factor >= 1) {
-    tokens.browserRowGap = half(DEFAULT_STRIP_PADDING * factor);
+    // Spacious's half-point bar takes half-point gaps (Swift `DensityPreset.spaciousGapNudge`).
+    const nudge = id === "spacious" ? 0.5 : 0;
+    tokens.browserRowGap = half(DEFAULT_STRIP_PADDING * factor) + nudge;
     tokens.tabStripHeight = row + 2 * tokens.browserRowGap;
-    tokens.omnibarRowGap = half(CHROME_TOOLBAR_GAP * factor);
+    tokens.omnibarRowGap = half(CHROME_TOOLBAR_GAP * factor) + nudge;
   }
   // Compact's tabs sit a point further from the omnibar than their strip padding (Swift `DensityPreset`, `tabToOmnibarGap`).
   if (id === "compact") tokens.tabToOmnibarGap = half(3 * factor) + 1;
