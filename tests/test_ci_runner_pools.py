@@ -335,6 +335,18 @@ class Evidence(unittest.TestCase):
         self.assertEqual(started, {"blacksmith-32vcpu-ubuntu-2404"})
         self.assertEqual(runner_pools._labels("a,b+c"), {"a", "b", "c"})
 
+    def test_a_starved_owned_linux_label_is_dead_for_routing(self) -> None:
+        # router-review F3 on cmux#47794: a snapshot confirming a fleet outage must move the x64 pools off it.
+        snapshot = dict(copy.deepcopy(RECORDED), pools={}, dead_labels=[],
+                        starved=[{"label": "cmux-fleet-linux-x64", "oldest_queued_minutes": 40}])
+        dead, _, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
+        self.assertIn("cmux-fleet-linux-x64", dead)
+        # A starved glaeda Mac pool is not a pool member and stays unread.
+        snapshot["starved"] = [{"label": "glaeda-trusted-std-xcode-26.6", "oldest_queued_minutes": 40}]
+        dead, _, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
+        self.assertNotIn("glaeda-trusted-std-xcode-26.6", dead)
+        self.assertNotIn("cmux-fleet-linux-x64", dead)
+
     def test_probe_health_per_label(self) -> None:
         fresh = dict(copy.deepcopy(RECORDED), label_started={})
         dead, started, _ = runner_pools.label_evidence(health({

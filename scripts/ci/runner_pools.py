@@ -32,8 +32,9 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
     (started_nothing_while_queued(): the queue is not first in, first out, so the wait alone
     proves nothing), and the dead-label entries
     (`dead_labels`, cmux#27114: `label` joined with "," and `live`, members that started jobs).
-    The snapshot's `starved` and `unserved` describe owned (glaeda-*) labels, which are never
-    pool members, so they are not read;
+    The snapshot's `starved` entries for OWNED_LINUX mark it dead (a fleet outage); its other
+    `starved` and `unserved` entries describe owned glaeda-* labels, which are never pool members,
+    so they are not read;
   - a label whose `label_started` is within RECENT_START is serving and never dead, whatever the
     probe saw (recently_started()): under Blacksmith's org vCPU cap a probe can wait out its
     minutes on a size that keeps starting jobs. This holds for a truncated snapshot too (the queue
@@ -676,6 +677,13 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
                 live = entry.get("live")
                 if isinstance(live, list):
                     started |= {str(label) for label in live if isinstance(label, str)}
+        # Our own one-job Linux label never shows in `pools` (the janitor lists Blacksmith queues there): its outage
+        # shows in `starved`. A starved OWNED_LINUX is dead for routing, so every x64 pool falls to its Blacksmith
+        # sizes instead of waiting on a stalled fleet (router-review BLOCK F3 on cmux#47794). Other owned labels
+        # (glaeda-* Mac pools) are never pool members and stay unread.
+        for entry in snapshot.get("starved") or ():
+            if isinstance(entry, Mapping):
+                dead |= _labels(entry.get("label")) & OWNED_LINUX
     if stalls - started:
         notes.append(f"probe stalled on {', '.join(sorted(stalls - started))} with no fresh janitor snapshot to tell a "
                      "dead size from a full vCPU cap; no new dead mark")
