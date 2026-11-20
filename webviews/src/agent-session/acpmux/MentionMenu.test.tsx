@@ -1,7 +1,7 @@
-// The composer's @ picker (Claude desktop parity, 2026-10-19): what follows the @ matches other
-// chats by title, then folders, then files of the chat's folder, in that order, each row with its
-// icon, its name with the matched letters bold and its project or folder muted beside it. A pick
-// writes what the agent reads: a path for a file or folder, the chat's title and id for a chat.
+// The composer's @ picker (Codex parity, 2026-11-21): the plugins (computer use, browser use), then,
+// for a specific word, folders and files of the chat's folder, each row with its icon, its name with
+// the matched letters bold and its line or folder muted beside it. No chats. A pick writes what the
+// agent reads: a path for a file or folder, `@computer-use` for a plugin.
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -21,7 +21,6 @@ import {
   rememberMentionPath,
   type MentionItem,
 } from "./mentionItems";
-import type { AcpmuxSessionEntry } from "./sessionList";
 import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
@@ -58,23 +57,6 @@ afterEach(async () => {
   saved.clear();
 });
 
-const SESSIONS: AcpmuxSessionEntry[] = [
-  { sessionId: "this-chat-0000-0000-0000-000000000000", title: "Projects cleanup", cwd: "/Users/leo/Projects" },
-  {
-    sessionId: "0cfd5322-a913-4e01-b71c-aaf0edfb4de8",
-    displayTitle: "Resume: projects-70 coordinator (0cfd5322)",
-    cwd: "/Users/leo/Projects",
-    updatedAt: 2,
-  },
-  {
-    sessionId: "4f1e0c11-7a2b-4c3d-9e8f-0a1b2c3d4e5f",
-    title: "Fix the dock",
-    cwd: "/Users/leo/Projects/cmux",
-    updatedAt: 3,
-  },
-  { sessionId: "9a9a9a9a-0000-4000-8000-000000000001", title: "Old projection notes", archived: true },
-];
-
 const FILES = {
   kind: "done",
   results: [
@@ -103,37 +85,28 @@ async function render(
 const rows = (container: HTMLElement) => Array.from(container.querySelectorAll<HTMLElement>(".acpmux-mention-row"));
 const bold = (row: HTMLElement) => Array.from(row.querySelectorAll("b"), (node) => node.textContent).join("");
 
-test("@proje lists other chats, then folders, then files, each with its icon, bold match and muted place", async () => {
+test("@proje lists folders, then files, each with its icon, bold match and muted place: no chats", async () => {
   const container = installDom();
-  const items = mentionItems({
-    query: "proje",
-    files: FILES.results,
-    sessions: SESSIONS,
-    chatId: SESSIONS[0]!.sessionId,
-  });
+  const items = mentionItems({ query: "proje", files: FILES.results });
   await render(container, items);
   const listed = rows(container).map((row) => [
     row.dataset.mentionKind,
     row.querySelector(".acpmux-slash-name")?.textContent,
   ]);
   expect(listed).toEqual([
-    // This chat and archived chats are not offered.
-    ["session", "Resume: projects-70 coordinator (0cfd5322)"],
     ["folder", "projects"],
     ["file", "project.yml"],
     ["file", "sync_project.py"],
     ["file", "pyproject.toml"],
     ["file", "a.jsonl"],
   ]);
-  const [session, folder, file] = rows(container);
-  // The chat's project is its muted suffix; a path's folder is.
-  expect(session!.querySelector(".acpmux-slash-description")?.textContent).toBe("Projects");
+  const [folder, file] = rows(container);
+  // A path's folder is its muted suffix.
   expect(folder!.querySelector(".acpmux-slash-description")?.textContent).toBe("plans/feat-resume/claude");
   expect(file!.querySelector(".acpmux-slash-description")?.textContent).toBe("terminal-lab/ios");
-  expect(bold(session!)).toBe("proje");
   expect(bold(folder!)).toBe("proje");
   expect(bold(file!)).toBe("proje");
-  // Every row draws its own icon (a chat, a folder, a file), not the pack's stand-in for a missing one.
+  // Every row draws its own icon (a folder, a file), not the pack's stand-in for a missing one.
   for (const row of rows(container)) {
     const icon = row.querySelector<SVGElement>("[data-mention-icon] svg");
     expect(icon?.querySelector("path")?.getAttribute("d")).toBeTruthy();
@@ -142,26 +115,22 @@ test("@proje lists other chats, then folders, then files, each with its icon, bo
   expect(file!.querySelector("[data-mention-icon]")?.getAttribute("data-mention-icon")).toBe("file");
 });
 
-test("a bare @ offers the most recent other chats, then computer use and browser use", async () => {
+test("a bare @ offers computer use and browser use, and no chats", async () => {
   const container = installDom();
   const items = mentionItems({
     query: "",
     files: [],
-    sessions: SESSIONS,
-    chatId: SESSIONS[0]!.sessionId,
     toolName: (tool) => (tool.id === "computer-use" ? "Computer use" : "Browser use"),
   });
   await render(container, items);
   expect(rows(container).map((row) => row.querySelector(".acpmux-slash-name")?.textContent)).toEqual([
-    "Fix the dock",
-    "Resume: projects-70 coordinator (0cfd5322)",
     "Computer use",
     "Browser use",
   ]);
 });
 
 test("computer use and browser use are always offered, found by their name's start, and write one word", () => {
-  const keys = (query: string) => mentionItems({ query, files: [], sessions: [] }).map((item) => item.key);
+  const keys = (query: string) => mentionItems({ query, files: [] }).map((item) => item.key);
   expect(keys("")).toEqual(["tool:computer-use", "tool:browser-use"]);
   expect(keys("comp")).toEqual(["tool:computer-use"]);
   expect(keys("BROW")).toEqual(["tool:browser-use"]);
@@ -169,7 +138,7 @@ test("computer use and browser use are always offered, found by their name's sta
   // A word that names neither (a file's) lists no tool, and a path never does.
   expect(keys("app")).toEqual([]);
   expect(keys("computer-use/")).toEqual([]);
-  const [computer] = mentionItems({ query: "comp", files: [], sessions: [], toolName: () => "Computer use" });
+  const [computer] = mentionItems({ query: "comp", files: [], toolName: () => "Computer use" });
   expect(computer?.name).toEqual([
     { text: "Comp", matched: true },
     { text: "uter use", matched: false },
@@ -177,11 +146,9 @@ test("computer use and browser use are always offered, found by their name's sta
   expect(mentionInsert(computer!).shown).toBe("@computer-use ");
   // The plugin a word names leads the files it also finds, as Codex's @ does; a short word lists no files.
   const browse = [{ path: "src/browse.ts", matches: [4, 5, 6, 7] }];
-  const files = mentionItems({ query: "brow", files: browse, sessions: [] });
+  const files = mentionItems({ query: "brow", files: browse });
   expect(files.map((item) => item.key)).toEqual(["tool:browser-use", "file:src/browse.ts"]);
-  expect(mentionItems({ query: "bro", files: browse, sessions: [] }).map((item) => item.key)).toEqual([
-    "tool:browser-use",
-  ]);
+  expect(mentionItems({ query: "bro", files: browse }).map((item) => item.key)).toEqual(["tool:browser-use"]);
 });
 
 test("a harness mention is offered as a read-only guest and inserts its target token", () => {
@@ -191,7 +158,7 @@ test("a harness mention is offered as a read-only guest and inserts its target t
     { id: "router", name: "Router", models: [], pickable: true, kind: "cmux-router" },
     { id: "offline", name: "Offline", models: [], pickable: true, unavailable: "missing" },
   ];
-  const items = mentionItems({ query: "cod", files: [], sessions: [], harnesses: catalog });
+  const items = mentionItems({ query: "cod", files: [], harnesses: catalog });
   expect(items.map((item) => item.key)).toEqual(["harness:codex"]);
   expect(mentionInsert(items[0]!).shown).toBe("@codex ");
 });
@@ -237,11 +204,10 @@ test("a bare @ offers no recent files; a specific word fuzzy-matches them", () =
       { kind: "file", path: "docs/README.md" },
       { kind: "file", path: "src/app.ts" },
     ],
-    sessions: [],
   });
   expect(recent.map((item) => item.key)).toEqual(["tool:computer-use", "tool:browser-use"]);
   expect(
-    mentionItems({ query: "rdme", files: [], recent: [{ kind: "file", path: "docs/README.md" }], sessions: [] }).map(
+    mentionItems({ query: "rdme", files: [], recent: [{ kind: "file", path: "docs/README.md" }] }).map(
       (item) => item.key,
     ),
   ).toEqual(["file:docs/README.md"]);
@@ -252,7 +218,6 @@ test("with a query, the host's results come before recent picks it did not retur
     query: "app.t",
     files: [{ path: "src/app.tsx", matches: [4, 5, 6, 7, 8] }],
     recent: [{ kind: "file", path: "old/app.ts" }],
-    sessions: [],
   });
   expect(items.filter((item) => item.kind === "file").map((item) => item.key)).toEqual([
     "file:src/app.tsx",
@@ -273,10 +238,10 @@ test("recent picks are kept per project and host, and a picked folder is remembe
     const here = recentMentionScope("/home/dev/api", undefined);
     const there = recentMentionScope("/home/dev/web", undefined);
     const remote = recentMentionScope("/home/dev/api", "build-box");
-    const [folder] = mentionItems({ query: "sour", files: [{ path: "source/app.ts" }], sessions: [] });
+    const [folder] = mentionItems({ query: "sour", files: [{ path: "source/app.ts" }] });
     expect(folder?.kind).toBe("folder");
     rememberMentionPath(here, folder!);
-    const file = mentionItems({ query: "source", files: [{ path: "source/app.ts" }], sessions: [] }).find(
+    const file = mentionItems({ query: "source", files: [{ path: "source/app.ts" }] }).find(
       (item) => item.kind === "file",
     );
     rememberMentionPath(here, file!);
@@ -289,7 +254,7 @@ test("recent picks are kept per project and host, and a picked folder is remembe
     // No folder: nothing is kept.
     rememberMentionPath(recentMentionScope(undefined, undefined), file!);
     expect(loadRecentMentionPaths(undefined)).toEqual([]);
-    const bare = mentionItems({ query: "sour", files: [], recent: loadRecentMentionPaths(here), sessions: [] });
+    const bare = mentionItems({ query: "sour", files: [], recent: loadRecentMentionPaths(here) });
     const paths = bare.filter((item) => item.kind !== "tool");
     expect(paths.map((item) => item.key)).toEqual(["folder:source", "file:source/app.ts"]);
     expect(mentionInsert(paths[0]!).shown).toBe(mentionInsert(folder!).shown);
@@ -301,12 +266,7 @@ test("recent picks are kept per project and host, and a picked folder is remembe
 
 test("picking a row hands back the row, and each kind writes what the agent reads", async () => {
   const container = installDom();
-  const items = mentionItems({
-    query: "proje",
-    files: FILES.results,
-    sessions: SESSIONS,
-    chatId: SESSIONS[0]!.sessionId,
-  });
+  const items = mentionItems({ query: "proje", files: FILES.results });
   const picked = await render(container, items);
   const mouseDown = (row: HTMLElement) =>
     act(async () => {
@@ -314,134 +274,32 @@ test("picking a row hands back the row, and each kind writes what the agent read
     });
   await mouseDown(rows(container)[0]!);
   await mouseDown(rows(container)[1]!);
-  await mouseDown(rows(container)[2]!);
   expect(picked.map((item) => mentionInsert(item).shown)).toEqual([
-    'cmux session "Resume: projects-70 coordinator (0cfd5322)" (0cfd5322-a913-4e01-b71c-aaf0edfb4de8) ',
     "@plans/feat-resume/claude/projects/ ",
     "@terminal-lab/ios/project.yml ",
   ]);
 });
 
-test("a long history lists its five best chats, best first and ties in history order", () => {
-  const history: AcpmuxSessionEntry[] = Array.from({ length: 2000 }, (_, index) => ({
-    sessionId: `chat-${index}`,
-    title: `Chat ${index}`,
-    // Recency repeats, so ties have to keep the order the history lists them in.
-    updatedAt: index % 700,
-  }));
-  const names = (query: string) =>
-    mentionItems({ query, files: [], sessions: history }).flatMap((item) =>
-      item.kind === "session" ? [item.title] : [],
-    );
-  expect(names("")).toEqual(["Chat 699", "Chat 1399", "Chat 698", "Chat 1398", "Chat 697"]);
-  // The composer never sends a space (it ends the @word), so a chat is found by one word of it.
-  expect(names("1999")).toEqual(["Chat 1999"]);
-});
-
-test("an emoji in a chat's name bolds whole, and the letters after it bold where they are", async () => {
-  const container = installDom();
-  const sessions: AcpmuxSessionEntry[] = [{ sessionId: "emoji-chat", title: "Ship 😀launch" }];
-  await render(container, mentionItems({ query: "😀la", files: [], sessions }));
-  expect(bold(rows(container)[0]!)).toBe("😀la");
-  await render(container, mentionItems({ query: "😀", files: [], sessions }));
-  expect(bold(rows(container)[0]!)).toBe("😀");
-});
-
-test("a chat named across lines is offered and written on one line", async () => {
-  const container = installDom();
-  const sessions: AcpmuxSessionEntry[] = [{ sessionId: "multi-line", displayTitle: "Task\n# heading\n- item" }];
-  const items = mentionItems({ query: "task", files: [], sessions });
-  await render(container, items);
-  expect(rows(container)[0]!.querySelector(".acpmux-slash-name")?.textContent).toBe("Task # heading - item");
-  const { markdown, shown } = mentionInsert(items[0]!);
-  expect(shown).toBe('cmux session "Task # heading - item" (multi-line) ');
-  expect(markdown).not.toContain("\n");
-});
-
-// A chat named for its first prompt has the whole prompt as its title (sessionList.ts sessionTitle):
-// its letters hold most short queries in order, and Return would write the chat for a file.
-const PROMPT_CHAT: AcpmuxSessionEntry = {
-  sessionId: "prompt-chat",
-  displayTitle:
-    "Can you add a parser for the plist files and make sure the tests pass on every platform we support, then update the app docs",
-  updatedAt: 5,
-};
-
-test("a chat named for a long prompt does not take @docs from the files", () => {
-  const files = [{ path: "docs/guide.md", matches: [0, 1, 2, 3] }];
-  const items = mentionItems({ query: "docs", files, sessions: [PROMPT_CHAT] });
-  // `docs` is a word of its title only past the first hundred characters.
-  expect(items.map((item) => item.key)).toEqual(["folder:docs", "file:docs/guide.md"]);
-  expect(items.some((item) => item.kind === "session")).toBe(false);
-  expect(mentionItems({ query: "ts", files: [], sessions: [PROMPT_CHAT] })).toEqual([]);
-});
-
-test("a chat whose title has the word lists first; a path-like word lists the files first", () => {
-  const sessions: AcpmuxSessionEntry[] = [
-    PROMPT_CHAT,
-    { sessionId: "app-store", title: "App Store review notes", updatedAt: 1 },
-    { sessionId: "web-app", title: "Fix the web app login", updatedAt: 2 },
-    { sessionId: "mid-word", title: "Wrapped lines", updatedAt: 3 },
-  ];
-  const files = [{ path: "src/app.ts", matches: [4, 5, 6] }];
-  const keys = (query: string) => mentionItems({ query, files, sessions }).map((item) => item.key);
-  // A title starting with it first, then by how early the word is; `wrApped` is not a word start.
-  // A short word lists the chats only: its files wait for a more specific word.
-  expect(keys("app")).toEqual(["session:app-store", "session:web-app"]);
-  expect(keys("app.")).toEqual(["file:src/app.ts"]);
-  expect(keys("src/")).toEqual(["file:src/app.ts"]);
-  const pathFirst = mentionItems({ query: "app.", files, sessions: [{ sessionId: "a", title: "app.ts crash" }] });
-  expect(pathFirst.map((item) => item.kind)).toEqual(["file", "session"]);
-});
-
-test("while the files are on their way a chat is listed but not picked unasked", () => {
-  const sessions: AcpmuxSessionEntry[] = [{ sessionId: "app-store", title: "Store review notes" }];
-  const before = mentionItems({ query: "store", files: [], sessions });
-  expect(mentionSelection(before, undefined, true)).toBe(-1);
-  // Moving to it picks it; once the files land, the first row is the pick.
-  expect(mentionSelection(before, "session:app-store", true)).toBe(0);
-  const after = mentionItems({ query: "store", files: [{ path: "src/store.ts", matches: [4, 5, 6, 7, 8] }], sessions });
-  expect(mentionSelection(after, undefined, true)).toBe(1);
-  expect(mentionSelection(after, undefined, false)).toBe(0);
-});
-
 test("the row moved to stays picked when the files land around it", () => {
-  const sessions: AcpmuxSessionEntry[] = [
-    { sessionId: "app-store", title: "App Store review notes" },
-    { sessionId: "web-app", title: "Fix the web app login" },
-  ];
-  const before = mentionItems({ query: "app", files: [], sessions });
-  const after = mentionItems({ query: "app", files: [{ path: "app/main.ts", matches: [0, 1, 2] }], sessions });
-  expect(before[mentionSelection(before, "session:web-app", false)]!.key).toBe("session:web-app");
-  expect(after[mentionSelection(after, "session:web-app", false)]!.key).toBe("session:web-app");
+  const before = mentionItems({ query: "brow", files: [] });
+  const after = mentionItems({ query: "brow", files: [{ path: "browse/main.ts", matches: [0, 1, 2, 3] }] });
+  expect(before[mentionSelection(before, "tool:browser-use")]!.key).toBe("tool:browser-use");
+  expect(after[mentionSelection(after, "tool:browser-use")]!.key).toBe("tool:browser-use");
+  expect(after[mentionSelection(after, "file:browse/main.ts")]!.key).toBe("file:browse/main.ts");
   // A row that is gone falls back to the first.
-  expect(mentionSelection(after, "file:gone.ts", false)).toBe(0);
+  expect(mentionSelection(after, "file:gone.ts")).toBe(0);
 });
 
-test("a letter that lowercases longer does not move the bold letters after it", async () => {
-  const container = installDom();
-  // `İ` is one string unit and lowercases to two (`i̇`).
-  const sessions: AcpmuxSessionEntry[] = [{ sessionId: "istanbul", title: "İstanbul trip plan" }];
-  await render(container, mentionItems({ query: "trip", files: [], sessions }));
-  expect(bold(rows(container)[0]!)).toBe("trip");
-  await render(container, mentionItems({ query: "i̇stan", files: [], sessions }));
-  expect(bold(rows(container)[0]!)).toBe("İstan");
-  // A folder's name is matched the same way.
+test("a letter that lowercases longer does not move the bold letters after it", () => {
+  // `İ` is one string unit and lowercases to two (`i̇`): a folder's name keeps its bold letters in place.
   expect(fuzzyIndices("pl", "İ-pl")).toEqual([2, 3]);
   expect(fuzzyIndices("ipl", "İxpxl")).toEqual([0, 2, 4]);
-});
-
-test("a chat title with a quote is written as one quoted string", () => {
-  const [item] = mentionItems({ query: "say", files: [], sessions: [{ sessionId: "q", title: 'Say "hi" \\ bye' }] });
-  const { shown } = mentionInsert(item!);
-  expect(shown).toBe('cmux session "Say \\"hi\\" \\\\ bye" (q) ');
-  expect(JSON.parse(shown.slice("cmux session ".length, shown.lastIndexOf(" (")))).toBe('Say "hi" \\ bye');
 });
 
 test("the file search says nothing under rows that work: no error under a plugin, only an empty menu speaks", async () => {
   const container = installDom();
   const note = () => container.ownerDocument.querySelector(".acpmux-file-note, .acpmux-file-loading-note");
-  const tools = mentionItems({ query: "comp", files: [], sessions: [] });
+  const tools = mentionItems({ query: "comp", files: [] });
   await render(container, tools, [], { kind: "failed" });
   expect(note()).toBeNull();
   await render(container, [], [], { kind: "failed" });

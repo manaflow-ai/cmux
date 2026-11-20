@@ -1,30 +1,23 @@
-// What the composer's @ picker lists (MentionMenu.tsx), the way Claude desktop's does: other chats
-// by title, then folders, then files of the chat's folder. Files come from the host's search
-// (`file.search`, fileSearchModel.ts) with its ranking and matched letters; folders are matched
-// here as the path picker's fuzzy filter ranks a name (viewer-empty/fuzzy.ts), and chats by a word
-// of their title (titleMatch).
+// What the composer's @ picker lists (MentionMenu.tsx), as Codex's @ does: the plugins (computer use,
+// browser use), another installed harness to ask, then folders and files of the chat's folder once the
+// word is specific. No chats (Lucas 2026-11-21): a chat is found in the sidebar and All chats. Files
+// come from the host's search (`file.search`, fileSearchModel.ts) with its ranking and matched
+// letters; folders are matched here as the path picker's fuzzy filter ranks a name (viewer-empty/fuzzy.ts).
 import { fuzzyScore } from "../../viewer-empty/fuzzy";
 import { matchRuns, type FileMatch, type Run } from "./fileSearchModel";
 import { mentionText } from "./mentionMenuModel";
-import { isAgentHome, listed, projectLabel, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
 import type { AcpmuxSnapshot } from "./model";
 import { isModelRouterKind } from "./routerKinds";
 import { toolMentionsFor, type ToolMention, type ToolMentionId } from "./toolMentions";
 
 export type MentionItem =
-  | { kind: "session"; key: string; sessionId: string; title: string; project?: string; name: Run[] }
   | { kind: "harness"; key: string; harnessId: string; family?: string; name: Run[] }
   /** A built-in tool (toolMentions.ts), named from the pane's table (`toolName`). */
   | { kind: "tool"; key: string; toolId: ToolMentionId; icon: string; name: Run[] }
   | { kind: "folder" | "file"; key: string; path: string; name: Run[]; dir: Run[] };
 
-/// How many chats and folders the picker lists ahead of the files.
-export const MENTION_SESSIONS = 5;
+/// How many folders the picker lists ahead of the files.
 export const MENTION_FOLDERS = 3;
-
-/// How much of a chat's title a word is matched against: a chat named for its first prompt has the
-/// whole prompt as its title, and a word deep in it says little about the chat.
-export const MENTION_TITLE_CHARS = 100;
 const RECENT_MENTION_PATHS_KEY = "cmux.acpmux.recentMentionPaths";
 const RECENT_MENTION_PATHS_LIMIT = 12;
 
@@ -63,7 +56,7 @@ export function loadRecentMentionPaths(scope: string | undefined): RecentMention
 }
 
 export function rememberMentionPath(scope: string | undefined, item: MentionItem): void {
-  if (!scope || item.kind === "session" || item.kind === "harness" || item.kind === "tool") return;
+  if (!scope || item.kind === "harness" || item.kind === "tool") return;
   const picked: RecentMention = { kind: item.kind, path: item.path };
   const next = [
     picked,
@@ -127,77 +120,6 @@ export function fuzzyIndices(query: string, text: string): number[] | undefined 
   }
   return ascending(out);
 }
-
-/// Whether a word starts at string index `index` of `text`: at its start, after a character that
-/// is not a letter or digit, or at a lower-to-upper case change (`fileSearch`).
-function wordStart(text: string, index: number): boolean {
-  if (index === 0) return true;
-  const before = text[index - 1]!;
-  if (!/[\p{L}\p{N}]/u.test(before)) return true;
-  const char = text[index]!;
-  return before !== before.toUpperCase() && char !== char.toLowerCase();
-}
-
-/// How well `query` names a chat titled `title`, and its letters there. It matches only as one run
-/// that starts a word in the title's first MENTION_TITLE_CHARS: a chat named for its first prompt
-/// holds most short queries (`app`, `ts`) as letters in order, which says nothing of the chat. A
-/// title that starts with the query ranks first, then one with it in an earlier word. Undefined
-/// when it does not match.
-export function titleMatch(query: string, title: string): { score: number; indexes: number[] } | undefined {
-  const q = folded(query).text;
-  if (!q) return { score: 0, indexes: [] };
-  const head = title.slice(0, MENTION_TITLE_CHARS);
-  const t = folded(head);
-  for (let at = t.text.indexOf(q); at >= 0; at = t.text.indexOf(q, at + 1)) {
-    const index = t.at[at]!;
-    // Not from the middle of one character's lowercase (the dot of `i̇`), and at a word's start.
-    if ((at > 0 && t.at[at - 1] === index) || !wordStart(head, index)) continue;
-    const indexes = new Set<number>();
-    unfold(head, t, at, at + q.length, indexes);
-    return { score: index === 0 ? MENTION_TITLE_CHARS : MENTION_TITLE_CHARS - 1 - index, indexes: ascending(indexes) };
-  }
-  return undefined;
-}
-
-/// A chat's title on one line: a custom name may hold newlines, which would turn the inserted
-/// mention into markdown blocks (a heading, a list) and move the caret off its paragraph.
-const titleOf = (entry: AcpmuxSessionEntry) =>
-  (entry.displayTitle?.trim() || sessionTitle(entry)).replace(/\s+/g, " ").trim();
-
-/// Other listed chats whose title matches `query`, best first; for no query, the most recent.
-function sessionItems(
-  sessions: readonly AcpmuxSessionEntry[],
-  chatId: string | undefined,
-  query: string,
-): MentionItem[] {
-  // One pass that keeps only the best MENTION_SESSIONS (ties keep history order): typing runs this
-  // on every key over the whole chat history, so it never sorts the history.
-  const ranked: { entry: AcpmuxSessionEntry; title: string; score: number; indexes: number[] }[] = [];
-  for (const entry of sessions) {
-    if (entry.sessionId === chatId || !listed(entry)) continue;
-    const title = titleOf(entry);
-    const match = query ? titleMatch(query, title) : { score: entry.updatedAt ?? 0, indexes: [] };
-    if (!match) continue;
-    const { score, indexes } = match;
-    if (ranked.length === MENTION_SESSIONS && score <= ranked[ranked.length - 1]!.score) continue;
-    let at = ranked.length;
-    while (at > 0 && ranked[at - 1]!.score < score) at--;
-    ranked.splice(at, 0, { entry, title, score, indexes });
-    if (ranked.length > MENTION_SESSIONS) ranked.pop();
-  }
-  return ranked.map(({ entry, title, indexes }) => ({
-    kind: "session",
-    key: `session:${entry.sessionId}`,
-    sessionId: entry.sessionId,
-    title,
-    project: entry.cwd && !isAgentHome(entry.cwd) ? projectLabel(entry.cwd) : undefined,
-    name: textRuns(title, indexes),
-  }));
-}
-
-/// Whether any chat other than `chatId` can be offered.
-export const hasOtherChats = (sessions: readonly AcpmuxSessionEntry[], chatId: string | undefined) =>
-  sessions.some((entry) => entry.sessionId !== chatId && listed(entry));
 
 /// A catalog row that can answer as a read-only guest: an installed agent harness the daemon
 /// resolves by name. A folder's own profile is not one yet: the guest path resolves only the
@@ -295,35 +217,30 @@ function folderItems(files: readonly FileMatch[], query: string): MentionItem[] 
 
 /// Whether a typed `@word` lists files (Lucas 2026-11-21, as Codex's @ lists them "only once you get very
 /// specific"): it holds a `.` or `/` (`app.ts`, `src/`), or has at least MENTION_FILE_LETTERS letters. A
-/// bare `@` or a short word lists the plugins and chats only, and asks the host for no files.
+/// bare `@` or a short word lists the plugins only, and asks the host for no files.
 export const MENTION_FILE_LETTERS = 4;
 export function mentionWantsFiles(query: string): boolean {
   const text = query.trim();
   return /[./]/.test(text) || text.length >= MENTION_FILE_LETTERS;
 }
 
-/// The picker's rows for `query`: chats, then folders, then the host's files in its order. A query
-/// with a `.` or `/` is a path (`app.ts`, `src/`), so its folders and files come before the chats.
+/// The picker's rows for `query`: the plugins and harnesses, then folders, then the host's files in
+/// its order. A query with a `.` or `/` is a path (`app.ts`, `src/`), so its folders and files come first.
 export function mentionItems({
   query,
   files,
-  sessions,
-  chatId,
   recent = [],
   harnesses = [],
   toolName = (tool) => tool.id,
 }: {
   query: string;
   files: readonly FileMatch[];
-  sessions: readonly AcpmuxSessionEntry[];
-  chatId?: string;
   recent?: readonly RecentMention[];
   harnesses?: readonly AcpmuxSnapshot["catalog"][number][];
   /** A built-in tool's name in the app's language ("Computer use"). */
   toolName?: (tool: ToolMention) => string;
 }): MentionItem[] {
   const text = query.trim();
-  const chats = sessionItems(sessions, chatId, text);
   const wantsFiles = mentionWantsFiles(text);
   const harnessRows = text ? harnessItems(harnesses, text) : [];
   // The built-in tools show for a bare @ too (CMUX-682: always offered, set up or not).
@@ -359,31 +276,24 @@ export function mentionItems({
           ...matchRuns(file.path, file.matches),
         })),
       ];
-  // A harness follows the chats: a chat row being typed toward stays put as "@c" grows to
-  // "@coord", and a bare @ (no query, so no harness) keeps its height.
-  if (/[./]/.test(text)) return [...paths, ...chats, ...harnessRows, ...toolRows];
+  if (/[./]/.test(text)) return [...paths, ...harnessRows, ...toolRows];
   // The plugins lead the paths, typed word or not, as Codex's @ lists them first (Lucas 2026-11-21):
   // files follow, and a word specific enough to name no plugin lists only them.
-  return [...chats, ...harnessRows, ...toolRows, ...paths];
+  return [...harnessRows, ...toolRows, ...paths];
 }
 
 /// The row Return or Tab picks: the one the person moved to (by key, so it stays put when the
-/// files land around it), else the first. While the files for the word are still on their way, a
-/// chat is not picked unasked: a quick `@app⏎` means the file, which lists a moment later. -1: none.
-export function mentionSelection(items: readonly MentionItem[], activeKey: string | undefined, pending: boolean) {
+/// files land around it), else the first. -1: none.
+export function mentionSelection(items: readonly MentionItem[], activeKey: string | undefined) {
   const chosen = activeKey === undefined ? -1 : items.findIndex((item) => item.key === activeKey);
   if (chosen >= 0) return chosen;
-  return pending ? items.findIndex((item) => item.kind !== "session") : items.length > 0 ? 0 : -1;
+  return items.length > 0 ? 0 : -1;
 }
 
 /// What a pick writes in place of the `@word`: a file's or folder's `@path ` (a folder's with its
-/// slash), which the agent CLIs read as a path in the chat's folder; a chat's title, quoted as a
-/// JSON string so a `"` in it does not end it, and full id, which an agent can look up with cmux
-/// and the transcript links (#22055).
+/// slash), which the agent CLIs read as a path in the chat's folder; a plugin's or harness's `@name `.
 export function mentionInsert(item: MentionItem): { markdown: string; shown: string } {
   if (item.kind === "harness") return mentionText(item.harnessId);
   if (item.kind === "tool") return mentionText(item.toolId);
-  if (item.kind !== "session") return mentionText(item.kind === "folder" ? `${item.path}/` : item.path);
-  const shown = `cmux session ${JSON.stringify(item.title)} (${item.sessionId}) `;
-  return { markdown: shown.replace(/[\\`*_[\]~<&]/g, "\\$&"), shown };
+  return mentionText(item.kind === "folder" ? `${item.path}/` : item.path);
 }
