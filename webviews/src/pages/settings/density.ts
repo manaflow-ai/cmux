@@ -109,6 +109,8 @@ function preset(id: string, name: string, nameKey: string, factor: number, row: 
   tokens.sidebarRowHeight = row - half(2 * factor);
   tokens.browserRowHeight = row;
   tokens.tabStripHeight = row + 2 * half(3 * factor);
+  // Compact's tabs sit a point further from the omnibar than their strip padding (Swift `DensityPreset`, `tabToOmnibarGap`).
+  if (id === "compact") tokens.tabToOmnibarGap = half(3 * factor) + 1;
   // Default's omnibar is Compact's (Swift `DensityPreset.omnibarScaleFactor`), on Chrome's 34 pt bar
   // (Swift `DensityPreset.chromeOmnibarHeight`) rounded at Helium's 8 on 28.
   if (id === "cozy") {
@@ -136,68 +138,11 @@ function preset(id: string, name: string, nameKey: string, factor: number, row: 
   };
 }
 
-/** Compact as the user tuned it and asked to ship (Swift `DensityPreset.compactTuned`, 2026-11-19): Default's
- *  proportions at 0.9 with a 1 pt strip padding above the tabs, between them and the omnibar, and under it. */
-const COMPACT_TUNED: Record<string, number> = {
-  browserRowGap: 1,
-  browserRowHeight: 28,
-  chatEditorMin: 31.5,
-  composerZoom: 0.9,
-  densityScale: 0.9,
-  omnibarButtonSpacing: 2.5,
-  omnibarCornerRadius: 8,
-  omnibarEdgeInset: 2,
-  omnibarExtensionsGlyphSize: 27,
-  omnibarFieldTrailingGap: 4.5,
-  omnibarFontSize: 13.753,
-  omnibarHeight: 28,
-  omnibarIconLeading: 2,
-  omnibarIconSize: 17,
-  omnibarIconViewSize: 22.5,
-  omnibarLineBoxBaseline: 1,
-  omnibarMoreGlyphSize: 20,
-  omnibarPopupBottomPadding: 3.5,
-  omnibarPopupCornerRadius: 11,
-  omnibarPopupRowCornerRadius: 7,
-  omnibarPopupRowGap: 2,
-  omnibarPopupSideOutset: 6.5,
-  omnibarPopupTopOutset: 2.5,
-  omnibarStarGlyphSize: 23.5,
-  omnibarTextGap: 4.5,
-  omnibarTrailingIconSize: 16,
-  omnibarTrailingPadding: 7,
-  rowCornerRadius: 8,
-  sidebarContentInset: 6.5,
-  sidebarIconColumn: 15,
-  sidebarIconGap: 6.5,
-  sidebarLineBoxBaseline: 1,
-  sidebarRowHeight: 24,
-  sidebarRowInset: 5.5,
-  sidebarTitleSize: 12.6,
-  tabCornerRadius: 8,
-  tabGap: 2.5,
-  tabIconSize: 15,
-  tabIconTitleGap: 6.5,
-  tabMaxWidth: 181,
-  tabStripHeight: 33,
-  tabTitleSize: 12.6,
-  toolbarGlyphSize: 22.5,
-};
-
 /** The built-ins, densest first (Swift `DensityPreset`); `name` is the catalog key of the
- * localized name. Default keeps the id `cozy` so saved files still name it. Each is Default times one factor, apart
- * from Compact, the user's tuned density. */
+ * localized name. Default keeps the id `cozy` so saved files still name it. Each is Default times one factor. */
 export const PRESETS: ReadonlyArray<Density & { nameKey: string }> = [
   preset("ultraCompact", "Ultra-compact", "settings.choice.ultraCompact", 0.8, 24),
-  {
-    id: "compact",
-    name: "Compact",
-    nameKey: "settings.choice.compact",
-    level: 0.15,
-    spacing: 0.9,
-    fontSize: 12.6,
-    tokens: { ...COMPACT_TUNED },
-  },
+  preset("compact", "Compact", "settings.choice.compact", 0.9, 28),
   preset("cozy", "Default", "settings.choice.default", 1, 30),
   preset("comfortable", "Comfortable", "settings.choice.comfortable", 1.1, 32),
   preset("spacious", "Spacious", "settings.choice.spacious", 1.2, 36),
