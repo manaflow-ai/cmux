@@ -1,6 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample prompts, replies and code), not shipped UI.
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
+import type { Play } from "../../../gallery/play";
 import { studioTranscriptLook } from "./studioTranscriptLook.experiment";
 
 const MID_TURN = chat([
@@ -24,6 +25,10 @@ const CHAT_END = chat([...MID_TURN.rows, summary(3, { status: "completed", durat
 
 const arm = { "studio-transcript-look": "studio" };
 
+const renderTranscript: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-row") !== null);
+};
+
 export default agentPaneEntry({
   id: "agent-pane.studio-transcript-look",
   title: "Studio transcript corners",
@@ -31,7 +36,7 @@ export default agentPaneEntry({
   experimental: true,
   height: 820,
   covers: ["agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript"],
-  experiment: { definition: studioTranscriptLook, script: [] },
+  experiment: { definition: studioTranscriptLook, script: [{ name: "Render the transcript", run: renderTranscript }] },
   variants: {
     "mid-turn": {
       snapshot: MID_TURN,
