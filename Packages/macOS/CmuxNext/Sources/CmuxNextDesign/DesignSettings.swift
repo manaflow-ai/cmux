@@ -44,6 +44,9 @@ public final class DesignSettings {
     public var densityTokens: DensityTokens = .compact
     /// `appearance.customDensities`: the user's own densities, in file order.
     public var customDensities: [DensityTokens] = []
+    /// Whether `densityTokens` is the active theme file's own density (its `"density"` block): then a change to it
+    /// shows but is not saved, since the file would put it back.
+    public var densityFromThemeFile = false
     /// Every density the user can pick: the built-ins, densest first, then the custom ones.
     public var availableDensities: [DensityTokens] { DensityPreset.allCases.map(\.tokens) + customDensities }
     /// The density with `id` among `availableDensities`.
