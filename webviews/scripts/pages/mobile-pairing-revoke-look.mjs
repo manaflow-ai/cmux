@@ -13,6 +13,8 @@ if (!out) throw new Error("FAST_CHECKS_OUT is required");
 fs.mkdirSync(out, { recursive: true });
 const server = spawn("bun", ["run", "dev:pages", "--host", "127.0.0.1", "--strictPort"], {
   cwd: root,
+  // Own the bun launcher and its Vite child so cleanup closes inherited output pipes too.
+  detached: true,
   env: { ...process.env, CMUX_PAGES_DEV_PORT: "4297" },
   stdio: ["ignore", "pipe", "pipe"],
 });
@@ -68,5 +70,12 @@ try {
   console.log("LIVE_FLOW_COMPLETE: default off → Labs mock → revoke one → other stays → empty");
 } finally {
   await browser?.close();
-  server.kill();
+  if (server.pid) {
+    try {
+      process.kill(-server.pid, "SIGTERM");
+    } catch (error) {
+      if (error.code !== "ESRCH") throw error;
+    }
+  }
 }
+console.log("LIVE_CAPTURE_CLEANUP_COMPLETE");
