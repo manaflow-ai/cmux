@@ -74,6 +74,18 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         }
     }
 
+    /// Gives the workspace row at `position` new content of a new height (a row update that changed its height) and moves
+    /// every row after it by the difference: one vector add of their y, as a fold; no row is built again and no key is
+    /// hashed again, so the cost is the same at 100 rows as at 10,000.
+    mutating func resizeRow(at position: Int, to height: CGFloat, content: WorkspaceRowContent) {
+        let dy = height - rows[position].height
+        rows[position].height = height
+        rows[position].content = content
+        guard dy != 0 else { return }
+        Self.shiftY(of: &rows, from: position + 1, by: dy)
+        totalHeight += dy
+    }
+
     /// Replaces the row at `position` with `row` of the same key and frame (a header's fold flag).
     mutating func setRow(_ row: SidebarRow, at position: Int) {
         rows[position] = row
