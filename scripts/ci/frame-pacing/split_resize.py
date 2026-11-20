@@ -352,7 +352,9 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
         deadline = time.monotonic() + 60
         while time.monotonic() < deadline:
             ready = driver.call("debug.agent_pane", {"action": "readiness"}, timeout=30)
-            if "error" not in ready and ready.get("pane"):
+            # The page itself, not only its pane: a seed sent before the page has loaded its debug hook times out and
+            # never lands (2026-11-20, fleet step 48feb75e: readiness named a pane, the seed timed out, 0 rows).
+            if "error" not in ready and ready.get("pane") and ready.get("document_ready") and ready.get("composer_visible"):
                 break
             time.sleep(0.5)
         chat_pane = ready.get("pane") if "error" not in ready else None
@@ -363,16 +365,22 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
             # The seed answers when the rows have committed, which can outlast the page call's 5 s on a fleet Mac
             # (all three tries timed out on 2026-11-19); the page goes on seeding. Seeding again only starts over,
             # so the chat's own row count (`chat_state`) says when it holds the seed, for up to 60 s.
-            seeded = {"sent": driver.call("debug.agent_pane", {"action": "seed_rows", "count": seed, **target},
-                                          timeout=120)}
-            deadline = time.monotonic() + 60
+            # A seed that has not landed 20 s after it was sent is sent again (each one replaces the rows), at most
+            # three times in 90 s.
+            seeded = {"sent": [], "ready": ready}
+            began = time.monotonic()
+            deadline, resend_at = began + 90, began
             while time.monotonic() < deadline:
+                if time.monotonic() >= resend_at and len(seeded["sent"]) < 3:
+                    seeded["sent"].append(driver.call("debug.agent_pane", {"action": "seed_rows", "count": seed,
+                                                                           **target}, timeout=120))
+                    resend_at = time.monotonic() + 20
                 rows = driver.call("debug.agent_pane", {"action": "chat_state", **target}, timeout=20).get("rows")
                 seeded["rows"] = rows
                 if isinstance(rows, int) and rows >= seed - 1:  # a 2800-row seed showed 2799 rows (2026-11-19)
                     break
                 time.sleep(1.0)
-            seeded["waited_s"] = round(60 - max(0.0, deadline - time.monotonic()), 1)
+            seeded["waited_s"] = round(time.monotonic() - began, 1)
             opened = {"opened": opened, "seeded": seeded}
             if not (isinstance(seeded.get("rows"), int) and seeded["rows"] >= seed - 1):
                 # A short chat measures nothing about a long one: say so instead of reporting its drags.
