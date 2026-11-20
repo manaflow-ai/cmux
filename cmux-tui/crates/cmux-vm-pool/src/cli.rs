@@ -12,7 +12,7 @@ use crate::github::{self, GitHub};
 use crate::http;
 use crate::model::{Machine, Provider, Runner, now_ms};
 use crate::plan;
-use crate::schedule::{Policy, Scheduler, feed_queued};
+use crate::schedule::{Demand, Policy, Scheduler, feed_queued, parse_demand};
 use crate::watch::Tracker;
 
 pub const HELP: &str = "\
@@ -40,6 +40,8 @@ Options:
   watch:    --since UNIX_MS  --count N  --names FILE  --timeout SECS
             --idle-only --names-out FILE [--prefix P]... [--max N]
   schedule: --feed URL --repo OWNER/NAME... --idle-minutes M (10)
+            --demand-file PATH (one line `vcpu=N mem_gib=M`, reread each tick;
+            resumes by vCPU instead of by queued job count)
             --keep-idle K (4) --tick SECS (5) [--once]
   GitHub:   --org ORG (manaflow-ai) --group GROUP (cmux-fleet-linux)
   GCP:      --project P (manaflow-437420)
@@ -76,6 +78,7 @@ struct Args {
     idle_minutes: u64,
     keep_idle: u32,
     tick_s: u64,
+    demand_file: Option<String>,
     once: bool,
     interval_ms: u64,
     label: String,
@@ -159,6 +162,7 @@ fn parse(words: &[String]) -> Result<Args, String> {
                     u32::try_from(number(flag, value(flag)?)?).map_err(|_| "--keep-idle too big")?
             }
             "--tick" => args.tick_s = number(flag, value(flag)?)?.max(1),
+            "--demand-file" => args.demand_file = Some(value(flag)?),
             "--interval-ms" => args.interval_ms = number(flag, value(flag)?)?.max(100),
             "--label" => args.label = value(flag)?,
             "--freestyle-purpose" => args.freestyle_purpose = Some(value(flag)?),
@@ -641,7 +645,22 @@ async fn schedule(
         );
         match (machines, roster, queued) {
             (Ok(machines), Ok(roster), Ok(queued)) => {
-                let decision = scheduler.tick(now_ms(), &machines, &roster, queued);
+                // The learned-size scheduler's vCPU demand when it writes one; else queued jobs.
+                let demand = match &args.demand_file {
+                    Some(path) => {
+                        match std::fs::read_to_string(path).ok().as_deref().and_then(parse_demand) {
+                            Some(vcpu) => Demand::Vcpu(vcpu),
+                            None => {
+                                eprintln!(
+                                    "cmux vm pool: schedule: {path} has no `vcpu=N`; using queued jobs"
+                                );
+                                Demand::Jobs(queued)
+                            }
+                        }
+                    }
+                    None => Demand::Jobs(queued),
+                };
+                let decision = scheduler.tick(now_ms(), &machines, &roster, demand);
                 let resume: Vec<&Machine> =
                     machines.iter().filter(|m| decision.resume.contains(&m.id)).collect();
                 let pause: Vec<&Machine> =
@@ -655,6 +674,8 @@ async fn schedule(
                         "queued": decision.queued,
                         "idle_online": decision.idle_online,
                         "starting": decision.starting,
+                        "demand_vcpu": decision.demand_vcpu,
+                        "free_vcpu": decision.free_vcpu,
                         "resumed": resumed,
                         "paused": paused,
                     });

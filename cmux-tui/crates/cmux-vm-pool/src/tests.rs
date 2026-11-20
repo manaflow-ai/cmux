@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use serde_json::json;
 
 use crate::model::{Machine, Power, Provider, Runner};
-use crate::schedule::{Policy, Scheduler, feed_queued};
+use crate::schedule::{Demand, Policy, Scheduler, feed_queued, parse_demand};
 use crate::watch::Tracker;
 use crate::{freestyle, gce, github, plan};
 
@@ -16,6 +16,7 @@ fn machine(provider: Provider, name: &str, power: Power, slots: u32) -> Machine 
         power,
         state: format!("{power:?}"),
         slots,
+        vcpu: 16,
     }
 }
 
@@ -194,11 +195,11 @@ fn scheduler_resumes_for_queued_jobs_beyond_idle_runners() {
     ];
     let roster = vec![runner("fsp-a", true, false)];
     let mut s = Scheduler::new(Policy::default());
-    let d = s.tick(0, &machines, &roster, 4);
+    let d = s.tick(0, &machines, &roster, Demand::Jobs(4));
     // 4 queued, 1 idle online: resume 3 slots' worth, Freestyle first (2), then GCP (4).
     assert_eq!(d.resume, vec!["id-fsp-b".to_owned(), "id-cmux-runner-pool-x".to_owned()]);
     assert!(d.pause.is_empty());
-    let d = s.tick(1, &machines, &roster, 1);
+    let d = s.tick(1, &machines, &roster, Demand::Jobs(1));
     assert!(d.resume.is_empty(), "an idle runner covers one queued job");
 }
 
@@ -216,21 +217,29 @@ fn scheduler_pauses_only_after_the_idle_window_and_keeps_the_floor() {
     ];
     let policy = Policy { idle_ms: 1_000, keep_idle: 1, ..Policy::default() };
     let mut s = Scheduler::new(policy);
-    assert!(s.tick(0, &machines, &roster, 0).pause.is_empty(), "idle clocks start now");
-    assert!(s.tick(999, &machines, &roster, 0).pause.is_empty(), "not idle long enough");
-    let d = s.tick(1_000, &machines, &roster, 0);
+    assert!(
+        s.tick(0, &machines, &roster, Demand::Jobs(0)).pause.is_empty(),
+        "idle clocks start now"
+    );
+    assert!(
+        s.tick(999, &machines, &roster, Demand::Jobs(0)).pause.is_empty(),
+        "not idle long enough"
+    );
+    let d = s.tick(1_000, &machines, &roster, Demand::Jobs(0));
     // Two idle machines, keep one idle runner: pause one (the busy one never).
     assert_eq!(d.pause, vec!["id-fsp-a".to_owned()]);
     // Queued work stops every pause.
-    assert!(s.tick(2_000, &machines, &roster, 1).pause.is_empty());
+    assert!(s.tick(2_000, &machines, &roster, Demand::Jobs(1)).pause.is_empty());
     // Busy again resets the clock.
     let busy = vec![
         runner("fsp-a", true, true),
         runner("fsp-b", true, false),
         runner("fsp-c", true, true),
     ];
-    s.tick(3_000, &machines, &busy, 0);
-    assert!(!s.tick(3_500, &machines, &roster, 0).pause.contains(&"id-fsp-a".to_owned()));
+    s.tick(3_000, &machines, &busy, Demand::Jobs(0));
+    assert!(
+        !s.tick(3_500, &machines, &roster, Demand::Jobs(0)).pause.contains(&"id-fsp-a".to_owned())
+    );
 }
 
 #[test]
@@ -251,4 +260,51 @@ fn totals_count_slots_and_busy_pool_runners_only() {
     assert_eq!((t["running"].clone(), t["paused"].clone()), (json!(1), json!(1)));
     assert_eq!((t["runners_listed"].clone(), t["runners_online"].clone()), (json!(4), json!(2)));
     assert_eq!((t["runners_busy"].clone(), t["runners_idle"].clone()), (json!(1), json!(1)));
+}
+
+#[test]
+fn demand_file_reads_vcpu() {
+    assert_eq!(parse_demand("vcpu=96 mem_gib=192\n"), Some(96));
+    assert_eq!(parse_demand("mem_gib=8"), None);
+    assert_eq!(parse_demand(""), None);
+}
+
+#[test]
+fn gce_machine_types_give_vcpu() {
+    assert_eq!(
+        gce::machine_type_vcpu("https://x/zones/us-west1-a/machineTypes/n2d-standard-32"),
+        32
+    );
+    assert_eq!(gce::machine_type_vcpu("c4d-standard-16-lssd"), 16);
+    assert_eq!(gce::machine_type_vcpu("n2-custom-8-32768"), 8);
+    assert_eq!(gce::machine_type_vcpu("custom-6-16384"), 6);
+    assert_eq!(gce::machine_type_vcpu(""), 0);
+}
+
+#[test]
+fn vcpu_demand_resumes_until_the_gap_is_covered_and_blocks_pauses() {
+    let mut big = machine(Provider::Gcp, "cmux-runner-pool-x", Power::Running, 4);
+    big.vcpu = 32;
+    let mut paused_fs = machine(Provider::Freestyle, "fsp-b", Power::Paused, 1);
+    paused_fs.vcpu = 16;
+    let mut paused_gcp = machine(Provider::Gcp, "cmux-runner-pool-y", Power::Paused, 4);
+    paused_gcp.vcpu = 32;
+    let machines = vec![big, paused_fs, paused_gcp];
+    // 2 of the 4 runners on the 32-vCPU machine are idle: 16 vCPU free.
+    let roster = vec![
+        runner("cmux-runner-pool-x-1", true, true),
+        runner("cmux-runner-pool-x-2", true, true),
+        runner("cmux-runner-pool-x-3", true, false),
+        runner("cmux-runner-pool-x-4", true, false),
+    ];
+    let mut s = Scheduler::new(Policy { idle_ms: 0, keep_idle: 0, ..Policy::default() });
+    let d = s.tick(0, &machines, &roster, Demand::Vcpu(16));
+    assert!(d.resume.is_empty(), "16 free vCPU cover 16 wanted");
+    assert_eq!(d.free_vcpu, 16);
+    let d = s.tick(1, &machines, &roster, Demand::Vcpu(40));
+    // 24 short: the paused Freestyle VM (16) first, then the paused GCE VM (32).
+    assert_eq!(d.resume, vec!["id-fsp-b".to_owned(), "id-cmux-runner-pool-y".to_owned()]);
+    let d = s.tick(2, &machines, &roster, Demand::Vcpu(20));
+    assert_eq!(d.resume, vec!["id-fsp-b".to_owned()]);
+    assert!(d.pause.is_empty(), "nothing pauses while demand waits");
 }

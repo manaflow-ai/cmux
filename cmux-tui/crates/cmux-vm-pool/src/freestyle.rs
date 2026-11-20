@@ -11,6 +11,8 @@ use crate::model::{Machine, Power, Provider};
 
 pub const DEFAULT_BASE: &str = "https://api.freestyle.sh";
 pub const POOL_PURPOSE: &str = "freestyle-pool";
+/// The pool's VM size (hq#15371 `FREESTYLE_POOL_VCPU` default) when a VM does not say.
+pub const DEFAULT_VCPU: u32 = 16;
 const PAGE: usize = 100;
 
 #[derive(Clone, Debug)]
@@ -99,5 +101,6 @@ pub fn parse_vm(vm: &Value, purpose: &str) -> Option<Machine> {
         power: Power::of_freestyle(&state),
         state,
         slots,
+        vcpu: meta(vm, "fsp_vcpu").and_then(|v| v.trim().parse().ok()).unwrap_or(DEFAULT_VCPU),
     })
 }

@@ -156,5 +156,17 @@ pub fn parse_instance(instance: &Value) -> Option<Machine> {
         power: Power::of_gce(&status),
         state: status,
         slots,
+        vcpu: machine_type_vcpu(instance.get("machineType").and_then(Value::as_str).unwrap_or("")),
     })
+}
+
+/// vCPUs of a GCE machine type URL or name: the number after the family (`n2d-standard-32` -> 32,
+/// `custom-8-32768` -> 8); 0 when it does not say.
+pub fn machine_type_vcpu(machine_type: &str) -> u32 {
+    let name = last_segment(machine_type);
+    let parts: Vec<&str> = name.split('-').collect();
+    if parts.first() == Some(&"custom") || parts.get(1) == Some(&"custom") {
+        return parts.iter().find_map(|p| p.parse().ok()).unwrap_or(0);
+    }
+    parts.iter().rev().find_map(|p| p.parse().ok()).unwrap_or(0)
 }

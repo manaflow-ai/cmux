@@ -88,6 +88,8 @@ pub struct Machine {
     pub state: String,
     /// How many runners it carries (metadata; 1 when unsaid).
     pub slots: u32,
+    /// vCPUs (GCE machineType, Freestyle metadata `fsp_vcpu`); 0 when unknown.
+    pub vcpu: u32,
 }
 
 impl Machine {
@@ -108,6 +110,7 @@ impl Machine {
             "zone": self.zone,
             "state": self.state,
             "slots": self.slots,
+            "vcpu": self.vcpu,
         })
     }
 }

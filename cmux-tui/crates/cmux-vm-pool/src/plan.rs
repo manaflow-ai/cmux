@@ -7,18 +7,33 @@ use crate::model::{Machine, Power, Provider, Runner};
 /// The machines `up` resumes to bring `count` runners up: paused before stopped (a memory resume is faster than
 /// a boot), Freestyle before GCP (0.8 s against 14.5 s), then by name, taken until their slots reach `count`.
 pub fn pick_up(machines: &[Machine], count: u32) -> Vec<&Machine> {
+    pick_up_by(machines, u64::from(count), |m| u64::from(m.slots.max(1)))
+}
+
+/// The machines to resume to cover `need` vCPU (the learned-size scheduler's demand), same order as
+/// [`pick_up`]. A machine of unknown size counts as 4 vCPU.
+pub fn pick_up_vcpu(machines: &[Machine], need: u64) -> Vec<&Machine> {
+    pick_up_by(machines, need, vcpu_of)
+}
+
+/// A machine's vCPU for demand, 4 when unknown.
+pub fn vcpu_of(machine: &Machine) -> u64 {
+    if machine.vcpu == 0 { 4 } else { u64::from(machine.vcpu) }
+}
+
+fn pick_up_by(machines: &[Machine], need: u64, weight: impl Fn(&Machine) -> u64) -> Vec<&Machine> {
     let mut candidates: Vec<&Machine> = machines.iter().filter(|m| m.power.resumable()).collect();
     candidates.sort_by(|a, b| {
         let rank = |m: &Machine| (m.power != Power::Paused, m.provider != Provider::Freestyle);
         rank(a).cmp(&rank(b)).then_with(|| a.name.cmp(&b.name))
     });
     let mut picked = Vec::new();
-    let mut slots = 0u32;
+    let mut covered = 0u64;
     for machine in candidates {
-        if slots >= count {
+        if covered >= need {
             break;
         }
-        slots = slots.saturating_add(machine.slots.max(1));
+        covered = covered.saturating_add(weight(machine).max(1));
         picked.push(machine);
     }
     picked

@@ -45,6 +45,33 @@ pub struct Decision {
     pub queued: u32,
     pub idle_online: u32,
     pub starting: u32,
+    /// With a vCPU demand: what was asked and what was free.
+    pub demand_vcpu: u64,
+    pub free_vcpu: u64,
+}
+
+/// What the pool must cover this tick.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Demand {
+    /// Queued jobs no runner took (the controller feed): one slot each.
+    Jobs(u32),
+    /// vCPU wanted (the learned-size scheduler's `--demand-file`: learned p90 over queued and starting jobs).
+    Vcpu(u64),
+}
+
+impl Demand {
+    /// Whether any work waits (no machine pauses while it does).
+    pub fn wanted(self) -> bool {
+        match self {
+            Self::Jobs(n) => n > 0,
+            Self::Vcpu(v) => v > 0,
+        }
+    }
+}
+
+/// Reads `--demand-file`: one line `vcpu=N mem_gib=M` (only `vcpu` drives resumes today).
+pub fn parse_demand(text: &str) -> Option<u64> {
+    text.split_whitespace().find_map(|word| word.strip_prefix("vcpu=")?.parse().ok())
 }
 
 #[derive(Debug, Default)]
@@ -68,7 +95,7 @@ impl Scheduler {
         now_ms: u64,
         machines: &[Machine],
         roster: &[Runner],
-        queued: u32,
+        demand: Demand,
     ) -> Decision {
         let pool: Vec<Runner> = roster.iter().filter(|r| self.in_pool(&r.name)).cloned().collect();
         let by = plan::runners_by_machine(machines, &pool);
@@ -98,16 +125,42 @@ impl Scheduler {
         }
         self.idle_since.retain(|id, _| live.contains(id));
 
+        let queued = match demand {
+            Demand::Jobs(n) => n,
+            Demand::Vcpu(_) => 0,
+        };
         let mut decision = Decision { queued, idle_online, starting, ..Decision::default() };
-        let available = idle_online.saturating_add(starting);
-        if queued > available {
-            decision.resume = plan::pick_up(machines, queued - available)
-                .into_iter()
-                .map(|m| m.id.clone())
-                .collect();
+        let picked = match demand {
+            Demand::Jobs(n) => {
+                let available = idle_online.saturating_add(starting);
+                (n > available).then(|| plan::pick_up(machines, n - available))
+            }
+            Demand::Vcpu(need) => {
+                // Free vCPU: a running machine's idle runners' share of it, plus machines on their way.
+                let free: u64 = machines
+                    .iter()
+                    .map(|m| {
+                        let runners = by.get(&m.id).map_or(&[][..], Vec::as_slice);
+                        let online = runners.iter().filter(|r| r.online).count() as u64;
+                        let idle = runners.iter().filter(|r| r.online && !r.busy).count() as u64;
+                        match m.power {
+                            Power::Starting => plan::vcpu_of(m),
+                            Power::Running if online == 0 => plan::vcpu_of(m),
+                            Power::Running => plan::vcpu_of(m) * idle / online,
+                            _ => 0,
+                        }
+                    })
+                    .sum();
+                decision.demand_vcpu = need;
+                decision.free_vcpu = free;
+                (need > free).then(|| plan::pick_up_vcpu(machines, need - free))
+            }
+        };
+        if let Some(picked) = picked {
+            decision.resume = picked.into_iter().map(|m| m.id.clone()).collect();
             return decision;
         }
-        if queued > 0 {
+        if demand.wanted() {
             return decision;
         }
         // Pause the longest-idle machines first while the idle floor stays.
