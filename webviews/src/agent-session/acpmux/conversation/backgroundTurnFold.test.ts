@@ -115,11 +115,58 @@ test("a failed task's named line stays above its wake's closed fold", () => {
   expect(shownIds.indexOf(backgroundTurnRowId("bg-2"))).toBe(shownIds.indexOf(backgroundWorkedId("bg-2")) - 1);
 });
 
-test("a wake still running draws its calls as before", () => {
-  const rows = chat().slice(0, 7);
-  rows[4] = line("bg-1", { running: true, quiet: undefined });
+test("a wake still running draws its calls, and the finished wakes above it stay folded", () => {
+  const rows = chat().slice(0, 11);
+  // bg-2 runs: its line says so, and it has no footer yet.
+  rows[7] = line("bg-2", { running: true, quiet: undefined });
   const view = turnView(rows, new Set(), { agentFamily: "claude", working: true });
-  expect(view.some((shown) => shown.id === backgroundWorkedId("bg-1"))).toBe(false);
+  const shownIds = ids(view);
+  expect(shownIds).toContain(backgroundWorkedId("bg-1"));
+  expect(shownIds).not.toContain("read");
+  expect(shownIds).not.toContain(backgroundWorkedId("bg-2"));
+  // Its call is on screen under the finished wake, then the live line.
+  expect(shownIds.slice(shownIds.indexOf(backgroundWorkedId("bg-1")))).toEqual([
+    backgroundWorkedId("bg-1"),
+    "check",
+    "backgroundEnd-bg-1",
+    "tail",
+    "ps",
+    "thinking-live",
+  ]);
+});
+
+test("an earlier message of a wake folds with its calls; only its last reply stays beside the line", () => {
+  at = 0;
+  const rows = [
+    ...chat().slice(0, 5),
+    say("first", "The log shows the old module. Checking the cache next, then the rebuild's own output.", "bg-1"),
+    call("read", "bg-1"),
+    say("check", "That check shows no error in the current logs. The rebuild still runs.", "bg-1"),
+  ];
+  const shownIds = ids(drawn(rows));
+  expect(shownIds.slice(shownIds.indexOf("summary") + 1)).toEqual([
+    backgroundWorkedId("bg-1"),
+    "check",
+    "backgroundEnd-bg-1",
+  ]);
+});
+
+test("a row of another turn between a wake's call and its reply stays in place, and the call still folds", () => {
+  const rows = chat().slice(0, 7);
+  // A subagent the prompt's turn started ends between them (no inBackground of its own).
+  rows.splice(6, 0, row("done", "subagentDone", { text: "Subagent finished" }));
+  const shownIds = ids(drawn(rows));
+  expect(shownIds).not.toContain("read");
+  expect(shownIds.indexOf(backgroundWorkedId("bg-1"))).toBeLessThan(shownIds.indexOf("done"));
+  expect(shownIds.indexOf("done")).toBeLessThan(shownIds.indexOf("check"));
+});
+
+test("a wake acpmux ended with no reply and no footer folds to its closed line", () => {
+  const rows = chat().slice(0, 4);
+  rows.push(line("bg-9"), call("only", "bg-9", "pgrep -fl cleanbar"));
+  const shownIds = ids(drawn(rows));
+  expect(shownIds).toContain(backgroundWorkedId("bg-9"));
+  expect(shownIds).not.toContain("only");
 });
 
 test("Find on a call a wake's closed fold hides opens that fold", () => {
