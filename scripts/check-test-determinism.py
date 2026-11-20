@@ -784,58 +784,67 @@ _JAVASCRIPT_TYPE_LOOKAHEAD = 2000
 _JAVASCRIPT_CLOSERS = {"(": ")", "[": "]", "{": "}", "<": ">"}
 
 
-def _javascript_balanced_end(source: str, index: int) -> int:
-    """The offset just past the bracket that closes the one at INDEX (`(`, `[`, `{` or `<`), skipping nested brackets
-    and quoted strings, or -1 when it is not within reach."""
-    stack = [_JAVASCRIPT_CLOSERS[source[index]]]
-    position = index + 1
-    limit = min(len(source), index + _JAVASCRIPT_TYPE_LOOKAHEAD)
-    while position < limit:
-        character = source[position]
-        if source.startswith("=>", position):
-            position += 2  # a function type's arrow closes no `<`
-            continue
-        if source.startswith(("/*", "//"), position):
-            position = _javascript_skip_trivia(source, position)
-            continue
-        if character in "'\"`":
-            close = source.find(character, position + 1, limit)
-            if close < 0:
-                return -1
-            position = close + 1
-            continue
-        if character in _JAVASCRIPT_CLOSERS:
-            stack.append(_JAVASCRIPT_CLOSERS[character])
-        elif character == stack[-1]:
-            stack.pop()
-            if not stack:
-                return position + 1
-        position += 1
-    return -1
-
-
-def _javascript_angle_is_type_parameters(source: str, index: int) -> bool:
+def _javascript_angle_is_type_parameters(source: str, index: int) -> Optional[bool]:
     """Whether the `<` at INDEX opens a generic arrow's type parameters, the way TypeScript reads a .tsx file: the
-    list closes with `>`, then a parenthesized parameter list, then `=>` or a `:` return type."""
-    close = _javascript_balanced_end(source, index)
-    if close < 0:
+    list closes with `>`, then a parenthesized parameter list, then `=>` or a `:` return type. A slash token the lexer
+    cannot resolve inside the `<...>` makes it no type parameter list (a type holds no regex and no division:
+    `<Tile extends {...p} />` is a tag); one inside the parameter list makes the answer None (where the list closes
+    is undecided).
+
+    The text within reach is read by the lexer itself, as TypeScript (no JSX in a type or a parameter list), so a
+    `//`, `/*`, quote or bracket inside a regex, string, template or comment there is that literal's text: in
+    `<T extends U>(x = /[//]/) => x` the regex's `//` hides no `)`. Only its code tokens count as brackets."""
+    window = source[index : index + _JAVASCRIPT_TYPE_LOOKAHEAD]
+    executable, comments, unresolved = _lexical_positions_and_unresolved(window, ".ts")
+    first_unresolved = min(unresolved, default=len(window))
+
+    def balanced_end(start: int) -> Optional[int]:
+        # Just past the code bracket that closes the one at START; -1 when it is not within reach, or None when an
+        # unresolved slash comes first.
+        stack = [_JAVASCRIPT_CLOSERS[window[start]]]
+        position = start + 1
+        while position < len(window):
+            if position == first_unresolved:
+                return None
+            character = window[position]
+            if not executable[position]:
+                pass
+            elif window.startswith("=>", position):
+                position += 2  # a function type's arrow closes no `<`
+                continue
+            elif character in _JAVASCRIPT_CLOSERS:
+                stack.append(_JAVASCRIPT_CLOSERS[character])
+            elif character == stack[-1]:
+                stack.pop()
+                if not stack:
+                    return position + 1
+            position += 1
+        return -1
+
+    def skip_trivia(position: int) -> int:
+        while position < len(window) and (comments[position] or _javascript_is_blank(window[position])):
+            position += 1
+        return position
+
+    close = balanced_end(0)
+    if close is None or close < 0:
         return False
-    params = _javascript_skip_trivia(source, close)
-    if not source.startswith("(", params):
+    params = skip_trivia(close)
+    if not window.startswith("(", params):
         return False
-    params_end = _javascript_balanced_end(source, params)
-    if params_end < 0:
-        return False
-    after = _javascript_skip_trivia(source, params_end)
-    return source.startswith(("=>", ":"), after)
+    params_end = balanced_end(params)
+    if params_end is None or params_end < 0:
+        return None if params_end is None else False
+    return window.startswith(("=>", ":"), skip_trivia(params_end))
 
 
-def _javascript_jsx_tag_opens_at(source: str, index: int) -> bool:
+def _javascript_jsx_tag_opens_at(source: str, index: int) -> Optional[bool]:
     """Whether the `<` at INDEX reads as a JSX open tag or fragment where an expression may start: `<>` or `<Name`,
     unless the name is followed by `=` or `,` (`<T = V>`, `<T,>`: type parameters), or by `extends` that opens a
     generic arrow's type parameters (`<T extends U>(x) => x`). An attribute named `extends`, bare or with a value
     (`<Tile extends {...p} />`, `<div extends="x">`), keeps the tag. Blanks are ECMAScript's (U+00A0 included), and
-    a comment between the name and what follows is skipped (`<T /*doc*/ extends U>`)."""
+    a comment between the name and what follows is skipped (`<T /*doc*/ extends U>`). None when the type-parameter
+    lookahead meets an unresolved slash before it can tell."""
     after = index + 1
     if after >= len(source):
         return False
@@ -855,7 +864,8 @@ def _javascript_jsx_tag_opens_at(source: str, index: int) -> bool:
         rest = _javascript_skip_trivia(source, end + 7)
         if source.startswith("=", rest) and not source.startswith(("==", "=>"), rest):
             return True  # `extends="x"`: an attribute
-        return not _javascript_angle_is_type_parameters(source, index)
+        type_parameters = _javascript_angle_is_type_parameters(source, index)
+        return None if type_parameters is None else not type_parameters
     return True
 
 
@@ -1193,7 +1203,10 @@ def _lexical_positions_and_unresolved(
                 # The closing `>` is no operator: like a string's end, a slash after it divides.
                 contexts.pop()
                 index = close + 1
-            elif _javascript_jsx_tag_opens_at(line, index):
+            elif (tag_opens := _javascript_jsx_tag_opens_at(line, index)) is not False:
+                # Undecided, it is read as a tag (in children a `<` can only open one), but unresolved.
+                if tag_opens is None:
+                    unresolved.append(index)
                 executable[index] = True
                 contexts.append(("jsx-tag", 0, ""))
                 index += 1
@@ -1400,11 +1413,12 @@ def _lexical_positions_and_unresolved(
             index = comment_end
             continue
 
-        if is_jsx and character == "<" and _javascript_jsx_tag_opens_at(line, index):
+        if is_jsx and character == "<" and (tag_opens := _javascript_jsx_tag_opens_at(line, index)) is not False:
             # Where an expression starts, `<Name` or `<>` opens a JSX element; after a name or a value it is a
-            # comparison. Where the text cannot tell (after a `)` or `}` it cannot classify), it is unresolved.
+            # comparison. Where the text cannot tell (after a `)` or `}` it cannot classify, or a slash in the
+            # type-parameter lookahead it cannot), it is unresolved.
             expression_starts = _javascript_regex_literal_starts_at(line, index, executable, comments)
-            if expression_starts is None:
+            if expression_starts is None or (tag_opens is None and expression_starts):
                 unresolved.append(index)
             elif expression_starts:
                 executable[index] = True
