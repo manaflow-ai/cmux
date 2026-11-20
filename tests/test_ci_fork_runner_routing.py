@@ -186,7 +186,7 @@ LEGACY_TRUSTED_RUNNER_LINE = re.compile(
 
 
 # The one-job GCP control pool is distinct from cmux-linux. Trusted
-# workflows, including CLA, use its exact reviewed selector.
+# control jobs use this selector; CLA retains its separate policy.
 JIT_SELECTOR = (
     "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
     "'cmux-gcp-pr-control-jit-x64' }}"
