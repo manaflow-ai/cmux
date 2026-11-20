@@ -441,7 +441,14 @@ final class SidebarBridge {
                               detail: header?.compatibilityDetail == true ? compat.map(CloudStrings.compatibility) : nil)
     }
 
+    private let remoteHostMenu = SidebarRemoteHostExperiment()
     func contextMenu(for target: SidebarContextTarget) -> NSMenu? {
+        remoteHostMenu.menu(originalMenu(for: target), for: target, anchoredIn: container, settings: services.settings?.snapshot, registry: services.registry) { [machines = services.machines] id in
+            machines.sshSession(id)?.host.destination.host ?? machines.session(id).map { "cloud-machine:" + $0.machine.id }
+        }
+    }
+
+    private func originalMenu(for target: SidebarContextTarget) -> NSMenu? {
         switch target {
         // A pinned workspace's tile has its row's menu: name, colors, Unpin (a tile's
         // generic item menu had no colors, 2026-10-21), then the tile's Show/Hide Label.

@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextSidebarActions
 
 /// A sidebar right-click's menu, by target. The layout sections' menus stay
 /// on SidebarBridge (SidebarBridge+Sections), which dispatches to these.
@@ -127,26 +128,6 @@ enum SidebarContextMenus {
         }
         // Its rows join the header's menu, which ends with its own Customize Menu….
         let shared = registry.makeContextMenu(for: .machineSection, target: target, customize: false)
-        let items = shared.items
-        shared.removeAllItems()
-        guard !items.isEmpty else { return menu }
-        // Customize Menu… ends every menu and is not one of its rows (topLevelLimit counts rows).
-        if menu.items.filter({ !$0.isSeparatorItem && !ActionRegistry.isCustomizeItem($0) }).count >= Self.topLevelLimit,
-           let options = menu.items.first(where: { $0.title == MenuFolder.options.title })?.submenu {
-            options.addItem(.separator())
-            for item in items { options.addItem(item) }
-            return menu
-        }
-        var at = menu.items.firstIndex(where: \.isSeparatorItem) ?? menu.items.count
-        if at > 0 {
-            menu.insertItem(.separator(), at: at)
-            at += 1
-        }
-        for item in items {
-            menu.insertItem(item, at: at)
-            at += 1
-        }
-        if at < menu.items.count, !menu.items[at].isSeparatorItem { menu.insertItem(.separator(), at: at) }
-        return menu
+        return SidebarMachineMenu.inserting(shared, into: menu, topLevelLimit: topLevelLimit)
     }
 }
