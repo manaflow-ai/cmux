@@ -321,8 +321,11 @@ try:
     if "prompts" in CHECKS:
         def snapshot():
             return {"dialog": rpc("debug.dialog"), "popups": rpc("debug.popups"),
-                    "window_list": [(w.get("name") or w.get("title"), w.get("layer")) for w in
-                                    ((rpc("debug.window_list") or {}).get("windows") or [])]}
+                    # kind, title and visibility: the open panel is made ahead (MadeAheadOpenPanel) and sits hidden
+                    # in the window list until a chooser shows it as a sheet, so only `visible` changes.
+                    "window_list": sorted((str(w.get("kind")), w.get("title") or "", bool(w.get("visible")),
+                                           w.get("parent") is not None)
+                                          for w in ((rpc("debug.window_list") or {}).get("windows") or []))}
         for name, script in (("alert", "window.later('alert', () => alert('in-tree alert'))"),
                              ("confirm", "window.later('confirm', () => confirm('in-tree confirm'))"),
                              ("prompt", "window.later('prompt', () => prompt('in-tree prompt', 'x'))"),
@@ -335,7 +338,13 @@ try:
             shown = snapshot()
             changed = json.dumps(shown, sort_keys=True, default=str) != json.dumps(base, sort_keys=True, default=str)
             RAW[f"prompt_{name}"] = {"before": base, "after": shown, "fired": fired}
-            row(changed, f"prompts.{name}", {"fired": fired, "after": json.dumps(shown, default=str)[:400]})
+            detail = {"fired": fired, "after": json.dumps(shown, default=str)[:400]}
+            if name == "file":
+                # The chooser shows as a sheet on the cmux window (in tree: cmux's open panel) or as a panel.
+                new = [w for w in shown["window_list"] if w[2] and w not in base["window_list"]]
+                detail["new_visible_windows"] = new
+                changed = changed and bool(new)
+            row(changed, f"prompts.{name}", detail)
             rpc("debug.key", {"key": "escape"})
             time.sleep(0.5)  # test harness: the prompt closes
         RAW["prompt_results"] = page_eval("JSON.stringify(window.__results)", page_tab)
