@@ -33,9 +33,10 @@ public struct DebugKeyRoute<Window: AnyObject> {
 
     /// The window a key with `target` (nil: none named, or `"shell"`) goes to.
     /// - Parameter target: The request's `target`.
-    /// - Returns: The shell window for now (a key never follows the key window).
+    /// - Returns: The key window when no target is named and it is a child of the shell window, else the shell window.
     public func window(target: String?) -> Window {
-        shell
+        guard target == nil, let keyWindow, keyWindow !== shell, keyWindowParent === shell else { return shell }
+        return keyWindow
     }
 }
 #endif
