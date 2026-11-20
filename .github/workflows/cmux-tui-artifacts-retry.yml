@@ -14,6 +14,14 @@ name: cmux-tui artifacts retry
 # annotation of the failed jobs, leaves that run red and fails here with the
 # job name.
 #
+# A cancelled feat-cmux-next run is retried too when no runner ever took its
+# cancelled jobs: the CI queue janitor cancels a job queued 2 h with no
+# runner, and attempt 1 queues the tree jobs on the owned GCP lane label.
+# On 2026-11-19 the feat-cmux-next pushes from 01:20Z were cancelled that way;
+# none was retried, so `cmux app try` found no mac-live.json for any of them.
+# The rerun is attempt 2, which takes the Blacksmith route. A run someone
+# cancelled while a job ran stays as it is.
+#
 # workflow_run runs this file from the default branch only, and it checks out
 # the default branch: no code of the failed run executes here. It never acts
 # on a run that a fork head started (tests/test_ci_fork_runner_routing.py).
@@ -38,7 +46,8 @@ jobs:
     name: retry failed cmux-tui publish
     if: >-
       ${{ github.repository_owner == 'manaflow-ai' &&
-          github.event.workflow_run.conclusion == 'failure' &&
+          (github.event.workflow_run.conclusion == 'failure' ||
+           github.event.workflow_run.conclusion == 'cancelled' && github.event.workflow_run.head_branch == 'feat-cmux-next') &&
           github.event.workflow_run.event == 'push' &&
           (github.event.workflow_run.head_branch == 'feat-cmux-next' || startsWith(github.event.workflow_run.head_branch, 'cmux-tui-pin-')) &&
           github.event.workflow_run.run_attempt < 3 &&

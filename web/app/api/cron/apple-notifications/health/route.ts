@@ -1,5 +1,8 @@
 import { authorizeBearerSecret } from "../../../../../services/cronAuth";
+import { isAcceptedAppleBundleId, isSignedAppleEnvironment } from "../../../../../services/billing/apple/config";
 import {
+  describeAppleHistoryCursor,
+  findAppleHistoryCursor,
   findAppleTestNotification,
   isAppleNotificationUuid,
 } from "../../../../../services/billing/apple/notificationHealth";
@@ -19,6 +22,11 @@ const MIN_TOKEN_LENGTH = 32;
  * 32 characters, it answers 503.
  * Only TEST rows answer, with booleans, timestamps and the environment;
  * never a payload, transaction or error text.
+ *
+ * `GET ?cursor=Production|Sandbox&bundle=<accepted bundle ID>`, same token:
+ * where that history's backfill cursor is (timestamps, a stall count and an
+ * opaque position that changes when the backfill moves), for the
+ * post-release check. Never Apple's pagination token.
  */
 export async function GET(request: Request): Promise<Response> {
   // The route has no rate limit, so the token's entropy is the whole defense:
@@ -30,7 +38,9 @@ export async function GET(request: Request): Promise<Response> {
       ? Response.json({ error: "health_token_missing" }, { status: 503, headers: NO_STORE })
       : Response.json({ error: "unauthorized" }, { status: 401, headers: NO_STORE });
   }
-  const uuid = new URL(request.url).searchParams.get("uuid");
+  const params = new URL(request.url).searchParams;
+  if (params.has("cursor")) return await cursorAnswer(params.get("cursor"), params.get("bundle"));
+  const uuid = params.get("uuid");
   if (!isAppleNotificationUuid(uuid)) {
     return Response.json({ error: "invalid_uuid" }, { status: 400, headers: NO_STORE });
   }
@@ -45,6 +55,21 @@ export async function GET(request: Request): Promise<Response> {
     }, { headers: NO_STORE });
   } catch (error) {
     captureBillingError(error, { route: "/api/cron/apple-notifications/health" });
+    return Response.json(
+      { error: "lookup_failed", retryable: true },
+      { status: 503, headers: { ...NO_STORE, "retry-after": "60" } },
+    );
+  }
+}
+
+async function cursorAnswer(environment: string | null, bundleId: string | null): Promise<Response> {
+  if (!isSignedAppleEnvironment(environment) || !isAcceptedAppleBundleId(bundleId)) {
+    return Response.json({ error: "invalid_cursor" }, { status: 400, headers: NO_STORE });
+  }
+  try {
+    return Response.json(describeAppleHistoryCursor(await findAppleHistoryCursor(bundleId, environment)), { headers: NO_STORE });
+  } catch (error) {
+    captureBillingError(error, { route: "/api/cron/apple-notifications/health", read: "cursor" });
     return Response.json(
       { error: "lookup_failed", retryable: true },
       { status: 503, headers: { ...NO_STORE, "retry-after": "60" } },

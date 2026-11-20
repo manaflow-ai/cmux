@@ -44,10 +44,7 @@ REF = re.compile(r"\b(?:needs\.[\w-]+\.(?:outputs\.\w+|result)|inputs\.\w+|vars\
 BLACKSMITH = "blacksmith-6vcpu-macos-26"
 
 
-# The nightly-next promotion takes the trusted signing Mac in every mode (vars.CI_NIGHTLY_SIGN_RUNNER, never
-# Blacksmith): on 2026-11-18/19 it waited 2 h and more for blacksmith-2vcpu-ubuntu-2404 and no nightly moved.
-ON_SIGNER = {"promote-nightly-next"}
-KEPT = (SIGNING - ON_SIGNER) | {"verify-signed-nightly", "promote-nightly-next-acked", "await-release-surface-ack",
+KEPT = SIGNING | {"verify-signed-nightly", "promote-nightly-next-acked", "await-release-surface-ack",
                   "refresh-compilation-cache", "refresh-test-compilation-cache", "pick-nightly-app-runner",
                   "pick-classic-prepare-runner", "republish-nightly-deltas",
                   "build-nightly-app", "build-nightly-ghostty-cli-helper"}
@@ -144,11 +141,7 @@ class ClassicNightlyOneMini(unittest.TestCase):
                 for _ in range(200):
                     event = rng.choice(("push", "schedule", "workflow_dispatch"))
                     value, context = resolve(source, rng, "refs/heads/main", event, MODE)
-                    if name in ON_SIGNER:
-                        if value != SIGN:
-                            failures[name] = (value, {k: v for k, v in context.items() if v})
-                            break
-                    elif name in KEPT:
+                    if name in KEPT:
                         if value in (MINI, SIGN):
                             failures[name] = (value, {k: v for k, v in context.items() if v})
                             break
