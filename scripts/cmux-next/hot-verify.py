@@ -1553,6 +1553,11 @@ def _ci_client() -> str:
     return ci
 
 
+def why_failed(text: str | None, limit: int) -> str:
+    """The last `limit` characters of a failed step's output, or a note that it printed nothing."""
+    return (text or "").strip()[-limit:] or "no output"
+
+
 def _ci_run(argv: list[str], cwd: Path | None = None, timeout: int = APPLY_SECONDS) -> subprocess.CompletedProcess:
     done = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, errors="replace", timeout=timeout)
     if done.returncode != 0:
