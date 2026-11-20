@@ -157,7 +157,6 @@ button.acpmux-surge-need:hover {
 .acpmux-surge-filters button[aria-pressed="true"] {
   background: var(--acpmux-row-hover);
   color: var(--agent-text);
-  font-weight: var(--font-weight-emphasis);
 }
 
 .acpmux-surge-threads {

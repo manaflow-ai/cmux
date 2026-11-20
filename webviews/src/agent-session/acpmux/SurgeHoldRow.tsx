@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { focusRoute } from "../../ui/focusRoute";
 import { useT } from "./i18n";
 import { ChevronDown, Envelope, Magnifier } from "./conversation/icons";
 import { ExpandRow } from "./conversation/ExpandRow";
@@ -69,7 +70,8 @@ export function SurgeHoldRow({
     };
   }, [open, held, needYou, attempt, listThreads]);
   useEffect(() => {
-    if (open) field.current?.focus({ preventScroll: true });
+    if (open)
+      focusRoute(field.current, "person", "the held messages panel opened: its search field", { preventScroll: true });
   }, [open]);
   const threads = listing.state === "ready" ? listing.threads : undefined;
   const found = useMemo(() => {
