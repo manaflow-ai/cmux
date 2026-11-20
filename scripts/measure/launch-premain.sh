@@ -157,7 +157,7 @@ root_check() {
     path="${name#*:}"
     if sudo -n -l "$path" >/dev/null 2>&1; then allowed+=("${name%%:*}"); else refused+=("${name%%:*}"); fi
   done
-  local list="${allowed[*]}" none="${refused[*]}"
+  local list="${allowed[*]:-}" none="${refused[*]:-}"
   if ((${#allowed[@]} == 0)); then
     echo "LP root no (arms d and f need it: their rows say so)"
   elif ((${#refused[@]} == 0)); then
