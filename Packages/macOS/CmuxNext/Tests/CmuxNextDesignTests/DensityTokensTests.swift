@@ -15,7 +15,8 @@ import Testing
             #expect(Metrics.sidebarRowHeight == 28)
             #expect(Typography.tabTitle.pointSize == 14)
             #expect(Metrics.tabIconSize == 16.5)
-            #expect(Metrics.tabStripHeight == 36)
+            // Its 30 pt tabs with its 5 pt strip padding above and below (`defaultStripPadding`).
+            #expect(Metrics.tabStripHeight == 40)
             #expect(Metrics.space1 == 2)
         }
     }
@@ -67,19 +68,23 @@ import Testing
         let tokens = preset.tokens
         let t = preset.scaleFactor
         func half(_ value: Double) -> Double { (value * 2).rounded() / 2 }
-        // Default alone sets its toolbar buttons' and star plate's sides (Compact's padding on its 34 pt bar).
-        let defaultOnly: Set = ["omnibarButtonSize", "omnibarStarPlateSize"]
+        // Default alone sets its toolbar buttons' and star plate's sides (Compact's padding on its 34 pt bar) and Chrome's
+        // 6 pt around its omnibar row (`chromeToolbarGap`).
+        let defaultOnly: Set = ["omnibarButtonSize", "omnibarStarPlateSize", "omnibarRowGap"]
         #expect(Set(tokens.tokens.keys).subtracting(defaultOnly) == Set(reference.tokens.keys).subtracting(defaultOnly))
         let rows: [DensityPreset: Double] = [.ultraCompact: 24, .compact: 28, .cozy: 30, .comfortable: 32, .spacious: 36]
         let row = try #require(rows[preset])
         #expect(tokens.tokens["browserRowHeight"] == row)
         #expect(try #require(tokens.tokens["sidebarRowHeight"]) + half(2 * t) == row)
-        #expect(tokens.tokens["tabStripHeight"] == row + 2 * half(3 * t))
+        // The strip padding is Default's 3 pt times t, but Default's own is 5 (`defaultStripPadding`, Lucas 2026-11-20).
+        let gap = preset == .cozy ? DensityPreset.defaultStripPadding : half(3 * t)
+        #expect(tokens.tokens["browserRowGap"] == gap)
+        #expect(tokens.tokens["tabStripHeight"] == row + 2 * gap)
         #expect(tokens.spacing == t)
         #expect(tokens.fontSize == 14 * t)
         let ratios = ["sidebarLineBoxBaseline", "omnibarLineBoxBaseline", "densityScale", "composerZoom"]
         let fonts = ["tabTitleSize", "sidebarTitleSize", "omnibarFontSize"]
-        let exceptions = ratios + ["sidebarRowHeight", "browserRowHeight", "tabStripHeight"]
+        let exceptions = ratios + ["sidebarRowHeight", "browserRowHeight", "browserRowGap", "tabStripHeight"]
         // Default's omnibar is Compact's (`defaultsOmnibarIsCompacts`); everything else is Default's reference times t.
         let omnibarT = preset.omnibarScaleFactor
         func factor(_ key: String) -> Double { DensityPreset.isOmnibarToken(key) ? omnibarT : t }

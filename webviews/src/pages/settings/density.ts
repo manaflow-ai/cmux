@@ -79,6 +79,8 @@ const REFERENCE_TOKENS: Record<string, number> = {
 };
 
 const CHROME_OMNIBAR_HEIGHT = 34;
+const CHROME_TOOLBAR_GAP = 6;
+const DEFAULT_STRIP_PADDING = 5;
 const DEFAULT_OMNIBAR_CAP_HEIGHT = 11;
 const DEFAULT_STAR_PLATE_SIZE = 28;
 /** Swift `DensityPreset.starGlyphSides`: the half-point star sides that draw whole rows at 2x. */
@@ -116,6 +118,11 @@ function preset(id: string, name: string, nameKey: string, factor: number, row: 
     // Its toolbar buttons and star plate keep Compact's padding (Swift `DensityPreset`): Compact's 28 pt buttons, a 28 pt plate.
     tokens.omnibarButtonSize = tokens.omnibarHeight!;
     tokens.omnibarStarPlateSize = DEFAULT_STAR_PLATE_SIZE;
+    // Its omnibar row has Chrome's 6 pt above and below the bar (Swift `DensityPreset.chromeToolbarGap`).
+    tokens.omnibarRowGap = CHROME_TOOLBAR_GAP;
+    // Its strip padding is 5 pt above, beside and under the tabs (Swift `DensityPreset.defaultStripPadding`).
+    tokens.browserRowGap = DEFAULT_STRIP_PADDING;
+    tokens.tabStripHeight = row + 2 * DEFAULT_STRIP_PADDING;
     tokens.omnibarHeight = CHROME_OMNIBAR_HEIGHT;
     tokens.omnibarCornerRadius = half((CHROME_OMNIBAR_HEIGHT * 8) / 28);
     // Its URL capitals are 11 pt, a point over Compact's (Swift `DensityPreset.defaultOmnibarCapHeight`).

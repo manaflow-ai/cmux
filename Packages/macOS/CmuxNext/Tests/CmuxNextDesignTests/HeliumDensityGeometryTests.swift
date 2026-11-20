@@ -15,8 +15,18 @@ import Testing
     }
 
     nonisolated static let cases: [Expected] = zip(DensityPreset.allCases, [24.0, 28, 30, 32, 36]).map { preset, row in
-        Expected(preset: preset, row: row, gap: (3 * preset.scaleFactor * 2).rounded() / 2,
+        Expected(preset: preset, row: row, gap: stripPadding(preset),
                  omnibar: preset == .cozy ? 34 : (28 / 0.9 * preset.omnibarScaleFactor * 2).rounded() / 2, title: 14 * preset.scaleFactor)
+    }
+
+    /// The strip padding: Default's 3 pt times the factor, but Compact's tuned 1 pt (`compactTuned`) and Default's own 5
+    /// (`defaultStripPadding`, Lucas 2026-11-20).
+    nonisolated static func stripPadding(_ preset: DensityPreset) -> CGFloat {
+        switch preset {
+        case .compact: return 1
+        case .cozy: return CGFloat(DensityPreset.defaultStripPadding)
+        default: return CGFloat((3 * preset.scaleFactor * 2).rounded() / 2)
+        }
     }
 
     private func withDensity(_ preset: DensityPreset, _ body: () -> Void) {

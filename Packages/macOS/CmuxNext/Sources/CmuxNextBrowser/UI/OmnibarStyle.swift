@@ -27,17 +27,37 @@ enum OmnibarStyle {
     /// so density and `layout.panePadding` move all three together.
     /// `scale` is the window's backing scale (the strip snaps to it too).
     static func chromeGap(scale: CGFloat) -> CGFloat { PaneChromeMetrics.current.tabGap(scale: scale) }
+    /// The omnibar row's gap above and below the bar: the density's `omnibarRowGap` (Default's Chrome 6 pt, Lucas
+    /// 2026-11-20), never less than ``chromeGap(scale:)``, in Chrome's layout (``sitsUnderTopTabs``). ``chromeGap(scale:)``
+    /// for a density without one, under a set `layout.panePadding` (the person's padding sizes every gap) or in any other
+    /// layout. On `scale`'s pixel grid.
+    static func rowGap(scale: CGFloat) -> CGFloat {
+        let gap = chromeGap(scale: scale)
+        guard DesignSettings.shared.paneChrome.padding == nil, sitsUnderTopTabs, let row = token("omnibarRowGap") else { return gap }
+        let pixel = max(scale, 1)
+        let snapped = (row * pixel).rounded() / pixel
+        return snapped.isFinite ? max(gap, snapped) : gap
+    }
+    /// Whether the toolbar sits at its pane's top right under a horizontal tab strip, Chrome's layout: the strip's gap
+    /// under its pills is then the room above the bar, and the row only adds what ``rowGap(scale:)`` asks past it. With
+    /// vertical tabs, tabs under the toolbar or at the bottom, or the toolbar at the bottom, the row keeps the strip gap.
+    static var sitsUnderTopTabs: Bool {
+        let design = DesignSettings.shared
+        return design.tabBarPosition == .top && !design.verticalTabs && design.tabBarOrder == .aboveToolbar
+            && design.browserToolbarPosition == .top
+    }
     /// Space the toolbar leaves above the omnibar. The tab strip above
     /// already ends `chromeGap` below its pills (`PaneChromeMetrics`), so
-    /// the omnibar starts at the toolbar's top edge, unless the pane is
+    /// the omnibar starts what ``rowGap(scale:)`` adds to that below the
+    /// toolbar's top edge (0 at every density but Default), unless the pane is
     /// outlined (`layout.paneSeparation` borders: Panes, Card Outlined). The
     /// outline's top line runs along the strip's bottom, so the bar starts
-    /// one `chromeGap` below that line, as the page starts one below the bar
+    /// one `rowGap` below that line, as the page starts one below the bar
     /// (Lawrence 2026-10-19: the space above the omnibar row equals the
     /// space below it).
     static func toolbarTopPadding(scale: CGFloat) -> CGFloat {
-        guard Metrics.paneBorder == .subtle else { return 0 }
-        return (Metrics.paneBorderWidth ?? 1 / max(scale, 1)) + chromeGap(scale: scale)
+        guard Metrics.paneBorder == .subtle else { return rowGap(scale: scale) - chromeGap(scale: scale) }
+        return (Metrics.paneBorderWidth ?? 1 / max(scale, 1)) + rowGap(scale: scale)
     }
     /// The toolbar row's content height: the tallest thing in it, the toolbar
     /// buttons beside the omnibar; the omnibar-only row
@@ -48,9 +68,9 @@ enum OmnibarStyle {
     static func barTop(scale: CGFloat, withButtons: Bool = true) -> CGFloat {
         toolbarTopPadding(scale: scale) + (rowContentHeight(withButtons: withButtons) - barHeight) / 2
     }
-    /// Toolbar row: the top padding, the row's content, then `chromeGap` down to the page.
+    /// Toolbar row: the top padding, the row's content, then ``rowGap(scale:)`` down to the page.
     static func toolbarHeight(scale: CGFloat, withButtons: Bool = true) -> CGFloat {
-        toolbarTopPadding(scale: scale) + rowContentHeight(withButtons: withButtons) + chromeGap(scale: scale)
+        toolbarTopPadding(scale: scale) + rowContentHeight(withButtons: withButtons) + rowGap(scale: scale)
     }
     /// Horizontal interior margin: the back arrow's ink starts where the first tab's icon does
     /// (`Metrics.firstTabIconLeading`; Lawrence 2026-11-09: "we need proper left alignment of back

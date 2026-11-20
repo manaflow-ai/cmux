@@ -113,7 +113,8 @@ import Testing
 }
 
 /// Lucas 2026-11-15: one gap above the tabs, between the tabs and the omnibar, and between the omnibar and the page,
-/// at every density, in a lower pane's strip and in the window's top row.
+/// at every density, in a lower pane's strip and in the window's top row. Default's omnibar row is Chrome's 6 pt above
+/// and below the bar (Lucas 2026-11-20).
 @MainActor @Suite(.serialized, .closesItsWindows) struct BrowserChromeOneGapTests {
     @Test(arguments: [DensityPreset.ultraCompact, .compact, .cozy, .comfortable, .spacious], [false, true])
     func oneGapAboveBetweenAndUnderTheRows(preset: DensityPreset, topRow: Bool) throws {
@@ -153,8 +154,13 @@ import Testing
         let top = topRow ? size.height - WindowTitlebar.topRowRim(in: window) : strip.convert(strip.bounds, to: nil).maxY
         let above = top - pill.maxY, between = pill.minY - bar.maxY, under = bar.minY - page.maxY
         let at = "\(preset.rawValue) top row \(topRow)"
+        // Default's omnibar row is Chrome's, 6 pt above and below the bar, past the strip padding above the tab (Lucas
+        // 2026-11-20); every other density's omnibar row gap is the strip padding.
+        let scale = window.backingScaleFactor
+        let extra = OmnibarStyle.rowGap(scale: scale) - PaneChromeMetrics.current.tabGap(scale: scale)
+        #expect(preset == .cozy || extra == 0, "\(at): the omnibar row's gap is \(extra) pt past the strip padding")
         #expect(abs(between - under) <= 0.5, "\(at): \(between) pt from the tab to the omnibar, \(under) pt from the omnibar to the page")
-        #expect(abs(above - between) <= 0.5, "\(at): \(above) pt above the tab, \(between) pt from the tab to the omnibar")
+        #expect(abs(above + extra - between) <= 0.5, "\(at): \(above) pt above the tab, \(between) pt from the tab to the omnibar (\(extra) more)")
     }
 }
 
