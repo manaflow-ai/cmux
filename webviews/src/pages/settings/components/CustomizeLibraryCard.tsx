@@ -10,8 +10,16 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "../../../ui/Button";
-import { useStore } from "../context";
-import { beatenByEntry, beatenLine, entryDetail, sourceLabel, step, type Beaten } from "../customizeLibrary";
+import { useRowState, useStore } from "../context";
+import {
+  beatenByEntry,
+  beatenLine,
+  entryDetail,
+  isCodeExperimentSource,
+  sourceLabel,
+  step,
+  type Beaten,
+} from "../customizeLibrary";
 import { Switch } from "../editors/ToggleEditor";
 import { Icon } from "../icons";
 import type { LibraryEntry, LibraryListing, LibraryRun } from "../ops";
@@ -33,6 +41,7 @@ export type LibraryActions = {
 
 export function CustomizeLibraryCard({ reveal = false }: { reveal?: boolean }) {
   const store = useStore();
+  const previewFeatures = useRowState("labs.previewFeatures").value === true;
   const queryClient = useQueryClient();
   const query = useQuery(libraryQuery(store));
   const [busy, setBusy] = useState(false);
@@ -80,6 +89,7 @@ export function CustomizeLibraryCard({ reveal = false }: { reveal?: boolean }) {
       busy={busy}
       removing={removing}
       reveal={reveal}
+      showCodeExperiments={previewFeatures}
       actions={actions}
       onConfirmRemove={(name) => void run({ verb: "remove", name })}
       onCancelRemove={() => setRemoving(null)}
@@ -97,6 +107,7 @@ export function CustomizeLibraryView({
   removing = null,
   reveal = false,
   layout = "layers",
+  showCodeExperiments = false,
   actions,
   onConfirmRemove,
   onCancelRemove,
@@ -110,6 +121,8 @@ export function CustomizeLibraryView({
   /** The route opens the page on this card: it scrolls to the card once drawn. */
   reveal?: boolean;
   layout?: LibraryLayout;
+  /** Show the opt-in marker for code-backed experiment layers. */
+  showCodeExperiments?: boolean;
   actions: LibraryActions;
   onConfirmRemove: (name: string) => void;
   onCancelRemove: () => void;
@@ -155,7 +168,13 @@ export function CustomizeLibraryView({
             <div className="row" data-library-help="">
               <span className="row-help">{t("settingsPage.customizeLibrary.help")}</span>
             </div>
-            <LibraryList listing={listing} layout={layout} busy={busy} actions={actions} />
+            <LibraryList
+              listing={listing}
+              layout={layout}
+              busy={busy}
+              showCodeExperiments={showCodeExperiments}
+              actions={actions}
+            />
           </>
         ) : null}
       </div>
@@ -195,11 +214,13 @@ export function LibraryList({
   listing,
   layout,
   busy,
+  showCodeExperiments,
   actions,
 }: {
   listing: LibraryListing;
   layout: LibraryLayout;
   busy: boolean;
+  showCodeExperiments: boolean;
   actions: LibraryActions;
 }) {
   const beaten = beatenByEntry(listing);
@@ -212,6 +233,7 @@ export function LibraryList({
       count={count}
       layout={layout}
       busy={busy}
+      showCodeExperiment={showCodeExperiments && isCodeExperimentSource(entry.source)}
       actions={actions}
     />
   ));
@@ -226,6 +248,7 @@ export function LibraryEntryRow({
   count,
   layout,
   busy,
+  showCodeExperiment,
   actions,
 }: {
   entry: LibraryEntry;
@@ -233,6 +256,7 @@ export function LibraryEntryRow({
   count: number;
   layout: LibraryLayout;
   busy: boolean;
+  showCodeExperiment: boolean;
   actions: LibraryActions;
 }) {
   const labelId = useId();
@@ -293,6 +317,7 @@ export function LibraryEntryRow({
           <span className="row-title" id={labelId}>
             {entry.name}
           </span>
+          {showCodeExperiment && <ExperimentMark source={entry.source} />}
           {toggle}
         </div>
         <div className="row-help library-detail selectable">{entryDetail(entry)}</div>
@@ -311,6 +336,7 @@ export function LibraryEntryRow({
             <span className="row-title" id={labelId}>
               {entry.name}
             </span>
+            {showCodeExperiment && <ExperimentMark source={entry.source} />}
             <span className="row-help"> · {sourceLabel(entry.source)}</span>
             {beaten.length > 0 && <span className="row-help library-beaten"> · {beatenLine(beaten[0]!)}</span>}
           </span>
@@ -329,6 +355,7 @@ export function LibraryEntryRow({
         <div className="row-label">
           <div className="row-title" id={labelId}>
             {entry.name}
+            {showCodeExperiment && <ExperimentMark source={entry.source} />}
           </div>
           <div className="row-help library-detail selectable">{entryDetail(entry)}</div>
           {lines}
@@ -339,6 +366,19 @@ export function LibraryEntryRow({
         </span>
       </div>
     </div>
+  );
+}
+
+function ExperimentMark({ source }: { source: string }) {
+  return (
+    <span
+      className="library-experiment"
+      data-library-experiment={source}
+      aria-label={sourceLabel(source)}
+      title={sourceLabel(source)}
+    >
+      <Icon name="flask" />
+    </span>
   );
 }
 

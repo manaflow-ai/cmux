@@ -2798,6 +2798,20 @@ button.menu-disclosure {
   text-overflow: ellipsis;
 }
 
+.library-experiment {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  margin-left: 6px;
+  vertical-align: -2px;
+  color: var(--settings-secondary-label);
+}
+
+.library-experiment svg {
+  width: 14px;
+  height: 14px;
+}
+
 .library-beaten {
   color: var(--ds-color-attention);
 }

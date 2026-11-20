@@ -4,6 +4,11 @@
 import type { LibraryEntry, LibraryListing } from "./ops";
 import { t } from "./strings";
 
+/** Sources backed by an unmerged or otherwise non-default code layer. */
+export function isCodeExperimentSource(source: string): boolean {
+  return source === "pr" || source === "branch" || source === "sha" || source === "dir" || source === "fork";
+}
+
 /** For one entry that is on: each higher entry that wins over it, with the keys it wins. */
 export type Beaten = { winner: string; keys: string[] };
 

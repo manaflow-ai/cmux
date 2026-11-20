@@ -27,6 +27,12 @@ const action = (name: string, which: string) =>
   entry(name).querySelector<HTMLButtonElement>(`[data-library-action="${which}"]`)!;
 const toggle = (name: string) => entry(name).querySelector<HTMLButtonElement>('[role="switch"]')!;
 
+function codeLibrary() {
+  const listing = mockLibrary();
+  const codeEntry = listing.entries.find((item) => item.name === "pr-widget")!;
+  return relist(listing.entries.map((item) => (item === codeEntry ? { ...item, source: "branch" } : item)));
+}
+
 async function open(mock?: MockOptions) {
   page = await renderPage({ path: "/settings/personalization", mock });
   await settle();
@@ -53,6 +59,19 @@ test("Personalization lists the library top first, each entry with its switch", 
   expect(toggle("night").getAttribute("aria-checked")).toBe("true");
   expect(toggle("paper").getAttribute("aria-checked")).toBe("false");
   expect(entry("night").textContent).toContain("a darker theme at night");
+});
+
+test("code-backed entries stay unmarked while Preview Features is off", async () => {
+  await open({ library: codeLibrary() });
+  expect(entry("pr-widget").querySelector("[data-library-experiment]")).toBeNull();
+});
+
+test("Preview Features marks code-backed entries as experiments", async () => {
+  await open({ values: { "labs.previewFeatures": true }, library: codeLibrary() });
+  expect(entry("pr-widget").querySelector<HTMLElement>("[data-library-experiment]")?.dataset.libraryExperiment).toBe(
+    "branch",
+  );
+  expect(entry("night").querySelector("[data-library-experiment]")).toBeNull();
 });
 
 test("a conflict says which entry wins and on what, under the one that loses", async () => {
