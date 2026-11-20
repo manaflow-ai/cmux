@@ -9,6 +9,7 @@ import { HostError, HostUnavailableLine, HostWaitingLine } from "./HostError";
 import { waitedText } from "./hostErrorModel";
 import { hostLineText } from "./hostLine";
 import { hostErrorShows } from "./hostRetry";
+import { readAgentServiceWait } from "./serviceWait";
 import { translate } from "./i18n";
 import { Notice, NoticeSlot } from "./NoticeSlot";
 import { settleReact } from "../../../test/support/domTeardown";
@@ -298,4 +299,72 @@ test("a wait the host cannot restart keeps its time and shows no button", async 
   });
   expect(container.textContent).toContain("Waiting for the agent service (0:40)");
   expect(buttons(container)).toEqual([]);
+});
+
+// Leo, 2026-11-18, on "Waiting for the agent service (1:10)  Restart agent service": "i cant connect
+// to agent service? something? :(". The daemon was alive and slow: the line says busy and offers no
+// restart until the host (Rust's verdict) says a restart fits.
+test("a busy agent service is a quiet note with no clock and no restart, however long", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <HostWaitingLine since={0} now={70_000} service={{ state: "busy", restart: false }} onRestart={() => undefined} />,
+    );
+  });
+  expect(container.textContent).toBe("Agent service is busy");
+  expect(buttons(container)).toEqual([]);
+  expect(container.querySelector("[data-host-waiting]")!.getAttribute("data-host-waiting")).toBe("busy");
+  await act(async () => {
+    root!.render(
+      <HostWaitingLine since={0} now={3_600_000} service={{ state: "busy", restart: false }} onRestart={() => undefined} />,
+    );
+  });
+  expect(container.textContent).toBe("Agent service is busy");
+  expect(buttons(container)).toEqual([]);
+});
+
+test("a starting service says so; a down one says it is not running and offers Restart", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <HostWaitingLine since={0} now={40_000} service={{ state: "starting", restart: false }} onRestart={() => undefined} />,
+    );
+  });
+  expect(container.textContent).toBe("Agent service is starting");
+  expect(buttons(container)).toEqual([]);
+  await act(async () => {
+    root!.render(
+      <HostWaitingLine since={0} now={40_000} service={{ state: "down", restart: true }} onRestart={() => undefined} />,
+    );
+  });
+  expect(container.querySelector(".acpmux-host-line-message")!.textContent).toBe("Agent service is not running");
+  expect(buttons(container)).toEqual(["Restart agent service"]);
+});
+
+test("a restart in flight keeps its held button even while the service is busy", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <HostWaitingLine
+        since={0}
+        now={40_000}
+        restarting
+        service={{ state: "busy", restart: false }}
+        onRestart={() => undefined}
+      />,
+    );
+  });
+  expect(buttons(container)).toEqual(["Restarting agent service…"]);
+});
+
+test("the host's serviceWait reply is read strictly", () => {
+  expect(readAgentServiceWait({ state: "busy", restart: false })).toEqual({ state: "busy", restart: false });
+  expect(readAgentServiceWait({ state: "down", restart: true })).toEqual({ state: "down", restart: true });
+  expect(readAgentServiceWait({})).toBeUndefined();
+  expect(readAgentServiceWait(null)).toBeUndefined();
+  expect(readAgentServiceWait({ state: "gone", restart: true })).toBeUndefined();
+  expect(readAgentServiceWait({ state: "busy", restart: "no" })).toBeUndefined();
 });

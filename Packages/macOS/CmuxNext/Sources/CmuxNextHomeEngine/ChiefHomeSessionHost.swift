@@ -54,4 +54,9 @@ public nonisolated struct ChiefHomeSessionHost: AgentPaneHostProviding {
         await resolved().restartStuckAcpmux(sessionId: sessionId)
     }
 
+    /// The waiting line's word comes from where the pane's handshake goes (``AcpmuxChiefSessionRouter``).
+    public func agentServiceWait(sessionId: String?, waitedMs: Int) async -> AgentServiceWait? {
+        await resolved().agentServiceWait(sessionId: sessionId, waitedMs: waitedMs)
+    }
+
 }
