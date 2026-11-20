@@ -13,12 +13,16 @@ public struct PaneCommitMotionLastFrame {
     public let scale: CGFloat
     /// Where the picture showed, in the coordinates of the view that gives it.
     public let rect: CGRect
+    /// The layer that goes on showing the content's live picture under this one, at the content's new size; nil: the
+    /// content has none. A window that shows through its panes would show both pictures, one over the other.
+    public let live: CALayer?
 
-    public init(contents: Any, gravity: CALayerContentsGravity, scale: CGFloat, rect: CGRect) {
+    public init(contents: Any, gravity: CALayerContentsGravity, scale: CGFloat, rect: CGRect, live: CALayer? = nil) {
         self.contents = contents
         self.gravity = gravity
         self.scale = scale
         self.rect = rect
+        self.live = live
     }
 }
 
