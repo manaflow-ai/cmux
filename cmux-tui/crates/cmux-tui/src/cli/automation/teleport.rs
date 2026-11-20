@@ -105,10 +105,12 @@ pub(super) fn run(args: &[String], global: &GlobalArgs, out: &Out, cloud_source:
 /// Every Cloud trigger of a local schedule, or why it has none.
 fn cloud_triggers(t: &Trigger) -> Result<Value, Failure> {
     let cron = |expr: String, tz: &str| {
-        let tz = if cmux_automations::Zone::parse(tz) == Ok(cmux_automations::Zone::Local) {
-            cloud::local_zone_name()
-        } else {
-            "UTC".to_string()
+        // `local` is this machine's zone by name; UTC as UTC; any other name (a spec read from
+        // elsewhere) goes as it is, never as UTC, which would move its hour.
+        let tz = match cmux_automations::Zone::parse(tz) {
+            Ok(cmux_automations::Zone::Local) => cloud::local_zone_name(),
+            Ok(cmux_automations::Zone::Utc) => "UTC".to_string(),
+            Err(_) => tz.to_string(),
         };
         json!([{"type": "cron", "expr": expr, "tz": tz}, {"type": "manual"}])
     };
