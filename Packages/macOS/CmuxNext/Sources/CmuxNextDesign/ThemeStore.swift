@@ -56,6 +56,8 @@ public final class ThemeStore {
     public private(set) var accentFollowsArt = false
     /// `appearance.machineColors`: the colors people picked for machines (`MachineColor.color`).
     public private(set) var machineColors = MachineColorOverrides.none
+    /// The derived chrome text floor. The High Contrast Labs experiment raises this to 7:1.
+    public private(set) var contrastFloor = ThemeTokens.minimumTextContrast
 
     @ObservationIgnored private let publishesGlobally: Bool
     /// The root scope of this store's tree (``ThemeScope/app`` for the app's store): it tells its
@@ -72,7 +74,7 @@ public final class ThemeStore {
     public init(input: ThemeInput = .ghosttyDefault) {
         self.input = input
         configInput = input
-        tokens = ThemeTokens.derive(from: input)
+        tokens = ThemeTokens.derive(from: input, contrastFloor: contrastFloor)
         publishesGlobally = false
     }
 
@@ -126,7 +128,7 @@ public final class ThemeStore {
         input.selection = selection
         let previous = self.input
         self.input = input
-        let derived = ThemeTokens.derive(from: input)
+        let derived = ThemeTokens.derive(from: input, contrastFloor: contrastFloor)
         guard derived != tokens else {
             // A color no token reads (`selection-foreground`) still reaches the scopes' input and
             // the store's observers (Settings' Ghostty preview); nothing repaints.
@@ -230,6 +232,16 @@ public final class ThemeStore {
             }
         }
         return true
+    }
+
+    /// Sets the minimum contrast for derived primary and secondary chrome text.
+    /// The default remains 4.5:1; Labs' High Contrast look opts into 7:1.
+    @discardableResult
+    public func setContrastFloor(_ floor: Double) -> Bool {
+        let floor = floor >= 7 ? 7.0 : ThemeTokens.minimumTextContrast
+        guard floor != contrastFloor else { return false }
+        contrastFloor = floor
+        return applyChrome()
     }
 
     /// Turns Art Color on or off and re-derives every scope's tokens. Returns false when it did

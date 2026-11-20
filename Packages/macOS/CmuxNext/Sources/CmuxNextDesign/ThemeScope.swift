@@ -393,7 +393,7 @@ public final class ThemeScope {
     /// store repaints every window itself, so scopes only recompute.
     func storeDidChange() {
         ThemeRepaint.batch {
-            update(animated: false, repaint: false)
+            update(animated: false, repaint: false, force: true)
         }
     }
 
@@ -427,7 +427,7 @@ public final class ThemeScope {
         return parent?.input ?? store.input
     }
 
-    private func update(animated: Bool, repaint: Bool) {
+    private func update(animated: Bool, repaint: Bool, force: Bool = false) {
         var next = inheritedInput
         next.accent = store.accent
         next.selection = store.selection
@@ -443,13 +443,13 @@ public final class ThemeScope {
                 for view in self.roots.allObjects { self.applyAppearance(to: view) }
             }
         }
-        guard next != input else { return }
+        guard force || next != input else { return }
         input = next
-        let derived = level == .config ? store.tokens : ThemeTokens.derive(from: next)
+        let derived = level == .config ? store.tokens : ThemeTokens.derive(from: next, contrastFloor: store.contrastFloor)
         ownTokens = derived
         // Each child that inherits these colors repaints its own views (this scope's pass stops
         // at their roots).
-        for child in children.allObjects { child.update(animated: animated, repaint: repaint) }
+        for child in children.allObjects { child.update(animated: animated, repaint: repaint, force: force) }
         refreshDisplay(animated: animated, repaint: repaint)
     }
 

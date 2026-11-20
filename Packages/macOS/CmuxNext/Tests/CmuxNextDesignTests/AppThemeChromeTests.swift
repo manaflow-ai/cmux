@@ -10,6 +10,7 @@ import Testing
 @MainActor @Suite struct AppThemeChromeTests {
     private let darkTerminal = ThemeInput(background: ThemeRGB(hex: 0x1E1E1E), foreground: ThemeRGB(hex: 0xD4D4D4))
     private let lightApp = ThemeInput(background: ThemeRGB(hex: 0xFAF7F0), foreground: ThemeRGB(hex: 0x2B2A28))
+    private let lowContrast = ThemeInput(background: ThemeRGB(hex: 0x000000), foreground: ThemeRGB(hex: 0x777777))
 
     @Test func anAppThemeColorsTheChrome() {
         let store = ThemeStore()
@@ -65,5 +66,29 @@ import Testing
         accented.accent = .blue
         #expect(store.tokens == ThemeTokens.derive(from: accented))
         #expect(store.appTheme == AppTheme.derive(from: accented))
+    }
+
+    @Test func highContrastRaisesChromeTextAndResetsToTheDefault() {
+        let store = ThemeStore(input: lowContrast)
+        #expect(store.contrastFloor == ThemeTokens.minimumTextContrast)
+        #expect(store.tokens == ThemeTokens.derive(from: lowContrast))
+        #expect(store.setContrastFloor(7))
+        #expect(store.contrastFloor == 7)
+        #expect(store.tokens == ThemeTokens.derive(from: lowContrast, contrastFloor: 7))
+        #expect(store.tokens.textPrimary.contrast(with: lowContrast.background) >= 7)
+        #expect(store.tokens.textSecondary.contrast(with: lowContrast.background) >= 7)
+        #expect(store.setContrastFloor(ThemeTokens.minimumTextContrast))
+        #expect(store.contrastFloor == ThemeTokens.minimumTextContrast)
+        #expect(store.tokens == ThemeTokens.derive(from: lowContrast))
+    }
+
+    @Test func highContrastReachesInheritedThemeScopes() {
+        let store = ThemeStore(input: lowContrast)
+        let app = ThemeScope(root: store)
+        let room = ThemeScope(level: .room, parent: app)
+        #expect(room.tokens == ThemeTokens.derive(from: lowContrast))
+        store.setContrastFloor(7)
+        #expect(room.tokens == ThemeTokens.derive(from: lowContrast, contrastFloor: 7))
+        #expect(room.tokens.textSecondary.contrast(with: lowContrast.background) >= 7)
     }
 }
