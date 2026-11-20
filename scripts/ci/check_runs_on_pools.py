@@ -53,6 +53,13 @@ EXCEPTIONS: dict[tuple[str, str], str] = {
         "publish-nightly", "publish-nightly-next-github", "keep-published-dsyms", "sentry-dsyms-nightly",
         "republish-nightly-deltas", "sign-release-notes", "publish-release-notes", "publish-nightly-reel")},
     ("nightly-tag-permission-probe.yml", "probe"): _NIGHTLY_HOSTED,
+    # The Linux nightly jobs that hold signing secrets (2e164b5e610c): rule 7 of
+    # tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py needs an ephemeral runner, and the hosted
+    # route is pinned by tests/test_ci_self_hosted_guard.sh's signer-route exceptions.
+    **{key: _NIGHTLY_HOSTED + "; holds signing secrets (rule 7: ephemeral runner)" for key in (
+        ("auto-resume-nightly-notarization.yml", "poll"), ("auto-resume-nightly-notarization.yml", "poll-outer"),
+        ("auto-resume-nightly-notarization.yml", "poll-stapled"), ("auto-resume-nightly-notarization.yml", "publish"),
+        ("ios-internal-nightly.yml", "previous-build"), ("nightly-next-train.yml", "drive"))},
     ("ci-cloud-overflow-probe.yml", "watch"): "github-hosted-required: it must run while Blacksmith starts nothing, "
                                               "to switch overflow on",
 }
