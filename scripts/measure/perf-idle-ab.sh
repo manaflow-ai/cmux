@@ -30,7 +30,8 @@
 #                       2 timers), so each window holds a whole count of reads.
 # The harness (bench_memory.py, thread_wakes.py, tag_teardown.py, the test agent) is this script's checkout's,
 # copied before the arms are checked out, so a base that predates it runs the same harness.
-# Each arm is built in this checkout (its warm DerivedData, so the second arm builds incrementally), the
+# Each arm is built in this checkout, in its own DerivedData (arm-derived-data.sh: a stale precompiled module of the
+# other arm failed the head build), the
 # checkout is put back at this script's commit at the end, and the tagged apps, their daemons and every
 # temporary folder are removed on exit, also on a cancel (TERM). Prints:
 #   IDLE-AB run <arm> <round> chats <N> kind <K> wakeups_per_s <w> cpu_pct <c>
@@ -57,6 +58,7 @@ set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 here="$PWD"
 own_sha="$(git rev-parse HEAD)"
+. "$here/scripts/measure/arm-derived-data.sh"  # before an arm is checked out: a base may predate it
 base="" head="" rounds=5 chats="0,1,10" measure=60 trace=10 kinds="app,cef-gpu" cells="" unfocused=300 chats_given=false
 for arg in "$@"; do
   case "$arg" in
@@ -166,7 +168,7 @@ build_arm() {  # build_arm ARM SHA: checks the commit out here and builds its ta
   RUNNER_TEMP="$scratch" GITHUB_PATH="$scratch/bun-path-$arm" ./scripts/cmux-next/private-bun.sh || return 3
   local bun_path
   bun_path="$(tail -n 1 "$scratch/bun-path-$arm")"
-  CMUX_DEV_BACKEND_MODE=local PATH="$bun_path:$PATH" \
+  CMUX_DERIVED_DATA="$(measure_arm_derived_data "$arm")" CMUX_DEV_BACKEND_MODE=local PATH="$bun_path:$PATH" \
     ./scripts/reload.sh --tag "idleab-$arm" --config bench --no-global-cli-links 2>&1 | tee "$log" | grep -E '^(==>|error:|App path)' || true
   local app
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$log" | tail -n 1)"
