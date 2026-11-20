@@ -27,12 +27,17 @@ extension AgentPaneModel {
 
 /// File-page reverse links consume only a context created by the originating agent pane.
 public protocol AgentSourceUsesPageContext: AnyObject {
+    var sourceContextID: String { get }
     func matches(_ file: URL) -> Bool
     func read(cursor: String?) async throws -> JSONValue
     func reveal(reply: String, turn: String) -> Bool
 }
 
 public enum AgentSourceUsesPageBridge {
+    public static func config(local: Bool, file: URL, source: (any AgentSourceUsesPageContext)?) -> [String: JSONValue] {
+        guard local, let source, source.matches(file) else { return [:] }
+        return ["sourceUses": true, "sourceContext": .string(source.sourceContextID)]
+    }
     @MainActor public static func sourceUses(
         local: Bool, file: URL?, requested: URL, matches: Bool, source: (any AgentSourceUsesPageContext)?,
         read: @escaping () -> Bool, stillCurrent: @escaping () -> Bool, cursor: String?
@@ -62,7 +67,7 @@ public enum AgentSourceUsesPageBridge {
     }
 }
 
-extension FilePageSourceContext: AgentSourceUsesPageContext {}
+extension FilePageSourceContext: AgentSourceUsesPageContext { public var sourceContextID: String { id } }
 
 extension AgentPaneModel {
     /// Installs the checked file callbacks while keeping source provenance in the pane target.
