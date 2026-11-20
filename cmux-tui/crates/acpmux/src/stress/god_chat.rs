@@ -388,20 +388,6 @@ fn costs(bytes: u64) -> Costs {
         drop((stalled_tx, stalled_rx));
         drop(session);
         drop(hub);
-        // A second restart over the same home, once the first hub let it go: whether the read
-        // repeats on every start or only on the first one after the log was written.
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        let read = process_read();
-        let cfg = config();
-        match crate::store::open(&cfg.store, home.path()) {
-            Ok(store) => {
-                let again = Hub::new(cfg.clone(), store);
-                let second_restart_read = (process_read() - read) as f64;
-                drop(again);
-                eprintln!("STRESS god chat second restart read={second_restart_read:.0} B");
-            }
-            Err(error) => eprintln!("STRESS god chat second restart: the store did not open: {error}"),
-        }
         Costs {
             log_mb,
             restart_read,
@@ -423,6 +409,30 @@ fn costs(bytes: u64) -> Costs {
         }
     });
     // The hub's tasks end with its runtime, before the next size is measured.
+    runtime.shutdown_timeout(Duration::from_secs(5));
+    // A second restart over the same home once the first hub and its runtime are gone (they
+    // hold the event journal): whether the start read repeats on every start or is paid once.
+    let runtime =
+        tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+    runtime.block_on(async {
+        let read = process_read();
+        let cfg = config();
+        match crate::store::open(&cfg.store, home.path()) {
+            Ok(store) => {
+                let wall = Instant::now();
+                let again = Hub::new(cfg.clone(), store);
+                eprintln!(
+                    "STRESS god chat second restart: read={:.0} B in {:.1} ms",
+                    (process_read() - read) as f64,
+                    wall.elapsed().as_secs_f64() * 1e3
+                );
+                drop(again);
+            }
+            Err(error) => {
+                eprintln!("STRESS god chat second restart: the store did not open: {error}")
+            }
+        }
+    });
     runtime.shutdown_timeout(Duration::from_secs(5));
     costs
 }
