@@ -2,8 +2,11 @@
 //!
 //! An unresolved intent is never evicted. Its only retry sends the original
 //! scope, subject, operation, key and revision, without another machine read.
-//! Completed entries may be evicted: the backend remains the durable replay
-//! authority. This process-local ledger does not survive a server restart.
+//! Completed entries also retain their response and scope: reobserving after
+//! eviction cannot recover the original intent from a later provider state.
+//! At capacity, new keys are refused before I/O; existing keys remain usable.
+//! Durable replay/admission recovery is tracked in HQ#47086. This process-local
+//! ledger does not survive a server restart.
 //! Restart therefore observes the provider again and never invents a live
 //! capability for Starting/Pausing/Deleting. Durable replay remains backend-owned.
 //!
@@ -18,7 +21,7 @@ use crate::api::{CloudError, ControlPlane, Ctx, codes, decode_answer};
 use cmux_cloud_client::lifecycle::{ObservedMachine, observe, relay::Request};
 use cmux_cloud_client::machine::Scope;
 use serde_json::{Value, json};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 const CAPACITY: usize = 512;
 
@@ -34,7 +37,6 @@ struct Entry {
 #[derive(Default)]
 pub(super) struct Ledger {
     entries: HashMap<String, Entry>,
-    completed: VecDeque<String>,
 }
 
 fn bad(message: impl Into<String>) -> CloudError {
@@ -86,14 +88,10 @@ impl Ledger {
             }
         } else {
             if self.entries.len() == CAPACITY {
-                if let Some(oldest) = self.completed.pop_front() {
-                    self.entries.remove(&oldest);
-                } else {
-                    return Err(CloudError::new(
-                        codes::RELAY_BUSY,
-                        "lifecycle ledger is full of unresolved intents; retry an existing key",
-                    ));
-                }
+                return Err(CloudError::new(
+                    codes::RELAY_BUSY,
+                    "lifecycle replay ledger is full; retry an existing key; new keys require durable replay reconciliation",
+                ));
             }
             // Always observe authoritatively for a new intent. A cached
             // projection may predate a backend switch or an accepted mutation.
@@ -122,7 +120,6 @@ impl Ledger {
                             result: Some(result.clone()),
                         },
                     );
-                    self.completed.push_back(key);
                     return Ok(result);
                 }
                 Err(error) => return Err(error),
@@ -189,7 +186,6 @@ impl Ledger {
             }
         };
         entry.result = Some(result.clone());
-        self.completed.push_back(key);
         Ok(result)
     }
 }
