@@ -43,23 +43,21 @@ export function computerUseGate(text: string, state: ComputerUseState | undefine
 const askState = () => callNative("chat.computerUse.state");
 
 /// The last answer to `chat.computerUse.state`; only the newest answer lands. `refresh` resolves
-/// with it; `current` reads it from a handler registered earlier (the pane's actions). `setupRan`
-/// marks the answer stale until the page next comes to the front, which reads it once more.
+/// with a fresh one (a send decides on it, never on `state`). `setupRan` marks the answer stale until
+/// the page next comes to the front, which reads it once more.
 export function useComputerUseState(): {
   state: ComputerUseState | undefined;
-  current(): ComputerUseState | undefined;
   refresh(): Promise<ComputerUseState | undefined>;
   setupRan(): void;
 } {
   const [state, setState] = useState<ComputerUseState | undefined>();
   const [stale, setStale] = useState(false);
   const generation = useRef(0);
-  const latest = useRef<ComputerUseState | undefined>(undefined);
   const refresh = useCallback(() => {
     const mine = ++generation.current;
     const land = (next: ComputerUseState | undefined) => {
-      if (mine !== generation.current) return latest.current;
-      latest.current = next;
+      // A newer read is on its way: this send still decides on what it read.
+      if (mine !== generation.current) return next;
       setState(next);
       return next;
     };
@@ -68,7 +66,6 @@ export function useComputerUseState(): {
       () => land(undefined),
     );
   }, []);
-  const current = useCallback(() => latest.current, []);
   // mount-read: one main-actor read of the app's Computer Use Setup, no daemon or disk; a send that
   // names @computer-use needs it before the person presses Return.
   useEffect(() => void refresh(), [refresh]);
@@ -87,5 +84,5 @@ export function useComputerUseState(): {
     };
   }, [stale, refresh]);
   const setupRan = useCallback(() => setStale(true), []);
-  return { state, current, refresh, setupRan };
+  return { state, refresh, setupRan };
 }

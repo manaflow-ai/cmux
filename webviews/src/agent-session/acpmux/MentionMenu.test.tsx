@@ -169,9 +169,9 @@ test("computer use and browser use are always offered, found by their name's sta
     { text: "uter use", matched: false },
   ]);
   expect(mentionInsert(computer!).shown).toBe("@computer-use ");
-  // Typed toward a file, the file the host found still comes after the tool it also names.
+  // Typed toward a file, the file the host found comes first; the tool it also names follows.
   const files = mentionItems({ query: "bro", files: [{ path: "src/broker.ts", matches: [4, 5, 6] }], sessions: [] });
-  expect(files.map((item) => item.key)).toEqual(["tool:browser-use", "file:src/broker.ts"]);
+  expect(files.map((item) => item.key)).toEqual(["file:src/broker.ts", "tool:browser-use"]);
 });
 
 test("a harness mention is offered as a read-only guest and inserts its target token", () => {

@@ -31,9 +31,8 @@ function redecorate(set: DecorationSet, doc: ProseNode, block: ProseNode, pos: n
   // `@computer-use` and `@browser-use` too: the titles plugin draws each as its tool's badge (toolMentions.ts).
   // Not in inline code, where the send reads it as literal text too (toolMentionsIn).
   const code = doc.type.schema.marks.inlineCode;
-  const tools = toolWords(text).filter(
-    (tool) => !code || !doc.rangeHasMark(start + tool.start, start + tool.end, code),
-  );
+  // Read in the textblock itself, never from the document's root: a paste of many paragraphs stays linear.
+  const tools = toolWords(text).filter((tool) => !code || !block.rangeHasMark(tool.start, tool.end, code));
   if (!found.length && !tools.length) return next;
   return next.add(doc, [
     ...tools.map((tool) => Decoration.inline(start + tool.start, start + tool.end, {}, { deeplink: tool.href })),

@@ -417,8 +417,16 @@ export function slashMatches(commands: readonly SlashCommand[], trigger: SlashTr
 /// name, unless it is that name in full and the command takes no arguments (Return then sends it).
 /// Otherwise Return does what it does with no menu: a path or a word that only resembles a command
 /// (`look in /dev`) is never rewritten. The chat and New Tab both decide by this.
-export function returnPicks(match: SlashMatch | undefined, query: string, arrowed: boolean): boolean {
+export function returnPicks(
+  match: SlashMatch | undefined,
+  query: string,
+  arrowed: boolean,
+  mark?: SlashTrigger["mark"],
+): boolean {
   if (!match) return false;
+  // A `$word` is as often a price or a shell variable (`$5`, `echo $BROWSER`) as Codex's skill mark:
+  // Return picks a row only once the arrows chose it (Tab still picks), else it is the person's text.
+  if (mark === "$") return arrowed;
   const name = shownName(match.command);
   const typed = query.replace(/^\$/, "");
   // An extension's command is only its text: Return on its whole name writes the text, never sends it.

@@ -350,6 +350,9 @@ export function mentionItems({
   // A harness follows the chats: a chat row being typed toward stays put as "@c" grows to
   // "@coord", and a bare @ (no query, so no harness) keeps its height.
   if (/[./]/.test(text)) return [...paths, ...chats, ...harnessRows, ...toolRows];
+  // The tools lead the paths only for a bare @ (always offered); a typed word keeps finding its file
+  // first (`@bro` is `broker.ts` before Browser Use).
+  if (text) return [...chats, ...harnessRows, ...paths, ...toolRows];
   return [...chats, ...harnessRows, ...toolRows, ...paths];
 }
 
@@ -359,7 +362,12 @@ export function mentionItems({
 export function mentionSelection(items: readonly MentionItem[], activeKey: string | undefined, pending: boolean) {
   const chosen = activeKey === undefined ? -1 : items.findIndex((item) => item.key === activeKey);
   if (chosen >= 0) return chosen;
-  return pending ? items.findIndex((item) => item.kind !== "session") : items.length > 0 ? 0 : -1;
+  // A tool is not picked unasked either: `@bro⏎` still means the file that lists a moment later.
+  return pending
+    ? items.findIndex((item) => item.kind !== "session" && item.kind !== "tool")
+    : items.length > 0
+      ? 0
+      : -1;
 }
 
 /// What a pick writes in place of the `@word`: a file's or folder's `@path ` (a folder's with its

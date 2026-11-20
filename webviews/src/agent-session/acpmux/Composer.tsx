@@ -1502,7 +1502,9 @@ function ComposerFrame({
   // The commands picked last (any chat), for the + menu's few recent rows; read again as + opens.
   const [recentCommandNames, setRecentCommandNames] = useState(loadRecentCommandNames);
   const pick = (command: SlashCommand) => {
-    setRecentCommandNames(rememberRecentCommand(command.name));
+    // A row that writes its own text (a built-in tool, an extension's command) is no command to recall:
+    // the + menu's recents write `/name`, which would lose what it writes.
+    if (!insertsText(command)) setRecentCommandNames(rememberRecentCommand(command.name));
     notePicked(command);
     // In place, over the typed `/word`, the text around it kept; the field reports the edit.
     if (field.current?.insertCommand(shownName(command), insertsText(command) ? command.insert : undefined)) {
@@ -2389,7 +2391,7 @@ function ComposerFrame({
   // Enter sends unless it picks a command (slashCommands.ts returnPicks): the highlighted row was
   // chosen with the arrows, or the typed word begins its name and is not that name in full with no
   // arguments to take. A path or a word that only resembles a command is never rewritten.
-  const returnSends = () => !open || !returnPicks(matches[selected], query ?? "", arrowed);
+  const returnSends = () => !open || !returnPicks(matches[selected], query ?? "", arrowed, typedSlash?.mark);
   const sendOnReturn = (event: { preventDefault(): void }) => {
     if (!returnSteers) return submit(event);
     event.preventDefault();

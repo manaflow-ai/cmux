@@ -1,7 +1,7 @@
 // The composer's built-in @ tools (CMUX-682): which tools a sent message names, and the note the
 // agent gets for them.
 import { expect, test } from "bun:test";
-import { slashMatches, slashTrigger, type SlashCommand } from "./slashCommands";
+import { returnPicks, slashMatches, slashTrigger, type SlashCommand } from "./slashCommands";
 import {
   toolMentionContext,
   toolMentionsFor,
@@ -76,4 +76,26 @@ test("the draft's badges: each tool word's range and href, and the tool each hre
   expect(toolWords("review @computer-use.md or me@computer-use")).toEqual([]);
   expect(toolOfHref("cmux-tool:computer-use")?.icon).toBe("computeruse.observe");
   expect(toolOfHref("cmux://workspace/ws_1")).toBeUndefined();
+});
+
+test("a tool word right after an attachment placed in the text is still the mention", () => {
+  expect(toolMentionsIn("\uFFFCshot-1\uFFFC@computer-use")).toEqual(["computer-use"]);
+  expect(toolWords("\uFFFC@browser-use").map((word) => word.href)).toEqual(["cmux-tool:browser-use"]);
+});
+
+test("Return picks a $ row only once the arrows chose it: a price or a shell variable stays text", () => {
+  const tools = toolSlashCommands((key) => key);
+  const first = (before: string) => {
+    const trigger = slashTrigger(before, undefined)!;
+    return { trigger, match: slashMatches(tools, trigger)[0] };
+  };
+  const price = first("the price is $");
+  expect(returnPicks(price.match, price.trigger.query, false, price.trigger.mark)).toBe(false);
+  const variable = first("echo $BROWSER");
+  expect(variable.match?.command.name).toBe("browser-use");
+  expect(returnPicks(variable.match, variable.trigger.query, false, variable.trigger.mark)).toBe(false);
+  expect(returnPicks(variable.match, variable.trigger.query, true, variable.trigger.mark)).toBe(true);
+  // A `/word` keeps its rule: the typed start of a name picks it.
+  const slash = first("open it with /comp");
+  expect(returnPicks(slash.match, slash.trigger.query, false, slash.trigger.mark)).toBe(true);
 });
