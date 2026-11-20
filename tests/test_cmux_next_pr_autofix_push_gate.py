@@ -92,8 +92,10 @@ class PushGateTests(unittest.TestCase):
         workflow = yaml.safe_load(WORKFLOW.read_text())
         # A called workflow has its caller's event name, and every caller runs on pull_request only.
         self.assertEqual(set(workflow[True]), {"pull_request", "workflow_call"})  # PyYAML reads `on:` as True
-        callers = [path for path in sorted(WORKFLOW.parent.glob("*.yml"))
-                   if re.search(rf"uses:\s*\./\.github/workflows/{re.escape(WORKFLOW.name)}", path.read_text())]
+        # Each form of a call: `./.github/workflows/NAME` and `OWNER/REPO/.github/workflows/NAME@REF`, in a
+        # `.yml` or a `.yaml` file.
+        callers = [path for path in sorted(WORKFLOW.parent.glob("*.y*ml"))
+                   if re.search(rf"uses:\s*\S*\.github/workflows/{re.escape(WORKFLOW.name)}", path.read_text())]
         self.assertEqual([path.name for path in callers], ["docs-only-fallback.yml"])
         for caller in callers:
             self.assertEqual(set(yaml.safe_load(caller.read_text())[True]), {"pull_request"}, caller.name)
