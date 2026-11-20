@@ -79,7 +79,11 @@ struct SidebarPriorityRowActions {
         }
         // Restore runs on any surface for an archived chat; the Priority view being off does not stop it (the chat
         // lists again wherever it listed). An archived chat's menu is Restore, not the ranked rows' actions.
-        registry.bind(Self.restore, run: { try Self.run(chats.restore, $0) })
+        // The fold drops the chat on this turn; the acpmux request runs in `restore`'s own task.
+        registry.bindEffect(Self.restore, effect: { invocation in
+            guard let id = Self.chat(invocation), chats.restore(id) else { return .refused(SidebarSectionStrings.noSuchPriorityChat) }
+            return .done
+        })
         ActionTargetVisibility.hide(Self.restore, in: registry) { invocation in
             Self.chat(invocation).map { !chats.isArchived($0) } ?? true
         }
