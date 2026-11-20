@@ -197,7 +197,7 @@ extension AppServices {
     var cmuxRemoteActions: CmuxRemoteActionEnvironment {
         CmuxRemoteActionEnvironment(remote: cmuxRemote, screenHost: macScreenPages.hubHost, hub: { [weak self] in self?.macScreenPages.hub },
                                     window: { [weak self] in self?.windows.active?.window },
-                                    openDevices: { [weak self] in try? self?.settingsWindow.show(section: nil, route: "devices") })
+                                    openDevices: { [weak self] in try? self?.settingsWindow.show(section: nil, route: "devices") }, shareConsent: .setting { [weak self] in self?.settings })
     }
 
     /// cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen

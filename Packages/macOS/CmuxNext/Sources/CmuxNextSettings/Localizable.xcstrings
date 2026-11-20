@@ -1,6 +1,48 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.attention.mark": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Needs You Look"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "مظهر «بحاجة إليك»"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Darstellung von „Braucht dich“"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Aspecto de «Te necesita»"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Apparence de « Vous attend »"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "「要対応」の見た目"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "확인 필요 표시 방식"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "“需要你”的外观"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "「需要你」的外觀"}}
+      }
+    },
+    "settings.attention.mark.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "How a tab and a sidebar row that wait for you show it: the badge, or a gentle glow until you look at them."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "كيف تُظهر علامة التبويب وصف الشريط الجانبي أنهما بانتظارك: الشارة، أو توهّج هادئ حتى تنظر إليهما."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Wie ein Tab und eine Seitenleistenzeile zeigen, dass sie auf dich warten: mit dem Abzeichen oder einem sanften Leuchten, bis du sie ansiehst."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cómo muestran una pestaña y una fila de la barra lateral que te esperan: con la insignia o con un brillo suave hasta que las mires."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Comment un onglet et une ligne de la barre latérale qui vous attendent le montrent : le badge, ou une douce lueur jusqu’à ce que vous les regardiez."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "対応待ちのタブとサイドバーの行の示し方：バッジ、または見るまでやさしく光る表示。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "확인이 필요한 탭과 사이드바 행을 표시하는 방식: 배지, 또는 확인할 때까지 은은하게 빛나기."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "等待你的标签页和侧边栏行如何显示：使用标记，或在你查看前柔和地发光。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "等待你的分頁與側邊欄列如何顯示：使用標記，或在你查看前柔和地發光。"}}
+      }
+    },
+    "settings.choice.badge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Badge"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "شارة"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Abzeichen"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Insignia"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Pastille"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "バッジ"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "배지"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "标记"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "標記"}}
+      }
+    },
     "settings.group.agentGuidance": {
       "comment": "Settings > Agents: group title for cmux's guidance and the person's skills",
       "extractionState": "manual",
@@ -12667,6 +12709,399 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Mac 螢幕串流僅使用中繼"
+          }
+        }
+      }
+    },
+    "settings.macScreen.shareWithoutAsking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share This Mac Without Asking"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مشاركة هذا الـMac دون سؤال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dijeli ovaj Mac bez pitanja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Del denne Mac uden at spørge"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diesen Mac ohne Nachfrage teilen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compartir este Mac sin preguntar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Partager ce Mac sans demander"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Condividi questo Mac senza chiedere"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "確認なしでこのMacを共有"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចែករំលែក Mac នេះដោយមិនសួរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "묻지 않고 이 Mac 공유"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Del denne Mac-en uten å spørre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Udostępniaj tego Maca bez pytania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compartilhar este Mac sem perguntar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открывать доступ к этому Mac без запроса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชร์ Mac เครื่องนี้โดยไม่ต้องถาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac'i sormadan paylaş"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Надавати доступ до цього Mac без запиту"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chia sẻ máy Mac này mà không hỏi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无需询问即共享此 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無需詢問即分享此 Mac"
+          }
+        }
+      }
+    },
+    "settings.macScreen.shareWithoutAsking.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يشغّل سطر أوامر cmux والوكلاء وأجهزتك المشاركة دون نافذة. يظل وصول كل جهاز ساريًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tvoj cmux CLI, agenti i uređaji uključuju dijeljenje bez prozora. Pristup svakog uređaja i dalje važi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dit eget cmux CLI, agenter og enheder slår deling til uden et ark. Hver enheds adgang gælder stadig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deine eigene cmux-CLI, Agenten und Geräte schalten die Freigabe ohne Dialog ein. Der Zugriff jedes Geräts gilt weiterhin."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tu propia CLI de cmux, tus agentes y dispositivos activan el uso compartido sin ventana. El acceso de cada dispositivo sigue aplicándose."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Votre CLI cmux, vos agents et vos appareils activent le partage sans fenêtre. L’accès de chaque appareil s’applique toujours."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La tua CLI cmux, i tuoi agenti e dispositivi attivano la condivisione senza finestra. L’accesso di ogni dispositivo resta valido."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自分の cmux CLI、エージェント、デバイスがシートなしで共有をオンにします。各デバイスのアクセス設定は引き続き適用されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux CLI ភ្នាក់ងារ និងឧបករណ៍ផ្ទាល់ខ្លួនរបស់អ្នកបើកការចែករំលែកដោយគ្មានផ្ទាំង។ សិទ្ធិចូលប្រើរបស់ឧបករណ៍នីមួយៗនៅតែអនុវត្ត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "내 cmux CLI, 에이전트, 기기가 시트 없이 공유를 켭니다. 각 기기의 접근 권한은 그대로 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ditt eget cmux CLI, agenter og enheter slår på deling uten et ark. Hver enhets tilgang gjelder fortsatt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Twoje cmux CLI, agenci i urządzenia włączają udostępnianie bez okna. Dostęp każdego urządzenia nadal obowiązuje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sua própria CLI do cmux, agentes e dispositivos ativam o compartilhamento sem janela. O acesso de cada dispositivo continua valendo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваш cmux CLI, агенты и устройства включают общий доступ без окна. Доступ каждого устройства по-прежнему действует."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux CLI เอเจนต์ และอุปกรณ์ของคุณเปิดการแชร์ได้โดยไม่มีหน้าต่าง สิทธิ์การเข้าถึงของแต่ละอุปกรณ์ยังคงมีผล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kendi cmux CLI'ın, ajanların ve cihazların paylaşımı pencere olmadan açar. Her cihazın erişimi yine geçerlidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваш cmux CLI, агенти та пристрої вмикають спільний доступ без вікна. Доступ кожного пристрою й далі діє."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CLI cmux, tác tử và thiết bị của bạn bật chia sẻ mà không cần hộp thoại. Quyền truy cập của từng thiết bị vẫn áp dụng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你自己的 cmux CLI、代理和设备无需弹窗即可开启共享。每台设备的访问权限仍然适用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你自己的 cmux CLI、代理和裝置無需彈窗即可開啟分享。每台裝置的存取權限仍然適用。"
+          }
+        }
+      }
+    },
+    "settings.macScreen.shareWithoutAsking.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sharing turns on without asking"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تبدأ المشاركة دون سؤال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dijeljenje se uključuje bez pitanja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deling slås til uden at spørge"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Freigabe startet ohne Nachfrage"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El uso compartido se activa sin preguntar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le partage s’active sans demander"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La condivisione si attiva senza chiedere"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "確認なしで共有がオンになります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការចែករំលែកបើកដោយមិនសួរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "묻지 않고 공유가 켜집니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deling slås på uten å spørre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Udostępnianie włącza się bez pytania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O compartilhamento é ativado sem perguntar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Общий доступ включается без запроса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การแชร์เปิดโดยไม่ต้องถาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paylaşım sormadan açılır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спільний доступ вмикається без запиту"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chia sẻ bật mà không cần hỏi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "共享无需询问即开启"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分享無需詢問即開啟"
           }
         }
       }
