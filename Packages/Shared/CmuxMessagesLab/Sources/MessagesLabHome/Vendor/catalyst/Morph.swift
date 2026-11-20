@@ -256,9 +256,13 @@ final class MorphBubble {
     /// send uses them only for an equal layout, size and scale; else it renders as before.
     private static let prepQueue = DispatchQueue(label: "morph.prepare", qos: .userInitiated)
     private static let prepLock = NSLock()
-    private static var prepared: (tl: TextLayout, size: CGSize, scale: CGFloat, images: (CGImage?, CGImage?))?
+    private static var prepared: (tl: TextLayout, size: CGSize, scale: CGFloat, images: (CGImage?, CGImage?), draft: Int)?  // cmux: + draft
     private static var prepSerial = 0
     static var preparedHits = 0
+    /// cmux: the hash of the trimmed draft the newest send images were made for (tests; several Home views share them).
+    static func preparedDraftHash() -> Int? { prepLock.lock(); defer { prepLock.unlock() }; return prepared?.draft }
+    /// cmux: returns once the renders queued so far are done (tests).
+    static func drainPrepare() { prepQueue.sync {} }
     /// `scale`: the sending view's (its renderScale); a send at another scale draws its own images.
     static func prepare(draft: String, width: CGFloat, scale: CGFloat = Fixture.renderScale) {
         let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -272,7 +276,7 @@ final class MorphBubble {
             guard let tl else { return }
             let images = textImages(tl, size, scale: scale)
             prepLock.lock()
-            if serial == prepSerial { prepared = (tl, size, scale, images) }
+            if serial == prepSerial { prepared = (tl, size, scale, images, t.hashValue) }
             prepLock.unlock()
         } }
     }
