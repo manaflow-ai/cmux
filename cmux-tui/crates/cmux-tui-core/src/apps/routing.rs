@@ -45,6 +45,9 @@ impl OpRouter for MuxRouter {
         if op == AGENT_CHAT_LIST {
             return agent_chat_list(&mux, &params);
         }
+        if op == "forum.threads" {
+            return mux.app_forum_threads(params);
+        }
         // An app's call has origin app (request-origin.md): gate A2 refuses
         // the operations that need the user.
         crate::request_origin::require_origin(op, crate::request_origin::RequestOrigin::App)
@@ -90,7 +93,7 @@ impl OpRouter for MuxRouter {
     }
 
     fn owns(&self, op: &str) -> bool {
-        is_daemon_op(op) || op == AGENT_CHAT_LIST
+        is_daemon_op(op) || op == AGENT_CHAT_LIST || op == "forum.threads"
     }
 
     fn start_events(&self, publish: super::supervisor::StreamPublish) {

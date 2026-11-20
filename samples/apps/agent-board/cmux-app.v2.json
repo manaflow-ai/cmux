@@ -1,0 +1,57 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "manaflow-ai/agent-board",
+  "name": {
+    "en": "Board"
+  },
+  "version": "1.0.0",
+  "description": {
+    "en": "Work threads for your agents: status, blockers, source receipts and claim leases in one place."
+  },
+  "publisher": {
+    "name": "cmux",
+    "url": "https://cmux.com"
+  },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": {
+    "symbol": "text.bubble"
+  },
+  "categories": [
+    "productivity"
+  ],
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "dist/main.js"
+  },
+  "implements": {
+    "cmux.pane/1": {
+      "export": "renderPane",
+      "title": {
+        "en": "Board"
+      },
+      "symbol": "text.bubble"
+    }
+  },
+  "presentation": {
+    "sidebarItem": {
+      "section": "top",
+      "order": 151
+    },
+    "screen": "app",
+    "tab": true
+  },
+  "scopes": {
+    "agent_chat:read": "Choose a local agent chat whose work threads to view.",
+    "forum:read": "Read the selected local chat’s work-thread bodies, source receipts and claim leases."
+  },
+  "activation": [
+    "onInterface:cmux.pane/1"
+  ],
+  "files": [
+    "dist/"
+  ]
+}

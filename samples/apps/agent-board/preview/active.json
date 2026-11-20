@@ -1,0 +1,70 @@
+{
+  "grant": [
+    "agent_chat:read",
+    "forum:read"
+  ],
+  "scopes": {
+    "agent_chat.list": {
+      "scope": "agent_chat:read",
+      "class": "read"
+    },
+    "forum.threads": {
+      "scope": "forum:read",
+      "class": "read"
+    }
+  },
+  "ops": {
+    "agent_chat.list": {
+      "chats": [
+        {
+          "id": "coordinator",
+          "title": "Coordinator"
+        }
+      ]
+    },
+    "forum.threads": {
+      "recipient": "coordinator",
+      "threads": [
+        {
+          "channel": "ops/runner-capacity",
+          "thread": "ubuntu-24",
+          "latest": {
+            "id": "post-1",
+            "kind": "warn",
+            "body": "Jobs have waited for a runner past 30 minutes.",
+            "created": 1795158180000,
+            "sources": {
+              "host-a": {
+                "receipt": "a"
+              },
+              "host-b": {
+                "receipt": "b"
+              }
+            }
+          },
+          "posts": [
+            {
+              "id": "post-1",
+              "kind": "warn",
+              "body": "Jobs have waited for a runner past 30 minutes.",
+              "created": 1795158180000,
+              "sources": {
+                "host-a": {
+                  "receipt": "a"
+                },
+                "host-b": {
+                  "receipt": "b"
+                }
+              }
+            }
+          ],
+          "lease": {
+            "owner": "runner-owner",
+            "epoch": 1,
+            "expires": 1795161780000
+          }
+        }
+      ]
+    }
+  }
+}

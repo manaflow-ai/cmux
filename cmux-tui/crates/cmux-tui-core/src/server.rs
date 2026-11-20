@@ -154,6 +154,7 @@ pub use agent_session_attach::{
 pub(crate) use agent_session_attach::{
     close_chat_shares, close_listed_chat_shares, close_unlisted_chat_shares, open_chat_shares,
 };
+mod agent_forum;
 #[cfg(unix)]
 pub mod agent_transfer;
 mod app_trust;

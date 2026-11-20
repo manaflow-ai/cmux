@@ -294,6 +294,12 @@ impl Mux {
         self.chats().find(chat).is_some()
     }
 
+    /// Whether this machine's own index row exists; never resolves a peer's
+    /// same-named chat or clones the complete chat list for an access check.
+    pub(crate) fn local_chat_listed(&self, chat: &str) -> bool {
+        self.chats().rows.contains_key(&key(None, chat))
+    }
+
     /// Applies a change acpmux accepted (`chat.mark_read`, `chat.pin`) to `chat`'s row
     /// before acpmux's push confirms it, so the answer and an app's next read agree; the
     /// row after it, with its workspace, or `None` when the list no longer has it.

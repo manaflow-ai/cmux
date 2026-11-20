@@ -307,6 +307,8 @@ export function generate(): Record<string, string> {
     // The older name of chat.list for a customize section's thread list: the daemon answers it
     // from the same chat index as chat.list (apps/routing.rs), shaped {chats: [...]}.
     "agent_chat.list": { scope: "agent_chat:read", class: "read" },
+    // Read-only local-owner projection of acpmux's existing forum journal.
+    "forum.threads": { scope: "forum:read", class: "read" },
     // A browser tab's page in the Mac app (PageAppOps in CmuxNextApps): reader-mode text and links,
     // and link hints drawn and followed by the built-in hints' own scripts. Hints and follow need a gesture.
     "page.read": { scope: "page:read", class: "read" },

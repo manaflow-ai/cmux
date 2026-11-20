@@ -275,6 +275,25 @@ mod tests {
         }
     }
 
+    #[test]
+    fn forum_threads_needs_its_own_sensitive_read_grant() {
+        let table = ScopeTable::get();
+        assert_eq!(
+            table.check("forum.threads", &json!({"sessionId":"s"}), &grant(&["forum:read"])),
+            Decision::Allow(OpClass::Read)
+        );
+        for scopes in [vec![], vec!["agent_chat:read"], vec!["chat:read"], vec!["workspace:read"]] {
+            assert!(matches!(
+                table.check("forum.threads", &json!({"sessionId":"s"}), &grant(&scopes)),
+                Decision::ScopeMissing(_)
+            ));
+        }
+        assert_eq!(
+            table.check("forum.post", &json!({}), &grant(&["forum:read"])),
+            Decision::Unsupported
+        );
+    }
+
     /// The App Store chat ops (extensibility-DESIGN.md step 3): `chat.list` reads with
     /// `chat:read`; `chat.mark_read` and `chat.pin` write with `chat:write` and only with a
     /// tap's gesture token.
