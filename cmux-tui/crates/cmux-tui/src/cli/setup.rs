@@ -265,6 +265,21 @@ const TASKS: &[Task] = &[
         prompt: "Make me a cmux Cloud machine. I know it costs money every hour it runs. Run `cmux setup cloud-machine`, tell me which card to click, and tell me the undo.",
     },
     Task {
+        id: "cloud_session",
+        summary: "Work in cmux Cloud: start an agent there, move a chat over and bring it back",
+        setup: None,
+        check: &["cmux cloud diagnostics", "cmux cloud list-machines"],
+        apply: &[
+            "cmux cloud start-session --name NAME --agent AGENT --from-folder FOLDER",
+            "cmux cloud move",
+            "cmux cloud bring-back",
+        ],
+        person: Some(
+            "signing in to cmux in the browser, and saying yes to a machine that costs money",
+        ),
+        prompt: "Get me working in cmux Cloud from this folder: run `cmux cloud diagnostics`; if it says I am signed out, run `cmux login` and tell me to finish it in the browser. Run `cmux cloud list-machines`; if I have none, run `cmux setup cloud-machine` and tell me which card to click (it costs money every hour it runs). Then run `cmux cloud start-session --name dev --agent AGENT --from-folder .` and give me the chat it opens. To move a chat I already have, run `cmux cloud move` in it; to bring it back to this Mac, `cmux cloud bring-back`. If a step fails, show me its error and the command to retry; never guess.",
+    },
+    Task {
         id: "tailnet",
         summary: "Serve this machine to the person's other machines over Tailscale",
         setup: Some("cmux setup tailnet [--owner LOGIN] [--dry-run]"),
