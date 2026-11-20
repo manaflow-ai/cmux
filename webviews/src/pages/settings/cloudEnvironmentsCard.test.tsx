@@ -14,8 +14,9 @@ const { renderPage, settle, changeValue, click } = await import("./testing");
 
 const card = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-card="cloudEnvironments"]')!;
 const methods = (provider: MockSettingsProvider) => provider.cloudEnvironments.calls.map((call) => call.method);
-const buttonByText = (text: string) =>
-  Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === text)!;
+// The sheet's footer: Cancel and the primary Save (each also draws its key hint, so match by role, not text).
+const sheetSave = () => document.querySelector<HTMLButtonElement>(".env-actions .env-primary")!;
+const sheetCancel = () => document.querySelector<HTMLButtonElement>(".env-actions .env-button:not(.env-primary)")!;
 
 async function open(setup?: (provider: MockSettingsProvider) => void) {
   const page = await renderPage({ path: "/settings/cloud", setup });
@@ -53,7 +54,7 @@ test("Edit on the Default opens the editor, and Save sends only the changed setu
   expect(document.querySelector<HTMLInputElement>(".env-field input")!.readOnly).toBe(true);
   await click(document.querySelectorAll<HTMLButtonElement>(".env-drill")[2]!);
   await changeValue(document.querySelector<HTMLTextAreaElement>(".env-code textarea")!, "pnpm install\n");
-  await click(buttonByText("Save"));
+  await click(sheetSave());
   await settle();
   expect(page.provider.cloudEnvironments.calls).toContainEqual({
     method: "cloud.environment.update",
@@ -84,7 +85,7 @@ test("Add Environment creates one by name, opens it, and lists it when the edito
   expect(form()).toBeNull();
   // The editor is open on the new environment, its name editable.
   expect(document.querySelector<HTMLInputElement>(".env-field input")!.value).toBe("docs");
-  await click(buttonByText("Cancel"));
+  await click(sheetCancel());
   await settle();
   const names = Array.from(card(page.container).querySelectorAll("[data-environment] .row-title")).map(
     (title) => title.firstChild?.textContent,
@@ -99,6 +100,11 @@ test("with Cloud off or signed out the card explains instead of listing", async 
   });
   expect(card(page.container).querySelector("[data-environments-unavailable]")).not.toBeNull();
   expect(card(page.container).querySelector('[data-environments="add"]')).toBeNull();
+  // Signed in again: Refresh lists without leaving the page.
+  page.provider.cloudEnvironments.disabled = false;
+  await click(card(page.container).querySelector<HTMLButtonElement>('[data-environments="refresh"]')!);
+  await settle();
+  expect(card(page.container).querySelectorAll("[data-environment]")).toHaveLength(2);
   page.unmount();
 });
 

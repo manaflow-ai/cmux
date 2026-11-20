@@ -120,19 +120,19 @@ export function CloudEnvironmentsCard() {
             busy={busy}
             onCreate={(name) => run(() => editor.open({ create: { name } }))}
           />
-          <div className="host-footer">
-            <Button
-              type="button"
-              className="button"
-              data-environments="refresh"
-              disabled={busy}
-              onClick={() => void run(refresh)}
-            >
-              {t("settingsPage.cloudEnvironments.refresh")}
-            </Button>
-          </div>
         </>
       )}
+      <div className="host-footer">
+        <Button
+          type="button"
+          className="button"
+          data-environments="refresh"
+          disabled={busy}
+          onClick={() => void run(refresh)}
+        >
+          {t("settingsPage.cloudEnvironments.refresh")}
+        </Button>
+      </div>
       <EnvironmentSheet store={editor} strings={sheetStrings} />
     </section>
   );
