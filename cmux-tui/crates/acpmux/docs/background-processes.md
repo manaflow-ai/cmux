@@ -30,10 +30,12 @@ Status 2026-10-14: partly built. What exists:
   through the same `background_tasks` request, so the turn goes on while it
   runs; it is listed with origin `auto_backgrounded`. The daemon's env
   `ACPMUX_AUTO_BACKGROUND_SECS` sets the wait, `0` turns it off. Before a
-  call starts, the session plugin's PreToolUse hook (`bg_hook.rs`) turns away
-  a known-slow foreground command (builds, test runs, CI waits, dev servers)
-  with the background call that runs it instead; the same call again runs as
-  asked, and so does one with a `# fg-ok` comment. Codex needs neither: its
+  call starts, the session plugin's PreToolUse hook (`bg_hook.rs`) rewrites
+  a known-slow foreground command (builds, test runs, CI waits, dev servers,
+  follows) into `acpmux process start`, which runs it as a daemon-owned task
+  and answers at once with its id, when the chat has `bg_start`; otherwise it
+  turns the command away towards `run_in_background: true`, and the same call
+  again runs as asked. A `# fg-ok` comment keeps a command in the foreground. Codex needs neither: its
   unified exec hands a long command back as a running background terminal.
 - The person's message (`hub/auto_background.rs`): while the person's steer
   waits for Claude Code's step to end, each Bash or Agent call of the chat's
