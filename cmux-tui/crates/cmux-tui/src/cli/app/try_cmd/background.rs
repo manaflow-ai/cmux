@@ -149,6 +149,9 @@ impl Follower {
                 return Err("this channel update was already attempted".into());
             }
             let sessions = super::session_handoff::discover(&daemon)?;
+            if pointer.expires_at <= now() || readiness(global, app, true)? != (true, true) {
+                return Err("the quiet point ended while probing session daemons".into());
+            }
             store.record_watermark(ATTEMPT, pointer.committed_at, &pointer.commit)?;
             let mut phases = live::Phases::default();
             let result = live::apply_verified(
@@ -165,7 +168,7 @@ impl Follower {
                     applied,
                     app,
                     app_build,
-                    &pointer.commit,
+                    Some(&pointer.commit),
                     store,
                     &daemon,
                     &mut phases,

@@ -901,7 +901,25 @@ fn undo(global: &GlobalArgs, store: &Store, dry_run: bool) -> i32 {
     }
     let mut phases = Phases::default();
     let daemon = app_daemon(&app);
-    let result = live::apply(&app, &changes, store, &daemon, &mut phases);
+    let result = if last.pointer("/steps/sessions").is_some() {
+        let mut daemon = daemon;
+        daemon.cli.set_file_name("cmux-tui");
+        session_handoff::discover(&daemon).and_then(|sessions| {
+            let applied = live::apply(&app, &changes, store, &daemon, &mut phases)?;
+            session_handoff::finish(
+                sessions,
+                applied,
+                &app,
+                last.get_str("app_commit").unwrap_or_default(),
+                None,
+                store,
+                &daemon,
+                &mut phases,
+            )
+        })
+    } else {
+        live::apply(&app, &changes, store, &daemon, &mut phases)
+    };
     let receipt = json!({ "schema": 1, "action": "undo", "path": "live", "commit": commit, "app": app.to_string_lossy(), "at": now() });
     finish(global, store, receipt, result, phases, started, &commit, &app, None)
 }

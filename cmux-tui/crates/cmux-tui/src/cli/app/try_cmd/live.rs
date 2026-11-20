@@ -701,6 +701,12 @@ pub(super) fn apply_verified(
     }
     phases.add("verify", started);
     if todo.is_empty() {
+        if verify_owner.is_some_and(|check| !owner.as_ref().is_some_and(|(pid, _)| check(*pid))) {
+            return Err(
+                "installed files match but the running daemon did not report the signed commit"
+                    .to_owned(),
+            );
+        }
         return Ok(Applied {
             prior: Map::new(),
             steps: json!({ "daemon": "unchanged" }),

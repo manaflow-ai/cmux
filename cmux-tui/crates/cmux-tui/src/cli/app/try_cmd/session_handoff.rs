@@ -86,17 +86,17 @@ pub(super) fn finish(
     mut applied: live::Applied,
     app: &Path,
     build: &str,
-    commit: &str,
+    commit: Option<&str>,
     store: &live::Store,
     main: &AppDaemon,
     phases: &mut live::Phases,
 ) -> Result<live::Applied, String> {
-    if !applied.changed || sessions.is_empty() {
+    if !applied.changed {
         return Ok(applied);
     }
     let mut steps = Vec::new();
     for (index, session) in sessions.iter().enumerate() {
-        match session.restart(session.old, Some(commit)) {
+        match session.restart(session.old, commit) {
             Ok(step) => steps.push(step),
             Err(error) => {
                 let receipt = json!({"steps":applied.steps,"undo":{"files":applied.prior},"app_commit":build});
