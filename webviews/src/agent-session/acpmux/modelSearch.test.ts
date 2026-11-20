@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { effortWords, fitsQuery, narrows, parseQuery } from "./modelQuery";
+import { effortWords, fitsQuery, matchingModels, narrows, parseQuery } from "./modelQuery";
 import { ModelSearchIndex } from "./modelSearch";
 
 type Model = { id: string; name: string; efforts?: string[]; fast?: boolean };
@@ -24,10 +24,14 @@ const entries: Entry[] = [
   },
 ];
 const efforts = effortWords(entries.flatMap((entry) => entry.models));
+// The full pass the picker made before the index: matchingModels over every model, with its
+// fallback for an effort word still being typed.
 const full = (query: string) =>
-  entries.flatMap((entry) =>
-    entry.models.filter((model) => fitsQuery(model, entry.name, parseQuery(query, efforts))).map((model) => model.id),
-  );
+  matchingModels(
+    entries.flatMap((entry) => entry.models.map((model) => ({ model, entry }))),
+    parseQuery(query, efforts),
+    ({ model, entry }, parsed) => fitsQuery(model, entry.name, parsed),
+  ).map(({ model }) => model.id);
 
 test("the index finds what a full pass finds, in catalog order, however the query was reached", () => {
   const index = new ModelSearchIndex(
