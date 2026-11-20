@@ -143,6 +143,9 @@ struct FakeDaemon {
     asks: Arc<AtomicUsize>,
     remote: Arc<Mutex<Vec<Value>>>,
     workspace_reads: Arc<AtomicUsize>,
+    /// What `update_outdated` answers, and how often it was asked.
+    update: Arc<Mutex<Result<bool, String>>>,
+    updates: Arc<AtomicUsize>,
 }
 
 impl FakeDaemon {
@@ -152,7 +155,14 @@ impl FakeDaemon {
             asks: Arc::default(),
             remote: Arc::default(),
             workspace_reads: Arc::default(),
+            update: Arc::new(Mutex::new(Ok(false))),
+            updates: Arc::default(),
         }
+    }
+
+    fn updating(self, answer: Result<bool, String>) -> Self {
+        *self.update.lock().unwrap() = answer;
+        self
     }
 }
 
@@ -170,6 +180,10 @@ impl Daemon for FakeDaemon {
     }
     fn machines(&self) -> Result<Value, DaemonError> {
         Ok(json!({"machines": [{"name": "studio", "reachable": true, "computer_use": "ready"}]}))
+    }
+    fn update_outdated(&self) -> Result<bool, String> {
+        self.updates.fetch_add(1, Ordering::SeqCst);
+        self.update.lock().unwrap().clone()
     }
     fn workspace_name(&self, id: &str) -> Option<String> {
         self.workspace_reads.fetch_add(1, Ordering::SeqCst);
@@ -361,6 +375,56 @@ fn a_daemon_without_the_endpoint_fails_at_once() {
     let out = caller.call("status", &json!({}), "c");
     assert!(matches!(out, Outcome::Failed { .. }), "{out:?}");
     assert!(started.elapsed() < Duration::from_secs(5));
+}
+
+/// The refusal an older daemon gives today (cmux#48044).
+fn unknown_variant() -> Result<Value, DaemonError> {
+    Err(DaemonError::Refused {
+        code: "refused".into(),
+        message: "bad request: unknown variant `computer-use-endpoint`, expected one of ...".into(),
+    })
+}
+
+/// An older daemon an app update left running is swapped for the installed
+/// build, and the same call then reaches the worker (cmux#48044).
+#[test]
+fn an_outdated_daemon_is_updated_once_and_the_call_goes_through() {
+    let dir = tmp();
+    let worker = FakeWorker::start(dir.path(), "w", Behavior::Answer, Arc::default());
+    let daemon = FakeDaemon::new(vec![unknown_variant(), Ok(worker.ready())]).updating(Ok(true));
+    let updates = daemon.updates.clone();
+    let caller = caller(daemon);
+    let out = caller.call("list_windows", &json!({}), "call-48044");
+    assert!(matches!(out, Outcome::Output(_)), "{out:?}");
+    assert_eq!(updates.load(Ordering::SeqCst), 1);
+}
+
+/// A daemon still without the command after its update is final: no second
+/// restart, no wait.
+#[test]
+fn a_daemon_still_refusing_after_its_update_fails_without_another() {
+    let daemon = FakeDaemon::new(vec![unknown_variant()]).updating(Ok(true));
+    let updates = daemon.updates.clone();
+    let caller = caller(daemon).with_budget(Duration::from_secs(30));
+    let started = std::time::Instant::now();
+    assert!(matches!(caller.call("status", &json!({}), "c"), Outcome::Failed { .. }));
+    assert!(matches!(caller.call("status", &json!({}), "c2"), Outcome::Failed { .. }));
+    assert_eq!(updates.load(Ordering::SeqCst), 1);
+    assert!(started.elapsed() < Duration::from_secs(5));
+}
+
+/// When no update can help, the error says why.
+#[test]
+fn an_update_that_cannot_help_names_its_reason() {
+    let daemon = FakeDaemon::new(vec![unknown_variant()]).updating(Err(
+        "the cmux daemon already runs the installed build, which has no Computer Use".into(),
+    ));
+    let Outcome::Failed { code, message } = caller(daemon).call("status", &json!({}), "c") else {
+        panic!()
+    };
+    assert_eq!(code, "computer_use_unavailable");
+    assert!(message.contains("unknown variant"), "{message}");
+    assert!(message.contains("already runs the installed build"), "{message}");
 }
 
 #[test]

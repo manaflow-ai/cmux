@@ -2291,14 +2291,14 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             // every other peer's link for nothing (24 copies of every change with one daemon's
             // 25 peers, 2026-10-30), and the row's origin hears it from its own.
             if rec.dir == "peer" && !view::a_link(conn) {
-                let sid = remote
-                    .summary
-                    .get("sessionId")
-                    .cloned()
-                    .unwrap_or_else(|| Value::String(ev.session_id.clone()));
+                let sid = remote.summary.session_id().unwrap_or(&ev.session_id);
+                // The packed row, parsed for this line only (`RemoteRef::summary`).
+                let tools = attached || conn.watch_tools.load(Ordering::SeqCst);
+                let session: Value = serde_json::from_str(&remote.summary.changed_text(tools))
+                    .unwrap_or(Value::Null);
                 conn.send(&Message::notification(
                     method::MUX_SESSION_CHANGED,
-                    json!({"sessionId": sid, "qualifiedSessionId": remote.qualified_id(&ev.session_id), "session": if attached || conn.watch_tools.load(Ordering::SeqCst) { remote.summary.clone() } else { crate::hub::views::without_summary_tools(remote.summary.clone()) }, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer, "listSeq": ev.list_seq}),
+                    json!({"sessionId": sid, "qualifiedSessionId": remote.qualified_id(&ev.session_id), "session": session, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer, "listSeq": ev.list_seq}),
                 ));
             }
             return;
@@ -2428,6 +2428,7 @@ pub(crate) mod queue_gauge;
 mod review_queue;
 mod run_elsewhere;
 mod sign_in_follow;
+mod ssh_carry;
 pub use pairing::serve_connection_device;
 pub(crate) mod host_power;
 pub mod peer_auth;
