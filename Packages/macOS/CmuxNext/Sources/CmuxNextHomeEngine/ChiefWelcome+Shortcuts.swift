@@ -24,8 +24,10 @@ extension ChiefWelcome {
         }
     }
 
-    /// The shortcuts listed below the Go to Workspace call-out, in order.
-    static let shortcutActions: [ActionID] = ["commandPalette", "search.chats", "newTab.default", "newSurface", "palette.newAgentChat"]
+    /// The shortcuts listed below the Go to Workspace call-out, in order: the ones people use every day
+    /// (New Workspace ⌘N, Split Right ⌘D, Split Down ⇧⌘D, New Browser Tab ⇧⌘L, Focus Location Bar ⌘L),
+    /// then the Command Palette for the rest.
+    static let shortcutActions: [ActionID] = ["newTab", "splitRight", "splitDown", "openBrowser", "focusLocation", "commandPalette"]
     /// Go to Workspace, normally ⌘P.
     static let goToAction: ActionID = "goToWorkspace"
     /// Start Agent from Any App, normally ⌃⌥⌘Space: the system-wide key, last in the list. Its setting
