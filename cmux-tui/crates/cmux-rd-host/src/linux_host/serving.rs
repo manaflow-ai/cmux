@@ -148,8 +148,11 @@ pub(super) fn join(dir: &Path, join: &machine::Join, unit: &dyn Unit) -> Res<Dev
             }
         }
     }
+    // Whether the join's consent was tracked outlives the teardown: a join from before the
+    // marker signed in again here still keeps its person's consent at the next enable.
+    let before = previous.as_ref().and_then(|previous| previous.joined.clone());
     tear_down(dir, previous, unit)?;
-    match super::sign_in_machine(dir, join) {
+    match super::sign_in_machine(dir, join, before.as_ref()) {
         Ok((hub, _)) => Ok(hub.device),
         Err(e) => {
             tear_down(dir, Previous::load(dir)?, unit)?;

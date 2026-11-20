@@ -316,12 +316,15 @@ fn load_locked() -> Res<(std::path::PathBuf, Hub, Account, serving::Lock)> {
 /// desktop (a new identity when the hub refuses the old one) and turns sharing on: joining is
 /// the consent (hq docs/design/remote-screen-share-zero-touch.md, L3). Sharing is turned on
 /// only here, at the first sign-in, so a person's later "off" from any device stays off.
-fn sign_in_machine(dir: &std::path::Path, join: &machine::Join) -> Res<(Hub, Account)> {
+fn sign_in_machine(
+    dir: &std::path::Path,
+    join: &machine::Join,
+    previous: Option<&machine::Joined>,
+) -> Res<(Hub, Account)> {
     let (hub_url, acpmux_home, credential) = (join.hub.as_str(), &join.home, &join.credential);
     // The join record first: records that a crash leaves half written are never read as a
     // person's (`load`).
-    let previous = machine::Joined::load(dir).ok().flatten();
-    machine::Joined::signed_in(previous.as_ref(), acpmux_home, credential).save(dir)?;
+    machine::Joined::signed_in(previous, acpmux_home, credential).save(dir)?;
     let device = match Device::load(dir)? {
         Some(device) => device,
         None => {
@@ -1747,7 +1750,7 @@ mod tests {
         let credential: machine::MachineCredential =
             serde_json::from_str(r#"{"credential":"cmm_x","name":"lane-vm"}"#).unwrap();
         let join = machine::Join::at(std::path::Path::new("/acpmux-home"), credential, &origin);
-        let (hub, account) = sign_in_machine(&dir, &join).unwrap();
+        let (hub, account) = sign_in_machine(&dir, &join, None).unwrap();
         assert_eq!(hub.device.name, "lane-vm", "named as the join named the machine");
         assert_eq!(
             account,
