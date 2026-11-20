@@ -149,10 +149,12 @@ TRUSTED_RUNNER_JOBS = (
 # GLAEDA_ROUTE_APP_KEY; LINUX_RUNNER moved a dozen more such jobs (#27540, #27557).
 APP_KEY_MARKER = re.compile(r"create-github-app-token@|^\s*private-key:", re.MULTILINE)
 # The one selector a key-holding Linux job may read a variable through: LINUX_RUNNER only
-# when it names one of these Blacksmith Linux sizes (.github/runners.json), else 4 vCPU.
-# So a 4 vCPU stall can move these jobs (the overflow switch or a person sets LINUX_RUNNER),
-# and no value reaches a reused machine. The bound is in the expression, not the variable.
-BOUNDED_LINUX_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404",
+# when it names our one-job Linux VMs (runner_pools.OWNED_LINUX: one VM per job, deleted after)
+# or one of these Blacksmith Linux sizes (.github/runners.json), else 4 vCPU. So a 4 vCPU stall
+# can move these jobs (the overflow switch or a person sets LINUX_RUNNER), the linux pool's
+# mirror moves them onto our VMs (Leo, 2026-11-20: "i thought i already told you guys to route off
+# blacksmith"), and no value reaches a reused machine. The bound is in the expression, not the variable.
+BOUNDED_LINUX_LABELS = ("cmux-fleet-linux-x64", "blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404",
                         "blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404")
 BOUNDED_LINUX_SELECTOR = (
     "contains(fromJSON('" + json.dumps(list(BOUNDED_LINUX_LABELS), separators=(",", ":"))
@@ -293,7 +295,9 @@ def runner_label_errors(runs_on: str) -> list[str]:
         chain = _alternatives(parse_expression(expression.group(1)))
     except ExpressionSyntaxError as error:
         return [f"cannot parse {runs_on!r}: {error}"]
-    blacksmith = re.compile(r"blacksmith-[a-z0-9-]+", re.IGNORECASE)
+    # Our one-job Linux VMs are ephemeral too (runner_pools.OWNED_LINUX; Leo, 2026-11-18: "remove that belt and
+    # suspenders, please.").
+    blacksmith = re.compile(r"blacksmith-[a-z0-9-]+|cmux-fleet-linux-x64", re.IGNORECASE)
     errors: list[str] = []
     for index, operand in enumerate(chain):
         conditions, result = (operand[1][:-1], operand[1][-1]) if operand[0] == "and" else ([], operand)

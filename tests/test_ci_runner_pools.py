@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import yaml
@@ -45,6 +46,20 @@ def fresh_snapshot(now):
     """A complete janitor snapshot from a minute before NOW that saw no Linux start: beside it a probe's stall
     counts (label_evidence())."""
     return dict(copy.deepcopy(RECORDED), generated_at=runner_pools.iso(now - dt.timedelta(minutes=1)), label_started={})
+
+
+_DECLARED_POOLS = runner_pools.load_pools
+
+
+def blacksmith_pools(path=runner_pools.RUNNERS, env=None):
+    """The declared pools without OWNED_LINUX: the Blacksmith size rules (stall evidence, the release valve, the
+    LINUX_RUNNER mirror between sizes) still run below our own VMs, and these classes pin them on the sizes alone."""
+    pools = _DECLARED_POOLS(path, env)
+    return {name: {**spec, "members": runner_pools.sized(spec["members"])}
+            if runner_pools.sized(spec["members"]) else spec for name, spec in pools.items()}
+
+
+blacksmith_sizes_only = mock.patch.object(runner_pools, "load_pools", new=blacksmith_pools)
 
 
 def health(labels, checked=NOW):
@@ -245,8 +260,8 @@ class Evidence(unittest.TestCase):
     def test_it_reads_the_variable_the_switch_writes(self) -> None:
         import cloud_overflow_switch as switch
         self.assertEqual(runner_pools.HEALTH_VARIABLE, switch.HEALTH_VARIABLE)
-        # The switch probes every member of the linux pool, so each one has health of its own.
-        self.assertEqual(set(switch.PROBE_LABELS), set(runner_pools.load_pools()["linux"]["members"]))
+        # The switch probes every Blacksmith member of the linux pool, so each one has health of its own.
+        self.assertEqual(set(switch.PROBE_LABELS), set(runner_pools.sized(runner_pools.load_pools()["linux"]["members"])))
 
     def test_every_x64_linux_label_a_pool_can_name_is_probed(self) -> None:
         # 2026-11-18: linux_16 and linux_32 sat on blacksmith-32vcpu-ubuntu-2404 while it started nothing
@@ -625,6 +640,7 @@ class Schema(unittest.TestCase):
         self.assertTrue(runner_pools.value_problems(missing, POOLS))
 
 
+@blacksmith_sizes_only
 class Main(unittest.TestCase):
     class Api:
         def __init__(self, snapshot):
@@ -1078,6 +1094,7 @@ class RawLabelVars(unittest.TestCase):
 
 
 
+@blacksmith_sizes_only
 class TruncatedSnapshot(unittest.TestCase):
     def test_a_truncated_snapshot_is_no_snapshot_evidence(self) -> None:
         # A janitor sweep that listed part of the queue (queue_janitor.listing_state()) undercounts every pool.
@@ -1119,6 +1136,7 @@ class TruncatedSnapshot(unittest.TestCase):
         self.assertNotEqual(value["linux_32"], two)
 
 
+@blacksmith_sizes_only
 class CapBound(unittest.TestCase):
     """Blacksmith caps the org on vCPUs at once. A size that keeps starting jobs is serving however long a probe
     waits there, and a size the cap starves moves its jobs down in size, never up (2026-11-17)."""
@@ -1179,6 +1197,7 @@ class CapBound(unittest.TestCase):
 
 
 
+@blacksmith_sizes_only
 class RefusedRead(unittest.TestCase):
     """A refused snapshot read is asked once more with the workflow token (2026-11-18 11:18Z: the cmux-bot read
     token got 403, the writer judged on the probe alone, and every Linux pool went to the 2 vCPU release valve)."""
