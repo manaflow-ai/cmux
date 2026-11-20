@@ -467,7 +467,8 @@ public final class MacScreenPages {
         let viewer = MacScreenHubViewer(deviceID: deviceID) { [weak self] in self?.hub }
         viewer.makeSignaling = makeSignaling
         viewer.onStreaming = { [weak self] in self?.viewerStarted() }
-        let pane = MacScreenPane(hubDevice: viewer, name: deviceName(deviceID), preferences: ScreenPreferences())
+        let pane = MacScreenPane(hubDevice: viewer, name: deviceName(deviceID), platform: hub?.devices.first { $0.id == deviceID }?.platform,
+                                 preferences: ScreenPreferences())
         if confirmed[key] == record, let scope = pendingScopes.removeValue(forKey: deviceID) { viewer.resumeScope = scope }
         #if DEBUG
         if relayOnly { pane.setRelayOnly(true) }

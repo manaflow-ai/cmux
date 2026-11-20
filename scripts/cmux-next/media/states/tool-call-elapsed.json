@@ -1,0 +1,139 @@
+{
+ "title": "How long a tool call has run (user 2026-11-19, on a backgrounded \"Ran glaeda-gh wait …\" row: \"would be useful to see how long it has been running for\"). The fake agent's elapsed-tour runs a shell that finishes, a shell that goes on in the background, then a shell held running in the foreground; after a minute the running rows count their time at the row's edge, and the finished row's opened Shell card says how long it took. Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/tool-call-elapsed.json --mac",
+ "launch_args": [
+  "--skip-onboarding"
+ ],
+ "fakeHarness": {
+  "id": "fake",
+  "name": "Fake"
+ },
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "A fixed window size, so every capture frames the rows the same",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      160,
+      85,
+      1100,
+      720
+     ]
+    }
+   },
+   "wait": 0.3,
+   "shot": false
+  },
+  {
+   "title": "A workspace for the chat",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Chat"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Show it",
+   "cmux": [
+    "workspace",
+    "name:Chat",
+    "focus"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "An agent tab in the workspace",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "palette.newAgentChat",
+     "focus": true
+    }
+   },
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "A chat on the fake harness",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "new_chat",
+     "harness": "fake"
+    }
+   },
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "The tour: a finished shell, one in the background, one running in the foreground",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "elapsed-tour:"
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "The foreground shell runs",
+   "rpc": {
+    "method": "debug.page",
+    "params": {
+     "page": "cmux.agent",
+     "action": "wait",
+     "selector": "[data-tool-id=\"et-fg\"]",
+     "timeout_ms": 30000
+    }
+   },
+   "record": true,
+   "wait": 0.3,
+   "shot": false
+  },
+  {
+   "title": "Open the finished shell's card (its total)",
+   "rpc": {
+    "method": "debug.page",
+    "params": {
+     "page": "cmux.agent",
+     "action": "click",
+     "selector": "button[data-tool-id=\"et-status\"]"
+    }
+   },
+   "optional": "the finished shell may sit in a folded group",
+   "record": true,
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "A minute on: the running rows count in minutes",
+   "wait": 64,
+   "shot": false
+  },
+  {
+   "title": "The running times and the card's total, as drawn",
+   "rpc": {
+    "method": "debug.page",
+    "params": {
+     "page": "cmux.agent",
+     "action": "query",
+     "selector": ".cv-command__elapsed, .cv-shell__time"
+    }
+   },
+   "record": "file",
+   "resultFile": "elapsed-texts",
+   "wait": 0.5
+  }
+ ]
+}
