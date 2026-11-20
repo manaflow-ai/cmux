@@ -5,12 +5,12 @@
 import { act } from "react";
 import { afterAll, expect, test } from "bun:test";
 import type { MockSettingsProvider } from "./mockProvider";
-import { mockDefaultEnvironment, mockTeamEnvironment } from "./mockCloudEnvironments";
 import { installDom } from "./testDom";
 
 const restore = installDom();
 afterAll(() => restore());
 const { renderPage, settle, changeValue, click } = await import("./testing");
+const { mockDefaultEnvironment, mockTeamEnvironment } = await import("./mockCloudEnvironments");
 
 const card = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-card="cloudEnvironments"]')!;
 const methods = (provider: MockSettingsProvider) => provider.cloudEnvironments.calls.map((call) => call.method);
