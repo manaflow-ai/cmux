@@ -322,6 +322,8 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
   if (client) {
     // Cmd-S is the app key dispatcher's `save` page command; the page never reads the chord.
     void subscribePageStreams(client, {
+      // The owner link back up reads the file again when the page lost it (MarkdownPage's quiet wait).
+      onConnection: (connected) => store.linkChanged(connected),
       // Cmd-[ and Cmd-] are `back` and `forward` (the page's link history), Cmd-R `reload` (the
       // file again from disk), `open` a path typed in the omnibar (`text`), Cmd-K is `link`,
       // Cmd-= / Cmd-- / Cmd-0 the text size; `goToTop` is the `markdownGoToTop` action (a user's

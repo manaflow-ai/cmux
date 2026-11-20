@@ -1576,3 +1576,159 @@ fn a_deployed_apps_listing_names_its_deploy_targets() {
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     assert!(text.contains("runs on: self-hosted, cloud-vm"), "{text}");
 }
+
+/// Copies the first-party packages the Mac app ships (`first-party-apps/<name>`
+/// with a `BUNDLED` marker) into `root` the way `scripts/cmux-next/sync-app-runtime.sh`
+/// does: the v2 manifest (else v1), `dist/`, `assets/` and `catalog/`.
+fn copy_shipped_first_party(root: &Path) -> Vec<String> {
+    let tree = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../first-party-apps");
+    let mut ids = Vec::new();
+    for entry in std::fs::read_dir(&tree).unwrap() {
+        let dir = entry.unwrap().path();
+        if !dir.join("BUNDLED").is_file() {
+            continue;
+        }
+        let manifest_name = if dir.join("cmux-app.v2.json").is_file() {
+            "cmux-app.v2.json"
+        } else {
+            "cmux-app.json"
+        };
+        let Ok(text) = std::fs::read_to_string(dir.join(manifest_name)) else { continue };
+        let manifest: Value = serde_json::from_str(&text).unwrap();
+        ids.push(manifest["id"].as_str().unwrap().to_string());
+        let out = root.join(dir.file_name().unwrap());
+        std::fs::create_dir_all(&out).unwrap();
+        std::fs::write(out.join(manifest_name), text).unwrap();
+        for part in ["dist", "assets", "catalog"] {
+            if dir.join(part).is_dir() {
+                let status =
+                    Command::new("cp").arg("-R").arg(dir.join(part)).arg(&out).status().unwrap();
+                assert!(status.success());
+            }
+        }
+    }
+    ids.sort();
+    ids
+}
+
+/// What opening an installed app shows, by the rule every entry point uses
+/// (`AppOpenTarget` in CmuxNextApps, then `app.open`): a `cmux.pane/1` the app
+/// draws (a scene export) or hosts as a web page (`web_pages`), else an https
+/// web app. A pane cmux draws itself (`native`) opens only through its show
+/// action (`native_pane_show_action`, the table the sidebar item and
+/// `app.open` share); a native pane with none opens nothing. `None` is an app
+/// with nothing to open: installing it adds nothing the person can use.
+fn open_target(entry: &Value) -> Option<String> {
+    let manifest = &entry["manifest"];
+    let pane = &manifest["implements"]["cmux.pane/1"];
+    if let Some(native) = pane["native"].as_str() {
+        let app = entry["id"].as_str().unwrap_or_default();
+        return cmux_layout_reducer::sidebar_bridge::native_pane_show_action(app)
+            .map(|action| format!("native pane {native} via {action}"));
+    }
+    if pane["export"].is_string() {
+        return Some(format!("scene pane {}", pane["export"]));
+    }
+    let web_pane = entry["web_pages"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|page| page["interface"] == "cmux.pane/1");
+    if let Some(page) = web_pane {
+        return Some(format!("web pane {}", page["entry"]));
+    }
+    manifest
+        .pointer("/presentation/web/url")
+        .and_then(Value::as_str)
+        .filter(|url| url.starts_with("https://"))
+        .map(|url| format!("web app {url}"))
+}
+
+/// Installs, as the person, every app the App Store lists, and returns each
+/// listing with what opening it shows (`None`: nothing to open).
+fn install_every_listing(apps: &Apps) -> Vec<(String, Option<String>)> {
+    let mut agent = apps.agent();
+    let reply = agent.rpc(json!({ "cmd": "apps-logs", "app": "cmux/supervisor" }));
+    let rejected = ok(&reply)["lines"].as_array().cloned().unwrap_or_default();
+    assert!(rejected.is_empty(), "no shipped package is rejected: {rejected:?}");
+    let reply = agent.store("cmux.apps.catalog.list", json!({ "limit": 200 }), "cli");
+    let catalog = ok(&reply).clone();
+    let listed: Vec<String> = catalog["listings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["app"].as_str().unwrap().to_string())
+        .collect();
+    assert!(!listed.is_empty(), "the store lists something: {catalog}");
+    let mut app = apps.app();
+    for (n, id) in listed.iter().enumerate() {
+        if listing(&catalog, id)["install"]["installed"] == true {
+            continue;
+        }
+        let args =
+            json!({ "app": id, "grant_optional": false, "idempotency_key": format!("every-{n}") });
+        let installed = app.store("cmux.apps.install", args, "user");
+        assert_eq!(ok(&installed)["app"]["state"]["installed"], true, "{id}: {installed}");
+    }
+    let reply = agent.rpc(json!({ "cmd": "apps-list" }));
+    let entries = ok(&reply)["apps"].as_array().cloned().unwrap();
+    listed
+        .into_iter()
+        .map(|id| {
+            let entry = entries
+                .iter()
+                .find(|entry| entry["id"] == id)
+                .unwrap_or_else(|| panic!("{id} not in apps-list: {entries:?}"));
+            assert_eq!(
+                (entry["installed"].clone(), entry["enabled"].clone(), entry["available"].clone()),
+                (json!(true), json!(true), json!(true)),
+                "{id} is installed and on: {entry}"
+            );
+            let target = open_target(entry);
+            (id, target)
+        })
+        .collect()
+}
+
+/// Leo, 2026-11-16: "if i click install it means it works / these dont do
+/// anythin / stop shipping these into the app store if they're fucking busted".
+/// Every app the shipped App Store lists (the first-party directory as the Mac
+/// app hands it to its daemon, with no other app directory, as after #44290) installs for the
+/// person and then has something to open: a pane or a web page. A
+/// command-only package (the old Standup sample) fails here.
+#[test]
+fn every_shipped_store_listing_installs_and_has_something_to_open() {
+    let apps = Apps::new("every-listing");
+    let shipped = copy_shipped_first_party(&apps.dir.join("first-party"));
+    assert!(shipped.contains(&"cmux/cloud".to_string()), "{shipped:?}");
+    assert!(shipped.contains(&"cmux/coderouter".to_string()), "{shipped:?}");
+    apps.start();
+    let results = install_every_listing(&apps);
+    let nothing: Vec<&String> =
+        results.iter().filter(|(_, target)| target.is_none()).map(|(id, _)| id).collect();
+    assert!(
+        nothing.is_empty(),
+        "listed apps with nothing to open after install: {nothing:?}; all: {results:?}"
+    );
+    for id in ["cmux/cloud", "cmux/coderouter"] {
+        assert!(results.iter().any(|(listed, _)| listed == id), "{id} listed: {results:?}");
+    }
+}
+
+/// The check above catches the class Leo hit: with the Standup sample on the
+/// shelf (the `CMUX_APPS_DIRS` the Mac app passes until #44290 drops it), its
+/// install succeeds, and nothing opens.
+#[test]
+fn a_command_only_store_listing_has_nothing_to_open_after_install() {
+    let apps = Apps::new("command-only");
+    copy_shipped_first_party(&apps.dir.join("first-party"));
+    let standup = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../samples/apps/standup");
+    let status =
+        Command::new("cp").arg("-R").arg(&standup).arg(apps.dir.join("bundled")).status().unwrap();
+    assert!(status.success());
+    apps.start();
+    let results = install_every_listing(&apps);
+    let nothing: Vec<&String> =
+        results.iter().filter(|(_, target)| target.is_none()).map(|(id, _)| id).collect();
+    assert_eq!(nothing, [&"manaflow-ai/standup".to_string()], "{results:?}");
+}

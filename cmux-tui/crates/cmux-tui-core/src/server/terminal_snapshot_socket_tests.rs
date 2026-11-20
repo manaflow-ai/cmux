@@ -1416,3 +1416,6 @@ fn latest_screen_first_bench() {
         .unwrap();
     }
 }
+
+#[path = "history_window_socket_tests.rs"]
+mod history_window;

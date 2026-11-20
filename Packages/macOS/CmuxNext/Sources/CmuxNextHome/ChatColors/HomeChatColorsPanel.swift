@@ -47,7 +47,9 @@ public final class HomeChatColorsPanel {
         let panel = HomeChatColorsWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: 400),
                                          styleMask: [.titled, .closable, .utilityWindow], backing: .buffered, defer: true)
         panel.isReleasedWhenClosed = false
-        panel.hidesOnDeactivate = true
+        // An app that refuses activation (CMUX_NEXT_NO_ACTIVATE: tours, side-by-side runs) is never active, so a
+        // hide-on-deactivate panel never reached the screen there; it stays up instead.
+        panel.hidesOnDeactivate = !WindowPlacement.noActivate
         panel.setAccessibilityIdentifier("cmux.home.chatColors")
         return panel
     }

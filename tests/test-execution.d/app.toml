@@ -20,3 +20,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_app_symbol_map.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_app_token_steps.py"
+lane = "linux-guard"

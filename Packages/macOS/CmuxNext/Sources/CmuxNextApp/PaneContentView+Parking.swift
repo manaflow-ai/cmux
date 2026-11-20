@@ -14,16 +14,16 @@ import CmuxNextTerminal
 @MainActor
 protocol PaneParkableContent: NSView {}
 
-extension BrowserChromeView: PaneParkableContent {}
+extension BrowserChromeView: PaneParkableContent, PaneCommitMotionPicture {} // a page's picture: its pane rides a move, its host holds it
 extension TerminalHostView: PaneParkableContent {}
 /// An agent page (a chat or New Tab page) too: putting a WKWebView back into a window waits
 /// synchronously for its web process (170-215 ms on Cmd-W back to a New Tab page, #20516).
-extension AgentPaneView: PaneParkableContent, PaneTabRowSharing {}
+extension AgentPaneView: PaneParkableContent, PaneTabRowSharing, PaneCommitMotionPicture {} // a page's picture too
 /// An internal page (Markdown, a file viewer, Settings) is a WKWebView too: taking it out of the window
 /// and back on every switch re-attached its web process the same way (tab-switch-fast). Its view
 /// lives as long as its tab (`InternalPageTabStore.close` removes it), so parking costs no memory. Its
-/// page's tools share the tab row (the docked Home's Chief tools, `HomeDockSwitchView+TabRow`).
-extension InternalPageView: PaneParkableContent, PaneTabRowForwarding { var tabRowSharer: PaneTabRowSharing? { content as? PaneTabRowSharing } }
+/// page's tools share the tab row (the docked Home's Chief tools, `HomeDockSwitchView+TabRow`). Each internal page is a page's picture too, Home with them: its pane rides a move, and its host holds it.
+extension InternalPageView: PaneParkableContent, PaneTabRowForwarding, PaneCommitMotionPicture { var tabRowSharer: PaneTabRowSharing? { content as? PaneTabRowSharing } }
 /// Its page's rows in the pane's more menu (the docked Home's Chief Actions, `ChiefPaneTools`).
 extension InternalPageView: PaneMoreMenuContributing {
     func paneMoreMenuItems() -> [NSMenuItem] { (content as? PaneMoreMenuContributing)?.paneMoreMenuItems() ?? [] }
@@ -55,9 +55,9 @@ extension PaneContentView {
             return
         }
         parked.removeAll { $0.view == nil || $0.view === view }
-        if let frame = parkedFrame(of: view), frame != contentHost.bounds, view.frame == frame || contentHost.isHolding {
+        if let frame = parkedFrame(of: view), frame != contentHost.bounds || contentHost.keepsOutOfTabRowInHold(view), view.frame == frame || contentHost.isHolding {
             // A chat parked at the size it shows at (`layoutParked`) keeps it: the pane's next layout moves the host under the
-            // tab row and puts the chat at its origin, same size (sized to the host first, its page jumped as it showed).
+            // tab row and puts the chat at its origin, same size (sized to the host first, its page jumped as it showed). The Home shown inside a key hold (`keepsOutOfTabRowInHold`) goes this way also when its parked frame IS the host's (the tab before was a chat in the tab row): with the fill mask it was held at the whole pane's size with its row while the host went under the strip.
             if view.frame != frame { view.frame = frame } // parked through a key hold (`layoutParked` waits for its end): one size, the one it shows at
             view.autoresizingMask = []
             needsLayout = true

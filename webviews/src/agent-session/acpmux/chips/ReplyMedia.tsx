@@ -29,6 +29,7 @@ import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { mediaKind } from "./mediaKind";
 import { webURL, mediaOpenRequest, formatDuration, loadPlayableMedia, webGranted } from "./replyMediaModel";
 import { keyedIconProps } from "../../../ui/DialogButton";
+import { useScrimClose } from "../../../ui/scrimClose";
 /// Asks the host for the URL `source` plays by: at once when `auto`, else on `load()`.
 function useMediaLoad(source: string, auto: boolean) {
   const [src, setSrc] = useState(() => (webURL(source) ? webGranted.get(source) : undefined));
@@ -258,7 +259,9 @@ export function MediaPlayer({
 
 /// A video large over the pane (Expand, or an attachment's ▶ in the composer, whose tile is too small
 /// for a player's controls): its name, Close (Escape) and the player. It opens paused, like the
-/// thumbnail, unless `autoPlay` (the person's click on ▶ opened it to play).
+/// thumbnail, unless `autoPlay` (the person's click on ▶ opened it to play). A click beside the
+/// video closes it, as beside an image in the image viewer (ui/scrimClose.ts); a click on the video
+/// or its controls does not.
 export function VideoViewer({
   src,
   name,
@@ -280,6 +283,7 @@ export function VideoViewer({
   const close = useRef<HTMLButtonElement>(null);
   // Below the pane's tab row, as the image viewer (header/tabRow.ts belowTabRowStyle).
   const below = belowTabRowStyle(useTabRow());
+  const scrim = useScrimClose(onClose);
   return (
     <Dialog
       open
@@ -305,7 +309,11 @@ export function VideoViewer({
             <Close />
           </button>
         </div>
-        <div className="cv-media-stage">
+        {/* A click beside the video closes the viewer, as beside an image in its viewer (Leo, 2026-11-12:
+            "I need to be able to, like, click outside of the video and have that exit as well"); a scrub
+            dragged off the video does not (ui/scrimClose.ts). Escape and Close are its keys. */}
+        {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+        <div className="cv-media-stage" {...scrim.props}>
           {/* Never autoplay on its own: only Play (or the ▶ that opened it) starts it with sound. */}
           <VideoThumbnail
             src={src}

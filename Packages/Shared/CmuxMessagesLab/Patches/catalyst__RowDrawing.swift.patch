@@ -70,7 +70,7 @@
 -            TextDraw.line(s, font: f, color: Fixture.secondaryText, x: m.centerX + 0.1 - w / 2, baseline: top + 12, in: ctx)
 +            // cmux: at the typing bubble's left edge, the row above it (Layout), not centered.
 +            // cmux: one row per line, each cut to the column (HomeNoticeRows; one line draws as upstream's).
-+            HomeNoticeRows.draw(s, x: noticeLeft, baseline: top + 12, maxWidth: m.receiptRight - noticeLeft, in: ctx)
++            HomeNoticeRows.draw(s, x: noticeLeft(spec), baseline: top + 12, maxWidth: m.receiptRight - noticeLeft(spec), in: ctx)
          case let .unsent(outgoing):
              let s = outgoing ? Strings.unsentMine : Strings.unsentTheirs
              let f = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs)
@@ -81,7 +81,8 @@
 -                : color == .link ? UIColor(red: 0.2, green: 0.55, blue: 1, alpha: 1) : Fixture.secondaryText
 +                : color == .link ? Fixture.labelLink : Fixture.secondaryText // cmux: themed link tint
              let w = TextDraw.width(text, font: f)
-             TextDraw.line(text, font: f, color: c, x: outgoing ? m.receiptRight - w : Fixture.labelLeft, baseline: top + 11, in: ctx)
+-            TextDraw.line(text, font: f, color: c, x: outgoing ? m.receiptRight - w : Fixture.labelLeft, baseline: top + 11, in: ctx)
++            TextDraw.line(text, font: f, color: c, x: outgoing ? m.receiptRight - w : Fixture.labelLeft + spec.cmuxIndent, baseline: top + 11, in: ctx) // cmux: group indent
          case let .replies(count, _, outgoing):
              let f = HomeFonts.system(ofSize: 10, weight: .semibold) // HomeFonts (cx-qpqs)
              let s = Strings.replies(count)
@@ -115,7 +116,7 @@
              }
          }
      }
-@@ -258,6 +275,10 @@
+@@ -258,6 +275,12 @@
      /// as a layer whose top RowCell snaps to a whole device pixel (tools/evidence/ANIMATIONS.md section 6,
      /// cx-3cb typing-pixels; before: 20.14, 4.31, 43.69 x 27.19 from a capsule fit with a blur bias).
      static let typingBubble = CGRect(x: 20, y: margin + 4.335, width: 44, height: 27)
@@ -123,10 +124,12 @@
 +    static var senderNameLeft: CGFloat { Fixture.leftEdge + SenderAvatar.bubbleInset + Fixture.bubblePadX }
 +    /// cmux: the host status line's left edge (row coordinates): the typing bubble's, a point in.
 +    static var noticeLeft: CGFloat { typingBubble.minX + 1 }
++    /// cmux: the status line's left edge in `spec`'s row: in a group, the bubbles' column (the typing bubble moves too).
++    static func noticeLeft(_ spec: RowSpec) -> CGFloat { noticeLeft + spec.cmuxIndent }
      /// The point the typing bubble grows from (row coordinates): Messages' fitted scale centre,
      /// 19.1 pt left of and 8.7 pt above the bubble's centre (tools/evidence/ANIMATIONS.md section 6).
      static var typingAnchor: CGPoint { CGPoint(x: typingBubble.midX - 19.07, y: typingBubble.midY - 8.71) }
-@@ -295,8 +316,7 @@
+@@ -295,8 +318,7 @@
                  ctx.drawLinearGradient(Fixture.outgoingGradient, start: CGPoint(x: 0, y: -windowY),
                                         end: CGPoint(x: 0, y: Fixture.gradientHeight - windowY), options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
              } else {
@@ -136,7 +139,7 @@
              }
              ctx.restoreGState()
              _ = lines
-@@ -347,8 +367,7 @@
+@@ -347,8 +369,7 @@
              if p.outgoing, SoftBalloon.clip(ctx, frame: body, row: p) {
                  ctx.fill(ctx.boundingBoxOfClipPath)
              } else {
@@ -146,7 +149,7 @@
              }
              ctx.restoreGState()
          }
-@@ -365,13 +384,16 @@
+@@ -365,13 +386,16 @@
      static func drawText(_ ctx: CGContext, _ tl: TextLayout, in body: CGRect, outgoing: Bool) {
          let color = outgoing ? Fixture.outgoingText : Fixture.incomingText
          // An outgoing link is the bubble's text colour (white; a themed host's own colour).
@@ -165,7 +168,7 @@
              CTLineDraw(l, ctx)
              ctx.restoreGState()
          }
-@@ -434,7 +456,7 @@
+@@ -434,7 +458,7 @@
              if !p.failed { drawSaveButton(ctx, body: body, outgoing: p.outgoing) }
          case "voiceMemo":
              fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
@@ -174,7 +177,7 @@
              fg.setFill()
              UIBezierPath(ovalIn: CGRect(x: body.minX + 8, y: body.midY - 11, width: 22, height: 22)).fill()
              let tri = UIBezierPath()
-@@ -455,8 +477,10 @@
+@@ -455,8 +479,10 @@
              TextDraw.line(d, font: HomeFonts.monospacedDigit(ofSize: 11, weight: .regular), color: fg, x: body.maxX - 36, // HomeFonts (cx-qpqs)
                            baseline: body.midY + 4, in: ctx)
          default:
@@ -186,7 +189,7 @@
              let icon = CGRect(x: body.minX + 10, y: body.minY + 10, width: 28, height: 36)
              if a.kind == "contact" {
                  UIColor(white: 0.55, alpha: 1).setFill()
-@@ -563,103 +587,110 @@
+@@ -563,103 +589,110 @@
          }
      }
  
@@ -369,7 +372,7 @@
              ctx.fill(thumb)
              if case let .link(_, _, _, image?, _) = pv.part, let img = Images.load(image) {
                  let s = max(thumb.width / img.size.width, thumb.height / img.size.height)
-@@ -668,16 +699,11 @@
+@@ -668,16 +701,11 @@
              }
              ctx.restoreGState()
              let (title, sub) = pv.lines
@@ -390,7 +393,7 @@
      }
  
      private static func fillBubble(_ ctx: CGContext, _ shape: UIBezierPath, outgoing: Bool, windowY: CGFloat) {
-@@ -889,7 +915,12 @@
+@@ -889,7 +917,12 @@
      static let shared = RowBitmaps()
      /// `space`: the colour space the bitmap is drawn in (WideBitmap.drawSpace; AppKit: the window's display space,
      /// process-wide). Bitmaps of another display stay cached for a move back (cx-3cb scale-redraw).
@@ -404,7 +407,7 @@
      private var cache: [Key: CGImage] = [:]
      private var order: [Key] = []
      private var waiters: [Key: [(CGImage) -> Void]] = [:]
-@@ -908,11 +939,12 @@
+@@ -908,11 +941,12 @@
      /// (RowDraw.widthInvariant), so a divider drag or live resize shows the bitmap drawn at the
      /// previous width instead of drawing the same pixels again (the visible rows' bitmaps were
      /// about 6 % of main in a divider drag).
@@ -420,7 +423,7 @@
      }
      func image(for spec: RowSpec, scale: CGFloat = Fixture.renderScale) -> CGImage? { cache.value(for: RowBitmaps.key(spec, scale: scale)) } // dictionary read
      func has(_ spec: RowSpec, scale: CGFloat = Fixture.renderScale) -> Bool {
-@@ -929,16 +961,18 @@
+@@ -929,16 +963,18 @@
          if waiters[w] != nil { if let done { waiters[w]?.append(done) }; return } // no force unwrap
          waiters[w] = done.map { [$0] } ?? []
          let gen = Fixture.paletteGeneration
@@ -441,7 +444,7 @@
          let asked = CACurrentMediaTime()
          let spec = w.spec
          let op = BlockOperation {
-@@ -948,18 +982,18 @@
+@@ -948,18 +984,18 @@
                  DispatchQueue.main.async {
                      RowBitmaps.skipped += 1
                      // A cell may have asked again meanwhile: render for it, else forget the waiters.
@@ -463,7 +466,7 @@
          }
          op.queuePriority = .veryHigh
          queue.addOperation(op)
-@@ -980,11 +1014,11 @@
+@@ -980,11 +1016,11 @@
      /// Finished bitmaps reach the main thread in batches: one main-queue
      /// block applies everything rendered since the last one.
      private let pendingLock = NSLock()
@@ -478,7 +481,7 @@
          pendingLock.unlock()
          guard first else { return }
          DispatchQueue.main.async {
-@@ -1002,7 +1036,7 @@
+@@ -1002,7 +1038,7 @@
      /// holds them during each page slide, so rows slide in without text and the bench's empty-row
      /// check must find them.
      static var testHold = false
@@ -487,7 +490,7 @@
      func releaseHeld() {
          guard !held.isEmpty else { return }
          let batch = held
-@@ -1010,24 +1044,26 @@
+@@ -1010,24 +1046,26 @@
          apply(batch)
      }
  
@@ -523,7 +526,7 @@
          if let old = cache[spec] { bytes -= old.bytesPerRow * old.height } else { order.append(spec) }
          cache.updateValue(img, forKey: spec) // dictionary write
          bytes += img.bytesPerRow * img.height
-@@ -1065,8 +1101,8 @@
+@@ -1065,8 +1103,8 @@
      /// drawn at (off main, before this call); a palette or colour space change since drops them (they are drawn again
      /// when asked).
      func insert(_ items: [(RowSpec, CGImage)], scale: CGFloat = Fixture.renderScale, generation: Int = Fixture.paletteGeneration) {
@@ -534,7 +537,7 @@
      }
  
      /// Test hook (`--scroller-control`): no bitmaps rendered ahead (pager prerender, scroll
-@@ -1146,7 +1182,11 @@
+@@ -1146,7 +1184,11 @@
  enum BubbleView {
      static func drawBubble(_ ctx: CGContext, body: CGRect, lines: [String], outgoing: Bool, tail: Bool, windowY: CGFloat = 0,
                             cornersOf frame: CGSize? = nil, circularEnds: Bool = false) {
@@ -547,7 +550,7 @@
          if outgoing {
              if windowY.isNaN { return }     // filled by the row's gradient layer
              ctx.saveGState()
-@@ -1161,18 +1201,9 @@
+@@ -1161,18 +1203,9 @@
      }
  }
  

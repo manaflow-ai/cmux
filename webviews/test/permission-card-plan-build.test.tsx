@@ -15,6 +15,7 @@ import {
   planBuildTarget,
   type PlanBuildElsewhere,
 } from "../src/agent-session/acpmux/permissions/planBuild";
+import { teardownDom } from "./support/domTeardown";
 
 const plan: AcpmuxPermission = {
   permissionId: "p1",
@@ -111,11 +112,8 @@ beforeAll(() => {
   });
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 test("the chevron's menu offers the three builds, and a pick builds once", async () => {
@@ -162,7 +160,11 @@ test("a build refused before anything started says acpmux's reason on the card",
         harness="claude"
         onAnswer={() => undefined}
         onBuildPlan={async () => {
-          throw new Error("this chat already runs 8 sub-sessions");
+          // As direct.ts rejects acpmux's refusal: its message (written for the agent) and
+          // `data.reason`, the first refused start's (server/plan_build.rs).
+          throw Object.assign(new Error("start_session refused: width limit reached. This session has 8 live"), {
+            reason: "subsessions.width_limit",
+          });
         }}
       />,
     );
@@ -178,6 +180,9 @@ test("a build refused before anything started says acpmux's reason on the card",
     worktree.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
   });
   const alert = host.querySelector('[role="alert"]');
-  expect(alert?.textContent).toBe("The plan was not built: this chat already runs 8 sub-sessions");
+  // acpmux's reason, in the pane's words; its agent-facing text stays in the log.
+  expect(alert?.textContent).toBe(
+    "The plan was not built: This chat already runs as many sub-sessions as its limit allows. Wait for one to finish, or raise the limit in Settings.",
+  );
   act(() => root.unmount());
 });

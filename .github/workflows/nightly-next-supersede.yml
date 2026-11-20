@@ -14,10 +14,21 @@ name: nightly-next supersede
 # main's scripts/ci/delivery_workflows.py for the light-job list and the started rule). It never cancels
 # a started job, the tip's push run, or the newest sign stage. Only promotion pushes start it, about
 # as often as nightly-next moves, so it spends a few reads per promotion.
+#
+# A holder that is still inside its 5-minute ready wait when the settle ends must not wait for the next
+# promotion: the run then dispatches itself again (input chain, at most 12 links after one push), and the
+# next link waits on this group, settles and judges again. A schedule cannot do this: GitHub runs a cron
+# only from the default branch's files, and this file lives on nightly-next. The chain ends as soon as no
+# holder lacks only time.
 on:
   push:
     branches: [nightly-next]
   workflow_dispatch:
+    inputs:
+      chain:
+        description: "Link of the re-dispatch chain (0 starts one; the script sets it)"
+        type: string
+        default: '0'
 
 permissions: {}
 
@@ -33,7 +44,7 @@ jobs:
       group: nightly-next-supersede
       cancel-in-progress: false
     permissions:
-      # actions: write cancels a superseded run that never started.
+      # actions: write cancels a superseded run that never started, and dispatches the next link.
       actions: write
       contents: read
     steps:
@@ -60,6 +71,7 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          CHAIN: ${{ inputs.chain || '0' }}
         run: >-
           python3 -u .supersede-tooling/scripts/ci/nightly_next_supersede.py "$GITHUB_REPOSITORY"
-          --rules .main-rules/scripts/ci/delivery_workflows.py --settle
+          --rules .main-rules/scripts/ci/delivery_workflows.py --settle --chain "$CHAIN"

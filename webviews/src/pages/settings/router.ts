@@ -12,13 +12,15 @@ import {
 import type { QueryClient } from "@tanstack/react-query";
 import { ensureSection, routeSection } from "./sectionQueries";
 import type { SettingsStore } from "./store";
+import { parsePersonalizationPart, type PartID } from "./personalizationParts";
 
 /** What every route's loader reads from: the page's query cache and its store. */
 export type SettingsRouterContext = { queryClient: QueryClient; store: SettingsStore };
 
 /** The route's search: the focused key, the workspace Change Background… came from, the sidebar
- * search's text (`q`) and its Changed filter (`changed=1`). Plain `?a=b` pairs, never JSON. */
-export type SettingsSearch = { focus?: string; workspace?: string; q?: string; changed?: true };
+ * search's text (`q`). `changed=1` is the removed Changed filter's: an old link keeps it, and the page
+ * ignores it. Plain `?a=b` pairs, never JSON. */
+export type SettingsSearch = { focus?: string; workspace?: string; part?: PartID; q?: string; changed?: true };
 
 export function validateSettingsSearch(raw: Record<string, unknown>): SettingsSearch {
   const text = (value: unknown) => (value === undefined || value === null || value === "" ? undefined : String(value));
@@ -26,7 +28,9 @@ export function validateSettingsSearch(raw: Record<string, unknown>): SettingsSe
   const focus = text(raw.focus);
   const workspace = text(raw.workspace);
   const q = text(raw.q);
+  const part = parsePersonalizationPart(raw.part);
   if (focus) out.focus = focus;
+  if (part) out.part = part;
   if (workspace) out.workspace = workspace;
   if (q) out.q = q;
   if (raw.changed === true || raw.changed === "1" || raw.changed === 1) out.changed = true;
@@ -140,10 +144,9 @@ export type SettingsLocation = {
   section: string;
   focus: string | null;
   workspace: string | null;
+  part: PartID | null;
   /** The sidebar search's text; empty when not searching. */
   query: string;
-  /** Whether the search lists only changed settings. */
-  changedOnly: boolean;
 };
 
 /**
@@ -170,8 +173,8 @@ export function parseLocation(href: string): SettingsLocation {
     section,
     focus,
     workspace: url.searchParams.get("workspace"),
+    part: parsePersonalizationPart(url.searchParams.get("part")),
     query: url.searchParams.get("q") ?? "",
-    changedOnly: url.searchParams.get("changed") === "1",
   };
 }
 
@@ -179,13 +182,13 @@ export function sectionHref(
   section: string,
   focus?: string | null,
   workspace?: string | null,
-  filter?: { query?: string; changedOnly?: boolean },
+  options?: { query?: string; part?: PartID | null },
 ): string {
   const query = new URLSearchParams();
   if (focus) query.set("focus", focus);
   if (workspace) query.set("workspace", workspace);
-  if (filter?.query) query.set("q", filter.query);
-  if (filter?.changedOnly) query.set("changed", "1");
+  if (options?.part) query.set("part", options.part);
+  if (options?.query) query.set("q", options.query);
   const search = query.toString();
   return `/settings/${encodeURIComponent(section)}${search ? `?${search}` : ""}`;
 }

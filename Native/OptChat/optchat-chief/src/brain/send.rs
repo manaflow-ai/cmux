@@ -113,9 +113,6 @@ impl Brain {
         if let Some(id) = call.reply_to {
             fingerprint.push_str(&format!("\u{0}reply_to={id}"));
         }
-        if let Some(widget) = &call.widget {
-            fingerprint.push_str(&format!("\u{0}widget={}", serde_json::json!(widget)));
-        }
         let key = format!(
             "send-{conversation}-{turn}-{:016x}",
             super::replies::fnv(fingerprint.as_bytes())
@@ -147,14 +144,6 @@ impl Brain {
             ));
         }
         let mut entry = super::reply_entry(conversation, &key, &text);
-        // A widget part after the text (chat-widgets-DESIGN.md); alone when
-        // there is no text, since an empty text part is refused.
-        if let (Some(widget), Op::MessageSend { parts, .. }) = (&call.widget, &mut entry.op) {
-            if text.is_empty() {
-                parts.clear();
-            }
-            parts.push(cmux_conversation::Part::Widget(widget.clone()));
-        }
         if let (
             Some((_, parent, root)),
             Op::MessageSend {
@@ -171,17 +160,25 @@ impl Brain {
             *thread_root = Some(root.clone());
         }
         self.sent_keys.insert(key);
+        // The wake run's `result`: the posted text, or the files it sent.
+        let posted = if text.is_empty() {
+            let names: Vec<String> = files
+                .iter()
+                .filter_map(|f| f.path.file_name().map(|n| n.to_string_lossy().into_owned()))
+                .collect();
+            format!("[{} file(s): {}]", names.len(), names.join(", "))
+        } else {
+            text.clone()
+        };
+        self.wake_run_posted(&posted);
         let entry = self.reply_with_media(entry, files.clone());
         self.state.outbox.push(entry);
         self.save();
         self.flush_outbox();
-        let mut what = match (files.len(), urls.len()) {
+        let what = match (files.len(), urls.len()) {
             (0, 0) => String::new(),
             (f, u) => format!(" with {} attachment(s)", f + u),
         };
-        if call.widget.is_some() {
-            what.push_str(" with a widget");
-        }
         Ok(match (placed, call.reply_to) {
             (Some(placed), _) => format!("outcome: done. {placed}{what}"),
             (None, Some(id)) => format!("outcome: done. sent{what} in the thread of message {id}"),

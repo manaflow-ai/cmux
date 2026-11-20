@@ -110,6 +110,27 @@ fn origin_url(git: &Git, folder: &Path) -> Option<String> {
     Some(String::from_utf8_lossy(&out).trim().to_owned())
 }
 
+/// Whether two remote URLs name one GitHub repository: `https://github.com/O/N(.git)`,
+/// `git@github.com:O/N(.git)` and `ssh://git@github.com/O/N(.git)` alike, owner and name
+/// compared as GitHub does (case aside). Any other URL must be the same string.
+pub(super) fn same_github_repo(a: &str, b: &str) -> bool {
+    fn repo(url: &str) -> Option<String> {
+        let url = url.trim();
+        let rest = ["https://github.com/", "ssh://git@github.com/", "git@github.com:"]
+            .into_iter()
+            .find_map(|prefix| url.strip_prefix(prefix))?;
+        let rest = rest.trim_end_matches('/');
+        let rest = rest.strip_suffix(".git").unwrap_or(rest);
+        let (owner, name) = rest.split_once('/')?;
+        let fine = |part: &str| {
+            !part.is_empty()
+                && part.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        };
+        (fine(owner) && fine(name)).then(|| format!("{owner}/{name}").to_ascii_lowercase())
+    }
+    a == b || matches!((repo(a), repo(b)), (Some(x), Some(y)) if x == y)
+}
+
 pub struct Seed {
     job: Arc<Job>,
     params: StartParams,
@@ -207,6 +228,7 @@ impl Seed {
         self.job.enter(Phase::Bundle);
         self.check_delta(&since)?;
         self.apply_bundle()?;
+        self.check_ignored(&since)?;
         self.checkout_delta(&since)?;
         let changed = self.changed_paths(&since)?;
         self.submodules(Some(&changed))?;
@@ -402,7 +424,8 @@ impl Seed {
         let is_clone =
             std::fs::symlink_metadata(self.folder.join(".git")).is_ok_and(|meta| meta.is_dir());
         if !is_clone
-            || origin_url(&self.git, &self.folder).as_deref() != Some(self.params.url.as_str())
+            || !origin_url(&self.git, &self.folder)
+                .is_some_and(|origin| same_github_repo(&origin, &self.params.url))
         {
             return Err(mismatch("the folder is not a seed of this repository"));
         }
@@ -411,7 +434,7 @@ impl Seed {
                 .ok()
                 .map(|out| String::from_utf8_lossy(&out).trim().to_owned())
         };
-        let Some(record) = super::export::RECORDS
+        let Some(record) = super::export::DELTA_RECORDS
             .into_iter()
             .find(|record| read(&format!("{record}/work^{{commit}}")).as_deref() == Some(since))
         else {
@@ -438,6 +461,56 @@ impl Seed {
         }
         if snapshot.work != work {
             return Err(changed("files changed on the machine since the last seed"));
+        }
+        Ok(())
+    }
+
+    /// A delta writes every path WORK changed since `since`. `check_delta`'s snapshot covers
+    /// every file of the folder but its ignored ones, so a path the delta writes that the folder
+    /// has on disk and `since` does not track is an ignored file of the machine's (or one in a
+    /// folder the delta puts a file where), which the checkout would overwrite: refused, before
+    /// anything is written.
+    fn check_ignored(&self, since: &str) -> Result<(), Failed> {
+        let wrap = |failure: Failure| step_failed(&failure, "seed.checkout_failed");
+        let changed = self
+            .git(&[
+                "diff-tree",
+                "-r",
+                "-z",
+                "--no-renames",
+                "--name-only",
+                since,
+                &self.params.work,
+            ])
+            .map_err(wrap)?;
+        // Each path, and each folder above it that is a file on disk (a folder there is fine).
+        let mut on_disk = Vec::new();
+        for path in changed.split(|byte| *byte == 0).filter(|path| !path.is_empty()) {
+            let Ok(text) = std::str::from_utf8(path) else { continue };
+            if std::fs::symlink_metadata(self.folder.join(text)).is_ok() {
+                on_disk.push(text.to_owned());
+            }
+            let mut above = Path::new(text).parent();
+            while let Some(dir) = above.filter(|dir| !dir.as_os_str().is_empty()) {
+                if std::fs::symlink_metadata(self.folder.join(dir)).is_ok_and(|meta| !meta.is_dir())
+                {
+                    on_disk.push(dir.to_string_lossy().into_owned());
+                }
+                above = dir.parent();
+            }
+        }
+        if on_disk.is_empty() {
+            return Ok(());
+        }
+        let tracked =
+            self.git(&["ls-tree", "-r", "-t", "-z", "--name-only", since]).map_err(wrap)?;
+        let tracked: std::collections::HashSet<&[u8]> =
+            tracked.split(|byte| *byte == 0).filter(|path| !path.is_empty()).collect();
+        if let Some(path) = on_disk.iter().find(|path| !tracked.contains(path.as_bytes())) {
+            return Err(failed(
+                "seed.machine_changed",
+                format!("{path} is on the machine and not in the last seed (an ignored file)"),
+            ));
         }
         Ok(())
     }

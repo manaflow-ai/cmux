@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use cmux_json::JsonGet as _;
 use serde_json::{Map, Value, json};
 
 use super::link::{Link, LinkError};
@@ -554,7 +555,7 @@ fn execute(link: &mut Link, request: &Request, output: OutputMode) -> Result<(),
         let wanted =
             request.chief.as_deref().ok_or_else(|| Failure::Usage(t.needs_chief.into()))?;
         let found = resolve(&records, wanted).map_err(Failure::Usage)?;
-        let id = text_of(&found, "id").to_owned();
+        let id = found.get_str("id").unwrap_or("").to_owned();
         if request.word == "history" {
             let mut params = json!({"chief": id});
             if let Some(limit) = request.limit {
@@ -652,8 +653,8 @@ fn print_result(record: &Value, template: &str, json_out: bool) {
 fn fill(record: &Value, template: &str) -> String {
     let rev = record.get("rev").map(Value::to_string).unwrap_or_default();
     template
-        .replace("{name}", text_of(record, "display_name"))
-        .replace("{id}", text_of(record, "id"))
+        .replace("{name}", record.get_str("display_name").unwrap_or(""))
+        .replace("{id}", record.get_str("id").unwrap_or(""))
         .replace("{rev}", &rev)
 }
 
@@ -662,35 +663,34 @@ fn revision_line(revision: &Value) -> String {
     let rev = revision.get("rev").map(Value::to_string).unwrap_or_default();
     [
         rev.as_str(),
-        text_of(revision, "at"),
-        text_of(revision, "actor"),
-        text_of(revision, "operation"),
+        revision.get_str("at").unwrap_or(""),
+        revision.get_str("actor").unwrap_or(""),
+        revision.get_str("operation").unwrap_or(""),
     ]
     .join("\t")
 }
 
 /// `id  name  role  [default]`, tab-separated.
 fn line(record: &Value, t: &Text) -> String {
-    let mut parts =
-        vec![text_of(record, "id"), text_of(record, "display_name"), text_of(record, "role")];
+    let mut parts = vec![
+        record.get_str("id").unwrap_or(""),
+        record.get_str("display_name").unwrap_or(""),
+        record.get_str("role").unwrap_or(""),
+    ];
     if record.get("is_default").and_then(Value::as_bool) == Some(true) {
         parts.push(t.default_mark);
     }
     parts.join("\t").trim_end().to_owned()
 }
 
-fn text_of<'a>(record: &'a Value, key: &str) -> &'a str {
-    record.get(key).and_then(Value::as_str).unwrap_or("")
-}
-
 /// The one record `wanted` names: its id, else its display name.
 fn resolve(records: &[Value], wanted: &str) -> Result<Value, String> {
     let t = text();
-    if let Some(record) = records.iter().find(|r| text_of(r, "id") == wanted) {
+    if let Some(record) = records.iter().find(|r| r.get_str("id").unwrap_or("") == wanted) {
         return Ok(record.clone());
     }
     let named: Vec<&Value> =
-        records.iter().filter(|r| text_of(r, "display_name") == wanted).collect();
+        records.iter().filter(|r| r.get_str("display_name").unwrap_or("") == wanted).collect();
     match named.as_slice() {
         [one] => Ok((*one).clone()),
         [] => Err(t.no_such.replace("{chief}", wanted)),

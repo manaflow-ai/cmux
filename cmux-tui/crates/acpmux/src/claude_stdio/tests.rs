@@ -27,6 +27,44 @@ async fn prompt_becomes_user_line_and_result_answers_it() {
     }
 }
 
+#[tokio::test]
+async fn streamed_text_with_zero_turn_metadata_ends_the_prompt() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let req = Message::request(
+        9,
+        method::SESSION_PROMPT,
+        json!({"sessionId": "acp-1", "prompt": [{"type": "text", "text": "warm up"}]}),
+    );
+    let Outbound::Lines(_) = t.outbound(&req).await else { panic!() };
+
+    // A text-only Claude stream has no whole `assistant` line. Claude Code's
+    // result can nevertheless report zero API turns and zero API time, the
+    // same metadata used for a resumed process's startup noise.
+    t.inbound(&json!({
+        "type": "stream_event",
+        "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "ready"}}
+    }))
+    .await;
+    let msgs = t
+        .inbound(&json!({
+            "type": "result",
+            "subtype": "success",
+            "is_error": false,
+            "num_turns": 0,
+            "duration_api_ms": 0,
+            "result": "ready"
+        }))
+        .await;
+    assert!(
+        msgs.iter().any(|m| matches!(
+            m,
+            Message::Response { id, result: Some(r), .. }
+                if id.as_u64() == Some(9) && r["stopReason"] == "end_turn"
+        )),
+        "streamed text left its prompt open: {msgs:?}"
+    );
+}
+
 /// Claude Code's stream-json bridge accepts a client `side_question` control
 /// request while its main turn is running. It answers with the callback's
 /// payload, without an ACP prompt or transcript event.
@@ -658,4 +696,34 @@ fn claude_chats_ask_for_thinking_summaries() {
         plan.args
     );
     assert!(plan.args.iter().any(|a| a == "omitted"));
+}
+
+/// Two chats in two folders shared no cached system prompt: Claude Code's per-machine sections
+/// (cwd, env, memory paths, git status) sat inside it. Every chat moves them to its first user
+/// message; a profile that passes the flag itself is not given a second copy.
+#[test]
+fn claude_chats_keep_per_machine_sections_out_of_the_cached_system_prompt() {
+    let profile: crate::config::HarnessProfile =
+        serde_json::from_value(json!({"kind": "claude-stdio", "argv": ["claude"]})).unwrap();
+    let plan = spawn_plan(&profile, None, false, None, None, "default", None);
+    assert_eq!(
+        plan.args.iter().filter(|a| *a == EXCLUDE_DYNAMIC_FLAG).count(),
+        1,
+        "{:?}",
+        plan.args
+    );
+    let resumed = spawn_plan(&profile, Some("sid"), true, None, None, "default", None);
+    assert!(resumed.args.iter().any(|a| a == EXCLUDE_DYNAMIC_FLAG), "{:?}", resumed.args);
+
+    let pinned: crate::config::HarnessProfile = serde_json::from_value(
+        json!({"kind": "claude-stdio", "argv": ["claude", EXCLUDE_DYNAMIC_FLAG]}),
+    )
+    .unwrap();
+    let plan = spawn_plan(&pinned, None, false, None, None, "default", None);
+    assert_eq!(
+        plan.args.iter().filter(|a| *a == EXCLUDE_DYNAMIC_FLAG).count(),
+        1,
+        "{:?}",
+        plan.args
+    );
 }

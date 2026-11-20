@@ -200,7 +200,10 @@
     "signupPendingBody": "إذا كان لديك حساب بالفعل، فسجّل الدخول بالطريقة التي استخدمتها من قبل. إذا أنشأت حسابًا للتو، فتحقق من بريدك الإلكتروني قبل تسجيل الدخول.",
     "genericTitle": "تعذّر إكمال تسجيل الدخول",
     "genericBody": "يرجى المحاولة مرة أخرى. إذا استمرت المشكلة، فتواصل مع الدعم.",
-    "backToSignIn": "العودة إلى تسجيل الدخول"
+    "backToSignIn": "العودة إلى تسجيل الدخول",
+    "chatgptLinkTitle": "سجّل الدخول مرة واحدة لربط ChatGPT",
+    "chatgptLinkBody": "هذا البريد الإلكتروني لديه حساب cmux بالفعل. سجّل الدخول بالطريقة التي استخدمتها من قبل، وسيُربط ChatGPT بذلك الحساب.",
+    "chatgptEmailUnverifiedBody": "البريد الإلكتروني في حساب ChatGPT غير موثّق. وثّقه لدى OpenAI، أو سجّل الدخول بطريقة أخرى."
   },
   "cloudPublicationAccess": {
     "title": "ليس لديك حق الوصول",
@@ -2504,7 +2507,7 @@
       "socketModeDesc": "تجاوز وضع الوصول (cmuxOnly, allowAll, off). يقبل أيضاً cmux-only/cmux_only وallow-all/allow_all",
       "workspaceIdDesc": "يُعين تلقائياً: معرف مساحة العمل الحالية",
       "surfaceIdDesc": "يُعين تلقائياً: معرف السطح الحالي",
-      "termProgramDesc": "مُعين إلى ghostty",
+      "termProgramDesc": "مُعين إلى cmux",
       "termDesc": "مُعين إلى xterm-ghostty",
       "envCallout": "قيم CMUX_SOCKET_MODE القديمة full وnotifications لا تزال مقبولة للتوافق.",
       "detectingCmux": "كشف cmux",

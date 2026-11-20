@@ -397,3 +397,15 @@ test("a hovered deck at a top anchor (drawn in another host) keeps its toast's t
   act(() => void queue.show({ id: "bottom", message: "Archived.", duration: 0 }));
   expect(live()).toHaveLength(0);
 });
+
+test("a named stack is a region landmark, so a person can reach the toasts from anywhere", () => {
+  const queue = createNoticeQueue();
+  queue.show({ message: "Copied the link." });
+  const doc = render(<NoticeStack queue={queue} dismissLabel="Dismiss" label="Notifications" />);
+  const stack = doc.querySelector(".ui-notice-stack")!;
+  expect(stack.getAttribute("role")).toBe("region");
+  expect(stack.getAttribute("aria-label")).toBe("Notifications");
+  // A region with no name is no landmark: an unnamed stack stays a plain box.
+  const plain = render(<NoticeStack queue={queue} dismissLabel="Dismiss" />).querySelector(".ui-notice-stack")!;
+  expect(plain.hasAttribute("role")).toBe(false);
+});

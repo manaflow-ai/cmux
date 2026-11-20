@@ -37,7 +37,9 @@ struct PinnedRowsLookLikeRowsTests {
             #expect(row.frame.width == Self.width - SidebarRegionMetrics.standard.trailingTrim, "a row spans the sidebar width, not a square tile")
             #expect(row.frame.height == SidebarRegionMetrics.standard.rowHeight)
         }
-        #expect(rows.count == 2 && abs(rows[1].frame.minY - rows[0].frame.maxY) < 0.01, "rows stack one under the other")
+        // One under the other, the list's row gap apart, as workspace rows are (Lawrence 2026-11-11).
+        #expect(rows.count == 2 && abs(rows[1].frame.minY - rows[0].frame.maxY - SidebarRegionMetrics.standard.rowGap) < 0.01,
+                "rows stack one under the other, the list's row gap apart")
     }
 
     @Test func aPinnedRowDrawsThePinLeadingItsTitle() {

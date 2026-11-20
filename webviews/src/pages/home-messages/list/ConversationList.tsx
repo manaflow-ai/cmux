@@ -24,6 +24,9 @@ import {
 } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { DrivenList, DrivenRow } from "../../../ui/DrivenList";
+import { IllustratedEmpty } from "../../../ui/EmptyState/IllustratedEmpty";
+// Imported, not `new URL(...)`: the page's CSP allows `img-src data:` only, and bundle.mjs inlines it.
+import mascotOrb from "../../../agent-session/acpmux/mascots/ChiefMascotOrb.png";
 import { HomeIcon } from "../../home-channels/icons";
 import type { Strings } from "../../shared/i18n";
 import type { HostMenuItem } from "../types";
@@ -507,11 +510,19 @@ export function ConversationList(props: ConversationListProps) {
           </div>
           {empty && (
             <div className="hm-empty" style={{ top: 0 }}>
-              <p>{unreadOnly && query.trim() === "" ? t("sidebar.noUnread") : t("sidebar.noResults")}</p>
-              {unreadOnly && query.trim() === "" && (
-                <button type="button" className="hm-show-all" onClick={() => props.onUnreadOnly(false)}>
-                  {t("sidebar.showAll")}
-                </button>
+              {unreadOnly && query.trim() === "" ? (
+                <>
+                  <p>{t("sidebar.noUnread")}</p>
+                  <button type="button" className="hm-show-all" onClick={() => props.onUnreadOnly(false)}>
+                    {t("sidebar.showAll")}
+                  </button>
+                </>
+              ) : (
+                <IllustratedEmpty
+                  art={mascotOrb}
+                  line={t("sidebar.noResults")}
+                  action={{ label: t("sidebar.clearSearch"), onClick: () => props.onQuery("") }}
+                />
               )}
             </div>
           )}

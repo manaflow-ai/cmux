@@ -48,7 +48,7 @@ export function BackgroundTurnLine({
       <TranscriptActivityRow
         icon={<Clock />}
         before={label}
-        className="cv-background-turn"
+        className={`cv-background-turn${run.failed > 0 ? " cv-background-turn--failed" : ""}`}
         ariaLabel={label}
         expanded={expanded}
         attributes={{

@@ -6,6 +6,7 @@
 // is sent, never in the store, is cleared after Save, and is never drawn back.
 import { useCallback, useId, useState, type ReactNode } from "react";
 import { Button } from "../../../ui/Button";
+import { Icon } from "../icons";
 import { Input } from "../../../ui/Input";
 import { useSettingsState, useStore } from "../context";
 import { Select } from "../editors/Select";
@@ -50,6 +51,12 @@ export function DevicesCard() {
 function JoinGroup({ join }: { join: DevicesJoinState }) {
   const store = useStore();
   const [setting, setSetting] = useState<string | null>(null);
+  // The host's refusal of the last switch press itself (not the person's own click): shown, never silent.
+  const [refusal, setRefusal] = useState<string | null>(null);
+  // Both when they differ: a later host error (a failed read) never hides behind an older refusal.
+  const errors = [refusal, join.error].filter(
+    (text, index, all): text is string => !!text && all.indexOf(text) === index,
+  );
   const titleId = useId();
   return (
     <section className="group" data-devices-group="join">
@@ -79,24 +86,28 @@ function JoinGroup({ join }: { join: DevicesJoinState }) {
                   labelId={`${titleId}-${item.surface}`}
                   onToggle={(on) => {
                     setSetting(item.surface);
-                    void store.setJoinConsent(item.surface, on).finally(() => setSetting(null));
+                    setRefusal(null);
+                    void store
+                      .setJoinConsent(item.surface, on)
+                      .then(setRefusal)
+                      .finally(() => setSetting(null));
                   }}
                 />
               </div>
             </div>
           </div>
         ))}
-        {join.error && (
-          <div className="row">
+        {errors.map((error) => (
+          <div className="row" key={error}>
             <div className="row-help" role="alert">
-              {join.error}
+              {error}
             </div>
           </div>
-        )}
+        ))}
         {join.revoke_all && (
           <div className="row">
             <div className="row-control">
-              {/* Off always works, from any input: turning both off needs no record to be read. */}
+              {/* Off always works, from any input: turning every switch off needs no record to be read. */}
               <Button
                 type="button"
                 className="button"
@@ -105,8 +116,7 @@ function JoinGroup({ join }: { join: DevicesJoinState }) {
                 onClick={() => {
                   setSetting("all");
                   void (async () => {
-                    await store.setJoinConsent("screen", false);
-                    await store.setJoinConsent("control", false);
+                    for (const item of join.switches) await store.setJoinConsent(item.surface, false);
                   })().finally(() => setSetting(null));
                 }}
               >
@@ -339,6 +349,28 @@ function DeviceRow({ device, labels }: { device: DevicesDevice; labels: DevicesL
           )}
         </div>
         <div className="row-control">
+          {device.screenAction && (
+            <Button
+              type="button"
+              className="button devices-screen-action"
+              size="sm"
+              aria-label={device.screenAction.title}
+              title={device.screenAction.title}
+              data-device-action={device.screenAction.kind === "share" ? "shareScreen" : "viewScreen"}
+              aria-describedby={titleId}
+              disabled={device.screenAction.disabled}
+              onClick={() =>
+                void run(
+                  device.screenAction!.kind === "share"
+                    ? { action: "shareThisMac", id: device.id }
+                    : { action: "openScreen", id: device.id },
+                )
+              }
+            >
+              <Icon name={device.screenAction.kind === "share" ? "arrow.up.to.line" : "eye"} />
+              <span>{device.screenAction.title}</span>
+            </Button>
+          )}
           {!device.thisDevice && device.access !== null && (
             <span className="devices-access" data-device-access="">
               <span className="row-help" id={`${titleId}-access`}>

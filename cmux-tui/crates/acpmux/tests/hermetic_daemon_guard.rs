@@ -59,6 +59,10 @@ fn only_the_hermetic_helper_starts_the_acpmux_binary() {
         // The binary `Daemon::start` runs after `apply`, and the copy of it a test replaces.
         ("durable_agents.rs", "let exe = daemon_env::bin().to_path_buf();"),
         ("durable_agents/bg_replaced_binary.rs", "std::fs::copy(daemon_env::bin(), &copy)"),
+        ("durable_agents/streaming_restart_gap.rs", "std::fs::copy(daemon_env::bin(), &copy)"),
+        // The god-chat bench's default binary; the next line starts it with `command_at`,
+        // which calls `apply`.
+        ("god_daemon.rs", ".unwrap_or_else(|| daemon_env::bin().to_path_buf());"),
         // Linked into a fake app bundle; that copy starts only after `apply`.
         ("app_orphan_exit.rs", "let source = daemon_env::bin();"),
         // Reads the binary's bytes; starts nothing.

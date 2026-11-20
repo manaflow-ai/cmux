@@ -15,46 +15,38 @@ import UniformTypeIdentifiers
 /// circle inside it, riding the last line. Send delivers the draft as one
 /// paste plus Return (`ComposerSubmit`); Return in the field starts a new line.
 /// It sits below the key row, nearest the keyboard, and is open by default.
+/// Jump to bottom is its own row above the key row (`TerminalJumpToBottomRow`).
 struct TerminalComposer: View {
     @Bindable var model: TerminalModel
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showCamera = false
     private let voice = AgentVoiceLauncher.shared
-    @AppStorage(CmuxMobilePreferences.Key.terminalJumpToBottom)
-    private var jumpToBottomEnabled = CmuxMobilePreferences.defaultTerminalJumpToBottom
-
-    private var showsJumpToBottom: Bool {
-        JumpToBottomVisibility.showsInTerminal(scrolledUp: model.isScrolledUp, isTUI: model.isTUI, enabled: jumpToBottomEnabled)
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if showsJumpToBottom {
-                // In the stack, not over the rows: a floating button hid the
-                // end of the lines under it (Codex QA F3).
-                Button {
-                    model.scrollToBottom()
-                } label: {
-                    Label("Jump to bottom", systemImage: "arrow.down")
-                        .font(.footnote.weight(.semibold))
-                        .padding(.horizontal, 12)
-                        .frame(height: 28)
-                        .glassSurface(in: .rect(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Scroll to bottom")
-                .accessibilityIdentifier("terminal.jumpToBottom")
-                // Centered, as it first shipped and as the agent chat's
-                // jump circle sits (CMUX-10); it had drifted to the trailing edge.
-                .frame(maxWidth: .infinity, alignment: .center)
-                .transition(.opacity)
-            }
             if let notice = model.composerNotice {
                 Label(notice, systemImage: "exclamationmark.arrow.circlepath")
                     .font(.footnote)
                     .foregroundStyle(.orange)
                     .padding(.leading, TerminalDockMetrics.control + 8)
                     .accessibilityIdentifier("terminal.composer.notSent")
+            }
+            if let line = model.connectionLine {
+                // The connection's one quiet line, after 10 s of an outage; the
+                // page keeps its last frame meanwhile (no pill over it).
+                HStack(spacing: 6) {
+                    Text(verbatim: line)
+                    if let retry = model.reconnect {
+                        Text(verbatim: "·").accessibilityHidden(true)
+                        RetryButton(style: .inline, action: retry)
+                            .accessibilityIdentifier("terminal.retry")
+                    }
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .padding(.leading, TerminalDockMetrics.control + 8)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("terminal.connectionLine")
             }
             if let error = model.attachmentError {
                 Label(error, systemImage: "exclamationmark.circle")
@@ -76,19 +68,30 @@ struct TerminalComposer: View {
             }
         }
         .padding(.horizontal, TerminalDockMetrics.horizontalInset)
+        // Always its own height, never the hosting view's current one (kept
+        // from #41900): the hosting view takes a taller row's height a pass
+        // after SwiftUI measures it, and a min-height frame offered less
+        // takes the offer. The draft that ran below the field (user reports
+        // 2026-11-12 and 2026-11-13) came from the text view's old sizing,
+        // which `ComposerReturnTextView.fittingSize` replaced;
+        // ComposerGrowUpUITests holds the field's bottom edge in place.
+        .fixedSize(horizontal: false, vertical: true)
         // V6-1: a draft that shrinks drew a shorter row while the hosting view
         // kept the taller height. The row's own height tells the screen to
         // measure the composer again (classic: the band reflows over 0.25 s).
+        // Measured here, on the card, before the frame below.
         .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
             model.controller?.composerCardHeightChanged(height)
         }
+        // Grows up from the keyboard: the frame takes the hosting view's
+        // height, so until the view takes a taller card's height (the pass
+        // after it is measured) the card overflows upward from the bottom
+        // edge, never centered half below it over the keyboard (Leo,
+        // 2026-11-12: "whoa it go down"). With no height offered (the
+        // intrinsic size) the frame is the card's own height.
+        .frame(minHeight: 0, maxHeight: .infinity, alignment: .bottom)
         .animation(.smooth(duration: 0.3).unlessReduceMotion, value: model.attachments.count)
         .onChange(of: model.composerText) { _, _ in model.composerEdited() }
-        // Shown with a fade; gone at once when following starts (a Jump to
-        // bottom tap: qa11 wt-fling-c, the row still drawn after the page
-        // reached the bottom, and the card shrinking over 0.2 s moved the
-        // page's inset on every frame of the jump).
-        .animation(showsJumpToBottom ? Animation.smooth(duration: 0.2).unlessReduceMotion : nil, value: showsJumpToBottom)
         .photosPicker(isPresented: $model.showPhotoPicker, selection: $photoItems, maxSelectionCount: 6,
                       matching: .any(of: [.images, .videos]), preferredItemEncoding: .compatible)
         .onChange(of: photoItems) { _, items in
@@ -131,7 +134,7 @@ struct TerminalComposer: View {
         } label: {
             ComposerCircleLabel(systemImage: "paperclip")
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .accessibilityLabel("Add Attachment")
         .accessibilityIdentifier("terminal.composer.attach")
     }
@@ -149,7 +152,7 @@ struct TerminalComposer: View {
                                 tint: active ? Color.cmuxMobileAccent : nil)
                 .symbolEffect(.variableColor.iterative, isActive: active)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
         .accessibilityIdentifier("terminal.composer.voice")
     }
@@ -175,11 +178,16 @@ struct TerminalComposer: View {
                 onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil
             )
             sendButton
+                .padding(.vertical, TerminalDockMetrics.fieldPadding)
         }
         .padding(.leading, 14)
         .padding(.trailing, TerminalDockMetrics.fieldPadding)
-        .padding(.vertical, TerminalDockMetrics.fieldPadding)
+        // No vertical padding around the text: the text view runs from the
+        // field's top edge to its bottom edge (`textVerticalInset` keeps the
+        // text off them), so a scrolled draft is cut exactly at the edge. The
+        // rounded shape clips the cut lines at the corners too.
         .frame(minHeight: TerminalDockMetrics.control, alignment: .top)
+        .clipShape(.rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
         .glassSurface(in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
     }
 
@@ -208,7 +216,7 @@ struct TerminalComposer: View {
                          : .regular, in: .circle)
             .animation(.smooth(duration: 0.2).unlessReduceMotion, value: canSend)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .disabled(model.isUploading || !canSend)
         .contextMenu {
             Button("Send without Return", systemImage: "arrow.up.to.line") {
@@ -395,7 +403,7 @@ struct AttachmentStrip: View {
                                     .frame(width: 44, height: 44)
                                     .contentShape(.rect)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.cmuxPressFill)
                             .offset(x: 16, y: -16)
                             .accessibilityLabel("Remove \(attachment.name)")
                         }

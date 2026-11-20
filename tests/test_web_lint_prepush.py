@@ -142,7 +142,9 @@ class WebLintPrePushTests(unittest.TestCase):
                 rows.append(f"{tool}\tfixture\t{platform_key}\tfile:///nonexistent\t{'0' * 64}\t{tool}")
                 binary = tools / f"{tool}-fixture-{platform_key}" / tool
                 binary.parent.mkdir(parents=True, exist_ok=True)
-                binary.write_text("#!/bin/sh\nexit 0\n")
+                # A clean run of each, as the real one prints it: ast-grep's `scan --json=compact` prints `[]` when
+                # nothing matches. An empty answer is output the gate cannot read, so no verdict (cmux#41827).
+                binary.write_text("#!/bin/sh\necho '[]'\nexit 0\n" if tool == "ast-grep" else "#!/bin/sh\nexit 0\n")
                 binary.chmod(0o755)
         self.lint_tools_lock = "\n".join(rows) + "\n"
         self.env["CMUX_LINT_TOOLS_DIR"] = str(tools)
@@ -387,6 +389,53 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertEqual(self.remote_head(), before, "the field with a ring must not reach origin")
         self.assertIn(f"{self.SWIFT_SOURCE}:3", result.stderr, "must name the pushed field")
         self.assertEqual(trees(), [])
+
+    # 2026-11-11: pushes from sparse worktrees (RATCHET's, W7-A's, W5-L's) linted the checkout as if it were the
+    # commit. One without the CmuxNext sources failed check:text-focus with "no Packages/macOS/CmuxNext/Sources", one
+    # without webviews/ crashed in spawn with FileNotFoundError. A sparse checkout never holds the whole commit.
+    def test_a_swift_only_push_from_a_sparse_worktree_lints_the_pushed_sources(self):
+        self.text_focus_fixture()
+        self.write(self.SWIFT_SOURCE, 'struct Field {\n    var body: some View {\n'
+                   '        SecureField("Key", text: $key)\n            .focusEffectDisabled()\n    }\n}\n')
+        self.commit("a field without a ring")
+        clean = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("sparse-checkout", "set", "webviews", "scripts", "web")
+        self.assertFalse((self.repo / "Packages").exists(), "the sparse worktree holds no Swift sources")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("no Packages/macOS/CmuxNext/Sources", result.stderr)
+        self.assertIn("sparse checkout", result.stderr, "the note says where the checks ran")
+        self.assertEqual(self.remote_head(), clean)
+
+        self.git("sparse-checkout", "disable")
+        self.write(self.SWIFT_SOURCE, self.RINGED_FIELD)
+        self.commit("a field with a focus ring")
+        self.git("sparse-checkout", "set", "webviews", "scripts", "web")
+
+        result = self.push()
+
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"{self.SWIFT_SOURCE}:3", result.stderr, "must name the pushed field")
+        self.assertEqual(self.remote_head(), clean, "the field with a ring must not reach origin")
+
+    def test_a_web_push_from_a_sparse_worktree_is_refused_with_what_to_do(self):
+        before = self.remote_head()
+        self.write("webviews/src/app.ts", "export const app = 2;\n")
+        self.commit("a web change")
+        self.git("sparse-checkout", "set", "scripts", "web")
+        self.assertFalse((self.repo / "webviews").exists(), "the sparse worktree holds no webviews/")
+
+        result = self.push()
+
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertIn("sparse checkout", result.stderr)
+        self.assertIn("webviews/", result.stderr)
+        self.assertIn("git sparse-checkout disable", result.stderr)
+        self.assertIn("scripts/cmux-next/push-from-host.sh", result.stderr)
+        self.assertEqual(self.remote_head(), before, "nothing reaches origin unlinted")
 
     def test_a_lone_piece_tree_holds_what_the_piece_reads_and_no_more(self):
         self.text_focus_fixture()
@@ -1325,10 +1374,11 @@ class WebLintPrePushTests(unittest.TestCase):
 
         self.assertNotIn("web-lint: webviews: bun install", run_lint(), "without --timings the log stays as it was")
 
-    def test_in_ci_the_type_aware_checks_take_one_slot_per_two_cores_and_light_ones_run_beside_them(self):
+    def test_checks_run_one_per_core_and_the_type_aware_ones_one_per_two_cores_in_ci_or_not(self):
         # All the vp checks at once on a 4 vCPU fast-gates runner: the web lint took 185 to 698 s and once outgrew the
-        # job's 15 min. In CI the type-aware ones now share a slot per two cores (99.9 and 135.8 s); elsewhere
-        # capped_env and nice already keep them off a person's machine.
+        # job's 15 min; sharing a slot per two cores took 99.9 and 135.8 s. On a 2 vCPU lane VM outside CI the hook had
+        # about 8 checks running for 141 s at load 17.8 (2026-11-15): nice lowers priority, not the run
+        # queue. So everywhere: at most one check per core, the type-aware ones one per two cores, light ones beside.
         self.heavy_fixture()
         lint = load_lint(self.repo)
         real = subprocess.run
@@ -1352,6 +1402,8 @@ class WebLintPrePushTests(unittest.TestCase):
                 running.add(name)
                 heavy_now = [n for n in running if weighty(n.split())]
                 peak["heavy"] = max(peak.get("heavy", 0), len(heavy_now))
+                peak["all"] = max(peak.get("all", 0), len(running))
+                peak["seen"] = peak.get("seen", 0) + 1
                 if not weighty(words) and heavy_now:
                     overlapped.append(name)
             time.sleep(0.3)  # long enough for the pool to start whatever it would run beside this one
@@ -1360,17 +1412,19 @@ class WebLintPrePushTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, 0, "", "")
 
         head = self.git("rev-parse", "HEAD").stdout.strip()
-        for ci, expected in (("true", 1), ("", 2)):
+        for ci in ("true", ""):
             peak.clear()
             overlapped.clear()
             with mock.patch.dict(os.environ, {"CMUX_LOCAL_HEAVY_CHECKS": "1", "GITHUB_ACTIONS": ci, "CI": ""}), \
                     mock.patch.object(lint.subprocess, "run", spy), \
                     mock.patch.object(lint.os, "sched_getaffinity", lambda pid: {0, 1}, create=True), \
                     mock.patch("sys.stderr", new_callable=lambda: open(os.devnull, "w")):
+                self.assertEqual(lint.heavy_slots(), 1, f"CI={ci!r}: type-aware slots on 2 cores")
                 self.assertEqual(lint.main(["--repo", str(self.repo), "--base", "HEAD~1", "--head", head]), 0)
-            self.assertEqual(peak.get("heavy"), expected, f"CI={ci!r}: type-aware checks at once on 2 cores")
-            if ci:
-                self.assertTrue(overlapped, "light checks run beside the type-aware one, not after it")
+            self.assertGreater(peak.get("seen", 0), 2, f"CI={ci!r}: the fixture runs more checks than cores")
+            self.assertEqual(peak.get("heavy"), 1, f"CI={ci!r}: type-aware checks at once on 2 cores")
+            self.assertLessEqual(peak.get("all", 0), 2, f"CI={ci!r}: checks at once on 2 cores")
+            self.assertTrue(overlapped, f"CI={ci!r}: light checks run beside the type-aware one, not after it")
 
     def test_new_only_reruns_a_piece_on_the_base_niced_and_capped(self):
         # Both the head and the base fail `vp lint` with the same finding: the base rerun is a second type check,

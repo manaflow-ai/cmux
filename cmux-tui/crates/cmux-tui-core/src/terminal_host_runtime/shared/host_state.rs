@@ -619,28 +619,16 @@ pub(crate) enum ParserCommand {
         source_cursor: u64,
         accounted_bytes: usize,
     },
-    Resize {
-        cols: u16,
-        rows: u16,
-        cell_pixels: (u16, u16),
-        source_cursor: Option<u64>,
-        acknowledge_with_replay: bool,
-        targeted_ack: Option<(u64, HostTap)>,
-        /// The PTY already holds the new size (the program got SIGWINCH
-        /// when the command was queued); restore this size if the grid
-        /// cannot follow.
-        pty_previous: Option<PtySize>,
-        response: SyncSender<ParserResizeResult>,
-    },
+    /// Boxed, as ClearHistory: the bounded queue allocates every slot at the
+    /// size of its largest command when the host starts, so a rare large
+    /// command would make all 256 slots large (parser_queue_memory test).
+    Resize(Box<ParserResize>),
     SetDefaults {
         colors: Box<DefaultColors>,
         source_cursor: u64,
         response: SyncSender<()>,
     },
-    ClearHistory {
-        fallback_key: Option<KeyInput>,
-        response: SyncSender<Result<ParserClearHistoryResult, String>>,
-    },
+    ClearHistory(Box<ParserClearHistory>),
     /// Answers one deferred clipboard read; `None` refuses it.
     ClipboardReadComplete {
         token: u64,
@@ -649,6 +637,24 @@ pub(crate) enum ParserCommand {
     /// Answers once every earlier command is applied (metric_commits.rs).
     Barrier(SyncSender<()>),
     Drain,
+}
+
+pub(crate) struct ParserResize {
+    pub(crate) cols: u16,
+    pub(crate) rows: u16,
+    pub(crate) cell_pixels: (u16, u16),
+    pub(crate) source_cursor: Option<u64>,
+    pub(crate) acknowledge_with_replay: bool,
+    pub(crate) targeted_ack: Option<(u64, HostTap)>,
+    /// The PTY already holds the new size (the program got SIGWINCH when the
+    /// command was queued); restore this size if the grid cannot follow.
+    pub(crate) pty_previous: Option<PtySize>,
+    pub(crate) response: SyncSender<ParserResizeResult>,
+}
+
+pub(crate) struct ParserClearHistory {
+    pub(crate) fallback_key: Option<KeyInput>,
+    pub(crate) response: SyncSender<Result<ParserClearHistoryResult, String>>,
 }
 
 #[derive(Debug, Clone)]

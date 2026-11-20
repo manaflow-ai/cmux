@@ -12,8 +12,7 @@ use std::time::{Duration, Instant};
 #[cfg(unix)]
 use super::start_apps_when_ready;
 use super::{
-    ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX, RenderService, claim_watched_connection,
-    claim_watched_terminal_connection, cleanup, handle_connection_with_permit,
+    ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX, RenderService, cleanup, handle_connection_with_permit,
     try_default_socket_path,
 };
 use crate::mux::Mux;
@@ -228,9 +227,17 @@ fn verify_private_socket_directory(dir: &Path) -> std::io::Result<()> {
 /// the path (it was unlinked or replaced after the starter opened it) opens
 /// the path again, so an unlink never lets two starters in at once. The OS
 /// releases the lock when the holder exits, so a crashed starter never wedges
-/// the session.
+/// the session. The drop unlocks before the file closes: a child another
+/// daemon thread forked meanwhile shares the open file until it execs, and a
+/// close alone would leave the lock held in that copy.
 pub struct SocketStartLock {
-    _file: std::fs::File,
+    file: std::fs::File,
+}
+
+impl Drop for SocketStartLock {
+    fn drop(&mut self) {
+        let _ = fs4::FileExt::unlock(&self.file);
+    }
 }
 
 const SOCKET_START_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(25);
@@ -270,10 +277,11 @@ impl SocketStartLock {
                 before_lock();
                 Self::lock(&file, deadline)?;
                 if at_path(&file, path) {
-                    return Ok(Self { _file: file });
+                    return Ok(Self { file });
                 }
-                // Unlinked or replaced while this start waited: drop that file (and its
-                // lock), then lock the file at the path.
+                // Unlinked or replaced while this start waited: let go of that file's
+                // lock, then lock the file at the path.
+                let _ = fs4::FileExt::unlock(&file);
             }
             reopens += 1;
             reopen_pause(reopens, deadline)?;
@@ -516,7 +524,6 @@ pub fn bind_session_socket(session: &str, path: Option<PathBuf>) -> anyhow::Resu
 pub(super) struct ServedSession {
     pub(super) mux: Arc<Mux>,
     pub(super) render_service: Arc<RenderService>,
-    pub(super) terminal_sessions: Arc<super::terminal_sessions::TerminalSessions>,
 }
 
 impl ServedSession {
@@ -526,26 +533,18 @@ impl ServedSession {
         // A process in one of the session's terminals (an agent, its hooks,
         // `cmux` run in a pane) may hold only its share of the connections, so
         // a burst of agents cannot lock the app out of its own daemon (#27698).
-        // Decided here, before the connection's thread, without waiting on the
-        // state lock (`TerminalSessions`).
-        let key = stream.peer_process_key();
+        // Decided here, before the connection's thread, from the terminals'
+        // seats alone: the session state is never read (`terminal_admission`).
         let connections = self.mux.connection_stats();
-        let terminal = self.terminal_sessions.terminal_of_peer(&self.mux, key.as_deref());
-        let permit = if let Some(terminal) = terminal {
-            claim_watched_terminal_connection(connections, &*stream, Some(terminal))
-        } else {
-            claim_watched_connection(connections, &*stream)
-        };
-        let Some(permit) = permit else {
-            // Refused at the connection limit, before any line: counted by the lane it
-            // asked for (`server-stats` section `commands`).
-            connections.commands().connection_refused(if terminal.is_some() {
-                crate::diagnostics::ClientKind::Terminal
-            } else {
-                crate::diagnostics::ClientKind::Local
-            });
-            refuse_busy(stream);
-            return;
+        let permit = match super::terminal_admission::admit(connections, &*stream) {
+            Ok(permit) => permit,
+            Err(lane) => {
+                // Refused at the connection limit, before any line: counted by the
+                // lane it asked for (`server-stats` section `commands`).
+                connections.commands().connection_refused(lane);
+                refuse_busy(stream);
+                return;
+            }
         };
         let mux = self.mux.clone();
         let render_service = self.render_service.clone();
@@ -649,5 +648,27 @@ mod refuse_busy_tests {
         assert_eq!(reply["code"], "server.busy");
         line.clear();
         assert_eq!(reader.read_line(&mut line).unwrap(), 0, "the refused stream closes");
+    }
+}
+
+#[cfg(all(test, unix))]
+mod start_lock_tests {
+    use super::*;
+
+    /// A server start lets go of the start lock, also while a child another daemon thread forked
+    /// meanwhile has the descriptor: else the next start or CLI `ensure_owner` waits for that
+    /// child, and past `START_LOCK_DEADLINE` fails with a timeout.
+    #[test]
+    fn a_dropped_start_lock_is_free_while_a_forked_child_keeps_its_descriptor() {
+        let dir = crate::fork_tests::Scratch::new("socket_start_lock");
+        let path = dir.path().join("server.sock.start.lock");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let lock =
+            SocketStartLock::acquire_with(&path, deadline, &mut || {}, &|_, _| true).unwrap();
+        let keeper = crate::fork_tests::Keeper::fork();
+        drop(lock);
+        let free = crate::fork_tests::free(&path);
+        drop(keeper);
+        assert!(free, "a dropped start lock stayed held through a forked child's copy");
     }
 }

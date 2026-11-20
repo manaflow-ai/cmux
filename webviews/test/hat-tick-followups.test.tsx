@@ -6,6 +6,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -26,7 +27,8 @@ beforeAll(() => {
     if (key !== "IS_REACT_ACT_ENVIRONMENT") scope[key] = (dom.window as unknown as Record<string, unknown>)[key];
   scope.IS_REACT_ACT_ENVIRONMENT = true;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];

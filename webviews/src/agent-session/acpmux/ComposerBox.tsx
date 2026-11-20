@@ -1,4 +1,4 @@
-import React, { useCallback, useImperativeHandle, useRef, useState, type RefObject } from "react";
+import React, { useCallback, useImperativeHandle, useInsertionEffect, useRef, useState, type RefObject } from "react";
 import { type ComposerAttachment, type DroppedKind, inlineCopyId } from "./attachments";
 import { composerCopy, forgetCopy, pastePlan, pastesPlaced, writeComposerCopy } from "./composer/composerCopy";
 import { useInlineAttachments } from "./composer/inlineAttachments";
@@ -14,6 +14,8 @@ import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { ChromeArea, type HideableChromeItem } from "../../ui/HideableChrome";
 import { ComposerListAnchor } from "./backdropLayer";
 import { remember } from "./composer/pasteMarks";
+import { acpmuxPerf } from "./perf";
+import { holdFlag, setRef } from "./heldFlag";
 
 /// What keeps its own press inside the composer card (`focusFromCard`): the text, controls, the menus
 /// and dialogs the card opens, and attachments.
@@ -102,9 +104,6 @@ export type ComposerBoxProps = {
   trailing?: React.ReactNode;
   /// The hideable controls the row's right-click shows again (composerChrome.tsx).
   chromeItems: readonly HideableChromeItem[];
-  /// Drawn in the composer's bottom area, centered: the chat's look dots (LookSwitch.tsx), in the
-  /// quiet row's empty middle.
-  bottom?: React.ReactNode;
 };
 
 /// The one composer box every surface draws (one-composer: the chat pane, New Tab, Quick
@@ -146,8 +145,8 @@ export function ComposerBox({
   accessory,
   trailing,
   chromeItems,
-  bottom,
 }: ComposerBoxProps) {
+  acpmuxPerf.render("composer:box");
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css). Both
   // looks use the same controls and prompt. Codex's gives the prompt its own full-width line,
   // with + and the trailing actions on the lower row (composerLook.css).
@@ -171,32 +170,29 @@ export function ComposerBox({
     [fieldRef],
   );
   const ownAttachments = useRef(attachments);
-  if (!attachmentsRef) ownAttachments.current = attachments;
   /// Set while a file with no caret of its own is attached (a Pasted text chip with no node, kept as
   /// a file): its intake places it synchronously (attachmentIntake.tsx), so `place` reads this in
   /// the same call and puts it at the start of the prompt, as every attachment goes in the text.
   const atStart = useRef(false);
   // A huge paste is a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
   const keepsTextNow = useRef({ keeps: pasteKeepsText, refused: onPasteRefused });
-  keepsTextNow.current = { keeps: pasteKeepsText, refused: onPasteRefused };
   const pastedChips = usePastedChips(
     attachmentsRef ?? ownAttachments,
     setAttachments,
     prompt,
-    onPasteFile &&
-      ((file, inText = true) => {
-        atStart.current = !inText;
-        try {
-          onPasteFile(file);
-        } finally {
-          atStart.current = false;
-        }
-      }),
+    onPasteFile && ((file, inText = true) => holdFlag(atStart, !inText, () => onPasteFile(file))),
     () => keepsTextNow.current.keeps,
     () => keepsTextNow.current.refused?.(),
   );
   const plainPaste = useRef(pastedChips.plainPaste);
-  plainPaste.current = pastedChips.plainPaste;
+  // The latest of each, written as the render commits: every reader is a handler or an effect, and a
+  // write during render keeps the box out of the React Compiler (each key then re-creates every child's
+  // props).
+  useInsertionEffect(() => {
+    if (!attachmentsRef) ownAttachments.current = attachments;
+    keepsTextNow.current = { keeps: pasteKeepsText, refused: onPasteRefused };
+    plainPaste.current = pastedChips.plainPaste;
+  });
   const inline = useInlineAttachments({
     field: prompt,
     scope: field.selectionKey,
@@ -218,7 +214,7 @@ export function ComposerBox({
     ...(originalFailures ? { originalFailures } : {}),
   });
   // A block pasted again opens its chip as a click does, kept for an undo.
-  pastedChips.opens.current = inline.expand;
+  setRef(pastedChips.opens, inline.expand);
   useImperativeHandle(
     handle,
     () => ({
@@ -289,8 +285,7 @@ export function ComposerBox({
   const attachBox = useCallback(
     (node: HTMLDivElement | null) => {
       setBoxElement(node);
-      if (typeof boxRef === "function") boxRef(node);
-      else if (boxRef) boxRef.current = node;
+      setRef(boxRef, node);
     },
     [boxRef],
   );
@@ -443,9 +438,6 @@ export function ComposerBox({
         {rowInBox && quietRow}
       </div>
       {!rowInBox && quietRow}
-      {/* One stable host for both looks, so a look switched from the dots by keys keeps the same
-          radios and focus: they draw over the quiet row's empty middle (composerLook.css). */}
-      {bottom && <div className="acpmux-composer-under">{bottom}</div>}
     </>
   );
 }

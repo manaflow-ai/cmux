@@ -127,7 +127,7 @@ extension SidebarSectionsSetting {
 extension WorkspaceColorsSetting {
     /// `workspaceColors.indicatorStyle`.
     public nonisolated static let indicatorStylePath = ["workspaceColors", "indicatorStyle"]
-    public nonisolated static let indicatorStyleDefault: WorkspaceColorIndicatorStyle = .dot
+    public nonisolated static let indicatorStyleDefault: WorkspaceColorIndicatorStyle = .leftRail
 }
 
 extension SidebarPriorityViewSetting {

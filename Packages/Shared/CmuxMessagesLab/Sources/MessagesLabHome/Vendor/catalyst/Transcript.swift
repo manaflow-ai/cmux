@@ -67,6 +67,32 @@ final class TranscriptModel {
         rebuild(from: m0, previous: previous)
     }
 
+    /// cmux: the rows from `start` on take `specs`, the same rows measured again (a width pass over the rows near the
+    /// viewport, MessagesWindowView.widthPassNearViewport): same keys in the same order, so the index, the connectors
+    /// and every other row stay, and only the offsets from `start` on follow the new heights (one add per row after
+    /// the changed ones when their total changed; no row before or after is read). False, with nothing changed, when
+    /// a row there is not the spec's row or a ghost is in the model: the caller then sets every row (`set`).
+    func remeasure(from start: Int, _ specs: [RowSpec]) -> Bool {
+        let end = start + specs.count
+        guard start >= 0, !specs.isEmpty, end <= rows.count, !hasGhosts else { return false }
+        for (row, spec) in zip(rows.slice(start, end), specs) where row.spec.key != spec.key { return false }
+        guard var y = offsets[checked: start], let oldEnd = offsets[checked: end] else { return false }
+        var changed: [CGFloat] = []
+        changed.reserveCapacity(specs.count)
+        for (i, spec) in zip(start..., specs) {
+            rows.update(at: i) { $0.spec = spec }
+            y += spec.total
+            changed.append(y)
+        }
+        let delta = y - oldEnd
+        if delta == 0 {
+            offsets.replaceSubrange((start + 1)..<(end + 1), with: changed) // crash-allow: 0 <= start, end <= rows.count == offsets.count - 1 (guards above)
+        } else {
+            offsets.replaceSubrange((start + 1)..., with: changed + offsets.slice(from: end + 1).map { $0 + delta }) // crash-allow: start + 1 <= offsets.count (guards above)
+        }
+        return true
+    }
+
     /// Merge `specs` into the rows from `m0` on (rows before stay). Returns the rows it replaced.
     @discardableResult
     private func merge(_ specs: [RowSpec], from m0: Int, at t: Double, ghosts: Bool) -> [Row] {
@@ -1143,6 +1169,13 @@ final class RowCell: UICollectionViewCell {
     private func setTyping(_ on: Bool, _ spec: RowSpec) {
         typingContainer.isHidden = !on
         typingDiscs.forEach { $0.isHidden = !on }
+        // cmux: a group's typing bubble (body, dots and discs) sits at the bubbles' column, right of the avatar column.
+        let shift = on ? spec.cmuxIndent : 0
+        if contentView.layer.sublayerTransform.m41 != shift {
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            contentView.layer.sublayerTransform = shift == 0 ? CATransform3DIdentity : CATransform3DMakeTranslation(shift, 0, 0)
+            CATransaction.commit()
+        }
         // The typing bubble fades in on the row's content (bubble, dots and discs as one layer group: the
         // large disc overlaps the bubble). Other rows keep the layer's own setting.
         contentView.layer.allowsGroupOpacity = on || contentGroupOpacity

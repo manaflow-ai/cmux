@@ -11,7 +11,7 @@ feeds=()
 for appcast in appcast.xml appcast-arm64.xml appcast-x86_64.xml; do
   feeds+=(--feed "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
 done
-out=$(python3 scripts/ci/nightly_version.py check-build --build "$NIGHTLY_BUILD" --superseded-ok "${feeds[@]}")
+out=$(python3 scripts/ci/nightly_version.py check-build --build "$NIGHTLY_BUILD" --superseded-ok ${feeds[@]+"${feeds[@]}"})
 printf '%s\n' "$out"
 if printf '%s\n' "$out" | grep -qx 'superseded=true'; then
   echo "superseded=true" >> "$GITHUB_OUTPUT"

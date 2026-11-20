@@ -16,9 +16,12 @@ public final class SubagentTabTitles {
     /// Each subagent's name as its page sent it, by session and subagent id.
     @ObservationIgnored private var names: [String: String] = [:]
     @ObservationIgnored private var tones: [String: Int] = [:]
+    @ObservationIgnored private var marks: [String: String] = [:]
     /// The name of each subagent pane's tab, by tab id.
     private var tabs: [String: String] = [:]
     private var tabTones: [String: Int] = [:]
+    /// The harness whose mark each subagent pane's tab draws, when its row draws one (by tab id).
+    private var tabMarks: [String: String] = [:]
     /// The state of the subagent each subagent pane's tab shows, by tab id (``showFacts(_:inTab:)``).
     private var tabFacts: [String: SubagentTabFacts] = [:]
 
@@ -29,8 +32,9 @@ public final class SubagentTabTitles {
 
     /// Records subagent `agent` of session `session` as named `title` (trimmed, at most ``limit``
     /// characters; an empty one records nothing).
-    public func name(_ agent: String, of session: String, title: String?, tone: Int? = nil) {
+    public func name(_ agent: String, of session: String, title: String?, tone: Int? = nil, mark: String? = nil) {
         tones[Self.key(session, agent)] = AgentIdentityTone.valid(tone)
+        marks[Self.key(session, agent)] = mark
         let trimmed = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         names[Self.key(session, agent)] = String(trimmed.prefix(Self.limit))
@@ -42,20 +46,23 @@ public final class SubagentTabTitles {
         tabs = tabs.filter { isOpen($0.key) }
         tabTones = tabTones.filter { isOpen($0.key) }
         tabFacts = tabFacts.filter { isOpen($0.key) }
+        tabMarks = tabMarks.filter { isOpen($0.key) }
         tabs[tab] = names[Self.key(session, agent)]
         tabTones[tab] = tones[Self.key(session, agent)]
+        tabMarks[tab] = marks[Self.key(session, agent)]
     }
 
     /// Tab `tab` now shows a subagent named `title`, or (nil or blank) its chat again: a subagent pane
     /// shows the chat's other subagents in place, and its "Subagent of" pill goes back to the chat.
     /// Review of #28497 at 995299ff: the name bound at open stayed on the tab through those.
     /// While a shown subagent's name is loading, `keepingTitle` updates only the identity ink.
-    public func show(_ title: String?, inTab tab: String, tone: Int? = nil, keepingTitle: Bool = false) {
+    public func show(_ title: String?, inTab tab: String, tone: Int? = nil, keepingTitle: Bool = false, mark: String? = nil) {
         if !keepingTitle {
             let trimmed = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             tabs[tab] = trimmed.isEmpty ? nil : String(trimmed.prefix(Self.limit))
         }
         tabTones[tab] = AgentIdentityTone.valid(tone)
+        tabMarks[tab] = mark
     }
 
     /// Tab `tab` now shows a subagent in state `facts`, or (nil) its chat again. Leo, 2026-11-07, on a
@@ -76,5 +83,36 @@ public final class SubagentTabTitles {
     /// The shared identity ink for this pane, nil for its parent or a non-agent panel.
     public func tone(ofTab tab: String) -> Int? { tabTones[tab] }
 
+    /// The icon a subagent pane's tab draws, nil for any other tab: the mark its row in the chat
+    /// draws, never its chat's. That is the subagent mark (`task.ai`, the web's `SUBAGENT_FALLBACK`)
+    /// in its tone, or the harness mark the row draws for a subagent of another family (`mark`).
+    /// Leo, 2026-11-12, on a subagent tab with its chat's Claude mark beside a row's sparkle: "ICON
+    /// ISN'T THE SAME".
+    public func icon(ofTab tab: String) -> SubagentTabIcon? {
+        guard tabTones[tab] != nil else { return nil }
+        return tabMarks[tab].map(SubagentTabIcon.harness) ?? .subagent
+    }
+
+    /// A page's `mark` param: a harness id, nil when absent, blank or not a plain id.
+    nonisolated static func mark(_ value: Any?) -> String? {
+        guard let id = value as? String, !id.isEmpty, id.count <= 64,
+              id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" || $0 == ".") }) else { return nil }
+        return id
+    }
+
     private static func key(_ session: String, _ agent: String) -> String { "\(session)\u{1F}\(agent)" }
+}
+
+/// The icon a subagent pane's tab draws (``SubagentTabTitles/icon(ofTab:)``).
+public enum SubagentTabIcon: Equatable, Sendable {
+    /// The subagent mark (`task.ai`) in the subagent's tone, as its row draws it.
+    case subagent
+    /// The mark of the harness its row draws (a subagent of another family).
+    case harness(String)
+
+    /// The harness whose mark it draws, nil for the subagent mark.
+    public var harness: String? {
+        if case .harness(let id) = self { return id }
+        return nil
+    }
 }

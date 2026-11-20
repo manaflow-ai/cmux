@@ -29,8 +29,10 @@ while [ "$elapsed" -lt "$TIMEOUT" ]; do
     if [ "$hits" -ge "$NEED" ]; then
       STAMP=$(date +%H%M%S)
       OUT="$(mktemp "/tmp/cmux-spin-$TAG-$STAMP.XXXXXX")"
-      echo "SPIN DETECTED tag=$TAG pid=$PID cpu=${CPU}% time=$(date +%T)"
-      sample "$PID" 2 -file "$OUT" 2>/dev/null && echo "stack sample: $OUT"
+      # The messages run in a subshell that ignores SIGPIPE: an echo to a stdout nobody reads would otherwise
+      # end this script before the kill (tests/test_guard_logs_survive_closed_pipe.py).
+      ( trap '' PIPE; echo "SPIN DETECTED tag=$TAG pid=$PID cpu=${CPU}% time=$(date +%T)" ) || true
+      sample "$PID" 2 -file "$OUT" 2>/dev/null && { ( trap '' PIPE; echo "stack sample: $OUT" ) || true; }
       kill "$PID" 2>/dev/null && echo "killed pid $PID"
       exit 1
     fi

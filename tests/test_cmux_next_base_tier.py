@@ -33,6 +33,8 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import cmux_next_base_tier as tier  # noqa: E402
 import cmux_next_tree_notify as notify  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 import github_quota_client as quota  # noqa: E402
 import deadline_http  # noqa: E402
 
@@ -1217,7 +1219,10 @@ class Workflows(unittest.TestCase):
     def test_sleeping_dispatcher_reads_the_linux_pool(self):
         # A pure Python timer/API call reads the reconciled Linux pool, never a fixed
         # Blacksmith size that can stall (tests/test_ci_linux_single_size.py).
-        expression = yaml.safe_load(KICK.read_text())["jobs"]["kick"]["runs-on"]
+        cells = workflow_jobs.runs_on_cells(workflow_jobs.jobs(KICK)["kick"])
+        self.assertIsNotNone(cells, "kick runs-on reads a matrix value nothing resolves")
+        self.assertEqual(len(cells), 1, cells)
+        expression = cells[0]
         self.assertIn("'ubuntu-24.04'", expression)
         self.assertNotIn("32vcpu", expression)
         self.assertNotIn("vars.LINUX_RUNNER", expression)

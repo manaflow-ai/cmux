@@ -8,7 +8,7 @@ import Testing
 
 /// https://github.com/manaflow-ai/cmux/issues/25653: a workspace's color showed only as a small
 /// dot, and classic's `workspaceColors.indicatorStyle` did nothing in NEXT. The setting now picks a
-/// dot (the default), a leading rail or a full-row fill, for loose rows and group members alike,
+/// dot, a leading rail (the default) or a full-row fill, for loose rows and group members alike,
 /// and a color set on a grouped workspace shows at once.
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct WorkspaceColorFillTests {
@@ -39,10 +39,11 @@ struct WorkspaceColorFillTests {
         return result
     }
 
-    @Test func theSettingIsListedAndDefaultsToTheDot() throws {
+    /// The default is classic's rail (Lawrence 2026-11-09, "red dot on left feels weird").
+    @Test func theSettingIsListedAndDefaultsToTheRail() throws {
         let row = try #require(SettingsSchema.descriptor(for: ["workspaceColors", "indicatorStyle"]))
-        #expect(row.defaultValue == .string("dot"))
-        #expect(Self.preferences(nil).workspaceColorIndicator == .dot)
+        #expect(row.defaultValue == .string("leftRail"))
+        #expect(Self.preferences(nil).workspaceColorIndicator == .leftRail)
     }
 
     @Test func eachStyleParsesAndClassicsSolidFillReadsAsFill() {
@@ -57,7 +58,7 @@ struct WorkspaceColorFillTests {
         }
         let root: CmuxNextSettings.JSONValue = .object(["workspaceColors": .object(["indicatorStyle": .string("glow")])])
         let snapshot = CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: [])
-        #expect(snapshot.sidebarSections.workspaceColorIndicator == .dot, "a bad value keeps the default")
+        #expect(snapshot.sidebarSections.workspaceColorIndicator == .leftRail, "a bad value keeps the default")
         #expect(snapshot.diagnostics.contains { $0.path == "workspaceColors.indicatorStyle" })
     }
 
@@ -74,7 +75,7 @@ struct WorkspaceColorFillTests {
 
     @Test func theDotStyleAndColorsOffDrawNoFill() {
         let model = SidebarModel(sections: Self.sections())
-        model.applyListPreferences(Self.preferences(nil))
+        model.applyListPreferences(Self.preferences("dot"))
         #expect(Self.contents(model)["loose"]?.rowColor == nil)
         #expect(Self.contents(model)["loose"]?.icon == .swatch(.red))
         var hidden = Self.preferences("fill")
@@ -99,6 +100,7 @@ struct WorkspaceColorFillTests {
     /// reconfigured it (a status tick), so the sidebar showed dots and fills mixed.
     @Test func changingTheStyleRedrawsShownRows() throws {
         let design = DesignSettings()
+        design.sidebarSections = Self.preferences("dot")
         let sidebar = SidebarView(model: SidebarModel(sections: Self.sections()), design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 280, height: 400)
         sidebar.renderNow()
@@ -158,15 +160,16 @@ struct WorkspaceColorFillTests {
         window.closeAfterTest()
     }
 
-    /// Visual review of https://github.com/manaflow-ai/cmux/pull/25705: the rail ended a point or two before the
-    /// title's first letter. A rail row's title sits where the dot style puts it, past the dot's slot.
-    @Test func aLeftRailRowsTitleStaysWhereTheDotStylePutsIt() {
+    /// Visual review of https://github.com/manaflow-ai/cmux/pull/25705 (the rail ended a point or two before the
+    /// title's first letter) and Lawrence 2026-11-09 ("red dot on left feels weird": the dot's slot pushed a colored
+    /// title right of the others). A rail row's title starts where an uncolored row's does, the rail clear of it.
+    @Test func aLeftRailRowsTitleStartsWithAnUncoloredRows() {
         let ws = SidebarWorkspace(id: WorkspaceID("ws"), title: "PR ready", icon: .swatch(.green), color: .green)
-        let (dot, dotWindow) = Self.rowView(ws, style: "dot")
+        let (plain, plainWindow) = Self.rowView(SidebarWorkspace(id: WorkspaceID("p"), title: "plain"), style: "leftRail")
         let (rail, railWindow) = Self.rowView(ws, style: "leftRail")
-        #expect(rail.title.frame.minX == dot.title.frame.minX)
-        #expect(rail.title.frame.minX - rail.colorRail.frame.maxX >= Metrics.space3, "clear of the rail")
-        [dotWindow, railWindow].forEach { $0.closeAfterTest() }
+        #expect(rail.title.frame.minX == plain.title.frame.minX)
+        #expect(rail.title.frame.minX + WorkspaceRowView.labelInset - rail.colorRail.frame.maxX >= 2, "clear of the rail")
+        [plainWindow, railWindow].forEach { $0.closeAfterTest() }
     }
 
     @Test func aStartedWorkspacesRailMovesInWithItsContent() {

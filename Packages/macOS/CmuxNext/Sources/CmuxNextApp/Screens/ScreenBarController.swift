@@ -35,7 +35,7 @@ final class ScreenBarController {
 
     init(content: WorkspaceContentController) {
         self.content = content
-        view = TabStripView(model: model)
+        view = TabStripView(model: model, isPaneTabRow: false) // the flush corner's tab row is the panes'
         preview = ScreenPreviewSource(content: content)
         view.dragsWindowFromEmptySpace = false
         view.renamesOnDoubleClick = true

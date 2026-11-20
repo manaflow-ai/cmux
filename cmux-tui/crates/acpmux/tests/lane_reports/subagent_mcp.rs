@@ -84,6 +84,7 @@ async fn mcp_in(
     command
         .arg("acpmux-mcp")
         .env("ACPMUX_HOME", home)
+        .env("ACPMUX_SEND_CLASS", "stale-inherited-class")
         .env("ACPMUX_SOCKET", sock)
         .env("ACPMUX_SESSION_ID", session)
         .env(acpmux::hub::person::CALLER_TOKEN_ENV, acpmux::hub::person::caller_token(session))
@@ -445,4 +446,63 @@ async fn w5s_lane_report_subagent_mcp_relayed_send_names_the_subagent_as_a_label
         ],
         "the relay is told which subagent sent it, and the lead's own send names none"
     );
+}
+
+#[tokio::test]
+async fn relay_mcp_preserves_explicit_message_class_and_clears_inherited_class() {
+    use std::os::unix::fs::PermissionsExt;
+    let hub = hub();
+    let sock = socket(&hub, "class").await;
+    let mut person = Client::new(&hub);
+    let parent = person.new_session("parent", json!({})).await;
+    let home = cmux_unix_socket::short_test_dir("relay-class");
+    let home = home.path();
+    let classes = home.join("classes");
+    let relay = home.join("relay");
+    std::fs::write(&relay, format!(
+        "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' \"${{ACPMUX_SEND_CLASS-unset}}\" >> '{}'\necho delivery-class\n", classes.display()
+    )).unwrap();
+    std::fs::set_permissions(&relay, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::write(
+        home.join("config.json"),
+        json!({"sendRelay": {"argv": [relay, "send"]}}).to_string(),
+    )
+    .unwrap();
+    for value in ["block", "question", "result", "fyi", "blocker", "action"] {
+        let r = mcp_in(
+            home,
+            &sock,
+            &parent,
+            "send",
+            json!({"to": "far-coordinator", "text": "classed", "class": value}),
+            json!({}),
+        )
+        .await;
+        assert_eq!(r["isError"], false, "{r}");
+    }
+    let r = mcp_in(
+        home,
+        &sock,
+        &parent,
+        "send",
+        json!({"to": "far-coordinator", "text": "unclassed"}),
+        json!({}),
+    )
+    .await;
+    assert_eq!(r["isError"], false, "{r}");
+    assert_eq!(
+        std::fs::read_to_string(&classes).unwrap(),
+        "block\nquestion\nresult\nfyi\nblock\nresult\nunset\n"
+    );
+    let r = mcp_in(
+        home,
+        &sock,
+        &parent,
+        "send",
+        json!({"to": "far-coordinator", "text": "invalid", "class": "urgent"}),
+        json!({}),
+    )
+    .await;
+    assert_eq!(r["isError"], true, "{r}");
+    assert_eq!(std::fs::read_to_string(classes).unwrap().lines().count(), 7);
 }

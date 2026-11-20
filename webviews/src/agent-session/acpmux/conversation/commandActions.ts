@@ -27,6 +27,7 @@ import {
   unwrap,
   type Stage,
 } from "./shellSteps";
+import { commandFolder } from "./commandFolder";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -187,15 +188,27 @@ function assigned(step: string, vars: Map<string, string[]>) {
   }
 }
 
-/// The command as a row draws it when the table does not name it: its first step, without output
-/// redirects and the filters piped after it ("make -j8 2>&1 | tail -20" is "make -j8"). The opened
-/// Shell block keeps the whole line.
+/// A line of several steps as a row draws it: its first line (a heredoc's body never runs into the
+/// row) without its leading `cd`, whitespace one space, and "…" attached when lines follow.
+function wholeLine(command: string): string {
+  const [first = "", ...rest] = commandFolder(command).rest.trim().split("\n");
+  // A heredoc's marker starts text that is not the command (`python3 - <<'PY'`): the line ends there.
+  const marker = first.search(/(?<!<)<<-?(?!<)\s*['"]?[A-Za-z_]+/);
+  const line = (marker >= 0 ? first.slice(0, marker) : first).replace(/\s+/g, " ").trim();
+  return marker >= 0 || rest.some((part) => part.trim()) ? `${line}…` : line;
+}
+
+/// The command as a row draws it when the table does not name it: its one step without output
+/// redirects and the filters piped after it ("make -j8 2>&1 | tail -20" is "make -j8"). A line of
+/// several steps reads whole (its leading `cd` left out, whitespace one space), as the Codex app
+/// draws it: the row's CSS ellipsis cuts what does not fit, and no "…" stands for steps it hid
+/// (Lucas, 2026-11-14: "the ... is fine as long as the text runs out of screen").
 export function cleanCommand(command: string): string {
   const { step, more } = mainStep(command);
+  if (more) return wholeLine(command);
   const parts = stages(step);
   while (parts.length > 1 && isFilter(parts.at(-1)!)) parts.pop();
-  const line = parts.map((stage, index) => shownWords(stage, index === 0).join(" ")).join(" | ") || step;
-  return more ? `${line} …` : line;
+  return parts.map((stage, index) => shownWords(stage, index === 0).join(" ")).join(" | ") || step;
 }
 
 /// A stage's words as a row draws them: the first stage without the assignments and wrappers
@@ -237,7 +250,7 @@ function firstLine(raw: string): string {
     .split("\n")
     .map((part) => part.trim())
     .find(Boolean);
-  return `${quote}${line ?? ""} …${quote}`;
+  return `${quote}${line ?? ""}…${quote}`;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -310,9 +323,7 @@ export function inlineScript(command: string): { language: string; file?: string
 export function scriptSaid(t: Translate, command: string, running = false): string | undefined {
   const noun = scriptNoun(t, command);
   if (!noun) return undefined;
-  const more = noun.endsWith(" …");
-  const text = t(running ? "tools.runningCommand" : "tools.ranCommand", { command: more ? noun.slice(0, -2) : noun });
-  return more ? `${text} …` : text;
+  return t(running ? "tools.runningCommand" : "tools.ranCommand", { command: noun });
 }
 
 /// The live line's words for a script, without its verb (Thinking.tsx adds "Running"/"Ran").
@@ -322,7 +333,8 @@ export function scriptNoun(t: Translate, command: string): string | undefined {
   const noun = script.file
     ? t("command.scriptOn", { language: script.language, file: script.file })
     : t("command.script", { language: script.language });
-  return script.more ? `${noun} …` : noun;
+  // Steps after the script: the line reads whole ("Ran <line>"), never a script name and "…".
+  return script.more ? undefined : noun;
 }
 
 /// `cat > notes.md <<'EOF'`, `tee notes.md <<EOF`: a heredoc or here-string written to one file,
@@ -1026,8 +1038,7 @@ export function commandAction(command: string): CommandAction | undefined {
 
 /// An action in the reader's language: "Searched memory for “x”", "Staged all changes …".
 export function actionText(t: Translate, action: CommandAction): string {
-  const text = t(action.key, action.values ?? {});
-  return action.more ? `${text} …` : text;
+  return t(action.key, action.values ?? {});
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1063,10 +1074,11 @@ export function commandSaid(t: Translate, tool: Tool, look: CommandLabelLook = c
   if (running(tool)) return scriptSaid(t, command, true);
   const action = failed(tool) ? undefined : commandAction(command);
   if (look === "description" && description) return description;
+  // The table names one step: a line with more steps after it reads whole, never as its first.
+  const named = action && !action.more ? action : undefined;
   if (look === "description")
-    return action ? actionText(t, action) : (pipelineSaid(t, command) ?? scriptSaid(t, command));
-  // A compound command's first step is all the table names; a description says what the whole did.
-  if (action && !(action.more && description)) return actionText(t, action);
+    return named ? actionText(t, named) : (pipelineSaid(t, command) ?? scriptSaid(t, command));
+  if (named) return actionText(t, named);
   return description ?? pipelineSaid(t, command) ?? scriptSaid(t, command);
 }
 
@@ -1079,7 +1091,7 @@ function pipelineSaid(t: Translate, command: string): string | undefined {
   const text = summary.files.length
     ? t("command.ranOn", { command: summary.programs, target: summary.files.join(", ") })
     : t("tools.ranCommand", { command: summary.programs });
-  return summary.more ? `${text} …` : text;
+  return summary.more ? undefined : text;
 }
 
 /// The line a command row draws when nothing names it, "Ran <line>": a finished call's without the

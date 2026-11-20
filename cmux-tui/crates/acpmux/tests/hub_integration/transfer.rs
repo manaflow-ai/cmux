@@ -234,8 +234,18 @@ async fn records(c: &mut TestClient, id: &str, kind: &str) -> Vec<Value> {
     page["events"].as_array().unwrap().iter().map(|e| e["msg"].clone()).collect()
 }
 
-/// `hub` on a unix socket of its own, as a sibling build's daemon listens; its path.
-async fn listen(hub: &Arc<Hub>) -> std::path::PathBuf {
+/// A test's own socket path, unlinked when the test ends (each run left one
+/// in `/tmp` before: 101 on gcp-agent-lane-2, 2026-11-12).
+struct Socket(std::path::PathBuf);
+
+impl Drop for Socket {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// `hub` on a unix socket of its own, as a sibling build's daemon listens.
+async fn listen(hub: &Arc<Hub>) -> Socket {
     static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     // `/tmp`, not the temp dir: a worker's can be too long for a socket path.
@@ -243,7 +253,7 @@ async fn listen(hub: &Arc<Hub>) -> std::path::PathBuf {
         .join(format!("acpmux-move-{}-{n}.sock", std::process::id()));
     let listener = acpmux::server::bind_unix(&path).await.unwrap();
     tokio::spawn(acpmux::server::serve_unix(hub.clone(), listener));
-    path
+    Socket(path)
 }
 
 /// Waits until `id`'s status on `c` is `status`.
@@ -296,7 +306,7 @@ async fn a_move_whose_client_goes_away_after_the_target_took_the_chat_commits_on
     let begin = src
         .request(
             "_acpmux/transfer_begin",
-            json!({"sessionId": id, "interrupt": true, "to": {"socket": socket}}),
+            json!({"sessionId": id, "interrupt": true, "to": {"socket": &socket.0}}),
         )
         .await
         .unwrap();
@@ -335,7 +345,7 @@ async fn a_move_whose_client_goes_away_before_the_target_finished_is_dropped_the
     let begin = src
         .request(
             "_acpmux/transfer_begin",
-            json!({"sessionId": id, "interrupt": true, "to": {"socket": socket}}),
+            json!({"sessionId": id, "interrupt": true, "to": {"socket": &socket.0}}),
         )
         .await
         .unwrap();

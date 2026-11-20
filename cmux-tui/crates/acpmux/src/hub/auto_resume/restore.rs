@@ -55,25 +55,9 @@ impl Hub {
             return;
         }
         let Some(last) = last else { return };
-        // A kill can lose the metadata save of a turn whose result is in the log: the event
-        // journal writes a log line to its file at once and queues the metadata record behind
-        // it, so `session.json` (or its journaled image) can name an older turn. The log's newest
-        // result is the truth; take its summary when the saved one names another turn.
-        // Only a summary this chat saved is corrected, as the live path writes it
-        // (`record_last_turn`): never from a trigger delivery's result, and not on a chat that
-        // saved none (a fork's copied results are its parent's; a watched chat's are not its own).
-        // The log's result must also be newer than the saved summary.
-        if last.msg.get("trigger") != Some(&Value::Bool(true)) {
-            let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            let logged = last.msg.get("turnId");
-            if let Some(saved) = meta.last_turn.as_ref()
-                && logged.is_some()
-                && saved.get("turnId") != logged
-                && saved.get("endedAt").and_then(Value::as_u64).is_none_or(|ended| ended < last.at)
-            {
-                meta.last_turn = Some(last_turn_summary(&last));
-            }
-        }
+        // The chat's log read corrected the summary already (`Hub::catch_up`); this pass also
+        // reads to the newest turn boundary, so it corrects what that read could not reach.
+        Self::correct_last_turn(&mut session.meta.lock().unwrap_or_else(|e| e.into_inner()), &last);
         // The durable trigger dispatcher owns retries; a generic continuation
         // would lose the verified principal and become an ordinary human turn.
         if last.msg.get("trigger") == Some(&Value::Bool(true)) {
@@ -115,7 +99,7 @@ impl Hub {
             "auto_resume_exhausted",
             "turn_stop_requested",
         ];
-        let scanned = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
+        let scanned = self.scan_for_rebuild(session, &kinds, &mut |e: EventRecord| {
             if matches!(e.kind.as_str(), "queued" | "user_message")
                 && e.msg.pointer("/_meta/provenance/manual") == Some(&Value::Bool(true))
                 && e.msg.pointer("/_meta/provenance/turnId").and_then(Value::as_str)
@@ -420,6 +404,33 @@ impl Hub {
 }
 
 /// The chat's last-turn summary (`lastTurn`) from a `turn_result` record.
+impl Hub {
+    /// A kill can lose the metadata save of a turn whose result is in the log: the event journal
+    /// writes a log line to its file at once and queues the metadata record behind it, so
+    /// `session.json` (or its journaled image) can name an older turn. The log's newest result
+    /// (`last`) is the truth; take its summary when the saved one names another turn.
+    /// Only a summary this chat saved is corrected, as the live path writes it
+    /// (`record_last_turn`): never from a trigger delivery's result, and not on a chat that saved
+    /// none (a fork's copied results are its parent's; a watched chat's are not its own). The
+    /// log's result must also be newer than the saved summary.
+    pub(in crate::hub) fn correct_last_turn(
+        meta: &mut crate::store::SessionMeta,
+        last: &EventRecord,
+    ) {
+        if last.msg.get("trigger") == Some(&Value::Bool(true)) {
+            return;
+        }
+        let logged = last.msg.get("turnId");
+        if let Some(saved) = meta.last_turn.as_ref()
+            && logged.is_some()
+            && saved.get("turnId") != logged
+            && saved.get("endedAt").and_then(Value::as_u64).is_none_or(|ended| ended < last.at)
+        {
+            meta.last_turn = Some(last_turn_summary(last));
+        }
+    }
+}
+
 fn last_turn_summary(result: &EventRecord) -> Value {
     let mut summary = serde_json::Map::new();
     for key in super::super::views::LAST_TURN_KEYS {

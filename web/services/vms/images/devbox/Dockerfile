@@ -460,9 +460,9 @@ RUN bash -n /etc/cmux/agent-config.sh \
 COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot
 COPY cmux-vm-kind-sync /usr/local/bin/cmux-vm-kind-sync
 COPY cmux-tui-state-mount /usr/local/bin/cmux-tui-state-mount
-# The Ghostty generation panes announce as TERM_PROGRAM_VERSION next to
-# TERM_PROGRAM=ghostty (the supervisor reads it; base images without the .deb
-# still record the pin). The Freestyle bake writes the same file.
+# The Ghostty .deb pin, recorded for the acpmux daemon launch (base images
+# without the .deb still record it); terminal panes say TERM_PROGRAM=cmux with
+# cmux's own version. The Freestyle bake writes the same file.
 RUN chmod 0755 /usr/local/bin/cmux-devbox-boot \
   && chmod 0755 /usr/local/bin/cmux-vm-kind-sync \
   && chmod 0755 /usr/local/bin/cmux-tui-state-mount \

@@ -79,6 +79,7 @@ struct ChatRowView: View {
             .environment(\.attachmentLoader, context.attachmentLoader)
             .environment(\.openURL, context.openURL)
             .environment(\.chatDisclosures, context.surface.disclosures)
+            .environment(\.loadFullToolOutput, LoadFullToolOutputAction { [store = context.store] call in await store.loadFullOutput(of: call) })
             .environment(\.transcriptFoldHold, context.foldHold)
     }
 
@@ -100,6 +101,8 @@ struct ChatRowView: View {
                        editEarlier: context.canEditEarlier(turnID: turnID) ? { context.editEarlier(turnID: turnID) } : nil,
                        polish: ChatPolishMenuButtons(store: context.store, turnID: turnID, prompt: text))
                 .frame(maxWidth: .infinity, alignment: .trailing)
+        case .chiefContext(let text, let lines):
+            ChiefContextRow(context: text, lines: lines, id: row.id)
         case .incoming(let incoming, let attachments, let at):
             AgentIncomingCard(incoming: incoming, attachments: attachments, at: at)
         case .steer(let message):

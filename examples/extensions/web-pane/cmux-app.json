@@ -1,0 +1,29 @@
+{
+  "$schema": "../../../cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json",
+  "manifestVersion": 2,
+  "id": "local/web-pane",
+  "name": { "en": "Web pane" },
+  "version": "1.0.0",
+  "description": { "en": "An example extension whose pane is its own HTML page, built only on cmux-extension-sdk: your workspaces and a note it keeps, through the same scopes as a script." },
+  "publisher": { "name": "cmux examples", "url": "https://cmux.com" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": { "symbol": "globe" },
+  "categories": ["samples", "developer-tools"],
+  "keywords": ["web", "pane", "example"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "web": { "root": "web" } },
+  "implements": {
+    "cmux.pane/1": {
+      "web": "web/index.html",
+      "title": { "en": "Web pane" },
+      "symbol": "globe"
+    }
+  },
+  "scopes": {
+    "workspace:read": "List your workspaces.",
+    "storage:local": "Keep the note you write in the pane."
+  },
+  "activation": ["onInterface:cmux.pane/1"],
+  "files": ["web/"]
+}

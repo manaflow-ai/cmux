@@ -14,6 +14,7 @@ import {
 } from "../src/agent-session/acpmux/started/sessionHover";
 import { SessionHoverContent } from "../src/agent-session/acpmux/started/SessionHoverCard";
 import { hoverCardSide } from "../src/agent-session/acpmux/started/sessionHoverCardModel";
+import { settleReact } from "./support/domTeardown";
 
 const ID = "01a0ebd5-0efe-721d-9edc-cf1a6ba78d98";
 const entry = (extra: Record<string, unknown> = {}) =>
@@ -211,7 +212,8 @@ beforeAll(() => {
     IS_REACT_ACT_ENVIRONMENT: true,
   });
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];

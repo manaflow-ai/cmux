@@ -1,6 +1,7 @@
 // cmux NEXT action catalog data. Edit by hand: this is the source of truth.
 //! The `CmuxRemoteActionCatalog` actions.
 
+use super::args;
 use crate::model::*;
 use crate::text::t;
 
@@ -75,10 +76,34 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "remote.stopScreenSession",
+        group: GROUP,
+        title: t("ActionCatalog", "action.remote.stopScreenSession", "cmux Remote: End Screen Sharing Session"),
+        keywords: &["cmux remote", "screen sharing", "mac screen", "stop", "end", "disconnect", "viewer", "session"],
+        category: "remote",
+        symbol: "stop.circle",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "remote stop-screen-session",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "remote.setQuality",
+        group: GROUP,
+        title: t("ActionCatalog", "action.remote.setQuality", "Set Screen Sharing Quality…"),
+        keywords: &["screen sharing", "screen share", "remote desktop", "vnc", "quality", "sharp text", "smooth motion", "low bandwidth", "auto", "bitrate", "resolution", "lag"],
+        category: "remote",
+        symbol: "dial.medium",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::REMOTE_QUALITY],
+        targets: &["tab"],
+        cli_name: "action remote-set-quality",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "macScreen.shareThisMac",
         group: GROUP,
         title: t("ActionCatalog", "action.macScreen.shareThisMac", "Share This Mac"),
-        keywords: &["mac", "screen", "sharing", "share", "allow", "device", "remote", "iphone"],
+        keywords: &["mac", "screen", "sharing", "share", "screen share", "share screen", "remote desktop", "vnc", "host", "turn on", "enable", "allow", "device", "remote", "iphone"],
         category: "remote",
         symbol: "display",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
@@ -89,7 +114,7 @@ pub static ACTIONS: &[Action] = &[
         id: "macScreen.stopSharingThisMac",
         group: GROUP,
         title: t("ActionCatalog", "action.macScreen.stopSharingThisMac", "Turn Off Sharing This Mac"),
-        keywords: &["mac", "screen", "sharing", "stop", "off", "disable", "device", "remote"],
+        keywords: &["mac", "screen", "sharing", "screen share", "share screen", "remote desktop", "vnc", "stop", "turn off", "off", "disable", "device", "remote"],
         category: "remote",
         symbol: "display.trianglebadge.exclamationmark",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
@@ -100,7 +125,7 @@ pub static ACTIONS: &[Action] = &[
         id: "macScreen.deviceAccess",
         group: GROUP,
         title: t("ActionCatalog", "action.macScreen.deviceAccess", "Set Device Access to This Mac…"),
-        keywords: &["mac", "screen", "sharing", "device", "access", "permission", "view", "full control", "ask", "none"],
+        keywords: &["mac", "screen", "sharing", "device", "access", "permission", "view", "view only", "full control", "control", "ask", "none", "screen share", "vnc"],
         category: "remote",
         symbol: "person.badge.key",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },

@@ -33,6 +33,20 @@ pub(crate) fn line_is_named() {
     NAMED.with(|named| named.set(named.get().wrapping_add(1)));
 }
 
+thread_local! {
+    /// The request this thread counts now is answered by another thread, which records its
+    /// time ([`CommandStats::record_since`]): its [`Counted`] records nothing.
+    static LATER: ThreadCell<bool> = const { ThreadCell::new(false) };
+}
+
+/// The request this thread handles is answered later, by a thread that waits for its work
+/// (the git lane): that thread records the request's time, from its arrival to its reply
+/// ([`CommandStats::record_since`]). The reader's own few microseconds are not a second count.
+#[inline]
+pub(crate) fn answered_later() {
+    LATER.with(|later| later.set(true));
+}
+
 /// The name of every line that is not a decoded command or a v2 method: a word the daemon
 /// does not know, a line that does not decode, a frame of an app-private family.
 pub(crate) const OTHER: &str = "other";
@@ -303,7 +317,14 @@ impl CommandStats {
     // perf-hot: <1us command-stats
     #[inline]
     pub(crate) fn start<'a>(&'a self, name: &'static str, kind: &'a ConnectionKind) -> Counted<'a> {
+        LATER.with(|later| later.set(false));
         Counted { entry: self.entry(name), kind, started: Instant::now() }
+    }
+
+    /// Records one request that a thread other than its reader answered ([`answered_later`]):
+    /// its time runs from `arrived`, so it has the wait for its turn and the work.
+    pub(crate) fn record_since(&self, name: &'static str, kind: &ConnectionKind, arrived: Instant) {
+        self.entry(name).record(kind.get(), elapsed_ns(arrived));
     }
 
     /// Starts the count of one line of a connection. When the value drops, the line counts
@@ -424,7 +445,9 @@ pub(crate) struct Counted<'a> {
 impl Drop for Counted<'_> {
     #[inline]
     fn drop(&mut self) {
-        self.entry.record(self.kind.get(), elapsed_ns(self.started));
+        if !LATER.with(|later| later.replace(false)) {
+            self.entry.record(self.kind.get(), elapsed_ns(self.started));
+        }
         line_is_named();
     }
 }
@@ -483,6 +506,8 @@ pub struct CommandRow {
     /// writer. A command the connection's queue runs later does not count its wait, and a
     /// command the queue refused (it is full) did not run and is not counted. A command that
     /// answers later from a thread of its own (a URL open, a Cloud call) counts its start.
+    /// A git request counts from its arrival at the git lane to its reply there, with its
+    /// wait for a place (server/git_lane.rs): the time its caller waits.
     pub total_ns: u64,
     pub max_ns: u64,
     /// The requests by time: below 0.25 ms, then one bucket per power of 2 (`hist_bounds_ns`).
@@ -565,5 +590,29 @@ mod tests {
         drop(line);
         let other_after = stats.snapshot().rows.into_iter().find(|row| row.name == OTHER);
         assert_eq!(other_after.map(|row| row.count), Some(41));
+    }
+
+    #[test]
+    fn a_request_answered_later_is_counted_once_by_the_thread_that_answers() {
+        let stats = CommandStats::default();
+        let kind = ConnectionKind::default();
+        let name = "git.diff";
+        let count = || -> u64 {
+            stats.snapshot().rows.iter().filter(|row| row.name == name).map(|row| row.count).sum()
+        };
+        let arrived = Instant::now();
+        let counted = stats.start(name, &kind);
+        answered_later();
+        drop(counted);
+        assert_eq!(count(), 0, "the reader does not count a request another thread answers");
+        stats.record_since(name, &kind, arrived);
+        assert_eq!(count(), 1);
+        // The thread's next request counts as usual.
+        drop(stats.start(name, &kind));
+        assert_eq!(count(), 2);
+        // A mark with no request to take it does not reach the next request.
+        answered_later();
+        drop(stats.start(name, &kind));
+        assert_eq!(count(), 3);
     }
 }

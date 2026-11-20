@@ -47,7 +47,7 @@ async fn each_gate_keeps_a_session_awake() {
     hub.shutdown_all().await;
 }
 
-/// A chat stored as hibernated comes back marked (it wakes on a click after a restart), and
+/// A chat stored as hibernated comes back marked (after a restart it wakes for a turn), and
 /// clearing the hibernation drops the mark, a cause a wake recorded, and the stored flag.
 #[tokio::test]
 async fn a_stored_hibernation_comes_back_and_clearing_it_drops_every_trace() {

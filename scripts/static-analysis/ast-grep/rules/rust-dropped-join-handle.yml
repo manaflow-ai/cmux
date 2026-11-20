@@ -1,0 +1,82 @@
+# Port of rule R3 of scripts/lint-connection-lifetimes.py: a tokio task whose JoinHandle is dropped on
+# the spot (`tokio::spawn(..);`, `let _ = ..`, `drop(..)`) and whose body names no cancellation,
+# shutdown or abort. The original masks comments and strings with a regex tokenizer and finds the
+# call's end by bracket matching; here both come from the syntax tree, so a word in a comment or a
+# string inside the task no longer counts as its cancellation. The `// lifetime-ok:` escape is
+# checked by ast-grep.sh (metadata.escape), on the line or the comment lines directly above.
+id: rust-dropped-join-handle
+language: rust
+severity: warning
+message: tokio task whose JoinHandle is dropped with no cancellation; nothing can stop it
+note: >-
+  Ports R3 of scripts/lint-connection-lifetimes.py (cmuxterm-hq docs/handbook connection lifetimes). Keep the
+  JoinHandle and abort() it with its owner, or select! on a CancellationToken / shutdown signal; or mark the
+  line `// lifetime-ok: <reason>`.
+metadata:
+  escape: 'lifetime-ok:'
+files:
+  - 'cmux-tui/crates/**/*.rs'
+ignores:
+  - '**/tests/**'
+  - '**/Tests/**'
+  - '**/test/**'
+  - '**/__tests__/**'
+  - '**/benches/**'
+  - '**/examples/**'
+  - '**/fixtures/**'
+  - '**/vendor/**'
+  - '**/testdata/**'
+  - 'cmux-tui/crates/ghostty-vt/**'
+  - 'cmux-tui/crates/ghostty-vt-sys/**'
+  - 'cmux-tui/crates/cmux-classic-import/**'
+  - 'cmux-tui/crates/cmux-cellgrid-bench/**'
+  - '**/tests.rs'
+  - '**/test.rs'
+  - '**/build.rs'
+  - '**/*_tests.rs'
+  - '**/*_test.rs'
+  - '**/test_*.rs'
+  - '**/test_support.rs'
+  - '**/testing.rs'  # a glob's * crosses /: testing/sim.rs is the original's
+rule:
+  kind: call_expression
+  all:
+    - any:
+        - pattern: tokio::spawn($$$)
+        - pattern: tokio::task::spawn($$$)
+        - pattern: tokio::spawn_local($$$)
+        - pattern: tokio::task::spawn_local($$$)
+        # A bare `spawn(` / `task::spawn(` is tokio's only when the file imports it.
+        - all:
+            - any: [ { pattern: 'spawn($$$)' }, { pattern: 'spawn_local($$$)' }, { pattern: 'task::spawn($$$)' }, { pattern: 'task::spawn_local($$$)' } ]
+            - inside:
+                kind: source_file
+                stopBy: end
+                has: { kind: use_declaration, regex: '^use\s+tokio::(task\b|\{[^}]*\btask\b|(task::)?(spawn|spawn_local)\b|(task::)?\{[^}]*\bspawn(_local)?\b)' }
+    # The handle is dropped: the call is a statement, `let _ = ..`, or `drop(..)`'s argument.
+    - any:
+        - inside: { kind: expression_statement }
+        - inside: { kind: let_declaration, has: { field: pattern, regex: '^_$' } }
+        - inside: { kind: arguments, inside: { pattern: drop($$$) } }
+    # Nothing in the task can stop it (R3_OWNED, on names only).
+    - not:
+        has:
+          field: arguments
+          has:
+            stopBy: end
+            any:
+              - kind: identifier
+                regex: 'cancel|Cancel|shutdown|Shutdown|abort|Abort|stop_rx|stop_tx|is_closed|CancellationToken|quit|Quit|stopped|exit_rx|kill_rx|done_rx'
+              - kind: field_identifier
+                regex: 'cancel|Cancel|shutdown|Shutdown|abort|Abort|stop_rx|stop_tx|is_closed|quit|Quit|stopped|exit_rx|kill_rx|done_rx'
+              # `.closed()` (a channel's), not a field named `closed`.
+              - kind: call_expression
+                has: { field: function, kind: field_expression, has: { field: field, regex: '^closed$' } }
+              - kind: type_identifier
+                regex: 'Cancel|Shutdown|Abort|Quit'
+              - kind: scoped_type_identifier
+                regex: 'watch::Receiver'
+              - kind: macro_invocation
+                regex: '^(tokio::)?select!'
+  not:
+    matches: rust-test-code

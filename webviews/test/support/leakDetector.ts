@@ -32,6 +32,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const mode = process.env.CMUX_TEST_LEAKS ?? "on";
 /// Source modules whose top-level state is registered and drained.
@@ -294,16 +295,33 @@ function startFile(): void {
   mocked.clear();
 }
 
+/// Globals a library adds once, at its first evaluation, and keeps for the process: added by whichever
+/// file loads it first, never again. Each is named with its reason; there is no general rule for
+/// module scope.
+const LIBRARY_GLOBALS: ReadonlyMap<string, string> = new Map([
+  // seroval defines it on globalThis when it loads (node_modules/seroval/dist/index.js).
+  ["__SEROVAL_REFS__", "library global created once at first evaluation, bounded"],
+]);
+
+/// A global that held `undefined` as a plain value reads the same once deleted (`globalThis.window`,
+/// `typeof window`): an earlier file put `window` back as `undefined`, this one deleted it, and nothing
+/// a later file can see changed. The usual teardown (`if (value === undefined) delete scope[key]`) does
+/// exactly that, so counting it failed SelectionReply and readerStateEstimates by file order alone.
+function heldNothing(descriptor: PropertyDescriptor | undefined): boolean {
+  return !!descriptor && "value" in descriptor && descriptor.value === undefined;
+}
+
 function leakedGlobals(start: FileStart): string[] {
   const leaks: string[] = [];
   const now = new Set(globalKeys());
   for (const key of now) {
-    if (!start.globals.has(key)) leaks.push(`global: \`${key}\` was added and not removed`);
-    else if (!sameDescriptor(start.globals.get(key), Object.getOwnPropertyDescriptor(globalThis, key)))
+    if (!start.globals.has(key)) {
+      if (!LIBRARY_GLOBALS.has(key)) leaks.push(`global: \`${key}\` was added and not removed`);
+    } else if (!sameDescriptor(start.globals.get(key), Object.getOwnPropertyDescriptor(globalThis, key)))
       leaks.push(`global: \`${key}\` was replaced and not restored`);
   }
-  for (const key of start.globals.keys())
-    if (!now.has(key)) leaks.push(`global: \`${key}\` was deleted and not restored`);
+  for (const [key, before] of start.globals)
+    if (!now.has(key) && !heldNothing(before)) leaks.push(`global: \`${key}\` was deleted and not restored`);
   // A document the file started with and that is still reachable: what the file defined on it stays.
   for (const doc of globalDocuments()) {
     const before = start.documents.get(doc);
@@ -464,7 +482,8 @@ function testOperands(): string[] | undefined {
   return operands;
 }
 
-const AGENT_SESSION = new URL("../../src/agent-session", import.meta.url).pathname;
+// A file path, not the URL's: a checkout under a folder with a space reads "%20" in `pathname`.
+const AGENT_SESSION = fileURLToPath(new URL("../../src/agent-session", import.meta.url));
 
 /// Whether this `bun test` can reach a checked test file. One that runs only files outside the
 /// checked folder (CI runs each file in its own process) gets no loader, timer or listener wrapper

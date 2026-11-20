@@ -13,6 +13,8 @@ use std::sync::Arc;
 use std::sync::Weak;
 
 mod committed_snapshot;
+#[cfg(test)]
+pub(crate) use committed_snapshot::undecorated_snapshot_values_for_test;
 mod machines;
 pub(crate) mod scoped_get;
 mod terminal_extra;
@@ -597,12 +599,6 @@ fn session_snapshot_with_journal_head(
     // (`committed_snapshot.rs`), the live surfaces are the published route tables, loaded after the rows and
     // never older than a commit of the rows that changed a route in its state hold.
     (|| -> anyhow::Result<(Value, u64)> {
-        // The answer of an earlier indeterminate registry commit owes a state update (cx-g1fa.3). The read
-        // settled it while it pinned the state; it still does, but only when one is owed: the rows of that
-        // commit are in this snapshot, so its state update must not wait for some later mutation.
-        if mux.registry_connection.owes_settlement() {
-            mux.with_resource_projection(|_, _| Ok(()))?;
-        }
         let committed = committed_snapshot::committed_snapshot(mux)?;
         let routes = mux.published_routes()?;
         #[cfg(test)]
@@ -1062,9 +1058,7 @@ pub(crate) fn public_workspaces(mux: &Mux) -> Result<Vec<Value>, ResourceError> 
             "resource projection changed while listing workspaces"
         );
         let mut workspaces = public_workspace_values(&registry_snapshot, &frame)?;
-        for workspace in &mut workspaces {
-            crate::state::values::decorate_value(connection, "workspace", workspace)?;
-        }
+        crate::state::values::decorate_workspaces(connection, &mut workspaces)?;
         Ok(workspaces)
     })
     .map_err(operation_failed)

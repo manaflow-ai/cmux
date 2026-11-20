@@ -3,6 +3,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { PageClient } from "../src/pages/shared/pageClient";
 import type { UpdateHighlights } from "../src/pages/changelog/updateHighlights";
+import { settleReact } from "./support/domTeardown";
 
 test("the ready surface keeps one PR chip in both lists and routes the shared card to its page host", async () => {
   const dom = new JSDOM("<!doctype html><div id=root></div>", { url: "https://cmux.test/#/surface/ready" });
@@ -91,6 +92,7 @@ test("the ready surface keeps one PR chip in both lists and routes the shared ca
   } finally {
     await act(async () => onChange?.(null));
     setChipHost(undefined);
+    await settleReact();
     dom.window.close();
     for (const [key, had, value] of saved) {
       if (had) scope[key] = value;

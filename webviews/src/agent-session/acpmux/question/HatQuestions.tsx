@@ -20,14 +20,25 @@
 // person's own words; the host sends it for the chat this pane does not show. Open Chat stays for
 // the rest. Leo, 2026-11-10: "this is unusable to respond to i necessarily have to open... this is
 // bad ui".
+//
+// Each question can be put away (Leo, 2026-11-11: "there's no close button :("): the shared × at the
+// head's end (ui/DismissButton.tsx), faded in while the pointer is over the band or the focus is in
+// it, and Escape while the focus is in it. It holds its room at rest, so revealing it moves nothing,
+// and the head's text is cut to the room beside it. Dismissing marks the question seen in this chat
+// (App.tsx `dismissHatQuestion`, waitingAskStore.ts): it leaves the hat, while the ask itself still
+// waits where it was asked (its card, its chat, the sidebar's Needs you dot). A started chat's name
+// keeps the asker line above to itself, cut only where the pager and the × begin.
 import React, { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
+import { DismissButton } from "../../../ui/DismissButton";
+import { useAnswerHold } from "../answerHold";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { inlineText } from "./inlineText";
 import { keepShown, type HatAnswer, type HatQuestion, type HatTag } from "./hatModel";
 import { hatQuestionsLook } from "./hatQuestions.experiment";
 import "./hatQuestions.css";
+import { focusRoute } from "../../../ui/focusRoute";
 
 const TAG_KEY: Record<HatTag, StringKey> = {
   taste: "hat.tag.taste",
@@ -51,6 +62,8 @@ export type HatQuestionActions = {
   showCard(question: HatQuestion): void;
   /// Opens a started chat's question in its chat.
   open(question: HatQuestion): void;
+  /// Puts the question away from the hat: the person has seen it (the × or Escape).
+  dismiss(question: HatQuestion): void;
 };
 
 /// The `sending` mark of a typed reply (an answer's is its id).
@@ -69,12 +82,16 @@ export function HatQuestions({
   actions,
   look: lookProp,
   replyLook = "below",
+  dismissLook = "hover",
 }: {
   questions: readonly HatQuestion[];
   actions: HatQuestionActions;
   /// The gallery's arm; the pane reads the experiment.
   look?: "band" | "line" | "chip";
   replyLook?: HatReplyLook;
+  /// How the × shows: on hover in its own room (shipped), always, or over the band's corner (the
+  /// gallery's comparison, which shows why it needs its own room).
+  dismissLook?: "hover" | "always" | "corner";
 }) {
   const t = useT();
   const [armRead] = useState(() => experimentArm(hatQuestionsLook));
@@ -95,7 +112,9 @@ export function HatQuestions({
   }, [drawn, shown, shownId]);
   const [direction, setDirection] = useState<"next" | "previous">("next");
   const [open, setOpen] = useState(false);
-  const [sending, setSending] = useState<string>();
+  // The answer that went, held until the question's source takes it away, ANSWER_HOLD_MS at most
+  // (answerHold.ts): a source that never does (the agent exited) leaves the band taking answers again.
+  const [sending, setSending] = useAnswerHold<string>();
   const [failed, setFailed] = useState<string>();
   // The reply field's text, its reveal (the `reveal` look) and whether the whole question shows.
   const [draft, setDraft] = useState("");
@@ -108,12 +127,12 @@ export function HatQuestions({
     setDraft("");
     setReplying(false);
     setWhole(false);
-  }, [shown?.id]);
+  }, [shown?.id, setSending]);
   // Revealed by a click (the `reveal` look), the field takes the cursor; drawn from the start, it
   // waits for one.
   const fieldRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (replying) fieldRef.current?.focus({ preventScroll: true });
+    if (replying) focusRoute(fieldRef.current, "system", "a question to reply to", { preventScroll: true });
   }, [replying]);
   // Whether the question runs past its two lines: only then is there a More to offer.
   const promptRef = useRef<HTMLSpanElement>(null);
@@ -205,6 +224,23 @@ export function HatQuestions({
     );
   };
   const folded = look === "chip" && !open;
+  const dismiss = () => actions.dismiss(shown);
+  // Escape while the focus is in the band puts the shown question away; a control that used it
+  // first (a menu, a field) keeps it, and so does a started chat's reply field holding a typed answer.
+  const escapeKey = (event: React.KeyboardEvent<HTMLFieldSetElement>) => {
+    if (folded || event.key !== "Escape" || event.defaultPrevented || event.nativeEvent.isComposing) return;
+    if (event.target === fieldRef.current && draft.trim()) return;
+    event.preventDefault();
+    dismiss();
+  };
+  const close = !folded && (
+    <DismissButton
+      className="acpmux-hat-questions__dismiss"
+      label={t("message.dismiss")}
+      reveal={dismissLook === "always" ? "always" : "hover"}
+      onDismiss={dismiss}
+    />
+  );
   const many = drawn.length > 1;
   // Left and right step through the questions from any of the band's buttons.
   const stepKeys = (event: React.KeyboardEvent<HTMLButtonElement>) => {
@@ -363,6 +399,7 @@ export function HatQuestions({
       data-folded={folded || undefined}
       data-leaving={leaving || undefined}
       data-settled={settled || undefined}
+      data-dismiss={dismissLook}
       style={{ "--acpmux-hat-questions-height": `${arrived && !leaving ? height : 0}px` } as CSSProperties}
       onTransitionEnd={(event) => {
         if (leaving && event.target === event.currentTarget) setKept([]);
@@ -372,7 +409,13 @@ export function HatQuestions({
       }}
     >
       <div ref={inner} className="acpmux-hat-questions__room">
-        <fieldset className="acpmux-hat-questions__body" aria-label={t("hat.questions")}>
+        {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape puts the shown question away from any of its buttons. */}
+        <fieldset
+          className="ui-glass ui-glass-floats acpmux-stack-material acpmux-hat-questions__body"
+          aria-label={t("hat.questions")}
+          data-dismiss-host=""
+          onKeyDown={escapeKey}
+        >
           {folded ? (
             <button type="button" className="acpmux-hat-questions__chip" onClick={() => setOpen(true)}>
               <span className="acpmux-hat-questions__mark" aria-hidden="true" />
@@ -389,11 +432,16 @@ export function HatQuestions({
               <div className="acpmux-hat-questions__head">
                 <span className="acpmux-hat-questions__mark" aria-hidden="true" />
                 {shown.tag && <span className="acpmux-hat-questions__tag">{t(TAG_KEY[shown.tag])}</span>}
-                {shown.who && <span className="acpmux-hat-questions__who">{shown.who}</span>}
+                {shown.who && (
+                  <span className="acpmux-hat-questions__who" title={shown.who}>
+                    {shown.who}
+                  </span>
+                )}
                 {shown.about && <span className="acpmux-hat-questions__about">{inlineText(shown.about)}</span>}
                 {!asker && prompt}
                 {look === "line" && answers}
                 {pager}
+                {close}
               </div>
               {asker && prompt}
               {look !== "line" && shown.detail && (

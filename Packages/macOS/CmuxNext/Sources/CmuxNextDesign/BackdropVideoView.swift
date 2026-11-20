@@ -35,8 +35,13 @@ public final class BackdropVideoView: NSView {
     /// The app's Low Power Mode (``LowPowerMode/system``, the `debug.low_power_mode` override included), watched while in a window.
     private var powerObservation: LowPowerModeObservation?
     private var readyObservation: NSKeyValueObservation?
-    private var screensAsleep = false
-    private var sessionInactive = false
+    /// The screens are asleep, or the login session is not the active one (watched while in a window).
+    public private(set) var screensAsleep = false
+    public private(set) var sessionInactive = false
+    /// Told after each change this view watches (visibility, power, heat, motion settings, closing),
+    /// so the living wallpaper in the same backdrop (``BackdropShaderView``) follows the same
+    /// observers instead of registering its own.
+    public var onSightChange: (@MainActor (_ closing: Bool) -> Void)?
     private var coverage = BackdropCoverage()
     private let coverageTimer = DemandTimer(owner: "backdrop-video-coverage")
 
@@ -210,7 +215,10 @@ public final class BackdropVideoView: NSView {
     }
 
     private func observe() {
-        powerObservation = LowPowerMode.system.observe { [weak self] _ in self?.update() }
+        powerObservation = LowPowerMode.system.observe { [weak self] _ in
+            self?.update()
+            self?.onSightChange?(false)
+        }
         let app = NotificationCenter.default, workspace = NSWorkspace.shared.notificationCenter
         var names: [(NotificationCenter, Notification.Name, AnyObject?)] = [
             (app, NSWindow.didChangeOcclusionStateNotification, window), (app, NSWindow.didMiniaturizeNotification, window),
@@ -236,7 +244,9 @@ public final class BackdropVideoView: NSView {
     private func note(_ name: Notification.Name) {
         switch name {
         // A closed window keeps its views: hand the shared player back now, not when the view goes.
-        case NSWindow.willCloseNotification: return detach()
+        case NSWindow.willCloseNotification:
+            detach()
+            return onSightChange?(true) ?? ()
         // A window brought to the front shows: play now; the next samples rest it again if needed.
         case NSWindow.didBecomeMainNotification, NSWindow.didBecomeKeyNotification: coverage.reset()
         case NSWorkspace.screensDidSleepNotification: screensAsleep = true
@@ -246,6 +256,7 @@ public final class BackdropVideoView: NSView {
         default: break
         }
         update()
+        onSightChange?(false)
     }
 }
 

@@ -1,7 +1,8 @@
 // The page's half of app health (pages/shared/pageHealth.ts): it beats at once and while visible,
 // never while hidden; it counts handled keys and presses; an app without the op stops the beats but
 // not the save on hide; it keeps a focused textarea's draft for the reload, per route, and puts it back; it leaves an editor that keeps
-// its own draft alone; and the hang injection exists only when the host allowed it.
+// its own draft alone; the hang injection exists only when the host allowed it; and a quiet page rests
+// (one rest beat, no timer) on a host that takes rests, until something happens in it.
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import {
@@ -11,6 +12,7 @@ import {
   installPageHealth,
   PAGE_HEARTBEAT_OP,
   PAGE_SAVE_STATE_OP,
+  REST_AFTER_BEATS,
   restoreState,
   markUnsavedEdits,
   UNSAVED_EDITS_ATTRIBUTE,
@@ -28,11 +30,12 @@ function page(html = "<main></main>", setup?: (window: Record<string, unknown>) 
   const calls: Call[] = [];
   const handlers = new Map<string, (params: unknown) => unknown>();
   let refuse = false;
+  let reply: unknown = null;
   const client = {
     call: async <R>(op: string, params: unknown): Promise<R> => {
       calls.push({ op, params });
       if (refuse) throw Object.assign(new Error(op), { code: "cmux.protocol.unknown_op" });
-      return null as R;
+      return reply as R;
     },
     handle: (op: string, handler: (params: unknown) => unknown) => {
       handlers.set(op, handler);
@@ -45,7 +48,8 @@ function page(html = "<main></main>", setup?: (window: Record<string, unknown>) 
     visibility = visible ? "visible" : "hidden";
     dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
   };
-  return { dom, calls, handlers, client, setVisible, refuse: () => (refuse = true) };
+  const answer = (value: unknown) => (reply = value);
+  return { dom, calls, handlers, client, setVisible, refuse: () => (refuse = true), answer };
 }
 
 const beats = (calls: Call[]) => calls.filter((call) => call.op === PAGE_HEARTBEAT_OP);
@@ -329,4 +333,88 @@ test("a store marking unsaved edits beats at once, with no input event", () => {
   expect(beats(calls)).toHaveLength(2);
   markUnsavedEdits(false, dom.window.document);
   expect(beats(calls).at(-1)).toEqual({ op: PAGE_HEARTBEAT_OP, params: { handled: 0 } });
+});
+
+/** The page's beat timer, run by hand: `tick()` is one `HEARTBEAT_MS`; `running()` says whether one is armed. */
+function timers(window: Record<string, unknown>) {
+  const armed = new Map<number, () => void>();
+  let next = 1;
+  window.setInterval = (run: () => void) => (armed.set(next, run), next++);
+  window.clearInterval = (id: number) => armed.delete(id);
+  return { tick: () => [...armed.values()].forEach((run) => run()), running: () => armed.size > 0 };
+}
+const settle = async () => {
+  for (let i = 0; i < 4; i++) await Promise.resolve();
+};
+
+// CMUX-571 (Leo, 2026-11-12: "infinite everything feels like nothing"): a visible page at rest woke
+// the app every 2 s forever. After REST_AFTER_BEATS quiet beats it says it rests and arms no timer.
+test("a quiet page rests once the host takes rests, and any key, press, wheel or scroll wakes it", async () => {
+  let clock!: ReturnType<typeof timers>;
+  const { dom, calls, client, answer } = page("<main></main>", (window) => (clock = timers(window)));
+  answer({ rest: true });
+  installPageHealth(client, dom.window.document);
+  await settle();
+  for (let i = 1; i < REST_AFTER_BEATS; i++) clock.tick();
+  await settle();
+  expect(clock.running()).toBe(true);
+  expect(beats(calls).some((call) => (call.params as { rest?: boolean }).rest)).toBe(false);
+  clock.tick();
+  expect(beats(calls).at(-1)).toEqual({ op: PAGE_HEARTBEAT_OP, params: { handled: 0, rest: true } });
+  expect(clock.running()).toBe(false);
+  const rested = beats(calls).length;
+  clock.tick();
+  expect(beats(calls)).toHaveLength(rested);
+
+  for (const wake of ["keydown", "wheel"]) {
+    dom.window.dispatchEvent(new dom.window.Event(wake));
+    expect(clock.running()).toBe(true);
+    expect((beats(calls).at(-1)!.params as { rest?: boolean }).rest).toBeUndefined();
+    await settle();
+    for (let i = 0; i < REST_AFTER_BEATS; i++) clock.tick();
+    expect(clock.running()).toBe(false);
+  }
+  dom.window.document.dispatchEvent(new dom.window.Event("scroll"));
+  expect(clock.running()).toBe(true);
+  expect(beats(calls).at(-1)).toEqual({ op: PAGE_HEARTBEAT_OP, params: { handled: 1 } });
+  dom.window.close();
+});
+
+test("a page never rests on a host that does not take rests, or while it holds unsaved edits", async () => {
+  let clock!: ReturnType<typeof timers>;
+  const old = page("<main></main>", (window) => (clock = timers(window)));
+  installPageHealth(old.client, old.dom.window.document);
+  await settle();
+  for (let i = 0; i < REST_AFTER_BEATS * 3; i++) clock.tick();
+  expect(clock.running()).toBe(true);
+  expect(beats(old.calls)).toHaveLength(REST_AFTER_BEATS * 3 + 1);
+  old.dom.window.close();
+
+  const editing = page("<main></main>", (window) => (clock = timers(window)));
+  editing.answer({ rest: true });
+  installPageHealth(editing.client, editing.dom.window.document);
+  await settle();
+  markUnsavedEdits(true, editing.dom.window.document);
+  for (let i = 0; i < REST_AFTER_BEATS * 3; i++) clock.tick();
+  expect(clock.running()).toBe(true);
+  expect(beats(editing.calls).at(-1)).toEqual({ op: PAGE_HEARTBEAT_OP, params: { handled: 0, edits: true } });
+  editing.dom.window.close();
+});
+
+test("a resting page that is hidden and shown again beats at once and is timed afresh", async () => {
+  let clock!: ReturnType<typeof timers>;
+  const { dom, calls, client, answer, setVisible } = page("<main></main>", (window) => (clock = timers(window)));
+  answer({ rest: true });
+  installPageHealth(client, dom.window.document);
+  await settle();
+  for (let i = 0; i < REST_AFTER_BEATS; i++) clock.tick();
+  expect(clock.running()).toBe(false);
+  setVisible(false);
+  // A hidden page wakes for nothing.
+  dom.window.dispatchEvent(new dom.window.Event("keydown"));
+  expect(clock.running()).toBe(false);
+  setVisible(true);
+  expect(clock.running()).toBe(true);
+  expect(beats(calls).at(-1)).toEqual({ op: PAGE_HEARTBEAT_OP, params: { handled: 1 } });
+  dom.window.close();
 });

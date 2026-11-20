@@ -95,8 +95,11 @@ fn a_click_finds_the_latest_process_its_tool_call_started() {
     other["sessionId"] = json!("chat-2");
     let list = vec![older, newer, other];
     let found = find_process(&list, None, Some("chat-1"), Some("toolu_1")).unwrap();
-    assert_eq!(text(found, "id"), "chat-1/task-b7x-2");
-    assert_eq!(text(find_process(&list, Some("chat-2/x"), None, None).unwrap(), "id"), "chat-2/x");
+    assert_eq!(found.get_str("id").unwrap_or(""), "chat-1/task-b7x-2");
+    assert_eq!(
+        find_process(&list, Some("chat-2/x"), None, None).unwrap().get_str("id").unwrap_or(""),
+        "chat-2/x"
+    );
     assert!(find_process(&list, None, Some("chat-9"), Some("toolu_1")).is_none());
 }
 
