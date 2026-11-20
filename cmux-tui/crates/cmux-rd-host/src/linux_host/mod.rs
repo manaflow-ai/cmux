@@ -281,21 +281,21 @@ fn load_locked() -> Res<(std::path::PathBuf, Hub, Account, serving::Lock)> {
     let lock = serving::lock(&dir)?;
     let Some(account) = Account::load(&dir)? else {
         let (home, credential) = machine::current()?.ok_or(NOT_ENABLED)?;
+        let join = machine::Join::of(&home, credential)?;
         identity::private_dir(&dir)?;
         // Nothing is signed in, so no host serves yet: there is no unit to stop first.
-        let device =
-            serving::join(&dir, DEFAULT_HUB, &home, credential.clone(), &serving::ThisProcess)?;
+        let device = serving::join(&dir, &join, &serving::ThisProcess)?;
         let account = Account::load(&dir)?.ok_or(NOT_ENABLED)?;
-        let hub = Hub::with_renewal(&account.hub, device, None, machine_renewal(credential))?;
+        let hub = Hub::with_renewal(&join.hub, device, None, machine_renewal(join.credential))?;
         return Ok((dir, hub, account, lock));
     };
     if let Some(joined) = machine::Joined::load(&dir)? {
-        // Only the current join's host serves (serving.rs); a record from before joins were
-        // marked may sign in again, so the device and account are read after it.
-        let credential = serving::current_join(&dir, &account.hub, &joined)?;
+        // Only the current join's host serves, at its own hub (serving.rs); a record from
+        // before joins were marked may sign in again, so the device and account are read after.
+        let join = serving::current_join(&dir, &joined, machine::Join::read)?;
         let account = Account::load(&dir)?.ok_or(NOT_ENABLED)?;
         let device = Device::load(&dir)?.ok_or(NOT_ENABLED)?;
-        let hub = Hub::with_renewal(&account.hub, device, None, machine_renewal(credential))?;
+        let hub = Hub::with_renewal(&join.hub, device, None, machine_renewal(join.credential))?;
         return Ok((dir, hub, account, lock));
     }
     let device = Device::load(&dir)?.ok_or(NOT_ENABLED)?;
@@ -316,15 +316,11 @@ fn load_locked() -> Res<(std::path::PathBuf, Hub, Account, serving::Lock)> {
 /// desktop (a new identity when the hub refuses the old one) and turns sharing on: joining is
 /// the consent (hq docs/design/remote-screen-share-zero-touch.md, L3). Sharing is turned on
 /// only here, at the first sign-in, so a person's later "off" from any device stays off.
-fn sign_in_machine(
-    dir: &std::path::Path,
-    hub_url: &str,
-    acpmux_home: &std::path::Path,
-    credential: machine::MachineCredential,
-) -> Res<(Hub, Account)> {
+fn sign_in_machine(dir: &std::path::Path, join: &machine::Join) -> Res<(Hub, Account)> {
+    let (hub_url, acpmux_home, credential) = (join.hub.as_str(), &join.home, &join.credential);
     // The join record first: records that a crash leaves half written are never read as a
     // person's (`load`).
-    machine::Joined::of(acpmux_home, &credential).save(dir)?;
+    machine::Joined::of(acpmux_home, credential).save(dir)?;
     let device = match Device::load(dir)? {
         Some(device) => device,
         None => {
@@ -403,10 +399,9 @@ fn set_up_for_join(args: &Args) -> Res<()> {
     let _lock = serving::lock(&dir)?;
     // The identity first, before any step that can fail: a person's host that was here is torn
     // down now, not left running when a later step fails.
-    let hub_url = args.get("hub").unwrap_or(DEFAULT_HUB);
     let joined = machine::current()?;
     let from_join = joined.is_some();
-    let Some(device) = join_device(&dir, hub_url, joined, &serving::HostUnit)? else {
+    let Some(device) = join_device(&dir, args.get("hub"), joined, &serving::HostUnit)? else {
         println!("{NOT_INSTALLED}");
         return Ok(());
     };
@@ -436,10 +431,14 @@ fn set_up_for_join(args: &Args) -> Res<()> {
 }
 
 /// The device `enable --non-interactive` installs the host as, or None when nothing signed
-/// this machine in. A join always goes through [`serving::join`]: the host is the joiner's.
+/// this machine in. A join always goes through [`serving::join`]: the host is the joiner's, at
+/// the hub of the credential's own deployment ([`machine::Join`]). `expected_hub` is the hub the
+/// caller (the acpmux daemon's `--hub`) read for the join: when the credential read here is
+/// another deployment's (a leave and a join elsewhere came since), nothing is sent anywhere and
+/// the daemon sets the new join up from its own fresh read.
 fn join_device(
     dir: &std::path::Path,
-    hub_url: &str,
+    expected_hub: Option<&str>,
     joined: Option<(std::path::PathBuf, machine::MachineCredential)>,
     unit: &dyn serving::Unit,
 ) -> Res<Option<Device>> {
@@ -450,7 +449,16 @@ fn join_device(
             _ => None,
         });
     };
-    serving::join(dir, hub_url, &home, credential, unit).map(Some)
+    let join = machine::Join::of(&home, credential)?;
+    if let Some(expected) = expected_hub.filter(|hub| hub.trim_end_matches('/') != join.hub) {
+        return Err(format!(
+            "this machine's join is now at {}, not {}: it was joined again since the caller read it, so nothing was signed in",
+            join.hub,
+            printable(expected)
+        )
+        .into());
+    }
+    serving::join(dir, &join, unit).map(Some)
 }
 
 /// The seam the identity tests stop the unit through.
@@ -1650,9 +1658,8 @@ mod tests {
         identity::private_dir(&dir).unwrap();
         let credential: machine::MachineCredential =
             serde_json::from_str(r#"{"credential":"cmm_x","name":"lane-vm"}"#).unwrap();
-        let (hub, account) =
-            sign_in_machine(&dir, &origin, std::path::Path::new("/acpmux-home"), credential)
-                .unwrap();
+        let join = machine::Join::at(std::path::Path::new("/acpmux-home"), credential, &origin);
+        let (hub, account) = sign_in_machine(&dir, &join).unwrap();
         assert_eq!(hub.device.name, "lane-vm", "named as the join named the machine");
         assert_eq!(
             account,
@@ -1690,14 +1697,14 @@ mod tests {
     fn without_a_join_an_anchored_account_stays() {
         let dir = consent_dir("no-join");
         identity::private_dir(&dir).unwrap();
-        assert!(join_device(&dir, "http://127.0.0.1:1", None, &NoUnit).unwrap().is_none());
+        assert!(join_device(&dir, Some("http://127.0.0.1:1"), None, &NoUnit).unwrap().is_none());
         let old = Device::generate("desk").unwrap();
         old.save(&dir).unwrap();
         let hub = "http://127.0.0.1:1".to_owned();
         Account { hub, user_id: "p:a".into(), anchored_until: now_ms() + 60_000 }
             .save(&dir)
             .unwrap();
-        let kept = join_device(&dir, "http://127.0.0.1:1", None, &NoUnit).unwrap().unwrap();
+        let kept = join_device(&dir, Some("http://127.0.0.1:1"), None, &NoUnit).unwrap().unwrap();
         assert_eq!(kept.id, old.id);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1722,7 +1729,7 @@ mod tests {
         )
         .unwrap();
         let home = dir.join("acpmux-home");
-        let got = join_device(&dir, &earlier_hub, Some((home, credential)), &NoUnit);
+        let got = join_device(&dir, Some(&earlier_hub), Some((home, credential)), &NoUnit);
         assert!(got.is_err(), "a hub that is not the credential's own deployment's is refused");
         let calls: Vec<String> = seen.lock().unwrap().iter().map(|s| s.path.clone()).collect();
         assert!(calls.is_empty(), "the earlier deployment's hub saw {calls:?}");

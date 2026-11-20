@@ -456,8 +456,9 @@ pub(crate) fn status_json(state: &str, detail: &str, rd: &Path, hub: &str) -> Va
 )]
 pub(crate) fn start(scope: &cmux_scope::Scope) {
     let home = crate::config::home();
-    let (credential, hub) = match super::joined() {
-        Ok(joined) => joined,
+    // The hub shown until the first enable; each enable reads the join again (below).
+    let mut hub = match super::joined() {
+        Ok((_, hub)) => hub,
         Err(why) => return not_running(why),
     };
     let Some(user_home) = dirs::home_dir() else {
@@ -493,8 +494,24 @@ pub(crate) fn start(scope: &cmux_scope::Scope) {
                     }
                 }
                 Step::Enable(id) => {
-                    attempted = Some(id);
                     said = None;
+                    // One read of the join for this enable: its credential's mark and its own
+                    // deployment's hub come from the same record (review F2 of #45480), never
+                    // from what the daemon read at its start. A leave since then sets up nothing.
+                    let credential = match super::joined() {
+                        Ok((credential, now)) => {
+                            hub = now;
+                            credential
+                        }
+                        Err(why) => {
+                            tracing::info!("{}: not set up: {why}", super::LOG);
+                            super::state::not_running(why);
+                            tokio::time::sleep(CHECK_EVERY).await;
+                            continue;
+                        }
+                    };
+                    // Tried once this build is set up for a join; with no join it is tried again.
+                    attempted = Some(id);
                     super::state::linux(status_json(
                         "setting_up",
                         "cmux-rd linux-host enable runs",

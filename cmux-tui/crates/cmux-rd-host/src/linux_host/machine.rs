@@ -33,6 +33,9 @@ pub struct MachineCredential {
     pub machine_id: String,
     #[serde(default)]
     pub credential_generation: u64,
+    /// The platform that issued it: only its deployment's device hub signs it in ([`Join`]).
+    #[serde(default)]
+    pub hub_origin: String,
 }
 
 impl std::fmt::Debug for MachineCredential {
@@ -72,6 +75,43 @@ pub fn load(home: &Path) -> Res<Option<MachineCredential>> {
 pub fn current() -> Res<Option<(PathBuf, MachineCredential)>> {
     let Some(home) = acpmux_home() else { return Ok(None) };
     Ok(load(&home)?.map(|credential| (home, credential)))
+}
+
+/// One read of a join: its acpmux home, its credential and the device hub that credential signs
+/// in at, all from the same credential file (review F2 of #45480). Every sign-in for a join
+/// takes one ([`Join::of`] is the only way to make one outside tests), so a credential is only
+/// ever sent to its own deployment's hub, whatever hub a caller held from an earlier join.
+#[derive(Clone, Debug)]
+pub struct Join {
+    pub home: PathBuf,
+    pub credential: MachineCredential,
+    pub hub: String,
+}
+
+impl Join {
+    /// The join `credential` from `home` is, at its deployment's device hub; an error when no
+    /// deployment issued it (`hub_origin` names no platform this build knows).
+    pub fn of(home: &Path, credential: MachineCredential) -> Res<Self> {
+        let hub =
+            cmux_hub_host::deployment::device_hub_of(&credential.hub_origin).ok_or_else(|| {
+                format!(
+                    "no device hub serves the platform this machine was joined at ({})",
+                    cmux_hub_host::printable(&credential.hub_origin)
+                )
+            })?;
+        Ok(Self { home: home.to_owned(), credential, hub: hub.to_owned() })
+    }
+
+    /// The join in `home` now: None when it has no usable credential ([`load`]).
+    pub fn read(home: &Path) -> Res<Option<Self>> {
+        load(home)?.map(|credential| Self::of(home, credential)).transpose()
+    }
+
+    /// A join at `hub` as it is, for tests that sign in at a stub hub.
+    #[cfg(test)]
+    pub fn at(home: &Path, credential: MachineCredential, hub: &str) -> Self {
+        Self { home: home.to_owned(), credential, hub: hub.to_owned() }
+    }
 }
 
 /// Beside `account.json`: the host's sign-in came from a join, never from a person's token.
@@ -158,6 +198,23 @@ mod tests {
         let c = load(&dir).unwrap().unwrap();
         assert_eq!((c.credential.as_str(), c.name.as_str()), ("cmm_x", "vm-1"));
         assert!(!format!("{c:?}").contains("cmm_x"), "the credential is never printed");
+    }
+
+    #[test]
+    fn a_join_signs_in_at_its_own_deployments_hub() {
+        let dir = home(
+            "deployment",
+            Some(
+                r#"{"credential":"cmm_x","machine_id":"m","hub_origin":"https://cmux-platform-production.debussy.workers.dev"}"#,
+            ),
+        );
+        let join = Join::read(&dir).unwrap().unwrap();
+        assert_eq!(join.hub, "https://cmux-device-hub.debussy.workers.dev");
+        assert_eq!(join.home, dir);
+        let unknown = r#"{"credential":"cmm_x","hub_origin":"https://elsewhere.example"}"#;
+        let e = Join::read(&home("deployment-unknown", Some(unknown))).unwrap_err();
+        assert!(e.to_string().contains("no device hub serves"), "{e}");
+        assert!(Join::read(&home("deployment-none", None)).unwrap().is_none());
     }
 
     #[test]

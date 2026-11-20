@@ -407,6 +407,25 @@ fn each_platform_deployment_has_its_own_device_hub() {
     assert_eq!(super::device_hub_origin("https://cmux.example"), None);
 }
 
+/// The table cmux-rd picks a join's hub from is cmux-cloud-environment's deployments, row for
+/// row: a deployment added there and not in `cmux_hub_host::deployment` fails here.
+#[test]
+fn the_shared_device_hub_table_is_the_cloud_environments() {
+    use cmux_cloud_environment as env;
+    let deployments = [
+        env::PRODUCTION_DEPLOYMENT,
+        env::STAGING_DEPLOYMENT,
+        env::DEVELOPMENT_DEPLOYMENT,
+        env::LOCAL_DEPLOYMENT,
+    ];
+    let mut want: Vec<(&str, &str)> =
+        deployments.iter().map(|d| (d.platform_origin, d.device_hub_origin)).collect();
+    let mut have = cmux_hub_host::deployment::DEVICE_HUBS.to_vec();
+    want.sort();
+    have.sort();
+    assert_eq!(have, want);
+}
+
 /// A fake helper bundle `<app>/Contents/Library/<name>`.
 fn helper_bundle(app: &Path, name: &str) -> std::path::PathBuf {
     let bundle = app.join("Contents/Library").join(name);
