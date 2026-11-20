@@ -88,12 +88,13 @@ import Testing
         let window = window(CGSize(width: 1000, height: 600))
         defer { window.close() }
         let chrome = BrowserChromeView(tab: tab)
+        chrome.meetsTabStrip = true // the pane's strip sits right above the toolbar
         chrome.frame = NSRect(x: 0, y: 0, width: 1000, height: 600)
         window.contentView = chrome
         chrome.layoutSubtreeIfNeeded()
         let strip = PaneChromeMetrics.current.tabGap(scale: window.backingScaleFactor)
         // The omnibar row's own gap: the strip padding, Chrome's 6 at Default (`OmnibarStyle.rowGap`).
-        let gap = OmnibarStyle.rowGap(scale: window.backingScaleFactor)
+        let gap = OmnibarStyle.rowGap(scale: window.backingScaleFactor, underStrip: true)
         let top = topLeft(chrome.bounds, in: chrome, window: window).minY
         let bar = topLeft(chrome.addressBar.bounds, in: chrome.addressBar, window: window)
         let page = topLeft(chrome.contentContainer.bounds, in: chrome.contentContainer, window: window)
@@ -122,12 +123,13 @@ import Testing
         let window = window(CGSize(width: 1000, height: 600))
         defer { window.close() }
         let chrome = BrowserChromeView(tab: tab)
+        chrome.meetsTabStrip = true // the pane's strip sits right above the toolbar
         chrome.frame = NSRect(x: 0, y: 0, width: 1000, height: 600)
         window.contentView = chrome
         chrome.layoutSubtreeIfNeeded()
         let strip = PaneChromeMetrics.current.tabGap(scale: window.backingScaleFactor)
         // The omnibar row's own gap: the strip padding, Chrome's 6 at Default (`OmnibarStyle.rowGap`).
-        let gap = OmnibarStyle.rowGap(scale: window.backingScaleFactor)
+        let gap = OmnibarStyle.rowGap(scale: window.backingScaleFactor, underStrip: true)
         let top = topLeft(chrome.bounds, in: chrome, window: window).minY
         let reload = topLeft(chrome.reloadButton.bounds, in: chrome.reloadButton, window: window)
         let bar = topLeft(chrome.addressBar.bounds, in: chrome.addressBar, window: window)

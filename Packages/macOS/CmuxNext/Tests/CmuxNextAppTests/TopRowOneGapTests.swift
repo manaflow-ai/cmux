@@ -107,7 +107,7 @@ import Testing
         return Row(scale: scale, rim: WindowTitlebar.topRowRim(in: window), gap: PaneChromeMetrics.current.tabGap(scale: scale),
                    lights: lights, toggle: toggle, pill: pill, sidebarEdge: sidebar.maxX, card: topLeft(root.contentHost, in: window),
                    bar: chrome.map { topLeft($0.addressBar, in: window) }, page: chrome.map { topLeft($0.contentContainer, in: window) },
-                   barInset: barInset, barGap: OmnibarStyle.rowGap(scale: scale))
+                   barInset: barInset, barGap: OmnibarStyle.rowGap(scale: scale, underStrip: true))
     }
 
     /// One device pixel of the user's 2x display: a 1x worker rounds to whole points, so its own pixel would hide a
@@ -185,7 +185,8 @@ import Testing
         var rowGap: CGFloat
     }
 
-    private func omnibarRow(_ density: DensityTokens) -> OmnibarRow {
+    /// `meetsTabStrip`: the pane shows its strip right above the toolbar, as a pane with tabs on top does.
+    private func omnibarRow(_ density: DensityTokens, meetsTabStrip: Bool = true) -> OmnibarRow {
         let design = DesignSettings.shared
         let saved = design.densityTokens
         defer { design.densityTokens = saved }
@@ -195,6 +196,7 @@ import Testing
         window.isReleasedWhenClosed = false
         defer { window.close() }
         let chrome = BrowserChromeView(tab: tab)
+        chrome.meetsTabStrip = meetsTabStrip
         chrome.frame = NSRect(x: 0, y: 0, width: 1000, height: 600)
         window.contentView = chrome
         chrome.layoutSubtreeIfNeeded()
@@ -203,7 +205,7 @@ import Testing
         let inset = (max(chrome.addressBar.bounds.height, chrome.reloadButton.bounds.height) - chrome.addressBar.bounds.height) / 2
         let above = Metrics.paneBorder == .subtle ? bar.minY - top - (Metrics.paneBorderWidth ?? 1 / window.backingScaleFactor) : bar.minY - top + gap
         return OmnibarRow(gap: gap, inset: inset, above: above, below: page.minY - bar.maxY, barHeight: bar.height,
-                          rowGap: OmnibarStyle.rowGap(scale: window.backingScaleFactor))
+                          rowGap: OmnibarStyle.rowGap(scale: window.backingScaleFactor, underStrip: meetsTabStrip))
     }
 
     /// The omnibar row under the tabs, at every density: the strip padding under the tab pills (the strip's bottom is the
@@ -216,10 +218,9 @@ import Testing
         let row = omnibarRow(density)
         let (gap, inset, above, below) = (row.rowGap, row.inset, row.above, row.below)
         print("TOPROW|\(density.id)|omnibar|strip \(row.gap) gap \(gap) inset \(inset) above \(above) below \(below)")
-        // Every density but Default's own: a custom one whose strip padding is past Default's 6 keeps its strip padding.
-        if density.id != DensityPreset.cozy.rawValue {
-            #expect(gap == row.gap, "\(density.id): the omnibar row's gap is \(gap), the strip padding \(row.gap)")
-        }
+        // Default's own is Chrome's 6; every other density, and a custom one whose strip padding is past 6, keeps its strip padding.
+        let want: CGFloat = density.id == DensityPreset.cozy.rawValue ? 6 : row.gap
+        #expect(gap == want, "\(density.id): the omnibar row's gap is \(gap), want \(want)")
         #expect(abs(above - (gap + inset)) <= 0.501, "\(density.id): \(above) pt between the tab and the omnibar, the row's gap is \(gap) (+ \(inset))")
         #expect(abs(below - (gap + inset)) <= 0.501, "\(density.id): \(below) pt between the omnibar and the page, the row's gap is \(gap) (+ \(inset))")
     }
@@ -236,32 +237,14 @@ import Testing
         #expect(abs(row.below - 6) <= 0.001, "Default: \(row.below) pt between the omnibar and the page, Chrome's is 6")
     }
 
-    /// Chrome's 6 pt omnibar row is for Chrome's layout only, the toolbar right under a horizontal tab strip at the pane's
-    /// top: with vertical tabs, tabs under the toolbar or at the bottom, or the toolbar at the bottom, Default's omnibar row
-    /// keeps the strip padding, as before, so no gap is doubled or cut to 1 pt.
-    @Test func defaultsChromeRowIsOnlyUnderTopTabs() {
-        let design = DesignSettings.shared
-        let saved = (design.densityTokens, design.verticalTabs, design.tabBarOrder, design.tabBarPosition, design.browserToolbarPosition)
-        defer {
-            (design.densityTokens, design.verticalTabs, design.tabBarOrder, design.tabBarPosition, design.browserToolbarPosition) = saved
-        }
-        design.densityTokens = DensityPreset.cozy.tokens
-        func reset() {
-            (design.verticalTabs, design.tabBarOrder, design.tabBarPosition, design.browserToolbarPosition) = (false, .aboveToolbar, .top, .top)
-        }
-        reset()
-        #expect(OmnibarStyle.rowGap(scale: 2) == 6, "Chrome's layout: the row's gap is \(OmnibarStyle.rowGap(scale: 2))")
-        let layouts: [(String, () -> Void)] = [
-            ("vertical tabs", { design.verticalTabs = true }),
-            ("tabs under the toolbar", { design.tabBarOrder = .belowToolbar }),
-            ("tabs at the bottom", { design.tabBarPosition = .bottom }),
-            ("toolbar at the bottom", { design.browserToolbarPosition = .bottom }),
-        ]
-        for (name, apply) in layouts {
-            reset()
-            apply()
-            let strip = PaneChromeMetrics.current.tabGap(scale: 2)
-            #expect(OmnibarStyle.rowGap(scale: 2) == strip, "\(name): the row's gap is \(OmnibarStyle.rowGap(scale: 2)), the strip padding \(strip)")
-        }
+    /// Chrome's 6 pt omnibar row needs a tab strip its pane shows right above it (`ToolbarEdgeHosting.meetsTabStrip`, which
+    /// the pane sets: vertical tabs, a hidden strip, tabs under the toolbar or at the bottom and a toolbar at the bottom
+    /// all leave it false). Without one, Default's row keeps its strip padding, 5 pt above and below the bar, as before.
+    @Test func defaultsChromeRowNeedsAStripRightAbove() {
+        let row = omnibarRow(DensityPreset.cozy.tokens, meetsTabStrip: false)
+        print("TOPROW|cozy|no strip above|gap \(row.gap) above \(row.above) below \(row.below)")
+        #expect(row.gap == 5, "Default's strip padding is \(row.gap)")
+        #expect(abs(row.above - 5) <= 0.001, "Default with no strip above: \(row.above) pt over the bar, the strip padding is 5")
+        #expect(abs(row.below - 5) <= 0.001, "Default with no strip above: \(row.below) pt under the bar, the strip padding is 5")
     }
 }

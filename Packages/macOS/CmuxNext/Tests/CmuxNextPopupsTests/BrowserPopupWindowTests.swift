@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextBrowser
+@testable import CmuxNextBrowser
 import CmuxNextDesign
 @testable import CmuxNextPopups
 import CmuxNextTestSupport
@@ -132,6 +132,8 @@ import Testing
         #expect(bar.height == 34, "Default's bar is \(bar.height) pt")
         #expect(above >= 0 && below >= 0, "the bar leaves its \(row.bounds.height) pt row: \(above) pt above, \(below) pt below")
         #expect(above == 0, "the bar starts \(above) pt under its row's top")
+        // No tab strip sits above the popup's row, so the open suggestion card does not reach above the bar into the title bar.
+        #expect(OmnibarStyle.cardTopOutset(bar: window.addressBar) == 0, "the card reaches \(OmnibarStyle.cardTopOutset(bar: window.addressBar)) pt above the bar")
     }
 
     @Test func theTitleIsThePageTitleElseTheAddress() {

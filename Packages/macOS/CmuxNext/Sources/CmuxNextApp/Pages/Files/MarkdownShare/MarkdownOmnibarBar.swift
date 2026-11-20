@@ -27,6 +27,11 @@ struct MarkdownOmnibarActions {
 /// uses the omnibar's public API.
 final class MarkdownOmnibarBar: NSView {
     let toolbar: OmnibarToolbarView
+    /// The pane shows its tab strip right above this row (``ToolbarEdgeHosting/meetsTabStrip``, through `InternalPageView`).
+    var meetsTabStrip: Bool {
+        get { toolbar.meetsTabStrip }
+        set { toolbar.meetsTabStrip = newValue }
+    }
     private let reader: MarkdownFileLocationReader
     private let actions: MarkdownOmnibarActions
     private var file: URL?

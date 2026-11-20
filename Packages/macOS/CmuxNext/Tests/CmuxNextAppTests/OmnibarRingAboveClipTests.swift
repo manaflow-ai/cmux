@@ -141,6 +141,7 @@ import Testing
         root.addSubview(strip)
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
         let chrome = BrowserChromeView(tab: tab)
+        chrome.meetsTabStrip = true // the strip sits right above the toolbar, as the pane says
         chrome.frame = NSRect(x: 0, y: 0, width: size.width, height: size.height - stripHeight)
         root.addSubview(chrome)
         root.layoutSubtreeIfNeeded()
@@ -154,13 +155,14 @@ import Testing
         let top = topRow ? size.height - WindowTitlebar.topRowRim(in: window) : strip.convert(strip.bounds, to: nil).maxY
         let above = top - pill.maxY, between = pill.minY - bar.maxY, under = bar.minY - page.maxY
         let at = "\(preset.rawValue) top row \(topRow)"
-        // Default's omnibar row is Chrome's, 6 pt above and below the bar, past the strip padding above the tab (Lucas
-        // 2026-11-20); every other density's omnibar row gap is the strip padding.
-        let scale = window.backingScaleFactor
-        let extra = OmnibarStyle.rowGap(scale: scale) - PaneChromeMetrics.current.tabGap(scale: scale)
-        #expect(preset == .cozy || extra == 0, "\(at): the omnibar row's gap is \(extra) pt past the strip padding")
         #expect(abs(between - under) <= 0.5, "\(at): \(between) pt from the tab to the omnibar, \(under) pt from the omnibar to the page")
-        #expect(abs(above + extra - between) <= 0.5, "\(at): \(above) pt above the tab, \(between) pt from the tab to the omnibar (\(extra) more)")
+        if preset == .cozy {
+            // Default is Chrome's: 5 pt above the tab, 6 pt from it to the omnibar and from the omnibar to the page (Lucas 2026-11-20).
+            #expect(abs(above - 5) <= 0.5, "\(at): \(above) pt above the tab, Chrome's is 5")
+            #expect(abs(between - 6) <= 0.5, "\(at): \(between) pt from the tab to the omnibar, Chrome's is 6")
+        } else {
+            #expect(abs(above - between) <= 0.5, "\(at): \(above) pt above the tab, \(between) pt from the tab to the omnibar")
+        }
     }
 }
 

@@ -24,6 +24,10 @@ final class InternalPageView: TitleRowHostView, PaneKeyResizeHeld {
     let content: NSView
     /// The native bar above the content (below it, ``toolbarPosition``); it sets its own height.
     let topBar: NSView?
+    /// The pane shows its tab strip right above `topBar` (``ToolbarEdgeHosting/meetsTabStrip``); the pane sets it.
+    var meetsTabStrip = false {
+        didSet { if meetsTabStrip != oldValue { (topBar as? MarkdownOmnibarBar)?.meetsTabStrip = meetsTabStrip } }
+    }
     /// The edge `topBar` sits on (`browser.toolbarPosition`); the pane sets it.
     var toolbarPosition: ToolbarPosition = .top {
         didSet {

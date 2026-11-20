@@ -34,7 +34,11 @@ public final class OmnibarToolbarView: ArrowCursorView {
     public static let forwardIdentifier = "omnibar.toolbar.forward"
     public static let reloadIdentifier = "omnibar.toolbar.reload"
 
-    /// Whether the row is a pane's toolbar row, under its tab strip, with the pane chrome's gaps (``OmnibarStyle/barTop(scale:withButtons:)``).
+    /// The pane shows its tab strip right above this row (``ToolbarEdgeHosting/meetsTabStrip``, through its host).
+    public var meetsTabStrip = false {
+        didSet { if meetsTabStrip != oldValue { density.reapply() } }
+    }
+    /// Whether the row is a pane's toolbar row, under its tab strip, with the pane chrome's gaps (``OmnibarStyle/barTop(scale:withButtons:underStrip:)``).
     /// A window's own location row (the popup window's) is not: its bar is centered in the row its host sizes.
     private let paneRow: Bool
 
@@ -71,7 +75,8 @@ public final class OmnibarToolbarView: ArrowCursorView {
             density.bind(addressBar.trailingAnchor.constraint(equalTo: trailingAnchor)) { -OmnibarStyle.toolbarInset },
             density.bind(addressBar.topAnchor.constraint(equalTo: topAnchor)) { [weak self, paneRow] in
                 guard paneRow else { return (OmnibarStyle.rowContentHeight(withButtons: withButtons) - OmnibarStyle.barHeight) / 2 }
-                return OmnibarStyle.barTop(scale: self?.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2, withButtons: withButtons)
+                return OmnibarStyle.barTop(scale: self?.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2, withButtons: withButtons,
+                                           underStrip: self?.meetsTabStrip ?? false)
             },
             density.bind(addressBar.heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.barHeight },
         ])
@@ -125,7 +130,8 @@ public final class OmnibarToolbarView: ArrowCursorView {
     /// The browser toolbar row's height on this window's pixel grid (else the main screen's).
     public var preferredHeight: CGFloat {
         guard paneRow else { return OmnibarStyle.rowContentHeight(withButtons: hasButtons) }
-        return OmnibarStyle.toolbarHeight(scale: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2, withButtons: hasButtons)
+        return OmnibarStyle.toolbarHeight(scale: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2, withButtons: hasButtons,
+                                          underStrip: meetsTabStrip)
     }
 
     /// The row's height (`preferredHeight`); a density or `browser.omnibar.*` size change
