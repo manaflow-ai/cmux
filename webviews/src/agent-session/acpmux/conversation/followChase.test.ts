@@ -21,6 +21,9 @@ import type { FollowMotionArm } from "./followMotion.experiment";
 /// A thread with a stand-in window whose frames the test runs one at a time (8.33 ms apart).
 function fixture(
   motion: { off?: boolean; reduce?: boolean; token?: string; send?: string; optOut?: boolean; look?: string } = {},
+  /// The transcript's boxes over the thread (VirtualTranscript): the scroller's `view` and the
+  /// spacer's `content` (the whole chat), the loaded rows' box between the spacer and the thread.
+  boxes?: { view: number; content: number },
 ) {
   let callbacks = new Map<number, FrameRequestCallback>();
   let id = 0;
@@ -53,15 +56,20 @@ function fixture(
       },
     },
   };
+  const scroller = boxes ? { clientHeight: boxes.view } : null;
   const node = {
     ownerDocument: doc,
-    parentElement: { parentElement: { clientHeight: 600 } },
+    parentElement: boxes
+      ? { clientHeight: boxes.content, parentElement: { clientHeight: boxes.content, parentElement: scroller } }
+      : { parentElement: { clientHeight: 600 } },
     closest: (selector: string) =>
-      motion.optOut && selector.includes("follow-glide")
-        ? {}
-        : motion.look && selector.includes("data-tail-glide")
-          ? { getAttribute: () => motion.look }
-          : null,
+      boxes && selector === ".acpmux-scroll"
+        ? scroller
+        : motion.optOut && selector.includes("follow-glide")
+          ? {}
+          : motion.look && selector.includes("data-tail-glide")
+            ? { getAttribute: () => motion.look }
+            : null,
     style: {
       ...style,
       setProperty() {},
@@ -117,6 +125,19 @@ test.each(["spring", "blocks", "chunk", "linear"] as FollowMotionArm[])(
     expect(frames).toBeLessThanOrEqual(48);
   },
 );
+
+test("the chase draws the rows back at most 0.75 of the view (the scroller), not of the whole chat", () => {
+  // A followed 40,000 px chat in a 700 px view: the thread sits in the loaded rows' box under the
+  // spacer, so two levels up is the spacer (the whole chat), not the scroller.
+  for (const moved of [-5000, 5000]) {
+    const chase = createFollowChase("blocks");
+    const { node, drawn } = fixture({}, { view: 700, content: 40_000 });
+    chase.shift(node, moved);
+    expect(Math.abs(drawn())).toBeCloseTo(0.75 * 700);
+    expect(Math.abs(chase.outstanding())).toBeCloseTo(0.75 * 700);
+    chase.stop();
+  }
+});
 
 test("near home the chase keeps to its speed limit", () => {
   const chase = createFollowChase("spring");

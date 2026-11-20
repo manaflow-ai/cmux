@@ -595,7 +595,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       scale = speed;
       // Drawn back by the move: the rows stay where the reader saw them this frame (up to
       // CHASE_MAX_LAG of the view; only a whole screen landing moves at once).
-      const most = CHASE_MAX_LAG * (node.parentElement?.parentElement?.clientHeight || 600);
+      const most = CHASE_MAX_LAG * (node.closest<HTMLElement>(".acpmux-scroll")?.clientHeight || 600);
       const trail = chaseMaxTrail();
       // A send's rows rise out from behind the composer (`below` unbounded). In the `blocks` arm
       // (the default) everything may pass under the glass composer while it settles, held only by

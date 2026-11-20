@@ -30,14 +30,17 @@ export function physicalScrollTop(node: ScrollCoordinateNode, logicalTop: number
 }
 
 /**
- * Where the origin is written: the transcript's thread (VirtualTranscript `.acpmux-thread`, the
- * scroller's spacer's child), the element it moves, so a write restyles that element alone. A node
- * with no thread (a test's) holds it itself.
+ * Where the origin is written: the transcript's thread (VirtualTranscript `.acpmux-thread`, in the
+ * loaded rows' box under the scroller's spacer; a test's DOM may hang it on the spacer itself), the
+ * element it moves, so a write restyles that element alone. A node with no thread (a test's) holds
+ * it itself. Not the loaded rows' box: that one stands at the room above the rows (React's style).
  */
 function originStyle(node: ScrollCoordinateNode): ScrollCoordinateNode["style"] {
   const thread =
     "querySelector" in node
-      ? (node as unknown as Element).querySelector<HTMLElement>(":scope > .acpmux-spacer > .acpmux-thread")
+      ? (node as unknown as Element).querySelector<HTMLElement>(
+          ":scope > .acpmux-spacer > .acpmux-loaded > .acpmux-thread, :scope > .acpmux-spacer > .acpmux-thread",
+        )
       : null;
   return thread?.style ?? node.style;
 }
