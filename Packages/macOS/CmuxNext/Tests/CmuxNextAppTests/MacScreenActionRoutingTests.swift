@@ -150,7 +150,7 @@ struct MacScreenActionRoutingTests {
         #expect(notOwn?.contains("Mac Mini (\(device))") == true)
         #expect(failure {
             _ = try MacScreenActions.record(ActionInvocation(arguments: ["device": .string(device), "scope": .string("view")], origin: .cli), pages: pages, devices: [])
-        }?.contains("none are listed") == true)
+        }?.contains("No devices listed") == true)
         for scope in ["full", "control", "VIEW", ""] {
             #expect(run(["device": .string(device), "scope": .string(scope)])?.contains("Only --scope view") == true, "\(scope)")
         }

@@ -155,7 +155,7 @@ public struct MacScreenActions {
     }
     private static func notOwnDevice(_ id: String, among devices: [HubDevice]) -> String {
         guard !devices.isEmpty else {
-            return String(format: L.t("macScreen.actions.scopeNotOwnDeviceNoneListed", "--scope view opens only your own devices, and none are listed: sign in to cmux on both Macs. “%@” is not one of them."), id)
+            return L.t("macScreen.actions.scopeNotOwnDeviceNoneListed", "No devices listed: sign in to cmux on both Macs.")
         }
         return String(format: L.t("macScreen.actions.scopeNotOwnDevice", "--scope view opens only your own devices. “%@” is not one of them. Your devices: %@."), id, listed(devices))
     }

@@ -39832,127 +39832,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "--scope view يفتح أجهزتك فقط، ولا توجد أجهزة مدرجة: سجّل الدخول إلى cmux على جهازي Mac. “%@” ليس منها."
+            "value": "لا توجد أجهزة مدرجة: سجّل الدخول إلى cmux على جهازي Mac."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "--scope view otvara samo vaše uređaje, a nijedan nije naveden: prijavite se u cmux na oba Maca. “%@” nije jedan od njih."
+            "value": "Nijedan uređaj nije naveden: prijavite se u cmux na oba Maca."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "--scope view åbner kun dine egne enheder, og ingen er på listen: log ind i cmux på begge Macs. “%@” er ikke en af dem."
+            "value": "Ingen enheder på listen: log ind i cmux på begge Macs."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "--scope view öffnet nur deine eigenen Geräte, und keins ist aufgeführt: Melde dich auf beiden Macs bei cmux an. „%@“ gehört nicht dazu."
+            "value": "Keine Geräte aufgeführt: Melde dich auf beiden Macs bei cmux an."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "--scope view opens only your own devices, and none are listed: sign in to cmux on both Macs. “%@” is not one of them."
+            "value": "No devices listed: sign in to cmux on both Macs."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "--scope view solo abre tus propios dispositivos y no hay ninguno en la lista: inicia sesión en cmux en ambos Mac. “%@” no es uno de ellos."
+            "value": "No hay dispositivos en la lista: inicia sesión en cmux en ambos Mac."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "--scope view n’ouvre que vos propres appareils, et aucun n’est listé : connectez-vous à cmux sur les deux Mac. « %@ » n’en fait pas partie."
+            "value": "Aucun appareil listé : connectez-vous à cmux sur les deux Mac."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "--scope view apre solo i tuoi dispositivi e nessuno è elencato: accedi a cmux su entrambi i Mac. “%@” non è uno di questi."
+            "value": "Nessun dispositivo elencato: accedi a cmux su entrambi i Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "--scope view で開けるのは自分のデバイスだけですが、一覧にデバイスがありません。両方の Mac で cmux にサインインしてください。“%@” はその中にありません。"
+            "value": "一覧にデバイスがありません。両方の Mac で cmux にサインインしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "--scope view បើកតែឧបករណ៍របស់អ្នកប៉ុណ្ណោះ ហើយគ្មានឧបករណ៍ក្នុងបញ្ជីទេ៖ សូមចូល cmux នៅលើ Mac ទាំងពីរ។ “%@” មិនមែនជាឧបករណ៍មួយក្នុងចំណោមនោះទេ។"
+            "value": "គ្មានឧបករណ៍ក្នុងបញ្ជីទេ៖ សូមចូល cmux នៅលើ Mac ទាំងពីរ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "--scope view는 내 기기만 여는데, 표시된 기기가 없습니다. 두 Mac 모두에서 cmux에 로그인하세요. “%@”은(는) 내 기기가 아닙니다."
+            "value": "표시된 기기가 없습니다. 두 Mac 모두에서 cmux에 로그인하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "--scope view åpner bare dine egne enheter, og ingen er oppført: logg på cmux på begge Macene. «%@» er ikke en av dem."
+            "value": "Ingen enheter er oppført: logg på cmux på begge Macene."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "--scope view otwiera tylko Twoje urządzenia, a żadne nie jest na liście: zaloguj się do cmux na obu Macach. „%@” do nich nie należy."
+            "value": "Brak urządzeń na liście: zaloguj się do cmux na obu Macach."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "--scope view abre só os seus dispositivos, e nenhum está na lista: entre no cmux nos dois Macs. “%@” não é um deles."
+            "value": "Nenhum dispositivo na lista: entre no cmux nos dois Macs."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "--scope view открывает только ваши устройства, а в списке их нет: войдите в cmux на обоих Mac. «%@» не из их числа."
+            "value": "В списке нет устройств: войдите в cmux на обоих Mac."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "--scope view เปิดได้เฉพาะอุปกรณ์ของคุณเอง และไม่มีอุปกรณ์ในรายการ: ลงชื่อเข้าใช้ cmux บน Mac ทั้งสองเครื่อง “%@” ไม่ใช่หนึ่งในนั้น"
+            "value": "ไม่มีอุปกรณ์ในรายการ: ลงชื่อเข้าใช้ cmux บน Mac ทั้งสองเครื่อง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "--scope view yalnızca kendi cihazlarınızı açar ve listede hiç cihaz yok: iki Mac'te de cmux'a giriş yapın. “%@” bunlardan biri değil."
+            "value": "Listede cihaz yok: iki Mac'te de cmux'a giriş yapın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "--scope view відкриває лише ваші пристрої, а в списку їх немає: увійдіть у cmux на обох Mac. «%@» серед них немає."
+            "value": "У списку немає пристроїв: увійдіть у cmux на обох Mac."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "--scope view chỉ mở thiết bị của chính bạn và không có thiết bị nào trong danh sách: hãy đăng nhập cmux trên cả hai máy Mac. “%@” không thuộc số đó."
+            "value": "Không có thiết bị nào trong danh sách: hãy đăng nhập cmux trên cả hai máy Mac."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "--scope view 只能打开你自己的设备，但列表中没有设备：请在两台 Mac 上都登录 cmux。“%@”不在其中。"
+            "value": "列表中没有设备：请在两台 Mac 上都登录 cmux。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "--scope view 只能開啟你自己的裝置，但清單中沒有裝置：請在兩台 Mac 上都登入 cmux。「%@」不在其中。"
+            "value": "清單中沒有裝置：請在兩台 Mac 上都登入 cmux。"
           }
         }
       }
