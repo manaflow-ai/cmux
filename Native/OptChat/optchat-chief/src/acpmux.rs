@@ -14,6 +14,9 @@ use serde_json::{Value, json};
 
 use crate::rpc::{Notification, RpcClient, RpcError};
 
+/// A steer's answer that is its turn's end, not a read (`send_steer`).
+pub const STEER_UNREAD_AT_END: &str = "steer: the turn ended before the agent read it";
+
 /// Longest wait for one steer withdraw (`withdraw_steer`).
 const WITHDRAW_WAIT: Duration = Duration::from_secs(5);
 

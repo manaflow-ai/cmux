@@ -150,7 +150,11 @@ fn serve_with(
                         "session/prompt"
                             if req["params"]["_meta"]["acpmux"]["steer"] == json!(true) =>
                         {
-                            if req["params"]["prompt"][0]["text"] == "refuse" {
+                            if req["params"]["prompt"][0]["text"] == "ended" {
+                                // The turn ended (a stop) before the agent read
+                                // the steer: acpmux answers it with the turn's end.
+                                send(reply(json!({"stopReason": "cancelled"})));
+                            } else if req["params"]["prompt"][0]["text"] == "refuse" {
                                 send(
                                     json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32602, "message": "steer.unavailable: the session has no running turn that its agent can steer"}}),
                                 );
@@ -688,6 +692,15 @@ fn prewarm_and_steer_go_over_the_wire() {
         acpmux
             .steer("s-1", text("refuse"), "optchat-steer:k:2")
             .is_err()
+    );
+    // A steer its turn's end answered was never read: not delivered (before
+    // 2026-11-20 it was taken as read and its message was never answered).
+    let ended = acpmux.steer("s-1", text("ended"), "optchat-steer:k:3");
+    assert!(
+        ended
+            .as_ref()
+            .is_err_and(|e| e.starts_with(optchat_chief::acpmux::STEER_UNREAD_AT_END)),
+        "{ended:?}"
     );
     let requests = requests.lock().unwrap();
     let prewarm = requests
