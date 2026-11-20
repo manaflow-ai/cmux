@@ -1,0 +1,8 @@
+{
+  "source": "schemas/settings/source/glass.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Glass.generated.swift",
+  "type": "GlassSettingsSchema",
+  "lists": {
+    "glass": ["descriptors", "GlassSetting"]
+  }
+}

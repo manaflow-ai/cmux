@@ -14,12 +14,11 @@ struct SettingsTogglePaletteStateTests {
     struct Fixture {
         let services: AppServices
         let design: DesignSettings
-        let tunables: TunableStore
         var registry: ActionRegistry { services.registry }
     }
 
-    /// The app's actions, with the appearance and focus ring ones on `design` and the Debug
-    /// choices on a store of their own.
+    /// The app's actions, with the appearance and focus ring ones on `design` (the glass lens too:
+    /// `appearance.glass.composer.material`, promoted from a Debug choice).
     static func fixture(design: DesignSettings) -> Fixture {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -28,12 +27,9 @@ struct SettingsTogglePaletteStateTests {
         services.registry.debugActions = DebugActionGate(devTools: true, isOn: { true })
         var context = AppActionContext(services: services)
         context.design = design
-        let tunables = TunableStore()
-        tunables.register([GlassLensMode.tunable.descriptor])
-        tunables.activate(file: nil)
-        AppearanceHandlers.bind(into: services.registry, context: context, tunables: tunables)
+        AppearanceHandlers.bind(into: services.registry, context: context)
         FocusRingHandlers.bind(into: services.registry, context: context)
-        return Fixture(services: services, design: design, tunables: tunables)
+        return Fixture(services: services, design: design)
     }
 
     /// One on/off palette toggle and how to turn its setting on or off without running it.
@@ -116,7 +112,8 @@ struct SettingsTogglePaletteStateTests {
                     design.attention.agentChatRing = .none
                 }
             case .singlePaneFocusRing: design.focusRing.showsForSinglePane = on
-            case .glassLens: GlassLensMode.choose(on ? .lens : .plain, in: f.tunables)
+            // `appearance.glass.composer.material` as SettingsApplier applies it (the Debug choice `glass.lens` before 2026-11-20).
+            case .glassLens: design.glassLensMode = on ? .lens : .plain
             case .actionLatencyHUD: on ? f.services.actionLatencyHUD.show(over: nil) : f.services.actionLatencyHUD.hide()
             default: Issue.record("\(self) has no setter")
             }

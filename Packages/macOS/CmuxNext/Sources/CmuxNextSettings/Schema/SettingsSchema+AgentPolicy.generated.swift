@@ -154,6 +154,19 @@ extension SettingsSchema {
         // Feature tips: a display the person can turn on again.
         "updates.showFeatureTips",
         "announcements.enabled",
+        // Every appearance.glass.<role>.material|tint|tintStrength|veil row: looks only (customization-api-state.md section 4).
+        "appearance.glass.popover.material", "appearance.glass.popover.tint", "appearance.glass.popover.tintStrength",
+        "appearance.glass.popover.veil", "appearance.glass.menu.material", "appearance.glass.menu.tint",
+        "appearance.glass.menu.tintStrength", "appearance.glass.menu.veil", "appearance.glass.card.material",
+        "appearance.glass.card.tint", "appearance.glass.card.tintStrength", "appearance.glass.card.veil",
+        "appearance.glass.group.material", "appearance.glass.group.tint", "appearance.glass.group.tintStrength",
+        "appearance.glass.group.veil", "appearance.glass.toast.material", "appearance.glass.toast.tint",
+        "appearance.glass.toast.tintStrength", "appearance.glass.toast.veil", "appearance.glass.sheet.material",
+        "appearance.glass.sheet.tint", "appearance.glass.sheet.tintStrength", "appearance.glass.sheet.veil",
+        "appearance.glass.tooltip.material", "appearance.glass.tooltip.tint", "appearance.glass.tooltip.tintStrength",
+        "appearance.glass.tooltip.veil", "appearance.glass.composer.material", "appearance.glass.composer.tint",
+        "appearance.glass.composer.tintStrength", "appearance.glass.composer.veil", "appearance.glass.chrome.material",
+        "appearance.glass.chrome.tint", "appearance.glass.chrome.tintStrength", "appearance.glass.chrome.veil",
         // Every appearance.surfaces.<surface>.color|opacity row: looks only (R55).
         "appearance.surfaces.sidebar.color", "appearance.surfaces.sidebar.opacity", "appearance.surfaces.tabBar.color",
         "appearance.surfaces.tabBar.opacity", "appearance.surfaces.terminal.color",

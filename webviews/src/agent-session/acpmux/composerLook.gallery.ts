@@ -584,7 +584,7 @@ export default agentPaneEntry({
     },
     "composer-material-lens": {
       composerLook: "claude",
-      note: "The same card in the opt-in Lens (Debug choice glass.lens): the lens bends the wallpaper at the rim and draws its own specular light; the material adds the depth.",
+      note: "The same card in the opt-in Lens (the setting appearance.glass.composer.material): the lens bends the wallpaper at the rim and draws its own specular light; the material adds the depth.",
       snapshot: startedChat(),
       play: (ctx) => materialStage(ctx, "lens"),
     },

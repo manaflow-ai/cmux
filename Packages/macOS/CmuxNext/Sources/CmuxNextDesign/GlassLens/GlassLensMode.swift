@@ -1,27 +1,33 @@
 public import CmuxNextDesignTokens
-/// How web glass surfaces bend the wallpaper behind them (plans/cmux-next/glass-lens-DESIGN.md):
-/// the Debug Settings choice `glass.lens` (DEV and NIGHTLY), outside the settings schema until the
-/// lens is promoted. `plain` (the default, the look before the lens) only blurs it, `lens` refracts
-/// it at the rim, `spectrum` adds a chromatic split at the rim. Leo 2026-10-21: the lens is a
-/// toggle to see and feel before it is the default.
-public nonisolated enum GlassLensMode: String, Sendable, CaseIterable, Codable, TunableChoice {
+public import Foundation
+/// How web glass surfaces bend the wallpaper behind them (plans/cmux-next/glass-lens-DESIGN.md): the setting
+/// `appearance.glass.composer.material` (``DesignSettings/glassLensMode``), in every build. `plain` (the default,
+/// the look before the lens) only blurs it, `lens` refracts it at the rim, `spectrum` adds a chromatic split at the
+/// rim. Leo 2026-10-21: the lens is a toggle to see and feel before it is the default; 2026-11-20, promoting it from
+/// Debug Settings: "Like, why not offer the option? I think it looks neat. I like the refraction."
+///
+/// It was the Debug choice `glass.lens` (DEV and NIGHTLY) until 2026-11-20: ``retiredTunableKey`` names it, and a
+/// Debug file that still holds lens or spectrum moves into the setting once (`SettingsController.moveRetiredGlassLens`).
+public nonisolated enum GlassLensMode: String, Sendable, CaseIterable, Codable {
     case lens
     case plain
     case spectrum
 
-    public var tunableTitle: String {
-        switch self {
-        case .lens: "Lens (refracts at the rim)"
-        case .plain: "Plain Glass (blur only)"
-        case .spectrum: "Spectrum (lens with a chromatic rim)"
-        }
+    /// The Debug Settings key this setting replaced (a rename: its value moves into the setting once).
+    public static let retiredTunableKey = "glass.lens"
+
+    /// The mode a material value names: `lens` and `spectrum` refract; unset, `plain` or a material the web
+    /// draws as plain glass (`frosted`, `glass-clear`, `translucent`) is plain.
+    public init(material: String?) {
+        self = material.flatMap(GlassLensMode.init(rawValue:)) ?? .plain
     }
 
-    /// Debug Settings > Glass and Overlays > Liquid Glass; Release keeps `plain`, since its store never activates.
-    public static let tunable = Tunable<GlassLensMode>.choice(
-        "glass.lens", .glass, "Liquid Glass",
-        help: "How web glass bends the wallpaper behind it: plain glass (default) only blurs it, lens refracts it at the rim, spectrum adds a chromatic split. Reduce Transparency and Low Power Mode draw plain glass.",
-        default: .plain, code: "GlassLensMode.tunable")
+    /// The retired Debug choice in the Debug Settings file at `url`, when it refracts (lens or spectrum): the value
+    /// the one-time move gives the setting. Reads the file, so never on the main actor.
+    public static func retiredChoice(inDebugFile url: URL) -> GlassLensMode? {
+        let mode = GlassLensMode(material: TunableFile.readRaw(url)[retiredTunableKey] as? String)
+        return mode.refracts ? mode : nil
+    }
 
     /// The mode pages draw: `plain` under Reduce Transparency or Low Power Mode, else this one.
     public func effective(reduceTransparency: Bool, lowPowerMode: Bool) -> GlassLensMode {
@@ -36,20 +42,15 @@ public nonisolated enum GlassLensMode: String, Sendable, CaseIterable, Codable, 
 }
 
 extension GlassLensMode {
-    /// The mode pages draw now: the `glass.lens` choice under the system's Reduce Transparency
-    /// (or its Debug override) and Low Power Mode.
+    /// The mode pages draw now: the setting (``DesignSettings/glassLensMode``) under the system's Reduce
+    /// Transparency (or its Debug override) and Low Power Mode.
     @MainActor public static var current: GlassLensMode {
-        current(store: .shared, reduceTransparency: .shared, lowPower: .system)
+        current(chosen: DesignSettings.shared.glassLensMode, reduceTransparency: .shared, lowPower: .system)
     }
 
     /// The mode pages draw from these sources.
-    @MainActor public static func current(store: TunableStore, reduceTransparency: ReduceTransparency,
+    @MainActor public static func current(chosen: GlassLensMode, reduceTransparency: ReduceTransparency,
                                           lowPower: LowPowerMode) -> GlassLensMode {
-        tunable.value(in: store).effective(reduceTransparency: reduceTransparency.isEnabled, lowPowerMode: lowPower.isEnabled)
-    }
-
-    /// Sets the `glass.lens` choice; the default removes the override.
-    public static func choose(_ mode: GlassLensMode, in store: TunableStore = .shared) {
-        if mode == tunable.defaultValue { store.reset([tunable.key]) } else { store.set(tunable.key, mode.tunableValue) }
+        chosen.effective(reduceTransparency: reduceTransparency.isEnabled, lowPowerMode: lowPower.isEnabled)
     }
 }
