@@ -8,6 +8,8 @@ import type { Strings } from "../shared/i18n";
 import { killableRow, pidText, steppedSelection } from "./model";
 import type { TaskManagerState, TaskManagerStore } from "./store";
 import { COLUMNS, type SortKey, type TaskManagerRow } from "./types";
+import { experimentArm } from "../../experiments/experiment";
+import { processSharing } from "./processSharing.experiment";
 
 export interface TaskManagerPageProps {
   store: TaskManagerStore;
@@ -23,6 +25,7 @@ export function TaskManagerRoot({ store, strings }: { store: TaskManagerStore; s
 }
 
 export function TaskManagerPage({ store, state, strings }: TaskManagerPageProps) {
+  const sharingArm = experimentArm(processSharing);
   const killable = killableRow(state.snapshot.rows, state.selected);
   const selectedRow = state.rows.find((row) => row.id === state.selected);
   const onKeyDown = (event: KeyboardEvent<HTMLTableElement>) => {
@@ -50,7 +53,7 @@ export function TaskManagerPage({ store, state, strings }: TaskManagerPageProps)
       ]
     : [];
   return (
-    <div className="tm-page">
+    <div className="tm-page" data-process-sharing={sharingArm}>
       <ContextMenu className="tm-table-scroll" items={menu}>
         {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- the table takes Up and Down to move the selected row. */}
         <table
@@ -77,7 +80,13 @@ export function TaskManagerPage({ store, state, strings }: TaskManagerPageProps)
           </thead>
           <tbody>
             {state.rows.map((row) => (
-              <Row key={row.id} row={row} selected={row.id === state.selected} store={store} />
+              <Row
+                key={row.id}
+                row={row}
+                selected={row.id === state.selected}
+                store={store}
+                shared={sharingArm === "shared"}
+              />
             ))}
           </tbody>
         </table>
@@ -141,6 +150,7 @@ const Row = memo(function Row({
   row: TaskManagerRow;
   selected: boolean;
   store: TaskManagerStore;
+  shared: boolean;
 }) {
   return (
     <tr
@@ -150,7 +160,9 @@ const Row = memo(function Row({
       data-refused={row.refusal === null ? undefined : ""}
       onMouseDown={() => store.select(row.id)}
     >
-      <td title={row.task}>{row.task}</td>
+      <td title={row.task} data-shared-process={shared && row.task.includes(",") ? "true" : undefined}>
+        {shared && row.task.includes(",") ? `Shared: ${row.task}` : row.task}
+      </td>
       <td title={row.name}>{row.name}</td>
       <td className="tm-numeric" title={pidText(row)}>
         <PidCell row={row} />

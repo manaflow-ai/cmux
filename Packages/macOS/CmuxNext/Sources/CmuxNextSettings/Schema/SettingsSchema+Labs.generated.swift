@@ -2,6 +2,9 @@
 // schemas/settings/source/labs.json. Do not edit; edit the JSON and rerun.
 
 extension CmuxConfigSnapshot {
+    /// `experiments.process_sharing`.
+    public nonisolated static let processSharingPath = ["experiments", "process_sharing"]
+    public nonisolated static let processSharingDefault = false
     /// `labs.previewFeatures`: Surfaces still being shaped (the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.
     public nonisolated static let previewFeaturesPath = ["labs", "previewFeatures"]
     public nonisolated static let previewFeaturesDefault = false
@@ -28,6 +31,16 @@ nonisolated enum LabsSettingsSchema {
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.labs", "Labs")
         return [
+            SettingDescriptor(
+                CmuxConfigSnapshot.processSharingPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.process_sharing", "Process Sharing"),
+                help: SettingsText.keyed("settings.experiments.process_sharing.help", "Show shared ownership context in Task Manager while this experiment is enabled."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.processSharingDefault),
+                keywords: ["process", "sharing", "task manager", "experiment", "labs"]
+            ),
             SettingDescriptor(
                 CmuxConfigSnapshot.previewFeaturesPath,
                 section: .advanced,

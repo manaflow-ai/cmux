@@ -11,6 +11,21 @@
       "note": "Settings > Advanced > Labs: surfaces still being shaped, off by default.",
       "rows": [
         {
+          "key": "experiments.process_sharing",
+          "name": "processSharing",
+          "title": {
+            "key": "settings.experiments.process_sharing",
+            "text": "Process Sharing"
+          },
+          "help": {
+            "key": "settings.experiments.process_sharing.help",
+            "text": "Show shared ownership context in Task Manager while this experiment is enabled."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": ["process", "sharing", "task manager", "experiment", "labs"]
+        },
+        {
           "key": "labs.previewFeatures",
           "note": "Surfaces still being shaped (the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.",
           "title": {

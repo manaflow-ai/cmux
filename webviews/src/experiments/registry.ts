@@ -94,8 +94,10 @@ import { composerDockMotion } from "../agent-session/acpmux/composer/dockMotion.
 import { teamAudit } from "../agent-session/acpmux/teamAudit/teamAudit.experiment";
 import { jumpPairLook } from "../agent-session/acpmux/jumpPair.experiment";
 import type { Experiment } from "./experiment";
+import { processSharing } from "../pages/task-manager/processSharing.experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
+  processSharing,
   diffTreeDisclosure,
   treeNameFade,
   sessionReplay,

@@ -17,6 +17,7 @@ import {
 import { EMPTY_SNAPSHOT, TaskManagerStore } from "./store";
 import { TaskManagerRoot } from "./TaskManagerPage";
 import type { SortOrder, TaskManagerSnapshot } from "./types";
+import { processSharing } from "./processSharing.experiment";
 
 type Props = {
   snapshot: TaskManagerSnapshot;
@@ -38,6 +39,7 @@ export default componentEntry<Props>({
   area: "Pages",
   height: 560,
   widths: { narrow: 420, normal: 720, wide: 1000 },
+  experiment: { definition: processSharing, script: [] },
   covers: ["page:cmux.task-manager", "pages/task-manager/TaskManagerPage.tsx"],
   load: async () => TaskManagerGallery,
   styles: async () => {
