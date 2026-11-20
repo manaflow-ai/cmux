@@ -288,6 +288,12 @@ pub async fn run() -> Result<()> {
     crate::tools_mcp::serve(vec![served_with(&Arc::default(), artifacts)?]).await
 }
 
+/// A `bg_start` for `session` outside the MCP server: what `acpmux __bg-start` runs
+/// (`bg_hook::start_main`), so a rewritten Bash call starts its task the same way the tool does.
+pub(crate) async fn bg_start(daemon: &Arc<Client>, session: &str, args: &Value) -> Value {
+    bg::call(daemon, session, "bg_start", args).await
+}
+
 /// The server for the session in its env, its calls on `daemon`'s connection
 /// (`tools_mcp.rs`: one process serves it with acpmux's other servers).
 pub(crate) fn served(daemon: &Arc<crate::tools_mcp::Daemon>) -> Result<crate::tools_mcp::Served> {

@@ -442,11 +442,12 @@ async fn local_sessions_get_the_browser_and_computer_use_tools_and_skills() {
 }
 
 /// The hook process itself (`bg_hook.rs`), as Claude Code runs it: a background Bash call in a
-/// chat whose MCP config has the `acpmux` server is denied with the exact `bg_start` call, and
-/// the same call again runs (the server may be unusable); with no such server, with no config,
-/// or for a foreground call it prints nothing and the shell runs.
+/// chat whose MCP config has the `acpmux` server is never refused; its `updatedInput` runs
+/// `acpmux __bg-start` for the same command and folder, with the original kept for a fallback.
+/// A command that keeps the foreground (`# fg-ok`), no acpmux server, no config and a quick
+/// foreground call print nothing and the shell runs.
 #[test]
-fn the_background_shell_hook_denies_only_where_bg_start_is_there() {
+fn the_background_shell_hook_rewrites_only_where_bg_start_is_there() {
     let home = std::env::temp_dir().join(format!("acpmux-bg-hook-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     let run_command = |session: &str, background: bool, command: &str| -> String {
@@ -477,32 +478,29 @@ fn the_background_shell_hook_denies_only_where_bg_start_is_there() {
     };
     config("with", json!({"acpmux": {"command": "acpmux", "args": ["acpmux-mcp"]}}));
     config("without", json!({"other": {"command": "x"}}));
-    let deny: Value = serde_json::from_str(&run("with", true)).unwrap();
-    let out = &deny["hookSpecificOutput"];
-    assert_eq!(out["permissionDecision"], "deny", "{deny}");
-    let reason = out["permissionDecisionReason"].as_str().unwrap();
-    assert!(
-        reason.contains(r#"mcp__acpmux__bg_start {"command":"npm run dev","cwd":"/srv/app"}"#),
-        "{reason}"
-    );
-    assert!(reason.ends_with("send this same Bash call again and it runs as asked."), "{reason}");
-    assert_eq!(run("with", true), "", "the same call again: the native background shell runs");
-    assert!(run("with", true).contains("deny"), "after it ran, a new call is turned away again");
-    assert!(run("with", true).is_empty());
-    // Two calls retried in turn (A, B, A, B): each repeat still gets through.
-    let (a, b) = (|| run_command("with", true, "a"), || run_command("with", true, "b"));
-    assert!(a().contains("deny") && b().contains("deny"));
-    assert_eq!((a(), b()), (String::new(), String::new()), "interleaved retries were stranded");
+    let rewritten = |text: &str| -> String {
+        let answer: Value = serde_json::from_str(text).unwrap();
+        let out = &answer["hookSpecificOutput"];
+        assert!(out.get("permissionDecision").is_none(), "never a refusal: {answer}");
+        assert!(out["updatedInput"].get("run_in_background").is_none(), "{answer}");
+        out["updatedInput"]["command"].as_str().unwrap().to_owned()
+    };
+    // Asked again and again, the answer is the same rewrite: nothing is refused once.
+    for _ in 0..3 {
+        let command = rewritten(&run("with", true));
+        assert!(command.starts_with("ACPMUX_BG_ORIGINAL='npm run dev'\n"), "{command}");
+        assert!(command.contains("'__bg-start' '--home'"), "{command}");
+        assert!(command.contains("'--session' 'with' '--cwd' '/srv/app' '--'"), "{command}");
+        assert!(command.contains("eval \"$ACPMUX_BG_ORIGINAL\""), "{command}");
+    }
     assert_eq!(run_command("with", false, "git status"), "", "a quick foreground call runs");
-    // A known-slow foreground call is sent to the background once; the same call again runs.
-    let slow: Value = serde_json::from_str(&run("with", false)).unwrap();
-    let reason = slow["hookSpecificOutput"]["permissionDecisionReason"].as_str().unwrap();
-    assert!(reason.contains("a dev server"), "{reason}");
-    assert!(reason.contains("mcp__acpmux__bg_start"), "{reason}");
-    assert_eq!(run("with", false), "", "the same slow call again runs in the foreground");
+    // A known-slow foreground call is rewritten the same way, with no refusal.
+    assert!(rewritten(&run("with", false)).contains("'__bg-start'"));
+    assert_eq!(run_command("with", false, "npm run dev # fg-ok"), "", "FOREGROUND_OK stays");
+    assert_eq!(run_command("with", true, "npm run dev &"), "", "a trailing & stays");
+    // No acpmux server: the slow call only gets the native background flag; a background one runs.
     let slow: Value = serde_json::from_str(&run("without", false)).unwrap();
-    let reason = slow["hookSpecificOutput"]["permissionDecisionReason"].as_str().unwrap();
-    assert!(reason.contains("run_in_background: true"), "{reason}");
+    assert_eq!(slow["hookSpecificOutput"]["updatedInput"]["run_in_background"], true);
     assert_eq!(run("without", true), "", "no acpmux server: the native background shell runs");
     assert_eq!(run("no-config", true), "", "no config: the native background shell runs");
     let _ = std::fs::remove_dir_all(&home);
