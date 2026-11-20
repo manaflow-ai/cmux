@@ -175,6 +175,7 @@ pub mod mesh_control;
 pub mod mesh_http;
 pub mod mesh_node_key;
 pub mod mesh_relay_config;
+pub mod mesh_retry;
 pub mod meta_fields;
 pub mod model_copies;
 pub mod name_match;
