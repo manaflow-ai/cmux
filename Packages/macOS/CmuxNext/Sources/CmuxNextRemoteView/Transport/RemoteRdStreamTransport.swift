@@ -188,6 +188,13 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         requestKeyframe(stream: 0)
     }
 
+    /// The decode time rides the next feedback to the host (its median, `decode_us`).
+    public func noteDecoded(frame: UInt32, decodeMicros: UInt32, decodedAtMicros: UInt64) {
+        queue.async { [self] in
+            try? engine.core.noteDecode(stream: 0, micros: decodeMicros)
+        }
+    }
+
     // MARK: Queue-confined work
 
     private func carrierEvent(_ event: RemoteRdCarrierEvent) {
@@ -232,7 +239,9 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
     func pump() {
         let now = nowMicros()
         _ = try? engine.core.tick(nowMicros: now)
-        while let popped = try? engine.core.popAccessUnit(codec: .h264) {
+        while var popped = try? engine.core.popAccessUnit(codec: .h264) {
+            // The viewer's Decode stage starts here (the decoder's clock, not the injected one).
+            popped.unit.releasedAtNanos = DispatchTime.now().uptimeNanoseconds
             state.withLock { state in
                 if popped.stream == 0 {
                     state.units?.yield(popped.unit)
