@@ -22355,6 +22355,125 @@
     },
     {
       "args" : [
+
+      ],
+      "cli" : "stepAdjust",
+      "cli_name" : "browser diff-zoom-in",
+      "context_menu" : "stepAdjust",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "=",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "diffViewerFocused"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "=",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "diffViewerZoomIn",
+      "main_menu" : null,
+      "mcp" : "stepAdjust",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Diff: Zoom In",
+      "title_key" : "action.diffViewerZoomIn",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "stepAdjust",
+      "cli_name" : "browser diff-zoom-out",
+      "context_menu" : "stepAdjust",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "-",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "diffViewerZoomOut",
+      "main_menu" : null,
+      "mcp" : "stepAdjust",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Diff: Zoom Out",
+      "title_key" : "action.diffViewerZoomOut",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "stepAdjust",
+      "cli_name" : "browser diff-actual-size",
+      "context_menu" : "stepAdjust",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "0",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "diffViewerZoomReset",
+      "main_menu" : null,
+      "mcp" : "stepAdjust",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Diff: Actual Size",
+      "title_key" : "action.diffViewerZoomReset",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
         {
           "kind" : "string",
           "name" : "device",
@@ -59738,14 +59857,27 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "sidebar.sections.showHidden",
+              "kind" : "action",
+              "order" : 15,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 15
+              "order" : 16
             },
             {
               "enabled_when" : "can_perform",
               "id" : "sidebar.layout.reset",
               "kind" : "action",
-              "order" : 16,
+              "order" : 17,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -59925,27 +60057,14 @@
           }
         },
         {
-          "enabled_when" : "can_perform",
-          "id" : "sidebar.sections.showHidden",
-          "kind" : "action",
-          "order" : 13,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
           "kind" : "separator",
-          "order" : 14
+          "order" : 13
         },
         {
           "enabled_when" : "can_perform",
           "id" : "toggleSidebar",
           "kind" : "action",
-          "order" : 15,
+          "order" : 14,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -59958,7 +60077,7 @@
           "enabled_when" : "can_perform",
           "id" : "appStore.show",
           "kind" : "action",
-          "order" : 16,
+          "order" : 15,
           "visible_when" : {
             "debug_only" : false,
             "feature" : "apps",
@@ -59969,13 +60088,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 17
+          "order" : 16
         },
         {
           "enabled_when" : "can_perform",
           "id" : "customize.open",
           "kind" : "action",
-          "order" : 18,
+          "order" : 17,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -60390,6 +60509,23 @@
 
                 ]
               }
+            },
+            {
+              "kind" : "separator",
+              "order" : 2
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "sidebar.section.hide",
+              "kind" : "action",
+              "order" : 3,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
             }
           ],
           "folder" : "options",
@@ -60463,7 +60599,7 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "sidebar.section.hide",
+          "id" : "customize.open",
           "kind" : "action",
           "order" : 12,
           "visible_when" : {
@@ -60480,26 +60616,9 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "customize.open",
-          "kind" : "action",
-          "order" : 14,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "kind" : "separator",
-          "order" : 15
-        },
-        {
-          "enabled_when" : "can_perform",
           "id" : "sidebar.section.closeWorkspaces",
           "kind" : "action",
-          "order" : 16,
+          "order" : 14,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -60513,7 +60632,7 @@
           "id" : "sidebar.item.hideApp",
           "kind" : "action",
           "label" : "Hide App",
-          "order" : 17,
+          "order" : 15,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -60524,13 +60643,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 18
+          "order" : 16
         },
         {
           "enabled_when" : "can_perform",
           "id" : "sidebar.section.remove",
           "kind" : "action",
-          "order" : 19,
+          "order" : 17,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,

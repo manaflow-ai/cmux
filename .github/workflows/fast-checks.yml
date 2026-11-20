@@ -453,7 +453,7 @@ jobs:
   # until the cmux-ci client's fallback moves it to the build fleet, whose Linux pool may take it.
   checks-mac:
     if: github.repository == 'manaflow-ai/cmux' && inputs.setup == 'kernel-free'
-    runs-on: glaeda-side-light-xcode-26.6
+    runs-on: ${{ vars.CI_LIGHT_LANE_RUNNER || 'glaeda-side-light-xcode-26.6' }}
     permissions:
       contents: read
     timeout-minutes: 195
