@@ -997,7 +997,10 @@ class Wiring(unittest.TestCase):
     def test_placement_runs_the_trusted_base_copy(self):
         for workflow in self.PLACED:
             with self.subTest(workflow=workflow):
-                checkout = jobs(workflow)["portable-placement"]["steps"][0]
+                # The first checkout (a pool job may first remove a reused workspace left sparse:
+                # tests/test_ci_reused_sparse_checkout.py).
+                checkout = next(step for step in jobs(workflow)["portable-placement"]["steps"]
+                                if str(step.get("uses", "")).startswith("actions/checkout@"))
                 self.assertEqual(checkout["with"]["ref"], "${{ github.event.pull_request.base.sha || github.sha }}")
 
 
