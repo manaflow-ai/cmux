@@ -8,9 +8,220 @@
 //! must stay zero: a request thread holds the registry lock while it waits
 //! for the connection, so a writer that took it would deadlock.
 
+use std::cell::Cell;
+use std::marker::PhantomData;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::Serialize;
+
+/// Who makes a commit of the registry's file: a fixed table, one row each in
+/// `write_path.commits_by_writer`, in this order. A site names its commits
+/// with [`CommitWriter::scope`]; a commit that no site named is `Other`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum CommitWriter {
+    /// A commit that no site below named.
+    #[default]
+    Other,
+    /// A batch of the journal writer thread, and each other commit it makes.
+    JournalWriter,
+    /// The projection of one agent report (`agent.report`), with the
+    /// notification of the same hook when it has one.
+    AgentReport,
+    /// A save of the agent roster's snapshot row.
+    AgentRosterSave,
+    /// A write of a hook's retry row or apply cursor outside the journal
+    /// writer.
+    AgentHookRetry,
+    /// An effect receipt: prepared, marked executing, committed or closed.
+    EffectReceipt,
+    /// A notification's read mark, clear or prune.
+    Notification,
+    /// A resource patch with its ledger row.
+    ResourcePatch,
+    /// A frontend's projection revision with its journal row
+    /// (`commit_resource_projection`).
+    FrontendProjection,
+    /// A registry intent in its own transaction on its request thread: a
+    /// terminal's records, a workspace registry revision (`registry_intent`).
+    RegistryIntent,
+    /// A terminal's relaunch record: its command, directory or agent.
+    TerminalRelaunch,
+    /// A commit of the mux state store.
+    StateMutation,
+    /// The feed's local rows.
+    Feed,
+    /// The journal maintenance worker: ledgers, checkpoints, seals.
+    JournalMaintenance,
+    /// A frontend's document saved by `put-frontend-projection`, with its
+    /// ledger row.
+    FrontendDocument,
+    /// The archives of closed terminals: their last screen and program.
+    TerminalArchive,
+}
+
+/// The rows of [`CommitWriter`]: a writer's row is at [`CommitWriter::row`].
+pub(crate) const COMMIT_WRITERS: [CommitWriter; 16] = [
+    CommitWriter::Other,
+    CommitWriter::JournalWriter,
+    CommitWriter::AgentReport,
+    CommitWriter::AgentRosterSave,
+    CommitWriter::AgentHookRetry,
+    CommitWriter::EffectReceipt,
+    CommitWriter::Notification,
+    CommitWriter::ResourcePatch,
+    CommitWriter::FrontendProjection,
+    CommitWriter::RegistryIntent,
+    CommitWriter::TerminalRelaunch,
+    CommitWriter::StateMutation,
+    CommitWriter::Feed,
+    CommitWriter::JournalMaintenance,
+    CommitWriter::FrontendDocument,
+    CommitWriter::TerminalArchive,
+];
+
+// A commit's counts are at `writer.row()` in an array of the table's length.
+// Each row of the table is at the index that its writer's arm gives: a row
+// or an arm that moves alone does not compile. A new writer does not compile
+// before it has an arm in `row`; its row goes into the table at that index.
+// A writer with an arm and no row compiles: its commits count as `other`.
+// The loop takes the rows by a slice pattern: it has no index into the table.
+const _: () = {
+    let mut rows: &[CommitWriter] = &COMMIT_WRITERS;
+    let mut index = 0;
+    while let [writer, rest @ ..] = rows {
+        assert!(writer.row() == index);
+        rows = rest;
+        index += 1;
+    }
+};
+
+thread_local! {
+    /// The writer that this thread's commits count under.
+    static COMMIT_WRITER: Cell<CommitWriter> = const { Cell::new(CommitWriter::Other) };
+}
+
+impl CommitWriter {
+    /// The row's `writer` in `write_path.commits_by_writer`.
+    pub(crate) const fn name(self) -> &'static str {
+        match self {
+            Self::Other => "other",
+            Self::JournalWriter => "journal_writer",
+            Self::AgentReport => "agent_report",
+            Self::AgentRosterSave => "agent_roster_save",
+            Self::AgentHookRetry => "agent_hook_retry",
+            Self::EffectReceipt => "effect_receipt",
+            Self::Notification => "notification",
+            Self::ResourcePatch => "resource_patch",
+            Self::FrontendProjection => "frontend_projection",
+            Self::RegistryIntent => "registry_intent",
+            Self::TerminalRelaunch => "terminal_relaunch",
+            Self::StateMutation => "state_mutation",
+            Self::Feed => "feed",
+            Self::JournalMaintenance => "journal_maintenance",
+            Self::FrontendDocument => "frontend_document",
+            Self::TerminalArchive => "terminal_archive",
+        }
+    }
+
+    /// The index of this writer's row in [`COMMIT_WRITERS`] and in a
+    /// registry's counts. One arm for each writer, with no wildcard arm: a
+    /// new writer does not compile before it has an arm here.
+    pub(crate) const fn row(self) -> usize {
+        match self {
+            Self::Other => 0,
+            Self::JournalWriter => 1,
+            Self::AgentReport => 2,
+            Self::AgentRosterSave => 3,
+            Self::AgentHookRetry => 4,
+            Self::EffectReceipt => 5,
+            Self::Notification => 6,
+            Self::ResourcePatch => 7,
+            Self::FrontendProjection => 8,
+            Self::RegistryIntent => 9,
+            Self::TerminalRelaunch => 10,
+            Self::StateMutation => 11,
+            Self::Feed => 12,
+            Self::JournalMaintenance => 13,
+            Self::FrontendDocument => 14,
+            Self::TerminalArchive => 15,
+        }
+    }
+
+    /// The writer that a commit of this thread counts under now.
+    pub(crate) fn current() -> Self {
+        COMMIT_WRITER.with(Cell::get)
+    }
+
+    /// Count this thread's commits under this writer until the scope drops.
+    /// The scope that holds at a `COMMIT` names it: an inner scope wins over
+    /// an outer one, but no scope takes a commit from the journal writer
+    /// thread. It is one thread-local write: no lock and no allocation.
+    pub(crate) fn scope(self) -> CommitWriterScope {
+        let previous = Self::current();
+        if previous != Self::JournalWriter {
+            COMMIT_WRITER.with(|writer| writer.set(self));
+        }
+        CommitWriterScope { previous, _not_send: PhantomData }
+    }
+}
+
+/// Puts back the writer that held before [`CommitWriter::scope`].
+#[must_use = "the scope names commits only while it lives"]
+pub(crate) struct CommitWriterScope {
+    previous: CommitWriter,
+    /// The drop writes `previous` to the thread that drops the scope, so
+    /// the scope stays on the thread that made it: it is not `Send`.
+    _not_send: PhantomData<*const ()>,
+}
+
+impl Drop for CommitWriterScope {
+    fn drop(&mut self) {
+        COMMIT_WRITER.with(|writer| writer.set(self.previous));
+    }
+}
+
+/// One row of `write_path.commits_by_writer`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct WriterCommits {
+    /// The writer's name: one of a fixed table.
+    pub writer: &'static str,
+    /// Registry commits that wrote a WAL frame under this name.
+    pub commits: u64,
+    /// The WAL frames that those commits appended.
+    pub wal_frames: u64,
+}
+
+/// (commits, WAL frames) for each row of [`COMMIT_WRITERS`].
+pub(crate) type CommitsByWriter = [(u64, u64); COMMIT_WRITERS.len()];
+
+/// The section's rows from a registry's counts: each writer of the table, in
+/// its order, also one with no commit.
+pub(crate) fn writer_commit_rows(counts: &CommitsByWriter) -> Vec<WriterCommits> {
+    COMMIT_WRITERS
+        .iter()
+        .zip(counts)
+        .map(|(writer, &(commits, wal_frames))| WriterCommits {
+            writer: writer.name(),
+            commits,
+            wal_frames,
+        })
+        .collect()
+}
+
+/// Scratch control only, never merged: no code calls the table or the scope
+/// in this commit, so the compiler would drop them from the executable. The
+/// two statics below keep them in it; nothing reads the statics, so no
+/// thread runs this code.
+fn scope_then_row(writer: CommitWriter) -> usize {
+    let _scope = writer.scope();
+    CommitWriter::current().row()
+}
+
+#[used]
+static KEEP_WRITER_ROWS: fn(&CommitsByWriter) -> Vec<WriterCommits> = writer_commit_rows;
+
+#[used]
+static KEEP_WRITER_SCOPE: fn(CommitWriter) -> usize = scope_then_row;
 
 /// Registry lock, request-side registry connection or mux state lock
 /// acquisitions on a journal writer thread, process-wide. Release builds count them; debug
