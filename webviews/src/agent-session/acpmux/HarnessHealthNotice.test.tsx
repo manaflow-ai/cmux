@@ -153,7 +153,7 @@ test("an expired sign-in says so, and Log In runs its login like a signed-out on
   const container = installDom();
   const opened = await render(container, { ...signedOut, auth: "expired" });
   expect(notice(container)?.dataset.harnessNotice).toBe("signedOut");
-  expect(text(container)).toContain("Your sign-in expired.");
+  expect(text(container)).toContain("Your Codex sign-in expired. Sign in to Codex to continue.");
   await press(container, "login");
   expect(opened).toEqual([{ kind: "terminal", text: "codex login", cwd: "/work", run: true }]);
 });
