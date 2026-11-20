@@ -122,12 +122,15 @@ jobs:
   changes:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
+    # Each routed output is the router's answer only when the input check below found this workflow's own
+    # paths whole; else it is empty, and an empty output runs its jobs (they read `!= 'false'`). A router
+    # that failed or never ran leaves them empty too.
     outputs:
-      run: ${{ steps.route.outputs.run }}
-      acpmux_protocol_ir: ${{ steps.graph.outputs.acpmux_protocol_ir }}
-      acpmux_tests: ${{ steps.graph.outputs.acpmux_tests }}
-      acpmux_sim: ${{ steps.graph.outputs.acpmux_sim }}
-      carrier_sim: ${{ steps.graph.outputs.carrier_sim }}
+      run: ${{ steps.inputs.outputs.whole == 'true' && steps.route.outputs.run || '' }}
+      acpmux_protocol_ir: ${{ steps.inputs.outputs.whole == 'true' && steps.graph.outputs.acpmux_protocol_ir || '' }}
+      acpmux_tests: ${{ steps.inputs.outputs.whole == 'true' && steps.graph.outputs.acpmux_tests || '' }}
+      acpmux_sim: ${{ steps.inputs.outputs.whole == 'true' && steps.graph.outputs.acpmux_sim || '' }}
+      carrier_sim: ${{ steps.inputs.outputs.whole == 'true' && steps.graph.outputs.carrier_sim || '' }}
       router_changed: ${{ steps.graph.outputs.router_changed }}
     steps:
       # The merge commit and its parents: HEAD^1 is the base the pull request merges into.
@@ -170,9 +173,26 @@ jobs:
 
       # This job runs on every pull request, so a change that gives a routed job a new input (a new
       # include_str!, a fixture, a script) outside the `paths:` of that job's workflow fails here, by name,
-      # rather than leaving the input untested. A red here runs every routed job.
+      # rather than leaving the input untested. A red that names this workflow (its `push` paths are what
+      # the router reads) runs every routed job here. A red that names only other workflows stays red but
+      # leaves this workflow's routing as it is: 2026-11-20, one missing line in cmux-tui-windows-check.yml
+      # put the required clippy check of every pull request, Rust or not, in the Linux build queue for hours.
       - name: Every routed job's inputs are on its workflow's paths
-        run: python3 scripts/ci/affected_jobs.py check
+        id: inputs
+        run: |
+          set +e
+          out=$(python3 scripts/ci/affected_jobs.py check)
+          status=$?
+          set -e
+          [[ -z "$out" ]] || printf '%s\n' "$out"
+          whole=false
+          if [[ $status -eq 0 ]]; then
+            whole=true
+          elif grep -q '^::error::' <<<"$out" && ! grep -q '^::error::\.github/workflows/cmux-tui-spec\.yml' <<<"$out"; then
+            whole=true
+          fi
+          echo "whole=$whole" >> "$GITHUB_OUTPUT"
+          exit "$status"
 
   # A pull request that changes the crate-graph router (scripts/ci/affected_jobs.py's SELF) replays the
   # last 30 merged pull requests through the base's router and its own: what each runs, what changed, and
@@ -198,7 +218,7 @@ jobs:
   inventory:
     needs: changes
     # A router that failed or was skipped never skips the job (a skip passes a required check).
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true') }}
+    if: ${{ !cancelled() && needs.changes.outputs.run != 'false' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
@@ -247,7 +267,7 @@ jobs:
   api-compat:
     needs: changes
     # A router that failed or was skipped never skips the job (a skip passes a required check).
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true') }}
+    if: ${{ !cancelled() && needs.changes.outputs.run != 'false' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     steps:
@@ -275,7 +295,7 @@ jobs:
     needs: changes
     # By the crate graph (the changes job's graph step). A router that failed or was skipped never skips
     # the job (a skip passes a required check), and neither does a missing output.
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.acpmux_protocol_ir != 'false') }}
+    if: ${{ !cancelled() && needs.changes.outputs.acpmux_protocol_ir != 'false' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 25
     steps:
@@ -341,7 +361,7 @@ jobs:
     needs: changes
     # By the crate graph (the changes job's graph step). A router that failed or was skipped never skips
     # the job (a skip passes a required check), and neither does a missing output.
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.acpmux_tests != 'false') }}
+    if: ${{ !cancelled() && needs.changes.outputs.acpmux_tests != 'false' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 40
     permissions:
@@ -472,7 +492,7 @@ jobs:
     needs: changes
     # By the crate graph (the changes job's graph step). A router that failed or was skipped never skips
     # the job (a skip passes a required check), and neither does a missing output.
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.acpmux_sim != 'false') }}
+    if: ${{ !cancelled() && needs.changes.outputs.acpmux_sim != 'false' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 40
     steps:
@@ -518,7 +538,7 @@ jobs:
     needs: changes
     # By the crate graph (the changes job's graph step). A router that failed or was skipped never skips
     # the job (a skip passes a required check), and neither does a missing output.
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.carrier_sim != 'false') }}
+    if: ${{ !cancelled() && needs.changes.outputs.carrier_sim != 'false' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 40
     env:
@@ -570,7 +590,7 @@ jobs:
   rustfmt:
     needs: changes
     # A router that failed or was skipped never skips the job (a skip passes a required check).
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true') }}
+    if: ${{ !cancelled() && needs.changes.outputs.run != 'false' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 10
     steps:
@@ -629,7 +649,7 @@ jobs:
     name: clippy (changed cmux-tui packages)
     needs: changes
     # A router that failed or was skipped never skips the job (a skip passes a required check).
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true') }}
+    if: ${{ !cancelled() && needs.changes.outputs.run != 'false' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 40
     # ghostty-vt-sys builds libghostty-vt from the ghostty-next gitlink with zig, as in
