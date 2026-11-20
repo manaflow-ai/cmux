@@ -33,7 +33,7 @@ env:
 jobs:
   skew-matrix:
     name: skew matrix (linux)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && (!inputs.commit || inputs.commit == github.sha || inputs.commit == github.event.pull_request.head.sha && github.event_name == 'pull_request') && 'cmux-linux' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && (!inputs.commit || inputs.commit == github.sha || inputs.commit == github.event.pull_request.head.sha && github.event_name == 'pull_request') && 'cmux-linux' || 'ubuntu-24.04' }}
     timeout-minutes: 60
     steps:
       - name: Validate inputs

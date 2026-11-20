@@ -187,8 +187,10 @@ LEGACY_TRUSTED_RUNNER_LINE = re.compile(
 
 # The one-job GCP control pool is distinct from cmux-linux. The CLA workflows
 # have their own trusted validator and keep its exact reviewed selector.
-JIT_SELECTOR = TRUSTED_RUNNER_EXPRESSION.replace(
-    '"blacksmith-4vcpu-ubuntu-2404"]', '"blacksmith-4vcpu-ubuntu-2404","cmux-gcp-pr-control-jit-x64"]')
+JIT_SELECTOR = (
+    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+    "vars.CI_TRUSTED_RUNNER == 'ubuntu-24.04' && 'ubuntu-24.04' || 'cmux-gcp-pr-control-jit-x64' }}"
+)
 JIT_RUNNER_LINE = re.compile(r"^\s*runs-on:\s*" + re.escape(JIT_SELECTOR) + r"\s*(?:#.*)?$")
 
 
@@ -1105,7 +1107,12 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                             with self.subTest(workflow=path.name, job=name, event=event, head=head):
                                 choices = resolve_labels(label, context=context,
                                                          variables={"LINUX_RUNNER": ["cmux-linux"]})
-                                self.assertNotIn("cmux-linux", {str(v).lower() for v in choices})
+                                if "'cmux-linux'" in label:
+                                    # The persistent fleet carries legacy provider labels as aliases.
+                                    # Check the isolated destination positively, even for a missing head.
+                                    self.assertEqual(choices, {"ubuntu-24.04"})
+                                else:
+                                    self.assertNotIn("cmux-linux", {str(v).lower() for v in choices})
         self.assertIn(("pull_request", "pr-checks.yml", "size"), checked)
 
     def test_pool_jobs_have_read_only_tokens_and_no_private_secrets(self) -> None:

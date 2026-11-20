@@ -73,7 +73,7 @@ class RunnerSetTests(unittest.TestCase):
             with self.subTest(workflow=workflow, job=name):
                 job = workflow_jobs.jobs(WORKFLOWS / workflow)[name]
                 route = runs_on_text(job, name)
-                expected = "blacksmith-4vcpu-ubuntu-2404" if name == "comment" else "cmux-linux"
+                expected = "cmux-gcp-pr-control-jit-x64" if name == "comment" else "cmux-linux"
                 self.assertEqual(labels_at(route, "pull_request"), {expected})
                 self.assertNotIn("cmux-linux", labels_at(route, "pull_request", "outside/fork"))
 
@@ -133,7 +133,7 @@ class RunnerSetTests(unittest.TestCase):
         self.assertIn("!contains(github.event.pull_request.labels.*.name, 'leo-named-fix')", gate["if"])
         self.assertEqual(labels_at(gate_runs_on, "pull_request"), {"cmux-linux"})
         self.assertEqual(labels_at(gate_runs_on, "pull_request", "elsewhere/fork"),
-                         {"blacksmith-2vcpu-ubuntu-2404"})
+                         {"ubuntu-24.04"})
         self.assertEqual(gate["permissions"], {})
         self.assertTrue(all(step.get("continue-on-error") for step in gate["steps"]))
         # Only the Mac jobs wait for it (Leo, 2026-11-08, choosing "the Linux checks start at once and only
