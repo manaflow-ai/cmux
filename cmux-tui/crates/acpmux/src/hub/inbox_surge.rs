@@ -54,6 +54,8 @@ fn eligible(opts: &PromptOptions, blocks: &[Value]) -> Option<String> {
         || opts.send_now
         || opts.class.is_some_and(PromptClass::urgent)
         || opts.wake_or_fail
+        || opts.reply_reader.is_some()
+        || opts.race_guard.is_some()
         || opts.after_turn.is_some()
         || opts.supersede.is_some()
         || opts.steer_only
@@ -245,6 +247,10 @@ mod tests {
         opts.human_authenticated = true;
         assert!(eligible(&opts, &blocks).is_none());
         opts.human_authenticated = false;
+        let (_reader, receiver) = tokio::sync::watch::channel(false);
+        opts.reply_reader = Some(receiver);
+        assert!(eligible(&opts, &blocks).is_none());
+        opts.reply_reader = None;
         for urgent in [PromptClass::Question, PromptClass::Block] {
             opts.class = Some(urgent);
             assert!(eligible(&opts, &blocks).is_none());
