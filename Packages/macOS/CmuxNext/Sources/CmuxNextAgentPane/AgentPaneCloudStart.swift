@@ -164,17 +164,6 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         return folders
     }
 
-    /// Whether every one of `root`'s ``gitFolders(of:)`` is `root` or below it (by canonical path
-    /// components): a folder copied with no pane check behind it (a tab's own folder) never uploads
-    /// a repository a `.git` file or `commondir` names elsewhere. Reads the disk.
-    public nonisolated static func gitFoldersAreInside(_ root: String) -> Bool {
-        let base = ((AcpmuxPathPolicy.canonical(root) ?? root) as NSString).pathComponents
-        return gitFolders(of: root).allSatisfy { folder in
-            let parts = ((AcpmuxPathPolicy.canonical(folder) ?? (folder as NSString).standardizingPath) as NSString).pathComponents
-            return parts.count >= base.count && Array(parts.prefix(base.count)) == base
-        }
-    }
-
     /// The seed of the chat on the Cloud machine, in `cwd` (the folder's copy there): the person's
     /// prompt, sent once with the Send's gesture, on the agent, model and effort the page picked.
     /// `draft`: what the sending tab's composer held when the chat opened (typed after the Send), shown, never sent.
@@ -309,15 +298,7 @@ struct AgentPaneHandOff {
         let grantKey = start.signedIn ? start.key : nil
         // The empty chat it replaces: its sign-in and set-up are this start's too (``AgentPaneModel/cloudStartReplaces``).
         if let chat = start.replacesChat, chat == model.sessionId { model.cloudStartReplaces = chat }
-        // A Send needs no key press or click (#45429; Leo, 2026-11-17: "go remove this"), and a new chat's first
-        // Send in Cloud is a Send. The gesture stays only where it is the person's pick of a folder to copy off this
-        // Mac: what it copies (``isTabsOwn(_:roots:home:)``) is not the tab's own. No folder: the App uses the tab's.
-        var picksFolder = false
-        if let upload = start.uploadRoot {
-            let roots = model.transport.roots()
-            let home = model.transport.homeFolder
-            picksFolder = await Task.detached(priority: .userInitiated) { !AgentPaneCloudStart.isTabsOwn(upload, roots: roots, home: home) }.value
-        }
+        let picksFolder = await AgentPaneCloudStart.picksFolder(start, transport: model.transport) // else a Send needs no gesture
         return await held("cloud.startChat", replacing: start.replacesChat, gestureTicket: start.gestureTicket, gestureParams: ["key": start.key],
                           signInGrant: grantKey, needsGesture: picksFolder) { [start] replacements in
             let reply = await run(start)
@@ -333,8 +314,7 @@ struct AgentPaneHandOff {
     /// showing that chat may start, and the chat it opened does not hold the start back; nil: only a pane with none.
     /// `signInGrant`: the start's key, authorized only by the click its sign-in kept (no gesture);
     /// without that click (withdrawn, spent or stale) the send is `cloud_sign_in_cancelled`.
-    /// `needsGesture` false: the person's gesture is spent if there is one, but its absence refuses nothing, except
-    /// for a prompt an automation seeded (``AgentPaneUserGestures/automationSeedWaits``), which waits for the person's Send.
+    /// `needsGesture` false: a gesture is spent if there is one, but none refuses nothing, except for a seeded prompt (``AgentPaneUserGestures/automationSeedWaits``).
     private func held(_ method: String, replacing chat: String? = nil, gestureTicket: String? = nil, gestureParams: [String: Any]? = nil,
                       signInGrant: String? = nil, needsGesture: Bool = true,
                       _ body: @MainActor (AcpmuxPaneReplacements) async -> [String: Any]) async -> [String: Any] {
