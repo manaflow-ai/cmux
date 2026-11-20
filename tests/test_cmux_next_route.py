@@ -2023,9 +2023,9 @@ def workflow_step(workflow: str, job: str, step: str) -> dict:
 class HotAwareWorkflows(unittest.TestCase):
     """Leo, 2026-11-15: "if it's only needing to swap out the app, isn't there like a more minimal set of CI that we
     can get it to do". The two feat-cmux-next pull request workflows outside cmux-next.yml that spent Mac time on
-    hot-only pull requests (2026-11-08..14: tooling-tests 0.9 min, fleet-test-compile 0.4 min a PR) read the
-    router's `--hot-only` verdict on the same merge-commit diff: tooling-tests stays on Linux, the test compile plan
-    is empty. Anything else keeps its route, and a router failure reads as not hot."""
+    hot-only pull requests (2026-11-08..14: tooling-tests 0.9 min, fleet-test-compile 0.4 min a PR) no longer do:
+    tooling-tests is always on Linux, and fleet-test-compile reads the router's `--hot-only` verdict on the same
+    merge-commit diff, so its test compile plan is empty. Anything else keeps its route, and a router failure reads as not hot."""
 
     HOT = ["webviews/src/agent-session/pane.tsx", "cmux-tui/crates/acpmux/src/lib.rs"]
     APP = ["webviews/src/agent-session/pane.tsx", f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"]
@@ -2057,38 +2057,20 @@ class HotAwareWorkflows(unittest.TestCase):
                           if "=" in line) if output.exists() else {}
             return done, values, summary.read_text(encoding="utf-8") if summary.exists() else ""
 
-    # cmux-next-guards.yml: hot-route, then tooling-tests' runs-on.
+    # cmux-next-guards.yml: tooling-tests never takes a Mac. Linux CI is one persistent pool (hq
+    # decisions/junctions.md 2026-11-20), so every pull request, hot-only or not, runs it on cmux-linux and the
+    # hot-route picker that kept a hot-only one off the minis is gone.
 
-    def guards_route(self, changed: list[str], labels: str = "") -> dict:
-        step = workflow_step("cmux-next-guards.yml", "hot-route", "Route the pull request (cmux_next_route.py --hot-only)")
-        done, values, _ = self.run_step(step["run"], ROOT, changed, labels)
-        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        return values
-
-    def test_guards_hot_route_reads_the_router(self):
-        self.assertEqual(self.guards_route(self.HOT)["hot_only"], "true")
-        self.assertEqual(self.guards_route(self.APP)["hot_only"], "false")
-        self.assertEqual(self.guards_route(self.HOT, labels="full-ci")["hot_only"], "false")
-        self.assertEqual(self.guards_route(self.HOT, labels="dev-build")["hot_only"], "false")
-
-    def test_tooling_tests_skips_the_mini_only_when_hot(self):
+    def test_tooling_tests_runs_on_linux_for_every_pull_request(self):
         import yaml
         guards = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text(encoding="utf-8"))
+        self.assertNotIn("hot-route", guards["jobs"])
         job = guards["jobs"]["tooling-tests"]
-        self.assertIn("hot-route", job["needs"])
-        self.assertEqual(job["if"], "${{ !cancelled() }}")  # a skipped or failed hot-route still runs the tests
-        legs = job["runs-on"].split(" || ")
-        mini = [leg for leg in legs if "outputs.mini_runner" in leg]
-        linux = [leg for leg in legs if "outputs.linux_runner" in leg]
-        self.assertEqual(len(mini), 1, legs)
-        self.assertTrue(mini[0].startswith("needs.hot-route.outputs.hot_only != 'true' && "), mini[0])
-        # Fleet Linux and the Blacksmith fallbacks stay for a hot-only pull request.
-        self.assertEqual(len(linux), 1, legs)
-        self.assertNotIn("hot_only", linux[0])
-        self.assertTrue(legs[-1].strip().startswith("fromJSON(vars.RUNNER_POOLS)"), legs[-1])
-        route = guards["jobs"]["hot-route"]
-        self.assertIn("github.event_name == 'pull_request'", route["if"])
-        self.assertNotIn("macos", route["runs-on"])
+        self.assertNotIn("needs", job)
+        self.assertEqual(job["if"], "${{ !cancelled() }}")
+        self.assertTrue(job["runs-on"].endswith("|| 'cmux-linux' }}"), job["runs-on"])
+        self.assertNotIn("mini_runner", job["runs-on"])
+        self.assertNotIn("macos", job["runs-on"])
 
     # fleet-test-compile.yml: the plan step.
 
