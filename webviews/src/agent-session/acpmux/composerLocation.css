@@ -1293,7 +1293,7 @@
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-caption--letter-spacing);
 }
-.acpmux-location-worktrees:hover { background: var(--ds-color-hover); color: var(--agent-text); }
+.acpmux-location-worktrees:hover { background: var(--ds-surface-hover); color: var(--agent-text); }
 .acpmux-location-worktrees[data-open] > .acpmux-icon:last-child { transform: rotate(90deg); }
 .acpmux-location-worktrees + .acpmux-location-check { margin-left: 0; }
 
