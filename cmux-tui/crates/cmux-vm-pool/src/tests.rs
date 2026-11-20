@@ -115,8 +115,8 @@ fn pick_pause_needs_every_runner_idle_and_allowed() {
 fn a_stale_online_never_counts_as_a_resume() {
     let wanted: HashSet<String> = ["fsp-a", "fsp-b", "fsp-c"].map(str::to_owned).into();
     let mut t = Tracker::new(1_000, Some(wanted));
-    // Before `since`: ignored.
-    t.observe(900, &[runner("fsp-a", false, false)]);
+    // Before `since`: the baseline. fsp-a still shows online there (GitHub has not seen its pause yet).
+    t.observe(900, &[runner("fsp-a", true, false)]);
     // fsp-a still shows online from before its pause; fsp-b offline; fsp-c not listed (offline).
     t.observe(1_000, &[runner("fsp-a", true, false), runner("fsp-b", false, false)]);
     t.observe(
@@ -449,4 +449,21 @@ fn measured_vcpu_room_is_the_headroom_under_the_line() {
     assert!(d.resume.is_empty());
     let d = s.tick(1, &machines, &roster, Demand::Vcpu { vcpu: 12, queued: 1 });
     assert_eq!(d.resume, vec!["id-fsp-b".to_owned()]);
+}
+
+#[test]
+fn an_offline_baseline_before_since_counts_a_fast_resume() {
+    let wanted: HashSet<String> = ["fsp-a", "fsp-b"].map(str::to_owned).into();
+    let mut t = Tracker::new(1_000, Some(wanted));
+    // Before the resume GitHub shows fsp-a offline and fsp-b online (stale): the resume is faster than any
+    // read after `since` could see fsp-a offline.
+    t.baseline(&[runner("fsp-a", false, false), runner("fsp-b", true, false)]);
+    t.observe(1_200, &[runner("fsp-a", true, false), runner("fsp-b", true, false)]);
+    assert_eq!(t.online(), vec![("fsp-a".to_owned(), 200)]);
+    // An online sighting before `since` disarms an earlier offline one.
+    let mut t = Tracker::new(1_000, Some(["fsp-c".to_owned()].into()));
+    t.observe(800, &[runner("fsp-c", false, false)]);
+    t.observe(900, &[runner("fsp-c", true, false)]);
+    t.observe(1_100, &[runner("fsp-c", true, false)]);
+    assert_eq!(t.online_count(), 0);
 }

@@ -589,10 +589,20 @@ async fn up(
         "resumed {} machine(s), {slots} runner slot(s), in {calls_done_ms} ms ({failed} failed)\n",
         picked.len()
     );
+    let mut missed: Vec<String> = Vec::new();
     if pool.github.is_some() {
         let wanted = plan::wanted_runners(&picked, &roster);
-        let target = usize::try_from(count).unwrap_or(usize::MAX).min(wanted.len().max(1));
+        // N stays the target: a plan short of N is a failed run, not a smaller success.
+        let target = usize::try_from(count).unwrap_or(usize::MAX);
+        if wanted.len() < target {
+            missed.push(format!(
+                "the picked machines carry {} runner(s), fewer than {target}",
+                wanted.len()
+            ));
+        }
         let mut tracker = Tracker::new(t0, Some(wanted));
+        // The read before any resume call is the offline baseline.
+        tracker.baseline(&roster);
         let deadline = started + Duration::from_secs(args.timeout_s);
         while tracker.online_count() < target && Instant::now() < deadline {
             let at = now_ms();
@@ -611,15 +621,23 @@ async fn up(
                 "{target} runner(s) online in GitHub {:.1} s after the command started\n",
                 *ms as f64 / 1000.0
             ),
-            None => format!(
-                "only {} of {target} runner(s) came online within {} s\n",
-                tracker.online_count(),
-                args.timeout_s
-            ),
+            None => {
+                missed
+                    .push(format!("{} of {target} online by the timeout", tracker.online_count()));
+                format!(
+                    "only {} of {target} runner(s) came online within {} s\n",
+                    tracker.online_count(),
+                    args.timeout_s
+                )
+            }
         });
     }
+    if failed > 0 {
+        missed.push(format!("{failed} resume call(s) failed"));
+    }
+    result["ok"] = json!(missed.is_empty());
     emit(out, args.json, &result, &text);
-    if failed > 0 { Err(format!("{failed} resume call(s) failed")) } else { Ok(()) }
+    if missed.is_empty() { Ok(()) } else { Err(missed.join("; ")) }
 }
 
 async fn pause(
@@ -721,7 +739,13 @@ async fn watch(
         Some(ms) => {
             format!("{target} runner(s) online {:.1} s after {since}\n", *ms as f64 / 1000.0)
         }
-        None => format!("{} of {target} runner(s) online by the timeout\n", tracker.online_count()),
+        None => {
+            emit(out, args.json, &value, "");
+            return Err(format!(
+                "{} of {target} runner(s) online by the timeout",
+                tracker.online_count()
+            ));
+        }
     };
     emit(out, args.json, &value, &text);
     Ok(())

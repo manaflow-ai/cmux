@@ -33,8 +33,13 @@ impl Tracker {
     }
 
     /// One roster read, taken at `at_ms`. A wanted runner missing from the roster is offline.
+    ///
+    /// A read before `since` is the baseline: it arms "offline" (a runner GitHub already shows offline before
+    /// the resume counts as soon as it is online after it, however fast the resume was) and an online sighting
+    /// there disarms it again. Nothing before `since` counts as coming online.
     pub fn observe(&mut self, at_ms: u64, roster: &[Runner]) {
         if at_ms < self.since_ms {
+            self.baseline(roster);
             return;
         }
         let listed: HashSet<&str> = roster.iter().map(|r| r.name.as_str()).collect();
@@ -54,6 +59,25 @@ impl Tracker {
                 seen.offline = true;
             } else if seen.offline && seen.first_online_ms.is_none() {
                 seen.first_online_ms = Some(at_ms);
+            }
+        }
+    }
+
+    /// A roster read taken before the resume: arms each runner's offline mark from what GitHub shows then.
+    pub fn baseline(&mut self, roster: &[Runner]) {
+        let listed: HashMap<&str, bool> =
+            roster.iter().map(|r| (r.name.as_str(), r.online)).collect();
+        if let Some(wanted) = &self.wanted {
+            for name in wanted {
+                if !listed.contains_key(name.as_str()) {
+                    self.seen.entry(name.clone()).or_default().offline = true;
+                }
+            }
+        }
+        for (name, online) in listed {
+            if self.counts(name) && self.seen.get(name).is_none_or(|s| s.first_online_ms.is_none())
+            {
+                self.seen.entry(name.to_owned()).or_default().offline = !online;
             }
         }
     }
