@@ -67,3 +67,17 @@ describe("backend.yml sparse checkouts", () => {
     })
   }
 })
+
+/**
+ * The after-promote real-model journey proves a promote only when its Claude login has quota. The repository's
+ * CLAUDE_CODE_OAUTH_TOKEN is one login that claude.yml, cloud-chat-proof and every journey share, and run 44764045780's
+ * reply hit its weekly limit. journey-production takes its own login first (CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN,
+ * a secret of the cmux-next-cloud-journey environment) and falls back to the shared one while that is not set.
+ */
+describe("journey-production's Claude login", () => {
+  it("prefers the journey's own login, then the shared one", () => {
+    const steps = workflow.jobs["journey-production"].steps as any[]
+    const real = steps.find((s) => s.name === "Cloud journey (prod)")
+    expect(real.env.CLAUDE_CODE_OAUTH_TOKEN).toBe("${{ secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN }}")
+  })
+})

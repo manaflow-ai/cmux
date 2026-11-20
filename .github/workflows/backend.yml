@@ -1293,7 +1293,9 @@ jobs:
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # The journey's own Claude login first: the repository's is shared by claude.yml, cloud-chat-proof and
+          # every journey, and its weekly limit turned run 44764045780's after-promote reply red.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
           TARGET: prod
         run: bash scripts/cmux-next/cloud-journey-ci.sh
