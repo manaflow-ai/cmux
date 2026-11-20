@@ -21,6 +21,9 @@ fn agent_session_commands_share_engine_arguments_and_preserve_app_commands() {
         "send",
         "prompt",
         "history",
+        "search",
+        "notices",
+        "bg",
         "resolve",
         "find",
         "register",
@@ -277,6 +280,7 @@ mod remote_cli_docs {
             // Resource commands still resolve through the CLI parser.
             // `cmux agents` routes before the core parser; its own grammar decides.
             let parser = builtin_command(&parser_words)
+                || agent_engine_requested(&parser_words)
                 || (parser_words[0] == "agents" && agents::command(&parser_words[1..]).is_ok())
                 || (parser_words[0] != "cloud" && parse(&parser_words, Surface::Cmux).is_ok());
             if action.is_none() && !parser {
@@ -1524,6 +1528,8 @@ fn a_leading_json_lands_where_each_first_word_scope_reads_it() {
         strings(&["harness", "run", "aider", "--tab", "--json"])
     );
     assert_eq!(hoisted(&["--json", "chats", "list"]), strings(&["chats", "--json", "list"]));
+    assert_eq!(hoisted(&["--json", "agent", "list"]), strings(&["--json", "agent", "list"]));
+    #[cfg(unix)]
     assert_eq!(hoisted(&["--json", "agent", "ls"]), strings(&["agent", "--json", "ls"]));
     // `acp gh`'s trailing words are gh's: `--json` stays acpmux's.
     assert_eq!(

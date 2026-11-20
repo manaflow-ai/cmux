@@ -621,7 +621,7 @@ pub(crate) fn early_usage_error(args: &[String], message: &str) -> i32 {
 /// Scopes `main` routes by their first word, before the cmux global options
 /// are read, whose own parser takes `--json` right after the scope word:
 /// acpmux's (`--json` is a global clap option there).
-const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats", "agent"];
+const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats"];
 
 /// `cmux --json <scope> …` for a scope `main` routes by its first word: the
 /// leading `--json` moves to just after the scope word (to the end for `host`
@@ -653,7 +653,9 @@ pub(crate) fn hoist_leading_json(args: &mut Vec<String>) {
         args.drain(..lead);
         let end = args.iter().position(|w| w == "--").unwrap_or(args.len());
         args.insert(end, "--json".to_owned());
-    } else if only_json && JSON_AFTER_SCOPE.contains(&scope.as_str()) {
+    } else if only_json
+        && (JSON_AFTER_SCOPE.contains(&scope.as_str()) || agent_engine_requested(rest))
+    {
         // acpmux's global `--json`, right after the scope word: never after a verb whose
         // trailing words are another program's (`acp gh pr list`).
         args.drain(..lead);
@@ -700,6 +702,11 @@ pub(crate) fn agent_engine_requested(args: &[String]) -> bool {
     }
     let action = format!("agent {verb}");
     !action_hint::offered_app_action(&action) && action_hint::non_verb_action(&action).is_none()
+}
+
+#[cfg(not(unix))]
+fn agent_engine_requested(_: &[String]) -> bool {
+    false
 }
 
 /// The acpmux argv of `cmux agent …` and `cmux acp …` (the words after the scope) and of its
