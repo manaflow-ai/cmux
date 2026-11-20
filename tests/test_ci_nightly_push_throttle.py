@@ -377,6 +377,22 @@ def test_what_the_nightly_ships_is_read_back_from_the_project() -> None:
     assert nightly.build_inputs_changed(["daemon/remote/src/lib.rs"])[0]
 
 
+def test_an_embedded_package_product_is_not_a_bundled_file() -> None:
+    """A copy-files entry for a Swift package product (productRef, no fileRef) is built from package sources.
+
+    81b17999 (CMUX-629) embeds CmuxNextApp.framework that way; reading every entry as a file reference
+    raised "missing pbx field fileRef" and broke every nightly input decision on feat-cmux-next.
+    """
+    _, nightly = ci_scripts()
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        project = (ROOT / "cmux.xcodeproj/project.pbxproj").read_text(encoding="utf-8")
+        (root / "cmux.xcodeproj").mkdir()
+        (root / "cmux.xcodeproj/project.pbxproj").write_text(project, encoding="utf-8")
+        bundled = nightly.bundled_paths(root)
+    assert "CmuxNextApp" not in " ".join(bundled), bundled
+
+
 def test_decide_checks_out_before_it_classifies() -> None:
     """Without the checkout the gate silently never fires."""
     import yaml

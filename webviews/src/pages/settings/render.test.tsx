@@ -24,10 +24,6 @@ const allowedFills = new Set([
   "var(--row-focus)",
   // A floating bar over the content (Appearance's Undo, Redo and Reset) is a popup surface.
   "var(--surface-popup)",
-  // The pinned jump bar is liquid glass: the popup surface at the chrome tint over a blur.
-  "var(--surface-glass)",
-  // The scroll edge's tint is the page's own background, easing out under the jump bar.
-  "var(--scroll-edge-tint)",
 ]);
 const containerTags = new Set([
   "HTML",
@@ -51,7 +47,8 @@ const containerTags = new Set([
 ]);
 
 // Selection is interactive feedback: a checked segment may take --accent-soft.
-const selectionStates = "[data-swatch], [data-checked], [aria-current], [aria-pressed='true']";
+const selectionStates =
+  "[data-swatch], [data-checked], [aria-current], [aria-pressed='true'], .section-link[aria-current] > .section-link-content";
 
 function declarations(css: string): Array<{ selector: string; property: string; value: string }> {
   const out: Array<{ selector: string; property: string; value: string }> = [];
