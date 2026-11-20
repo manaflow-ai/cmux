@@ -128,8 +128,8 @@ test("Edit and Reveal name the row's file; the switch turns it off on a click", 
     { action: "reveal", path },
     { action: "off", path, agent: "claude" },
   ]);
-  expect(card(page.container)!.querySelector('[data-agent-skill="claude:skill-01"]')!.dataset.agentSkillOn).toBe(
-    "false",
-  );
+  expect(
+    card(page.container)!.querySelector<HTMLElement>('[data-agent-skill="claude:skill-01"]')!.dataset.agentSkillOn,
+  ).toBe("false");
   page.unmount();
 });
