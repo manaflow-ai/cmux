@@ -180,6 +180,9 @@ final class ListStressRig: NSObject {
             shell.tab = .feed
         case "home":
             MacHomeFeed.shared.seedStressRows(count: settings.count, macID: "mac-studio")
+            if ProcessInfo.processInfo.environment["CMUX_MOBILE_LIST_HUD"] == "1" {
+                homeHUD = HomeStressHUD(changes: { [weak self] in self?.liveChanges ?? 0 })
+            }
             shell.tab = .home
         default:
             log.error("FRAMELOG list-stress unknown screen \(screen, privacy: .public)")
@@ -274,12 +277,6 @@ final class ListStressRig: NSObject {
             // A busy Mac's Home (about 25 Chiefs typing and posting): `LIST_LIVE_ROWS` Chief rows
             // (default 3) change per tick, through the Mac Home feed's own event and apply path.
             let rows = settings.liveRows
-            // The stress measure starts once Home has settled (the launch placement, the pull-down
-            // search's tuck under the bar, is not what the stress suite judges): the probe attaches
-            // with the first live change.
-            if ProcessInfo.processInfo.environment["CMUX_MOBILE_LIST_HUD"] == "1" {
-                homeHUD = HomeStressHUD(changes: { [weak self] in self?.liveChanges ?? 0 })
-            }
             live = Task { @MainActor in
                 var tick = 0
                 while !Task.isCancelled {
