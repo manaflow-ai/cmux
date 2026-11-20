@@ -39,6 +39,16 @@ describe("readCloudVmGrant: the effective grant of a record with two grant slots
     expect(grant({ cmuxVmPlan: "next_pro", cmuxNextVmPlan: "next_max" })).toBe("next_max")
   })
 
+  it("cmux NEXT Plus ranks with Plus (go), below Pro: it never hides a higher grant", () => {
+    expect(grant({ cmuxNextVmPlan: "next_plus" })).toBe("next_plus")
+    expect(grant({ cmuxVmPlan: "next_plus" })).toBe("next_plus")
+    expect(grant({ cmuxVmPlan: "go", cmuxNextVmPlan: "next_plus" })).toBe("next_plus")
+    expect(grant({ cmuxVmPlan: "pro", cmuxNextVmPlan: "next_plus" })).toBe("pro")
+    expect(grant({ cmuxVmPlan: "max", cmuxNextVmPlan: "next_plus" })).toBe("max")
+    expect(grant({ cmuxVmPlan: "next_pro", cmuxNextVmPlan: "next_plus" })).toBe("next_pro")
+    expect(grant({ cmuxVmPlan: "free", cmuxNextVmPlan: "next_plus" })).toBe("next_plus")
+  })
+
   it("a classic restriction never hides a NEXT grant", () => {
     expect(grant({ cmuxVmPlan: "free", cmuxNextVmPlan: "next_pro" })).toBe("next_pro")
     expect(grant({ cmuxVmPlan: "", cmuxNextVmPlan: "next_max" })).toBe("next_max")

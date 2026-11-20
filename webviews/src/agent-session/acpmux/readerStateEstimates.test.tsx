@@ -10,7 +10,7 @@
 // drew them in the papercut pane (test/support/papercutChat.ts) from the same fixture, the reader's
 // clicks made in the page (an untracked bench script, bench/reader-state-heights.ts, that reads each
 // `article.acpmux-row`'s box). Before this change: the long prompt opened estimated 499 (drawn 958),
-// the opened thought 26 (86), the opened commands 22 (269, 207), the opened message 22 (139.5), and
+// the opened thought 26 (86), the opened commands 22 (269, 207, and 289 for 1,000 lines of output), the opened message 22 (139.5), and
 // the edited-files card 150 and 78 whatever the reader had opened (drawn 70 shut, 142 open, 70).
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
@@ -27,8 +27,6 @@ import {
 import { thoughtChoices } from "./conversation/thoughtChoices";
 import { setCardOpen } from "./turnChanges/openStore";
 import { setEditedFilesSettings } from "./turnChanges/settings";
-import { MessageRow } from "./rows/MessageRow";
-import { resetTranscriptViews, setTranscriptView } from "./conversation/transcriptView";
 import { settleReact } from "../../../test/support/domTeardown";
 
 const CHAT = "reader-state";
@@ -36,16 +34,12 @@ const SPACING = 4;
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
-let rowRoot: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
-  if (rowRoot) await act(async () => rowRoot!.unmount());
-  rowRoot = undefined;
   resetTranscriptDisclosure();
-  resetTranscriptViews();
   thoughtChoices.clear();
   setCardOpen("edits-2", false);
   setEditedFilesSettings({});
@@ -61,9 +55,8 @@ afterEach(async () => {
 });
 
 /// The reader's click on line `key` of this chat, through the store the rows read (`useTranscriptDisclosure`).
-/// `session` null: the line drawn under no chat's provider, on the shared key (DEFAULT_SESSION).
-async function setLine(key: string, open: boolean, session: string | null = CHAT) {
-  dom ??= new JSDOM("<!doctype html><main id=root></main><main id=row></main>", {
+async function setLine(key: string, open: boolean) {
+  dom ??= new JSDOM("<!doctype html><main id=root></main>", {
     url: "http://localhost/",
   });
   for (const name of ["window", "document", "navigator", "IS_REACT_ACT_ENVIRONMENT"])
@@ -82,13 +75,9 @@ async function setLine(key: string, open: boolean, session: string | null = CHAT
   await act(async () => {
     root ??= createRoot(dom!.window.document.getElementById("root")!);
     root.render(
-      session === null ? (
+      <TranscriptDisclosureProvider sessionId={CHAT}>
         <Line />
-      ) : (
-        <TranscriptDisclosureProvider sessionId={session}>
-          <Line />
-        </TranscriptDisclosureProvider>
-      ),
+      </TranscriptDisclosureProvider>,
     );
   });
   await act(async () => set!(open));
@@ -159,32 +148,12 @@ test("a long prompt the reader opened is estimated whole, over Show less (Prompt
   } as AcpmuxRow;
   // Drawn 503 shut (its 20 lines and Show more), 958 open.
   near(row, 503);
-  // The bubble's fold is on the shared key (rows/MessageRow.tsx draws it under no chat's provider).
-  await setLine("prompt:user-1", true, null);
+  await setLine("prompt:user-1", true);
   near(row, 958);
-  await setLine("prompt:user-1", false, null);
+  // Another chat's prompt of the same row id is not this one.
+  expect(Math.abs(estimate(row, "another-chat") - 503)).toBeLessThanOrEqual(SPACING);
+  await setLine("prompt:user-1", false);
   near(row, 503);
-});
-
-test("a long prompt opened on the shared key, as kept before, draws and is estimated open in Normal and in Verbose", async () => {
-  const text = Array.from({ length: 40 }, (_, n) => `Line ${n + 1} of the long prompt about the retry helper.`).join(
-    "\n",
-  );
-  const row = { id: "user-2", version: 1, at: 0, kind: "user", text } as AcpmuxRow;
-  // The reader's open as the pane kept it before this change: the prompt's fold under no provider.
-  await setLine("prompt:user-2", true, null);
-  // The transcript draws the row as MessageRow for this chat.
-  await act(async () => {
-    rowRoot ??= createRoot(dom!.window.document.getElementById("row")!);
-    rowRoot.render(<MessageRow row={row} sessionId={CHAT} onToggleActivity={() => {}} expanded={false} />);
-  });
-  const drawnOpen = () =>
-    dom!.window.document.querySelector("#row .cv-user__more")?.getAttribute("aria-expanded") ?? "no Show more";
-  expect(drawnOpen()).toBe("true");
-  near(row, 958);
-  await act(async () => setTranscriptView(CHAT, "verbose"));
-  expect(drawnOpen()).toBe("true");
-  near(row, 958);
 });
 
 test("a thought the reader opened is estimated over its text (ThoughtRow.tsx, thoughtChoices.ts)", () => {
@@ -215,6 +184,12 @@ test("a command the reader opened is estimated with its Shell card (ToolRow.tsx 
   near(lint, 207);
   await setLine(callDisclosureKey("cmd-1"), false);
   near(tests, 22);
+  // Past 400 lines its end is shown, with Show all under the box: drawn 289.
+  const long = step("long", [
+    shell("cmd-4", "bun test", Array.from({ length: 1_000 }, (_, n) => `✓ case ${n + 1}`).join("\n")),
+  ]);
+  await setLine(callDisclosureKey("cmd-4"), true);
+  near(long, 289);
 });
 
 test("an `acpmux send` the reader opened is estimated with its message's card (SentMessageLine.tsx `send:`)", async () => {
