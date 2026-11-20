@@ -21,7 +21,8 @@ fn the_diff_viewer_owns_its_zoom_keys_while_it_has_the_keyboard() {
         zoom_aliases().iter().any(|binding| binding.command == "diffViewerZoomIn"
             && binding.keys.len() == 1
             && binding.keys[0].key == "="
-            && binding.keys[0].modifiers == SHIFT | CMD),
-        "Cmd-+ (Cmd-Shift-=) zooms in too"
+            && binding.keys[0].modifiers == SHIFT | CMD
+            && binding.when == Some("diffViewerFocused")),
+        "Cmd-+ (Cmd-Shift-=) zooms in too, only in a focused diff tab (the Markdown viewer's alias has the key unscoped)"
     );
 }

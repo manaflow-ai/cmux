@@ -40,6 +40,7 @@ struct DiffViewerZoomRows {
     /// `aliases` with the diff viewer's Cmd-Shift-= Zoom In, unless the pinned catalog already lists it.
     nonisolated static func withAlias(_ aliases: [KeyBinding]) -> [KeyBinding] {
         guard !aliases.contains(where: { $0.command == zoomIn }) else { return aliases }
-        return aliases + [KeyBinding(keys: [Shortcut("=", modifiers: [.command, .shift])], command: zoomIn)]
+        return aliases + [KeyBinding(keys: [Shortcut("=", modifiers: [.command, .shift])], command: zoomIn,
+                                     when: .has("diffViewerFocused"))]
     }
 }
