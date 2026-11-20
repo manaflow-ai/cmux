@@ -440,6 +440,7 @@ final class CEFLayerHosting {
         guard !windowInWindow, firstFrameHold == .none, !isDetached, !inResizeMotion, setDetached(true) else { return }
         firstFrameHold = .detached
         afterFirstFrame = grant
+        CEFProbe.note("first-frame hold: detached")
         runAfterFrameShown { [weak self] in self?.attachAfterFirstFrame() }
     }
 
@@ -496,6 +497,7 @@ final class CEFLayerHosting {
 
     private func endFirstFrameHold() {
         let grant = afterFirstFrame
+        CEFProbe.note("first-frame hold: end grant=\(grant != nil) owed=\(attachOwed)")
         firstFrameHold = .none
         afterFirstFrame = nil
         // The fork refused the attach: the page has no window to make key. The ask stays kept (the tab's pending

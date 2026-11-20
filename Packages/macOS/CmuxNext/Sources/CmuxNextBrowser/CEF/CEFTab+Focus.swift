@@ -55,6 +55,7 @@ extension CEFTab {
     /// user clicks the page) or from wherever the user is typing.
     func chromiumRequestsFocus(_ source: CEFFocusSource) -> Bool {
         if isGrantingFocus { return true }
+        CEFProbe.note("chromium focus ask refused b=\(browserID ?? -1) source=\(source.name)")
         host.lifecycleTrace.record(id, "focus-refused source=\(source.name)")
         return false
     }
@@ -78,11 +79,13 @@ extension CEFTab {
         // the ask is kept and the hold's end grants it, so nothing re-arms a grant each pass meanwhile.
         let hosting = host.hostView.layerHosting
         if hosting.holdsFirstFrame() {
+            CEFProbe.note("grant kept first-frame b=\(browser) pw=\(CEFProbe.name(pageWindow))")
             host.lifecycleTrace.record(id, "grant kept: first-frame hold")
             pendingFocus = true
             return
         }
         if hosting.pageTakesFocus() {
+            CEFProbe.note("grant kept motion b=\(browser)")
             host.lifecycleTrace.record(id, "grant kept: motion")
             pendingFocus = true
             AfterFrameCommit().run { [weak self] in self?.grantPendingFocusIfShown() }
@@ -93,8 +96,10 @@ extension CEFTab {
         if pageWindowHasTheKeys { return host.lifecycleTrace.record(id, "grant skipped: has the focus and the keys") }
         isGrantingFocus = true
         defer { isGrantingFocus = false }
+        CEFProbe.note("grant setFocus(1) b=\(browser) pw=\(CEFProbe.name(pageWindow)) key=\(CEFProbe.name(keyWindows.keyWindow()))")
         runtime.shim?.setFocus(browser, 1)
         defer { keyedPageWindow = pageWindow.flatMap { keyWindows.keyWindow() === $0 ? $0 : nil } }
+        CEFProbe.note("grant after setFocus b=\(browser) key=\(CEFProbe.name(keyWindows.keyWindow()))")
         // From the cmux window, or from another page window of it: Cmd-N typed in a page left that page's window key, and
         // the new page's held keys went to it, a page the switch hid (Lawrence 2026-11-19, "i did cmd n and started typing
         // and it didnt have focus").
