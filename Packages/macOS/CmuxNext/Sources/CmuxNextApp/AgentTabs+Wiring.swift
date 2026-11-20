@@ -517,6 +517,9 @@ extension AgentTabStore {
         }
         tabs.daemonListing = { [weak services] tab in services?.machines.daemon(forTab: tab) }
         tabs.moveSelection = { [weak services] provisional, surface in
+            if let services { // a New Tab key hold from that tab follows it
+                services.keyRouter.newTabInputCoordinator.tabMade(provisional, in: services.agentTabs)
+            }
             for controller in services?.windows.controllers ?? [] {
                 guard let panes = controller.content?.panes.values else { continue }
                 for pane in panes where pane.stripModel.selectedID?.rawValue == provisional {

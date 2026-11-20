@@ -126,8 +126,8 @@ final class AgentTabStore {
     var create: @MainActor (_ pane: PaneID, _ daemon: DaemonService, _ record: AgentSessionRef, _ key: String,
                             _ transaction: ClientTransactionID, _ split: ConversationTabSplit?) async throws
         -> (created: AgentTabCreated, sequence: UInt64?) = { _, _, _, _, _, _ in throw DaemonError.notConnected }
-    /// Moves a pane's selection from provisional tab `provisional` to the created tab's surface,
-    /// where the pane still selects it (AppServices: every pane controller).
+    /// Moves a pane's selection from provisional tab `provisional` to the created tab's surface, where the
+    /// pane still selects it (AppServices: every pane controller). A New Tab key hold from that tab follows it.
     var moveSelection: @MainActor (_ provisional: String, _ surface: SurfaceID) -> Void = { _, _ in }
     /// The pane host for agent tab `key` when its session runs on another machine whose session
     /// daemon serves `agent-session-attach-v1` (AppServices); nil keeps the "runs on" notice.
