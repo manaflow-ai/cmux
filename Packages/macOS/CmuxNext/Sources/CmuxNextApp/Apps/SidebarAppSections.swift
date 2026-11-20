@@ -17,7 +17,6 @@ final class SidebarAppSections: SidebarAppSectionProvider {
     /// The built-in Team section (``CloudTeamFeature/contribution``), drawn here, not by an app.
     private let team: (() -> CloudTeamHostingView?)?
     private var teamView: CloudTeamHostingView?
-    var widgets: AppWidgetSection? { provider.widgets }
 
     init(client: AppsClient, isPresented: @escaping (String) -> Bool, team: (() -> CloudTeamHostingView?)? = nil) {
         provider = AppSectionProvider(client: client, isPresented: isPresented)
