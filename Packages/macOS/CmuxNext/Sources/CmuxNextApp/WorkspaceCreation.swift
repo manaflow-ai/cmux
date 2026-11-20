@@ -87,7 +87,10 @@ enum WorkspaceCreation {
     /// command, or `daemon` cannot host the page).
     @MainActor static func newTabPage(_ spawn: WorkspaceSpawn, _ key: WorkspaceKey, cwd: String?, on daemon: DaemonService,
                            repair: EmptyWorkspaceRepair, tabs: AgentTabStore) async throws -> String? {
-        guard opensPage(spawn, on: daemon, tabs: tabs), let connection = daemon.connection else { return nil }
+        guard opensPage(spawn, on: daemon, tabs: tabs), let connection = daemon.connection else {
+            if !daemon.isLocal, spawn.firstChat != nil { throw AgentTabRefusal(message: RefusalStrings.agentTabsUnsupported) }
+            return nil
+        }
         return try await createWithFirstTab(key, name: spawn.name, on: connection, repair: repair) { created in
             if let session = spawn.firstSession {
                 _ = try await sessionTab(session, in: created, on: daemon, tabs: tabs)

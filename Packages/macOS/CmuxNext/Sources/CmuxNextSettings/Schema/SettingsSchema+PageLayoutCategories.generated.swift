@@ -354,7 +354,7 @@ extension SettingsPageLayout {
     private static let experimentalCategory = CategorySpec(
         id: "experimental", title: SettingsText.keyed("settings.category.experimental", "Experimental"), symbol: "flask",
         groups: [
-            GroupSpec(group: "settings.group.labs", keys: ["appearance.experimentalControls"]),
+            GroupSpec(group: "settings.group.labs", keys: ["appearance.experimentalControls", "labs.sidebarRemoteHosts"]),
             GroupSpec(group: "settings.group.appearanceTuning"),
         ]
     )
