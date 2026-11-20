@@ -201,9 +201,31 @@ struct Tally {
     rows_touched: u64,
     list_lines: u64,
     list_bytes: u64,
+    /// The largest list notice: its bytes, whether it names this chat, and each of its summary's
+    /// top-level keys by bytes (what a list notice carries).
+    list_max: u64,
+    list_max_of_chat: bool,
+    list_max_keys: BTreeMap<String, u64>,
+    /// List notices that name another chat than the one streaming.
+    list_other_chats: u64,
     other_lines: u64,
     other_bytes: u64,
     other_methods: BTreeMap<String, u64>,
+}
+
+/// The bytes of each top-level key of the summary a list notice carries.
+fn key_bytes(params: &Value) -> BTreeMap<String, u64> {
+    let summary = ["session", "summary", "row"]
+        .iter()
+        .find_map(|k| params.get(*k).filter(|v| v.is_object()))
+        .unwrap_or(params);
+    let mut out = BTreeMap::new();
+    if let Some(o) = summary.as_object() {
+        for (k, v) in o {
+            out.insert(k.clone(), serde_json::to_vec(v).map_or(0, |b| b.len() as u64));
+        }
+    }
+    out
 }
 
 impl Tally {
@@ -238,6 +260,15 @@ impl Tally {
         } else if method == "_acpmux/session_changed" {
             self.list_lines += 1;
             self.list_bytes += line.bytes;
+            let names = |id: &str| v.to_string().contains(id);
+            if !names(chat) {
+                self.list_other_chats += 1;
+            }
+            if line.bytes > self.list_max {
+                self.list_max = line.bytes;
+                self.list_max_of_chat = names(chat);
+                self.list_max_keys = key_bytes(params);
+            }
         } else {
             self.other_lines += 1;
             self.other_bytes += line.bytes;
@@ -488,7 +519,12 @@ fn a_text_delta_costs_its_own_length_in_a_god_chat() {
             other => panic!("ACPMUX_GOD_SHAPES: no shape {other}"),
         };
         let result = run(&shape, deltas, rounds);
-        println!("DELTA-COST {result}");
+        // One short line per part: a CI log cuts a long line.
+        if let Some(parts) = result.as_object() {
+            for (key, part) in parts {
+                println!("DELTA-COST {} {key} {part}", shape.name);
+            }
+        }
         results.insert(shape.name, result);
     }
     let mut failures = Vec::new();
@@ -554,7 +590,12 @@ fn a_text_delta_costs_its_own_length_in_a_god_chat() {
                 failures.push(format!("god over {BAR}x small: {row}"));
             }
         }
-        println!("DELTA-COST-RATIO {}", json!({"bench": "acpmux.delta_cost", "rows": rows}));
+        for row in &rows {
+            println!("DELTA-COST-RATIO {row}");
+        }
+    }
+    for failure in &failures {
+        println!("DELTA-COST-FAIL {failure}");
     }
     assert!(failures.is_empty(), "a text delta does not cost its own length: {failures:#?}");
 }
