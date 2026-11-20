@@ -545,11 +545,13 @@ async fn surge_receipt_restores_the_same_held_message_and_searches_its_original_
         hub.hold_surge_message(&session, "second", "cli", &body, &opts, 42_000).unwrap().unwrap();
     assert_eq!(receipt["surgeHeld"], true);
     let thread = receipt["threadId"].as_str().unwrap();
-    assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":1,"needYou":0}));
+    assert_eq!(hub.inbox_threads(&session)["surge"]["held"], 1);
+    assert_eq!(hub.inbox_threads(&session)["surge"]["needYou"], 0);
     hub.persist_surge_triage(&session, json!({"batchId":"batch-1"}), 1).unwrap();
     *session.inbox() = Default::default();
     hub.restore_inbox(&session);
-    assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":1,"needYou":1}));
+    assert_eq!(hub.inbox_threads(&session)["surge"]["held"], 1);
+    assert_eq!(hub.inbox_threads(&session)["surge"]["needYou"], 1);
     let thread = hub.inbox_thread(&session, thread, false);
     assert_eq!(thread["messages"][0]["text"], body[0]["text"]);
     assert_eq!(thread["messages"][0]["surgeHeld"], true);
@@ -571,6 +573,29 @@ async fn surge_receipt_restores_the_same_held_message_and_searches_its_original_
     urgent.tool_notice = tool_notice_of(opts.provenance.as_ref());
     assert!(wakes(&session.meta(), &urgent));
     assert!(!ordinary_fyi(&urgent));
+}
+
+#[test]
+fn surge_actionable_thread_clears_through_team_ack_and_replay() {
+    let (hub, session) = hub_with_chat("surge-ack");
+    let mut held =
+        item("prompt-1", "topic:runner", "watcher", PromptClass::Result, now_ms(), "runner report");
+    held.surge_held = true;
+    held.noticed = true;
+    session.inbox().items.push(held);
+    hub.persist_surge_triage(
+        &session,
+        json!({"batchId":"batch-ack", "items":[{"promptId":"prompt-1", "threadId":"topic:runner",
+            "category":"needs_this_session"}]}),
+        1,
+    )
+    .unwrap();
+    assert_eq!(hub.inbox_threads(&session)["threads"][0]["needYou"], true);
+    hub.inbox_team_ack(&session, "prompt-1").unwrap();
+    assert_eq!(hub.inbox_threads(&session)["surge"]["needYou"], 0);
+    *session.inbox() = Default::default();
+    hub.restore_inbox(&session);
+    assert_eq!(hub.inbox_threads(&session)["surge"]["needYou"], 0);
 }
 
 #[test]

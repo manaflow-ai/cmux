@@ -12,14 +12,13 @@ pub(super) struct Counts {
     /// bounded delta without rescanning the inbox. The thread map is the distinct-topic view.
     actionable_by_prompt: std::collections::HashMap<String, String>,
     actionable_by_thread: std::collections::HashMap<String, u64>,
-    read_prompts: std::collections::HashSet<String>,
+    held_pending: std::collections::HashSet<String>,
+    suppress_prompts: std::collections::HashSet<String>,
 }
-
-const MAX_READ_PROMPTS: usize = 4096;
 
 impl Counts {
     pub(super) fn json(&self) -> Value {
-        json!({"held": self.held, "needYou": self.need_you})
+        json!({"held": self.held, "needYou": self.need_you, "seq": self.seq})
     }
 
     fn add_actionable(&mut self, prompt_id: &str, thread_id: &str) {
@@ -58,7 +57,7 @@ impl Counts {
                 let thread = item.get("threadId").and_then(Value::as_str).unwrap_or_default();
                 if prompt.is_empty()
                     || thread.is_empty()
-                    || self.read_prompts.contains(prompt)
+                    || self.suppress_prompts.contains(prompt)
                     || self.actionable_by_prompt.contains_key(prompt)
                     || additions.iter().any(|(id, _)| id == prompt)
                 {
@@ -75,41 +74,39 @@ impl Counts {
 
     fn apply_event(&mut self, event: &EventRecord) {
         match event.kind.as_str() {
+            "inbox" => {
+                if event.msg.get("surgeHeld") == Some(&Value::Bool(true))
+                    && let Some(prompt) = event.msg.get("promptId").and_then(Value::as_str)
+                {
+                    self.held_pending.insert(prompt.to_owned());
+                }
+            }
             "inbox_triaged" => {
                 let (additions, _) = self.triage_additions(&event.msg);
                 for (prompt, thread) in additions {
                     self.add_actionable(&prompt, &thread);
                 }
+                if let Some(items) = event.msg.get("items").and_then(Value::as_array) {
+                    for prompt in
+                        items.iter().filter_map(|item| item.get("promptId").and_then(Value::as_str))
+                    {
+                        self.held_pending.remove(prompt);
+                        self.suppress_prompts.remove(prompt);
+                    }
+                }
                 // Older callers wrote an empty record with a scalar actionable count. Keep that
                 // compatibility value until a prompt-keyed delta supplies the authoritative map.
-                if event
-                    .msg
-                    .get("items")
-                    .and_then(Value::as_array)
-                    .map_or(true, |items| items.is_empty())
+                if event.msg.get("items").is_none()
                     && let Some(n) = event.msg.pointer("/surge/needYou").and_then(Value::as_u64)
                 {
                     self.need_you = n;
                 }
             }
             "inbox_read" => {
-                let surge_ids = event
-                    .msg
-                    .get("surgePromptIds")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_str)
-                    .collect::<std::collections::HashSet<_>>();
                 if let Some(ids) = event.msg.get("promptIds").and_then(Value::as_array) {
                     for id in ids.iter().filter_map(Value::as_str) {
-                        if surge_ids.contains(id) && self.read_prompts.len() >= MAX_READ_PROMPTS {
-                            if let Some(oldest) = self.read_prompts.iter().next().cloned() {
-                                self.read_prompts.remove(oldest);
-                            }
-                        }
-                        if surge_ids.contains(id) {
-                            self.read_prompts.insert(id.to_owned());
+                        if self.held_pending.remove(id) {
+                            self.suppress_prompts.insert(id.to_owned());
                         }
                         self.remove_actionable(id);
                     }
@@ -117,6 +114,8 @@ impl Counts {
             }
             "inbox_removed" => {
                 if let Some(id) = event.msg.get("promptId").and_then(Value::as_str) {
+                    self.held_pending.remove(id);
+                    self.suppress_prompts.insert(id.to_owned());
                     self.remove_actionable(id);
                 }
             }
@@ -139,12 +138,7 @@ impl Counts {
             event.msg.pointer("/surge/needYou").and_then(Value::as_u64),
         ) {
             self.held = held;
-            let typed_triage = event.kind == "inbox_triaged"
-                && event
-                    .msg
-                    .get("items")
-                    .and_then(Value::as_array)
-                    .is_some_and(|items| !items.is_empty());
+            let typed_triage = event.kind == "inbox_triaged" && event.msg.get("items").is_some();
             if self.actionable_by_thread.is_empty() && !typed_triage {
                 self.need_you = need_you;
             } else {
@@ -161,6 +155,17 @@ impl Counts {
 
     pub(super) fn need_you_for(&self, thread: &str) -> bool {
         self.actionable_by_thread.contains_key(thread)
+    }
+
+    pub(super) fn need_you_after_removing(&self, prompt_ids: &[String]) -> u64 {
+        let mut threads = std::collections::HashSet::new();
+        for prompt in prompt_ids {
+            let Some(thread) = self.actionable_by_prompt.get(prompt) else { continue };
+            if self.actionable_by_thread.get(thread) == Some(&1) {
+                threads.insert(thread);
+            }
+        }
+        self.actionable_by_thread.len().saturating_sub(threads.len()) as u64
     }
 }
 
@@ -239,9 +244,7 @@ impl Hub {
             (Vec::new(), counts.need_you)
         };
         if let Some(n) = actionable_topics {
-            let typed_items =
-                msg.get("items").and_then(Value::as_array).is_some_and(|items| !items.is_empty());
-            if !typed_items {
+            if msg.get("items").is_none() {
                 next_need = if counts.actionable_by_thread.is_empty() {
                     n
                 } else {
@@ -250,6 +253,10 @@ impl Hub {
             }
         }
         let next_held = counts.held.saturating_add(u64::from(actionable_topics.is_none()));
+        let held_prompt = actionable_topics
+            .is_none()
+            .then(|| msg.get("promptId").and_then(Value::as_str).map(str::to_owned))
+            .flatten();
         msg["surge"] = json!({"held": next_held, "needYou": next_need});
         // The caller retries a failed append. A parked copy must not be replayed behind it.
         let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
@@ -262,6 +269,9 @@ impl Hub {
         counts.held = next_held;
         for (prompt, thread) in additions {
             counts.add_actionable(&prompt, &thread);
+        }
+        if let Some(prompt) = held_prompt {
+            counts.held_pending.insert(prompt);
         }
         counts.need_you = next_need;
         counts.seq = event.seq;

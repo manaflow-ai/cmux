@@ -117,12 +117,17 @@ impl Hub {
     /// The `inbox_read` records of what a read or an ack marked read, one per thread.
     fn log_read(&self, session: &Session, marked: Vec<(String, Vec<String>)>) {
         for (thread, ids) in marked {
-            self.append(
+            let surge_counts = session.inbox().surge_counts.clone();
+            let mut counts = surge_counts.lock().unwrap_or_else(|e| e.into_inner());
+            let need_you = counts.need_you_after_removing(&ids);
+            let event = self.append(
                 session,
                 "mux",
                 "inbox_read",
-                json!({"threadId": thread, "promptIds": ids}),
+                json!({"threadId": thread, "promptIds": ids,
+                    "surge": {"held": counts.held, "needYou": need_you}}),
             );
+            counts.apply(&event);
         }
     }
 }

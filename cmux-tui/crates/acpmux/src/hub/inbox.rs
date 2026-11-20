@@ -1503,12 +1503,18 @@ impl Hub {
             super::message_events::record_message_context(self, &session.id, message, &Value::Null);
         }
         // Existing readers can replay these marks without knowing the new deliveredRead flag.
-        self.append(
+        let surge_counts = session.inbox().surge_counts.clone();
+        let mut counts = surge_counts.lock().unwrap_or_else(|e| e.into_inner());
+        let prompt_ids = vec![prompt_id.to_owned()];
+        let need_you = counts.need_you_after_removing(&prompt_ids);
+        let event = self.append(
             session,
             "mux",
             "inbox_read",
-            json!({"threadId": thread, "promptIds": [prompt_id]}),
+            json!({"threadId": thread, "promptIds": prompt_ids,
+                "surge": {"held": counts.held, "needYou": need_you}}),
         );
+        counts.apply(&event);
         self.append(
             session,
             "mux",
@@ -2248,6 +2254,9 @@ impl Hub {
         let why = json!({"promptId": prompt_id, "threadId": removed.thread, "reason": "withdrawn"});
         let surge_counts = session.inbox().surge_counts.clone();
         let mut counts = surge_counts.lock().unwrap_or_else(|e| e.into_inner());
+        let need_you = counts.need_you_after_removing(&[prompt_id.to_owned()]);
+        let mut why = why;
+        why["surge"] = json!({"held": counts.held, "needYou": need_you});
         let event = self.append(session, "mux", "inbox_removed", why);
         counts.apply(&event);
         if let Some(answer) = removed.answer {
@@ -2454,8 +2463,9 @@ impl Hub {
         if !marked.is_empty() {
             let surge_counts = session.inbox().surge_counts.clone();
             let mut counts = surge_counts.lock().unwrap_or_else(|e| e.into_inner());
-            let msg =
-                json!({"threadId": thread, "promptIds": marked, "surgePromptIds": surge_marked});
+            let need_you = counts.need_you_after_removing(&marked);
+            let msg = json!({"threadId": thread, "promptIds": marked, "surgePromptIds": surge_marked,
+                "surge": {"held": counts.held, "needYou": need_you}});
             let event = self.append(session, "mux", "inbox_read", msg);
             counts.apply(&event);
         }
