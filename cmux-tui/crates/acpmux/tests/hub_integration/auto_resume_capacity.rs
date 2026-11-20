@@ -5,6 +5,22 @@
 use super::*;
 
 #[tokio::test]
+async fn capacity_retries_separated_by_model_progress_do_not_end_a_healthy_turn() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "capacity-progress").await;
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id,
+        "prompt": [{"type": "text", "text": "capacity-retry-progress"}]}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(row(&hub, &id)["lastTurn"]["status"], "completed");
+    assert!(records(&hub, &id, "capacity_retry_exhausted").is_empty());
+    assert!(records(&hub, &id, "auto_resume_scheduled").is_empty());
+}
+
+#[tokio::test]
 async fn capacity_retries_inside_codex_end_and_use_the_backed_off_budget() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![50, 100]);
