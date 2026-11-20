@@ -41,12 +41,16 @@ await requireBrowserLane("transcript-hover-gallery.test.ts", async () => {
           await page.mouse.move(2, 2);
           const link = variant === "run-link";
           await page.locator(link ? ".lg-run-links a" : "time.cv-time-hover").hover();
-          const popup = page.locator(link ? ".cv-link-preview" : '.ui-tooltip[role="tooltip"]');
+          const popup = page.locator(link ? ".cv-link-preview" : ".ui-tooltip");
           await popup.waitFor({ timeout: 3000 });
           expect(await popup.textContent()).not.toBe("");
           if (link) expect(await page.locator(".lg-run-links a").getAttribute("target")).toBe("_blank");
           if (process.env.FAST_CHECKS_OUT)
             await page.screenshot({ path: `${process.env.FAST_CHECKS_OUT}/${variant}-${colorScheme}.png` });
+        } catch (error) {
+          if (process.env.FAST_CHECKS_OUT)
+            await page.screenshot({ path: `${process.env.FAST_CHECKS_OUT}/${variant}-${colorScheme}-failed.png` });
+          throw error;
         } finally {
           await page.close();
         }
