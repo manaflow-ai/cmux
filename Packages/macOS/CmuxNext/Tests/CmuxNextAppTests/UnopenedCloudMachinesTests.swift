@@ -301,6 +301,32 @@ struct UnopenedCloudMachinesTests {
         #expect(registry.owner(of: "ws-image-terminal") != nil && registry.owner(of: "ws-chat") != nil)
     }
 
+    /// After Enter, the chat's Cloud workspace goes to the window it was sent from, shown there (the one sent from then
+    /// closes empty), and the machine's starter stays out: one workspace for the chat, in no other window.
+    @Test func aCloudChatsWorkspaceTakesTheWindowItWasSentFrom() throws {
+        let services = Self.services()
+        defer { Self.closeWindows(services) }
+        services.machines.local.store.apply(snapshot: DaemonTree(registryID: "s-local", workspaces: [
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "ws-above"), name: "above"),
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 2), key: WorkspaceKey(rawValue: "ws-sent-from"), name: "sent from"),
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 3), key: WorkspaceKey(rawValue: "ws-below"), name: "below"),
+        ]))
+        _ = services.windows.registry.apply { $0.openWindow(id: "w-other", workspaceIDs: []) }
+        _ = services.windows.registry.apply { $0.openWindow(id: "w-person", workspaceIDs: ["ws-above", "ws-sent-from", "ws-below"]) }
+        Self.chatMachine(services, id: "vm-in-place")
+        services.windows.reconcileMembership()
+
+        CloudHandlers.show("ws-chat", AppActionContext(services: services), replacing: "ws-sent-from")
+        services.windows.reconcileMembership()
+
+        let registry = services.windows.registry.value
+        #expect(registry.owner(of: "ws-chat") == "w-person", "the chat's workspace went to another window than the one it was sent from")
+        #expect(services.windows.states["w-person"]?.workspaceID == "ws-chat", "the chat's workspace is not the one shown")
+        #expect(registry.owner(of: "ws-image-terminal") == nil, "the machine's starter terminal workspace joined the sidebar")
+        // Its row lists under its Cloud machine's section (each machine's workspaces list in their own), not beside the one sent from.
+        #expect(registry.lists("ws-chat", in: "w-person"))
+    }
+
     @Test func onlyAWorkspaceOfAgentChatsLeavesItsMachineUnopened() {
         let held = WindowManager.unopenedCloudWorkspaces([["ws-chat", "ws-image"], ["ws-term", "ws-other"]],
                                                          opensMachine: { $0 != "ws-chat" }) { $0 == "ws-chat" || $0 == "ws-term" }
