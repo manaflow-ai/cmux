@@ -185,6 +185,36 @@ fn a_theme_file_sets_the_terminal_font_and_the_sidebar_shape() {
     );
 }
 
+/// Leo, 2026-11-18: "you guys should be customizing the tabs/sidebars a lot
+/// deeper too. prob likewise the session info and the top right buttons as
+/// well". A theme sets the toolbar's buttons, Session Info and the sidebar's
+/// buttons, and carries its own density (the app reads it), which the
+/// schema checks.
+#[test]
+fn a_theme_file_sets_the_buttons_session_info_and_its_own_density() {
+    let file = overlay(
+        r#"{ "tabs.toolbarButtons": ["file.open"], "window.titlebarButtons": "always", "sidebar.showSearchButton": false, "agentPane.display.sessionInfo.placement": "overlay", "density": { "basedOn": "compact", "tokens": { "tabCornerRadius": 2 } } }"#,
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(
+        file.keys(),
+        [
+            "agentPane.display.sessionInfo.placement",
+            "sidebar.showSearchButton",
+            "tabs.toolbarButtons",
+            "window.titlebarButtons"
+        ]
+    );
+    let schema = Schema::embedded().theme_file_json_schema(is_look);
+    let validator = jsonschema::validator_for(&schema).expect("a valid schema");
+    assert!(
+        validator
+            .is_valid(&json!({"density": {"basedOn": "cozy", "tokens": {"sidebarWidth": 250}}}))
+    );
+    assert!(!validator.is_valid(&json!({"density": {"basedOn": "huge"}})));
+    assert!(!validator.is_valid(&json!({"density": {"tokens": {"tabCornerRadius": "round"}}})));
+}
+
 #[test]
 fn a_relative_picture_resolves_against_the_themes_folder() {
     let folder = Path::new("/tmp/cmux-config/themes");
@@ -425,4 +455,44 @@ fn a_theme_file_carries_the_transcript_look_and_its_tokens() {
     let bad = overlay(r#"{ "agentPane.display.transcriptTokens": { "avatar": "on" } }"#);
     assert!(bad.keys().is_empty());
     assert!(bad.diagnostics.iter().any(|d| d.path == "agentPane.display.transcriptTokens"));
+}
+
+/// #44894: a key the person changed in Settings while the theme file sets it
+/// (`appearance.themeFileExceptions`) keeps the person's value; the file still
+/// applies everywhere else, as the Mac app's `ThemeFileOverlay` does.
+#[test]
+fn the_settings_owner_keeps_the_keys_changed_over_the_theme_file() {
+    use crate::managed::{FixedManagedReader, ManagedPreferences};
+    use crate::owner::ConfigStore;
+
+    let dir = std::env::temp_dir().join(format!("cmux-theme-exceptions-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("themes")).expect("dir");
+    let settings = dir.join("cmux-next.json");
+    std::fs::write(
+        &settings,
+        r#"{ "ui": { "reducedBackgrounds": false },
+             "appearance": { "themeFile": "tokyo", "backgroundOpacity": 0.6,
+                             "themeFileExceptions": ["appearance.backgroundOpacity", "ui.reducedBackgrounds"] } }"#,
+    )
+    .expect("write");
+    std::fs::write(
+        dir.join("themes/tokyo.json"),
+        r#"{ "ui.reducedBackgrounds": true, "appearance.backgroundOpacity": 0.85, "appearance.accent": "blue" }"#,
+    )
+    .expect("write");
+    let store = ConfigStore::open(
+        settings,
+        None,
+        None,
+        Box::new(FixedManagedReader(ManagedPreferences::default())),
+    );
+    let root = store.state().effective().root.clone();
+    assert_eq!(at(&root, "appearance.backgroundOpacity"), Some(&json!(0.6)));
+    assert_eq!(at(&root, "ui.reducedBackgrounds"), Some(&json!(false)));
+    assert_eq!(at(&root, "appearance.accent"), Some(&json!("blue")));
+    // A theme file never sets the list itself.
+    let file = overlay(r#"{ "appearance.themeFileExceptions": ["appearance.accent"] }"#);
+    assert!(file.keys().is_empty(), "{:?}", file.keys());
+    let _ = std::fs::remove_dir_all(&dir);
 }

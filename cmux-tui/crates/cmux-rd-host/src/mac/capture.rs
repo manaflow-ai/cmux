@@ -16,7 +16,7 @@ use std::os::fd::RawFd;
 use std::ptr::null_mut;
 use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[cfg(feature = "bench")]
 const PRESENTED_QUEUE_CAPACITY: usize = 4096;
@@ -40,6 +40,14 @@ const FRAME_COMPLETE: i64 = 0;
 const STOP_TIMEOUT: Duration = Duration::from_secs(2);
 /// How long ScreenCaptureKit may take to answer (it asks the window server).
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(10);
+/// SCStreamErrorUserStopped: the person stopped this capture from the macOS menu bar's
+/// screen-recording item. That is their Stop Sharing, so the session ends and is never restarted.
+const STOPPED_BY_PERSON: c_long = -3817;
+/// A stream ScreenCaptureKit stops for any other reason (another app's recording, a display
+/// change or sleep) is restarted, at most this many times within [`RESTART_WINDOW`]; past that
+/// the session ends with the reason instead of leaving the viewer on a frozen or black picture.
+const MAX_RESTARTS: usize = 3;
+const RESTART_WINDOW: Duration = Duration::from_secs(30);
 
 /// The streamed display in global points (CGEvent coordinates).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -159,6 +167,8 @@ struct Shared {
     /// The newest frame's display time and its arrival here, on the protocol clock in µs.
     newest_times: Option<(u64, u64)>,
     dirty: Vec<Rect>,
+    /// ScreenCaptureKit stopped the stream (`stream:didStopWithError:`): its error code and text.
+    stopped: Option<(c_long, String)>,
     #[cfg(feature = "bench")]
     presented: Option<crate::observe::PresentedSampleQueue>,
 }
@@ -226,6 +236,133 @@ pub struct Capture {
     wake_read: Fd,
     size: (u32, u32),
     bounds: Bounds,
+    restart: Restart,
+}
+
+/// What a restart needs to make the same stream again, and when it last did.
+struct Restart {
+    display: u32,
+    fps: u32,
+    shows_cursor: bool,
+    /// The restarts within the last [`RESTART_WINDOW`].
+    at: Vec<Instant>,
+}
+
+/// Whether a stream ScreenCaptureKit stopped with `code` may restart now, given the restarts
+/// `at` (kept to the last [`RESTART_WINDOW`], `now` added when it may); else why the session ends.
+fn restart_allowed(code: c_long, reason: &str, at: &mut Vec<Instant>, now: Instant) -> Res<()> {
+    if code == STOPPED_BY_PERSON {
+        return Err("sharing was stopped from the macOS menu bar".into());
+    }
+    at.retain(|then| now.duration_since(*then) < RESTART_WINDOW);
+    if at.len() >= MAX_RESTARTS {
+        return Err(format!("the screen capture keeps stopping ({reason})").into());
+    }
+    at.push(now);
+    Ok(())
+}
+
+/// A stream of `display` at `size`, its stops reported to `delegate` (the capture's output).
+///
+/// # Safety
+/// `display` is a live SCDisplay and `delegate` a live CmuxRdCaptureOutput.
+unsafe fn new_stream(
+    display: Id,
+    size: (u32, u32),
+    fps: u32,
+    shows_cursor: bool,
+    delegate: Id,
+) -> Res<Id> {
+    // SAFETY: each message is sent with its documented C signature to the object just created
+    // (alloc/init pairs return +1 references released here or by the caller).
+    unsafe {
+        let empty = sys::send_id(sys::class(c"NSArray"), c"array");
+        let filter = msg::<unsafe extern "C" fn(Id, Sel, Id, Id) -> Id>()(
+            sys::send_id(sys::class(c"SCContentFilter"), c"alloc"),
+            sel(c"initWithDisplay:excludingWindows:"),
+            display,
+            empty,
+        );
+        let config = sys::send_id(sys::class(c"SCStreamConfiguration"), c"new");
+        if filter.is_null() || config.is_null() {
+            sys::release(filter);
+            sys::release(config);
+            return Err("ScreenCaptureKit did not make a filter and configuration".into());
+        }
+        let set_size = msg::<unsafe extern "C" fn(Id, Sel, usize)>();
+        set_size(config, sel(c"setWidth:"), size.0 as usize);
+        set_size(config, sel(c"setHeight:"), size.1 as usize);
+        msg::<unsafe extern "C" fn(Id, Sel, CMTime)>()(
+            config,
+            sel(c"setMinimumFrameInterval:"),
+            min_frame_interval(fps),
+        );
+        msg::<unsafe extern "C" fn(Id, Sel, u32)>()(config, sel(c"setPixelFormat:"), PIXEL_420V);
+        msg::<unsafe extern "C" fn(Id, Sel, c_long)>()(config, sel(c"setQueueDepth:"), QUEUE_DEPTH);
+        // Without the cursor when the viewer draws it from metadata (cap `cursor`): one
+        // cursor on the viewer's screen, not the local one over a baked-in copy.
+        msg::<unsafe extern "C" fn(Id, Sel, bool)>()(config, sel(c"setShowsCursor:"), shows_cursor);
+        msg::<unsafe extern "C" fn(Id, Sel, *const c_void)>()(
+            config,
+            sel(c"setColorSpaceName:"),
+            cg::kCGColorSpaceSRGB(),
+        );
+        // The delegate hears `stream:didStopWithError:`: without one a stream ScreenCaptureKit
+        // stopped (another app's recording, a display change) left the viewer on a stale or
+        // black picture with no error.
+        let stream = msg::<unsafe extern "C" fn(Id, Sel, Id, Id, Id) -> Id>()(
+            sys::send_id(sys::class(c"SCStream"), c"alloc"),
+            sel(c"initWithFilter:configuration:delegate:"),
+            filter,
+            config,
+            delegate,
+        );
+        sys::release(filter);
+        sys::release(config);
+        if stream.is_null() {
+            return Err("ScreenCaptureKit did not make a stream".into());
+        }
+        Ok(stream)
+    }
+}
+
+/// Adds the capture's output to `stream`, its samples handled on `queue`.
+fn add_output(stream: Id, output: Id, queue: sys::DispatchQueue) -> Res<()> {
+    let mut error: Id = null_mut();
+    // SAFETY: -[SCStream addStreamOutput:type:sampleHandlerQueue:error:] on live objects.
+    let added = unsafe {
+        msg::<unsafe extern "C" fn(Id, Sel, Id, c_long, sys::DispatchQueue, *mut Id) -> bool>()(
+            stream,
+            sel(c"addStreamOutput:type:sampleHandlerQueue:error:"),
+            output,
+            OUTPUT_SCREEN,
+            queue,
+            &raw mut error,
+        )
+    };
+    if added {
+        Ok(())
+    } else {
+        Err(format!("capture output handler: {}", sys::error_text(error)).into())
+    }
+}
+
+/// Starts `stream` and waits (bounded) for ScreenCaptureKit's answer.
+fn start_stream(stream: Id) -> Res<()> {
+    let (tx, rx) = sync_channel::<StartAnswer>(1);
+    let started = block(capture_started as *const c_void, c"v@?@", tx);
+    // SAFETY: -[SCStream startCaptureWithCompletionHandler:] with a block of the handler's type.
+    unsafe {
+        msg::<unsafe extern "C" fn(Id, Sel, *mut c_void)>()(
+            stream,
+            sel(c"startCaptureWithCompletionHandler:"),
+            started.cast(),
+        );
+    }
+    rx.recv_timeout(ANSWER_TIMEOUT)
+        .map_err(|_| "capture did not start (no answer from ScreenCaptureKit)")?
+        .map_err(|e| format!("capture did not start: {e}"))?;
+    Ok(())
 }
 
 // SAFETY: the stream, output and queue are Objective-C objects used through thread-safe
@@ -555,7 +692,28 @@ extern "C" fn did_output(
     sink.wake.wake();
 }
 
-/// The output class, registered once: an NSObject that conforms to SCStreamOutput.
+/// `-[CmuxRdCaptureOutput stream:didStopWithError:]` (SCStreamDelegate), on a ScreenCaptureKit
+/// queue: records why and wakes the session, whose next drain restarts the stream or ends it.
+extern "C" fn did_stop(this: Id, _cmd: Sel, _stream: Id, error: Id) {
+    let sink = {
+        let sinks = sinks().lock().unwrap_or_else(|p| p.into_inner());
+        sinks.iter().find(|(object, _)| *object == this as usize).map(|(_, sink)| sink.clone())
+    };
+    let Some(sink) = sink else { return };
+    let stopped = if error.is_null() {
+        (0, "no reason given".to_string())
+    } else {
+        // SAFETY: -[NSError code] on the error ScreenCaptureKit passed in.
+        let code = unsafe { msg::<unsafe extern "C" fn(Id, Sel) -> c_long>()(error, sel(c"code")) };
+        (code, sys::error_text(error))
+    };
+    eprintln!("cmux-rd host: the screen capture stopped ({}: {})", stopped.0, stopped.1);
+    sink.shared.lock().unwrap_or_else(|p| p.into_inner()).stopped = Some(stopped);
+    sink.wake.wake();
+}
+
+/// The output class, registered once: an NSObject that conforms to SCStreamOutput and, for the
+/// stream's stop, SCStreamDelegate.
 fn output_class() -> Res<Class> {
     static CLASS: OnceLock<Result<usize, String>> = OnceLock::new();
     let class = CLASS.get_or_init(|| {
@@ -573,6 +731,17 @@ fn output_class() -> Res<Class> {
             if !protocol.is_null() {
                 objc::class_addProtocol(class, protocol);
             }
+            let delegate = objc::objc_getProtocol(c"SCStreamDelegate".as_ptr());
+            if !delegate.is_null() {
+                objc::class_addProtocol(class, delegate);
+            }
+            let stop_types: &CStr = c"v@:@@";
+            objc::class_addMethod(
+                class,
+                sel(c"stream:didStopWithError:"),
+                did_stop as *const c_void,
+                stop_types.as_ptr(),
+            );
             let types: &CStr = c"v@:@^vq";
             objc::class_addMethod(
                 class,
@@ -677,65 +846,14 @@ impl Capture {
                 c"com.cmuxterm.rd.capture".as_ptr(),
                 std::ptr::null(),
             );
-            let empty = sys::send_id(sys::class(c"NSArray"), c"array");
-            let filter = msg::<unsafe extern "C" fn(Id, Sel, Id, Id) -> Id>()(
-                sys::send_id(sys::class(c"SCContentFilter"), c"alloc"),
-                sel(c"initWithDisplay:excludingWindows:"),
-                display,
-                empty,
-            );
-            let config = sys::send_id(sys::class(c"SCStreamConfiguration"), c"new");
-            if filter.is_null() || config.is_null() {
-                sys::release(filter);
-                sys::release(config);
-                sys::release(output);
-                sys::system::dispatch_release(queue);
-                return Err("ScreenCaptureKit did not make a filter and configuration".into());
-            }
-            let set_size = msg::<unsafe extern "C" fn(Id, Sel, usize)>();
-            set_size(config, sel(c"setWidth:"), size.0 as usize);
-            set_size(config, sel(c"setHeight:"), size.1 as usize);
-            msg::<unsafe extern "C" fn(Id, Sel, CMTime)>()(
-                config,
-                sel(c"setMinimumFrameInterval:"),
-                min_frame_interval(fps),
-            );
-            msg::<unsafe extern "C" fn(Id, Sel, u32)>()(
-                config,
-                sel(c"setPixelFormat:"),
-                PIXEL_420V,
-            );
-            msg::<unsafe extern "C" fn(Id, Sel, c_long)>()(
-                config,
-                sel(c"setQueueDepth:"),
-                QUEUE_DEPTH,
-            );
-            // Without the cursor when the viewer draws it from metadata (cap `cursor`): one
-            // cursor on the viewer's screen, not the local one over a baked-in copy.
-            msg::<unsafe extern "C" fn(Id, Sel, bool)>()(
-                config,
-                sel(c"setShowsCursor:"),
-                shows_cursor,
-            );
-            msg::<unsafe extern "C" fn(Id, Sel, *const c_void)>()(
-                config,
-                sel(c"setColorSpaceName:"),
-                cg::kCGColorSpaceSRGB(),
-            );
-            let stream = msg::<unsafe extern "C" fn(Id, Sel, Id, Id, Id) -> Id>()(
-                sys::send_id(sys::class(c"SCStream"), c"alloc"),
-                sel(c"initWithFilter:configuration:delegate:"),
-                filter,
-                config,
-                null_mut(),
-            );
-            sys::release(filter);
-            sys::release(config);
-            if stream.is_null() {
-                sys::release(output);
-                sys::system::dispatch_release(queue);
-                return Err("ScreenCaptureKit did not make a stream".into());
-            }
+            let stream = match new_stream(display, size, fps, shows_cursor, output) {
+                Ok(stream) => stream,
+                Err(e) => {
+                    sys::release(output);
+                    sys::system::dispatch_release(queue);
+                    return Err(e);
+                }
+            };
             let shared = Arc::new(Mutex::new(Shared {
                 #[cfg(feature = "bench")]
                 presented: marker.map(|_| {
@@ -752,31 +870,21 @@ impl Capture {
                 marker,
             });
             sinks().lock().unwrap_or_else(|p| p.into_inner()).push((output as usize, sink));
-            let mut error: Id = null_mut();
-            let added = msg::<
-                unsafe extern "C" fn(Id, Sel, Id, c_long, sys::DispatchQueue, *mut Id) -> bool,
-            >()(
+            let added = add_output(stream, output, queue);
+            let restart = Restart { display: id, fps, shows_cursor, at: Vec::new() };
+            let capture = Self {
                 stream,
-                sel(c"addStreamOutput:type:sampleHandlerQueue:error:"),
                 output,
-                OUTPUT_SCREEN,
                 queue,
-                &raw mut error,
-            );
-            let capture = Self { stream, output, queue, shared, wake_read, size, bounds, added };
-            if !added {
-                return Err(format!("capture output handler: {}", sys::error_text(error)).into());
-            }
-            let (tx, rx) = sync_channel::<StartAnswer>(1);
-            let started = block(capture_started as *const c_void, c"v@?@", tx);
-            msg::<unsafe extern "C" fn(Id, Sel, *mut c_void)>()(
-                stream,
-                sel(c"startCaptureWithCompletionHandler:"),
-                started.cast(),
-            );
-            rx.recv_timeout(ANSWER_TIMEOUT)
-                .map_err(|_| "capture did not start (no answer from ScreenCaptureKit)")?
-                .map_err(|e| format!("capture did not start: {e}"))?;
+                shared,
+                wake_read,
+                size,
+                bounds,
+                added: added.is_ok(),
+                restart,
+            };
+            added?;
+            start_stream(stream)?;
             eprintln!(
                 "cmux-rd host: capturing display {id} ({}x{} px, {}x{} pt at {},{}), {fps} fps",
                 size.0, size.1, bounds.width, bounds.height, bounds.x, bounds.y
@@ -795,6 +903,67 @@ impl Capture {
 
     pub fn fd(&self) -> RawFd {
         self.wake_read.0
+    }
+
+    /// After ScreenCaptureKit stopped the stream: the same stream again, or the reason the
+    /// session ends. A stop the person made from the macOS menu bar ends it (their Stop
+    /// Sharing); any other stop restarts, at most [`MAX_RESTARTS`] times in [`RESTART_WINDOW`].
+    pub fn recover(&mut self) -> Res<()> {
+        let stopped = self.shared.lock().unwrap_or_else(|p| p.into_inner()).stopped.take();
+        let Some((code, reason)) = stopped else { return Ok(()) };
+        restart_allowed(code, &reason, &mut self.restart.at, Instant::now())?;
+        self.restart_stream().map_err(|e| {
+            format!("the screen capture stopped ({reason}) and did not restart: {e}").into()
+        })
+    }
+
+    /// Replaces the stopped stream with a new one of the same display, size and rate, with the
+    /// same output, queue and wake pipe: the session and the encode thread keep their handles.
+    fn restart_stream(&mut self) -> Res<()> {
+        let _pool = AutoreleasePool::new();
+        let (content, displays) = shareable_displays()?;
+        let wanted = self.restart.display;
+        let made = displays
+            .iter()
+            .find(|d| d.1 == wanted)
+            .map(|d| d.0)
+            .ok_or_else(|| format!("display {wanted} is no longer there").into())
+            .and_then(|display| {
+                // SAFETY: a display ScreenCaptureKit just listed, and this capture's own output.
+                unsafe {
+                    new_stream(
+                        display,
+                        self.size,
+                        self.restart.fps,
+                        self.restart.shows_cursor,
+                        self.output,
+                    )
+                }
+            });
+        release_all(content, &displays);
+        let stream = made?;
+        // The old stream already stopped: its output leaves it before it is released.
+        if self.added {
+            let mut error: Id = null_mut();
+            // SAFETY: -[SCStream removeStreamOutput:type:error:] on this capture's own stream.
+            unsafe {
+                msg::<unsafe extern "C" fn(Id, Sel, Id, c_long, *mut Id) -> bool>()(
+                    self.stream,
+                    sel(c"removeStreamOutput:type:error:"),
+                    self.output,
+                    OUTPUT_SCREEN,
+                    &raw mut error,
+                );
+            }
+        }
+        sys::release(self.stream);
+        self.stream = stream;
+        self.added = false;
+        add_output(stream, self.output, self.queue)?;
+        self.added = true;
+        start_stream(stream)?;
+        eprintln!("cmux-rd host: the screen capture restarted");
+        Ok(())
     }
 
     fn clear_wakes(&self) {
@@ -906,6 +1075,30 @@ impl Drop for Capture {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stop_from_the_menu_bar_ends_the_share() {
+        let mut at = Vec::new();
+        let ended = restart_allowed(STOPPED_BY_PERSON, "stopped", &mut at, Instant::now());
+        assert_eq!(ended.unwrap_err().to_string(), "sharing was stopped from the macOS menu bar");
+        assert!(at.is_empty());
+    }
+
+    #[test]
+    fn other_stops_restart_until_they_repeat_too_often() {
+        let start = Instant::now();
+        let mut at = Vec::new();
+        for i in 0..MAX_RESTARTS as u64 {
+            let now = start + Duration::from_secs(i);
+            assert!(restart_allowed(-3821, "display changed", &mut at, now).is_ok());
+        }
+        let now = start + Duration::from_secs(MAX_RESTARTS as u64);
+        let ended = restart_allowed(-3821, "display changed", &mut at, now).unwrap_err();
+        assert_eq!(ended.to_string(), "the screen capture keeps stopping (display changed)");
+        // Once the window has passed, a stop restarts again.
+        let later = start + RESTART_WINDOW + Duration::from_secs(MAX_RESTARTS as u64);
+        assert!(restart_allowed(-3821, "display changed", &mut at, later).is_ok());
+    }
 
     #[test]
     fn sizes_fit_the_decoder_and_stay_even() {
