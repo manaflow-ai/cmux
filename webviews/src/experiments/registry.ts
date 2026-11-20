@@ -17,6 +17,7 @@ import { backgroundTurnLook } from "../agent-session/acpmux/conversation/backgro
 import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
 import { cloudStartComposerLook } from "../agent-session/acpmux/cloudStartComposer.experiment";
 import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experiment";
+import { startRecoveryLook } from "../agent-session/acpmux/startRecovery.experiment";
 import { cloudStartAskLook } from "../agent-session/acpmux/cloudStartAsk.experiment";
 import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.experiment";
 import { liveLineTokens } from "../agent-session/acpmux/conversation/liveLineTokens.experiment";
@@ -143,6 +144,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   cloudStartLook,
   cloudProgressLook,
   cloudStartAskLook,
+  startRecoveryLook,
   agentStartLook,
   liveLineTokens,
   compactingLine,
