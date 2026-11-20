@@ -55,9 +55,11 @@ EXCEPTIONS: dict[re.Pattern[str], str] = {
     # (they read the pool or the one Linux label). A new entry names the text before its literal and why.
 }
 # Whole selections that keep their literal on purpose -> why.
-SELECTIONS_KEPT_LITERAL: dict[tuple[str, str], str] = {
-    # Empty since 2026-11-20: cmux-next-guards.yml's signing-runner-variables takes the one Linux label,
-    # 'cmux-linux', which reads no runner variable, so it needs no literal (scripts/ci/one_linux_label.py).
+SELECTIONS_KEPT_LITERAL = {
+    ("cmux-next-guards.yml", "jobs.signing-runner-variables.runs-on"): (
+        "the job checks the runner variables themselves, so its own route must not read them: with a bad value it "
+        "would queue on that value instead of going red"
+    ),
 }
 # A job that holds signing or release material keeps its route under its own trust rules
 # (tests/test_ci_release_sdk_lane.sh, tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py).

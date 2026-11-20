@@ -1580,14 +1580,10 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
         # Every Linux job on the one label cmux-linux (scripts/ci/one_linux_label.py), a persistent pool, is checked.
-        self.assertEqual(sorted(checked), ["app-compile-placement", "checks", "cmux-scheme-compile", "daemon-test",
-                                           "dev-daily-place", "dev-daily-tree-wait", "dev-landing-compile",
-                                           "dev-landing-place", "fast-tier", "fast-tier-cargo",
-                                           "fast-tier-handback-placement", "fast-tier-rerun-placement",
-                                           "generated-files", "macos-placement", "path_route", "portable-placement",
-                                           "release-compile", "release-compile-fast-admission",
-                                           "request-nightly-next", "same-tree-cmux-tui", "same-tree-status-daemon",
-                                           "same-tree-status-scheme", "swift-canary", "swift-exports-cache",
+        # one_linux_label.FRESH_VM_JOBS keep their ephemeral route until they get the reset step.
+        self.assertEqual(sorted(checked), ["checks", "cmux-scheme-compile", "daemon-test", "dev-landing-compile",
+                                           "fast-tier", "generated-files", "path_route", "portable-placement",
+                                           "release-compile", "request-nightly-next", "swift-canary",
                                            "swift-test", "web-bundles"])
 
 
