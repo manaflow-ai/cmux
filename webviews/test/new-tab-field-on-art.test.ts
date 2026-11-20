@@ -165,6 +165,10 @@ await requireBrowserLane("new-tab-field-on-art.test.ts", async () => {
           parseFloat(await corner(".nt-box")),
           2,
         );
+        expect(
+          await page.$eval("#rows", (node) => getComputedStyle(node).borderTopLeftRadius),
+          "the list clips to the popover's corner",
+        ).toBe(await corner(".nt-popover"));
         const consoleRow = await metrics("#row", "#rows");
         expect(parseFloat(consoleRow.inset) + parseFloat(consoleRow.radius), "concentric in Console").toBeCloseTo(
           consoleCorner,
@@ -207,6 +211,7 @@ await requireBrowserLane("new-tab-field-on-art.test.ts", async () => {
                   corner: parseFloat(getComputedStyle(popover).borderTopLeftRadius),
                   // In drawn pixels: the lone row's whole-pixel padding less the list's.
                   extra: (padding() - listPadding) * (parseFloat(getComputedStyle(popover).zoom) || 1),
+                  drawnPadding: padding() * (parseFloat(getComputedStyle(popover).zoom) || 1),
                 };
                 popover.classList.remove("nt-popover-single");
                 return { box: corner(box, box.closest(".nt-composer")!), popover: corner(popover, popover), lone };
@@ -219,6 +224,10 @@ await requireBrowserLane("new-tab-field-on-art.test.ts", async () => {
               2 * drawn.lone.corner - 0.01,
             );
             expect(drawn.lone.extra, `density ${t}: a lone row rounds its padding up by under a pixel`).toBeLessThan(1);
+            expect(drawn.lone.drawnPadding % 1, `density ${t}: a lone row's padding is whole drawn pixels`).toBeCloseTo(
+              Math.round(drawn.lone.drawnPadding % 1),
+              2,
+            );
           }
         }
         await page.close();

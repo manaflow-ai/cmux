@@ -1210,6 +1210,8 @@ export function NewTabScreen(props: Props) {
     (node: HTMLDivElement | null) => {
       list.current = node;
       listEdges(node);
+      // A list that opens again opens under a pointer that may have moved while it was closed: the spot is unknown.
+      pointerAt.current = "";
     },
     [listEdges],
   );

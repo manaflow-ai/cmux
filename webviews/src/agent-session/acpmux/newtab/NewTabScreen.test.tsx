@@ -191,6 +191,12 @@ test("the pointer and the arrow keys move one selection in the suggestions", asy
   expect(selected(), "a still pointer does not take the selection back").toEqual([last - 1]);
   await move(last, 102);
   expect(selected(), "a moved pointer does").toEqual([last]);
+  // Closed and opened again under a pointer that moved while it was closed: its first move only records the spot.
+  await typePrompt("");
+  await typePrompt("ls");
+  const before = selected();
+  await move(before[0] === 0 ? last : 0, 300);
+  expect(selected(), "a reopened list keeps its selection on the first move").toEqual(before);
 });
 
 test.each(["terminal", "browser", "chat"] as const)(
