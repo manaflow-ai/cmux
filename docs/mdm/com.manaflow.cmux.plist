@@ -171,7 +171,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>cmux stays in the menu bar until a window opens.</string>
 			<key>pfm_name</key>
@@ -790,6 +790,34 @@
 			<string>Install Updates When Quitting</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running.</string>
+			<key>pfm_name</key>
+			<string>updates.installWhenIdle</string>
+			<key>pfm_title</key>
+			<string>Update When Idle</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>15</integer>
+			<key>pfm_description</key>
+			<string>How long cmux must be idle before Update When Idle installs.</string>
+			<key>pfm_name</key>
+			<string>updates.installWhenIdleMinutes</string>
+			<key>pfm_range_max</key>
+			<real>240</real>
+			<key>pfm_range_min</key>
+			<real>1</real>
+			<key>pfm_title</key>
+			<string>Idle Time Before Updating</string>
+			<key>pfm_type</key>
+			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -3340,6 +3368,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>Calm while agents are idle; a soft glow in the machine's color when an agent needs you.</string>
+			<key>pfm_name</key>
+			<string>appearance.agentGlow</string>
+			<key>pfm_title</key>
+			<string>React to Agents</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Applies Hue and Saturation to the window's tint. Off, they have no effect.</string>
 			<key>pfm_name</key>
 			<string>appearance.experimentalControls</string>
@@ -5211,6 +5251,72 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>cadenced</string>
+			<key>pfm_description</key>
+			<string>How the light band moves across the live status line.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.thinking.shimmer</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>cadenced</string>
+				<string>continuous</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Thinking Shimmer</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>1250</integer>
+			<key>pfm_description</key>
+			<string>How long one continuous pass of the shimmer takes.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.thinking.shimmerPeriod</string>
+			<key>pfm_range_max</key>
+			<real>4000</real>
+			<key>pfm_range_min</key>
+			<real>600</real>
+			<key>pfm_title</key>
+			<string>Shimmer Speed</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>0</integer>
+			<key>pfm_description</key>
+			<string>The width of the shimmer's light band. 0 uses half the line.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.thinking.shimmerBand</string>
+			<key>pfm_range_max</key>
+			<real>240</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Shimmer Width</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>arrow</string>
+			<key>pfm_description</key>
+			<string>What the Jump to latest button shows while the agent works.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.thinking.jumpButton</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>arrow</string>
+				<string>dots</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Jump to Latest While Working</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>symbols</string>
 			<key>pfm_name</key>
 			<string>agentPane.display.harnessPlacement</string>
@@ -6229,6 +6335,18 @@
 			<string>Sidebar Style</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Right-click and more-button menus in the sidebar follow the menu look instead of the system menu.</string>
+			<key>pfm_name</key>
+			<string>sidebar.drawnMenus</string>
+			<key>pfm_title</key>
+			<string>Styled Sidebar Menus</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -9481,6 +9599,23 @@
 			<string>Mark the Sidebar Row</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>badge</string>
+			<key>pfm_description</key>
+			<string>How a tab and a sidebar row that wait for you show it: the badge, or a gentle glow until you look at them.</string>
+			<key>pfm_name</key>
+			<string>notifications.attention.mark</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>badge</string>
+				<string>glow</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Needs You Look</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
