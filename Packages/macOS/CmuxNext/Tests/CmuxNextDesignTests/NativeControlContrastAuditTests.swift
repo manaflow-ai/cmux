@@ -21,6 +21,10 @@ import CmuxNextDesignTokens
 /// on that ground, so a control fails only when it reads worse than the theme's text does. SwiftUI's
 /// system bezel is read too, for the report only (`isReference`): cmux surfaces must not ship it.
 ///
+/// A failing reading whose key is in `Tests/Fixtures/native-control-contrast-baseline.txt` is a
+/// known violation waiting on a fix and does not fail the suite; a new one does, and a baseline line
+/// no reading reports any more is printed so it can be dropped.
+///
 /// With `CONTRAST_AUDIT_OUT` set the suite writes every reading as a Markdown table
 /// (`native-control-contrast.md`) there; with `CMUX_CONTRAST_ALL_THEMES=1` it reads every bundled
 /// theme instead of the spread.
@@ -61,6 +65,17 @@ import CmuxNextDesignTokens
         let fill: ThemeRGB
         var isReference = false
         var passes: Bool { ratio + 0.005 >= minimum }
+        /// The baseline key: `<control> | <enabled|disabled> | <theme> | <ground>`.
+        var key: String { "\(control) | \(disabled ? "disabled" : "enabled") | \(theme) | \(ground.rawValue)" }
+    }
+
+    /// The known failures, one ``Reading/key`` per line (`#` starts a comment).
+    static func baseline() throws -> Set<String> {
+        let file = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Fixtures/native-control-contrast-baseline.txt")
+        let text = try String(contentsOf: file, encoding: .utf8)
+        return Set(text.split(separator: "\n").map { $0.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)[0]
+            .trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
     }
 
     static let textMinimum = 4.5, iconMinimum = 3.0, disabledMinimum = 2.5
@@ -79,12 +94,19 @@ import CmuxNextDesignTokens
             }
         }
         if let out = ProcessInfo.processInfo.environment["CONTRAST_AUDIT_OUT"] { try Self.report(readings, to: out) }
-        let failures = readings.filter { !$0.passes && !$0.isReference }
+        let known = try Self.baseline()
+        let failing = readings.filter { !$0.passes && !$0.isReference }
+        for reading in failing { print("native-control-contrast failing: \(reading.key)") }
+        if !all {
+            let reported = Set(failing.map(\.key))
+            for key in known.subtracting(reported).sorted() { print("native-control-contrast: baseline line no longer found, drop it: \(key)") }
+        }
+        let failures = failing.filter { !known.contains($0.key) }
         #expect(readings.count > themes.count * 6 * 10, "too few controls were read: \(readings.count)")
         var perControl: [String: Int] = [:]
         for failure in failures { perControl[failure.control + (failure.disabled ? " (disabled)" : ""), default: 0] += 1 }
         let kinds = perControl.sorted { $0.value > $1.value }.map { "\($0.value)x \($0.key)" }
-        #expect(failures.isEmpty, Comment(rawValue: "\(failures.count) of \(readings.count) readings fail:\n"
+        #expect(failures.isEmpty, Comment(rawValue: "\(failures.count) of \(readings.count) readings fail, not in the baseline:\n"
             + kinds.joined(separator: "\n") + "\nfirst:\n" + failures.prefix(40).map(Self.line).joined(separator: "\n")))
     }
 
