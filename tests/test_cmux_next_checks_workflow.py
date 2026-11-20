@@ -2893,7 +2893,7 @@ class ChecksTimeoutFitsItsRunner(unittest.TestCase):
 
     #42624, a data-only devbox image promotion, was placed on a mini on all three of its heads; each run
     hit the 15-minute timeout sized for Blacksmith (jobs 131984422217, 132002973791, 132013731059: the
-    runner hook's admission wait and the slower checks), ended cancelled, and merge_hold had no verdict.
+    runner hook's admission wait and the slower checks), ended cancelled, and land-judge had no verdict.
     """
 
     def context(self, **extra) -> dict:
