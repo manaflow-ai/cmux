@@ -2,7 +2,8 @@
 //
 // A new Cloud chat's folder menu with its GitHub part (githubRepos.ts, FolderPopover `github`): the
 // one Connect to GitHub row while GitHub is not connected (at rest, waiting for the browser, refused,
-// signed out, not set up), the repositories once it is ready, and a failed read with Retry.
+// signed out), none where it can't connect (not set up, unchecked), the repositories once it is ready,
+// and a failed read with Retry.
 import type { ComponentProps } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
@@ -76,7 +77,7 @@ export default componentEntry<Props>({
     },
     layoutShiftMax: {
       value: 0,
-      reason: "Connect to GitHub keeps the menu open and its list in place; only the row's second line changes.",
+      reason: "Connect to GitHub keeps the menu open and its list in place; the row draws its title alone.",
     },
     longFrameFailMs: {
       value: 33,
@@ -85,17 +86,17 @@ export default componentEntry<Props>({
   },
   variants: {
     "not-connected": {
-      note: "A new Cloud chat before GitHub is connected: one Connect to GitHub row ends the list; one click opens the install page, the menu stays open.",
+      note: "A new Cloud chat before GitHub is connected: Connect to GitHub sits with the fixed actions under the list, its title alone; one click opens the install page, the menu stays open.",
       props: { ...base, github: notConnected },
       play: openFolder,
     },
     waiting: {
-      note: "After the click: a quiet Waiting for GitHub… under the row until the window comes back and the status says ready.",
+      note: "After the click: the row stays its title alone (GitHub's own page is the one wait, #46018) until the window comes back and the status says ready.",
       props: { ...base, github: picker({ status: { state: "not_connected", reposScope: null }, waiting: true }) },
       play: openFolder,
     },
     ready: {
-      note: "Installed for selected repositories: a GitHub group under the folders, a lock on private ones, then Choose more repositories….",
+      note: "Installed for selected repositories: a GitHub group in the list, a lock on private ones; Choose more repositories… sits with the fixed actions under Add folder….",
       props: { ...base, github: picker({ status: { state: "ready", reposScope: "selected" }, repos: REPOS }) },
       play: openFolder,
     },
@@ -110,17 +111,17 @@ export default componentEntry<Props>({
       play: openFolder,
     },
     unavailable: {
-      note: "GitHub unavailable (the check did not answer): the same Connect to GitHub row; a click connects in place, the menu stays open.",
+      note: "GitHub unavailable (the check did not answer): no Connect to GitHub row, since a connected team's check can fail too (#46018).",
       props: { ...base, github: picker({ status: { state: "unavailable", reposScope: null, reason: "unreachable" } }) },
       play: openFolder,
     },
     "unavailable-signed-out": {
-      note: "Signed out of the Cloud service: the same row, with Sign in to cmux first under it; a click opens sign-in.",
+      note: "Signed out of the Cloud service: the same row, its title alone; a click opens sign-in.",
       props: { ...base, github: picker({ status: { state: "unavailable", reposScope: null, reason: "signed_out" } }) },
       play: openFolder,
     },
     "unavailable-not-configured": {
-      note: "No GitHub App on this Cloud service: a quiet second line says so; the row still tries on a click.",
+      note: "No GitHub App on this Cloud service: no Connect to GitHub row, since a click could connect nothing (#46018).",
       props: {
         ...base,
         github: picker({ status: { state: "unavailable", reposScope: null, reason: "not_configured" } }),
@@ -139,7 +140,7 @@ export default componentEntry<Props>({
       play: openFolder,
     },
     error: {
-      note: "Reading the repositories failed: one short line with Retry under the list.",
+      note: "Reading the repositories failed: the GitHub row becomes Retry, the error its second line; a click reads again with the menu open.",
       props: {
         ...base,
         github: picker({ status: { state: "ready", reposScope: "all" }, error: "GitHub didn't answer." }),
