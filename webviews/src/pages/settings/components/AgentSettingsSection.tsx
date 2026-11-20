@@ -314,8 +314,12 @@ function AgentPanel({
 export function AgentSettingsSection() {
   const store = useStore();
   const root = useRef<HTMLDivElement>(null);
-  const mountedAt = useRef(performance.now());
+  const mountedAt = useRef<number | null>(null);
   const painted = useRef(false);
+  // Recorded at mount, not during render, so the render stays pure.
+  useLayoutEffect(() => {
+    mountedAt.current = performance.now();
+  }, []);
   const [reads, setReads] = useState<Record<AgentConfigAgent, AgentRead>>({
     claude: { phase: "loading" },
     codex: { phase: "loading" },
@@ -342,7 +346,7 @@ export function AgentSettingsSection() {
   // Time to first paint of the data: from mount to both agents drawn (read or failed).
   const settled = AGENT_CONFIG_AGENTS.every((agent) => reads[agent].phase !== "loading");
   useLayoutEffect(() => {
-    if (!settled || painted.current || !root.current) return;
+    if (!settled || painted.current || !root.current || mountedAt.current === null) return;
     painted.current = true;
     root.current.dataset.renderMs = String(Math.round(performance.now() - mountedAt.current));
   }, [settled]);
@@ -352,15 +356,14 @@ export function AgentSettingsSection() {
   const run = useCallback(
     async (agent: AgentConfigAgent, change: Omit<AgentConfigRun, "agent">): Promise<string | null> => {
       setBusy(agent);
-      try {
+      const attempt = async (): Promise<string | null> => {
         const answer = await store.runAgentConfig({ ...change, agent });
         if ("error" in answer) return answer.error;
         if ("enabled" in answer) return t("settingsWindow.agentConfig.unavailable");
         if (change.verb !== "open") await load(agent);
         return null;
-      } finally {
-        setBusy(null);
-      }
+      };
+      return attempt().finally(() => setBusy(null));
     },
     [store, load],
   );
