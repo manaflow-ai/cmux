@@ -10,7 +10,7 @@ use sha2::{Digest as _, Sha256};
 use super::copy::{self, Action as CopyAction};
 use super::live::{self, Daemon, Phases, Store};
 use super::resolve::{self, Spec, Unresolved};
-use super::{Command, Live, Plan, choose, parse, try_live, undo_live};
+use super::{Command, Live, Plan, choose, parse, run_channel_once_for_test, try_live, undo_live};
 
 const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 const APP_COMMIT: &str = "89abcde";

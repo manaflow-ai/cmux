@@ -145,7 +145,7 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
         return Err(unexpected(flag));
     }
     match words.as_slice() {
-        ["channel"] => Ok(Command::Channel { dry_run, app }),
+        [word] if word == "channel" => Ok(Command::Channel { dry_run, app }),
         [verb] if verb == "status" => {
             if dry_run || app.is_some() {
                 return Err(UsageError::new(messages().usage));
@@ -526,7 +526,7 @@ where
 #[cfg(test)]
 fn run_channel_once_for_test(
     app: &Path,
-    store: &live::Store,
+    store: &Store,
     channel_body: &[u8],
     live_body: &[u8],
     base: &str,
