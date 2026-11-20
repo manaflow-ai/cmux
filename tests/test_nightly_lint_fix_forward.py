@@ -150,10 +150,11 @@ class WorkflowTests(unittest.TestCase):
             end = len(lines)
             for j in range(start + 1, len(lines)):
                 text = lines[j]
-                if text.strip() and not text.strip().startswith("#") and len(text) - len(text.lstrip()) <= indent:
+                if text.strip() and len(text) - len(text.lstrip()) <= indent:
                     end = j
                     break
-            body = "\n".join(lines[start:end])
+            # Comments are not the step: a job's header comment may name lint or style.
+            body = "\n".join(line for line in lines[start:end] if not line.strip().startswith("#"))
             name = re.search(r"^\s*-?\s*name:\s*(.*)$", body, re.M)
             run = re.search(r"^\s*run:\s*(.*(?:\n(?!\s*[\w-]+:).*)*)", body, re.M)
             probe = f"{name.group(1) if name else ''}\n{run.group(1) if run else ''}"
