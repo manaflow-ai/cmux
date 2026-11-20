@@ -37,7 +37,8 @@
           "scripts/ci/crash_class_fast_gate.py",
           "scripts/ci/crash-class-gate.sh",
           "scripts/ci/pr_owned_findings.py",
-          "scripts/ci/fast_gate_webviews_checks.py"
+          "scripts/ci/fast_gate_webviews_checks.py",
+          "backend/apps/api/"
         ],
         "push_cover": [
           ".github/workflows/cmux-next-web-lint.yml",
@@ -118,7 +119,9 @@
           "scripts/ci/react-doctor-baseline.json",
           "scripts/react-doctor/",
           "scripts/ci/bun-install.sh",
-          "tests/test_react_doctor_gate.py"
+          "tests/test_react_doctor_gate.py",
+          "scripts/ci/receipt_input_key.py",
+          "scripts/ci/check-paths.txt"
         ],
         "not_inputs": {
           "scripts/ci/": "the step puts scripts/ci on sys.path to import react_doctor_gate (an input)"
