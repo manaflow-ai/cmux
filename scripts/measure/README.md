@@ -30,6 +30,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | typing | `webviews/bench/composer-typing.bench.ts` (load modes L0-L3, Chromium and WebKit) on Linux CI | Composer keydown-to-paint p95/p99 and key integrity under idle, stream, ten streaming documents and a 100k-row stream. |
 | mcp-fanout | `mcp-fanout.sh` (`mcp-fanout.py`) on a fleet Mac, any published app (`app=`) | MCP tool-server processes, RSS, idle CPU per kind at N open chats; first cmux tool call latency. |
 | workspace-factory | `workspace-factory.sh` (`workspace-factory/`, the `wsfactory` Rust factory) on a fleet Mac | A per-job throwaway workspace (APFS clone of a read-only seed) against today's cold and warm-slot step workspaces: start, build, cache hit, disk left behind. |
+| glass-perf | `split-spring.sh --suite=glass-perf` (`scripts/cmux-next/glass-perf.py`) on a display mini, bench configuration | The real app idle 60 s and under load (streaming chat, scroll, resize, 3 popovers, background change) at 1/10/50 glass, and the composer over a fast-scrolled 2,000-message chat, plain glass vs the lens: RSS, CPU %, GPU % and ms per frame, frame p50/p95, energy. Rows go to cmuxterm-hq docs/perf/glass-bench.md. |
 
 
 ## Launch and update

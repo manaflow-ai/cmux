@@ -86,6 +86,11 @@ if "--suite=open-panel" in sys.argv:
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=open-panel"])
 # `--suite=overlay-open`: icon picker and group editor opens, warm, cold and after a sign of intent, and their memory
 # (scripts/cmux-next/overlay-open-bench.py).
+if "--suite=glass-perf" in sys.argv:
+    # `--suite=glass-perf`: idle and load cost at 1/10/50 glass, and the composer over a fast-scrolled chat, plain glass vs
+    # the lens (scripts/cmux-next/glass-perf.py; bench glass-perf).
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "glass-perf.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=glass-perf"])
 if "--suite=overlay-open" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "overlay-open-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=overlay-open"])
