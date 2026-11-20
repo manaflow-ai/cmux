@@ -1,13 +1,23 @@
 // Settings > Agents > Claude Code & Codex > Hooks (Labs labs.agentCustomization): every Claude Code and
 // Codex hook with its event, matcher, command and whether it runs; Turn Off / Turn On and Remove only
 // on the person's own hooks, cmux's own read-only, and nothing at all while the Labs switch is off.
+// The card is rendered alone, as agentCustomization.test.tsx does: the page layout does not place it yet.
 import { act } from "react";
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { installDom } from "./testDom";
 
 const restore = installDom();
 afterAll(() => restore());
-const { renderPage, settle } = await import("./testing");
+const { renderCard, settle } = await import("./testing");
+const { AgentCustomizationCard } = await import("./components/AgentCustomizationCard");
+const { ensureAgentCustomizationLabRow } = await import("./mockAgentConfig");
+const { AGENT_CUSTOMIZATION_LAB } = await import("./agentConfig");
+
+beforeAll(() => ensureAgentCustomizationLabRow());
+
+const on = { mock: { values: { [AGENT_CUSTOMIZATION_LAB]: true } } };
+const section = (container: HTMLElement) =>
+  container.querySelector<HTMLElement>('[data-agent-customization-section="hooks"]');
 
 const card = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-card="agentCustomization"]');
 const ids = (element: HTMLElement) =>
@@ -24,7 +34,7 @@ const click = async (element: Element) => {
 };
 
 test("it lists every hook with its agent, event, matcher and command; cmux's own are read-only", async () => {
-  const page = await renderPage({ path: "/settings/agents" });
+  const page = await renderCard(<AgentCustomizationCard />, on);
   await settle();
   const element = card(page.container)!;
   expect(element).not.toBeNull();
@@ -49,10 +59,11 @@ test("it lists every hook with its agent, event, matcher and command; cmux's own
   // A Codex hook it never approved says so.
   expect(element.querySelector('[data-agent-hook="codex-4a1b2c3d4e"]')!.textContent).toMatch(/not approved/i);
   expect(page.provider.agentHookRuns).toEqual([]);
+  page.unmount();
 });
 
 test("Turn Off, Turn On, and Remove after a second click send exactly the gesture clicked", async () => {
-  const page = await renderPage({ path: "/settings/agents" });
+  const page = await renderCard(<AgentCustomizationCard />, on);
   await settle();
   const element = card(page.container)!;
   await click(element.querySelector('[data-agent-hook="claude-0a1b2c3d4e"] [data-hook-action="disable"]')!);
@@ -67,21 +78,33 @@ test("Turn Off, Turn On, and Remove after a second click send exactly the gestur
   await click(element.querySelector('[data-agent-hook="codex-4a1b2c3d4e"] [data-hook-action="confirmRemove"]')!);
   expect(page.provider.agentHookRuns.at(-1)).toEqual({ action: "remove", id: "codex-4a1b2c3d4e" });
   expect(ids(element)).not.toContain("codex-4a1b2c3d4e");
+  page.unmount();
 });
 
 test("the agent filter shows one agent's hooks", async () => {
-  const page = await renderPage({ path: "/settings/agents" });
+  const page = await renderCard(<AgentCustomizationCard />, on);
   await settle();
   const element = card(page.container)!;
   await click(element.querySelector('[data-hook-filter="codex"]')!);
   expect(ids(element)).toEqual(["codex-3a1b2c3d4e", "codex-4a1b2c3d4e"]);
+  page.unmount();
 });
 
-test("with the Labs switch off the card draws nothing", async () => {
-  const page = await renderPage({
-    path: "/settings/agents",
+test("with the Labs switch off the card draws nothing and asks the app for no hooks", async () => {
+  const page = await renderCard(<AgentCustomizationCard />);
+  await settle();
+  expect(card(page.container)).toBeNull();
+  expect(page.provider.log.some((call) => call.op === "cmux.settings.agentHooks.state")).toBe(false);
+  page.unmount();
+});
+
+test("with the lab on but no hooks CLI in the app, the Hooks section draws nothing", async () => {
+  const page = await renderCard(<AgentCustomizationCard />, {
+    ...on,
     setup: (provider) => (provider.agentHooks = { available: false }),
   });
   await settle();
-  expect(card(page.container)).toBeNull();
+  expect(card(page.container)).not.toBeNull();
+  expect(section(page.container)).toBeNull();
+  page.unmount();
 });
