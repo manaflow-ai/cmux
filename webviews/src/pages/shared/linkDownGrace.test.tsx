@@ -11,6 +11,7 @@ import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { LASTING_MS } from "../../ui/lasting";
 import { teardownDom } from "../../../test/support/domTeardown";
+import { installVirtualSizes } from "../../../test/support/virtualSizes";
 import { createStrings } from "./i18n";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
@@ -107,6 +108,8 @@ test("Keybindings: a lost link keeps the list and says so only once it lasts", a
 });
 
 test("Passwords: a lost link keeps the list and says so only once it lasts", async () => {
+  // The lists are windowed: give the scroller a viewport and its rows a height, as a browser would.
+  installVirtualSizes(dom.window, (element) => (element.classList.contains("pw-scroll") ? 600 : 30));
   const { PasswordsPage } = await import("../passwords/PasswordsPage");
   const { PasswordsStore } = await import("../passwords/store");
   const { MockPasswordsProvider } = await import("../passwords/mockProvider");

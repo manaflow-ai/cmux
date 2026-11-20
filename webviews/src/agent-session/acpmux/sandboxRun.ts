@@ -116,6 +116,23 @@ export function sandboxRetryable(run: SandboxRun): boolean {
   return run.state === "failed" && DEFINITE_REFUSALS.has(run.code);
 }
 
+/// The New Tab page's Run as rows: the chat composer's rule, Cloud whenever this new chat may still
+/// start there (`cloud`, held until the tab's check answers), and Sandboxed only while no session opened here (`sandbox`). A model pick
+/// of another agent (GPT-6.1 Sol on a Claude page) opens that agent's empty session at once; Cloud
+/// is still this chat's choice then. Without rows the location chip's Cloud is New Cloud Machine,
+/// which opened another chat beside this page with the default agent (cmux#45774).
+export function newTabRunModeRows(
+  rows: RunModeRows,
+  offered: { sandbox: boolean; cloud: boolean; sandboxPicked: boolean; cloudPicked: boolean },
+): RunModeRows | undefined {
+  if (offered.sandbox || offered.sandboxPicked) return rows;
+  // Sandboxed can't run once a session opened here: a pick of it left over reads as This Mac, so the
+  // page never sends through a sandbox it hides (the chat composer's rule, `sandboxing`).
+  if (offered.cloud || offered.cloudPicked)
+    return { ...rows, ...(rows.mode === "sandboxed" ? { mode: "persistent" as const } : {}), sandbox: false };
+  return undefined;
+}
+
 /// A refusal the page can tell before asking the host: attachments, or an agent a sandbox can't run.
 export function sandboxPageRefusal(attachmentCount: number, harness: string | undefined): string | undefined {
   // Attachments first: a pasted image alone is a send too, and it is the one a sandbox can't take.
