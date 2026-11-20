@@ -215,6 +215,21 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
   `{items, total, offset, next_offset}` (default 100 items, at most 1000). Every
   result is cut to 256 KiB; a cut page says `truncated` and the next offset.
 
+## Labs: repeat a machine read in the CLI
+
+With Settings > Advanced > Labs > Show Preview Features enabled
+(`labs.previewFeatures: true`), a successful `machine_get` result includes
+`cli`, the shell-quoted command for the same machine metadata read. For example:
+`cmux --json machine machine_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa show`.
+The command preserves explicit socket, session and machine routing and `catalog`.
+This is the first slice of the MCP ergonomics design's CLI replay proposal.
+It adds no mutation, permission or tool. The setting is off by default and is
+read on each call; turning it off removes the extra field immediately. Calls
+without a config file, failed reads, non-UTF-8 socket paths, all-session mode,
+and option-like machine selectors receive no replay line. Other MCP results
+remain unchanged. The command reads current metadata when run; it is not a
+snapshot of the earlier result.
+
 ## Excluded
 
 `cmux mcp tools --json` lists every exclusion with its reason. Summary:

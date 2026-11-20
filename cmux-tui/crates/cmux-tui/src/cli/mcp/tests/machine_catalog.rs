@@ -3,6 +3,71 @@ use super::*;
 const MACHINE: &str = "machine_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 #[test]
+fn mcp_ergonomics_machine_cli_preview_follows_labs_without_restarting() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("cmux-next.json");
+    let machine = json!({"id":MACHINE,"name":"Example","status":"running"});
+    let fake = Fake { resource_result: Some(machine.clone()), ..Fake::default() };
+    let mut server = Server::new(fake, Some(path.clone()));
+    for preview in [Value::Null, json!(false), json!(true), json!(false)] {
+        std::fs::write(
+            &path,
+            json!({"mcp":{"enabled":true},"agents":{"cmuxMcp":"on"},
+            "labs":{"previewFeatures":preview}})
+            .to_string(),
+        )
+        .unwrap();
+        let result = call(&mut server, "machine_get", json!({"machine":MACHINE}));
+        assert_eq!(result["isError"], false, "{result}");
+        let mut expected = machine.clone();
+        if preview == true {
+            expected["cli"] = json!(format!("cmux --json machine {MACHINE} show"));
+        }
+        assert_eq!(result["structuredContent"], expected);
+    }
+    server.backend.resource_error = Some(json!({"code":"machine.not_found"}));
+    std::fs::write(
+        &path,
+        r#"{"mcp":{"enabled":true},"agents":{"cmuxMcp":"on"},"labs":{"previewFeatures":true}}"#,
+    )
+    .unwrap();
+    let failed = call(&mut server, "machine_get", json!({"machine":MACHINE}));
+    assert_eq!(failed["isError"], true);
+    assert!(failed["structuredContent"].get("cli").is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn mcp_ergonomics_machine_cli_preview_round_trips_shell_and_cli_routing() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("cmux-next.json");
+    std::fs::write(&path, r#"{"labs":{"previewFeatures":true}}"#).unwrap();
+    let selector = "server's $(printf BAD) `printf BAD`; name";
+    let global = GlobalArgs { socket: Some("/tmp/own socket".into()), ..Default::default() };
+    let args = object(json!({"machine":selector,"catalog":true}));
+    let cli = cli_replay::machine_get(&path, &global, &args).unwrap();
+    // Expand exactly as a shell would, without executing cmux or any other command.
+    let output = std::process::Command::new("sh")
+        .args(["-c", &format!("set -- {cli}; printf '%s\\0' \"$@\"")])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let words = String::from_utf8(output.stdout).unwrap();
+    let words: Vec<String> = words.trim_end_matches('\0').split('\0').map(str::to_owned).collect();
+    let (parsed_global, command) = super::super::super::parse_globals(&words[1..]).unwrap();
+    assert_eq!(parsed_global.socket, global.socket);
+    let plan =
+        super::super::super::command::parse(&command, super::super::super::Surface::Cmux).unwrap();
+    let CommandPlan::Protocol(plan) = plan else { panic!("not a protocol request") };
+    assert_eq!(request_value(&plan).unwrap()["operation"], "machine.get");
+    assert_eq!(plan.params, json!({"machine":selector,"catalog":true}));
+    for text in ["{}", r#"{"labs":{"previewFeatures":"true"}}"#, "{"] {
+        std::fs::write(&path, text).unwrap();
+        assert!(cli_replay::machine_get(&path, &global, &args).is_none());
+    }
+}
+
+#[test]
 fn cmux_next_machine_catalog_agent_surface_list_preserves_owner_metadata() {
     let machine = json!({"id":MACHINE,"name":"Linux server","origin":"ssh","status":"running",
         "platform":{"os":"linux","arch":"aarch64"},"capabilities":["terminal"]});

@@ -6,9 +6,6 @@ import * as Exit from "effect/Exit";
 import * as Cause from "effect/Cause";
 import * as Layer from "effect/Layer";
 import {
-  CLOUD_MCP_CODE_MODE_ENV,
-  CLOUD_MCP_DOCS_NAME,
-  CLOUD_MCP_EXEC_NAME,
   CLOUD_MCP_TOOLS,
   callCloudMcpTool,
   CloudMcpToolError,
@@ -59,40 +56,6 @@ async function shellWords(args: string): Promise<string[]> {
 }
 
 describe("cloud MCP protocol", () => {
-  test("keeps the direct catalog by default", async () => {
-    const { gateway } = fakeGateway();
-    const reply = await handleCloudMcpMessage(gateway, { jsonrpc: "2.0", id: 1, method: "tools/list" });
-    const names = (reply as { result: { tools: Array<{ name: string }> } }).result.tools.map((tool) => tool.name);
-    expect(names).toContain("machine_list");
-    expect(names).not.toContain(CLOUD_MCP_DOCS_NAME);
-  });
-
-  test("opt-in code mode exposes docs and one-call execution", async () => {
-    const previous = process.env[CLOUD_MCP_CODE_MODE_ENV];
-    process.env[CLOUD_MCP_CODE_MODE_ENV] = "1";
-    try {
-      const { gateway } = fakeGateway();
-      const listed = await handleCloudMcpMessage(gateway, { jsonrpc: "2.0", id: 1, method: "tools/list" });
-      const names = (listed as { result: { tools: Array<{ name: string }> } }).result.tools.map((tool) => tool.name);
-      expect(names).toEqual([CLOUD_MCP_DOCS_NAME, CLOUD_MCP_EXEC_NAME]);
-
-      const docs = await handleCloudMcpMessage(gateway, {
-        jsonrpc: "2.0", id: 2, method: "tools/call",
-        params: { name: CLOUD_MCP_DOCS_NAME, arguments: { query: "terminal_read" } },
-      });
-      expect(docs).toMatchObject({ result: { structuredContent: { query: "terminal_read", tools: [{ name: "terminal_read" }] } } });
-
-      const executed = await handleCloudMcpMessage(gateway, {
-        jsonrpc: "2.0", id: 3, method: "tools/call",
-        params: { name: CLOUD_MCP_EXEC_NAME, arguments: { name: "machine_list", arguments: {} } },
-      });
-      expect(executed).toMatchObject({ result: { structuredContent: { machines: [{ id: "vm-a" }] } } });
-    } finally {
-      if (previous === undefined) delete process.env[CLOUD_MCP_CODE_MODE_ENV];
-      else process.env[CLOUD_MCP_CODE_MODE_ENV] = previous;
-    }
-  });
-
   test("initialize negotiates a supported version and advertises tools", async () => {
     const { gateway } = fakeGateway();
     const reply = await handleCloudMcpMessage(gateway, {

@@ -25,6 +25,7 @@ mod automation_tools;
 mod browser_tools;
 mod caller_scope;
 mod chat_tools;
+mod cli_replay;
 mod cloud_repo_tools;
 mod code_mode;
 mod config;
@@ -166,6 +167,10 @@ impl Exclusion {
 /// Where tool calls go: the session daemon, the app and the browser host.
 /// Tests replace it.
 pub(super) trait Backend {
+    /// Global routing carried into a manual CLI replay of a read.
+    fn cli_globals(&self) -> GlobalArgs {
+        GlobalArgs::default()
+    }
     fn resource(
         &self,
         session: Option<&str>,
@@ -346,6 +351,9 @@ impl LiveBackend {
 }
 
 impl Backend for LiveBackend {
+    fn cli_globals(&self) -> GlobalArgs {
+        self.global.clone()
+    }
     fn app_session(&self) -> bool {
         self.global.session.is_none()
             && self.global.socket.is_none()
@@ -1519,10 +1527,20 @@ impl<B: Backend> Server<B> {
                 },
                 tool.mutation,
             ),
-            Ok(value) => success(
-                match page {
-                    Some(page) => v2_tools::paginate(value, page),
-                    None => value,
+            Ok(mut value) => success(
+                {
+                    if tool.wire == "machine.get"
+                        && let Some(path) = &self.config
+                        && let Some(cli) =
+                            cli_replay::machine_get(path, &self.backend.cli_globals(), &arguments)
+                        && let Some(object) = value.as_object_mut()
+                    {
+                        object.insert("cli".into(), Value::String(cli));
+                    }
+                    match page {
+                        Some(page) => v2_tools::paginate(value, page),
+                        None => value,
+                    }
                 },
                 tool.mutation,
             ),
