@@ -224,6 +224,15 @@ pub struct Wake {
     /// first drops this wake.
     #[serde(default)]
     pub until_event: bool,
+    /// A `follow_up` (check_in.rs): its id (`fu_...`); None for a sleep wake.
+    #[serde(default)]
+    pub id: Option<String>,
+    /// The loops/<task>.md the follow-up belongs to.
+    #[serde(default)]
+    pub loop_path: Option<String>,
+    /// The person asked for this exact time: quiet hours never move it.
+    #[serde(default)]
+    pub for_person: bool,
 }
 
 /// How many thread roots `HostState::message_roots` keeps.
