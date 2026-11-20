@@ -1885,7 +1885,8 @@
           {
             "key" : "settings.group.macScreenKeyboard",
             "rows" : [
-              "macScreen.systemShortcuts"
+              "macScreen.systemShortcuts",
+              "macScreen.shareWithoutAsking"
             ],
             "title" : {
               "key" : "settings.group.macScreenKeyboard",
@@ -2217,16 +2218,6 @@
             "title" : {
               "key" : "settings.group.labs",
               "text" : "Labs"
-            }
-          },
-          {
-            "key" : "settings.group.experiments",
-            "rows" : [
-              "experiments.glassSidebarExtension"
-            ],
-            "title" : {
-              "key" : "settings.group.experiments",
-              "text" : "Experiments"
             }
           },
           {
@@ -103026,143 +103017,6 @@
         true,
         false
       ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.experiments",
-        "text" : "Experiments"
-      },
-      "help" : {
-        "key" : "settings.experiments.glassSidebarExtension.help",
-        "text" : "The sidebar floats as glass and the open pane shows through under it."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "experiments.glassSidebarExtension",
-      "keywords" : [
-        "glass",
-        "sidebar",
-        "blur",
-        "translucent",
-        "liquid",
-        "experiment",
-        "background extension",
-        "toolbar"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "experiments",
-        "glassSidebarExtension"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "advanced",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:experiments.glassSidebarExtension"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.experiments.glassSidebarExtension",
-        "text" : "Glass Sidebar"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
@@ -107298,6 +107152,142 @@
       "title" : {
         "key" : "settings.macScreen.systemShortcuts",
         "text" : "Send System Shortcuts to the Remote Mac"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.macScreenKeyboard",
+        "text" : "Mac Screen"
+      },
+      "help" : {
+        "key" : "settings.macScreen.shareWithoutAsking.help",
+        "text" : "Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "macScreen.shareWithoutAsking",
+      "keywords" : [
+        "mac screen",
+        "remote",
+        "screen sharing",
+        "share this mac",
+        "confirm",
+        "ask"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "macScreen",
+        "shareWithoutAsking"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "keyboard",
+      "summary" : {
+        "key" : "settings.macScreen.shareWithoutAsking.summary",
+        "text" : "Sharing turns on without asking"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:macScreen.shareWithoutAsking"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.macScreen.shareWithoutAsking",
+        "text" : "Share This Mac Without Asking"
       },
       "validation" : "portable"
     },

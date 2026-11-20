@@ -3337,12 +3337,6 @@
       "title" : "EnrollmentToken",
       "type" : "string"
     },
-    "experiments.glassSidebarExtension" : {
-      "default" : false,
-      "description" : "The sidebar floats as glass and the open pane shows through under it.",
-      "title" : "Glass Sidebar",
-      "type" : "boolean"
-    },
     "feed.agentPermissionPrompts" : {
       "default" : false,
       "description" : "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it.",
@@ -3906,6 +3900,12 @@
       "default" : false,
       "description" : "Mac Screen tabs connect only through the relay, to test it.",
       "title" : "Relay Only",
+      "type" : "boolean"
+    },
+    "macScreen.shareWithoutAsking" : {
+      "default" : false,
+      "description" : "Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies.",
+      "title" : "Share This Mac Without Asking",
       "type" : "boolean"
     },
     "macScreen.systemShortcuts" : {
