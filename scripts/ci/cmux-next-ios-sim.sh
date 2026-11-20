@@ -854,12 +854,12 @@ fi
 keep_test_logs() {
   local log=$1 bundle=$2 name=$3
   cp "$log" "$out/$name-test.log" 2>/dev/null || true
-  xcrun xcresulttool get log --type console --path "$bundle" > "$out/$name-console.txt" 2>/dev/null || true
+  xcrun xcresulttool get log --type console --path "$bundle" > "$out/$name-console.txt" 2> "$out/$name-console-error.txt" || true
   xcrun xcresulttool get test-results tests --path "$bundle" --compact > "$out/$name-tests.json" 2>/dev/null || true
   # XCTAttachments (UI tests' keepAlways screenshots) as files, with the
   # manifest.json that maps each one to its test.
   mkdir -p "$out/$name-attachments"
-  xcrun xcresulttool export attachments --path "$bundle" --output-path "$out/$name-attachments" >/dev/null 2>&1 || true
+  xcrun xcresulttool export attachments --path "$bundle" --output-path "$out/$name-attachments" > "$out/$name-attachments-export.log" 2>&1 || true
   xcrun xcresulttool get test-results summary --path "$bundle" --compact 2>/dev/null | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
@@ -1058,6 +1058,7 @@ ui_profile_finish() {
 ui_cold_tests() {
   local runs="${CMUX_LAUNCH_COLD_RUNS:-10}" suite file test run status
   [[ "$runs" =~ ^[0-9]+$ ]] && (( runs >= 1 && runs <= 30 )) || runs=10
+  ui_cold_runs=$runs
   mkdir -p "$out/ui-cold"
   for suite in "${ui_cold[@]}"; do
     file="$(grep -lw "class ${suite%%/*}" cmux-next-ios/UITests/*.swift | head -1)"
@@ -1073,14 +1074,15 @@ ui_cold_tests() {
     for test in "${tests[@]}"; do
       for ((run = 1; run <= runs; run++)); do
         xcrun simctl shutdown "$ui_udid" >/dev/null 2>&1 || true
-        xcrun simctl boot "$ui_udid"
-        xcrun simctl bootstatus "$ui_udid" -b >/dev/null
+        # A run counts as cold only after a confirmed fresh boot; a failed transition is no sample.
+        if ! { xcrun simctl boot "$ui_udid" && xcrun simctl bootstatus "$ui_udid" -b >/dev/null; }; then
+          ui_status=1; note "- cold $suite/$test run $run: simulator reboot failed, no sample"; continue
+        fi
         local bundle="$work/ui-cold-${test}-${run}.xcresult"
         xcodebuild test-without-building "${ui_xcodebuild[@]}" -resultBundlePath "$bundle" \
           "-only-testing:CmuxMobileAppUITests/${suite%%/*}/$test" >"$work/ui-cold-${test}-${run}.log" 2>&1
         status=$?
-        xcrun xcresulttool get log --type console --path "$bundle" > "$out/ui-cold/${test}-${run}-console.txt" 2>/dev/null || true
-        cp "$work/ui-cold-${test}-${run}.log" "$out/ui-cold/${test}-${run}.log" 2>/dev/null || true
+        keep_test_logs "$work/ui-cold-${test}-${run}.log" "$bundle" "ui-cold/${test}-${run}"
         (( status == 0 )) || { ui_status=$status; note "- cold $suite/$test run $run: exit $status"; }
         rm -rf "$bundle"
       done
@@ -1181,9 +1183,14 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
   ui_udid=""
   keep_test_logs "$work/ui-test.log" "$work/ui.xcresult" ui
   grep -h "^FAILED:" -A3 "$out/ui-tests-failures.txt" 2>/dev/null || true
-  note "- UI tests ${ui_suites[*]} ${ui_cold[*]}: exit $ui_status, $(cat "$out/ui-tests-counts.txt" 2>/dev/null || echo "no result bundle"), xcodebuild $ui_action $ui_seconds s, $((SECONDS - t0)) s in all"
+  # Bash 3.2 treats an empty array as unset under nounset (warm-only or cold-only).
+  note "- UI tests ${ui_suites[*]-} ${ui_cold[*]-}: exit $ui_status, $(cat "$out/ui-tests-counts.txt" 2>/dev/null || echo "no result bundle"), xcodebuild $ui_action $ui_seconds s, $((SECONDS - t0)) s in all"
   # Launch marks (LaunchTTIUITests): every LAUNCHTTI line, and per flow and phase the p50 of each span.
-  cat "$out/ui-console.txt" "$out"/ui-cold/*-console.txt 2>/dev/null | grep -oE 'LAUNCHTTI \{.*\}' | sed 's/^LAUNCHTTI //' > "$out/launch-tti.jsonl" || true
+  if ! python3 -I scripts/ci/ios_launch_samples.py "$out" --cold-runs "${ui_cold_runs:-10}" \
+    --suites ${ui_suites[@]+"${ui_suites[@]}"} ${ui_cold[@]+"${ui_cold[@]}"}; then
+    note "- ERROR: launch measurements are missing or invalid; see launch-tti-error.txt and the attachment export logs."
+    ui_status=1
+  fi
   if [[ -s "$out/launch-tti.jsonl" ]]; then
     python3 - "$out/launch-tti.jsonl" <<'PY' | while IFS= read -r line; do note "$line"; done
 import json, sys

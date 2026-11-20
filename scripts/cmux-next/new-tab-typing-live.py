@@ -42,7 +42,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--overlay", help="a web-overlay folder (manifest.json and the bundles) to serve")
-parser.add_argument("--drafts", default="0,60,180", help="draft lengths typed before each measurement")
+parser.add_argument("--drafts", default="0,60,180", help="draft lengths typed before each measurement (a length may repeat)")
 parser.add_argument("--keys", type=int, default=60)
 parser.add_argument("--key-gap", type=float, default=0.09, help="seconds between keys (a fast typist)")
 parser.add_argument("--label", default="run")
@@ -59,6 +59,11 @@ parser.add_argument("--new-tabs", type=int, default=0, help="extra New Tab pages
                     "its own (every one gets each places push)")
 parser.add_argument("--config", help="JSON merged into the bench's cmux.json, e.g. the person's appearance")
 parser.add_argument("--cdp-port", type=int, help="open the DevTools port and CPU-profile the page while the longest draft's keys are typed")
+parser.add_argument("--no-marks", action="store_true",
+                    help="with --trace: the page's key marks stay off (they append a timing element per key, which costs a "
+                         "style pass of its own); the trace alone times the keys")
+parser.add_argument("--trace", action="store_true",
+                    help="with --cdp-port: a browser-wide Chromium trace (cdp-trace.mjs) over each draft's measured keys")
 parser.add_argument("--probe", action="store_true", help="with --cdp-port: the places-push probe (cdp-page-probe.mjs) "
                     "while each draft's keys are typed, in place of the CPU profile")
 opts = parser.parse_args()
@@ -140,6 +145,13 @@ def open_chats(count):
                                 for p in panes(w) for t in p.get("tabs") or []), 20, step=0.1)
         opened += 1 if chat else 0
     return opened
+
+
+def field_text():
+    """The New Tab field's text (`.nt-field`), as the page shows it."""
+    field = page("query", selector=".nt-field [contenteditable='true']")
+    elements = field.get("elements") or [] if isinstance(field, dict) else []
+    return "".join(str(e.get("text", "")) for e in elements if isinstance(e, dict))
 
 
 def type_text(text, gap):
@@ -227,24 +239,40 @@ try:
     for length in [int(n) for n in opts.drafts.split(",") if n]:
         # The field keeps the caret before each draft: a loaded page can drop it (a places push remounts nothing,
         # but a click elsewhere or a late adopt does). A native click on the field, as a person's, when it lost it.
+        # `composer_focused` reads the chat composer (`.acpmux-composer`), which a New Tab page does not have: the
+        # check is whether a typed probe key lands in the New Tab field (`.nt-field`), then is deleted.
         def caret():
-            if page("composer_focused").get("focused"):
-                return True
-            page("focus_composer")
-            if page("composer_focused").get("focused"):
+            before = field_text()
+            key("z")
+            landed = wait(lambda: field_text() != before, 2, step=0.1)
+            key("delete")
+            wait(lambda: field_text() == before, 2, step=0.1)
+            if landed:
                 return True
             page("click", selector=".nt-field [contenteditable='true']")
-            return page("composer_focused").get("focused")
+            return False
         if not wait(caret, 20, step=0.5):
             print(f"draft {length}: the field never took the caret", flush=True)
         type_text(DRAFT[:length], 0.02)
         time.sleep(1.0)  # the draft's last frame (harness, not app code)
         field = page("query", selector=".nt-field")
         texts = [str(e.get("text", ""))[:40] for e in (field.get("elements") or []) if isinstance(e, dict)]
-        print(f"draft {length}: focused {page('composer_focused').get('focused')}, field {texts}", flush=True)
-        page("reset_typing")
+        print(f"draft {length}: field {texts}", flush=True)
+        if not opts.no_marks:
+            page("reset_typing")
+        rpc("debug.hangs", {"clear": True})
+        before_keys = field_text()
         profiler = None
-        if opts.cdp_port and opts.probe:
+        if opts.cdp_port and opts.trace:
+            node = os.environ.get("NODE") or shutil.which("node") or "node"
+            seconds = opts.keys * (opts.key_gap + 0.03) + 2
+            profiler = subprocess.Popen([node, os.path.join(os.path.dirname(os.path.abspath(__file__)), "cdp-trace.mjs"),
+                                         str(opts.cdp_port), f"{seconds:.1f}",
+                                         os.path.join(OUT, f"trace-{opts.label}-{length}.json")]
+                                        + ([os.environ["CMUX_TRACE_CATEGORIES"]] if os.environ.get("CMUX_TRACE_CATEGORIES") else []),
+                                        stdout=subprocess.PIPE, text=True)
+            time.sleep(2.0)  # tracing starts before the first measured key (harness, not app code)
+        elif opts.cdp_port and opts.probe:
             node = os.environ.get("NODE") or shutil.which("node") or "node"
             seconds = opts.keys * (opts.key_gap + 0.03) + 2
             profiler = subprocess.Popen([node, os.path.join(os.path.dirname(os.path.abspath(__file__)), "cdp-page-probe.mjs"),
@@ -264,17 +292,25 @@ try:
             text, _ = profiler.communicate(timeout=120)
             results.setdefault("profile", {})[length] = text
             print(text, flush=True)
-        stats = page("typing_stats")
+        stats = {} if opts.no_marks else page("typing_stats")
+        # The measured keys typed into the field (else to_paint is not a key's text paint).
+        after_keys = field_text()
+        stats["typed_chars"] = len(after_keys) - len(before_keys)
+        hangs = rpc("debug.hangs", {"limit": 20}) or {}
+        stats["hangs"] = {k: hangs.get(k) for k in ("count", "max_ms", "total_ms", "max_gap_ms")}
+        stats["long_hangs"] = [r for r in (hangs.get("records") or []) if isinstance(r, dict) and (r.get("duration_ms") or 0) >= 250]
         posts = stats.pop("native_posts", None)
         stats["native_posts"] = posts if isinstance(posts, (int, float)) else (len(posts) if isinstance(posts, list) else posts)
         results["drafts"][length] = stats
         paint = stats.get("to_paint") or {}
         listener = stats.get("to_listener") or {}
         work = stats.get("to_work") or {}
+        sub = stats.get("to_submitted") or {}
         print(
             f"draft {length:4d}: keys {stats.get('keys')} to_paint p50 {paint.get('p50_ms')} p95 {paint.get('p95_ms')} "
             f"max {paint.get('max_ms')} | to_listener p50 {listener.get('p50_ms')} p95 {listener.get('p95_ms')} | "
-            f"to_work p50 {work.get('p50_ms')} p95 {work.get('p95_ms')} | native posts {stats['native_posts']}",
+            f"to_work p50 {work.get('p50_ms')} p95 {work.get('p95_ms')} | to_submitted p50 {sub.get('p50_ms')} p95 {sub.get('p95_ms')} | "
+            f"typed {stats['typed_chars']} of {opts.keys} | hangs {stats['hangs']} long {len(stats['long_hangs'])} | native posts {stats['native_posts']}",
             flush=True,
         )
         for _ in range(typed["n"] + 2):
