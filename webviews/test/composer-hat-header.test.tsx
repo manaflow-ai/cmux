@@ -107,6 +107,10 @@ async function mount(arm: string, props: Record<string, unknown> = {}) {
   // React's enter and leave come from pointerover and pointerout with the node the pointer came from.
   const enter = async (node: Element, from: Element | null = null) =>
     act(async () => {
+      // As a real pointer does: out of the last element, then over the next. React derives enter and
+      // leave between two of its own nodes from the pointerout alone, and ignores a pointerover whose
+      // relatedTarget it manages.
+      if (from) from.dispatchEvent(new dom.window.MouseEvent("pointerout", { bubbles: true, relatedTarget: node }));
       node.dispatchEvent(new dom.window.MouseEvent("pointerover", { bubbles: true, relatedTarget: from }));
     });
   const leave = async (node: Element, to: Element) =>
