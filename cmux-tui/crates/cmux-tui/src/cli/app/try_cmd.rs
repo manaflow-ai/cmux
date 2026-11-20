@@ -177,7 +177,7 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
         return 0;
     }
     if let Command::Try { target, dry_run, app } = command {
-        return run_try(global, target, *dry_run, app.as_deref(), false, false);
+        return run_try(global, target, *dry_run, app.as_deref(), false, false, None);
     }
     if let Command::Channel { dry_run, app } = command {
         return run_channel(global, *dry_run, app.as_deref());
@@ -450,52 +450,67 @@ fn run_channel(global: &GlobalArgs, dry_run: bool, named: Option<&Path>) -> i32 
     let Some(app) = app else {
         return failure("try.no_app", messages().no_app, global.output);
     };
-    let Some(app_commit) = app_commit(&app) else {
-        return failure(
-            "try.channel_incompatible",
-            "this app has no CMUXCommit; the nightly-live channel requires a stamped compatible app",
-            global.output,
-        );
-    };
-    if !live::takes(&payload.live_from, &app_commit) {
-        return failure(
-            "try.channel_incompatible",
-            "this app's commit is not in the nightly-live pointer's live_from",
-            global.output,
-        );
-    }
     let Some(store) = store_for(Some(&app)) else {
         return failure("try.no_state", messages().no_state, global.output);
     };
-    let _channel_lock = match store.lock() {
-        Ok(lock) => lock,
-        Err(error) => return failure("try.state", &error, global.output),
-    };
-    let previous = match store.channel_last() {
-        Ok(previous) => previous,
-        Err(error) => return failure("try.channel_state", &error, global.output),
-    };
-    if !live::channel_is_newer(previous, payload.committed_at) {
-        let value = json!({
-            "path": "channel", "channel": payload.channel, "commit": payload.commit,
-            "committed_at": payload.committed_at, "applied": false, "reason": "older-or-equal",
-        });
-        if global.output == OutputMode::Human {
-            println!(
-                "nightly-live {} is not newer than the last applied pointer; nothing changed",
-                short(&payload.commit)
-            );
-            return 0;
+    let result = apply_channel(&app, &store, &payload, dry_run, |_| {
+        let mut changed = false;
+        let code =
+            run_try(global, &payload.commit, dry_run, Some(&app), true, true, Some(&mut changed));
+        if code == 0 {
+            Ok(changed)
+        } else {
+            Err("the nightly-live channel apply failed".to_owned())
         }
-        return super::super::wire::print_local_success(&value, global.output);
-    }
-    let code = run_try(global, &payload.commit, dry_run, Some(&app), true, true);
-    if code == 0 && !dry_run {
-        if let Err(error) = store.record_channel(payload.committed_at, &payload.commit) {
-            return failure("try.channel_state", &error, global.output);
+    });
+    match result {
+        Ok(false) if !dry_run => {
+            let value = json!({
+                "path": "channel", "channel": payload.channel, "commit": payload.commit,
+                "committed_at": payload.committed_at, "applied": false, "reason": "older-or-equal",
+            });
+            if global.output == OutputMode::Human {
+                println!(
+                    "nightly-live {} is not newer than the last applied pointer; nothing changed",
+                    short(&payload.commit)
+                );
+                0
+            } else {
+                super::super::wire::print_local_success(&value, global.output)
+            }
         }
+        Ok(_) => 0,
+        Err(error) => failure("try.channel_state", &error, global.output),
     }
-    code
+}
+
+/// Applies a signed channel pointer through an injected live-update operation.
+/// The lock covers the forward-only check, all file work, and the sidecar write.
+fn apply_channel<F>(
+    app: &Path,
+    store: &Store,
+    payload: &live::ChannelPayload,
+    dry_run: bool,
+    apply: F,
+) -> Result<bool, String>
+where
+    F: FnOnce(&str) -> Result<bool, String>,
+{
+    let app_commit = app_commit(app).ok_or(
+        "this app has no CMUXCommit; the nightly-live channel requires a stamped compatible app",
+    )?;
+    if !live::takes(&payload.live_from, &app_commit) {
+        return Err("this app's commit is not in the nightly-live pointer's live_from".to_owned());
+    }
+    let _lock = store.lock()?;
+    if !live::channel_is_newer(store.channel_last()?, payload.committed_at) {
+        return Ok(false);
+    }
+    let changed = apply(&app_commit)?;
+    if changed && !dry_run {
+        store.record_channel(payload.committed_at, &payload.commit)?;
+    }
+    Ok(changed)
 }
 
 /// Test-only injection point for the command's channel/apply boundary.  The
@@ -514,25 +529,15 @@ fn run_channel_once_for_test(
     now: u64,
 ) -> Result<bool, String> {
     let channel = live::verify_channel(channel_body, keys, now)?;
-    let app_commit = app_commit(app).ok_or("the fixture app has no CMUXCommit")?;
-    if !live::takes(&channel.live_from, &app_commit) {
-        return Err("the app is not in the signed channel live_from".to_owned());
-    }
-    let _lock = store.lock()?;
-    if !live::channel_is_newer(store.channel_last()?, channel.committed_at) {
-        return Ok(false);
-    }
-    let payload = live::verify(live_body, keys, &channel.commit)?;
-    let plan =
-        choose(&channel.commit, Some(&app_commit), &Live::Found(payload.clone()), None, base);
-    let Plan::Live { files } = plan else {
-        return Err("the signed channel has no live payload this app can take".to_owned());
-    };
-    let applied = try_live(app, &files, store, daemon, &mut Phases::default())?;
-    if applied.changed {
-        store.record_channel(channel.committed_at, &channel.commit)?;
-    }
-    Ok(true)
+    apply_channel(app, store, &channel, false, |app_commit| {
+        let payload = live::verify(live_body, keys, &channel.commit)?;
+        let plan = choose(&channel.commit, Some(app_commit), &Live::Found(payload), None, base);
+        let Plan::Live { files } = plan else {
+            return Err("the signed channel has no live payload this app can take".to_owned());
+        };
+        let applied = try_live(app, &files, store, daemon, &mut Phases::default())?;
+        Ok(applied.changed)
+    })
 }
 
 fn run_try(
@@ -542,6 +547,7 @@ fn run_try(
     named: Option<&Path>,
     store_locked: bool,
     live_only: bool,
+    changed_out: Option<&mut bool>,
 ) -> i32 {
     let messages = messages();
     let started = Instant::now();
@@ -686,7 +692,7 @@ fn run_try(
         Plan::Live { files } => {
             let daemon = app_daemon(&app);
             let result = try_live(&app, &files, store, &daemon, &mut phases);
-            finish(global, store, receipt, result, phases, started, &commit, &app)
+            finish(global, store, receipt, result, phases, started, &commit, &app, changed_out)
         }
     }
 }
@@ -721,6 +727,7 @@ fn finish(
     started: Instant,
     commit: &str,
     app: &Path,
+    changed_out: Option<&mut bool>,
 ) -> i32 {
     let messages = messages();
     let undo = receipt.get("action").and_then(Value::as_str) == Some("undo");
@@ -746,6 +753,9 @@ fn finish(
     set(&mut receipt, "changed", json!(applied.changed));
     set(&mut receipt, "steps", applied.steps);
     set(&mut receipt, "undo", json!({ "files": applied.prior }));
+    if let Some(changed_out) = changed_out {
+        *changed_out = applied.changed;
+    }
     if applied.changed
         && let Err(error) = store.record(&receipt)
     {
@@ -900,7 +910,7 @@ fn undo(global: &GlobalArgs, store: &Store, dry_run: bool) -> i32 {
     let daemon = app_daemon(&app);
     let result = live::apply(&app, &changes, store, &daemon, &mut phases);
     let receipt = json!({ "schema": 1, "action": "undo", "path": "live", "commit": commit, "app": app.to_string_lossy(), "at": now() });
-    finish(global, store, receipt, result, phases, started, &commit, &app)
+    finish(global, store, receipt, result, phases, started, &commit, &app, None)
 }
 
 /// Undoes the last live try into `app` with `daemon` (the testable core of `undo`).
