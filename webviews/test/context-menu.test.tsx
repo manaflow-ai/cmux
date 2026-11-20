@@ -234,6 +234,30 @@ test("opens at the pointer, skips disabled rows, selects by keyboard, and restor
   expect(document.activeElement).toBe(target);
 });
 
+// Lawrence, 2026-10-28: "this needs to work with keyboard shortcuts like up arrow ctrl n/p etc".
+test("Ctrl-N and Ctrl-P step the rows as Down and Up, and Return runs the row they reached", async () => {
+  const container = installDom();
+  const fixtureState = fixture();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(fixtureState.element);
+  });
+  const target = container.querySelector<HTMLButtonElement>("[data-target]")!;
+  await act(async () => openContextMenu(target));
+  const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+  const highlighted = () => menu.querySelector('[role="menuitem"][data-highlighted]')?.textContent;
+  const key = (init: KeyboardEventInit) =>
+    act(async () => menu.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, ...init })));
+
+  await key({ key: "n", ctrlKey: true });
+  expect(highlighted()).toBe("Rename");
+  await key({ key: "p", ctrlKey: true });
+  expect(highlighted()).toBe("Open");
+  await key({ key: "n", ctrlKey: true });
+  await key({ key: "Enter" });
+  expect(fixtureState.actions).toEqual(["rename"]);
+});
+
 test("restores focus after a pointer action", async () => {
   const container = installDom();
   const fixtureState = fixture();

@@ -22,6 +22,7 @@ import { useNativePopup, type NativePopupDescription } from "./nativePopup";
 import type { NativePopupEvent } from "./popupProtocol";
 import { popupAction } from "./popupDescriptors";
 import { trackHeldMenuRelease } from "./pressRelease";
+import { listChordArrow } from "./listChords";
 
 /** An action in the standalone context menu. */
 export interface ContextMenuItem {
@@ -246,10 +247,12 @@ export function ContextMenu({
     if (event.key === "Escape") {
       event.preventDefault();
       close(restoreFocus);
-    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp" || listChordArrow(event)) {
+      // Ctrl-N and Ctrl-P step the rows as Down and Up do (listChords.ts).
       if (enabled.length === 0) return;
       event.preventDefault();
-      setActive((index) => (index + (event.key === "ArrowDown" ? 1 : -1) + enabled.length) % enabled.length);
+      const down = (listChordArrow(event) ?? event.key) === "ArrowDown";
+      setActive((index) => (index + (down ? 1 : -1) + enabled.length) % enabled.length);
     } else if (event.key === "Home" || event.key === "End") {
       if (enabled.length === 0) return;
       event.preventDefault();

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { focusAfterEscape } from "../../ui/escapeFocus";
+import { listChordArrow } from "../../ui/listChords";
 import { focusWithRing } from "../../ui/focusWithRing";
 import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
 import { useEscapingPopup } from "../../ui/popupHost";
@@ -141,9 +142,11 @@ export function PaletteMenu({
       focusAfterEscape(trigger.current);
       return;
     }
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    // Arrows and Ctrl-N/P step the rows (Lawrence 2026-10-28: "up arrow ctrl n/p etc").
+    const arrow = event.key === "ArrowDown" || event.key === "ArrowUp" ? event.key : listChordArrow(event);
+    if (arrow) {
       event.preventDefault();
-      const step = event.key === "ArrowDown" ? 1 : -1;
+      const step = arrow === "ArrowDown" ? 1 : -1;
       if (rows.length) setActive((current) => (current + step + rows.length) % rows.length);
     } else if (
       (event.key === "Home" || event.key === "End") &&
