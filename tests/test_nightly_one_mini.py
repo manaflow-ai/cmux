@@ -14,7 +14,9 @@ on every attempt, event and picker output, takes one of three labels that only t
 except the tail jobs that hold a release key (Sentry, content signing, R2, a GitHub App key, the pr-media terms) and
 whose whole-Mac hold on the trusted signing runner would be long or wait-bound
 (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS): the mini's nightly-only runners are shared and persistent, so these
-keep ephemeral GitHub-hosted Ubuntu (never Blacksmith), and they run only outside the push group.
+keep an ephemeral VM (never Blacksmith), and they run only outside the push group: on attempt 1 the one-job JIT VMs of
+cmux-gcp-nightly-jit-x64 (TAIL ROUTE in nightly.yml: hosted Ubuntu held sign-release-notes 16.7 h on 2026-11-19),
+on a re-run GitHub-hosted Ubuntu.
 republish-nightly-deltas takes the signer only on nightly-next; classic and RC runs keep GitHub-hosted Ubuntu
 (test_nightly_owned_minis_only.NIGHTLY_NEXT_ONLY_OWNED), as their release uploads may wait out the rate limit.
 Every Mac job (build, sign, notarize, verify, publish) runs on the mini.
@@ -44,16 +46,19 @@ WORKFLOWS = Path(__file__).resolve().parents[1] / ".github/workflows"
 
 
 HOSTED = "ubuntu-24.04"
+TAIL_JIT = "cmux-gcp-nightly-jit-x64"
 
 
-def want(name: str, ref: str = "refs/heads/nightly-next") -> str:
+def want(name: str, ref: str = "refs/heads/nightly-next", attempt: object = 1) -> str:
     if name in NIGHTLY_NEXT_ONLY_OWNED and ref != "refs/heads/nightly-next":
         return HOSTED  # classic and RC: their rate-limit waits must not hold the mini
     if name in SIGNING:
         return SIGN
     if name == "build-nightly-app":
         return BUILDER
-    return HOSTED if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or name in HOSTED_PREFLIGHT_JOBS else MINI
+    if name in HOSTED_TAIL_JOBS:
+        return TAIL_JIT if attempt == 1 else HOSTED
+    return HOSTED if name in HOSTED_LOOP_JOBS or name in HOSTED_PREFLIGHT_JOBS else MINI
 
 
 def resolve(source: str, rng: random.Random, extra: dict | None = None) -> tuple[object, dict]:
@@ -79,7 +84,7 @@ class NightlyOneMini(unittest.TestCase):
             for source in sources or [""]:
                 for _ in range(200):
                     value, context = resolve(source, rng)
-                    if value != want(name, context.get("github.ref", "refs/heads/nightly-next")):
+                    if value != want(name, context.get("github.ref", "refs/heads/nightly-next"), context.get("github.run_attempt")):
                         failures[name] = (value, {k: v for k, v in context.items() if v and k.startswith(("github", "vars"))})
                         break
         self.assertEqual(sorted(failures), [], "\n".join(f"{k}: {v}" for k, v in sorted(failures.items())))

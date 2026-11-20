@@ -6558,7 +6558,8 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
+    # Attempt 1: TAIL ROUTE (sign-release-notes).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'ubuntu-24.04' }}
     timeout-minutes: 45
     env:
       BUILD: ${{ needs.published-build.outputs.publish_build }}
@@ -7759,7 +7760,13 @@ jobs:
     # the key keeps it off the nightly mini's shared light runners, its span fetch waits through API rate limits
     # (70 min), which on the trusted signing runner would hold the whole Mac while the next run signs, and
     # release-notes.py's `openssl pkeyutl -rawin` needs OpenSSL 3, which macOS's LibreSSL is not.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
+    # TAIL ROUTE (2026-11-20): attempt 1 of each HOSTED_TAIL_JOBS job takes cmux-gcp-nightly-jit-x64, the nightly's
+    # label that only cmuxterm-hq gha_runners.py's one-job JIT VMs serve (Ubuntu 24.04, deleted after the job: the
+    # same trust as a hosted VM, so the key may go there). On GitHub-hosted ubuntu-24.04 the org-wide queue held this
+    # job 16.7 h (run 44556480014: queued 11-19 15:36Z, started 11-20 08:18Z) and publish-release-notes 8.5-9.3 h
+    # (runs 44333866030, 44359568082), so no NEXT nightly's notes reached the feed after 2026-11-17. A re-run takes
+    # the hosted route again.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'ubuntu-24.04' }}
     timeout-minutes: 70
     permissions:
       contents: read
@@ -7829,8 +7836,9 @@ jobs:
     if: "!cancelled() && needs.published-build.outputs.track == 'nightly-next' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_already_published != 'true' && needs.published-build.outputs.publish_refused != 'true' && needs.sign-release-notes.result == 'success'"
     environment: ${{ github.ref == 'refs/heads/nightly-next' && 'release-next' || 'release' }}
     # GitHub-hosted on purpose, in the tail only (after sign-release-notes): up to 130 min of lease and rate-limit
-    # waits would hold the whole signing Mac (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
+    # waits would hold the whole signing Mac (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS). Attempt 1: TAIL ROUTE
+    # (sign-release-notes).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'ubuntu-24.04' }}
     # 70 for the work (an hour of it for API rate-limit waits) plus the lease's 60-minute wait.
     timeout-minutes: 130
     permissions:
@@ -7887,8 +7895,9 @@ jobs:
     if: "!cancelled() && github.repository_owner == 'manaflow-ai' && needs.published-build.outputs.track == 'nightly-next' && needs.publish-release-notes.result == 'success'"
     continue-on-error: true
     # GitHub-hosted on purpose, in the tail only (after publish-release-notes): an ffmpeg render of up to 90 min
-    # would hold the whole signing Mac (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
+    # would hold the whole signing Mac (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS). Attempt 1: TAIL ROUTE
+    # (sign-release-notes).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'ubuntu-24.04' }}
     timeout-minutes: 90
     # The private-terms secret lives only in this environment, which admits only
     # the protected branches (main, feat-cmux-next, nightly-next).

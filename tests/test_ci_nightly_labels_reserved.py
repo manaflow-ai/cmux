@@ -74,6 +74,13 @@ REPO_FILE = re.compile(r"(?<![A-Za-z0-9_./-])((?:scripts|\.github|tests)/[A-Za-z
 # Producing jobs whose text names a reserved label but provably never hands it to a
 # PR job. Each entry needs a reason; none is needed today.
 PRODUCER_EXEMPTIONS: dict[tuple[str, str], str] = {}
+# (workflow, file) pairs: a file a producing job's text names but never reads or runs, so its labels never reach an
+# output. Each entry needs a reason; the job's other files are still read.
+PRODUCER_FILE_EXEMPTIONS: dict[tuple[str, str], str] = {
+    ("ci.yml", ".github/workflows/nightly.yml"): "only a changed-file `case` pattern in jobs.changes (remote_daemon=true "
+                                                 "when nightly.yml changes); no step reads it. nightly.yml's tail jobs "
+                                                 "name cmux-gcp-nightly-jit-x64 since 2026-11-20",
+}
 
 
 @functools.lru_cache(maxsize=None)
@@ -302,6 +309,8 @@ def _producer_findings(workflow: str, document: Mapping, job_name: str, text: st
         if (workflow, producer) in PRODUCER_EXEMPTIONS:
             continue
         for where, body in _producer_files(document, producer, set()):
+            if (workflow, where) in PRODUCER_FILE_EXEMPTIONS:
+                continue
             if names_reserved(body):
                 findings.append(f"{workflow} jobs.{job_name} reads needs.{producer}.outputs.{output}, "
                                 f"and {where} names a reserved label")
