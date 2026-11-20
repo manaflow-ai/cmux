@@ -304,7 +304,9 @@ import Testing
     }
 
     @Test func aCallerUnderAnObservationHearsTheChangeOfAKeptPart() {
-        let workspace = Workspace([Tab("a"), Tab("b")])
+        // Each change below writes the title through this local: no change touches the owner's list.
+        let tab = Tab("a")
+        let workspace = Workspace([tab, Tab("b")])
         let kept = KeptParts<Workspace, Tab, String>(step: "KeptPartsTests.parts")
         let made = Made()
         _ = titles(kept, workspace, made)
@@ -316,17 +318,18 @@ import Testing
         #expect(made.titles == ["a", "b"], "setup: the call under the observation made a part")
         #expect(!heard.value)
 
-        workspace.tabs[0].title = "A"
+        tab.title = "A"
         #expect(heard.value, "the caller did not hear the change of a kept part")
 
         // The part is made again under the caller, with the mark and the observation that it had. A second caller
-        // makes no part, so it reads only the owner's cell: it hears the next change by the part's second wake.
+        // makes no part, so it reads the owner's cell and the owner's list, and no title: it hears the next change
+        // by the part's second wake.
         let madeAgain = caller.track(shape: [], { titles(kept, workspace, made) }, onChange: {})
         let (again, second) = (Heard(), SingleArmedTracking())
         let keptParts = second.track(shape: [], { titles(kept, workspace, made) }, onChange: { again.hear() })
         #expect(madeAgain == ["A", "b"] && keptParts == ["A", "b"])
         #expect(made.titles == ["a", "b", "A"], "setup: the second caller's call made a part")
-        workspace.tabs[0].title = "AA"
+        tab.title = "AA"
         #expect(again.value, "a caller did not hear the second change of a part that was made again")
         #expect(titles(kept, workspace, made) == ["AA", "b"])
     }

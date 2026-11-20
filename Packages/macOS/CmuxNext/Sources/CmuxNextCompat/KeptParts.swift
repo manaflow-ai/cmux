@@ -26,7 +26,7 @@ import Observation
 ///
 /// A holder must live as long as each observation that read its parts: after the holder is gone its parts wake no
 /// one. The end of a holder ends no observation of a part. A part's observation then holds no part and no mark,
-/// and it stays on each object whose value `make` read until that value changes (``SingleArmedTracking``).
+/// and it stays on each object whose value `make` read until one of those values changes (``SingleArmedTracking``).
 ///
 /// ```swift
 /// let kept = KeptParts<WorkspaceModel, TabModel, Row?>(step: "Rows.tabParts")
