@@ -56,7 +56,7 @@ import Testing
         row.peerTitles = ["Fix the sidebar", "Nightly", "Audit", "Queued one", "Just told"]
         row.peerStarted = [start, start, start, start, start.addingTimeInterval(12 * 60 + 40)]
         row.peerEnded = [nil, start.addingTimeInterval(64 * 60 + 3), start.addingTimeInterval(30), nil, nil]
-        let now = start.addingTimeInterval(12 * 60 + 59)
+        let now = start.addingTimeInterval(12 * 60 + 30)
         let part = try #require(HomeAgentFoldRowProvider().part(row, now: now))
         guard case let .custom(custom) = part else { Issue.record("not a drawn row"); return }
         let payload = try #require(HomeAgentFoldRowProvider.payload(custom))
