@@ -48,7 +48,7 @@ The gzip module's zlib copy and ft-hb.c are not compiled (system zlib, no HarfBu
 their terms do not ship; the note in MANIFEST.json gives the symbol evidence.
 
 musl: GhosttyNextKit's Termio inlines Zig's `std.math.cbrt` (ported from musl), so the
-app binary (`Contents/MacOS/cmux`) and the iOS pane carry musl's COPYRIGHT (hand-written
+app code (`Contents/Frameworks/CmuxNextApp.framework`) and the iOS pane carry musl's COPYRIGHT (hand-written
 section, checked by `ios_notices.py check-repo`; the pane takes the reviewed file of
 `cmux-tui/dist/notices/package-notices.json`). The cmux-tui Darwin packages link no
 musl-derived code (`package-notices.json` `darwin.review`); `package_notices.py

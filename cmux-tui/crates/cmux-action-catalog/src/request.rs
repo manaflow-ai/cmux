@@ -24,6 +24,15 @@ pub static LIST_SOURCES: &[ListSource] = &[
         value: "sessionId",
         title: "title",
     },
+    // The session's terminals (`cmux terminal list`, every one with or without a tab), by
+    // title: the terminal Show Terminal in New Tab puts in a tab.
+    ListSource {
+        lane: RequestLane::Session,
+        operation: "terminal.list",
+        items: None,
+        value: "id",
+        title: "title",
+    },
 ];
 
 /// The list request a suggestion `source` names (`op:closed.list`), if it is one.

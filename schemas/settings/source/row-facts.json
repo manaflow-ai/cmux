@@ -58,9 +58,6 @@
     "browser.omnibar.glass": [
       "transparent"
     ],
-    "computerUse.driver": [
-      "legacy"
-    ],
     "diff.layout": [
       "unified"
     ],
