@@ -69,5 +69,60 @@ class GlassPerfTest(unittest.TestCase):
                 ingest(log)
 
 
+class FakeApp:
+    """The two Debug socket methods as the app answers them: `enabled` sets the override, null clears it."""
+
+    def __init__(self, system: bool):
+        self.system, self.override, self.calls = system, {}, []
+
+    def call(self, method, params=None):
+        params = params or {}
+        self.calls.append((method, dict(params)))
+        if "enabled" in params:
+            self.override[method] = params["enabled"]
+        override = self.override.get(method)
+        return {"enabled": self.system if override is None else override, "override": override, "system": self.system}
+
+
+class PinFullGlassTest(unittest.TestCase):
+    """glass-perf pins Reduce Transparency and Low Power Mode off (pages draw plain glass under either), then
+    puts the Mac's own state back."""
+
+    @staticmethod
+    def load():
+        import importlib.util
+        import types
+        from unittest import mock
+        path = BENCH_DIR.parent / "cmux-next" / "glass-perf.py"
+        spec = importlib.util.spec_from_file_location("glass_perf_script", path)
+        module = importlib.util.module_from_spec(spec)
+        # bench_memory opens macOS's libproc at import; these tests use none of it.
+        with mock.patch.dict(sys.modules, {"bench_memory": types.ModuleType("bench_memory")}):
+            spec.loader.exec_module(module)
+        return module
+
+    def test_pins_off_and_restores(self):
+        gp = self.load()
+        run = gp.Run.__new__(gp.Run)
+        run.app = FakeApp(system=True)
+        before = run.pin_full_glass()
+        for method in gp.Run.FULL_GLASS_METHODS:
+            self.assertEqual(before[method]["system"], True)
+            self.assertEqual(before[method]["override"], None)
+            self.assertEqual(before[method]["now"], False)
+        run.unpin_full_glass(before)
+        self.assertEqual(run.app.override, {m: None for m in gp.Run.FULL_GLASS_METHODS})
+
+    def test_keeps_an_earlier_override(self):
+        gp = self.load()
+        run = gp.Run.__new__(gp.Run)
+        run.app = FakeApp(system=False)
+        run.app.override["debug.reduce_transparency"] = True
+        before = run.pin_full_glass()
+        run.unpin_full_glass(before)
+        self.assertEqual(run.app.override["debug.reduce_transparency"], True)
+        self.assertEqual(run.app.override["debug.low_power_mode"], None)
+
+
 if __name__ == "__main__":
     unittest.main()

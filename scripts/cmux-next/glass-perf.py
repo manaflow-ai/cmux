@@ -377,6 +377,23 @@ class Run:
         value = self.js("document.documentElement.getAttribute('data-glass')")
         return value if isinstance(value, str) else None
 
+    FULL_GLASS_METHODS = ("debug.reduce_transparency", "debug.low_power_mode")
+
+    def pin_full_glass(self) -> dict:
+        """Reduce Transparency and Low Power Mode pinned off for this app; returns each one's state before."""
+        before = {}
+        for method in self.FULL_GLASS_METHODS:
+            seen = self.app.call(method, {}) or {}
+            after = self.app.call(method, {"enabled": False}) or {}
+            before[method] = {"enabled": seen.get("enabled"), "override": seen.get("override"),
+                              "system": seen.get("system"), "now": after.get("enabled")}
+        return before
+
+    def unpin_full_glass(self, before) -> None:
+        """Each override back as it was (None: follow macOS)."""
+        for method in self.FULL_GLASS_METHODS:
+            self.app.call(method, {"enabled": ((before or {}).get(method) or {}).get("override")})
+
     def set_mode(self, mode: str) -> str:
         reply = self.app.call("debug.tunables", {"action": "set", "key": "glass.lens", "value": mode}) or {}
         return "ok" if not reply.get("error") else str(reply["error"])[:200]
@@ -532,6 +549,12 @@ def main(argv=None) -> int:
             if opts.scenario in ("composer", "all"):
                 report["history"] = run.fill_history()
                 print(f"glass-perf: history {report['history']}", flush=True)
+        # Pages draw plain glass under Reduce Transparency or Low Power Mode whatever glass.lens says
+        # (GlassLensMode.effective): run 6 on a fleet Mac measured "lens" with the page on plain throughout.
+        # Pin both off for this app while measuring, record what the Mac had, and put them back after.
+        pinned = run.pin_full_glass()
+        report["accessibility_before"] = pinned
+        print(f"glass-perf: accessibility before {json.dumps(pinned, sort_keys=True)}", flush=True)
         for mode in modes:
             set_to = run.set_mode(mode)
             if set_to != "ok":
@@ -549,6 +572,8 @@ def main(argv=None) -> int:
         print(f"glass-perf: {error}", file=sys.stderr)
         status = 1
     finally:
+        if run.app is not None:
+            run.unpin_full_glass(report.get("accessibility_before"))
         if attached:
             if run.app is not None:
                 # The person's choice back as it was (None: the default), and nothing of the bench left in the page.
