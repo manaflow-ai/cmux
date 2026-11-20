@@ -1113,8 +1113,9 @@ export function NewTabScreen(props: Props) {
       : [];
   // A prompt that names a plugin (`@computer-use`, toolMentions.ts) is for an agent: only its Ask rows
   // stay, never a web search or an address for the same words.
-  const forAgent = toolMentionsIn(text).length > 0;
-  const rows = text !== dismissed ? (forAgent ? suggested.filter((row) => row.type === "ask") : suggested) : NO_ROWS;
+  // Return reads `offered` too once the rows are dismissed, so Escape never brings back a Run or a search.
+  const offered = toolMentionsIn(text).length > 0 ? suggested.filter((row) => row.type === "ask") : suggested;
+  const rows = text !== dismissed ? offered : NO_ROWS;
   // New tabs or pages from the host can shorten the rows under a highlight.
   // A highlighted row that went away (its tab closed) hands Return back to the top row.
   const kept = selected === undefined ? -1 : rows.findIndex((row) => rowKey(row) === selected);
@@ -1469,7 +1470,7 @@ export function NewTabScreen(props: Props) {
     if (command.intercept(prompt, harness, attachments.length)) return;
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com). So does an
     // address with no row selected (↑ from the top row): there is no prompt to send.
-    const list = rows.length ? rows : suggested;
+    const list = rows.length ? rows : offered;
     const opensTop = !rows.length || (current < 0 && isAddress(typed.trim(), home));
     const row = opensTop ? list[defaultSelection(list)] : rows[current];
     // Navigation keeps staged files in chat. An explicit creation command keeps its own action.
@@ -1694,7 +1695,8 @@ export function NewTabScreen(props: Props) {
       if (
         plain &&
         (event.key === "Tab" ||
-          (event.key === "Enter" && returnPicks(match, menuQuery ?? "", commandArrowedAt !== undefined)))
+          (event.key === "Enter" &&
+            returnPicks(match, menuQuery ?? "", commandArrowedAt !== undefined, atOpen ? undefined : commandAt?.mark)))
       ) {
         event.preventDefault();
         pickCommand(match!.command);

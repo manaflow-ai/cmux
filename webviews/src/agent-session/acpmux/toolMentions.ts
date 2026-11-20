@@ -94,7 +94,9 @@ export function toolMentionsIn(text: string): readonly ToolMentionId[] {
   if (!text.includes("@") && !text.includes("$")) return [];
   const outsideCode = text.replace(/(```|~~~)[\s\S]*?(?:\1|$)|`[^`\n]*`/g, (code) => code.replace(/[^\n]/g, " "));
   const found = new Set<string>();
-  for (const match of outsideCode.matchAll(/(^|\s)[@$](computer-use|browser-use)(?=\s|$|[,;:!?)]|\.(?:\s|$))/gi))
+  for (const match of outsideCode.matchAll(
+    /(^|[\s\uFFFC])[@$](computer-use|browser-use)(?=[\s\uFFFC]|$|[,;:!?)]|\.(?:\s|$))/gi,
+  ))
     found.add(match[2]!.toLowerCase());
   return TOOL_MENTIONS.filter((tool) => found.has(tool.id)).map((tool) => tool.id);
 }

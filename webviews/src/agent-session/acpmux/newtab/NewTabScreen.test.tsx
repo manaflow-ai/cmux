@@ -936,6 +936,30 @@ test("a prompt that names a plugin lists only its Ask rows: no web search for it
   expect(types().every((type) => type === "ask")).toBe(true);
 });
 
+test("Escape then Return on a plugin prompt never runs it as a command or a search", async () => {
+  const shell: string[] = [];
+  const searched: string[] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={(text) => void searched.push(text)}
+        onShell={(command) => void shell.push(command)}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+      />,
+    );
+  });
+  const field = await typePrompt("ls @browser-use ");
+  await press(field, "Escape");
+  await press(field, "Enter");
+  expect(shell).toEqual([]);
+  expect(searched).toEqual([]);
+});
+
 test("the `/` menu opens mid-prompt with the skills and writes the pick in place, as in chat", async () => {
   const snapshot = noChat([], {
     catalog: [],
