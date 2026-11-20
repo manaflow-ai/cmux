@@ -4437,8 +4437,10 @@ function TranscriptView({
   // Send to top (Leo, 2026-11-20, of how Claude Code desktop does its tool calls and sends: "it doesn't
   // layout shift... we shouldnt either!"): a prompt sent from the latest row goes to the top of the
   // view, and the turn fills the room under it. The content is kept at least as tall as that view's
-  // end, so the follow rests there while the reply grows into the room and nothing in view moves; once
-  // the turn outgrows the view, it grows on below and the view stays (`sendTopOver`, the layout effect).
+  // end, so the follow rests there while the reply grows into the room and nothing in view moves. Once
+  // the turn outgrows the view the room is gone and the follow goes on to the latest line, as before:
+  // a long reply is still followed to its end (agent-pane-follow-live, dogfood run 6: a view left at a
+  // reply's top had later turns arrive out of sight).
   // Held while the view follows; the reader scrolling, Jump to latest or another chat lets it go.
   if (sessionSwitched || !following) sendTop.current = undefined;
   else if (didOpenAtLatest.current && rows !== previousRows.current) {
@@ -4447,7 +4449,9 @@ function TranscriptView({
     const sent = sentPromptAt(previousRows.current, rows);
     if (sent >= 0 && sentPromptIdsForRender.has(rows[sent]!.id)) sendTop.current = { id: rows[sent]!.id, index: sent };
   }
-  const sendTopEnd = sendTopEndOf(sendTop.current, rows, measured.layout, topInset, height);
+  let sendTopEnd = sendTopEndOf(sendTop.current, rows, measured.layout, topInset, height);
+  // Outgrown: the rows reach past the held view's end, so there is no room left to keep.
+  if (sendTopEnd < rowsHeight) sendTopEnd = 0;
   if (sendTopEnd === 0) sendTop.current = undefined;
   sendTopEndRef.current = sendTopEnd;
   // The content's end without the room a collapse left (`foldRoom`), which it is released against.
@@ -5023,16 +5027,7 @@ function TranscriptView({
       // Following is reader intent, not proximity. A token must not recapture a parked reader
       // just because the last recorded offset remains inside the bottom deadband.
       // A sent prompt held at the view's top (`sendTopEnd`): the follow goes no further than that view.
-      // Once the turn outgrows it and the view rests there, the view stays and the turn grows on
-      // below it, behind Jump to latest, as a reader scrolled up would see it: nothing in view moves.
       const sendTopAt = sendTopEndRef.current > 0 ? Math.max(0, sendTopEndRef.current - viewHeight) : undefined;
-      const sendTopOver =
-        followingRef.current &&
-        sendTopAt !== undefined &&
-        jumpTarget.current === undefined &&
-        rowsEndRef.current > sendTopEndRef.current + 0.5 &&
-        Math.abs(live - sendTopAt) <= 1;
-      if (sendTopOver) follow(false, "send-top");
       const atLatest = followingRef.current;
       // At the latest row also at offset 0: a new chat's first pass can overshoot on estimated
       // heights and settle back to fit, and its reply must still be followed once it overflows
@@ -6013,6 +6008,7 @@ function TranscriptView({
       sentBeforeOpen.current = true;
       // A tail that fits is at its latest row: the composer's prompt becomes the sent message
       // (conversation/sendMorph.ts). A chat that drew no row yet has none: its prompt fades in place.
+      console.warn(`SENDMORPH-DEBUG notOpened drew=${drewRowsBefore.current}`);
       noteSendFromLatest(drewRowsBefore.current, node);
       // A tail that fit and overflows with this send opens at the latest row on the send's glide
       // (placement pass), and the reply's rows that land next rise on it too (`sendRows`).
@@ -6030,6 +6026,9 @@ function TranscriptView({
     const fromLatest = followingRef.current && jumpTarget.current === undefined;
     // Only then does the composer's prompt become the sent message in place; scrolled up, it fades in
     // where it lands (conversation/sendMorph.ts, Leo 2026-11-08: "if you're at the bottom").
+    console.warn(
+      `SENDMORPH-DEBUG opened following=${followingRef.current} jump=${jumpTarget.current} top=${node.scrollTop} sh=${node.scrollHeight} ch=${node.clientHeight} sendTopEnd=${sendTopEndRef.current}`,
+    );
     noteSendFromLatest(fromLatest, node);
     if (fromLatest) {
       wheelGlide.current?.stop();
