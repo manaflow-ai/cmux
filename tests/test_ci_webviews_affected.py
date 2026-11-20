@@ -156,6 +156,7 @@ class SelectTest(unittest.TestCase):
 
     def test_computed_imports_and_package_loads_still_run(self) -> None:
         for expression in ('import(name)', 'import( name )', 'import(/* runtime */ name)',
+                           'import /* runtime */ (name)', 'import /* runtime */ ( name )',
                            'import("vite")', 'require("child_process")',
                            'import /* package */ ( "vite" )', 'require ( "child_process" )',
                            'require /* package */ (/* load */ "child_process")'):
