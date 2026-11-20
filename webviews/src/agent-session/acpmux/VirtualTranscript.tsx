@@ -59,6 +59,7 @@ import { holdMomentum, installMomentumHold } from "./threadMinimap/momentumHold"
 import { JUMP_CURVE, jumpDuration, jumpGlideStart, transcriptFadeReach } from "./threadMinimap/model";
 import { cssTimeMs, foldMotion, foldMs } from "./conversation/fold";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
+import { useStableCallback } from "./stableCallback";
 import { minimapReserve } from "./chatMinimap/paint";
 import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
@@ -205,7 +206,8 @@ import { jumpUpButton } from "./jumpUp.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import { jumpPairLook } from "./jumpPair.experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
-import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
+import { SHOWN_INK_PROPERTIES, SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
+import { thumbMotion } from "./conversation/thumbMotion.experiment";
 import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
 import { OlderAhead } from "./conversation/olderAhead";
 import { type OlderReserve, olderReserve } from "./conversation/olderReserve";
@@ -229,6 +231,7 @@ import {
 } from "./virtualTranscriptModel";
 import { focusRoute } from "../../ui/focusRoute";
 import { continuesLiveResize, LIVE_RESIZE_MS, stepLiveResize } from "./conversation/liveResizeStep";
+import { DOCK_NOTICE } from "./noticeSlotModel";
 
 /// The live line's box and gap in a run as custom properties on the scroller (transcriptGrid.ts transcriptLiveVars):
 /// conversation.css sizes the line with them. Constant, so the scroller's per-scroll restyle never changes them.
@@ -2212,6 +2215,16 @@ function TranscriptView({
     sent = false,
   ) => {
     const chase = followChase.current!;
+    // An at-once pass cannot shift a chase: the rows have already landed and the next
+    // animated pass must establish a fresh anchor. Avoid reading row geometry here; on
+    // every streamed update the old path paid two getBoundingClientRect() calls even
+    // though `moveAtOnce` skipped the only branch that used their result.
+    if (moveAtOnce) {
+      chaseAnchor.current = undefined;
+      resumeFollowMotion();
+      chase.fit(below);
+      return;
+    }
     const rowTop = (id: string) => {
       const name = typeof CSS === "undefined" ? id.replace(/["\\]/g, "\\$&") : CSS.escape(id);
       const row = thread.current?.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`);
@@ -2344,9 +2357,10 @@ function TranscriptView({
   dockTrayRef.current = dockTray;
   /// The reader opened or folded something in the tray, and the room has not taken it yet.
   const trayToggled = useRef(false);
-  /// The host's line in that stack (HostError.tsx: "Reconnecting…", or a refusal and its Retry), which
-  /// comes and goes while the pane finds acpmux: the room under the last row takes it only once the
-  /// rows move anyway (`noticeHold`).
+  /// The notices in that stack (noticeSlotModel.ts `DOCK_NOTICE`): the host's line (HostError.tsx:
+  /// "Reconnecting…", or a refusal and its Retry), which comes and goes while the pane finds acpmux, an
+  /// app notice (PaneNotices.tsx), the daemon's Retrying… (AutoResumeNotice.tsx) and the rest a relaunch
+  /// can bring late: the room under the last row takes them only once the rows move anyway (`noticeHold`).
   const [dockNotice, setDockNotice] = useState(0);
   /// The same, as the stack's observer last measured it (it writes both), for the handlers below.
   const dockNoticeRef = useRef(0);
@@ -2444,12 +2458,12 @@ function TranscriptView({
       space > 0
         ? (dock.querySelector(`:scope > .acpmux-running-tray:not(.${TRAY_GHOST})`)?.getBoundingClientRect().height ?? 0)
         : 0;
-    // The host's line, while the stack reaches over the view.
+    // The stack's notices (the host's line, an app notice, Retrying…: noticeSlotModel.ts DOCK_NOTICE),
+    // while the stack reaches over the view.
     const notice = (space: number) => {
       if (space <= 0) return 0;
       let height = 0;
-      for (const line of dock.querySelectorAll(":scope > .acpmux-host-line, :scope > .acpmux-host-line-group"))
-        height += line.getBoundingClientRect().height;
+      for (const line of dock.querySelectorAll(DOCK_NOTICE)) height += line.getBoundingClientRect().height;
       return height;
     };
     // A click on one of its disclosures (the header, View all, a command's line) is the reader's.
@@ -3375,13 +3389,6 @@ function TranscriptView({
   /// This is render-phase state, alongside `sendsAt`, so the counter does not add a mutable ref read
   /// to the render path (React Doctor's no-ref-current-in-render rule).
   const [pendingSentPromptCount, setPendingSentPromptCount] = useState(0);
-  /// The last committed row snapshot used to distinguish an async prompt registration from history
-  /// already in the tail. State keeps this render comparison out of the ref-backed placement cache.
-  const [sendRowsSnapshot, setSendRowsSnapshot] = useState(() => ({
-    current: rows,
-    previous: rows,
-  }));
-  if (sendRowsSnapshot.current !== rows) setSendRowsSnapshot({ current: rows, previous: sendRowsSnapshot.current });
   /// A prompt was sent before the chat opened (while its tail still fits): it opens at the latest
   /// message, not at the reader's old place.
   const sentBeforeOpen = useRef(false);
@@ -3403,8 +3410,13 @@ function TranscriptView({
     setSteered(working);
   }
   // Under the scrollbar fade (the host theme sets it, applyPaneTheme), the scrollbar fades in and
-  // out with the scrolling marks (scrollers.ts).
-  useEffect(() => (ref.current ? followShownScrollerFade(ref.current) : undefined), []);
+  // out with the scrolling marks, and to its near look and back as the pointer reaches its bar and
+  // leaves (scrollers.ts; thumbMotion.experiment.ts).
+  useEffect(
+    () =>
+      ref.current ? followShownScrollerFade(ref.current, SHOWN_INK_PROPERTIES, experimentArm(thumbMotion)) : undefined,
+    [],
+  );
   // Read aloud speaks one of this chat's answers: moving to another session (or closing the
   // transcript) stops it, so it neither talks over the next chat nor says Stop reading on return.
   useEffect(() => () => stopReadingAloud(), [sessionId]);
@@ -3609,26 +3621,39 @@ function TranscriptView({
     } else if (sends < observedSends) {
       pending = 0;
     }
-    const previous = sendRowsSnapshot.previous;
-    const first = Math.max(0, previous.length - ARRIVAL_TAIL);
-    const last = Math.min(rows.length, previous.length + ARRIVAL_TAIL);
-    const indexes = new Set<number>();
-    for (let index = first; index < last; index += 1) indexes.add(index);
-    for (let index = Math.max(0, rows.length - ARRIVAL_TAIL); index < rows.length; index += 1) indexes.add(index);
-    for (const index of indexes) {
-      const row = rows[index];
-      // A later send can arrive before the row snapshot changes. A prompt already matched to
-      // an earlier send must not consume that later send's pending slot again.
-      if (
-        pending > 0 &&
-        row?.kind === "user" &&
-        !isLineRow(row) &&
-        row.id !== previous[index]?.id &&
-        !promptIds.has(row.id)
-      ) {
-        if (promptIds === sentPromptIds) promptIds = new Set(sentPromptIds);
-        rememberSentPromptId(promptIds, row.id);
-        pending -= 1;
+    // Only a send still waiting for its prompt row has anything to match. With none waiting, this
+    // window was built and walked on every commit of a streaming chat for a result it could not use.
+    if (pending > 0) {
+      // "Which rows arrived since the last drawn pass": the rows the placement pass last committed
+      // (`previousRows`, set in its layout effect, so it lags by a commit and not by a render pass).
+      // A send's prompt row can land in the same commit that raises `sends` (a harness switch holds
+      // it) or commits later, and this reads as an arrival either way. A row drawn a commit *before*
+      // `sends` rises is not an arrival here, which is why a new chat's first prompt (startingSends
+      // draws its row before `chat.new` answers) takes its send entrance from the mount path and not
+      // from this matching, as it did before. Taking a snapshot of the send's own rows instead missed
+      // the same-commit case, and taking one per row change was the render-phase setState this
+      // change removes.
+      const previous = previousRows.current;
+      const first = Math.max(0, previous.length - ARRIVAL_TAIL);
+      const last = Math.min(rows.length, previous.length + ARRIVAL_TAIL);
+      const indexes = new Set<number>();
+      for (let index = first; index < last; index += 1) indexes.add(index);
+      for (let index = Math.max(0, rows.length - ARRIVAL_TAIL); index < rows.length; index += 1) indexes.add(index);
+      for (const index of indexes) {
+        const row = rows[index];
+        // A later send can arrive before the row snapshot changes. A prompt already matched to
+        // an earlier send must not consume that later send's pending slot again.
+        if (
+          pending > 0 &&
+          row?.kind === "user" &&
+          !isLineRow(row) &&
+          row.id !== previous[index]?.id &&
+          !promptIds.has(row.id)
+        ) {
+          if (promptIds === sentPromptIds) promptIds = new Set(sentPromptIds);
+          rememberSentPromptId(promptIds, row.id);
+          pending -= 1;
+        }
       }
     }
     sentPromptIdsForRender = promptIds;
@@ -5114,7 +5139,17 @@ function TranscriptView({
             // sends: the send's rows rise from behind the composer again.
             if (sentRows) chaseHeld.current = false;
             const held = chaseHeld.current;
-            const below = held ? room : sentRows ? Number.POSITIVE_INFINITY : room + CHASE_UNDER_STACK_PX;
+            // A prompt's row that came at the tail (before the live line) outside a send's window (the
+            // reader's other device, a queued prompt sent) rises from behind the composer as a sent
+            // one does: kept to a line under the stack, its rise moved at once and the room the
+            // composer gave back after it drew the rows down again (`spring`, `chunk`, `linear`).
+            // O(rows that came).
+            let promptCame = false;
+            for (let index = rows.length - 1; index >= Math.max(0, oldRows.length - 2) && !sentRows; index -= 1) {
+              const row = rows[index]!;
+              if (row.kind === "user" && !isLineRow(row) && row.id !== oldRows[index]?.id) promptCame = true;
+            }
+            const below = held ? room : sentRows || promptCame ? Number.POSITIVE_INFINITY : room + CHASE_UNDER_STACK_PX;
             // The reply growing with no live line under it (no room: a line that names a call, a
             // queue's cards last, a view that draws none) steps as before (followRoom), as base's
             // glide did; rows that come and go, the send's among them, still chase.
@@ -7127,6 +7162,18 @@ function TranscriptView({
     for (const node of threadNode.querySelectorAll<HTMLElement>(":scope > .acpmux-row[data-row-id]"))
       if (node.getAttribute("aria-setsize") !== setSize) node.setAttribute("aria-setsize", setSize);
   }, [setSize]);
+  // One identity for the pane's life: a wheel tick re-renders the transcript to draw the rows coming into view,
+  // and a new handler each time drew the Jump to latest control again with it (render-counts.bench.ts `scroll`).
+  const onJumpLatest = useStableCallback((focused: boolean) => {
+    // One press, one move: to the latest message when this chat's ask waits there (or no
+    // ask is open), else straight to the next chat's ask.
+    // With no ask open it is Jump to latest, whatever the last render read for `behind`.
+    const asks = needsYou?.count ?? 0;
+    const here = asks - (needsYou?.elsewhere ?? 0);
+    const scroll = asks === 0 || (behind && here > 0);
+    if (scroll) jumpToLatest(focused);
+    if (needsYou && asks > 0) needsYou.next(scroll);
+  });
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
     <ReadOnlyBoundary readOnly={readOnly}>
@@ -7210,7 +7257,7 @@ function TranscriptView({
               />
             )}
             {/* The VS Code-style minimap at the right edge (Settings > Agent Chat > VS Code Minimap, off by default). */}
-            <ChatMinimap
+            <ChatMinimapMemo
               // Another chat is another minimap: no canvas, placeholder or scale carried over.
               key={sessionId}
               rows={rows}
@@ -7290,20 +7337,11 @@ function TranscriptView({
           )}
           {jumpUp && <JumpUp shown={upShown} back={jumpBackHeld} onJump={() => pressUp()} lift={dockSpace} />}
           {jumpButton && (
-            <JumpToLatest
+            <JumpToLatestMemo
               // The pill also shows at the latest message while the chats this chat started wait: it cycles to them.
               shown={behind || (needsYou?.elsewhere ?? 0) > 0}
               working={working}
-              onJump={(focused) => {
-                // One press, one move: to the latest message when this chat's ask waits there (or no
-                // ask is open), else straight to the next chat's ask.
-                // With no ask open it is Jump to latest, whatever the last render read for `behind`.
-                const asks = needsYou?.count ?? 0;
-                const here = asks - (needsYou?.elsewhere ?? 0);
-                const scroll = asks === 0 || (behind && here > 0);
-                if (scroll) jumpToLatest(focused);
-                if (needsYou && asks > 0) needsYou.next(scroll);
-              }}
+              onJump={onJumpLatest}
               lift={dockSpace}
               needsYou={needsYou}
             />
@@ -7315,3 +7353,7 @@ function TranscriptView({
 }
 
 const TranscriptViewMemo = React.memo(TranscriptView);
+/// A wheel tick re-renders the transcript; these draw again only when their own props change (the minimap reads
+/// the scroll from its scroller, not from a prop).
+const JumpToLatestMemo = React.memo(JumpToLatest);
+const ChatMinimapMemo = React.memo(ChatMinimap);

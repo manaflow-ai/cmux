@@ -135,7 +135,7 @@ extension MacScreenHomeView {
             MacScreenStack.addFullWidth(MacScreenFill.divider(), to: content)
             MacScreenStack.addFullWidth(MacScreenHomeParts.permissionRow(
                 title: L.t("macScreen.home.screenRecording", "Screen Recording"),
-                detail: MacScreenGrantCopy.screenRecordingDetail(sharing.grantHolderName),
+                detail: L.t("macScreen.home.screenRecordingDetail", "Lets cmux send this screen. macOS may ask you to quit and reopen cmux."),
                 granted: sharing.screenRecordingGranted
             ) { [weak self] in self?.host.openSettings(screenRecording: true) }, to: content)
             MacScreenStack.addFullWidth(MacScreenHomeParts.permissionRow(
@@ -182,7 +182,7 @@ extension MacScreenHomeView {
     private func permissionRows(_ sharing: MacScreenHomeSnapshot.Sharing) -> [NSView] {
         [
             permissionRow(title: L.t("macScreen.home.screenRecording", "Screen Recording"),
-                          missing: MacScreenGrantCopy.screenRecordingNeeded(sharing.grantHolderName),
+                          missing: L.t("macScreen.home.screenRecordingNeeded", "Needed to send this screen. macOS may ask you to reopen cmux."),
                           granted: sharing.screenRecordingGranted, id: "macScreen.home.screenRecording") { [weak self] in
                 self?.host.openSettings(screenRecording: true)
             },

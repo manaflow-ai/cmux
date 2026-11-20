@@ -4,7 +4,8 @@
 # try-pr.sh opens pull requests in one by default (docs/cmux-next/hot-reload.md, "Try a pull request").
 #
 #   side-instance.sh make NAME [--from APP] [--label TEXT] [--live-code] [--neutral-shell] [--swap BUILD]
-#                                   copy APP (default /Applications/cmux NEXT.app) as NAME; remade
+#                                   copy APP (default /Applications/cmux NEXT.app, refused when built
+#                                   over 7 days ago; --from takes any build) as NAME; remade
 #                                   from another app, it clears the state of the identity it replaces.
 #                                   --live-code: a live code build's copy watches live-code/ for
 #                                   Swift patches (docs/cmux-next/live-code.md)
@@ -116,10 +117,12 @@ clear_state() {
 
 case "$cmd" in
   make)
-    from="/Applications/cmux NEXT.app" label="cmux $name" live="" neutral="" swap=""
+    # SIDE_INSTANCE_DEFAULT_APP: a stand-in for tests (tests/test_side_instance_stale_default.py).
+    from="${SIDE_INSTANCE_DEFAULT_APP:-/Applications/cmux NEXT.app}" label="cmux $name" live="" neutral="" swap=""
+    chosen=""
     while [[ $# -gt 0 ]]; do
       case "$1" in
-        --from) [[ $# -ge 2 ]] || usage 1; from="${2%/}"; shift 2 ;;
+        --from) [[ $# -ge 2 ]] || usage 1; from="${2%/}"; chosen=1; shift 2 ;;
         --label) [[ $# -ge 2 ]] || usage 1; label="$2"; shift 2 ;;
         --live-code) live=1; shift ;;
         --neutral-shell) neutral=1; shift ;;
@@ -128,6 +131,14 @@ case "$cmd" in
       esac
     done
     [[ -f "$from/Contents/Info.plist" ]] || die "no app at $from"
+    # The default app is whatever someone once installed: a fleet Mac's /Applications/cmux NEXT.app was a Safari
+    # download of a 2026-10-28 build that nothing updates, and each copy of it read inside ~/Downloads at launch
+    # (before the LAUNCH-NO-TCC-PROMPTS fixes of 2026-10-30, #28820), so every new side instance put macOS's
+    # Downloads prompt on an unattended screen (cmux20, 2026-11-18). Named with --from, any build is copied (an
+    # older one is how a before look is taken).
+    if [[ -z "$chosen" && -n "$(find "$from/Contents/Info.plist" -mtime +7 2>/dev/null)" ]]; then
+      die "$from was built over 7 days ago, and a copy runs that old code; install a current build there, or name the app with --from (/Applications/cmux NIGHTLY.app, or an older one on purpose)"
+    fi
     [[ "$label" =~ ^[A-Za-z0-9\ \#._-]+$ ]] || die "the label takes letters, digits, spaces and # . _ -"
     old_bundle="" old_key=""
     if [[ -f "$marker" ]]; then
