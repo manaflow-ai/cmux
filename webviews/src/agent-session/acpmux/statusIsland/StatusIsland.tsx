@@ -12,7 +12,8 @@ import { useT } from "../i18n";
 import type { NeedsYouAnswer, NeedsYouItem } from "../needsYou/model";
 import { askText } from "../needsYou/needsYouModel";
 import { harnessName } from "../permissions/planBuild";
-import { islandAnswers, islandExpanded, type IslandState } from "./model";
+import { focusRoute } from "../../../ui/focusRoute";
+import { islandAnswers, islandExpanded, islandToggle, type IslandState } from "./model";
 import "./statusIsland.css";
 
 export type StatusIslandActions = {
@@ -26,11 +27,30 @@ export type StatusIslandActions = {
 
 export function StatusIsland({ state, actions }: { state: IslandState; actions: StatusIslandActions }) {
   const t = useT();
-  const [toggled, setToggled] = useState<{ focus: string; open: boolean }>();
+  const [pressed, setToggled] = useState<{ focus: string; open: boolean }>();
+  // A press counts only while what it was about is on show (islandToggle): a failure the person
+  // folded that clears and comes back opens again.
+  const toggled = islandToggle(pressed, state.focus);
+  useEffect(() => {
+    if (pressed && !toggled) setToggled(undefined);
+  }, [pressed, toggled]);
   const [sending, setSending] = useState<string>();
   const [failedFocus, setFailedFocus] = useState<string>();
   const expanded = islandExpanded(state, toggled);
   const content = useRef<HTMLDivElement>(null);
+  // The pill and the card swap their content, so the control the person pressed leaves the page:
+  // after their press (never after a new ask opens the card by itself) focus goes to the control
+  // that stands in its place, the card's collapse button or the pill, never to the page's body.
+  // Never to an answer: Return must not approve what the person has not read.
+  const handoff = useRef(false);
+  useEffect(() => {
+    if (!handoff.current) return;
+    handoff.current = false;
+    const target = content.current?.querySelector<HTMLElement>(
+      expanded ? ".acpmux-status-island__collapse" : ".acpmux-status-island__pill",
+    );
+    focusRoute(target, "person", expanded ? "status island expanded" : "status island collapsed");
+  }, [expanded]);
   const [size, setSize] = useState<{ width: number; height: number }>();
 
   // The island's box follows its content's size, so width, height and corner radius run on the
@@ -52,10 +72,13 @@ export function StatusIsland({ state, actions }: { state: IslandState; actions: 
 
   const toggle = () => {
     if (!state.focus) return;
+    handoff.current = true;
     setToggled({ focus: state.focus, open: !expanded });
   };
   const collapse = () => {
-    if (state.focus) setToggled({ focus: state.focus, open: false });
+    if (!state.focus) return;
+    handoff.current = true;
+    setToggled({ focus: state.focus, open: false });
   };
   // Escape inside the card folds it back into the pill (a native listener: the island is a region,
   // not a control, so its own buttons keep their keys).
@@ -67,6 +90,7 @@ export function StatusIsland({ state, actions }: { state: IslandState; actions: 
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.stopPropagation();
+      handoff.current = true;
       setToggled({ focus: focusKey, open: false });
     };
     node.addEventListener("keydown", onKey);

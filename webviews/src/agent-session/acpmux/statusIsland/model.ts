@@ -22,8 +22,10 @@ export type IslandState = {
   failure?: IslandFailure;
   /// The pill's mark: an ask outranks a failure, a failure outranks running work.
   tone: IslandTone;
-  /// What the card would show, as a stable key: `ask:<item id>` or `failed:<sessionId>`. A new key
-  /// expands the pill by itself; the key the person collapsed stays collapsed.
+  /// What the card would show, as a stable key: `ask:<item id>`, or `failed:<sessionId>:<when>` for
+  /// one failure of a chat (its `activityAt`, which a new run moves and a warm or resume does not).
+  /// A new key expands the pill by itself; the key the person collapsed stays collapsed while it
+  /// lasts (islandToggle forgets it once it clears).
   focus?: string;
 };
 
@@ -58,7 +60,7 @@ export function islandState({
         ...(failure.laneError ? { error: failure.laneError } : {}),
       },
       tone: "error",
-      focus: `failed:${failure.sessionId}`,
+      focus: `failed:${failure.sessionId}:${failure.activityAt ?? failure.updatedAt ?? ""}`,
     };
   return { running, waiting: 0, tone: running > 0 ? "running" : "idle" };
 }
@@ -70,6 +72,16 @@ export function islandExpanded(state: IslandState, toggled?: { focus: string; op
   if (!state.focus) return false;
   if (toggled?.focus === state.focus) return toggled.open;
   return true;
+}
+
+/// The person's last press, kept only while what it was about is still on show: once the ask is
+/// answered or the failure clears (another focus, or none), it is forgotten, so the same chat failing
+/// again, even under a key that reads the same, opens its card again.
+export function islandToggle(
+  toggled: { focus: string; open: boolean } | undefined,
+  focus: string | undefined,
+): { focus: string; open: boolean } | undefined {
+  return toggled && toggled.focus === focus ? toggled : undefined;
 }
 
 /// The one-click answers the card draws: an allow and a deny (tones), or a question's choices.

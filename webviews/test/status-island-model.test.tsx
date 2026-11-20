@@ -10,7 +10,12 @@ import { experimentById } from "../src/experiments/registry";
 import type { AcpmuxPermission } from "../src/agent-session/acpmux/model";
 import { needsYouItems, type WatchedAsk } from "../src/agent-session/acpmux/needsYou/model";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
-import { islandAnswers, islandExpanded, islandState } from "../src/agent-session/acpmux/statusIsland/model";
+import {
+  islandAnswers,
+  islandExpanded,
+  islandState,
+  islandToggle,
+} from "../src/agent-session/acpmux/statusIsland/model";
 import { StatusIsland } from "../src/agent-session/acpmux/statusIsland/StatusIsland";
 import { statusIslandExperiment } from "../src/agent-session/acpmux/statusIsland/statusIsland.experiment";
 
@@ -95,7 +100,16 @@ describe("islandState", () => {
       harness: "claude",
       error: "Machine unreachable",
     });
-    expect(s.focus).toBe("failed:new");
+    expect(s.focus).toBe("failed:new:5");
+  });
+
+  test("a new failure of the same chat (a new run moved its activityAt) is a new focus", () => {
+    const first = state([chat("f", { indicator: "failed", activityAt: 10, updatedAt: 10 })]);
+    const warmed = state([chat("f", { indicator: "failed", activityAt: 10, updatedAt: 20 })]);
+    const again = state([chat("f", { indicator: "failed", activityAt: 30, updatedAt: 30 })]);
+    expect(warmed.focus).toBe(first.focus);
+    expect(again.focus).not.toBe(first.focus);
+    expect(islandExpanded(again, { focus: first.focus!, open: false })).toBe(true);
   });
 });
 
@@ -107,6 +121,16 @@ describe("islandExpanded", () => {
     expect(islandExpanded(first, folded)).toBe(false);
     const second = state([chat("asker", { pendingPermissions: 1 })], [ask("asker", "p2", 3_000)]);
     expect(islandExpanded(second, folded)).toBe(true);
+  });
+});
+
+describe("islandToggle", () => {
+  test("a press is kept while its focus is on show and forgotten once it clears", () => {
+    const folded = { focus: "failed:f:1", open: false };
+    expect(islandToggle(folded, "failed:f:1")).toBe(folded);
+    expect(islandToggle(folded, undefined)).toBeUndefined();
+    expect(islandToggle(folded, "ask:acpmux:p1")).toBeUndefined();
+    expect(islandToggle(undefined, "failed:f:1")).toBeUndefined();
   });
 });
 

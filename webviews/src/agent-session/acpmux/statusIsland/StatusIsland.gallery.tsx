@@ -19,6 +19,7 @@ const session = (fields: Partial<AcpmuxSessionEntry> & { sessionId: string }): A
   hostKind: "local",
   host: "This Mac",
   ...fields,
+  displayTitle: fields.title,
 });
 
 const running: AcpmuxSessionEntry[] = [
@@ -94,7 +95,7 @@ export default componentEntry<Props>({
       ({ StatusIsland }) =>
         function Stage({ sessions, asks }: Props) {
           return (
-            <div className="acpmux-shell" style={{ position: "relative", height: "100%" }}>
+            <div className="acpmux-shell" style={{ position: "relative", height: "100vh" }}>
               <StatusIsland state={stateOf(sessions, asks)} actions={actions} />
             </div>
           );

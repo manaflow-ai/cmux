@@ -167,7 +167,14 @@
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
 }
+/* A command is what Allow runs: shown whole, never clipped to two lines (a long command scrolls in
+   its box), so the person approves exactly what they read. */
 .acpmux-status-island__detail[data-command] {
+  display: block;
+  max-height: calc(var(--ds-space-6) * 4);
+  overflow: auto;
+  white-space: pre-wrap;
+  -webkit-line-clamp: unset;
   font-family: var(--font-mono);
 }
 .acpmux-status-island__error {
