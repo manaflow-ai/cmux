@@ -3,7 +3,7 @@
 //! it is loaded with `launchctl bootstrap gui/<uid>`. The app path
 //! (`SMAppService.agent`) and the LaunchDaemon variant are server.md step 7.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use cmux_server_core::layout::LAUNCHD_LABEL;
 use cmux_server_core::units::{launch_agent_plist, session_launch_agent_plist};
@@ -43,9 +43,15 @@ pub fn install(s: &Services<'_>, restart: bool) -> Result<ServiceReport> {
     if let Some(dir) = plist.parent() {
         fsx::ensure_dir(dir, 0o755)?;
     }
-    // launchd writes the server log there before the server can create it.
-    fsx::ensure_dir(&fsx::local(&s.layout.logs()), 0o700)?;
+    // launchd writes the server log there before the server can create it:
+    // only this account may read or replace it (preflight checked the
+    // folder is this account's and not a symlink).
+    let logs = fsx::local(&s.layout.logs());
+    fsx::ensure_dir(&logs, 0o700)?;
+    fsx::set_mode(&logs, 0o700).map_err(|e| Error::io(logs.display(), e))?;
+    private_log(&logs.join("server.log"))?;
     let changed = fsx::write_if_changed(&plist, text.as_bytes(), 0o644)?;
+    s.wrote(&[(plist.clone(), text)])?;
     let mut report = ServiceReport { unit: plist.clone(), changed, ..ServiceReport::default() };
     let was_loaded = loaded(s);
     if was_loaded && changed {
@@ -62,6 +68,54 @@ pub fn install(s: &Services<'_>, restart: bool) -> Result<ServiceReport> {
         report.restarted = true;
     }
     Ok(report)
+}
+
+/// Refuses a service log launchd would write into another file through: a
+/// symlink, a file of another account, or a second name (hard link) of
+/// another file.
+pub fn check_log(log: &Path) -> Result<()> {
+    let Ok(meta) = std::fs::symlink_metadata(log) else { return Ok(()) };
+    let owner = crate::sys::owner_uid(&meta);
+    #[cfg(unix)]
+    let links = std::os::unix::fs::MetadataExt::nlink(&meta);
+    #[cfg(not(unix))]
+    let links = 1;
+    if !meta.is_file() || owner != crate::sys::euid() || links != 1 {
+        return Err(Error::rejected(format!(
+            "{} is not a plain file of yours (a symlink, a second name of another file, or owned by uid {owner}); launchd would write the service log into it. Remove it, then run `cmux server install` again",
+            log.display()
+        )));
+    }
+    Ok(())
+}
+
+/// Creates the service log, or keeps the one there, readable only by this
+/// account, without following a symlink put there since the check.
+fn private_log(log: &Path) -> Result<()> {
+    let mut options = std::fs::OpenOptions::new();
+    options.append(true).create(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+    }
+    let file = options.open(log).map_err(|e| Error::io(log.display(), e))?;
+    let meta = file.metadata().map_err(|e| Error::io(log.display(), e))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+        if !meta.is_file() || meta.uid() != crate::sys::euid() || meta.nlink() != 1 {
+            return Err(Error::rejected(format!(
+                "{} changed while cmux set it up; run `cmux server install` again",
+                log.display()
+            )));
+        }
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| Error::io(log.display(), e))?;
+    }
+    #[cfg(not(unix))]
+    let _ = meta;
+    Ok(())
 }
 
 pub fn restart(s: &Services<'_>) -> Result<()> {
