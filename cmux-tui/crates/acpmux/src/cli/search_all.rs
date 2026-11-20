@@ -28,6 +28,7 @@ pub async fn run(client: Arc<Client>, args: SearchArgs, json_out: bool) -> Resul
     let local_host = crate::pairing::machine_name();
     let searches = rows.into_iter().filter_map(|row| {
         let session = crate::session_identity::routed_id(&row).ok()?;
+        let name = row["name"].as_str().unwrap_or(&session).to_owned();
         let host = row
             .get("peer")
             .and_then(Value::as_str)
@@ -39,20 +40,21 @@ pub async fn run(client: Arc<Client>, args: SearchArgs, json_out: bool) -> Resul
         params["sessionId"] = json!(session);
         Some(async move {
             let result = client.request(method::MUX_SESSION_SEARCH, params).await;
-            (session, host, result)
+            (session, name, host, result)
         })
     });
     let mut results = stream::iter(searches).buffer_unordered(MAX_CONCURRENT_SEARCHES);
     let mut hits = Vec::new();
     let mut unreached = Vec::new();
-    while let Some((session, host, result)) = results.next().await {
+    while let Some((session, name, host, result)) = results.next().await {
         match result {
             Ok(answer) => {
                 for mut hit in
                     answer.get("hits").and_then(Value::as_array).cloned().unwrap_or_default()
                 {
-                    hit["session"] = json!(session.clone());
-                    hit["host"] = json!(host.clone());
+                    hit["session"] = json!(name);
+                    hit["sessionId"] = json!(session);
+                    hit["host"] = json!(host);
                     hits.push(hit);
                 }
                 hits.sort_by_key(|hit| std::cmp::Reverse(hit["at"].as_u64().unwrap_or(0)));
@@ -71,6 +73,9 @@ pub async fn run(client: Arc<Client>, args: SearchArgs, json_out: bool) -> Resul
             })),
         }
     }
+    for hit in &mut hits {
+        hit["time"] = json!(utc_time(hit));
+    }
     let answer = json!({"query": params["query"], "hits": hits, "unreached": unreached, "sessions": session_count});
     if json_out {
         print_json(&answer);
@@ -80,13 +85,15 @@ pub async fn run(client: Arc<Client>, args: SearchArgs, json_out: bool) -> Resul
     Ok(())
 }
 
+fn utc_time(hit: &Value) -> Option<String> {
+    chrono::DateTime::from_timestamp_millis(hit.get("at")?.as_i64()?)
+        .map(|time| time.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+}
+
 fn text(answer: &Value) -> String {
     let mut out = String::new();
     for hit in answer.get("hits").and_then(Value::as_array).into_iter().flatten() {
-        let at = hit.get("at").and_then(Value::as_i64).unwrap_or_default();
-        let timestamp = chrono::DateTime::from_timestamp_millis(at)
-            .map(|time| time.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
-            .unwrap_or_else(|| "unknown".to_owned());
+        let timestamp = hit["time"].as_str().unwrap_or("unknown");
         let preview = hit
             .get("snippet")
             .and_then(Value::as_str)
@@ -103,9 +110,7 @@ fn text(answer: &Value) -> String {
             preview,
         ));
     }
-    let unavailable: Vec<&Value> =
-        answer.get("unreached").and_then(Value::as_array).into_iter().flatten().collect();
-    for row in unavailable {
+    for row in answer.get("unreached").and_then(Value::as_array).into_iter().flatten() {
         out.push_str(&format!(
             "unavailable {} {}: {}\n",
             row.get("session").and_then(Value::as_str).unwrap_or("?"),
@@ -125,10 +130,11 @@ mod tests {
 
     #[test]
     fn text_has_session_host_utc_time_role_and_one_line_preview() {
-        let answer = json!({"hits": [{
+        let mut answer = json!({"hits": [{
             "session": "peer/s-1", "host": "peer", "at": 1_735_689_600_000,
             "role": "assistant", "snippet": "first line\nsecond line"
         }]});
+        answer["hits"][0]["time"] = json!(utc_time(&answer["hits"][0]));
         assert_eq!(
             text(&answer),
             "peer/s-1 peer 2025-01-01T00:00:00Z assistant first line second line\n"

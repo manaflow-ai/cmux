@@ -6,10 +6,10 @@ cmux-managed: true
 
 # Teleport an agent chat
 
-A chat is an acpmux session. Moving it hands the whole chat (acpmux's own
+A chat is an agent session. Moving it hands the whole chat (the acpmux engine's own
 history, queued prompts, draft) and the agent's own store to the target
 machine's daemon, then closes it here: the source never runs it again, so
-there is one writer. `acpmux resolve` and agent links follow it to its new
+there is one writer. `cmux agent resolve` and agent links follow it to its new
 place. This is for agent chats; moving the Chief itself is the
 `chief-teleport` skill (the `move` tool).
 
@@ -45,13 +45,13 @@ default. Say so when the chat used them.
 
 ```bash
 acpmux machine ls                                # targets: connected, current build
-acpmux session move CHAT --machine NAME --dry-run   # where it would go; changes nothing
-acpmux session move CHAT --machine NAME --json      # the move
-acpmux session move CHAT --machine NAME --interrupt --carry-changes   # mid-turn, uncommitted work too
+cmux agent session move CHAT --machine NAME --dry-run   # where it would go; changes nothing
+cmux agent session move CHAT --machine NAME --json      # the move
+cmux agent session move CHAT --machine NAME --interrupt --carry-changes   # mid-turn, uncommitted work too
 ```
 
 - `--machine auto` lets placement pick (never a machine a person works at).
-- A running turn refuses the move. Wait for it (`acpmux wait CHAT`), or pass
+- A running turn refuses the move. Wait for it (`cmux agent wait CHAT`), or pass
   `--interrupt`: the stopped turn's continuation is queued and runs on the
   target.
 - `--all-idle --machine auto` moves every chat here that is between turns.
@@ -65,11 +65,11 @@ reach each other (or this laptop) still trade chats. `--machine local`
 brings one back here:
 
 ```bash
-acpmux session move CHAT --from mini-3 --machine cloud-vm   # mini -> cloud VM
-acpmux session move CHAT --from cloud-vm --machine local    # back to this Mac
+cmux agent session move CHAT --from mini-3 --machine cloud-vm   # mini -> cloud VM
+cmux agent session move CHAT --from cloud-vm --machine local    # back to this Mac
 ```
 
-CHAT is the chat's name or id on that machine (`acpmux ls` shows
+CHAT is the chat's name or id on that machine (`cmux agent ls` shows
 `HOST/NAME`; give the part after the slash).
 
 ## Moving to cmux Cloud
@@ -91,7 +91,7 @@ An agent runs it only for its own chat, and then the chat shows the user a
 card (Move, Not now, Always): the move waits for their click. For another
 chat, tell the user to use Move to Cloud on that chat (its tab's right-click
 menu or the command palette), or, when the Cloud machine is one of
-`acpmux machine ls`, use `acpmux session move` to it as above.
+`acpmux machine ls`, use `cmux agent session move` to it as above.
 Never use a team machine someone else made (`fs-lane-*`, another person's
 title) unless the user names it.
 
@@ -118,8 +118,8 @@ or a keychain item to another machine, and never print one.
 After the move, send one test prompt on the target and read the reply:
 
 ```bash
-acpmux send HOST/ID "Reply with the last thing I asked you, in five words."
-acpmux wait HOST/ID --timeout 300 && acpmux last HOST/ID
+cmux agent send HOST/ID "Reply with the last thing I asked you, in five words."
+cmux agent wait HOST/ID --timeout 300 && cmux agent last HOST/ID
 ```
 
 A reply that knows the chat's history is a resumed chat. A turn that fails
