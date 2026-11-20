@@ -1,4 +1,5 @@
 #if os(iOS)
+import OSLog
 import CmuxMobileDesign
 import CmuxMobileSupport
 import QuartzCore
@@ -526,6 +527,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         if !positionedInitially, contentHeight > 0 || surfaceIsEmpty {
             positionedInitially = true
             scrollView.contentOffset = bottomOffset
+            Logger(subsystem: "dev.cmux.mobile", category: "frames").notice("FRAMELOG a146diag positioned content=\(Double(self.contentHeight), privacy: .public) offset=\(Double(self.scrollView.contentOffset.y), privacy: .public)")
         } else if positionedInitially, surface.following {
             // Inside the keyboard's animation: the newest turn rides the
             // stack frame by frame and the top of the transcript is covered.

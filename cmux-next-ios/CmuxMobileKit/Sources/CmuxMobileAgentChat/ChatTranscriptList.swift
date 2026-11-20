@@ -669,6 +669,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         let screen = collectionView.bounds.height
         guard screen > 0 else { return }
         let above = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
+        Logger(subsystem: "dev.cmux.mobile", category: "frames").notice("FRAMELOG a146diag readAhead following=\(self.surface.following, privacy: .public) above=\(Double(above), privacy: .public) screen=\(Double(screen), privacy: .public) content=\(Double(self.layout.contentHeight), privacy: .public) turns=\(self.store.turns.count, privacy: .public) loading=\(self.store.isLoadingEarlier, privacy: .public)")
         store.readAhead(screensAbove: max(above, 0) / screen)
     }
 
@@ -841,6 +842,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         // only after this reload, a long chat's open built, weighed and snapshotted every turn
         // (200 turns: 2,028 rows, 333 ms on the main thread) and then reloaded again for the
         // 80 it keeps, two long frames before the first one drawn (the list rig's chat-200).
+        Logger(subsystem: "dev.cmux.mobile", category: "frames").notice("FRAMELOG a146diag reload-in turns=\(self.store.turns.count, privacy: .public) loaded=\(self.loaded, privacy: .public) earlier=\(self.store.hasEarlierHistory, privacy: .public) following=\(self.surface.following, privacy: .public) offset=\(Double(self.collectionView.contentOffset.y), privacy: .public)")
         spillIfResting()
         // A disclosure opened or closed, or a file was marked viewed: shown rows may change
         // their cell type or their drawing.
