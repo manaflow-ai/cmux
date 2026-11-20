@@ -34,7 +34,7 @@ fn named_cloud_and_auto_targets_share_the_launch_budget() {
             .unwrap();
     assert_eq!(
         args,
-        words(&["new", "--machine", "local", "-n", "demo", "-d", "-m", "codex", "--json"])
+        words(&["new-session", "--machine", "local", "-n", "demo", "-d", "-m", "codex", "--json"])
     );
 }
 
@@ -1557,7 +1557,7 @@ fn a_machine_acpmux_reaches_itself_is_a_chat_target() {
     assert!(matches!(found, Ok(Route::Joined(JoinedMachine { carrier: Carrier::Peer, .. }))));
 }
 
-/// The start on a peer is acpmux's own `new --machine HOST`, detached, with the harness and
+/// The start on a peer is acpmux's own `new-session --machine HOST`, detached, with the harness and
 /// folder; it answers once the session runs, so no receipt is read.
 #[test]
 fn a_peer_start_is_acpmuxs_new_on_that_machine() {
@@ -1567,7 +1567,7 @@ fn a_peer_start_is_acpmuxs_new_on_that_machine() {
     assert_eq!(
         joined::start_words(&full, &machine, "n").unwrap(),
         words(&[
-            "new",
+            "new-session",
             "--machine",
             "gcp-agent-lane-3",
             "-n",
@@ -1582,12 +1582,12 @@ fn a_peer_start_is_acpmuxs_new_on_that_machine() {
     );
     let calls = std::cell::RefCell::new(Vec::new());
     let answers = |words: &[&str]| match words.first() {
-        Some(&"new") => json!({"sessionId": "s-1", "name": "n", "state": "ready"}),
+        Some(&"new-session") => json!({"sessionId": "s-1", "name": "n", "state": "ready"}),
         Some(&"send") => json!({"status": "delivered"}),
         other => panic!("{other:?} called"),
     };
     let steps = joined::Steps {
-        words: &["new", "--machine", "gcp-agent-lane-3", "-n", "n", "-d", "--json"],
+        words: &["new-session", "--machine", "gcp-agent-lane-3", "-n", "n", "-d", "--json"],
         target: "gcp-agent-lane-3/n",
         prompt: Some("go"),
         receipt: false,

@@ -127,7 +127,7 @@ fn session_name(name: &str) -> String {
 
 /// What `new` runs for guest `app`: the session's name, the argv after the binary, and the
 /// prompt, which goes on stdin (`--prompt-file -`) so a detached `--json new` returns once the
-/// session exists instead of waiting for its reply (`cli/run/standard.rs` `one_shot`). Or the
+/// session exists instead of waiting for its reply (`cli/run/standard/start_session.rs` `one_shot`). Or the
 /// refusal.
 pub(super) fn new_argv(app: &str, args: &Value) -> Result<(String, Vec<String>, String), String> {
     let Some(prompt) = args.get("prompt").and_then(Value::as_str).filter(|p| !p.trim().is_empty())
@@ -169,7 +169,7 @@ pub(super) fn new_argv(app: &str, args: &Value) -> Result<(String, Vec<String>, 
     if args.get("showInCmux").and_then(Value::as_bool) == Some(true) {
         argv.extend(["--group".to_owned(), label.to_owned()]);
     }
-    // The task is the app's message, never the person's words (`cli/run/standard.rs`
+    // The task is the app's message, never the person's words (`cli/run/standard/start_session.rs`
     // `first_prompt_id`): the session's agent reads who sent it.
     argv.extend(["--from".to_owned(), label.to_owned()]);
     argv.extend(["--prompt-file".to_owned(), "-".to_owned()]);

@@ -358,7 +358,7 @@ fn letters() -> String {
     bytes.iter().map(|byte| char::from(b'a' + byte % 26)).collect()
 }
 
-/// `acp session start …`'s words for this start on a joined machine, `acp new --machine …`'s on
+/// `acp session start …`'s words for this start on a joined machine, `acp new-session --machine …`'s on
 /// a peer. A bad `--wait`/`--timeout` is refused here, before anything starts.
 pub(in crate::cli) fn start_words(
     start: &Start,
@@ -380,7 +380,7 @@ pub(in crate::cli) fn start_words(
         }
         Carrier::Peer | Carrier::Local => {
             let selector = if machine.carrier == Carrier::Local { "local" } else { &machine.host };
-            ["new", "--machine", selector, "-n", name, "-d"].map(str::to_owned).to_vec()
+            ["new-session", "--machine", selector, "-n", name, "-d"].map(str::to_owned).to_vec()
         }
     };
     let harness = match (&start.agent, &start.model) {
@@ -958,7 +958,7 @@ pub(in crate::cli) fn run_acp(
         let stderr = String::from_utf8_lossy(&err_bytes).trim().to_owned();
         // The legacy create can hit its own deadline just before its parent does. Treat an
         // uncertain create the same whichever clock fires first; never encourage a duplicate.
-        if words.first() == Some(&"new")
+        if matches!(words.first().copied(), Some("new-session" | "new"))
             && let Ok(envelope) = serde_json::from_str::<Value>(&stderr)
             && matches!(
                 envelope.pointer("/error/detail").and_then(Value::as_str),
