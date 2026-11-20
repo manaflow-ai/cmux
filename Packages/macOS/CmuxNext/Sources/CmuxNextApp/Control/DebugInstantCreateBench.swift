@@ -68,8 +68,8 @@ enum DebugInstantCreateBench {
         let shownBrowsers = Probe.browserTabs(controller) // a page painted before the press is never the new one
         let (key, modifiers) = command.key
         frames.start(); BenchSpans.begin()
-        services.cache.cef.benchMarks.arm { name, milliseconds in BenchSpans.mark(name, milliseconds: milliseconds) }
-        defer { services.cache.cef.benchMarks.arm(nil) }
+        let mark: (String, Double) -> Void = { name, milliseconds in BenchSpans.mark(name, milliseconds: milliseconds) }; services.daemon.store.benchSink = mark
+        services.cache.cef.benchMarks.arm(mark); defer { services.cache.cef.benchMarks.arm(nil); services.daemon.store.benchSink = nil }
         // The GitHub page's `shown` marks (`content` when it drew its pull request) and the open's answer, reported as `github`.
         let githubShown = OSAllocatedUnfairLock(initialState: [String]()), githubURL = params["url"]?.stringValue
         let githubTab = command == .githubRight ? WebPageTab.registerGitHub(services) : nil

@@ -37,6 +37,9 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var workspaceList: [WorkspaceModel] = []
     /// The list when the overlay lifted (writes held until it is back); nil otherwise.
     @ObservationIgnored var listBeforeLift: [WorkspaceModel]?
+    /// Receives the store's main-thread spans while a bench runs (`DebugInstantCreateBench` arms it, as
+    /// `CEFBenchMarks`): each one's name and milliseconds. Nil otherwise, and then nothing is timed.
+    @ObservationIgnored public var benchSink: ((_ name: String, _ milliseconds: Double) -> Void)?
     public internal(set) var groups: [WorkspaceGroupModel] = []
     /// Tabs the unread count read, one by one (tests: an observer of the badge reads no tab).
     @ObservationIgnored public internal(set) var unreadTabReads = 0
@@ -599,10 +602,24 @@ public final class DaemonStore: StateResourceQueries {
         guard list != notifiedWorkspaceList else { return }
         notifiedWorkspaceList = list
         workspaceSetRevision &+= 1
-        onWorkspaceListChanged?()
+        benchMeasure("store.listChanged") { onWorkspaceListChanged?() }
+    }
+
+    func benchMeasure<T>(_ name: String, _ body: () throws -> T) rethrows -> T {
+        guard let sink = benchSink else { return try body() }
+        let start = ContinuousClock.now
+        defer {
+            let elapsed = ContinuousClock.now - start
+            sink(name, Double(elapsed.components.seconds) * 1e3 + Double(elapsed.components.attoseconds) / 1e15)
+        }
+        return try body()
     }
 
     func recomputeSidebar() {
+        benchMeasure("store.recomputeSidebar") { recomputeSidebarSections() }
+    }
+
+    private func recomputeSidebarSections() {
         listGeneration &+= 1
         let ungrouped = workspaces.filter { workspace in workspace.group.map { id in !groups.contains { $0.id == id } } ?? true }
         var sections = [SidebarSection(group: nil, workspaces: ungrouped)]

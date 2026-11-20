@@ -228,7 +228,7 @@ extension DaemonStore {
         let connected = batch.contains { if case .connected = $0.event { true } else { false } }
         // A snapshot that failed past its retry budget is retried on the
         // next daemon event (something changed), not on a timer.
-        let followup = apply(batch: batch)
+        let followup = benchMeasure("store.drain") { apply(batch: batch) }
         if followup == .resync || needsResync {
             resync(seedAgents: connected)
         } else if followup == .personal {
