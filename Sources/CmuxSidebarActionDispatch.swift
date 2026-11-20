@@ -22,6 +22,35 @@ private let sidebarSelectCoalescer = SidebarSelectCoalescer()
 // `TerminalController`, and injects it into the package's view from
 // `ContentView`.
 
+/// Asks the user about a `workspace.close` the socket refused with
+/// `confirmation_required` (a running process), then closes on accept.
+///
+/// The built-in sidebar's close button asks "Close workspace?" for the same
+/// workspace, while a discarded refusal left a custom sidebar's click doing
+/// nothing at all. Only called for an action the user's own click fired
+/// (`ButtonAction.isUserGesture`): a sidebar program can also send commands
+/// on load or on a data update, and those must not raise a dialog. Socket and
+/// CLI callers are untouched and still get the error to act on.
+///
+/// Runs on the sidebar worker queue and presents the prompt synchronously on
+/// the main actor. It cannot be async: the commands after the close in the
+/// same action have to see the workspace closed or kept, as they would after
+/// the built-in button.
+private func confirmRefusedSidebarWorkspaceClose(reply: String) {
+    guard let object = try? JSONSerialization.jsonObject(with: Data(reply.utf8)) as? [String: Any],
+          let error = object["error"] as? [String: Any],
+          error["code"] as? String == "confirmation_required",
+          let data = error["data"] as? [String: Any],
+          let rawWorkspaceID = data["workspace_id"] as? String,
+          let workspaceID = UUID(uuidString: rawWorkspaceID) else { return }
+    DispatchQueue.main.sync {
+        MainActor.assumeIsolated {
+            _ = AppDelegate.shared?.tabManagerFor(tabId: workspaceID)?
+                .closeWorkspaceWithConfirmation(tabId: workspaceID)
+        }
+    }
+}
+
 /// Builds the action sink that runs interpreted sidebar buttons against the
 /// live cmux command dispatcher.
 ///
@@ -40,6 +69,7 @@ func makeCmuxSidebarActionDispatch() -> SidebarActionDispatch {
         // so nothing here blocks SwiftUI and ordering is preserved end to end.
         let controller = TerminalController.shared
         let commands = action.commands
+        let isUserGesture = action.isUserGesture
         let selectGeneration = sidebarSelectCoalescer.generation(for: commands)
         cmuxSidebarWorkerQueue.async {
             // A newer select is already queued behind this one: skip the heavy
@@ -74,7 +104,10 @@ func makeCmuxSidebarActionDispatch() -> SidebarActionDispatch {
                     }
                     guard let data = try? JSONSerialization.data(withJSONObject: payload),
                           let line = String(data: data, encoding: .utf8) else { continue }
-                    _ = controller.handleSocketLine(line)
+                    let reply = controller.handleSocketLine(line)
+                    if method == "workspace.close", isUserGesture {
+                        confirmRefusedSidebarWorkspaceClose(reply: reply)
+                    }
                 case let .openURL(urlString):
                     // NSWorkspace.open is main-only; run it synchronously to keep the
                     // command's position in the sequence.

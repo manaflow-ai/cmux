@@ -238,7 +238,10 @@ Rules of the runtime:
   verbs: `workspace.action` (pin/unpin, mark_read/mark_unread,
   move_up/move_down/move_top, close_others, set/clear color and description),
   `workspace.close`, `workspace.move_to_window`, `workspace.group.action`
-  (pin/unpin/ungroup/delete), `workspace.group.collapse` / `.expand`.
+  (pin/unpin/ungroup/delete), `workspace.group.collapse` / `.expand`. From a
+  click, `workspace.close` on a workspace with a running process shows the
+  same "Close workspace?" prompt as the built-in sidebar; pass `force: "true"`
+  to close without asking.
 - Actions: `cmux(method, params)`, `openURL(url)`, `log(message)` anywhere in
   a handler.
 - Clipboard: `clipboard.write(text)` copies plain text, e.g. a Copy Workspace

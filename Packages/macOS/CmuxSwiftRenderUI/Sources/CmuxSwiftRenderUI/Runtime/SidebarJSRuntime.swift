@@ -163,7 +163,7 @@ public final class SidebarJSRuntime {
     private func rejectClipboardWrite(_ reason: String) -> Bool {
         let message = "clipboard.write rejected: \(reason)"
         Self.debugLog(message)
-        enqueue(ButtonAction(commands: [.log(message)]))
+        enqueue(ButtonAction(commands: [.log(message)], isUserGesture: false))
         return false
     }
 
@@ -180,18 +180,21 @@ public final class SidebarJSRuntime {
               let raw = try? JSONSerialization.jsonObject(with: data),
               let object = raw as? [String: Any],
               let kind = object["kind"] as? String else { return }
+        // The same scope `clipboard.write` checks: true only while a click
+        // or double-click handler is running.
+        let isUserGesture = userActivationDepth > 0
         let action: ButtonAction
         switch kind {
         case "cmux":
             guard let method = object["method"] as? String else { return }
             let params = (object["params"] as? [String: String]) ?? [:]
-            action = ButtonAction(commands: [.cmux(method: method, params: params)])
+            action = ButtonAction(commands: [.cmux(method: method, params: params)], isUserGesture: isUserGesture)
         case "openURL":
             guard let url = object["url"] as? String else { return }
-            action = ButtonAction(commands: [.openURL(url)])
+            action = ButtonAction(commands: [.openURL(url)], isUserGesture: isUserGesture)
         case "log":
             guard let message = object["message"] as? String else { return }
-            action = ButtonAction(commands: [.log(message)])
+            action = ButtonAction(commands: [.log(message)], isUserGesture: isUserGesture)
         default:
             return
         }

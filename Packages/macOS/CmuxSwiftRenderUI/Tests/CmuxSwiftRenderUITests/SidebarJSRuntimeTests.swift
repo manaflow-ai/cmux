@@ -160,6 +160,27 @@ struct SidebarJSRuntimeTests {
         #expect(captured == [.cmux(method: "workspace.select", params: ["workspace_id": "w1"])])
     }
 
+    /// A program can call `cmux(...)` outside any handler. The host has to be
+    /// able to tell that from a click before it shows UI for the command.
+    @Test func actionsSayWhetherAClickFiredThem() async {
+        let runtime = SidebarJSRuntime()
+        var captured: [ButtonAction] = []
+        runtime.dispatch = SidebarActionDispatch { action in
+            captured.append(action)
+        }
+        runtime.start(source: """
+        cmux("workspace.close", { workspace_id: "on-load" });
+        sidebar(() => Button("Close", () => cmux("workspace.close", { workspace_id: "clicked" })))
+        """)
+        let rootId = try! #require(runtime.store.rootId)
+        runtime.dispatchEvent(nodeId: rootId, event: "tap")
+        await pumpActions()
+        #expect(captured == [
+            ButtonAction(commands: [.cmux(method: "workspace.close", params: ["workspace_id": "on-load"])], isUserGesture: false),
+            ButtonAction(commands: [.cmux(method: "workspace.close", params: ["workspace_id": "clicked"])], isUserGesture: true),
+        ])
+    }
+
     @Test func reorderableCarriesItemKeysAndMoveHandler() async {
         let runtime = SidebarJSRuntime()
         var captured: [ActionCommand] = []
