@@ -138,7 +138,8 @@ final class CEFInTreePageView: NSView, InTreePageContainer {
 /// sync runs for it.
 ///
 /// Like ``CEFLayerHosting``, a new page window's request runs at the end of the run-loop turn (the fork has no page
-/// window inside Chromium's creation stack), and a refusal retries once at the next show. A second refusal hands the
+/// window inside Chromium's creation stack), and a refusal retries once, at the next show or the end of the next turn,
+/// whichever comes first. A second refusal hands the
 /// page back to layer hosting (`fallBack`), so a page never shows blank.
 ///
 /// Tests drive it through ``CEFInTreeCalls`` and the `schedule` seam, without Chromium.
@@ -247,7 +248,15 @@ final class CEFInTreeHosting {
             fellBack = true
             fallBack?()
         } else {
+            // The retry comes at the next show, or at the end of the next run-loop turn when no show comes first: a
+            // host Chromium never shows again (a docked DevTools' own host view) waited for a show forever, its page
+            // blank, never falling back (live step 0c505ae5: DevTools drew 3 colours, hosted 0 pages, in tree).
             retryArmed = true
+            schedule { [weak self] in
+                guard let self, self.retryArmed else { return }
+                self.retryArmed = false
+                self.attach(retry: true)
+            }
         }
     }
 
