@@ -26,15 +26,12 @@ extension AgentPaneView {
         let pageView: NSView = page ?? webView
         let container = holder.container ?? makeHostGlassContainer(below: pageView)
         if container.frame != pageView.frame { container.frame = pageView.frame }
-        // Only for a page that sends no zoom: the zoom the pane set, which a Chromium page applies
-        // later than its reports can arrive (hostGlassZoom).
-        let paneZoom = CGFloat(uiPointerPageZoom)
         let bounds = CGRect(origin: .zero, size: container.frame.size)
         var kept = Set<String>()
         for surface in holder.surfaces {
             kept.insert(surface.id)
             let view = holder.views[surface.id] ?? makeHostGlassView(surface, in: container)
-            let zoom = Self.hostGlassZoom(surface, paneZoom: paneZoom)
+            let zoom = surface.placementZoom(paneZoom: CGFloat(uiPointerPageZoom))
             let frame = Self.hostGlassFrame(surface.rect, page: bounds, zoom: zoom, flipped: container.isFlipped)
             if view.frame != frame { view.frame = frame }
             let radius = surface.radius * zoom
@@ -70,14 +67,6 @@ extension AgentPaneView {
 
     /// The overlay role whose glass a level draws (``Glass/hostGlassRole(_:)``).
     static func hostGlassRole(_ level: GlassLevel) -> SurfaceRole { Glass.hostGlassRole(level) }
-
-    /// The view points per CSS pixel a surface's box is placed with: the zoom the page measured it at
-    /// (its report's), never the pane's own value, which a Chromium page applies over another channel
-    /// than its reports (cmux#42413: the glass apart from the menu after a zoom). `paneZoom` only for
-    /// a page that sends none.
-    static func hostGlassZoom(_ surface: AgentPaneHostGlassSurface, paneZoom: CGFloat) -> CGFloat {
-        max(0.25, surface.zoom ?? paneZoom)
-    }
 
     /// A surface's viewport box (top-left CSS pixels) in a page frame `page` at `zoom`, in the
     /// coordinates `page` is in.

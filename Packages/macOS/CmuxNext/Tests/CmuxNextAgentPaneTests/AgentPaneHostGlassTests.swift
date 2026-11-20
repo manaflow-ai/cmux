@@ -160,7 +160,7 @@ struct AgentPaneHostGlassTests {
             let container = try #require(view.model.hostGlass.container)
             let glass = try #require(view.model.hostGlass.views["g1"])
             let page = CGRect(origin: .zero, size: container.frame.size)
-            #expect(AgentPaneView.hostGlassZoom(surface, paneZoom: paneZoom) == zoom)
+            #expect(surface.placementZoom(paneZoom: paneZoom) == zoom)
             #expect(glass.frame == AgentPaneView.hostGlassFrame(surface.rect, page: page, zoom: zoom, flipped: container.isFlipped))
             #expect(abs(glass.frame.width - 200 * zoom) < 0.001)
             #expect(abs(glass.frame.height - 120 * zoom) < 0.001)
@@ -178,7 +178,7 @@ struct AgentPaneHostGlassTests {
         }
         // An older page that sends no zoom: the pane's own.
         let legacy = AgentPaneHostGlassSurface(id: "g1", rect: CGRect(x: 40, y: 60, width: 200, height: 120))
-        #expect(AgentPaneView.hostGlassZoom(legacy, paneZoom: 1.25) == 1.25)
+        #expect(legacy.placementZoom(paneZoom: 1.25) == 1.25)
     }
 
     /// The page's frame moved (a pane resize): the glass follows in the same layout.
