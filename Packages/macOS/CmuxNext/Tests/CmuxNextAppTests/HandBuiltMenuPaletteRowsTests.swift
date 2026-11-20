@@ -145,4 +145,58 @@ import CmuxNextTestSupport
         }
         #expect(WebDevToolsCommand.close.placement == .close)
     }
+
+    // MARK: Update notice and tip card (#46165's rows)
+
+    /// The update notice's Cancel, Details and Release Notes run `updates.cancelDownload`, `.showDetails` and
+    /// `.releaseNotes`; the tip card's Mute for 1 Day and 1 Week run `tips.muteDay` and `tips.muteWeek`.
+    @Test func theNoticeCardsButtonsRunTheirPaletteActions() {
+        let updater = Self.updater()
+        let registry = Self.registry()
+        UpdateHandlers.bind(into: registry, updater: updater)
+        // No notice shows the buttons: the palette does not offer them.
+        for (id, _) in UpdateHandlers.noticeRows { #expect(!registry.canPerform(id), "\(id) offered with no update notice") }
+
+        let recorders = (UpdateHandlers.noticeRows.map(\.0) + UpdateHandlers.tipRows.map(\.0)).map { ($0, Recorder($0, in: registry)) }
+        for (_, action) in UpdateHandlers.noticeRows {
+            SidebarCardFeed.noticeAction(SidebarCardFeed.updateCardID, action.rawValue, updater: updater, registry: registry, open: { _ in })
+        }
+        for (_, option) in UpdateHandlers.tipRows {
+            SidebarCardFeed.noticeAction(SidebarCardFeed.tipPrefix + "some-tip", option.rawValue, updater: updater, registry: registry, open: { _ in })
+        }
+        for (id, recorder) in recorders {
+            #expect(recorder.runs.count == 1, "\(id): the card's button did not run its palette action (\(recorder.runs.count) runs)")
+        }
+    }
+
+    // MARK: Toolbar pins (#46165's rows)
+
+    /// The tab bar "…" menu's Show in Tab Bar rows run `tabs.toolbar.togglePin` with the row's action id.
+    @Test func showInTabBarRowsRunTogglePin() throws {
+        let registry = ActionRegistry.standard()
+        registry.context = ActionContext(rawValue: .max)
+        let recorder = Recorder(PaneToolbar.togglePin, in: registry)
+        let toolbar = PaneToolbar(registry: { registry })
+        var written: [PaneToolbarButtonsSetting] = []
+        toolbar.writePinned = { written.append($0) }
+        toolbar.update(target: "tab0", kind: .terminal)
+        let menu = try #require(toolbar.view.moreMenu?())
+        let submenu = try #require(menu.items.first { $0.title == PaneToolbarStrings.showInTabBar }?.submenu)
+        let row = try #require(submenu.items.first)
+        _ = try #require(row.target as? NSObject).perform(try #require(row.action), with: row)
+        #expect(recorder.runs.map { $0["button"]?.stringValue } == ["splitRight"], "the row did not run Pin or Unpin Tab Bar Button…")
+        #expect(written.isEmpty, "the row wrote the setting itself instead of through the action")
+    }
+
+    /// The browser More menu's Show in Toolbar rows run `browser.toolbar.togglePin`; with no registry the row's own toggle runs.
+    @Test func showInToolbarRowsRunTogglePin() {
+        let registry = Self.registry()
+        let recorder = Recorder("browser.toolbar.togglePin", in: registry)
+        var fallback: [String] = []
+        BrowserToolbarHandlers.runToolbarPin(BrowserToolbarButton.downloads.rawValue, registry: registry, fallback: { fallback.append($0) })
+        #expect(recorder.runs.map { $0["button"]?.stringValue } == [BrowserToolbarButton.downloads.rawValue])
+        #expect(fallback.isEmpty)
+        BrowserToolbarHandlers.runToolbarPin(BrowserToolbarButton.downloads.rawValue, registry: nil, fallback: { fallback.append($0) })
+        #expect(fallback == [BrowserToolbarButton.downloads.rawValue])
+    }
 }
