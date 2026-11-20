@@ -19,6 +19,7 @@ export type MenuPart = {
   command?: string;
   output?: string;
   path?: string;
+  line?: string;
   link?: string;
   /// The chat a click on this element opens (`data-open-session`).
   session?: string;
@@ -48,7 +49,8 @@ export function menuPartAt(target: Element | null): MenuPart | undefined {
     const part = parts.get(element);
     if (part) return part;
     const path = element.getAttribute("data-path");
-    if (path) return { path };
+    if (path)
+      return { path, ...(element.getAttribute("data-line") ? { line: element.getAttribute("data-line")! } : {}) };
     const session = element.getAttribute("data-open-session");
     if (session) {
       // An agent link that opens the reader's chat keeps its link rows (Open Link, Copy Link) too.

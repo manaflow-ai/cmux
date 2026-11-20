@@ -125,7 +125,8 @@ test("a message from another machine names its files on hover, without a lock or
   const body = host.querySelector(".cv-received__text")!;
   expect(body.querySelector("button.cv-chip.is-path")).toBeNull();
   const elsewhere = [...body.querySelectorAll<HTMLElement>(".cv-chip.is-elsewhere")];
-  expect(elsewhere.map((chip) => chip.dataset.path)).toEqual(["/tmp/lane/before.png"]);
+  // A folder-qualified relative path (`webviews/src/model.ts`) names a file too (#22857).
+  expect(elsewhere.map((chip) => chip.dataset.path)).toEqual(["/tmp/lane/before.png", "webviews/src/model.ts"]);
   expect(elsewhere.every((chip) => chip.querySelector(".cv-chip__lock") === null)).toBe(true);
   expect(elsewhere[0]!.getAttribute("title")).toBe("On another machine: /tmp/lane/before.png");
   expect(body.querySelector(".cv-thumb")).toBeNull();

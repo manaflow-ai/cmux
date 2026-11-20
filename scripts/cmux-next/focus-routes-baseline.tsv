@@ -216,7 +216,7 @@ webviews/src/pages/cloud/MachineDetail.tsx	1
 webviews/src/pages/editor/EditorFindBar.tsx	1
 webviews/src/pages/editor/editorFind.ts	1
 webviews/src/pages/editor/nativeEditorMenu.ts	2
-webviews/src/pages/editor/view.ts	4
+webviews/src/pages/editor/view.ts	3
 webviews/src/pages/feed/main.tsx	1
 webviews/src/pages/group-editor/GroupEditor.tsx	1
 webviews/src/pages/group-editor/mount.tsx	1

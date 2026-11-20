@@ -202,14 +202,14 @@ test("a HOST/NAME the session list names is a chip at once, with no ask", async 
 });
 
 test("code that only looks like a/b stays plain code unless it is a session", async () => {
-  await draw(`\`${SESSION_LINK_REFS.unknown}\` \`${SESSION_LINK_REFS.path}\` \`3/4\` \`src/app.ts\` \`and/or\``);
+  // `src/app.ts` (a file under a folder) is a path chip since #22857; it is no session either.
+  await draw(`\`${SESSION_LINK_REFS.unknown}\` \`${SESSION_LINK_REFS.path}\` \`3/4\` \`and/or\``);
   await until(() => asked.length === 3 && answered());
   expect(host.querySelector("a, button")).toBeNull();
   expect([...host.querySelectorAll("code")].map((code) => code.textContent)).toEqual([
     SESSION_LINK_REFS.unknown,
     SESSION_LINK_REFS.path,
     "3/4",
-    "src/app.ts",
     "and/or",
   ]);
   // A fraction and a file are never asked about.

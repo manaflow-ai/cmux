@@ -501,6 +501,7 @@ enum AgentHandlers {
     /// The file is checked first (`AgentPaneFileOpening`); a tab opens in the
     /// invocation's pane, else the focused one.
     private static func openFile(_ invocation: ActionInvocation, context: AppActionContext) throws {
+        let line = try FileLineLocation.argument(invocation["line"], orThrow: ActionFailure(message: MiscHandlerStrings.invalidLine))
         let path = invocation["path"]?.stringValue ?? ""
         // The place and the path checks are cmux-window-rules `chat::agent::file_place` and `file_check`: no path
         // opens the cmux picker (R89); a place outside the catalog's is refused, not ignored; the editor needs no
@@ -536,7 +537,8 @@ enum AgentHandlers {
             case .some(.remotePreview?): throw ActionFailure(message: RemoteFilePageFiles.remotePreview(url.lastPathComponent))
             case .some(.notAbsolute?), nil: throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path))
             }
-            if let reason = context.services.viewers.openFile(url, on: pane.daemon, from: pane, userChose: invocation.origin == .user, asText: asText) {
+            if let reason = context.services.viewers.openFile(url, on: pane.daemon, from: pane, userChose: invocation.origin == .user, asText: asText,
+                                                              line: line, focus: invocation.focusRequested) {
                 throw ActionFailure(message: reason)
             }
             return
@@ -552,7 +554,8 @@ enum AgentHandlers {
             if let session = invocation.callerAgentSession, let chat = context.services.agentTabs.tab(showing: session) {
                 context.services.chatQuoteOpeners.noteOpened(url, byAgentTab: chat)
             }
-            if let reason = context.services.viewers.openFile(url, on: nil, from: pane, userChose: invocation.origin == .user, asText: asText) { throw ActionFailure(message: reason) }
+            if let reason = context.services.viewers.openFile(url, on: nil, from: pane, userChose: invocation.origin == .user, asText: asText,
+                                                              line: line, focus: invocation.focusRequested) { throw ActionFailure(message: reason) }
             return
         }
         let opening: AgentPaneFileOpening

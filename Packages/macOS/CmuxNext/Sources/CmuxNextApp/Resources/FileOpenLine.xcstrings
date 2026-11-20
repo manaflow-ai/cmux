@@ -1,0 +1,137 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "file.open.invalidLine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Line must be a number from 1 to 10,000,000, optionally followed by :column or -endLine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行は1〜10,000,000で指定してください。必要に応じて:列または-終了行を続けられます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Zeile muss zwischen 1 und 10.000.000 liegen, optional gefolgt von :Spalte oder -Endzeile."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La ligne doit être comprise entre 1 et 10 000 000, éventuellement suivie de :colonne ou -ligneDeFin."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La línea debe estar entre 1 y 10.000.000, seguida opcionalmente de :columna o -líneaFinal."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون السطر بين 1 و10,000,000، ويمكن إتباعه بـ :عمود أو -سطرالنهاية."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行号必须为1到10,000,000，可选择在后面加上:列号或-结束行号。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行號必須為1到10,000,000，可選擇在後面加上:欄號或-結束行號。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "행은 1~10,000,000이어야 하며, 선택적으로 :열 또는 -끝행을 덧붙일 수 있습니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Red mora biti broj od 1 do 10.000.000, iza kojeg po želji može slijediti :kolona ili -završniRed."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linjen skal være et tal fra 1 til 10.000.000, eventuelt efterfulgt af :kolonne eller -slutlinje."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La riga deve essere un numero da 1 a 10.000.000, seguito facoltativamente da :colonna o -rigaFinale."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លេខជួរដេកត្រូវតែជាចំនួនពី 1 ដល់ 10,000,000 ហើយអាចបន្ថែម :ជួរឈរ ឬ -ជួរដេកបញ្ចប់ នៅខាងក្រោយបាន។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linjen må være et tall fra 1 til 10 000 000, eventuelt etterfulgt av :kolonne eller -sluttlinje."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiersz musi być liczbą od 1 do 10 000 000, po której opcjonalnie można podać :kolumnę lub -wierszKońcowy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A linha deve ser um número de 1 a 10.000.000, opcionalmente seguido de :coluna ou -linhaFinal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Номер строки должен быть от 1 до 10 000 000; после него можно указать :столбец или -конечнуюСтроку."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Номер рядка має бути від 1 до 10 000 000; після нього можна вказати :стовпець або -кінцевийРядок."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dòng phải là một số từ 1 đến 10.000.000, có thể theo sau bằng :cột hoặc -dòngCuối."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หมายเลขบรรทัดต้องเป็นตัวเลขตั้งแต่ 1 ถึง 10,000,000 โดยอาจตามด้วย :คอลัมน์ หรือ -บรรทัดสุดท้าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Satır, 1 ile 10.000.000 arasında bir sayı olmalıdır; ardından isteğe bağlı olarak :sütun veya -bitişSatırı gelebilir."
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

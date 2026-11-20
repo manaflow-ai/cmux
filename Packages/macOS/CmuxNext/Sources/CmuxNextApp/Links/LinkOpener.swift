@@ -307,32 +307,33 @@ final class LinkOpener {
 
     /// A file: the Markdown page, the code editor or the browser tab's preview (``FilePageOpener``).
     /// A tab that already shows the file is selected where it is. False when it did not open (the
-    /// refusal shows). `position` (a Find result): the code editor opens with the cursor there.
+    /// refusal shows). `line` (a Find result, a reply link): the code editor opens with the cursor there.
     /// `machine`: the file lives on that machine; nil or the local daemon opens this Mac’s file.
     @discardableResult
     /// `asText` (Open as Text, u9489): a page cmux renders (Markdown, HTML, SVG) opens as its source
     /// in the code editor, placed as any open is. `besideChat`: on the chat's right whatever `layout.linkPlacement` says (a viewer opened on a chat).
     func openFile(_ file: URL, on machine: DaemonService? = nil, from source: PaneController?, markdown: Bool = false, asText: Bool = false,
-                  at position: FilePosition? = nil, besideChat: Bool = false, noFollow: Bool = false) -> Bool {
+                  line: FileLineLocation? = nil, besideChat: Bool = false, noFollow: Bool = false) -> Bool {
         open(from: source, besideChat: besideChat) { [weak self] pane, placed in
             // A tab that already shows the file is selected where it is and never reports to `placed`:
             // it says so, so its turn ends now (review of the #28044 carry at 1eb458cf).
             var inPlace: (@MainActor () -> Void)?
             if placed != nil { inPlace = { self?.openedInPlace() } }
             if let machine, !machine.isLocal {
-                return pane.services.viewers.openFile(file, on: machine, in: pane, asText: asText, at: position, noFollow: noFollow,
+                return pane.services.viewers.openFile(file, on: machine, in: pane, asText: asText, line: line, noFollow: noFollow,
                                                       placed: placed, shownInPlace: inPlace)
             }
-            return pane.services.viewers.openFile(file, in: pane, markdown: markdown, asText: asText, at: position, placed: placed,
+            return pane.services.viewers.openFile(file, in: pane, markdown: markdown, asText: asText, line: line, placed: placed,
                                                   shownInPlace: inPlace)
         }
     }
 
-    /// An action's file open beside the chat `source` shows (``ViewerService/openFile(_:on:from:userChose:asText:)``). An open
+    /// An action's file open beside the chat `source` shows (``ViewerService/openFile(_:on:from:userChose:asText:line:focus:)``). An open
     /// that waits its turn behind another beside the chat runs later: in this run's scope (a script's open never takes the
     /// focus), and a refusal then goes to `late`, as the action already answered. Returns the refusal of an open made now.
     func openViewerFile(_ file: URL, on machine: DaemonService?, from source: PaneController, opener: FilePageOpener, userChose: Bool,
-                        asText: Bool, late: @escaping @MainActor (String) -> Void) -> String? {
+                        asText: Bool, line: FileLineLocation? = nil, revealExistingLine: Bool = true,
+                        late: @escaping @MainActor (String) -> Void) -> String? {
         let scope = ActionRunScope.current, answer = ViewerOpenAnswer()
         let make: Make = { [weak self] target, placed in
             ActionRunScope.carrying(scope) { () -> Bool in
@@ -340,9 +341,11 @@ final class LinkOpener {
                 if placed != nil { inPlace = { self?.openedInPlace() } }
                 let reason: String?
                 if let machine {
-                    reason = opener.open(file, on: machine, in: target, userChose: userChose, asText: asText, placed: placed, shownInPlace: inPlace)
+                    reason = opener.open(file, on: machine, in: target, userChose: userChose, asText: asText, line: line,
+                                         revealExistingLine: revealExistingLine, placed: placed, shownInPlace: inPlace)
                 } else {
-                    reason = opener.open(file, in: target, userChose: userChose, asText: asText, placed: placed, shownInPlace: inPlace)
+                    reason = opener.open(file, in: target, userChose: userChose, asText: asText, line: line,
+                                         revealExistingLine: revealExistingLine, placed: placed, shownInPlace: inPlace)
                 }
                 if answer.answered, let reason { late(reason) } else { answer.refusal = reason }
                 return reason == nil
@@ -353,7 +356,7 @@ final class LinkOpener {
         return answer.refusal
     }
 
-    /// What ``openViewerFile(_:on:from:opener:userChose:asText:late:)``'s open answered, and whether the action had.
+    /// What ``openViewerFile(_:on:from:opener:userChose:asText:line:revealExistingLine:late:)``'s open answered, and whether the action had.
     @MainActor private final class ViewerOpenAnswer {
         var refusal: String?
         var answered = false

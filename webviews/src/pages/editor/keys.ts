@@ -109,39 +109,6 @@ export function editorAction(command: EditorCommand, text?: string): string | nu
   return COMMAND_ACTIONS[command] ?? null;
 }
 
-/** A place in the file, 1-based; the column counts UTF-16 code units (Monaco's). */
-export interface RevealPosition {
-  line: number;
-  column: number;
-}
-
-/**
- * The position of the `reveal` page command's `text`, "line:column" or "line" (a Find result opened
- * in a tab that already shows its file), or null when it is malformed.
- */
-export function revealPosition(text: string | undefined): RevealPosition | null {
-  const match = typeof text === "string" ? /^(\d+)(?::(\d+))?$/.exec(text.trim()) : null;
-  if (!match) return null;
-  const line = Number(match[1]);
-  const column = match[2] === undefined ? 1 : Number(match[2]);
-  return line >= 1 && column >= 1 ? { line, column } : null;
-}
-
-/** The config's `reveal` (`{line, column}`), or null when absent or malformed. */
-export function revealOf(value: unknown): RevealPosition | null {
-  const position = value as Partial<RevealPosition> | null | undefined;
-  const line = position?.line;
-  const column = position?.column ?? 1;
-  return typeof line === "number" &&
-    Number.isInteger(line) &&
-    line >= 1 &&
-    typeof column === "number" &&
-    Number.isInteger(column) &&
-    column >= 1
-    ? { line, column }
-    : null;
-}
-
 export function isEditorCommand(value: unknown): value is EditorCommand {
   return typeof value === "string" && (value === "save" || value === "editorAction" || value in COMMAND_ACTIONS);
 }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 
 /// The part of a message under the pointer, as the page reports it: a code block, a command and
 /// its output, a file path, a web link, or a chat a click opens (`session`). Each comes from reply
@@ -10,6 +11,7 @@ struct AgentPaneMenuPart: Equatable, Sendable {
     var command: String?
     var output: String?
     var path: String?
+    var line: FileLineLocation?
     var link: URL?
     /// The chat a click on the element opens (a started chat's card, a sender's name...).
     var session: String?
@@ -35,6 +37,7 @@ struct AgentPaneMenuPart: Equatable, Sendable {
         command = text("command")
         output = text("output")
         path = text("path")
+        line = text("line").flatMap(FileLineLocation.init)
         link = text("link").flatMap(URL.init(string:)).flatMap { AgentPaneMessageTarget.isWebLink($0) ? $0 : nil }
         // An acpmux session id, bounded as `chat.offer.open` bounds it.
         session = text("session").flatMap { $0.count <= 256 ? $0 : nil }
@@ -46,7 +49,7 @@ struct AgentPaneMenuPart: Equatable, Sendable {
     /// Copy Output; Open and the path rows (`pathItems`, else Copy Path); the link rows
     /// (`linkItems`, else Open Link and Copy Link).
     @MainActor
-    func items(copy: @escaping (String) -> Void, openPath: @escaping (String) -> Void,
+    func items(copy: @escaping (String) -> Void, openPath: @escaping (String, FileLineLocation?) -> Void,
                open: @escaping (URL) -> Void, linkItems: ((URL) -> [NSMenuItem])? = nil,
                pathItems: ((String) -> [NSMenuItem]?)? = nil,
                openSession: ((String, Bool) -> Void)? = nil,
@@ -62,7 +65,7 @@ struct AgentPaneMenuPart: Equatable, Sendable {
         if let command { items.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyCommand, symbol: "terminal") { copy(command) }) }
         if let output { items.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyOutput, symbol: "doc.plaintext") { copy(output) }) }
         if let path {
-            items.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.open, symbol: "doc") { openPath(path) })
+            items.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.open, symbol: "doc") { openPath(path, line) })
             items += pathItems?(path) ?? [AgentPaneMenuAction.item(AgentPaneMenuStrings.copyPath, symbol: "doc.on.doc") { copy(path) }]
         }
         if let link, let linkItems {

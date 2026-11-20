@@ -73,6 +73,7 @@ function linkedGithubText(
 
 /// Plain prose: a started chat's name is its chip; the rest links GitHub references and URLs.
 export function proseText(text: string, key: string, opts: InlineOptions): ReactNode[] {
+  if (opts.linkLabel) return [text];
   // A checked claim's phrase draws inside its mark (ClaimMark.tsx), the rest as any prose.
   if (opts.claims?.length) {
     const pieces = splitClaims(text, opts.claims);

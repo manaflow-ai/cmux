@@ -47,6 +47,12 @@ export default editorPageEntry({
       path: "/Users/you/src/atlas-web/src/server.ts",
       text: source,
     },
+    "line-jump": {
+      note: "A reply link reveals and briefly highlights its line range.",
+      path: "/Users/you/src/atlas-web/src/server.ts",
+      text: largeSource,
+      location: { line: 42, column: 7, endLine: 45 },
+    },
     focused: {
       note: "The editor surface is ready for typing in a focused pane.",
       path: "/Users/you/src/atlas-web/src/server.ts",

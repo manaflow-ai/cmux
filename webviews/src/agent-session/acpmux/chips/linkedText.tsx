@@ -1,5 +1,5 @@
 import { type ReactNode } from "react";
-import { foreignFileIds, pathName, textLinks } from "./paths";
+import { foreignFileIds, textLinks } from "./paths";
 import { bareFileNames } from "./replyFolders";
 import { githubRefLabel } from "./linkChipsModel";
 import { ForeignFileRef, PathChip, UrlChip, SiblingFileChip } from "./LinkChips";
@@ -50,7 +50,8 @@ function webLinkedText(text: string, key: string): ReactNode[] {
           key={`${key}-${index}`}
           path={link.path!}
           written={link.value}
-          label={link.line ? `${pathName(link.path!)}:${link.line}` : undefined}
+          location={link.location}
+          suffix={link.suffix}
         />
       ) : link.value.includes("/deeplink/") && cmuxLinkTarget(link.value) ? (
         // cmux.com's agent link: the chat it names, once the page knows it.

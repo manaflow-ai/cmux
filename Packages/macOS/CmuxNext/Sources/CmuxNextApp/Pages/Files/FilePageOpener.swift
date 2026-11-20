@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemonService
@@ -58,8 +59,10 @@ final class FilePageOpener: FileOpening {
     /// `asText`: Open as Text, the code editor for a page cmux would render (``route(for:userChose:asText:)``).
     /// `placed` (``LinkOpener``): a new tab opens unselected and reports its surface there, to be
     /// moved beside `pane`; a tab that already shows the file is selected and focused where it is.
-    /// `position` (a Find result): the code editor puts the cursor there; other pages ignore it.
-    func open(_ file: URL, in pane: PaneController?, userChose: Bool, asText: Bool = false, at position: FilePosition? = nil,
+    /// `line` (a Find result, a reply link): the code editor puts the cursor there; other pages ignore it.
+    /// `revealExistingLine` false: a tab that already shows the file keeps its cursor (an agent's open).
+    func open(_ file: URL, in pane: PaneController?, userChose: Bool, asText: Bool = false, line: FileLineLocation? = nil,
+              revealExistingLine: Bool = true,
               placed: (@MainActor (SurfaceID) -> Void)? = nil, shownInPlace: (@MainActor () -> Void)? = nil) -> String? {
         guard let url = AgentPaneFileOpen.resolve(file.path) else { return FilePageStrings.notAFile }
         guard let pane = pane ?? services.windows.active?.focusedPane else { return FilePageStrings.noPane }
@@ -69,7 +72,8 @@ final class FilePageOpener: FileOpening {
         case .markdown:
             services.viewers.markdownPages.open(url, in: pane, focus: placed == nil, userChose: userChose, placed: placed, shownInPlace: shownInPlace)
         case .editor:
-            services.viewers.editorPages.open(url, in: pane, focus: placed == nil, userChose: userChose, at: position, placed: placed, shownInPlace: shownInPlace)
+            services.viewers.editorPages.open(url, in: pane, focus: placed == nil, userChose: userChose, line: line,
+                                              revealExistingLine: revealExistingLine, placed: placed, shownInPlace: shownInPlace)
         case .preview:
             guard AgentPaneFileOpen.showsInTab(url) else { return FilePageStrings.notAFile }
             pane.newBrowserTab(url: url, engine: Self.tabEngine(for: url), background: placed != nil, placementOwner: placed != nil, then: placed)
@@ -81,11 +85,13 @@ final class FilePageOpener: FileOpening {
     /// page: the markdown page for Markdown, else the code editor, both reading, saving and
     /// watching the file on that machine through its daemon. This Mac never renders, previews or
     /// reads another machine's file, so a web page shows its source and an image or PDF does not
-    /// open. The local daemon opens through ``open(_:in:userChose:asText:at:placed:)``.
-    func open(_ file: URL, on machine: DaemonService, in pane: PaneController?, userChose: Bool, asText: Bool = false, at position: FilePosition? = nil,
+    /// open. The local daemon opens through ``open(_:in:userChose:asText:line:revealExistingLine:placed:shownInPlace:)``.
+    func open(_ file: URL, on machine: DaemonService, in pane: PaneController?, userChose: Bool, asText: Bool = false,
+              line: FileLineLocation? = nil, revealExistingLine: Bool = true,
               noFollow: Bool = false, placed: (@MainActor (SurfaceID) -> Void)? = nil, shownInPlace: (@MainActor () -> Void)? = nil) -> String? {
         guard !machine.isLocal else {
-            return open(file, in: pane, userChose: userChose, asText: asText, at: position, placed: placed, shownInPlace: shownInPlace)
+            return open(file, in: pane, userChose: userChose, asText: asText, line: line, revealExistingLine: revealExistingLine,
+                        placed: placed, shownInPlace: shownInPlace)
         }
         guard file.path.hasPrefix("/"), !file.path.contains("\u{0}") else { return FilePageStrings.notAFile }
         guard let pane = pane ?? services.windows.active?.focusedPane else { return FilePageStrings.noPane }
@@ -95,7 +101,8 @@ final class FilePageOpener: FileOpening {
             services.viewers.markdownPages.open(url, in: pane, focus: placed == nil, userChose: userChose, on: machine, noFollow: noFollow,
                                                 placed: placed, shownInPlace: shownInPlace)
         case .editor, .renderedPage:
-            services.viewers.editorPages.open(url, in: pane, focus: placed == nil, userChose: userChose, at: position, on: machine,
+            services.viewers.editorPages.open(url, in: pane, focus: placed == nil, userChose: userChose, line: line,
+                                              revealExistingLine: revealExistingLine, on: machine,
                                               noFollow: noFollow, placed: placed, shownInPlace: shownInPlace)
         case .preview:
             return RemoteFilePageFiles.remotePreview(url.lastPathComponent)

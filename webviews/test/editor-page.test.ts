@@ -223,6 +223,52 @@ await requireBrowserLane("editor-page.test.ts", async () => {
         return page;
       };
 
+      for (const large of [false, true]) {
+        test(`open config centers a line and highlights its range${large ? " in plain text mode" : ""}`, async () => {
+          await fresh();
+          await page.emulateMedia({ reducedMotion: "reduce" });
+          const target = file(
+            "jump.ts",
+            Array.from({ length: 120 }, (_, i) => `const line${i + 1} = ${i + 1};`).join("\n"),
+          );
+          await page.route("**/__cmux-editor/op", async (route) => {
+            if (route.request().postDataJSON().op !== "cmux.editor.config") return route.continue();
+            const response = await route.fetch();
+            const config = await response.json();
+            await route.fulfill({
+              response,
+              json: {
+                ...config,
+                location: { line: 42, column: 7, endLine: 45 },
+                ...(large ? { size: 50_000_000 } : {}),
+              },
+            });
+          });
+          await openEditor(page, target);
+          const position = await page.evaluate(() => {
+            const editor = window.__cmuxEditor!.view()!.monacoEditor;
+            const top = editor.getTopForLineNumber(42) - editor.getScrollTop();
+            return { caret: editor.getPosition(), top, height: editor.getLayoutInfo().height };
+          });
+          expect(position.caret?.lineNumber).toBe(42);
+          expect(position.caret?.column).toBe(7);
+          expect(Math.abs(position.top - position.height / 2)).toBeLessThan(50);
+          const highlight = page.locator(".ed-line-reveal").first();
+          await highlight.waitFor();
+          expect(await highlight.evaluate((node) => getComputedStyle(node).animationName)).toBe("none");
+          expect(
+            await page.evaluate(() => {
+              const model = window.__cmuxEditor!.view()!.monacoEditor.getModel()!;
+              return model.getAllDecorations().find((item) => item.options.className === "ed-line-reveal")?.range
+                .endLineNumber;
+            }),
+          ).toBe(45);
+          if (large)
+            expect(await page.evaluate(() => document.documentElement.dataset.cmuxEditorHighlighted)).toBe("false");
+          await page.waitForFunction(() => !document.querySelector(".ed-line-reveal"));
+        });
+      }
+
       test("opens a file highlighted by Shiki, edits and saves it", async () => {
         await fresh();
         const target = file("a.ts", 'const greeting = "hello";\n// a comment\n');

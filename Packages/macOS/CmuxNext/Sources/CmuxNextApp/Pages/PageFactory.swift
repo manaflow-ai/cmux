@@ -278,7 +278,7 @@ struct PageFactory {
         provider.openThemeOverride = { [weak services] override in
             guard let services else { return false }
             return services.linkOpener.openFile(URL(fileURLWithPath: override.file), from: services.windows.active?.focusedPane,
-                                                asText: true, at: FilePosition(line: override.line))
+                                                asText: true, line: FileLineLocation(line: override.line))
         }
         provider.openThemeFile = SettingsThemeFileOpener(cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, settingsFile: { settings.file.url }, root: { settings.snapshot.root })
         provider.themeFiles = SettingsThemeFiles(

@@ -8,7 +8,7 @@ import { codeSpans } from "../slashCommands";
 import { ForeignFileRef, PathChip, SiblingFileChip, UrlChip } from "../chips/LinkChips";
 import { isBareFileName, ReplyFoldersContext } from "../chips/replyFolders";
 import { SoftBroken } from "./softBreaks";
-import { codePath, foreignFileId, isTemplatePath, linkPath, pathName } from "../chips/paths";
+import { codeReplyPath, foreignFileId, isTemplatePath, linkReplyPath } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import { StartedSessionChip } from "../started/StartedSessionCard";
 import { CmuxLinkChip } from "../chips/CmuxLinkChip";
@@ -49,6 +49,8 @@ export type InlineOptions = {
   githubRepository?: string;
   /** Link GitHub references in prose; labels of an outer link disable this. */
   linkGithubReferences?: boolean;
+  /** Labels of an outer link keep formatting without automatic path or URL chips. */
+  linkLabel?: boolean;
   /** Link a bare `#N` too (default). Off in a quote: quoted words are someone else's, whose `#1`
    *  is rarely this repository's pull request (Leo 2026-10-29: "these auto render to the pr
    *  instead of just #1 #2..."). `owner/repo#N` and addresses still link there. */
@@ -74,12 +76,6 @@ export type InlineOptions = {
 };
 
 export type FootnoteNumbers = { numbers: Map<string, number>; anchor: (id: string) => string };
-
-/// `src/app.ts:12` keeps its line in the chip's label (the chip opens the file).
-function lineLabel(path: string, written: string): string | undefined {
-  const line = /:(\d+)(?::\d+)?$/.exec(written)?.[1];
-  return line ? `${pathName(path)}:${line}` : undefined;
-}
 
 /// Each code span of `source` (CommonMark, slashCommands.ts codeSpans) set aside for the inline
 /// pass: a stand-in the pass reads as one plain span (a backtick, U+E000, its index, U+E001, a
@@ -134,7 +130,10 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
     const named = m[1] ? opts.started?.mentions.find((mention) => mention.text === inner) : undefined;
     if (named) out.push(<StartedSessionChip key={k++} mention={named} text={named.text} onOpen={opts.started!.open} />);
     else if (m[1]) {
-      const path = codePath(inner);
+      // A link's label keeps its formatting but gets no path chips of its own.
+      const target = opts.linkLabel ? undefined : codeReplyPath(inner);
+      // A bare name (`test.py`) is asked of the host apart from the paths with a folder.
+      const path = target?.bare ? undefined : target;
       const code = (
         <code key={k++} className="cv-code">
           <SoftBroken text={inner} />
@@ -145,13 +144,21 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       const ref = path ? undefined : agentRef(inner);
       // A provider's file id in code is still one nobody here can open (chips/paths.ts).
       const foreign = path || ref ? undefined : foreignFileId(inner);
+      // A bare name the host finds in the chat's folders is its chip; until then it stays code.
+      const bareChip = target?.bare ? <PathChip key={k++} {...target} written={inner} code /> : code;
       out.push(
         foreign ? (
           <ForeignFileRef key={k++} id={foreign} />
         ) : ref ? (
           <SessionRefCode key={k++} text={inner} agentRef={ref} fallback={code} />
         ) : path ? (
-          <PathChip key={k++} path={path} written={inner} label={lineLabel(path, inner)} />
+          <PathChip key={k++} {...path} written={inner} code />
+        ) : target?.bare && isBareFileName(inner) ? (
+          // A file name with no folder: its chip when it is in a folder the reply names, else
+          // when the host finds it in the chat's folders.
+          <SiblingFileChip key={k++} name={inner} fallback={bareChip} />
+        ) : target?.bare ? (
+          bareChip
         ) : isBareFileName(inner) ? (
           // A file name with no folder: its chip when it is in a folder the reply names.
           <SiblingFileChip key={k++} name={inner} fallback={code} />
@@ -168,13 +175,14 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       const href = safeHref(lm[2]);
       // A local path is a path chip; a link the pane will not open draws as its text; a web
       // link is a chip with its site's mark (chips/LinkChips.tsx).
-      const path = linkPath(lm[2]);
+      const path = linkReplyPath(lm[2]);
       const labelOpts = {
         ...opts,
         githubRepository: undefined,
         linkGithubReferences: false,
         started: undefined,
         claims: undefined,
+        linkLabel: true,
       };
       // A link to a session (`cmux://session/<id>`) the open chat started opens that chat.
       const linked = /^[a-z][\w+.-]*:\/\/session\/([\w-]+)$/i.exec(lm[2])?.[1];
@@ -194,7 +202,15 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
         );
       else if (named)
         out.push(<StartedSessionChip key={k++} mention={named} text={lm[1]} onOpen={opts.started!.open} />);
-      else if (path) out.push(<PathChip key={k++} path={path} label={linkLabel(lm[1], labelOpts)} />);
+      else if (path)
+        out.push(
+          <PathChip
+            key={k++}
+            {...path}
+            suffix={path.suffix && lm[1].endsWith(path.suffix) ? undefined : path.suffix}
+            label={linkLabel(lm[1], labelOpts)}
+          />,
+        );
       else if (app) {
         // A cmux app link: a plain anchor, so the click takes the host's link path (opened in the app).
         // One that names a chat or a place the page knows draws as its chip, with the author's label

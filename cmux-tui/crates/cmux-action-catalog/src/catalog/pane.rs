@@ -830,7 +830,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "doc",
         surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
-        arguments: &[args::PATH.optional(), args::WHERE.optional(), args::AS_TEXT.optional()],
+        arguments: &[args::PATH.optional(), args::WHERE.optional(), args::AS_TEXT.optional(), args::FILE_LINE.optional()],
         targets: &["pane"],
         cli_name: "file open",
         main_menu: Some("file"),

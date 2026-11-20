@@ -16,13 +16,10 @@ public nonisolated struct EditorPageCommand {
     public static let zoomOut = "zoomOut"
     public static let zoomReset = "zoomReset"
     public static let editorAction = "editorAction"
-    /// Moves the cursor to `text` "line:column" (1-based) and centers the line: a Find result
-    /// opened in a tab that already shows its file.
-    public static let reveal = "reveal"
 
     public static let all: Set<String> = [
         save, find, findNext, findPrevious, useSelectionForFind, hideFind, replace, gotoLine, zoomIn, zoomOut, zoomReset,
-        editorAction, reveal,
+        editorAction,
     ]
 
     /// The registry actions that send one of these to the focused editor tab. The shared find

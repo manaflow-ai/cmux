@@ -5,6 +5,7 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { callChipHost } from "./host";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
+import { isNameOnlyPath } from "./paths";
 
 export type PathPlace = "root" | "outside" | "denied" | "missing";
 export type PathInfo = { place: PathPlace; folder: boolean };
@@ -42,8 +43,14 @@ const asking = new Set<string>();
 let policy: ReplyPolicy = { outsideRoots: "confirm", remoteImages: "click", clickFreeImageHosts: [] };
 let queuedPaths: string[] = [];
 let queuedUrls: string[] = [];
+/// Bare file names (`next-sync.py`): asked in their own batches, because the host may search the
+/// chat's folders for them, and that must never hold up the other paths, links and the policy.
+let queuedNames: string[] = [];
 let scheduled = false;
 let inFlight = false;
+let namesInFlight = false;
+/// Bumped by ``resetLinkStore``: an answer to a call made before the reset changes nothing.
+let epoch = 0;
 /// The policy is asked once, with the first chip or image (an empty inspect when there is none).
 let policyAsked = false;
 let notificationScheduled = false;
@@ -66,6 +73,7 @@ function scheduleFlush() {
 
 function flush() {
   scheduled = false;
+  flushNames();
   if (inFlight) return;
   const first = !policyAsked;
   if (!first && !queuedPaths.length && !queuedUrls.length) return;
@@ -73,8 +81,10 @@ function flush() {
   const batchPaths = queuedPaths.splice(0, MAX_BATCH);
   const batchUrls = queuedUrls.splice(0, MAX_BATCH);
   inFlight = true;
+  const asked = epoch;
   void callChipHost("link.inspect", { paths: batchPaths, urls: batchUrls })
     .then((reply) => {
+      if (asked !== epoch) return;
       const value = (reply ?? {}) as Inspect;
       for (const path of batchPaths) {
         paths.set(path, value.paths?.[path] ?? null);
@@ -84,6 +94,7 @@ function flush() {
       if (value.policy) policy = { ...policy, ...value.policy };
     })
     .finally(() => {
+      if (asked !== epoch) return;
       inFlight = false;
       changed();
       if (queuedPaths.length || queuedUrls.length) {
@@ -92,7 +103,29 @@ function flush() {
     });
 }
 
-function ask(path?: string, url?: string) {
+function flushNames() {
+  if (namesInFlight || !queuedNames.length) return;
+  const batch = queuedNames.splice(0, MAX_BATCH);
+  namesInFlight = true;
+  const asked = epoch;
+  void callChipHost("link.inspect", { paths: batch, urls: [] })
+    .then((reply) => {
+      if (asked !== epoch) return;
+      const value = (reply ?? {}) as Inspect;
+      for (const name of batch) {
+        paths.set(name, value.paths?.[name] ?? null);
+        asking.delete(name);
+      }
+    })
+    .finally(() => {
+      if (asked !== epoch) return;
+      namesInFlight = false;
+      changed();
+      if (queuedNames.length) scheduleFlush();
+    });
+}
+
+function ask(path?: string, url?: string, bare = false) {
   if (paths.size + sites.size > MAX_KEPT) {
     paths.clear();
     asking.clear();
@@ -104,14 +137,16 @@ function ask(path?: string, url?: string) {
     paths.set(path, null);
     if (sendable(path, MAX_PATH_BYTES)) {
       asking.add(path);
-      queuedPaths.push(path);
+      // A name with no folder (`next-sync.py`, `Foo.swift:42` once its line is split off, a link to
+      // one) may need the host's search of the chat's folders: it never rides the main batch.
+      (bare || isNameOnlyPath(path) ? queuedNames : queuedPaths).push(path);
     }
   }
   if (url !== undefined && !sites.has(url)) {
     sites.set(url, null);
     if (sendable(url, MAX_URL_BYTES)) queuedUrls.push(url);
   }
-  if (!scheduled && (!policyAsked || queuedPaths.length || queuedUrls.length)) {
+  if (!scheduled && (!policyAsked || queuedPaths.length || queuedUrls.length || queuedNames.length)) {
     scheduleFlush();
   }
 }
@@ -128,10 +163,14 @@ const useStore = <T>(read: () => T): T => useSyncExternalStore(subscribe, read, 
 
 /// The host's answer for `path` (undefined while it is asked, or when the host had none), whether
 /// the host has answered, and the policy.
-export function usePathInfo(path: string): { info: PathInfo | undefined; answered: boolean; policy: ReplyPolicy } {
+/// `bare`: a bare file name, asked in the name batches (``flushNames``).
+export function usePathInfo(
+  path: string,
+  bare = false,
+): { info: PathInfo | undefined; answered: boolean; policy: ReplyPolicy } {
   // Read only (a guest), the owner's host is never asked; the path stays unanswered.
   const readOnly = useTranscriptReadOnly();
-  if (!readOnly) ask(path);
+  if (!readOnly) ask(path, undefined, bare);
   const info = useStore(() => paths.get(path) ?? undefined);
   const answered = useStore(() => !readOnly && !asking.has(path));
   return { info, answered, policy: useStore(() => policy) };
@@ -167,7 +206,11 @@ export function resetLinkStore(): void {
   sites.clear();
   queuedPaths = [];
   queuedUrls = [];
+  queuedNames = [];
   scheduled = false;
+  inFlight = false;
+  namesInFlight = false;
+  epoch += 1;
   policy = { outsideRoots: "confirm", remoteImages: "click", clickFreeImageHosts: [] };
   policyAsked = false;
   changed();

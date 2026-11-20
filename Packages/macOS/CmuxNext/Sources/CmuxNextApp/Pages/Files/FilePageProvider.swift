@@ -61,6 +61,7 @@ extension FilePageHosting {
 /// tab's pane, #25581) for the `changes` stream, and serves the markdown page's images and
 /// libraries (``PageDynamicResourceSource``).
 final class FilePageProvider: PageProvider, PageDynamicResourceSource {
+    let lineLocation = FilePageLineLocation()
     let kind: FilePageKind
     /// Where the tab's file lives. A file of another machine gets no local extras: no folder
     /// images, file links, git remote, comments or table widths read beside it on this Mac.
@@ -96,9 +97,6 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// A recovered crash draft of the tab's file: the next config carries it once (the markdown and
     /// editor pages load it as an unsaved edit).
     var recoveredText: String?
-    /// Where the editor puts the cursor on the tab's file (a Find result's line and column): the
-    /// next config of that file carries it once as `reveal`. The markdown page ignores it.
-    var reveal: FilePosition?
     /// The page reported an edit no save has covered yet (app health's hold; ``ReportedEdits``).
     let reportedEdits = ReportedEdits()
     /// Whether the tab's file may be saved (the last config's answer).
@@ -247,6 +245,8 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         guard !isClosed, let host else { throw PageError.closed }
         switch stream {
+        case kind.op("reveal") where kind == .editor:
+            return lineLocation.subscribe(onEvent)
         case kind.op("changes"):
             let id = UUID()
             changeListeners[id] = onEvent
@@ -359,10 +359,6 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             recoveredText = nil
             config["recoveredText"] = .string(recovered)
         }
-        if kind == .editor, let reveal, file.url == self.file {
-            self.reveal = nil
-            config["reveal"] = reveal.jsonValue
-        }
         if let reason = file.readOnlyReason {
             config["readOnly"] = true
             config["readOnlyReason"] = .string(reason.rawValue)
@@ -382,6 +378,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             if let comments = await savedComments(file.url) { config["comments"] = comments }
         case .editor:
             config["size"] = JSONValue(file.size)
+            if let line = lineLocation.take() { config["location"] = line }
         }
         // Set after the awaits above, so overlapping opens leave the flag
         // matching the config the page applies last.
@@ -541,6 +538,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         watch?.stop()
         watch = nil
         changeListeners.removeAll()
+        lineLocation.close()
         host = nil
     }
 }

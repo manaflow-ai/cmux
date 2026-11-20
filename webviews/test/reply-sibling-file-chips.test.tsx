@@ -114,18 +114,22 @@ test("bare file names beside a linked file are chips of the files in its folder"
     expect(text).toContain("Next.js");
     expect(text).toContain("config.json and gone.png");
     expect(view.rootElement.querySelector("code.cv-code")?.textContent).toBe("notes.md");
-    // `Next.js` was asked about in the reply's folder, never anywhere else.
-    expect(view.asked.filter((path) => !path.startsWith(SHOTS))).toEqual([]);
+    // `Next.js` in prose was asked about in the reply's folder only; a bare name in a code span is
+    // also asked of the chat's own folders (#22857: bare file names open).
+    expect(view.asked.filter((path) => !path.startsWith(SHOTS)).sort()).toEqual([
+      "chromium-fixed-opaque.png",
+      "notes.md",
+    ]);
   } finally {
     await view.done();
   }
 });
 
-test("a reply that names no folder asks nothing about its bare file names", async () => {
+test("a reply that names no folder asks nothing about its prose bare names; a code span's name is asked of the chat's folders", async () => {
   const view = await renderReply("Wrote report.html and `summary.png`.", {});
   try {
     expect(view.chips()).toEqual([]);
-    expect(view.asked).toEqual([]);
+    expect(view.asked).toEqual(["summary.png"]);
     expect(view.rootElement.textContent).toContain("Wrote report.html and summary.png.");
   } finally {
     await view.done();

@@ -292,7 +292,9 @@ enum AgentPaneContextMenu {
         var otherPart = target?.part
         otherPart?.session = nil
         let items = { (part: AgentPaneMenuPart?) in
-            part?.items(copy: actions.copy, openPath: { actions.page("chat.menu.openPath", ["path": $0]) }, open: actions.open,
+            part?.items(copy: actions.copy, openPath: { path, line in
+                            actions.page("chat.menu.openPath", ["path": path].merging(line.map { ["line": $0.argument] } ?? [:]) { _, new in new })
+                        }, open: actions.open,
                         linkItems: actions.linkItems, pathItems: actions.pathItems,
                         openSession: actions.openSession, goToSession: actions.goToSession) ?? []
         }

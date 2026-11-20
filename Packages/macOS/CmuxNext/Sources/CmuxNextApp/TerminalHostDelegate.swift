@@ -101,10 +101,10 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
             case .file(let url, isDirectory: true)?: LinkRouter.shared.showInFinder(url)
             case .file(let url, isDirectory: false)?:
                 // `src/app.ts:3:5` opens the editor at line 3, column 5.
-                let position = TerminalLinkResolver().location(text).map { FilePosition(line: $0.line, column: $0.column ?? 1) }
-                LinkRouter.shared.record("file:\(url.path)" + (position.map { ":\($0.pageText)" } ?? ""))
+                let position = TerminalLinkResolver().location(text).map { FileLineLocation(line: $0.line, column: $0.column ?? 1) }
+                LinkRouter.shared.record("file:\(url.path)" + (position.map { ":\($0.argument)" } ?? ""))
                 guard let services = self?.services else { return }
-                services.linkOpener.openFile(url, from: services.linkOpener.source(tab: request.tab?.id), at: position)
+                services.linkOpener.openFile(url, from: services.linkOpener.source(tab: request.tab?.id), line: position)
             case nil: break
             }
         }
@@ -127,9 +127,9 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
                 if RemoteFilePageFiles.code(of: error) == "fs.not_found" || TerminalLinkResolver().resolve(text, cwd: nil, allowsLocalFiles: false) != nil { continue }
                 // The remote page names offline, unsupported and denied machines; never drop the click.
             }
-            let position = TerminalLinkResolver().location(text).map { FilePosition(line: $0.line, column: $0.column ?? 1) }
+            let position = TerminalLinkResolver().location(text).map { FileLineLocation(line: $0.line, column: $0.column ?? 1) }
             services.linkOpener.openFile(URL(fileURLWithPath: path), on: machine, from: services.linkOpener.source(tab: request.tab?.id),
-                                         at: position)
+                                         line: position)
             return
         }
         if case .url(let url)? = TerminalLinkResolver().resolve(text, cwd: nil, allowsLocalFiles: false) { await openWeb(url, request) }

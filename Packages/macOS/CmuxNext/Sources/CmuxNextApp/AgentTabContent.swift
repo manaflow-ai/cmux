@@ -39,11 +39,11 @@ struct AgentTabContent {
         // Set on each show, so a tab moved to another pane opens files there.
         // A file or preview the person clicks in the chat opens beside it (LinkOpener,
         // `layout.linkPlacement`), never over the chat; the external editor keeps its own path.
-        view.model.onOpenFile = { [weak pane] url, target in
+        view.model.onOpenFile = { [weak pane] url, target, line in
             guard let pane else { return false }
             // A quote from the file's viewer comes back to this chat (viewer-comments-DESIGN.md).
             pane.services.chatQuoteOpeners.noteOpened(url, byAgentTab: key)
-            if target == .tab { return pane.services.linkOpener.openFile(url, from: pane) }
+            if target == .tab { return pane.services.linkOpener.openFile(url, from: pane, line: line) }
             return pane.services.registry.openAgentFile(path: url.path, target: target, pane: pane.paneKey, machineID: pane.daemon.machineID)
         }
         view.model.onOpenMachineFile = { [weak pane] path in guard let pane, case let tabs = pane.services.agentTabs, tabs.remoteMachineID(of: key, machine: pane.daemon.machineID) != nil, let daemon = tabs.daemon(for: tabs.resolvedKey(tabs.tabKey(key, machine: pane.daemon.machineID))), !daemon.isLocal, case let link = pane.services.agentGit.link(for: daemon), await !link.reachesThroughLink(path) else { return false }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextFilesUI
 
@@ -13,9 +14,9 @@ final class AppFileExplorerEffects: FileExplorerEffects {
         self.services = services
     }
 
-    func openInCmux(_ file: URL, at position: FilePosition?) -> Bool {
+    func openInCmux(_ file: URL, at position: FileLineLocation?) -> Bool {
         guard let services else { return false }
-        return services.linkOpener.openFile(file, from: services.windows.active?.focusedPane, at: position)
+        return services.linkOpener.openFile(file, from: services.windows.active?.focusedPane, line: position)
     }
 
     func openAsText(_ file: URL) -> Bool {

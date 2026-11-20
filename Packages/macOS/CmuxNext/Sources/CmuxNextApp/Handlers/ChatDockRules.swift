@@ -6,7 +6,7 @@ import CmuxNextWindowRules
 /// What the chat dock refuses (lawrence-call-1006 D): it is a docked
 /// region, not a split that happens to sit on the left. It never splits
 /// (every split, auto layout and split drop goes through `splitRoom`) and
-/// holds only agent chats, so tools dropped or moved into it are refused.
+/// holds agent chats and their New Tab pages, so tools dropped or moved into it are refused.
 enum ChatDockRules {
 
     /// The chat rules' read of `pane`'s column on its screen (zoomed as the screen shows it); nil for a pane no window shows.
@@ -28,11 +28,23 @@ enum ChatDockRules {
         return read(pane, services: services)?.splitsDown == true
     }
 
-    /// Refuses (and reports) a non-chat tab moving into a chat dock that takes only chats. A
-    /// reorder inside the dock is not a move into it.
+    /// A New Tab page is a chat that has not started, so it may live beside chats in the dock.
+    nonisolated static func accepts<Tab>(_ tab: Tab, isChat: (Tab) -> Bool, isNewTabPage: (Tab) -> Bool) -> Bool {
+        isChat(tab) || isNewTabPage(tab)
+    }
+
+    /// The daemon's current dock, including a pane whose controller has not mounted yet.
+    @MainActor static func isChatDock(_ pane: PaneModel, in store: DaemonStore) -> Bool {
+        guard let screen = store.workspace(containing: pane.handle)?.screens.first(where: { $0.panes.contains { $0 === pane } }) else { return false }
+        return screen.columns.first { $0.layout.paneIDs.contains(pane.handle) }?.dock?.role == .agentChat
+    }
+
+    /// Refuses (and reports) a tool tab moving into a chat dock that takes only chats (and their
+    /// New Tab pages). A reorder inside the dock is not a move into it.
     @MainActor static func refusesMove(_ tab: TabModel, to pane: PaneModel, services: AppServices) -> Bool {
         let moving = WindowRules.ChatMoving(samePane: services.locateTab(model: tab)?.1 === pane,
-                                            chat: ChatColumnPlacement.isChat(tab, services: services))
+                                            chat: accepts(tab, isChat: { ChatColumnPlacement.isChat($0, services: services) },
+                                                          isNewTabPage: { services.agentTabs.isNewTabPage($0.id) }))
         guard read(pane, services: services, moving: moving)?.refusesMove == true else { return false }
         services.registry.refuse(RefusalStrings.chatDockTakesOnlyChats)
         return true

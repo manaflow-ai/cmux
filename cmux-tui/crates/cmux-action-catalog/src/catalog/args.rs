@@ -189,6 +189,8 @@ pub const WHERE: Argument = Argument { name: "where", title: t("Localizable", "a
 #[rustfmt::skip]
 pub const AS_TEXT: Argument = Argument { name: "asText", title: t("ActionCatalog", "argument.asText", "As Text"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
+pub const FILE_LINE: Argument = Argument { name: "line", title: t("ActionCatalog", "argument.fileLine", "Line"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
 pub const TEXT_2: Argument = Argument { name: "text", title: t("NewTabActions", "argument.newTab.text", "Text"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const SEARCH: Argument = Argument { name: "search", title: t("NewTabActions", "argument.newTab.search", "Search the Web"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };

@@ -1,3 +1,4 @@
+import CmuxNextActions
 import Foundation
 import Observation
 import CmuxNextFilesUI
@@ -120,6 +121,6 @@ final class FindSectionModel {
     /// else in its default app.
     static func open(_ match: RipgrepMatch, effects: any FileExplorerEffects) {
         let file = URL(fileURLWithPath: match.path)
-        if !effects.openInCmux(file, at: FilePosition(line: match.line, column: match.column)) { effects.openInDefaultApp(file) }
+        if !effects.openInCmux(file, at: FileLineLocation(line: match.line, column: match.column)) { effects.openInDefaultApp(file) }
     }
 }

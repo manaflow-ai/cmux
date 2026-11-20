@@ -174,7 +174,7 @@ struct AgentPaneRemoteChatPathTests {
                     try "ok\n".write(to: target, atomically: true, encoding: .utf8)
                 }
                 var opened: [URL] = []
-                rig.model.onOpenFile = { url, _ in opened.append(url); return true }
+                rig.model.onOpenFile = { url, _, _ in opened.append(url); return true }
                 rig.model.replyLinks.revealFolder = { opened.append($0) }
                 var connection: Int?
                 rig.model.replyLinks.confirmOutside = { _, answer in
@@ -202,7 +202,7 @@ struct AgentPaneRemoteChatPathTests {
         let log = rig.outside.appendingPathComponent("build.log")
         try "ok\n".write(to: log, atomically: true, encoding: .utf8)
         var opened: [URL] = []
-        rig.model.onOpenFile = { url, _ in opened.append(url); return true }
+        rig.model.onOpenFile = { url, _, _ in opened.append(url); return true }
         rig.model.replyLinks.confirmOutside = { _, answer in answer(true) }
         rig.model.transport.gestures.record(click: true)
         let reply = await Self.ask(rig.model, "link.openPath", ["path": log.path])

@@ -23,6 +23,7 @@
   --cmux-editor-scrollbar-hover: color-mix(in srgb, var(--cmux-editor-foreground) 28%, transparent);
   --cmux-editor-widget-background: var(--surface-popup);
   --cmux-editor-widget-border: var(--page-separator);
+  --cmux-editor-sticky-background: color-mix(in srgb, var(--cmux-surface-solid, Canvas) var(--surface-text-min, 92%), transparent);
   --cmux-editor-chrome-font-size: 12px;
   --cmux-editor-toolbar-height: 30px;
   --cmux-editor-status-height: 22px;
@@ -202,4 +203,28 @@ body {
 .monaco-editor .monaco-inputbox.synthetic-focus {
   outline: none !important;
   border-color: color-mix(in srgb, var(--page-text) 40%, transparent) !important;
+}
+
+/* WebTheme's web motion gate and Reduce Motion keep the highlight static until removal. */
+.ed-line-reveal {
+  background-color: var(--cmux-editor-line-highlight);
+}
+
+@keyframes ed-line-reveal-fade {
+  0%, 50% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]) .ed-line-reveal {
+    animation: ed-line-reveal-fade 1.5s ease-out forwards;
+  }
+}
+
+/* Sticky scroll pins the enclosing scopes over the code. The editor itself is transparent (the
+   window shows through), so the header needs its own near-solid fill and a blur, or the scrolled
+   lines read through it. Reduce Transparency turns the blur off and the fill solid. */
+.monaco-editor .sticky-widget {
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
 }
