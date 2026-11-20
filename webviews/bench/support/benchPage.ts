@@ -30,6 +30,8 @@ export interface BenchPage {
   url: string;
   /// A dev server serves it (so `--dev` was asked for): every number from it is a dev number.
   dev: boolean;
+  /// Where the build wrote its files (a build only): a bench reading source maps looks here.
+  outDir?: string;
   close: () => Promise<void>;
 }
 
@@ -47,6 +49,9 @@ export interface BenchPageOptions {
   /// it: a build is minified by default, and a minified chunk profiles as mangled identifiers at
   /// line 1, which tells a reader nothing.
   unminified?: boolean;
+  /// Emit source maps beside the build's chunks (`<chunk>.map`), so a bench can name a profile's
+  /// frames by their source file and line. A build has none by default.
+  sourcemap?: boolean;
 }
 
 /// Whether this run asked for the dev server. A bench passes it to `serveBenchPage` and uses it to
@@ -71,7 +76,13 @@ export function benchPositionals(argv: readonly string[] = process.argv.slice(2)
 /// dev path does.
 export async function serveBenchPage(
   pagePath: string,
-  { dev = devRequested(), config = "vite.config.ts", query = "", unminified = false }: BenchPageOptions = {},
+  {
+    dev = devRequested(),
+    config = "vite.config.ts",
+    query = "",
+    unminified = false,
+    sourcemap = false,
+  }: BenchPageOptions = {},
 ): Promise<BenchPage> {
   const configFile = path.join(webviews, config);
   if (dev) {
@@ -98,6 +109,7 @@ export async function serveBenchPage(
       outDir,
       emptyOutDir: true,
       ...(unminified ? { minify: false } : {}),
+      ...(sourcemap ? { sourcemap: true } : {}),
       // A config with its own page (the agent pane's `vite.config.acpmux-pane.mjs`) keeps it; only a
       // page this bench names by path is passed as the input. Both input keys are set: the tree's
       // own `vite.config.ts` drives Rolldown and reads `rolldownOptions`, so overriding
@@ -180,6 +192,7 @@ export async function serveBenchPage(
   return {
     url: `http://127.0.0.1:${statics.port}/${emitted}${query}`,
     dev: false,
+    outDir,
     close: async () => {
       await statics.stop(true);
       fs.rmSync(outDir, { recursive: true, force: true });

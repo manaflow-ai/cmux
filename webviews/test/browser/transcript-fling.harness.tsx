@@ -113,6 +113,8 @@ function Transcript() {
   /// The thread minimap, on as the pane has it. A bench turns it off to tell whether a frame's cost
   /// is the transcript's or the rail's, which reading either component cannot settle.
   const [minimap, setMinimap] = useState(true);
+  /// Rows shaped before they are handed over (`__prepend`, `__streamShaped`): drawn as they are.
+  const [given, setGiven] = useState<AcpmuxRow[] | undefined>(undefined);
   /// The view drawn last, as the pane keeps it (`lastTurns`), so the next one builds on it.
   const drawn = useRef<TurnView | undefined>(undefined);
   /// What the shaping cost, for a test to read: how many updates were shaped and how many rows each
@@ -156,10 +158,38 @@ function Transcript() {
     }
   };
   (window as unknown as { __showOlder: (shown: boolean) => void }).__showOlder = setOlder;
-  show = setRows;
+  (window as unknown as { __prepend: () => (shown: boolean) => void }).__prepend = () => {
+    // Shaped now, before the caller measures: a page of older history (the older prompt's turn,
+    // shaped on its own) lands above the rows drawn last, which stay the same objects, and the
+    // caller then hands either array to the transcript with no shaping in between.
+    const base = drawn.current?.rows ?? turnView(current, NO_FOLDS);
+    const page = [...turnView([olderRow], NO_FOLDS), ...base];
+    return (shown) => setGiven(shown ? page : base);
+  };
+  (window as unknown as { __streamShaped: (count: number) => (at: number) => void }).__streamShaped = (count) => {
+    // `count` streamed updates of the reply above the live line (`__stepFoldStream`), each shaped
+    // now from the one before it as the pane does (`turnViewFrom`), so the caller times only the
+    // transcript taking them.
+    let view = drawn.current ?? turnViewFrom(current, NO_FOLDS, {});
+    let source = current;
+    const shapedRows: AcpmuxRow[][] = [];
+    for (let step = 0; step < count; step += 1) {
+      foldStreamVersion += 1;
+      const at = source.length - 2;
+      source = [...source];
+      source[at] = streamedRow(source[at]!, foldStreamVersion);
+      view = turnViewFrom(source, NO_FOLDS, {}, view);
+      shapedRows.push(view.rows);
+    }
+    return (at) => setGiven(shapedRows[at]!);
+  };
+  show = (next) => {
+    setGiven(undefined);
+    setRows(next);
+  };
   return (
     <VirtualTranscript
-      rows={batch ? rows : shapeRows(shaping, drawn, shaped, older ? [olderRow, ...rows] : rows)}
+      rows={batch ? rows : (given ?? shapeRows(shaping, drawn, shaped, older ? [olderRow, ...rows] : rows))}
       registry={batch ? batchRegistry : undefined}
       sessionId="session-1"
       jumpButton
@@ -186,6 +216,16 @@ createRoot(root).render(<Transcript />);
 
 // Synthetic reproduction of a received card collapsing while the last reply keeps streaming.
 let foldStreamVersion = 0;
+/// The streamed reply at `version` (`__stepFoldStream`, `__streamShaped`).
+function streamedRow(row: AcpmuxRow, version: number): AcpmuxRow {
+  return {
+    ...row,
+    version: version + 1,
+    streaming: true,
+    text:
+      `Streaming synthetic reply ${version}. ` + "The received card can collapse while this reply changes. ".repeat(4),
+  };
+}
 Object.assign(window, {
   __seedFoldStream() {
     if (current.length !== 9000) throw new Error("seed the unchanged 3000-turn fixture first");
@@ -207,14 +247,7 @@ Object.assign(window, {
     foldStreamVersion += 1;
     const at = current.length - 2;
     current = [...current];
-    current[at] = {
-      ...current[at]!,
-      version: foldStreamVersion + 1,
-      streaming: true,
-      text:
-        `Streaming synthetic reply ${foldStreamVersion}. ` +
-        "The received card can collapse while this reply changes. ".repeat(4),
-    };
+    current[at] = streamedRow(current[at]!, foldStreamVersion);
     show(current);
   },
 });
