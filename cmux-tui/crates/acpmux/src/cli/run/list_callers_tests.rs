@@ -314,6 +314,60 @@ async fn each_caller_runs_its_v1_path_on_a_daemon_without_the_list() {
 }
 
 /// `--limit 2`, then `--cursor` with what it printed: no row twice and none skipped.
+/// `ls` lists every machine's sessions: with a peer's row in the list it has a stderr line that
+/// says so and names `--machine local`; with this machine's rows only it has none. Its stdout
+/// is the same bytes either way, and stays parseable JSON (2026-11-20: a boot hook read a
+/// fleet-wide `ls --json` as its own sessions).
+#[tokio::test]
+async fn ls_says_on_stderr_when_its_rows_span_machines_and_stdout_is_unchanged() {
+    let daemon = serve(Serves::List, fixture).await;
+    let now = crate::store::now_ms();
+    for v2 in [false, true] {
+        let via = || if v2 { Via::List(daemon.path.clone()) } else { Via::V1 };
+        for (argv, json_out, spans) in [
+            (&[][..], true, true),
+            (&["--live"][..], true, true),
+            (&["--fields", "name,status"][..], false, true),
+            (&[][..], false, true),
+            (&["--machine", "local"][..], true, false),
+            (&["--machine", "local", "--fields", "name"][..], false, false),
+            (&["far/*"][..], true, true),
+        ] {
+            let (out, scope) =
+                super::ls::scoped_output(ls_args(argv), json_out, &daemon.client, via(), now)
+                    .await
+                    .unwrap();
+            let plain = super::ls::output(ls_args(argv), json_out, &daemon.client, via(), now)
+                .await
+                .unwrap();
+            assert_eq!(out, plain, "stdout of ls {argv:?} is the same with the notice");
+            assert!(!out.contains("--machine local lists"), "the notice never reaches stdout");
+            if json_out {
+                serde_json::from_str::<Value>(&out).expect("stdout stays JSON");
+            }
+            match scope {
+                Some(line) if spans => {
+                    assert!(line.starts_with("ls: "), "{line}");
+                    assert!(line.ends_with("--machine local lists only this one"), "{line}");
+                }
+                None if !spans => {}
+                other => panic!("ls {argv:?} (v2 {v2}): scope {other:?}, spans {spans}"),
+            }
+        }
+    }
+    let (_, scope) =
+        super::ls::scoped_output(ls_args(&[]), true, &daemon.client, Via::V1, now).await.unwrap();
+    // Every row of the fixture's: this machine's and the peer `far`'s.
+    let rows: Value = serde_json::from_str(&ls(&daemon, &["--json"], false, now).await).unwrap();
+    let n = rows["sessions"].as_array().unwrap().len();
+    assert_eq!(
+        scope.as_deref(),
+        Some(
+            format!("ls: {n} sessions on 2 machines; --machine local lists only this one").as_str()
+        )
+    );
+}
+
 #[tokio::test]
 async fn a_limit_then_its_cursor_read_every_row_once() {
     let daemon = serve(Serves::List, fixture).await;
@@ -511,11 +565,8 @@ async fn v2_pr07b_usage_first_read() {
     let rebuilt =
         [small.hub.list_order_rebuilds_for_test(), god.hub.list_order_rebuilds_for_test()];
     assert_eq!(rebuilt, built, "a timed pass sorted every chat again");
-    acpmux_book::gate_rounds::report(
-        "v2.pr07b.usage_first_read",
-        &[("small", &small_wall), ("god", &god_wall)],
-    );
-    // The row's line last, with no assert after it: the home judges the ratio.
+    // The row's rounds and line last (`emit` prints both), with no assert after it: the home
+    // judges the ratio.
     emit("v2.pr07b.usage_first_read", &small_wall, &god_wall, "ns");
 }
 
@@ -602,46 +653,4 @@ async fn probe_order_at_start() {
     );
     drop(d);
     drop(store);
-}
-
-/// What `v2.pr07b.ls_wall`'s first god-side call pays (its round 1 reads 26-32 ms against
-/// 2.2-2.4 ms after). The gate's two daemons and proxies, then `ls` three times a side, each
-/// with the wall and the kept list order's full sorts (`list_order_rebuilds_for_test`) after it.
-/// `as_gate`: as the gate starts. `sorted`: the order sorted first (`Hub::sort_list_order`, as a
-/// daemon's start task does), timed as `sort_us`. Prints `PROBE` lines, asserts nothing of the
-/// times.
-#[ignore = "probe: ls_wall's first god-side call"]
-#[tokio::test(flavor = "multi_thread")]
-async fn probe_ls_wall_first_call() {
-    for case in ["as_gate", "sorted", "as_gate", "sorted"] {
-        let small = gate_daemon(0).await;
-        let god = gate_daemon(11_000).await;
-        let (small_proxy, god_proxy) =
-            (counted(small.path.clone()).await, counted(god.path.clone()).await);
-        let before =
-            [small._hub.list_order_rebuilds_for_test(), god._hub.list_order_rebuilds_for_test()];
-        let sort_us = if case == "sorted" {
-            let at = Instant::now();
-            small._hub.sort_list_order();
-            god._hub.sort_list_order();
-            at.elapsed().as_micros()
-        } else {
-            0
-        };
-        for call in 1..=3 {
-            for (side, daemon, proxy) in
-                [("small", &small, &small_proxy), ("god", &god, &god_proxy)]
-            {
-                let (wall, bytes) = gate_run("ls", proxy).await;
-                eprintln!(
-                    "PROBE case={case} call={call} side={side} wall_us={} bytes={bytes} \
-                     rebuilds_before={before:?} rebuilds_now={} sort_us={sort_us}",
-                    wall / 1_000,
-                    daemon._hub.list_order_rebuilds_for_test()
-                );
-            }
-        }
-        drop(god.v2);
-        drop(small.v2);
-    }
 }

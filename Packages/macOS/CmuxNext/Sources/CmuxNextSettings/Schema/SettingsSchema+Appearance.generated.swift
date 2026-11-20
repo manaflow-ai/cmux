@@ -46,6 +46,12 @@ extension ThemeFileSetting {
     public nonisolated static let configPath = ["appearance", "themeFile"]
 }
 
+extension ThemeFileExceptionsSetting {
+    /// `appearance.themeFileExceptions`.
+    public nonisolated static let configPath = ["appearance", "themeFileExceptions"]
+    public nonisolated static let fallback: [String] = []
+}
+
 extension HighlightColorSetting {
     /// `appearance.highlightColor`.
     public nonisolated static let configPath = ["appearance", "highlightColor"]
@@ -92,6 +98,12 @@ extension PaneBackgroundsSetting {
 extension ReducedBackgroundsSetting {
     /// `ui.reducedBackgrounds`.
     public nonisolated static let configPath = ["ui", "reducedBackgrounds"]
+    public nonisolated static let fallback = false
+}
+
+extension AgentGlowSetting {
+    /// `appearance.agentGlow`.
+    public nonisolated static let configPath = ["appearance", "agentGlow"]
     public nonisolated static let fallback = false
 }
 
@@ -170,9 +182,9 @@ extension InterfaceSizeSetting {
 }
 
 extension FontSmoothingSetting {
-    /// `appearance.fontSmoothing`: Stem darkening of cmux's native text (AppleFontSmoothing in the app's domain, written at launch: ProcessFontSmoothing). Ghostty's font-thicken and web pages are not affected.
+    /// `appearance.fontSmoothing`: How cmux's text draws, in the CSS model (-webkit-font-smoothing), native and web. Native: AppleFontSmoothing in the app's domain, written at launch and on each change for the next launch (ProcessFontSmoothing). Web: the web theme's data-cmux-font-smoothing, live (WebTheme). Chrome text cmux draws itself (ChromeLabel, ChromeTextLayer: the sidebar, tabs) follows live too (ProcessFontSmoothing.chrome). Ghostty's font-thicken is not affected.
     public nonisolated static let configPath = ["appearance", "fontSmoothing"]
-    public nonisolated static let fallback: FontSmoothing = .antialiased
+    public nonisolated static let fallback: FontSmoothing = .auto
 }
 
 extension InterfaceScaleSetting {

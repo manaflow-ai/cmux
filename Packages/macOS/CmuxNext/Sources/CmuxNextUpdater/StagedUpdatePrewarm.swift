@@ -17,7 +17,8 @@ public import Foundation
 /// What runs, one after another, each stopped after `timeout`: the staged app's executable with
 /// ``argument`` (`CmuxNextApp.main()` exits on it before anything else, so exec, dyld and static
 /// initializers run and nothing more), then the bundled `cmux` and `cmux-tui` with `--version`, then
-/// each Chromium helper app with `--version` (the first loads the CEF framework, about 1.4 s).
+/// each Chromium helper app with `--version` (the first loads the CEF framework, about 1.4 s), then every
+/// page of `Contents/Frameworks` read once (``readPages(under:)``), the framework code the helpers never ran.
 /// Nothing is written, verified or skipped: Gatekeeper, quarantine and the code signature checks
 /// run as they always do, only earlier.
 public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
@@ -111,6 +112,17 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
         return runs
     }
 
+    /// Raised once someone waits for the pre-warm (an install click, ``UpdaterService/installAfterPrewarm(_:)``):
+    /// a run that starts from then on runs at ``WorkPriority/userBlocking``, not best effort. A run already
+    /// started keeps its priority.
+    public final class Urgency: Sendable {
+        private let raised = Atomic<Bool>(false)
+        public init() {}
+        public func raise() { raised.store(true, ordering: .relaxed) }
+        public var isRaised: Bool { raised.load(ordering: .relaxed) }
+        var priority: TaskPriority { (isRaised ? WorkPriority.userBlocking : .bestEffort).taskPriority }
+    }
+
     /// Finds the staged bundle on `work`'s files lane, then starts each run (``AsyncProcess``, nothing
     /// waits on a thread). `progress` gets a line for the update log once the scan ends and as each run
     /// ends, so a pre-warm cut short by the relaunch still says how far it got. Returns the last line.
@@ -124,8 +136,10 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
     /// With `marker`, a pre-warm that found the staged bundle leaves ``build`` there for that build's first
     /// launch (``consumeLaunchMarker(build:at:)``), which records itself as pre-warmed (`cmux app launch-times`).
     /// The marker write runs at ``WorkPriority/userVisible`` too, for the same reason as the scan.
+    ///
+    /// Each run starts at `urgency`'s priority: best effort until an install click waits for the pre-warm.
     public func perform(work: BackgroundWork, processes: AsyncProcess = AsyncProcess(),
-                        timeout: Duration = .seconds(20), marker: URL? = nil,
+                        timeout: Duration = .seconds(20), marker: URL? = nil, urgency: Urgency = Urgency(),
                         progress: (@Sendable (String) -> Void)? = nil) async -> String {
         let asked = ContinuousClock.now
         let scanned = try? await work.run(.userVisible, mayBlock: .files) { [self] () -> (URL, [Run])? in
@@ -142,12 +156,27 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
             let started = ContinuousClock.now
             let status: String
             do {
-                let outcome = try await processes.run(ProcessRequest(run.executable, run.arguments, timeout: timeout))
-                status = "exit \(outcome.status)"
+                let request = ProcessRequest(run.executable, run.arguments, timeout: timeout)
+                let outcome = try await withThrowingTaskGroup(of: ProcessOutcome.self) { group in
+                    group.addTask(priority: urgency.priority) { try await processes.run(request) }
+                    guard let outcome = try await group.next() else { throw CancellationError() }
+                    return outcome
+                }
+                // A crash reads as its signal, not as an exit status ("cmux exit 11" was a SIGSEGV).
+                status = !outcome.exited ? "signal \(outcome.status)" : Self.describe(exit: outcome.status, of: run)
             } catch {
                 status = "failed (\(error))"
             }
             let part = "\(run.executable.lastPathComponent) \(status) \(Self.milliseconds(ContinuousClock.now - started)) ms"
+            progress?("launch pre-warm of \(build): \(part)")
+            parts.append(part)
+        }
+        // The framework's pages a renderer and the GPU process run, which the helpers' --version never touched
+        // (``readPages(under:)``). Its own idle slot on the files lane: the best-effort one may still hold the
+        // rollback keep, and nobody waits for this.
+        let frameworks = bundle.appending(path: "Contents/Frameworks"), started = ContinuousClock.now
+        if let pages = try? await work.run(.idle, mayBlock: .files, { Self.readPages(under: frameworks) }) {
+            let part = "Frameworks read \(pages.files) files, \(pages.pages) pages \(Self.milliseconds(ContinuousClock.now - started)) ms"
             progress?("launch pre-warm of \(build): \(part)")
             parts.append(part)
         }
@@ -157,6 +186,53 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
         }
         return "launch pre-warm of \(build) (\(bundle.lastPathComponent)): "
             + (parts.isEmpty ? "nothing to run" : parts.joined(separator: ", ") + "; \(Self.milliseconds(ContinuousClock.now - asked)) ms in all")
+    }
+
+    /// A run's exit status for the update log. A Chromium helper with no `--type` exits 255 once it has loaded the
+    /// CEF framework (`CefExecuteProcess` returns -1, "this is the browser process"; a failed load exits 1,
+    /// CEFShim/src/helper_main.mm), so 255 there is the run doing its job, and the line says so.
+    static func describe(exit status: Int32, of run: Run) -> String {
+        let helper = run.executable.pathComponents.contains { $0.hasSuffix(".app") && $0.contains(" Helper") }
+        return helper && status == 255 ? "exit 255 (framework loaded)" : "exit \(status)"
+    }
+
+    /// What ``readPages(under:)`` read.
+    public struct Pages: Equatable, Sendable {
+        public var files = 0
+        public var pages = 0
+        /// The bytes read, folded together, so the compiler cannot drop the reads.
+        var fold: UInt8 = 0
+    }
+
+    /// Reads one byte of each page of every regular file under `root` through a read-only mapping. Blocking.
+    ///
+    /// The helpers' `--version` (``runs(bundle:)``) loads the CEF framework but runs none of it: with no `--type`,
+    /// `CefExecuteProcess` returns -1 at once (the exit 255 in the update log; a failed load exits 1,
+    /// CEFShim/src/helper_main.mm). So the framework's code a renderer and the GPU process run, and its resources
+    /// (`icudtl.dat`, the V8 snapshot, the paks), were never paged in. Run on `Contents/Frameworks` after the
+    /// helpers, so the framework's code signature is already attached, each page faulted in here is resident and
+    /// checked when the first launch after the update maps it (about 330 MB in NIGHTLY, 2026-11-16). The pages are
+    /// file-backed and clean, so the system drops them first under memory pressure.
+    public static func readPages(under root: URL) -> Pages {
+        var result = Pages()
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]
+        guard let walker = FileManager().enumerator(at: root, includingPropertiesForKeys: Array(keys)) else { return result }
+        let page = Int(getpagesize())
+        for case let url as URL in walker {
+            guard let values = try? url.blockingResourceValues(forKeys: keys), values.isRegularFile == true,
+                  values.isSymbolicLink != true, let size = values.fileSize, size > 0 else { continue }
+            let descriptor = open(url.path, O_RDONLY | O_CLOEXEC)
+            guard descriptor >= 0 else { continue }
+            defer { close(descriptor) }
+            guard let base = mmap(nil, size, PROT_READ, MAP_PRIVATE, descriptor, 0), base != MAP_FAILED else { continue }
+            defer { munmap(base, size) }
+            for offset in stride(from: 0, to: size, by: page) {
+                result.fold ^= base.load(fromByteOffset: offset, as: UInt8.self)
+                result.pages += 1
+            }
+            result.files += 1
+        }
+        return result
     }
 
     /// Whole milliseconds of `duration`.

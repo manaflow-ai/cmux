@@ -484,8 +484,15 @@ enum HomeMapping {
     /// hash; an image's picture is its asset, a video's its poster (the row
     /// drawing reads `poster ?? asset`, so a video never loads the movie);
     /// an upload in flight is MessagesLab's `.uploading` transfer.
+    /// cmux: a picture HomeMedia cannot get (`HomeMedia.unavailableAsset`) shows the part as a file card
+    /// (its type's icon, name and size), not the empty gray box it was (user 2026-11-16).
     static func attachment(_ ref: AttachmentRef, picture: String?, progress: Double?) -> Attachment {
-        let kind = kind(of: ref)
+        var kind = kind(of: ref)
+        var picture = picture
+        if picture == HomeMedia.unavailableAsset {
+            if kind == "image" || kind == "video" { kind = "file" }
+            picture = nil
+        }
         return Attachment(id: ref.hash, kind: kind, fileName: ref.name, mimeType: ref.mimeType, byteSize: ref.byteCount,
                           asset: kind == "image" ? picture : nil, poster: kind == "video" ? picture : nil,
                           width: ref.width, height: ref.height, durationSeconds: ref.durationMs.map { Double($0) / 1000 },

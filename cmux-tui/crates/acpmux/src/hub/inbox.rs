@@ -139,7 +139,10 @@ pub const WAKE_DEBOUNCE_MS: u64 = 2_000;
 pub const REFUSED_RETRY_MS: u64 = 30_000;
 /// How long a message that wakes no one waits in an idle chat, or FYIs alone wait for a running
 /// turn, before a notice brings them anyway.
-pub const FLUSH_MS: u64 = 10 * 60 * 1000;
+/// The minimum interval between turns started solely to carry FYIs. Keeping the
+/// interval at fifteen minutes bounds a quiet coordinator to at most four
+/// notice turns per hour while urgent classes still wake immediately.
+pub const FLUSH_MS: u64 = 15 * 60 * 1000;
 /// A notice line shows this much of the newest message's first line, in characters.
 const PREVIEW_CHARS: usize = 120;
 /// A notice holds its messages whole when their text is this many bytes or less ([`render`]).
@@ -708,6 +711,11 @@ fn kind_of(class: PromptClass) -> &'static str {
     }
 }
 
+/// Unclassified notices are informational and can wait for the FYI flush window.
+fn default_notice_class(class: Option<PromptClass>) -> PromptClass {
+    class.unwrap_or(PromptClass::Fyi)
+}
+
 /// The first line of `text`, cut to [`PREVIEW_CHARS`]: of the message inside a relay's label
 /// ([`relay_body`]), never the label's own words.
 fn preview(text: &str) -> String {
@@ -946,7 +954,7 @@ pub(super) fn not_woken(receiver: &str, sender: &str, class: PromptClass) -> Rpc
     let message = match class {
         PromptClass::Fyi => format!(
             "send.not_woken: an fyi from {sender} neither wakes {receiver} nor interrupts its \
-             turn: it waits for its next notice (FYIs alone go in once 10 minutes old). Nothing \
+             turn: it waits for its next notice (FYIs alone go in once 15 minutes old). Nothing \
              was delivered. Send it again with --class question to have it read now, or with \
              --no-wait to leave it in its inbox."
         ),
@@ -1200,7 +1208,7 @@ impl Hub {
         if controls(&session.meta(), sender_session(provenance).as_deref()) {
             return Route::Plain;
         }
-        let class = crate::prompt_class::of_message(class, true).unwrap_or(PromptClass::Result);
+        let class = default_notice_class(class);
         Route::Inbox(agent, class)
     }
 
@@ -2237,10 +2245,10 @@ impl Hub {
         let (mut found, mut removed, mut noticed) = (false, false, false);
         let mut answer: Option<super::queue::Answer> = None;
         let kinds = ["inbox", "inbox_noticed", "inbox_answered", "inbox_removed"];
-        // Only the records naming it are read whole: by `promptId`, or by a list of prompts
-        // (`promptIds`), which the head does not hold.
+        // Only the records naming it are read whole: by `promptId`, or in a list of prompts
+        // (`promptIds`, which the head holds: a coordinator's every resend read all its notices).
         let keep = &mut |h: &crate::store::KindHead<'_>| -> bool {
-            h.unread || h.names_many || h.prompt_id == Some(prompt_id)
+            h.unread || h.prompt_id == Some(prompt_id) || h.names(|p| p == prompt_id)
         };
         let _ = self.scan_for_rebuild_keyed(session, &kinds, keep, &mut |e: EventRecord| {
             let own = e.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id);

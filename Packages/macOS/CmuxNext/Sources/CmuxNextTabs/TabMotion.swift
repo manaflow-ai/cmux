@@ -165,6 +165,17 @@ struct TabStripMove {
         add(motion.additive("position.x", from: NSNumber(value: Double(offset)), to: NSNumber(value: 0)), to: layer, as: "scroll")
     }
 
+    /// The frame `layer` shows at media time `time`: its model plus every animation on it, evaluated as the render
+    /// server does (`MotionPath`). Not `presentation()`: that is the state of the last commit, so it leaves out every
+    /// move added since (two opens in one main-thread turn, a script's burst, a busy main thread) and is nil for a
+    /// layer made in this turn, where it fell back to the model, the move's end instead of where the layer shows.
+    static func shownFrame(_ layer: CALayer, at time: CFTimeInterval = CACurrentMediaTime()) -> CGRect {
+        let size = MotionPath(layer, "bounds.size", now: time).value(at: time)
+        let position = MotionPath(layer, "position", now: time).value(at: time)
+        let width = max(0, size.x), height = max(0, size.y)
+        return CGRect(x: position.x - layer.anchorPoint.x * width, y: position.y - layer.anchorPoint.y * height, width: width, height: height)
+    }
+
     /// Whether a strip move other than a scroll part still runs on `layer` (a scroll part ends with its wheel).
     static func isMoving(_ layer: CALayer) -> Bool {
         (layer.animationKeys() ?? []).contains { $0.hasPrefix(keyPrefix) && !$0.hasSuffix(scrollSuffix) }

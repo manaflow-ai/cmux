@@ -390,7 +390,7 @@ fn plain_command(argv: &[&str]) -> bool {
         // GNU sed's `e` command and `s///e` run the pattern space.
         "sed" => {
             let args: Vec<String> = rest.iter().map(|a| (*a).to_owned()).collect();
-            crate::hub::shell_readonly::sed_prints_only(&args)
+            crate::shell_readonly::sed_prints_only(&args)
         }
         "git" => {
             let mut words = rest.iter();

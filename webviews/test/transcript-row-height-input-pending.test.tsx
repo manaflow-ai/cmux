@@ -156,11 +156,13 @@ test("with input waiting, a followed row's new height waits for the frame's comm
   expect(after).toBe(synchronous.after);
 });
 
-// One placement per frame (chat-render-pipeline R5): the observer's callback places the rows once,
-// with one synchronous render and one read of what it placed. A row whose height moves again under
-// that placement (its text rewraps) used to be flushed and read up to three times in the one task,
-// a forced layout each; its next height now goes in the next commit.
-test("a followed row whose height moves under its placement is placed once in the observer's task", async () => {
+// A bounded placement (chat-render-pipeline R5): the observer's callback places the rows, then reads
+// them again while a height moves under its own placement (a streaming reply's next reveal step
+// commits in that render, and the observer reports it only a frame later), at most three times.
+// One synchronous placement left that step to a commit after the paint, and the turn's end moved
+// the rows by it at once (turn-transition-jumps, send-stream-motion). A row that never holds still
+// is placed three times, and the height read after them lands in the next commit.
+test("a followed row whose height moves under its placement is placed at most three times in the observer's task", async () => {
   observers.length = 0;
   pending = false;
   const root = createRoot(dom.window.document.getElementById("root")!);
@@ -206,9 +208,9 @@ test("a followed row whose height moves under its placement is placed once in th
       counting = false;
       await nextFrame();
     });
-    expect(placed.length).toBe(1);
-    // The height read after that placement still lands, in the next commit.
-    expect(spacerHeight()).not.toBe(placed[0]);
+    expect(placed.length).toBe(3);
+    // The height read after those placements still lands, in the next commit.
+    expect(spacerHeight()).not.toBe(placed.at(-1));
     delete (style as unknown as Record<string, unknown>).height;
   } finally {
     await act(async () => root.unmount());

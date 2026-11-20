@@ -29,12 +29,22 @@ final class OmnibarPillView: NSView {
     private var glass: GlassPanelView?
     /// Ends with the view (the loop holds it weakly).
     private var lookLoop: ObservationLoop?
+    /// The editing ring, drawn outside the bar's edge so the field keeps its whole height (Lucas 2026-11-15: "the ring
+    /// should be outside of the input"), its corner the bar's plus the ring's width (concentric). It lives in the pane's
+    /// own layer (``ringPlace(ring:)``), over the content area's clip, so the bar can sit one tab gap under the tabs with the
+    /// ring whole (Lucas 2026-11-15: the gap from the tab to the bar is the gap above the tab).
+    private let ringLayer = CALayer()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = false
+        ringLayer.cornerCurve = .continuous
+        ringLayer.zPosition = 1
+        // motion: allow the ring's width fades in `refresh`'s Motion.feedback transaction; its frame follows the bar at once.
+        ringLayer.actions = ["bounds": NSNull(), "position": NSNull(), "cornerRadius": NSNull(), "hidden": NSNull()]
+        layer?.addSublayer(ringLayer)
         rebuildMaterial()
         // The bar's hover eases in and clears at once (`ChromeHover.fade`).
         hover = PointerHover(self) { [weak self] hovering in
@@ -49,6 +59,14 @@ final class OmnibarPillView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// Never clips: AppKit turns clipping on whenever the backing layer's corner radius is set
+    /// (`-[NSViewBackingLayer setCornerRadius:]` calls `_mightNeedViewToClipToBounds`), which hid the editing ring drawn
+    /// outside the bounds. The fill rounds by its own corner radius and the glass masks itself (`GlassPanelView`).
+    override var clipsToBounds: Bool {
+        get { false }
+        set {} // swiftlint:disable:this unused_setter_value
+    }
+
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     // Hover is the pill's frame under the pointer (the bar above it takes
@@ -56,15 +74,19 @@ final class OmnibarPillView: NSView {
     override func viewDidHide() {
         super.viewDidHide()
         hover?.refresh()
+        applyShape()
     }
 
     override func viewDidUnhide() {
         super.viewDidUnhide()
         hover?.refresh()
+        applyShape()
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // Out of a window, the ring leaves the pane's layer with the bar.
+        if window == nil { ringLayer.removeFromSuperlayer() }
         hover?.refresh()
         // A theme repaint skips a pill outside the window (a dark-to-dark
         // theme switch brings no appearance change on return).
@@ -121,9 +143,72 @@ final class OmnibarPillView: NSView {
         let fill = layer?.backgroundColor.flatMap { NSColor(cgColor: $0)?.usingColorSpace(.sRGB) }
         let rgba: [Double] = fill.map { [$0.redComponent, $0.greenComponent, $0.blueComponent, $0.alphaComponent].map(Double.init) } ?? [0, 0, 0, 0]
         let coverage = performWithTheme { Palette.addressBar.resolvedCoverage(look.backgroundOpacity) }
-        return ["fill": rgba, "corner_radius": Double(layer?.cornerRadius ?? 0), "ring_width": Double(layer?.borderWidth ?? 0),
+        return ["fill": rgba, "corner_radius": Double(layer?.cornerRadius ?? 0), "ring_width": Double(ringLayer.borderWidth),
                 "state": state == .idle ? barState.rawValue : (state == .card ? "card" : "editing"), "material": look.material.rawValue,
                 "background_opacity": look.backgroundOpacity, "resolved_coverage": coverage, "glass": glass != nil]
+    }
+
+    /// Where the ring goes: around the bar in its own layer; in the pane's layer when it crosses its content area's top
+    /// edge (``PaneContentAreaView`` clips to its bounds, which start at the toolbar's top edge); inside the bar's edge,
+    /// as before, when the bar touches an edge the pane cannot hold still.
+    private enum RingPlace {
+        case bar
+        case pane(NSView)
+        case inside
+    }
+
+    /// Only a flipped pane takes the ring over its top edge: there the bar keeps its distance from the pane's top
+    /// through a vertical resize, which runs no layout of the bar's own, so the ring needs no window observer to stay on
+    /// the bar. A bar on the area's bottom edge (a toolbar at the bottom of a borderless pane) moves with that edge, so
+    /// its ring draws inside.
+    private func ringPlace(ring: CGFloat) -> RingPlace {
+        var view = superview
+        while let current = view {
+            if current is PaneContentAreaView {
+                let around = current.convert(bounds.insetBy(dx: -ring, dy: -ring), from: self)
+                let area = current.bounds
+                let crossesTop = current.isFlipped ? around.minY < area.minY : around.maxY > area.maxY
+                let crossesBottom = current.isFlipped ? around.maxY > area.maxY : around.minY < area.minY
+                if crossesBottom { return .inside }
+                guard crossesTop else { return .bar }
+                guard let pane = current.superview, pane.layer != nil, pane.isFlipped else { return .inside }
+                return .pane(pane)
+            }
+            view = current.superview
+        }
+        return .bar
+    }
+
+    /// The ring's host layer and its frame in that layer, for tests.
+    var debugRing: (host: CALayer?, frame: CGRect) { (ringLayer.superlayer, ringLayer.frame) }
+
+    /// The ring around the bar, one ring width outside it, in its host's layer, only while the bar is editing: out of
+    /// editing it leaves the host, so a bar that blurs, moves to another pane or hides leaves no ring behind.
+    private func placeRing(radius: CGFloat) {
+        guard state == .editing, window != nil, layer != nil else {
+            ringLayer.removeFromSuperlayer()
+            return
+        }
+        let ring = Metrics.lineWidth(OmnibarStyle.ringWidth)
+        let place = ringPlace(ring: ring)
+        let host: NSView
+        if case .pane(let pane) = place { host = pane } else { host = self }
+        guard let hostLayer = host.layer else { return }
+        if ringLayer.superlayer !== hostLayer {
+            ringLayer.removeFromSuperlayer()
+            hostLayer.addSublayer(ringLayer)
+        }
+        ringLayer.zPosition = host === self ? 1 : 100
+        if case .inside = place {
+            ringLayer.frame = bounds
+            ringLayer.cornerRadius = radius
+        } else {
+            let around = bounds.insetBy(dx: -ring, dy: -ring)
+            // Through the views: a layer-backed view's layer shares its view's coordinates (the layer tree can skip views).
+            ringLayer.frame = host === self ? around : host.convert(around, from: self)
+            ringLayer.cornerRadius = radius + ring
+        }
+        ringLayer.isHidden = isHiddenOrHasHiddenAncestor
     }
 
     private func applyShape() {
@@ -135,6 +220,7 @@ final class OmnibarPillView: NSView {
         CATransaction.setDisableActions(true)
         layer?.cornerRadius = radius
         glass?.cornerRadius = radius
+        placeRing(radius: radius)
         if look.shadow && drawsGlass && state != .card {
             // The raised elevation step (PopupStyle.elevation2), as every floating surface.
             let elevation = PopupStyle.elevation2
@@ -186,9 +272,9 @@ final class OmnibarPillView: NSView {
                 if let layer {
                     ChromeHover.paint(layer, fill.alphaComponent > 0 ? fill : nil, animated: animated && state != .card, clearing: .hover)
                 }
-                layer?.borderColor = OmnibarStyle.ring.cgColor
+                ringLayer.borderColor = OmnibarStyle.ring.cgColor
             }
-            layer?.borderWidth = Metrics.lineWidth(ring)
+            ringLayer.borderWidth = Metrics.lineWidth(ring)
         }
         applyShape()
     }

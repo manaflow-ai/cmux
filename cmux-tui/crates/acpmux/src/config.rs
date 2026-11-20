@@ -486,12 +486,54 @@ pub(crate) fn validate_private_state_file(file: &std::fs::File, path: &Path) -> 
         "{}",
         writable_refusal(path, metadata.mode(), "600")
     );
-    refuse_extended_acl(file, path)?;
+    if !acl_checked(&metadata) {
+        refuse_extended_acl(file, path)?;
+        if metadata.mode() & 0o077 == 0 {
+            remember_acl_checked(&metadata);
+        }
+    }
     if metadata.mode() & 0o077 != 0 {
         file.set_permissions(std::fs::Permissions::from_mode(0o600))
             .with_context(|| format!("make {} owner-only", path.display()))?;
     }
     Ok(())
+}
+
+/// The files whose extended ACL was checked, by file and change time: a state file read again
+/// (each page of a chat's log opens its segments) is checked once, not on each open. Any change
+/// to a file's ACL, mode or owner moves its change time (`ctime`), so a file changed since is
+/// checked again. The owner and mode checks above still run on every open: they read the
+/// `fstat` the open already needs. Leo's daemon, 2026-11-18: an attach spent a tenth of its
+/// reads in `acl_get_fd_np` (`store/segment_starts.rs`).
+#[cfg(unix)]
+type AclKey = (u64, u64);
+
+#[cfg(unix)]
+static ACL_CHECKED: std::sync::Mutex<Option<std::collections::HashMap<AclKey, (i64, i64)>>> =
+    std::sync::Mutex::new(None);
+
+/// The most files remembered; past it the memo starts over.
+#[cfg(unix)]
+const ACL_CHECKED_MAX: usize = 65_536;
+
+#[cfg(unix)]
+fn acl_checked(metadata: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let memo = ACL_CHECKED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    memo.as_ref()
+        .and_then(|memo| memo.get(&(metadata.dev(), metadata.ino())))
+        .is_some_and(|&changed| changed == (metadata.ctime(), metadata.ctime_nsec()))
+}
+
+#[cfg(unix)]
+fn remember_acl_checked(metadata: &std::fs::Metadata) {
+    use std::os::unix::fs::MetadataExt;
+    let mut memo = ACL_CHECKED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let memo = memo.get_or_insert_with(Default::default);
+    if memo.len() >= ACL_CHECKED_MAX {
+        memo.clear();
+    }
+    memo.insert((metadata.dev(), metadata.ino()), (metadata.ctime(), metadata.ctime_nsec()));
 }
 
 /// Open or create an owner-only regular state file for read/write without
@@ -1520,6 +1562,10 @@ pub struct Config {
     /// a switch to roll the inbox back without a new build.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_inbox: Option<bool>,
+    /// `mcpStore`: the machine's one store of MCP connections, shared with every Chief
+    /// (cmux-mcp-connect `shared`). Unset: `$CMUX_MCP_HOME`, else `$ACPMUX_HOME/mcp`.
+    #[serde(rename = "mcpStore", default, skip_serializing_if = "Option::is_none")]
+    pub mcp_store: Option<std::path::PathBuf>,
     /// `silentTurnMs`: how long a turn may go with no sign of its model at work
     /// (no message, thought, tool call, plan, request or model harness line;
     /// the agent's own bookkeeping does not count) before the chat logs
@@ -1775,15 +1821,19 @@ fn write_atomic_with(
     bytes: &[u8],
     sync: impl FnOnce(&std::fs::File, &Path) -> Result<()>,
 ) -> Result<()> {
-    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
-    let written = write_then_rename(&tmp, path, bytes, sync);
-    // A failed write (a full disk) leaves no partial temporary file to hold
-    // the space it ran out of; every retry uses a new name.
-    if written.is_err() {
-        let _ = crate::home_fs::remove_file(&tmp);
-    }
+    // One name per file and process, every write (`dead_temps`: each new name is one more
+    // path fseventsd keeps); this process's writers of it take turns.
+    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+    let written = {
+        let _turn = crate::dead_temps::hold(&tmp);
+        let written = write_then_rename(&tmp, path, bytes, sync);
+        // A failed write (a full disk) leaves no partial temporary file to hold
+        // the space it ran out of.
+        if written.is_err() {
+            let _ = crate::home_fs::remove_file(&tmp);
+        }
+        written
+    };
     // A writer stopped between its copy's open and its rename (a daemon stopped mid-write)
     // never removed its copy: the next write of the file does.
     crate::dead_temps::remove_beside(path);
@@ -1854,7 +1904,7 @@ pub use discover::{
     CHIEF_FAMILY, CHIEF_PROFILE, CMUX_ROUTER_MODEL_SETTING, CMUX_ROUTER_PROFILE,
     CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, UNIICHAT_PROFILE, add_chief,
     add_cmux_router, add_cmux_router_with, add_coderouter_route, cmux_router_model_setting,
-    coderouter_claude_route, discover_harnesses, discover_harnesses_from,
+    coderouter_claude_route, discover_harnesses, discover_harnesses_from, discoverable,
 };
 mod peer;
 pub use peer::PeerConfig;
@@ -1894,6 +1944,23 @@ pub fn normalize_permission_mode(value: &str) -> Option<&'static str> {
     }
 }
 
+/// `${cwd}`, `${home}`, `${model}` and a leading `~/` in a profile env value or argv word.
+pub fn expand_env_value(
+    value: &str,
+    cwd: &std::path::Path,
+    home: &std::path::Path,
+    model: &str,
+) -> String {
+    let mut out = value
+        .replace("${cwd}", &cwd.to_string_lossy())
+        .replace("${home}", &home.to_string_lossy())
+        .replace("${model}", model);
+    if let Some(rest) = out.strip_prefix("~/") {
+        out = format!("{}/{rest}", home.to_string_lossy());
+    }
+    out
+}
+
 #[cfg(test)]
 mod save_merge_tests;
 #[cfg(test)]
@@ -1913,4 +1980,30 @@ pub fn loopback_daemon_address(value: &str) -> Result<std::net::SocketAddr> {
         "remote_daemon must be a loopback host:port with a port (127.0.0.1:PORT or [::1]:PORT)"
     );
     Ok(address)
+}
+
+/// `web_url` opening one session: `?session=<id>` before the fragment.
+pub fn web_url_for_session(url: &str, session: &str) -> String {
+    let (base, fragment) = url.split_once('#').map_or((url, None), |(b, f)| (b, Some(f)));
+    let joiner = if base.contains('?') { '&' } else { '?' };
+    match fragment {
+        Some(f) => format!("{base}{joiner}session={session}#{f}"),
+        None => format!("{base}{joiner}session={session}"),
+    }
+}
+
+#[cfg(test)]
+mod web_url_tests {
+    use super::web_url_for_session;
+
+    #[test]
+    fn a_session_link_puts_the_session_in_the_query_and_keeps_the_fragment() {
+        let url = web_url_for_session("http://127.0.0.1:1/#token=t", "s1");
+        assert_eq!(url, "http://127.0.0.1:1/?session=s1#token=t");
+        assert_eq!(web_url_for_session("http://h/", "s1"), "http://h/?session=s1");
+        assert_eq!(
+            web_url_for_session("http://h/?a=1#token=t", "s"),
+            "http://h/?a=1&session=s#token=t"
+        );
+    }
 }

@@ -1,0 +1,5 @@
+[
+  {"id": "slack-style-1", "sender": "no-reply@otp-check.test", "account": "you@example.com",
+   "subject": "Confirmation code: Q7K-2PL",
+   "body": "Confirm your email address\nYour confirmation code is below — enter it in your open browser window and we'll help you get signed in.\nQ7K-2PL\nIf you didn't request this email, there's nothing to worry about."}
+]
