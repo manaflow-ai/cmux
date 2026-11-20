@@ -1187,7 +1187,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
         // Following resumes one card per frame (`followCards`).
     }
 
-    public func overviewWillAppear() {
+    public func overviewWillAppear() { F3Trace.time("overviewWillAppear") { overviewWillAppear0() } }
+    private func overviewWillAppear0() {
         // The cards show their chats as they are now from the first frame.
         setCardsFollow(shown: true)
         holdActiveTranscript(true)
@@ -1199,7 +1200,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
         if let tab = workspaceTab(id), tab.kind == .terminal { terminal.overviewWillAppear(active: tab) }
     }
 
-    public func overviewVisibilityChanged(_ visible: Bool) {
+    public func overviewVisibilityChanged(_ visible: Bool) { F3Trace.time("overviewVisibilityChanged") { overviewVisibilityChanged0(visible) } }
+    private func overviewVisibilityChanged0(_ visible: Bool) {
         setCardsFollow(shown: visible)
         if !visible {
             gridIdle = false
@@ -1219,7 +1221,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     public private(set) var isSelectingTabs = false
     public func overviewSelectingChanged(_ selecting: Bool) { isSelectingTabs = selecting }
 
-    public func overviewIdleChanged(_ idle: Bool) {
+    public func overviewIdleChanged(_ idle: Bool) { F3Trace.time("overviewIdleChanged") { overviewIdleChanged0(idle) } }
+    private func overviewIdleChanged0(_ idle: Bool) {
         gridIdle = idle
         if idle {
             flushHeldTabRefreshes()
@@ -1283,7 +1286,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
         terminal.overviewScrollingChanged(scrolling)
     }
 
-    public func showStaticCard(for id: TabsKitTab.ID) -> Bool {
+    public func showStaticCard(for id: TabsKitTab.ID) -> Bool { F3Trace.time("showStaticCard") { showStaticCard0(for: id) } }
+    private func showStaticCard0(for id: TabsKitTab.ID) -> Bool {
         guard let tab = workspaceTab(id) else { return false }
         switch tab.kind {
         case .terminal:

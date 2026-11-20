@@ -23,6 +23,7 @@ public struct TabsView<Source: TabsDataSource>: View {
     }
 
     public var body: some View {
+        let _ = F3Trace.mark("TabsView.body@25")
         // The outermost reader respects the keyboard: SwiftUI changes its
         // bottom inset inside the keyboard's own animation, so the address
         // field rides exactly with the keyboard (no notification lag).
@@ -150,6 +151,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     }
 
     var body: some View {
+        let _ = F3Trace.mark("TabsScreen.body")
         let layout = toolbarLayout
         ZStack(alignment: .topLeading) {
             overview
@@ -267,6 +269,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
             if bottom >= 0 { gridBottom = bottom }
         }
         .onChange(of: zoomState.phase == .overview) { _, onGrid in
+            F3Trace.mark("onGrid=\(onGrid)")
             if onGrid {
                 if let id = activeID, source.showStaticCard(for: id) { staticCardID = id }
             } else if let id = staticCardID {
@@ -311,9 +314,11 @@ struct TabsScreen<Source: TabsDataSource>: View {
             if wanted { openOverview() } else { closeOverview(selecting: activeID) }
         }
         .onChange(of: zoomState.phase) { _, phase in
+            F3Trace.mark("phase=\(phase)")
             if phase == .page || phase == .overview { newTabZoomID = nil }
             if phase != .overview { activeChangedOnGrid = false }
         }
+        .onAppear { F3Trace.watchFrames() }
         .onAppear { cardSwipes.isListed = { id in source.tabs.contains { $0.id == id } } }
         .onChange(of: zoomState.headingToOverview) { _, heading in
             if let binding = isShowingOverview, binding.wrappedValue != heading { binding.wrappedValue = heading }
@@ -612,7 +617,8 @@ struct TabsScreen<Source: TabsDataSource>: View {
     }
 
     /// Tabs button: page -> grid, or reverse a zoom that is heading to the page.
-    private func openOverview() {
+    private func openOverview() { F3Trace.time("openOverview") { openOverview0() } }
+    private func openOverview0() {
         if chrome.editing { endEditing() }
         if zoomState.phase == .page {
             zoomTabId = activeID

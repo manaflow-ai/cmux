@@ -180,6 +180,7 @@ struct TabOverview<Source: TabsDataSource>: View {
     var isSettled = true
 
     var body: some View {
+        let _ = F3Trace.mark("TabOverview.body")
         let tabs = source.tabs
         ZStack(alignment: .topLeading) {
             LinearGradient(colors: [theme.colors.overviewTop, theme.colors.overviewBottom], startPoint: .top, endPoint: .bottom)

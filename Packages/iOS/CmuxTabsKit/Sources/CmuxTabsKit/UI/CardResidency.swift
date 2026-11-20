@@ -117,15 +117,19 @@ final class CardResidency {
     /// The grid is about to show (or was covered): visible cards are built
     /// now, so the first frame of the zoom shows them; the rest follow.
     func setVisible(_ visible: Bool) {
+        F3Trace.time("residency.setVisible(\(visible)) builds=\(builds)") {
         self.visible = visible
         reconcile(urgent: visible)
         publishIdle()
+        }
     }
 
     func setSettled(_ settled: Bool) {
+        F3Trace.time("residency.setSettled(\(settled)) builds=\(builds)") {
         self.settled = settled
         tick()
         publishIdle()
+        }
     }
 
     private func isBuilt(_ index: Int) -> Bool {
