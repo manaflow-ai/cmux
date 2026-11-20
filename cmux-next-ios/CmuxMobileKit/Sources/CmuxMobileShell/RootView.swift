@@ -449,7 +449,9 @@ public struct RootView: View {
             if store.teams.first?.id != AppStore.reviewDemoTeamID { store.loadReviewDemo() }
             // Its Cloud Chief, as LiveCoordinator starts it for every other account.
             if !reviewDemoChief {
-                ChiefSources.shared.start(userID: user.id) { [auth] force in try await auth.serviceAccessToken(forceRefresh: force) }
+                ChiefSources.shared.start(userID: user.id, config: .current(buildSpace: auth.buildSpace)) { [auth] force in
+                    try await auth.serviceAccessToken(forceRefresh: force)
+                }
                 reviewDemoChief = true
             }
             planSetup()
