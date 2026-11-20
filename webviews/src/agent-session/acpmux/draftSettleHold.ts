@@ -15,7 +15,7 @@
 // 2.5 s, the rows in at 0.4 s). The read still lands when it answers and merges with what was typed
 // meanwhile (Composer `applyDraftRead`). A draft only acpmux holds still waits, so the prompt never
 // steps back to its placeholder (restore-monotonic-trace.test.tsx).
-import { useEffect, useState } from "react";
+import { useEffect, useState, useInsertionEffect, useRef } from "react";
 
 /// The longest the last launch's copy waits on the chat's draft read once its rows are in (firstPaint.ts).
 export const DRAFT_SETTLE_HOLD_MS = 2_000;
@@ -39,8 +39,15 @@ export function useDraftWaitOver(
 ): string | undefined {
   const [draftWaitOver, setDraftWaitOver] = useState<string>();
   const waiting = rowsReadFor !== undefined && draftSettled !== rowsReadFor ? rowsReadFor : undefined;
+  // The checks are read when they run, the latest of each, written as the render commits: a new pair
+  // each render arms nothing again, and a lint rule turned off keeps the hook out of the React Compiler.
+  const checks = useRef({ promptShown, promptRoot });
+  useInsertionEffect(() => {
+    checks.current = { promptShown, promptRoot };
+  });
   useEffect(() => {
     if (waiting === undefined) return;
+    const { promptShown, promptRoot } = checks.current;
     if (promptShown()) {
       ended("shown");
       setDraftWaitOver(waiting);
@@ -68,8 +75,6 @@ export function useDraftWaitOver(
       watch?.disconnect();
       window.clearTimeout(timer);
     };
-    // The checks are read when they run; a new pair each render arms nothing again.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [waiting]);
   return draftWaitOver;
 }
