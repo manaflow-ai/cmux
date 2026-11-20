@@ -1497,6 +1497,43 @@ class Excusing(unittest.TestCase):
         self.assertNotIn("glaeda-gh: refused", said)
         self.assertEqual(len(gh.live_lists), 3)
 
+    def test_a_per_test_path_shares_the_judgements_one_job_list_budget(self):
+        """#48048's review: budgeted_run_jobs counted only base_verdicts' and tip_suite_verdicts' reads, and the per-test
+        paths (web_base_runs, gallery_run_results, pr_only_step_verdict, compile_errors_verdict) called base_run_jobs
+        directly, so a web or gallery judgement still met glaeda-gh's sweep guard and answered with its raw refusal.
+        Every live base job-list read is now counted against the one budget: a per-test path that spends reads
+        before the base search leaves the search only what is left, and a guard refusal on any path is the timed
+        retry, never the guard's text."""
+        gh = TwoWorkflowGitHub()
+        for run in range(500, 560):
+            gh.jobs[run] = dict(failed_job(run, run, BASE_SHA, name="gallery shard 1"), conclusion="success")
+
+        @excuse.one_judgement
+        def per_test_then_search(repo, base, spend):
+            for run in range(500, 500 + spend):  # a gallery path reading base runs' lists (gallery_run_results)
+                excuse.gallery_run_results(repo, {"id": run}, gh)
+            reads = {}
+            listed = [excuse.budgeted_run_jobs(repo, {"id": run}, gh, 7, "x", reads) for run in range(530, 560)]
+            return sum(1 for jobs in listed if jobs is not None), excuse.search_cut(reads, "x", 7)
+
+        with tempfile.TemporaryDirectory() as kept, unittest.mock.patch.dict(os.environ, {excuse.JOBS_CACHE_ENV: kept}):
+            got, cut = per_test_then_search(REPO, "feat-cmux-next", 20)
+            self.assertEqual(got, excuse.CALL_JOB_READS - 20)  # the search got only what the gallery path left
+            self.assertIsNotNone(cut)
+            self.assertLessEqual(len(set(gh.live_lists)), excuse.CALL_JOB_READS)  # never up to the guard's 30
+        # Past the budget inside a per-test path itself, and a guard refusal there: the timed retry.
+        for guard in (TwoWorkflowGitHub.GUARD, 3):
+            gh.live_lists.clear()
+            gh.GUARD = guard
+            with self.subTest(guard=guard), tempfile.TemporaryDirectory() as kept, \
+                    unittest.mock.patch.dict(os.environ, {excuse.JOBS_CACHE_ENV: kept}):
+                with self.assertRaises(excuse.Refused) as said:
+                    per_test_then_search(REPO, "feat-cmux-next", 40)
+                self.assertRegex(str(said.exception), rf"{excuse.INCOMPLETE} \d+ job lists .*not a verdict: retry after "
+                                                      r"\d\d:\d\dZ")
+                self.assertNotIn("glaeda-gh: refused", str(said.exception))
+                self.assertLessEqual(len(set(gh.live_lists)), min(guard, excuse.CALL_JOB_READS))
+
     def tip_daemon_setup(self, *, verdict="failure"):
         # 2026-10-30 (#27692): a feat-cmux-next push never runs daemon-test, base pushes land every
         # minute or two, and the base's only daemon-test verdict is main's tip daemon suite run.
