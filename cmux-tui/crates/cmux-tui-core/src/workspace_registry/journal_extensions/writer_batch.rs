@@ -144,7 +144,6 @@ impl RegistryConnection {
                 } => Some(terminal_id.as_str().to_string()),
                 crate::journal_ingress::JournalIngressEvent::Frontend { .. }
                 | crate::journal_ingress::JournalIngressEvent::Producer { .. }
-                | crate::journal_ingress::JournalIngressEvent::Effect(_)
                 | crate::journal_ingress::JournalIngressEvent::AgentHookCleared { .. }
                 | crate::journal_ingress::JournalIngressEvent::TerminalBarrier => None,
             })
@@ -199,18 +198,6 @@ impl RegistryConnection {
                         origin,
                         idempotency_key,
                     )?,
-                ));
-                continue;
-            }
-            // Effect intents ride the durable lane, after every terminal
-            // event of this batch, so terminal records here sequence before
-            // the patch and use the subjects computed at batch start. Output
-            // a new terminal writes while its create intent is queued can
-            // land in this batch with the pre-create subjects (as it could
-            // when the create committed alone after it).
-            if let crate::journal_ingress::JournalIngressEvent::Effect(intent) = *event {
-                commits.push(crate::journal_ingress::JournalBatchReceipt::Effect(
-                    intent.apply_in_savepoint(&tx)?,
                 ));
                 continue;
             }
@@ -503,7 +490,6 @@ impl RegistryConnection {
                     ),
                     crate::journal_ingress::JournalIngressEvent::Frontend { .. }
                     | crate::journal_ingress::JournalIngressEvent::Producer { .. }
-                    | crate::journal_ingress::JournalIngressEvent::Effect(_)
                     | crate::journal_ingress::JournalIngressEvent::AgentHookCleared { .. }
                     | crate::journal_ingress::JournalIngressEvent::TerminalBarrier => {
                         unreachable!()

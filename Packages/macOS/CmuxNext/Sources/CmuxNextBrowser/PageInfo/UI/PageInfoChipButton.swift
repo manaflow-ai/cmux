@@ -122,6 +122,13 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         hover?.refresh()
+        // A theme change while the chrome was out of the window (a tab moved to another pane or
+        // window, an agent driving it off screen) is no appearance change on return when it keeps
+        // light or dark: take this scope's ink now (https://github.com/manaflow-ai/cmux/issues/42436).
+        if window != nil {
+            refreshFill()
+            applyTint()
+        }
     }
 
     /// The page a drag that starts on the chip carries; nil: no drag.

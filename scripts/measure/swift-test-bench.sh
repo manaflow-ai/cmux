@@ -127,8 +127,11 @@ main() {
   mkdir -p "$out" "$work"
   report="$out/output.txt"
 
-  # Steps run with a per-step HOME; Homebrew tools live outside it.
-  export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+  # Steps run with a per-step HOME; Homebrew tools live outside it. They go after the step's own PATH, never
+  # before it: a swift in /usr/local/bin or /opt/homebrew/bin (a swiftly or Homebrew toolchain) ignores
+  # DEVELOPER_DIR, so ahead of /usr/bin it built the bench with another toolchain than the Xcode chosen below,
+  # and on a CI runner with swift and git in /usr/local/bin it shadowed swift-test-bench-release.test.sh's stand-ins.
+  export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
 
   # The Xcode, chosen by the step's own (reviewed) tree before any switch.
   if [[ -z "${DEVELOPER_DIR:-}" ]]; then
@@ -158,11 +161,11 @@ main() {
   fi
   [[ -f "$package/Package.swift" ]] || { echo "swift-test-bench.sh: $package has no Package.swift at $(git rev-parse HEAD)" >&2; exit 2; }
   if [[ -n "$restore_sha" ]]; then
-    for path in "${restore_paths[@]}"; do
+    for path in ${restore_paths[@]+"${restore_paths[@]}"}; do
       [[ "$(git cat-file -t "$restore_sha:$path" 2>/dev/null)" == blob ]] ||
         { echo "swift-test-bench.sh: $path is not a file at $restore_sha" >&2; exit 2; }
     done
-    git checkout -q "$restore_sha" -- "${restore_paths[@]}"
+    git checkout -q "$restore_sha" -- ${restore_paths[@]+"${restore_paths[@]}"}
   fi
 
   note "# swift-test-bench"
@@ -173,7 +176,7 @@ main() {
   note "- configuration: ${config:-debug}${config_args[*]:+ (${config_args[*]})}${bench_switch:+, $bench_switch=1}"
   if [[ -n "$restore_sha" ]]; then
     note "- restored from $restore_sha: ${restore_paths[*]}"
-    git diff --stat HEAD -- "${restore_paths[@]}" | tee -a "$report"
+    git diff --stat HEAD -- ${restore_paths[@]+"${restore_paths[@]}"} | tee -a "$report"
   fi
   note "- host: $(hostname -s), $(sysctl -n machdep.cpu.brand_string), $(sysctl -n hw.ncpu) cores, macOS $(sw_vers -productVersion)"
   note "- Xcode: $(xcodebuild -version | tr '\n' ' ')"

@@ -91,8 +91,8 @@ public final class BrowserToolbarButtonsView: NSStackView {
         let view = ChromeIconButton(icon: .placeholder, label: "", action: #selector(pressed(_:)), target: self, toolbar: true)
         view.setAccessibilityIdentifier(button.identifier)
         view.rightClickPresses = button.opensMenu
-        // One ⋮ in the pane: More draws the tab bar's glyph size (Lawrence msg 19627).
-        if button == .overflow { view.iconSide = { OverflowButton.glyphSize } }
+        // One ⋮ in the pane: More draws the tab bar's glyph at its size (Lawrence msg 19627).
+        if button == .overflow { view.iconSide = { OverflowButton.paneGlyphSize } }
         let order = BrowserToolbarButton.allCases
         view.tag = order.firstIndex(of: button) ?? 0
         buttons[button] = view
@@ -228,7 +228,8 @@ public final class BrowserToolbarButtonsView: NSStackView {
     /// Width of the buttons shown at collapse `level`.
     func width(collapse level: Int) -> CGFloat {
         let count = BrowserToolbarButton.allCases.filter { $0.isShown(at: level, facts, pinned: pinned) }.count
-        return CGFloat(count) * OmnibarStyle.buttonSize + CGFloat(max(0, count - 1)) * OmnibarStyle.buttonSpacing
+        let scale = OmnibarStyle.scale(of: self)
+        return CGFloat(count) * OmnibarStyle.buttonSize(scale: scale) + CGFloat(max(0, count - 1)) * OmnibarStyle.buttonSpacing(scale: scale)
     }
 
     @objc private func pressed(_ sender: NSButton) {

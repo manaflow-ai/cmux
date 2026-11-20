@@ -312,6 +312,35 @@ def fresh_env(root: Path, socket_path: Path, marks_fd: int) -> dict[str, str]:
     }
 
 
+def login_keychain(env: dict) -> None:
+    """A login keychain in ENV's fresh home, as a real install has.
+
+    Without one, a Release or nightly bundle's Chromium creates "cmux Safe Storage" through a Keychain dialog
+    nobody answers: "Keychain Not Found" over the window (runs 41419773317, 41582798853), and every quit of
+    post-update-hitches.py held in CefShutdown behind a worker in SecItemAdd -> AuthorizationCopyRights (12 of
+    12 hang files, cmuxterm-hq#11994). CMUX_MOCK_KEYCHAIN=1 is no way out here: the app drops an inherited
+    CMUX_MOCK_KEYCHAIN at launch (LaunchIdentity.inheritedKeys strips every inherited CMUX* variable but the
+    CMUX_NEXT_* knobs), so only a copy's own LSEnvironment can set it. Every `security` call runs with the
+    home's own HOME and CFFIXED_USER_HOME, so the keychain, its search list and the default are the fresh
+    home's: the runner account's own keychain settings are untouched (checked on cmux11s: default and search
+    list unchanged). A home that already has the keychain keeps it."""
+    home = Path(env["HOME"])
+    keychain = home / "Library" / "Keychains" / "login.keychain-db"
+    keychain.parent.mkdir(parents=True, exist_ok=True)
+    scoped = {"HOME": env["HOME"], "CFFIXED_USER_HOME": env["CFFIXED_USER_HOME"], "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+              "USER": env.get("USER", "")}
+    steps = [] if keychain.exists() else [["create-keychain", "-p", "", str(keychain)]]
+    steps += [["list-keychains", "-d", "user", "-s", str(keychain)],
+              ["default-keychain", "-d", "user", "-s", str(keychain)],
+              ["set-keychain-settings", str(keychain)]]
+    for args in steps:
+        done = subprocess.run(["security", *args], env=scoped, capture_output=True, text=True, timeout=30,
+                              start_new_session=True)
+        if done.returncode != 0:
+            raise CannotRun(f"security {args[0]} in the fresh home failed: {done.stderr.strip()[:300]}")
+    log(f"fresh home login keychain: {keychain}")
+
+
 class DefaultsAside:
     """The bundle's defaults domain, set aside for the run under a per-bundle lock and put back after it.
 
@@ -409,6 +438,35 @@ class DefaultsAside:
         finally:
             self.release()
         return False
+
+
+# The default the app keeps its last launch snapshot's path in, per session (LaunchSnapshotLocation.key).
+LAUNCH_SNAPSHOT_KEY_PREFIX = "cmuxNext.launchSnapshotPath."
+
+
+def defaults_before(bundle_id: str) -> dict:
+    """What the bundle's defaults domain holds just before a launch: its key names, sorted, and the value of
+    every `cmuxNext.launchSnapshotPath.*` key (no other key's value). A HOME of its own does not give a launch
+    its own defaults: cfprefsd keeps the domain in the account's real preferences, so a key here was written by
+    an earlier launch of the bundle. `error` (and no keys) when the domain could not be read; {} with no tool."""
+    tool = os.environ.get("CMUX_FRESH_SMOKE_DEFAULTS_TOOL") or shutil.which("defaults")
+    if not tool:
+        return {}
+    try:
+        done = subprocess.run([tool, "export", bundle_id, "-"], capture_output=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as error:
+        return {"error": f"defaults export: {error}"}
+    if done.returncode != 0:
+        return {"error": f"defaults export exited {done.returncode}: {done.stderr.decode(errors='replace')[:200]}"}
+    try:
+        domain = plistlib.loads(done.stdout)
+    except Exception as error:  # noqa: BLE001 - any unreadable export is "cannot tell"
+        return {"error": f"defaults export unreadable: {error}"}
+    if not isinstance(domain, dict):
+        return {"error": f"defaults export is a {type(domain).__name__}, not a dictionary"}
+    keys = sorted(str(key) for key in domain)
+    return {"keys": keys,
+            "launch_snapshot_paths": {key: domain[key] for key in keys if key.startswith(LAUNCH_SNAPSHOT_KEY_PREFIX)}}
 
 
 def snapshot(socket_path: Path, timeout: float = 5.0, request: int = 1) -> dict | None:

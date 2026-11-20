@@ -100,6 +100,11 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
+        uses: ./.github/actions/zig-global-cache
 
       # The exact binary's key names the whole cmux-tui tree, so a PR that changes
       # cmux-tui never hits it. feat-cmux-next keeps its target dir

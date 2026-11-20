@@ -68,7 +68,7 @@ import UIKit
         try await TerminalPredictionInputTests.waitUntil(5) { screen.started }
         try #require(screen.started, "the tab page never started its session")
         if grid == nil { tui.enterTUI() }
-        try await TerminalPredictionInputTests.waitUntil(5) { model.isTUI && screen.surface.superview?.superview?.isHidden == false }
+        try await TerminalPredictionInputTests.waitUntil(5) { model.isTUI && screen.surface.superview?.superview?.superview?.isHidden == false }
         try #require(model.isTUI, "the tab never showed the full-screen app")
         let marker = grid == nil ? "HEADER" : "Mac grid"
         try await TerminalPredictionInputTests.waitUntil(5) { screen.surface.activeAreaText()?.contains(marker) == true }
@@ -91,7 +91,7 @@ import UIKit
         try await TerminalPredictionInputTests.waitUntil(5) { session.handler != nil }
         try #require(session.handler != nil, "the screen never started its session")
         session.enterTUI()
-        try await TerminalPredictionInputTests.waitUntil(5) { model.isTUI && screen.surface.superview?.superview?.isHidden == false }
+        try await TerminalPredictionInputTests.waitUntil(5) { model.isTUI && screen.surface.superview?.superview?.superview?.isHidden == false }
         try #require(model.isTUI, "the page never showed the full-screen app")
         try await TerminalPredictionInputTests.waitUntil(5) { screen.surface.activeAreaText()?.contains("HEADER") == true }
         try #require(screen.surface.activeAreaText()?.contains("HEADER") == true, "the app's screen was never drawn")
@@ -128,7 +128,9 @@ import UIKit
     static func expectFits(_ page: Page, _ state: String, areaTop: CGFloat, cursorRow: Int = 1) throws {
         let view = try #require(page.screen.view)
         let host = try #require(page.screen.surface.superview, "\(state): the surface has no TUI host")
-        let clip = try #require(host.superview, "\(state): the TUI host has no clip")
+        // The host sits in a view that clips its height, inside the area's
+        // clip (toolbar to composer).
+        let clip = try #require(host.superview?.superview, "\(state): the TUI host has no clip")
         let area = clip.convert(clip.bounds, to: view)
         let grid = host.convert(host.bounds, to: view)
         let cell = page.screen.surface.cellSize.height

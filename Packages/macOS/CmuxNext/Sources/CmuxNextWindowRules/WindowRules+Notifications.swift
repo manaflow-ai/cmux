@@ -77,18 +77,4 @@ extension WindowRules {
         struct Request: Encodable {}
         return call("window_history_actions", Request(), as: HistoryActions.self)
     }
-
-    /// What Undo Layout Change does after the daemon's answer.
-    public nonisolated struct UndoReply: Decodable, Equatable, Sendable {
-        /// The revision the next Undo confirms.
-        public var pending: UInt64?
-        /// It waits for a confirmation because it closes this many panes.
-        public var closesPanes: Int?
-    }
-
-    public func undoReply(confirmationRequired: Bool, revision: UInt64?, closesPanes: Int?) -> UndoReply? {
-        struct Request: Encodable { var confirmationRequired: Bool, revision: UInt64?, closesPanes: Int? }
-        return call("window_history_undo_reply", Request(confirmationRequired: confirmationRequired, revision: revision, closesPanes: closesPanes),
-                    as: UndoReply.self)
-    }
 }

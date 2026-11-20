@@ -59,7 +59,7 @@ enum DebugNotifications {
         let windows: [JSONValue] = services.windows.controllers.map { controller in
             let marks = controller.content?.layoutModel.attention ?? [:]
             return [
-                "id": .string(controller.state.id),
+                "id": .string(controller.state.id), "window_key": .bool(controller.focus.state.windowKey), "viewed": .bool(NotificationCenterService.shownFocus(controller).flatMap(NotificationCenterService.contentTab).map(center.isViewed) ?? false),
                 "attention": .array(marks.keys.sorted().map { .string($0.rawValue) }),
                 "focused_tab": NotificationCenterService.shownFocus(controller).flatMap(NotificationCenterService.contentTab).map(JSONValue.string) ?? .null,
             ]
