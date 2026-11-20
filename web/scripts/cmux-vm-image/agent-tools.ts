@@ -820,21 +820,30 @@ export function agentToolsProfileScript(): string {
 /** The work user's cmux.json when it has none: the cmux MCP server on (browser_repl_* tools). */
 export const WORK_USER_CMUX_JSON_TEXT = `${JSON.stringify({ mcp: { enabled: true } }, null, 2)}\n`;
 
-/** Links the tool dir and writes cmux.json; the wrapper and units are written as files first (installFiles). */
+/**
+ * Links the tool dir and writes cmux.json; the wrapper and units are written as files first (installFiles).
+ * It never runs cmux: a layered bake runs it in the agents layer, whose store holds the lock's agent programs
+ * but not its cmux-tui (layers.ts APP_PROGRAMS, installed by the app layer), so `cmux` dangles there until
+ * then. agentToolsCmuxCheckCommand checks it once cmux-tui is in the store.
+ */
 export function agentToolsLinkCommand(): string {
   const configDir = WORK_USER_CMUX_JSON.slice(0, WORK_USER_CMUX_JSON.lastIndexOf("/"));
   return [
     `install -d -m 0755 ${AGENT_TOOLS_BIN}`,
     `ln -sfn ${CURRENT_BIN}/cmux-tui ${AGENT_TOOLS_BIN}/cmux`,
-    `test -x ${AGENT_TOOLS_BIN}/cmux && test -x ${AGENT_TOOLS_BIN}/cmux-cua && test -x ${CURRENT_BIN}/cmux-cua`,
+    `test -x ${AGENT_TOOLS_BIN}/cmux-cua && test -x ${CURRENT_BIN}/cmux-cua`,
     `bash -n ${A11Y_SCRIPT} && python3 -I -c 'import ast, sys; ast.parse(open(sys.argv[1]).read())' ${ROOT_PROPERTY_SCRIPT} && test -x ${AT_SPI_BUS_LAUNCHER} && command -v dbus-daemon >/dev/null && command -v dbus-send >/dev/null`,
     `install -d -o ${DEVBOX_WORK_USER} -g ${DEVBOX_WORK_USER} ${DEVBOX_WORK_HOME}/.config ${configDir}`,
     `if [ ! -e ${WORK_USER_CMUX_JSON} ]; then printf '%s' ${sq(WORK_USER_CMUX_JSON_TEXT)} > ${WORK_USER_CMUX_JSON} && chown ${DEVBOX_WORK_USER}:${DEVBOX_WORK_USER} ${WORK_USER_CMUX_JSON}; fi`,
     "systemctl daemon-reload",
     `! systemctl is-active --quiet ${DISPLAY_UNIT} && ! systemctl is-active --quiet ${CUA_UNIT}`,
-    `${AGENT_TOOLS_BIN}/cmux --version`,
     "echo agent-tools-linked",
   ].join(" && ");
+}
+
+/** The tool dir's cmux runs: after cmux-tui is in the store (a full bake's wireCmuxTui, or a layered bake's app layer). */
+export function agentToolsCmuxCheckCommand(): string {
+  return `test -x ${AGENT_TOOLS_BIN}/cmux && ${AGENT_TOOLS_BIN}/cmux --version`;
 }
 
 /** Files the install writes (path, text, mode). Throws when the lock has no cmux-rd (rdHostPath). */

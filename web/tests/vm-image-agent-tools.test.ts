@@ -22,6 +22,7 @@ import {
   CUA_REFUSE_DIR,
   cuaRefuseScript,
   agentToolsFiles,
+  agentToolsCmuxCheckCommand,
   agentToolsLinkCommand,
   agentToolsProfileScript,
   browserRoleBakePhases,
@@ -163,6 +164,12 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     const link = agentToolsLinkCommand();
     expect(link).toContain(`ln -sfn ${CURRENT_BIN}/cmux-tui ${AGENT_TOOLS_BIN}/cmux`);
     expect(link).toContain(`systemctl is-active --quiet ${DISPLAY_UNIT}`);
+    // A layered bake links in the agents layer, before the app layer puts the lock's cmux-tui in the store:
+    // the link never runs or tests cmux there (image roll 44748040694, agent-tools-link status=1); the check does.
+    expect(link).not.toContain(`${AGENT_TOOLS_BIN}/cmux --version`);
+    expect(link).not.toContain(`test -x ${AGENT_TOOLS_BIN}/cmux &&`);
+    expect(agentToolsCmuxCheckCommand()).toBe(`test -x ${AGENT_TOOLS_BIN}/cmux && ${AGENT_TOOLS_BIN}/cmux --version`);
+    await bashSyntax(agentToolsCmuxCheckCommand());
     await bashSyntax(link);
     await bashSyntax(agentToolsProfileScript());
     for (const file of agentToolsFiles(rdLock).filter((f) => f.path.endsWith("cmux-cua"))) await bashSyntax(file.text);
