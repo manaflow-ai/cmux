@@ -202,8 +202,12 @@ enum Field<'a> {
 }
 
 fn finish(hasher: Sha256) -> ValueDigest {
+    // The first 16 of the hash's 32 bytes, copied without a slice index (the panic ratchet denies
+    // indexing_slicing in this crate).
     let mut digest = [0; 16];
-    digest.copy_from_slice(&hasher.finalize()[..16]);
+    for (out, byte) in digest.iter_mut().zip(hasher.finalize()) {
+        *out = byte;
+    }
     digest
 }
 
