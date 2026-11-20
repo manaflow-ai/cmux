@@ -330,6 +330,7 @@ import {
 import { pendingToolCalls, waitingSubagents } from "./summary/subagentStatusListModel";
 import { SubagentTray } from "./subagents/SubagentTray";
 import { TrayPullTab } from "./subagents/TrayPullTab";
+import { useHatPulled } from "./subagents/trayFoldMemory";
 import { pullTabCounts, tuckTray } from "./subagents/trayPullTabModel";
 import { agentProgressSource } from "./subagents/agentProgressSource";
 import { AgentProgressContext, AgentProgressStore } from "./subagents/agentProgressStore";
@@ -3342,6 +3343,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const pinnedPlan = useChatPinnedPlan();
   // The hat tucked away to its pull tab (chatDisplay.ts TRAY_TUCKED_KEY; Leo, 2026-11-04).
   const trayTucked = useTrayTucked();
+  // Or this chat's hat dragged away past its one row (subagents/hatRows.ts), unless a drag up from
+  // the pull tab is bringing it back (trayFoldMemory.ts).
+  const trayPulled = useHatPulled(shownSessionId, trayTucked);
   // Where its tuck chevron and pull tab sit along the composer's top edge (chatDisplay.ts TRAY_HANDLE_KEY).
   const trayHandle = useTrayHandle();
   // Debug Settings agent.sessionStatus draws its activity line under the pinned list, so it pins it.
@@ -12795,12 +12799,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           actions={hatQuestionActions}
         />
         {trayPlacement === "tray" &&
-          (trayTucked && trayNode ? (
+          (trayPulled && trayNode ? (
             <TrayPullTab
               chat={shownSessionId}
               {...pullTabCounts(trayList, waitingAgents)}
               working={hatPlan !== undefined && hatPlan.length > 0}
               side={trayHandle}
+              lines={trayList.length + trayFinished.length + (hatPlan?.length ?? 0)}
             />
           ) : (
             trayNode

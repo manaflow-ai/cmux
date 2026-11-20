@@ -65,6 +65,7 @@ import {
   type CSSProperties,
   type FocusEvent,
   memo,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
   type ReactNode,
@@ -79,7 +80,7 @@ import {
 } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
-import { foldMotion, useFold } from "../conversation/fold";
+import { foldMotion, foldMs, useFold } from "../conversation/fold";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { type PaneLanguage, usePaneLanguage, useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -136,8 +137,10 @@ import { useTraySeen } from "./traySeen";
 import type { StartedSession } from "../started/startedSessions";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
-import { rememberTrayOpen, trayOpenFor } from "./trayFoldMemory";
-import { hatDrag, setHatHeight, useHatHeight } from "./trayResize";
+import { dispatchHat, hatPullingNow, useHatState } from "./trayFoldMemory";
+import { beginHatDrag } from "./hatDrag";
+import { expandedRows, HAT_DEFAULT_ROWS, hatMaxRows, rowsForHeight, shownRows } from "./hatRows";
+import { HAT_MAX_SHARE, setHatHeight, useHatHeight } from "./trayResize";
 import { PlanList } from "../conversation/PlanList";
 import type { AcpmuxPlanEntry } from "../model";
 import type { TrayHandleSide } from "../chatDisplay";
@@ -146,6 +149,8 @@ import { focusRingShown } from "../../../ui/focusModality";
 import { focusRoute } from "../../../ui/focusRoute";
 
 const ROW_ICON = rowIconSize(12);
+/// One row of the hat (`--ui-row-height`) before its header is drawn to measure.
+const HAT_ROW = 28;
 
 const itemKey = trayItemKey;
 
@@ -269,10 +274,29 @@ export const SubagentTray = memo(function SubagentTray({
   // Room for one name in the folded header, not two: a measured narrow tray (an unmeasured one, 0px,
   // keeps two).
   const [oneName, setOneName] = useState(false);
-  // Folded until the person opens it; their choice holds for this chat (trayFoldMemory.ts).
-  const [opened, setOpened] = useState<boolean | undefined>(() => trayOpenFor(chat));
-  // The list height the person dragged the rim to (trayResize.ts), shared by every hat.
+  // Folded until the person opens it: hidden or N rows, and the rows it last had open, held for this
+  // chat (hatRows.ts, trayFoldMemory.ts). A hat with no chat keeps its own.
+  const ownHat = useId();
+  const hatKey = chat ?? ownHat;
+  const hat = useHatState(hatKey);
+  // The list height the person last dragged any hat to (trayResize.ts): a chat with no height of its
+  // own opens to it, else to the default five lines.
   const hatHeight = useHatHeight();
+  const openRows = rowsForHeight(hatHeight, HAT_ROW) ?? HAT_DEFAULT_ROWS;
+  // The rows' height while open, and the height an open goes back to while folded (so a fold plays
+  // from the height it had): set only once the person sized a hat, so the default caps hold otherwise.
+  const sizedRows =
+    hat.lastExpandedRows !== undefined || hatHeight !== undefined
+      ? shownRows(hat) > 1
+        ? shownRows(hat)
+        : expandedRows(hat, openRows)
+      : undefined;
+  // A drag is running: the list follows the pointer a row at a time, with no fold motion.
+  const dragging = useRef(false);
+  const cancelDrag = useRef<(() => void) | undefined>(undefined);
+  // A drag just ended: the click it ends in is not the header's toggle. Cleared by that click, the
+  // next press or key on the header.
+  const swallowClick = useRef(false);
   // The lines open in place (TrayLineDetail.tsx): a click on a line expands it, never navigates.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const toggleLine = useCallback(
@@ -362,12 +386,13 @@ export const SubagentTray = memo(function SubagentTray({
   const lone = !planned && items.length + finished.length === 1 ? (items[0] ?? finished[0]) : undefined;
   const headed = items.length + finished.length > 0 || planned;
   // A header that opens the panel never expands in place.
-  const open = !headed || (opened === true && opensPanel !== "header");
+  const open = !headed || (shownRows(hat) > 1 && opensPanel !== "header");
   // The list opens and folds on the shared fold, its height only (no fade in), from the header's
   // chevron.
   // A fold while the page is away (hidden, or in its first frames back) applies at once: the shared
   // page-reveal gate (shared/pageReveal.ts), read only when the fold changes.
-  const fold = useFold(open, entranceMayRun, false);
+  // A drag's rows (from the top bar or the pull tab) land at once, under the pointer.
+  const fold = useFold(open, () => !dragging.current && !hatPullingNow(hatKey) && entranceMayRun(), false);
   // A fold makes the list inert under a focused line or Stop: focus moves to the header that folded
   // it, never to the page's body. With no
   // motion the fold leaves in the same commit and takes the focused line with it, so whether focus
@@ -608,77 +633,144 @@ export const SubagentTray = memo(function SubagentTray({
       </TrayRow>
     );
   });
-  // The header's click: it opens the panel (the `header` arm) or expands and folds the hat in place.
+  // The header's click: it opens the panel (the `header` arm), or goes between its one row and the
+  // height it last had open (hatRows.ts).
   const toggle = () => {
+    if (swallowClick.current) {
+      swallowClick.current = false;
+      return;
+    }
     if (opensPanel === "header") {
       onOpenPanel?.();
       return;
     }
     setTuckQuiet(true);
-    setOpened(!open);
-    rememberTrayOpen(chat, !open);
+    dispatchHat(hatKey, { type: "toggle", fallback: openRows });
   };
-  // The top rim drags the list taller or shorter (trayResize.ts): up from folded opens it, down past
-  // its last line folds it, a double-click goes back to the default five lines.
+  // The top bar (the header) and the rim over it drag the hat a whole row at a time (hatRows.ts,
+  // hatDrag.ts): down to its one row, then a rubber band that, let go past half a row, hides it to
+  // the pull tab; up to as many rows as it has lines. The rim's double-click goes back to the default
+  // five lines. A press that never moves is a click.
   const resizes = !(headed && opensPanel === "header");
-  const onRimDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
+  /// The most rows this hat takes: its header and every row its list holds (the plan's checklist
+  /// too, which counts in rows as its lines do), within HAT_MAX_SHARE of the window.
+  const maxRows = () => {
+    const row = rowHeight();
     const list = trayNode.current?.querySelector<HTMLElement>(".acpmux-running-tray__list");
-    const start = open && list ? list.getBoundingClientRect().height : 0;
-    const { clientX: startX, clientY: startY } = event;
-    const rim = event.currentTarget;
-    rim.setPointerCapture(event.pointerId);
-    event.preventDefault();
-    let shown = open;
-    // The height before the drag: a drag that folds the hat, or never moves past the slop, keeps it.
-    const before = hatHeight;
-    let last = before;
-    let dragged = false;
-    const move = (moved: PointerEvent) => {
-      const step = hatDrag(start, startY - moved.clientY, window.innerHeight);
-      if (step.kind === "rest") return;
-      dragged = true;
-      if (step.kind === "fold") {
-        last = before;
-        setHatHeight(before, false);
-        if (shown && headed) {
-          shown = false;
-          setOpened(false);
-          rememberTrayOpen(chat, false);
-        }
-        return;
-      }
-      if (!shown && headed) {
-        shown = true;
-        setOpened(true);
-        rememberTrayOpen(chat, true);
-      }
-      last = step.height;
-      setHatHeight(step.height, false);
-    };
-    const end = (ended: PointerEvent) => {
-      rim.removeEventListener("pointermove", move);
-      rim.removeEventListener("pointerup", end);
-      rim.removeEventListener("pointercancel", end);
-      rim.removeEventListener("lostpointercapture", end);
-      if (dragged) {
-        setHatHeight(last, true);
-        return;
-      }
-      // No drag: the press was a click on what the band lies over (the header's top, a lone line's,
-      // the composer seam), so it goes there, never swallowed by the rim.
-      if (ended.type !== "pointerup") return;
-      rim.style.pointerEvents = "none";
-      const under = document.elementFromPoint(startX, startY);
-      rim.style.pointerEvents = "";
-      if (under instanceof HTMLElement && !rim.contains(under)) under.click();
-    };
-    rim.addEventListener("pointermove", move);
-    rim.addEventListener("pointerup", end);
-    rim.addEventListener("pointercancel", end);
-    // The hat leaves mid-drag (its last line ended): the drag ends, and what it reached is kept.
-    rim.addEventListener("lostpointercapture", end);
+    const plan = trayNode.current?.querySelector<HTMLElement>(".acpmux-running-tray__plan");
+    const content = (list?.scrollHeight ?? 0) + (plan?.scrollHeight ?? 0);
+    const lines = list ? Math.ceil((content - 2.5) / row) : items.length + finished.length;
+    return hatMaxRows(lines, row, trayNode.current?.ownerDocument.defaultView?.innerHeight ?? 0, HAT_MAX_SHARE);
   };
+  const rowHeight = () => headButton.current?.getBoundingClientRect().height || HAT_ROW;
+  /// The rubber band past the one row: the hat gives `band` px from its top, sinking into the composer
+  /// under its own clip, set on the node with no render (one style write per pointer move).
+  const folded = useRef(0);
+  const bandSpring = useRef<Animation | undefined>(undefined);
+  const drawBand = (band: number) => {
+    const node = trayNode.current;
+    if (!node) return;
+    bandSpring.current?.cancel();
+    bandSpring.current = undefined;
+    if (band <= 0) {
+      clearBand(node);
+      return;
+    }
+    if (!node.hasAttribute("data-band")) folded.current = node.getBoundingClientRect().height;
+    node.setAttribute("data-band", "");
+    node.style.height = `${folded.current - band}px`;
+  };
+  const clearBand = (node: HTMLElement) => {
+    node.removeAttribute("data-band");
+    node.style.removeProperty("height");
+  };
+  /// Let go short of the hide: the band springs back to the one row on the fold's own clock, at once
+  /// under Reduce Motion or with motion off (fold.ts `foldMs`). The clip holds until it lands.
+  const springBack = (band: number) => {
+    const node = trayNode.current;
+    if (!node) return;
+    const ms = band > 0 ? foldMs(node) : 0;
+    if (ms <= 0) {
+      clearBand(node);
+      return;
+    }
+    const from = `${folded.current - band}px`;
+    node.style.removeProperty("height");
+    const spring = node.animate([{ height: from }, { height: `${folded.current}px` }], {
+      duration: ms,
+      easing: foldMotion.easing(node),
+    });
+    bandSpring.current = spring;
+    const landed = () => {
+      if (bandSpring.current !== spring) return;
+      bandSpring.current = undefined;
+      clearBand(node);
+    };
+    spring.onfinish = landed;
+    spring.oncancel = landed;
+  };
+  const startDrag = (event: ReactPointerEvent<HTMLElement>, rim: boolean) => {
+    swallowClick.current = false;
+    if (event.button !== 0 || !resizes || !headed) return;
+    const { clientX: startX, clientY: startY } = event;
+    const target = event.currentTarget;
+    // The rim takes the press (no text selection, no focus); the header keeps its own click.
+    if (rim) event.preventDefault();
+    cancelDrag.current?.();
+    cancelDrag.current = beginHatDrag(event.nativeEvent, {
+      chat: hatKey,
+      origin: "bar",
+      measure: () => {
+        dragging.current = true;
+        setTuckQuiet(true);
+        return { rowHeight: rowHeight(), maxRows: maxRows() };
+      },
+      onBand: drawBand,
+      onEnd: () => {
+        // The click a drag ends in, where the browser sends one to the header, is not a toggle.
+        if (dragging.current) swallowClick.current = true;
+        dragging.current = false;
+        cancelDrag.current = undefined;
+      },
+      onRelease: (band, landed) => {
+        if (landed.view.kind === "hidden") {
+          const node = trayNode.current;
+          if (node) clearBand(node);
+        } else springBack(band);
+        // The height a new chat's hat opens to: the one the person gave this one.
+        const rows = shownRows(landed);
+        if (rows > 1) setHatHeight((rows - 1) * rowHeight(), true);
+      },
+      onPress: rim
+        ? () => {
+            // A press on the rim that never moved is a click on what it lies over (the header's top,
+            // the composer seam), never swallowed by the rim.
+            target.style.pointerEvents = "none";
+            const under = target.ownerDocument.elementFromPoint(startX, startY);
+            target.style.pointerEvents = "";
+            if (under instanceof HTMLElement && !target.contains(under)) under.click();
+          }
+        : undefined,
+    });
+  };
+  // The arrow keys on the focused top bar: a row more or less.
+  const stepRows = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    swallowClick.current = false;
+    if (!resizes || opensPanel === "header" || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
+    const by = event.key === "ArrowUp" ? 1 : event.key === "ArrowDown" ? -1 : 0;
+    if (by === 0) return;
+    event.preventDefault();
+    setTuckQuiet(true);
+    dispatchHat(hatKey, { type: "step", by, max: maxRows() });
+  };
+  // A hat that goes mid-drag (its chat switched, its last line ended) ends the drag and its band.
+  useEffect(
+    () => () => {
+      cancelDrag.current?.();
+      bandSpring.current?.cancel();
+    },
+    [],
+  );
   // The header's mark is in the accent while anything under it runs.
   const runs = running > 0 || commands > 0 || planned;
   return (
@@ -716,12 +808,17 @@ export const SubagentTray = memo(function SubagentTray({
       data-tuck-look={onTuck ? tuckLook : undefined}
       data-chevron={headed ? chevronAt : undefined}
       data-row-motion={rowMotion}
-      data-sized={(resizes && hatHeight !== undefined) || undefined}
+      // The person sized a hat: its list caps at whole rows (hatRows.ts), the default caps otherwise.
+      data-rows={(resizes && sizedRows !== undefined) || undefined}
+      // The rows it draws (hatRows.ts): the state's, never more than its header and lines.
+      data-hat-rows={
+        headed ? Math.min(shownRows(hat), 1 + items.length + finished.length + (plan?.length ?? 0)) : undefined
+      }
       style={
-        gutter > 0 || (resizes && hatHeight !== undefined)
+        gutter > 0 || (resizes && sizedRows !== undefined)
           ? ({
               ...(gutter > 0 ? { "--acpmux-tray-gutter": `${gutter}px` } : {}),
-              ...(resizes && hatHeight !== undefined ? { "--acpmux-tray-list-height": `${hatHeight}px` } : {}),
+              ...(resizes && sizedRows !== undefined ? { "--acpmux-tray-rows": sizedRows - 1 } : {}),
             } as CSSProperties)
           : undefined
       }
@@ -749,6 +846,8 @@ export const SubagentTray = memo(function SubagentTray({
           aria-expanded={opensPanel === "header" ? undefined : open}
           aria-controls={open && opensPanel !== "header" ? listId : undefined}
           onClick={toggle}
+          onPointerDown={(event) => startDrag(event, false)}
+          onKeyDown={stepRows}
         >
           {loneEnd?.status === "done" && doneLook === "check" && checkPlace === "leading" ? (
             // The `leading` arm (hatParts.experiment.ts `hatDoneCheckPlace`): a lone finished item's check
@@ -930,8 +1029,11 @@ export const SubagentTray = memo(function SubagentTray({
           className="acpmux-running-tray__rim"
           title={t("tray.resize")}
           aria-hidden="true"
-          onPointerDown={onRimDown}
-          onDoubleClick={() => setHatHeight(undefined, true)}
+          onPointerDown={(event) => startDrag(event, true)}
+          onDoubleClick={() => {
+            setHatHeight(undefined, true);
+            dispatchHat(hatKey, { type: "reset" });
+          }}
         />
       )}
       {onTuck && (

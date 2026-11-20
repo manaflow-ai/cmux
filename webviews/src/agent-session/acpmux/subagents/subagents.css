@@ -2484,13 +2484,29 @@ button.cv-subagent > :last-child {
   cursor: ns-resize;
   touch-action: none;
 }
-/* The height the person dragged to caps the list, never pads it (it is the list's `max-height`, as
-   the default five lines are), with or without the latest-step second lines. Last in the file, so
-   it wins over the default caps above of the same weight. It keeps their 2px allowance for the
-   list's scroll padding, so a one-line cap shows its whole line, and holds trayResize.ts's 70% of the
-   window in this window too: a height kept from a taller one never runs past it. */
-.acpmux-running-tray[data-sized] .acpmux-running-tray__list:is(*, :has(.acpmux-agent-line__latest)) {
-  max-height: min(calc(var(--acpmux-tray-list-height) + 2px), 70vh);
+/* The rows the person sized the hat to cap the list, never pad it (hatRows.ts: one row is the header,
+   each row past it one line), with or without the latest-step second lines: the default caps above
+   with the person's line count. It holds trayResize.ts's 70% of the window in this window too. */
+.acpmux-running-tray[data-rows] .acpmux-running-tray__list {
+  --acpmux-tray-lines: var(--acpmux-tray-rows);
+}
+.acpmux-running-tray[data-rows] .acpmux-running-tray__list:is(*, :has(.acpmux-agent-line__latest)) {
+  max-height: min(
+    calc(var(--acpmux-tray-lines) * var(--ui-row-height, 28px) + 2px),
+    70vh
+  );
+}
+.acpmux-running-tray[data-rows] .acpmux-running-tray__list:has(.acpmux-agent-line__latest) {
+  max-height: min(
+    calc(var(--acpmux-tray-lines) * (var(--ui-row-height, 28px) + var(--ds-space-4)) + 2px),
+    70vh
+  );
+}
+/* Dragged down past its one row the hat rubber-bands (SubagentTray.tsx `drawBand`): it gives from the
+   top, sinking into the composer under its own clip, and the dock (the composer, the transcript's room,
+   Jump to latest) follows its height. */
+.acpmux-running-tray[data-band] {
+  overflow: clip;
 }
 
 /* Resume on a stopped helper (ResumeControl.tsx): the end line's button, and a refusal's note before
