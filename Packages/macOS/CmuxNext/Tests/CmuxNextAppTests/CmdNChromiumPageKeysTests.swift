@@ -81,6 +81,7 @@ struct CmdNChromiumPageKeysTests {
         let router = services.keyRouter, input = router.newTabInputCoordinator
         input.incomingHoldLimit = .seconds(600)
         input.scheduleDeadline = { _, _ in Task {} }
+        input.appIsActive = { true } // a person's active app, where a page's window holds the keys
         let token = try #require(input.beginIncoming(in: window))
         input.attachIncoming(token)
         let typed = try [("h", 4), ("e", 14), ("y", 16)].map { try Self.key($0.0, keyCode: $0.1, in: window) }
