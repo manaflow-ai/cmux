@@ -547,7 +547,7 @@ jobs:
           if [ "${CLOUD_DEAD:-}" = "true" ] && [ -n "$owned" ]; then
             case "$label" in
               glaeda-*) ;;
-              *) echo "Every Blacksmith macOS 26 label shows dead (picker said '${label:-nothing}'); verify and tip-dmg-build wait on $owned."; label="$owned" ;;
+              *) echo "Every Blacksmith macOS 26 label is taking a breather (picker said '${label:-nothing}'); verify and tip-dmg-build wait on $owned."; label="$owned" ;;
             esac
           fi
           case "$label" in

@@ -6451,7 +6451,7 @@ class NightlySigningStall(unittest.TestCase):
         code, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
         self.assertEqual(code, 0)
         self.assertEqual(mutations(api), [])
-        self.assertIn("past the 600s Blacksmith stall time, and every other job of the run has finished", summary)
+        self.assertIn("past the 600s Blacksmith wait time, and every other job of the run has finished", summary)
         self.assertIn("started delivery work", summary)
 
     def test_another_job_in_progress_holds_the_rescue_until_it_finishes(self):
