@@ -197,7 +197,9 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("newTab", "create", 3), Placement::at("pane", "create", 10), Placement::at("tab", "create", 7)], ..SurfacePlan::DEFAULT },
         // `scope` (view | full, default view): what an agent's or the CLI's open of the person's own
         // device asks for at once; a person's open asks for View Only, as before (MacScreenActions).
-        arguments: &[args::DEVICE.optional(), args::SCREEN_SCOPE.optional()],
+        // `autoconnect` (default off): an automation open starts viewing at once on any device, unless the
+        // person turned on Only Your Click Starts Viewing a Screen.
+        arguments: &[args::DEVICE.optional(), args::SCREEN_SCOPE.optional(), args::AUTOCONNECT.optional()],
         targets: &["pane"],
         cli_name: "tab new-mac-screen",
         main_menu: Some("file"),

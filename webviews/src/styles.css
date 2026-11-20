@@ -2946,27 +2946,38 @@ button.review-brief-spot:hover {
   visibility: hidden;
 }
 .plain-english {
-  --plain-english-row: calc(2lh + 16px);
+  --plain-english-row: round(up, calc(2lh + 16px), 1px);
   position: absolute;
   inset: 0;
   z-index: var(--layer-raised);
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 12px 16px 32px;
+  /* The top and bottom space is the virtualizer's (PlainEnglishView.tsx `PADDING_START`, `PADDING_END`). */
+  padding: 0 16px;
   background: var(--cmux-diff-bg);
   color: var(--cmux-diff-fg);
   font-family: var(--cmux-diff-ui-font-family);
   font-size: var(--cmux-diff-ui-font-size);
   line-height: 1.45;
 }
-.plain-english-file {
-  margin: 0 0 16px;
-  /* A long diff draws only the files near the window. */
-  content-visibility: auto;
-  contain-intrinsic-size: auto 160px;
+/* Windowed: only the paths and rows near the viewport are mounted. Each file's mounted run is its
+   section, placed at its first item's offset; its items sit in flow beneath. Every item's height is
+   whole pixels and has no outer margin, so the measured heights add up to the laid-out ones. */
+.plain-english-space {
+  position: relative;
+  width: 100%;
 }
+.plain-english-file {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+  width: 100%;
+}
+/* The space between files sits above each path but the first. */
 .plain-english-path {
-  margin: 0 4px 4px;
+  margin: 0 4px;
+  padding: 16px 0 4px;
+  line-height: round(up, 1.45em, 1px);
   overflow: hidden;
   color: var(--cmux-diff-text-muted);
   font-family: var(--cmux-diff-code-font-family);
@@ -2978,16 +2989,28 @@ button.review-brief-spot:hover {
   text-align: left;
   unicode-bidi: plaintext;
 }
+.plain-english-path[data-first] {
+  padding-top: 0;
+}
 .plain-english-hunks {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+/* A file's box is drawn by its rows: a row may be mounted without its neighbours. */
+.plain-english-hunk {
   border: 1px solid var(--cmux-diff-border);
-  border-radius: 12px;
+  border-bottom: 0;
   overflow: hidden;
 }
-.plain-english-hunk + .plain-english-hunk {
-  border-top: 1px solid var(--cmux-diff-border);
+.plain-english-hunk[data-first] {
+  border-start-start-radius: 12px;
+  border-start-end-radius: 12px;
+}
+.plain-english-hunk[data-last] {
+  border-bottom: 1px solid var(--cmux-diff-border);
+  border-end-start-radius: 12px;
+  border-end-end-radius: 12px;
 }
 .plain-english-row {
   display: grid;

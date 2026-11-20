@@ -311,6 +311,10 @@ pub const DEVICE: Argument = Argument { name: "device", title: t("Localizable", 
 pub const CASES_SCREEN_VIEW_FULL: &[EnumCase] = &[EnumCase { value: "view", title: t("ActionCatalog", "argument.value.macScreen.scope.view", "View Only") }, EnumCase { value: "full", title: t("ActionCatalog", "argument.value.macScreen.scope.full", "Full Control") }];
 #[rustfmt::skip]
 pub const SCREEN_SCOPE: Argument = Argument { name: "scope", title: t("ActionCatalog", "argument.macScreen.scope", "Access"), kind: ArgKind::Enumeration(CASES_SCREEN_VIEW_FULL), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// `macScreen.open --autoconnect`: the opened tab connects to view without its Connect click, from the CLI too
+/// (default off: a non-person open waits at Connect).
+#[rustfmt::skip]
+pub const AUTOCONNECT: Argument = Argument { name: "autoconnect", title: t("Localizable", "argument.autoconnect", "Connect Automatically"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const ORIENTATION: Argument = Argument { name: "orientation", title: t("Localizable", "argument.orientation", "Orientation"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
