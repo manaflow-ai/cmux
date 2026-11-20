@@ -773,14 +773,14 @@
     },
     {
       "name": "gh",
-      "version": "2.101.0",
-      "url": "https://github.com/cli/cli/releases/download/v2.101.0/gh_2.101.0_linux_amd64.tar.gz",
-      "sha256": "9bca2d1c16825f109907a23307628a2f0698fbf99662b73a5cf0b020293072b8",
-      "size": 15282175,
+      "version": "2.105.0",
+      "url": "https://github.com/cli/cli/releases/download/v2.105.0/gh_2.105.0_linux_amd64.tar.gz",
+      "sha256": "79e7ab5db738c48777b696e374f8b428f0647debfb424f44d2f426370407fe2f",
+      "size": 15050573,
       "format": "tar.gz",
-      "bin": { "gh": "gh_2.101.0_linux_amd64/bin/gh" },
+      "bin": { "gh": "gh_2.105.0_linux_amd64/bin/gh" },
       "versionArgs": ["--version"],
-      "expect": "2.101.0"
+      "expect": "2.105.0"
     },
     {
       "name": "juicefs",
