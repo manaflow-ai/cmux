@@ -205,6 +205,11 @@
         // VMs take the product's never-pause idle default), only on VMs labelled cmux.ci=product-smoke, at most 2 live
         // (and TENANT_VM_QUOTAS above), each paused after 15 minutes and deleted once stopped.
         "CMUX_VM_CI_TRUST": "[{\"id\":\"ci-product-smoke\",\"audience\":\"https://vm.cmux.dev\",\"repository\":\"manaflow-ai/cmux\",\"environment\":\"cmux-vm-production\",\"workflowRef\":\"manaflow-ai/cmux/.github/workflows/cmux-vm.yml@refs/heads/feat-cmux-next\",\"team\":\"cmux-vm-product-smoke\",\"scopes\":[\"vm:read\",\"vm:write\",\"vm:exec\"],\"labels\":{\"cmux.ci\":\"product-smoke\"},\"maxVms\":2,\"maxUsdPerHour\":1,\"maxRunSeconds\":900}]",
+        // Team keys (src/auth/team-keys.ts): long-lived headless keys, hashes only. tk-lanes: our agents' lane VMs and
+        // demand scaler, for the manaflow team the Cloud lane VMs live in (machines/fleet-registry.json cloud.team_id),
+        // only on VMs labelled cmux.team-key=lanes, at most 20 live and 10 USD/h estimated. The key is in Secret Manager
+        // cmux-vm-team-key-lanes (manaflow-437420), never here; revoke by removing the row.
+        "CMUX_VM_TEAM_KEYS": "[{\"id\":\"tk-lanes\",\"team\":\"d13acd51-c77d-438a-9610-5369455e2a2f\",\"sha256\":[\"4fa167ee7003ccd4af8317cf5270de441c28a42ec9b096c7656af598773bb652\"],\"scopes\":[\"vm:read\",\"vm:write\",\"vm:exec\"],\"labels\":{\"cmux.team-key\":\"lanes\"},\"maxVms\":20,\"maxUsdPerHour\":10}]",
         // Mesh experiment (cx-0op): on for cmux-platform production's own requests only, as staging has it for its
         // platforms: each team's Cloud mesh is made in that team's personal tenant, which no hand-kept list knows in
         // advance. No tenant is listed, so every other caller still gets 404.
