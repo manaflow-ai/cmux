@@ -31,6 +31,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// cache: the default cmux profile's (`CEFProfileStorage.initialProfileDirectory`). Nil leaves
     /// Chromium's own choice (its last-used profile, `Default` on a first launch).
     var initialProfileDirectory: String?
+    /// The staged-update Chromium pre-warm keeps Chromium's code-sign clone enabled so Sparkle can replace the
+    /// running bundle without leaving its helpers on the old executable. Ordinary app launches leave it off.
+    var keepsCodeSignClone = false
 
     /// The longest one Chromium pump pass runs before it returns to the main run loop: a quarter
     /// of a 120 Hz frame, so the app's own frame work and the display link fit beside a pass.
@@ -137,8 +140,10 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // against 26 ms with the clone off (relaunch-restore, fronts=chat, 5
         // rounds each, one Mac). The clone guards helpers started after an update
         // replaced the bundle under a running app (cx-dj33); that cost is paid
-        // on every relaunch after a Chromium session instead.
-        result.append("disable-features=MacAppCodeSignClone")
+        // on every relaunch after a Chromium session instead. The staged-update
+        // pre-warm opts back in because it is the only Chromium process started
+        // while a newer Sparkle bundle is staged.
+        if !keepsCodeSignClone { result.append("disable-features=MacAppCodeSignClone") }
         if useMockKeychain {
             result.append("use-mock-keychain")
         }
@@ -233,7 +238,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         builtInExtensions: [String] = [],
         keepsUnpackedEnabled: Bool = false,
         asyncLiveResize: Bool = true,
-        initialProfileDirectory: String? = nil
+        initialProfileDirectory: String? = nil,
+        keepsCodeSignClone: Bool = false
     ) -> CEFSwitches {
         let bundle = bundleIdentifier ?? ""
         let dev = bundle.contains(".debug") || bundle.hasSuffix(".dev") || environment["CMUX_MOCK_KEYCHAIN"] == "1"
@@ -261,7 +267,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             keepsUnpackedEnabled: keepsUnpackedEnabled,
             extraSwitches: extra,
             asyncLiveResize: asyncLiveResize,
-            initialProfileDirectory: initialProfileDirectory
+            initialProfileDirectory: initialProfileDirectory,
+            keepsCodeSignClone: keepsCodeSignClone
         )
     }
 
