@@ -45,7 +45,8 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  await settleReact(() => root?.unmount());
+  act(() => root?.unmount());
+  await settleReact();
   root = undefined;
   dom?.window.close();
   dom = undefined;
