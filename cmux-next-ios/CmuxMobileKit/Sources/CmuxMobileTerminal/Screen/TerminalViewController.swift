@@ -344,6 +344,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func measured<T>(_ name: StaticString, _ body: () -> T) -> T { body() }
     #endif
 
+    /// The launch marks' first typed key and its echo on screen (`LaunchMarks`).
+    private var firstEcho = TerminalFirstEcho()
+
     #if DEBUG
     /// Rig echo probe and text export (`-CmuxMobileTermProbe`, G-08/G-09).
     private lazy var devProbe: TerminalDevProbe? = TerminalDevProbe.isEnabled
@@ -754,6 +757,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // "Keys typed while your Mac was unreachable" notice.
             if surface.isEncodingUserInput {
                 model.session.send(data)
+                // The launch marks' key: one the session took (not refused, not held for a
+                // reattach), in the one terminal whose echo is then tracked (the marks are per process).
+                if model.connectionState.isAttached, !inputRefused, !LaunchMarks.shared.has("terminal_key_sent"),
+                   firstEcho.sent(data) {
+                    LaunchMarks.shared.mark("terminal_key_sent")
+                }
             } else {
                 model.session.sendReply(data)
                 // A scroll or a tap is still the person's: this phone is the active device.
@@ -1661,6 +1670,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 pacer.started(frameEnd: outputLink?.targetTimestamp ?? CACurrentMediaTime() + frameInterval,
                               queueEmpty: output.isEmpty)
                 model.scanOutput(data)
+                firstEcho.fed(data)
                 #if DEBUG
                 devProbe?.fed(data)
                 #endif
@@ -1983,6 +1993,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             || tuiKeyboardLift > 0 || tuiClip.bounds.height < CGFloat(areaRows) * cell.height - 0.5 {
             applyTUIPlacement()
         }
+        firstEcho.processed()
         #if DEBUG
         devProbe?.processed()
         // Every parsed byte, the reset and replay the gate holds included:
@@ -2565,6 +2576,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// against the previous frame's rows for the candidate shifts (none, the
     /// last report, the last request), and the best match places it.
     private func surfacePresented() {
+        if firstEcho.presented() { LaunchMarks.shared.mark("terminal_echo_presented") }
+        if model.connectionState.isAttached { LaunchMarks.shared.mark("terminal_ready") }
         #if DEBUG
         if let probe = TerminalBenchProbe.shared {
             probe.presented()
