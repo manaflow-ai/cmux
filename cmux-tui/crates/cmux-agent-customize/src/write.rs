@@ -271,9 +271,28 @@ mod tests {
         store.replace(&settings, "new").unwrap();
         assert_eq!(fs::read_to_string(&outside).unwrap(), "keep me");
         assert_eq!(fs::read_to_string(&settings).unwrap(), "new");
-        let last = store.last_backup_path(&settings);
-        assert!(!fs::symlink_metadata(&last).unwrap().file_type().is_symlink());
-        assert_eq!(fs::read_to_string(&last).unwrap(), "old");
+        // Both backups are real files holding the prior text: a planted link is replaced, never
+        // followed and never left standing in place of the first restore point.
+        for backup in [store.backup_path(&settings), store.last_backup_path(&settings)] {
+            assert!(!fs::symlink_metadata(&backup).unwrap().file_type().is_symlink());
+            assert_eq!(fs::read_to_string(&backup).unwrap(), "old");
+        }
+    }
+
+    /// A world-readable file stays world-readable after a write: its mode is put back once the new
+    /// text is in place.
+    #[cfg(unix)]
+    #[test]
+    fn a_shared_file_keeps_its_mode_through_a_write() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let store = store(dir.path());
+        let shared = fs::canonicalize(dir.path()).unwrap().join("settings.json");
+        fs::write(&shared, "{}").unwrap();
+        fs::set_permissions(&shared, fs::Permissions::from_mode(0o644)).unwrap();
+        store.replace(&shared, "{\"a\":1}").unwrap();
+        assert_eq!(fs::metadata(&shared).unwrap().permissions().mode() & 0o777, 0o644);
+        assert_eq!(fs::read_to_string(&shared).unwrap(), "{\"a\":1}");
     }
 
     /// The new text of a private (0600) file is never readable by others, not even while it is
