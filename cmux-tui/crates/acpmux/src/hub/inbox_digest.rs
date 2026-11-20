@@ -510,6 +510,7 @@ impl Hub {
             control,
             provenance: Some(provenance.clone()),
             agent: Some(SENDER.to_owned()),
+            skip_surge_admission: true,
             ..PromptOptions::default()
         };
         tokio::spawn(async move {

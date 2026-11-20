@@ -665,10 +665,10 @@ pub struct TurnInfo {
 /// Options for `Hub::prompt_with`.
 #[derive(Default)]
 pub struct PromptOptions {
-    /// Set at receive time after duplicate and agent-pair checks. Internal queue resumes and
-    /// inbox digests already have an acceptance and must not be counted as new arrivals.
+    /// Internal queue resumes and inbox digests already have an acceptance and must not be
+    /// counted as new arrivals. Ordinary `prompt_with` calls leave this false.
     #[doc(hidden)]
-    pub new_inbox_arrival: bool,
+    pub skip_surge_admission: bool,
     /// Internal guard checked after asynchronous prompt setup and immediately before acceptance.
     /// Public only so callers outside the crate can build options with `..Default::default()`;
     /// it can only refuse a prompt, never admit one.
