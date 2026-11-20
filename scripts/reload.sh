@@ -915,6 +915,17 @@ measurement_derived_data_path() {
   echo "$(cd "$SCRIPT_DIR/.." && pwd -P)/.build/DerivedData/cmux-measure"
 }
 
+# The command that builds: xcodebuild. A measurement step's kept DerivedData can hold a module of the app
+# FFI that is older than its header, and that build fails with exit 65 ("has been modified since the module
+# file ... was built"), so its xcodebuild runs through stale-module-second-build.sh: after that failure it
+# clears the folder's build state and builds one more time. The helper runs inside the xcodebuild lock.
+set_xcodebuild_command() {
+  XCODEBUILD_COMMAND=(xcodebuild)
+  if reload_is_measurement_step && [[ "$DERIVED_DATA" == "$(measurement_derived_data_path)" ]]; then
+    XCODEBUILD_COMMAND=("$SCRIPT_DIR/cmux-next/stale-module-second-build.sh" "$DERIVED_DATA" "$RELOAD_LOG" xcodebuild)
+  fi
+}
+
 # A tag only changes the bundle id, names, socket and state files. None of those
 # are compiler inputs, so a new tag built into a DerivedData that is already warm
 # for this checkout recompiles nothing, while a fresh per-tag DerivedData is a full
@@ -1802,10 +1813,6 @@ XCODEBUILD_ARGS+=(MARKETING_VERSION="$CMUX_NEXT_VERSION")
 if [[ "$BUILD_CONFIGURATION" == Release ]]; then
   XCODEBUILD_ARGS+=(CODE_SIGN_ENTITLEMENTS=)
 fi
-# The helper is assembled before Xcode emits the host's processed Info.plist.
-# Pass the final tagged display name explicitly so its TCC entry matches the
-# app the user is dogfooding instead of falling back to the untagged product.
-XCODEBUILD_ARGS+=(CMUX_CUA_HELPER_DISPLAY_NAME="cmux Computer Use")
 if [[ "$PROD_AUTH" -eq 1 ]]; then
   XCODEBUILD_ARGS+=(-xcconfig "$SCRIPT_DIR/../config/IrohRelayPolicyProduction.xcconfig")
 fi
@@ -1932,6 +1939,7 @@ build_dirty=false
 # xcodebuild invocations can trample that daemon, so cap reload.sh builds at
 # five per user while still allowing useful parallel tagged builds.
 XCODEBUILD_STARTED=1
+set_xcodebuild_command
 python3 -c '
 import array
 import fcntl
@@ -2070,7 +2078,7 @@ try:
     os.execvp(command[0], command)
 except OSError as exc:
     raise SystemExit(f"error: exec: {exc}")
-' "$XCODEBUILD_LOCK_DIR" "$XCODEBUILD_LOCK_CONCURRENCY" "$XCODEBUILD_LOCK_WAIT_SECONDS" xcodebuild "${XCODEBUILD_ARGS[@]}"
+' "$XCODEBUILD_LOCK_DIR" "$XCODEBUILD_LOCK_CONCURRENCY" "$XCODEBUILD_LOCK_WAIT_SECONDS" "${XCODEBUILD_COMMAND[@]}" "${XCODEBUILD_ARGS[@]}"
 sleep 0.2
 if LC_ALL=C grep -q 'BUILD INTERRUPTED' "$RELOAD_LOG"; then
   echo "error: xcodebuild reported ** BUILD INTERRUPTED **; refusing to reuse DerivedData app artifacts" >&2
@@ -2261,13 +2269,6 @@ if [[ -d "$PWD/ghostty" ]]; then
     "$PWD/scripts/build-ghostty-cli-helper.sh" --output "$GHOSTTY_HELPER_DEST"
   fi
 fi
-CMUX_CUA_HELPER_APP="$APP_PATH/Contents/Library/cmux Computer Use.app"
-if [[ -x "$CMUX_CUA_HELPER_APP/Contents/MacOS/cmux-cua" ]]; then
-  echo "Preserving Xcode-built cmux Computer Use helper at $CMUX_CUA_HELPER_APP"
-else
-  "$PWD/scripts/build-cmux-cua.sh" --output "$PWD/build/cmux-cua/cmux-cua" \
-    --helper-app "$CMUX_CUA_HELPER_APP"
-fi
 # The Screen Sharing helper, when this build has its binary (CMUX_NEXT_SCREEN_HELPER_BIN, above)
 # but the app came out without it: the Xcode phase's only declared output is its stamp in
 # TARGET_TEMP_DIR, so a reused DerivedData (fleet slots) whose app bundle was removed or rebuilt
@@ -2282,9 +2283,6 @@ elif [[ -n "${CMUX_NEXT_SCREEN_HELPER_BIN:-}" && -x "$PWD/scripts/cmux-next/bund
     EXPANDED_CODE_SIGN_IDENTITY="${CMUX_DEV_SIGN_IDENTITY:-}" CMUX_TIMESTAMP=none \
     "$PWD/scripts/cmux-next/bundle-screen-sharing-helper.sh" --app "$APP_PATH" || exit 1
 fi
-# A dev build uses a Developer ID helper from an installed release, NIGHTLY or
-# RC, or none. Drop an ad-hoc helper an older build left in this app.
-"$PWD/scripts/cmux-cua-helper-trust.sh" drop-unsigned "$APP_PATH"
 # The Bundle cmux-tui phase already placed the same-tree cmux-tui (or the pin
 # with CMUX_NEXT_TUI_MODE=pin, or CMUX_NEXT_TUI_BIN); refuse anything else.
 cmux_next_tui_version="$APP_PATH/Contents/Resources/bin/cmux-tui.version"

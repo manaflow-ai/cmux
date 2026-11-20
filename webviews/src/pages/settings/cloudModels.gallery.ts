@@ -24,10 +24,12 @@ export default settingsPageEntry({
     empty: variant(mockModels.empty, "Nothing connected: each row Not set up for Cloud, with its Set Up."),
     "mac-only": variant(
       mockModels.macOnly,
-      "Only this Mac's Claude Code and Codex CLI logins: not set up for Cloud, each saying why in plain words.",
+      "Only this Mac's Claude Code and Codex CLI logins: not listed, every row Not set up for Cloud.",
     ),
     "claude-token": variant(mockModels.claudeForCloud, "A Claude Code token: Claude is Connected for Cloud."),
     chatgpt: variant(mockModels.chatgptForCloud, "A ChatGPT plan: ChatGPT is Connected for Cloud."),
+    "chatgpt-signed-out": variant(mockModels.chatgptSignedOut, "The ChatGPT plan signed out: Sign in with ChatGPT."),
+    "chatgpt-off": variant(mockModels.chatgptOff, "The ChatGPT plan turned off: Turn On, in place."),
     "set-up-claude": variant(mockModels.macOnly, "Set Up on Claude: Models' Claude Code steps (setup-token, paste).", [
       shown,
       { selector: '[data-cloud-action="setUpClaude"]', action: "click" },

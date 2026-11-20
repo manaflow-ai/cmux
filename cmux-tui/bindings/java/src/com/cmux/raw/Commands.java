@@ -76,6 +76,9 @@ public final class Commands {
     public static final CommandMetadata CLOUD_SESSION_CLEAR = new CommandMetadata("cloud-session-clear", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_SESSION_SET = new CommandMetadata("cloud-session-set", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_SESSION_STATUS = new CommandMetadata("cloud-session-status", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata COMPUTER_USE_APPROVALS = new CommandMetadata("computer-use-approvals", Authority.LOCAL_ADMIN, 12, "computer-use-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata COMPUTER_USE_CONFIG = new CommandMetadata("computer-use-config", Authority.LOCAL_ADMIN, 12, "computer-use-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata COMPUTER_USE_ENDPOINT = new CommandMetadata("computer-use-endpoint", Authority.LOCAL_ADMIN, 12, "computer-use-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_AGENT_TOKEN = new CommandMetadata("conversation-agent-token", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_ATTACHMENT_LINK = new CommandMetadata("conversation-attachment-link", Authority.LOCAL_ADMIN, 12, "ws-attachments-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_ATTACHMENT_READ = new CommandMetadata("conversation-attachment-read", Authority.LOCAL_ADMIN, 12, "local-attachments-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -204,6 +207,7 @@ public final class Commands {
     public static final CommandMetadata PUT_BLOB = new CommandMetadata("put-blob", Authority.CONTROL, 12, "icon-assets-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PUT_FRONTEND_PROJECTION = new CommandMetadata("put-frontend-projection", Authority.CONTROL, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PUT_SESSION = new CommandMetadata("put-session", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata QUICK_TERMINAL = new CommandMetadata("quick-terminal", Authority.CONTROL, 12, "quick-terminal-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata READ_SCREEN = new CommandMetadata("read-screen", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata READ_SCROLLBACK = new CommandMetadata("read-scrollback", Authority.CONTROL, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata REATTACH_VIEW = new CommandMetadata("reattach-view", Authority.CONTROL, 12, "sizing-view-detach-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -384,6 +388,9 @@ public final class Commands {
         values.put("cloud-session-clear", CLOUD_SESSION_CLEAR);
         values.put("cloud-session-set", CLOUD_SESSION_SET);
         values.put("cloud-session-status", CLOUD_SESSION_STATUS);
+        values.put("computer-use-approvals", COMPUTER_USE_APPROVALS);
+        values.put("computer-use-config", COMPUTER_USE_CONFIG);
+        values.put("computer-use-endpoint", COMPUTER_USE_ENDPOINT);
         values.put("conversation-agent-token", CONVERSATION_AGENT_TOKEN);
         values.put("conversation-attachment-link", CONVERSATION_ATTACHMENT_LINK);
         values.put("conversation-attachment-read", CONVERSATION_ATTACHMENT_READ);
@@ -512,6 +519,7 @@ public final class Commands {
         values.put("put-blob", PUT_BLOB);
         values.put("put-frontend-projection", PUT_FRONTEND_PROJECTION);
         values.put("put-session", PUT_SESSION);
+        values.put("quick-terminal", QUICK_TERMINAL);
         values.put("read-screen", READ_SCREEN);
         values.put("read-scrollback", READ_SCROLLBACK);
         values.put("reattach-view", REATTACH_VIEW);

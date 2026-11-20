@@ -18,7 +18,6 @@ use super::optional_surface_size;
 use super::pane_tab_group_json;
 use super::resolve_tab_refs;
 use super::split_tab;
-use super::surface_has_view_placement;
 use super::tab_column;
 use super::tab_create_wire;
 use super::tab_drag_outcome_json;
@@ -448,6 +447,10 @@ pub(super) fn set_tab_pinned(
         "index": change.index,
         "changed": change.changed,
     }))
+}
+
+fn surface_has_view_placement(mux: &Mux, id: SurfaceId) -> bool {
+    mux.with_state(|state| state.pane_of(id).is_some())
 }
 
 pub(super) fn close_surface(

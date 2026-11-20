@@ -53,12 +53,12 @@ const REFERENCE_TOKENS: Record<string, number> = {
   tabMaxWidth: 201,
   rowCornerRadius: 9,
   tabCornerRadius: 9,
-  omnibarCornerRadius: 8,
+  omnibarCornerRadius: 8 / 0.9,
   omnibarPopupCornerRadius: 12,
   omnibarPopupRowCornerRadius: 8,
   toolbarGlyphSize: 14 / 0.9 / 0.617,
-  omnibarHeight: 29,
-  omnibarFontSize: (10 / 0.9 - 0.14) / 0.70459,
+  omnibarHeight: 28 / 0.9,
+  omnibarFontSize: (10 - 0.31) / 0.70459 / 0.9,
   omnibarLineBoxBaseline: 1,
   omnibarButtonSpacing: 3,
   omnibarEdgeInset: 2,
@@ -67,6 +67,9 @@ const REFERENCE_TOKENS: Record<string, number> = {
   omnibarTrailingIconSize: 18,
   omnibarIconViewSize: 25,
   omnibarIconSize: 12 / 0.9 / 0.697,
+  // Swift `DensityPreset.referenceTokens`: Compact's puzzle draws 16 pt of ink, its star 12 pt.
+  omnibarExtensionsGlyphSize: 27 / 0.9,
+  omnibarMoreGlyphSize: 20 / 0.9,
   omnibarIconLeading: 2,
   omnibarTextGap: 5,
   omnibarPopupTopOutset: 3,
@@ -74,6 +77,22 @@ const REFERENCE_TOKENS: Record<string, number> = {
   omnibarPopupRowGap: 2,
   omnibarPopupBottomPadding: 4,
 };
+
+const CHROME_OMNIBAR_HEIGHT = 34;
+const DEFAULT_OMNIBAR_CAP_HEIGHT = 11;
+const DEFAULT_STAR_PLATE_SIZE = 28;
+/** Swift `DensityPreset.starGlyphSides`: the half-point star sides that draw whole rows at 2x. */
+const STAR_GLYPH_SIDES: Record<string, number> = {
+  ultraCompact: 21,
+  compact: 23.5,
+  cozy: 28,
+  comfortable: 29.5,
+  spacious: 32,
+};
+
+/** Swift `DensityPreset.isOmnibarToken`: every `omnibar*` size and the toolbar glyphs beside the bar. */
+const omnibarTokens = (tokens: Record<string, number>) =>
+  Object.fromEntries(Object.entries(tokens).filter(([key]) => key.startsWith("omnibar") || key === "toolbarGlyphSize"));
 
 /** A built-in as Swift `DensityPreset.tokens` makes it: Default's level, spacing and body text times one factor,
  *  and the owner's row height exact (Lucas 2026-11-16: 24, 28, 30, 32 and 36 pt rows). */
@@ -90,6 +109,22 @@ function preset(id: string, name: string, nameKey: string, factor: number, row: 
   tokens.sidebarRowHeight = row - half(2 * factor);
   tokens.browserRowHeight = row;
   tokens.tabStripHeight = row + 2 * half(3 * factor);
+  // Default's omnibar is Compact's (Swift `DensityPreset.omnibarScaleFactor`), on Chrome's 34 pt bar
+  // (Swift `DensityPreset.chromeOmnibarHeight`) rounded at Helium's 8 on 28.
+  if (id === "cozy") {
+    Object.assign(tokens, omnibarTokens(preset("compact", "", "", 0.9, 28).tokens!));
+    // Its toolbar buttons and star plate keep Compact's padding (Swift `DensityPreset`): Compact's 28 pt buttons, a 28 pt plate.
+    tokens.omnibarButtonSize = tokens.omnibarHeight!;
+    tokens.omnibarStarPlateSize = DEFAULT_STAR_PLATE_SIZE;
+    tokens.omnibarHeight = CHROME_OMNIBAR_HEIGHT;
+    tokens.omnibarCornerRadius = half((CHROME_OMNIBAR_HEIGHT * 8) / 28);
+    // Its URL capitals are 11 pt, a point over Compact's (Swift `DensityPreset.defaultOmnibarCapHeight`).
+    tokens.omnibarFontSize = (DEFAULT_OMNIBAR_CAP_HEIGHT - 0.31) / 0.70459;
+    // Its search glyph is a little taller than Compact's: Compact's box plus a point (Swift `DensityPreset`).
+    tokens.omnibarIconSize = tokens.omnibarIconSize! + 1;
+  }
+  // Each built-in's bookmark star side (Swift `DensityPreset.starGlyphSides`).
+  if (STAR_GLYPH_SIDES[id] !== undefined) tokens.omnibarStarGlyphSize = STAR_GLYPH_SIDES[id]!;
   return {
     id,
     name,
@@ -101,11 +136,68 @@ function preset(id: string, name: string, nameKey: string, factor: number, row: 
   };
 }
 
+/** Compact as the user tuned it and asked to ship (Swift `DensityPreset.compactTuned`, 2026-11-19): Default's
+ *  proportions at 0.9 with a 1 pt strip padding above the tabs, between them and the omnibar, and under it. */
+const COMPACT_TUNED: Record<string, number> = {
+  browserRowGap: 1,
+  browserRowHeight: 28,
+  chatEditorMin: 31.5,
+  composerZoom: 0.9,
+  densityScale: 0.9,
+  omnibarButtonSpacing: 2.5,
+  omnibarCornerRadius: 8,
+  omnibarEdgeInset: 2,
+  omnibarExtensionsGlyphSize: 27,
+  omnibarFieldTrailingGap: 4.5,
+  omnibarFontSize: 13.753,
+  omnibarHeight: 28,
+  omnibarIconLeading: 2,
+  omnibarIconSize: 17,
+  omnibarIconViewSize: 22.5,
+  omnibarLineBoxBaseline: 1,
+  omnibarMoreGlyphSize: 20,
+  omnibarPopupBottomPadding: 3.5,
+  omnibarPopupCornerRadius: 11,
+  omnibarPopupRowCornerRadius: 7,
+  omnibarPopupRowGap: 2,
+  omnibarPopupSideOutset: 6.5,
+  omnibarPopupTopOutset: 2.5,
+  omnibarStarGlyphSize: 23.5,
+  omnibarTextGap: 4.5,
+  omnibarTrailingIconSize: 16,
+  omnibarTrailingPadding: 7,
+  rowCornerRadius: 8,
+  sidebarContentInset: 6.5,
+  sidebarIconColumn: 15,
+  sidebarIconGap: 6.5,
+  sidebarLineBoxBaseline: 1,
+  sidebarRowHeight: 24,
+  sidebarRowInset: 5.5,
+  sidebarTitleSize: 12.6,
+  tabCornerRadius: 8,
+  tabGap: 2.5,
+  tabIconSize: 15,
+  tabIconTitleGap: 6.5,
+  tabMaxWidth: 181,
+  tabStripHeight: 33,
+  tabTitleSize: 12.6,
+  toolbarGlyphSize: 22.5,
+};
+
 /** The built-ins, densest first (Swift `DensityPreset`); `name` is the catalog key of the
- * localized name. Default keeps the id `cozy` so saved files still name it. Each is Default times one factor. */
+ * localized name. Default keeps the id `cozy` so saved files still name it. Each is Default times one factor, apart
+ * from Compact, the user's tuned density. */
 export const PRESETS: ReadonlyArray<Density & { nameKey: string }> = [
   preset("ultraCompact", "Ultra-compact", "settings.choice.ultraCompact", 0.8, 24),
-  preset("compact", "Compact", "settings.choice.compact", 0.9, 28),
+  {
+    id: "compact",
+    name: "Compact",
+    nameKey: "settings.choice.compact",
+    level: 0.15,
+    spacing: 0.9,
+    fontSize: 12.6,
+    tokens: { ...COMPACT_TUNED },
+  },
   preset("cozy", "Default", "settings.choice.default", 1, 30),
   preset("comfortable", "Comfortable", "settings.choice.comfortable", 1.1, 32),
   preset("spacious", "Spacious", "settings.choice.spacious", 1.2, 36),

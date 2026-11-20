@@ -619,7 +619,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
         if Self.args.contains("--inactive") { demo.setInactive(true) }
         scheduleWake()
-        if intents?.canReply == true { swipe.install(); thread.install() }
+        // The thread view's outside-click and Esc close work in a chat that takes no replies too (a permalink opens
+        // a thread there); only the reply gestures need a host that takes replies.
+        if intents?.canReply == true { swipe.install() }
+        thread.install()
         host.needsLayout = true
         onInstalled.forEach { $0(self) }
         return store
@@ -643,11 +646,12 @@ final class ChatController: NSObject, NSTextViewDelegate {
         // MessagesLab 7518134: the menu's glyphs and title icons are made before the first open (only
         // images; no view, window or event), on a later pass than this layout.
         RunLoop.main.perform(inModes: [.default]) { MenuGlyphs.warm(); MenuAction.warm() }
-        let tv = FieldTextView(usingTextLayoutManager: true)
+        // TextKit 1, as the composer field (ComposeTextView).
+        let tv = FieldTextView(usingTextLayoutManager: false)
         tv.frame = NSRect(x: 0, y: 0, width: 300, height: 40)
         tv.typingAttributes = ComposeView.typing
         tv.insertText("Warm", replacementRange: NSRange(location: 0, length: 0))
-        if let tlm = tv.textLayoutManager { tlm.ensureLayout(for: tlm.documentRange) }
+        tv.textKit1LayOutAll()
         let r = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 32))
         if let cg = r.image(actions: { ctx in
             TextDraw.line("Warm", font: Fixture.bodyFont, color: .white, x: 2, baseline: 20, in: ctx.cgContext)
@@ -765,8 +769,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
             let orphans = ComposeInlineText.orphanRanges(in: storage, keeping: Set(draft.map(\.id)))
             for r in orphans { storage.replaceCharacters(in: r, with: "") }
         }
-        composerHistory.textChanged(to: tv.string)
-        dispatch(.setDraft(tv.string))
+        // The draft is a native copy of the field's text (a bridged NSString): each key compares it.
+        let text = String(nativeCopyOf: tv.string)
+        composerHistory.textChanged(to: text)
+        dispatch(.setDraft(text))
         // An attachment whose character the person deleted (Delete, a cut, the remove button) leaves the draft.
         let shown = Set(tv.textStorage.map(ComposeInlineText.ids(in:)) ?? [])
         let gone = draft.filter { !shown.contains($0.id) }

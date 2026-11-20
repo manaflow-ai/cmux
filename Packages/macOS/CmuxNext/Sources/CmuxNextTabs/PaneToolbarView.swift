@@ -93,6 +93,7 @@ public final class PaneToolbarView: NSView {
     override public init(frame: NSRect) {
         super.init(frame: frame)
         moreButton.setAccessibilityIdentifier("cmux.pane.more")
+        moreButton.drawsPaneGlyph = true
         moreButton.pressMenu = { [weak self] in self?.moreMenu?() }
         // "⋮" stays shown while its menu is up: the pointer leaves the corner for the menu.
         let present = moreButton.presentMenu

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "79bcfc4e75695f64971f2921ecfa0cf4a5bdf9af0d0e4a3438cb3cb37f757362";
+pub const ir_sha256 = "2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1748,6 +1748,11 @@ pub const ReadScrollbackResult = struct {
 pub const ReattachViewResult = struct {
     participant: []const u8,
     state: SizeState,
+};
+
+pub const RemoteHostAppPermissions = struct {
+    accessibility: wire.Field(bool) = .absent,
+    screen_recording: wire.Field(bool) = .absent,
 };
 
 pub const RemoteHostAppResult = struct {
@@ -5272,6 +5277,64 @@ pub fn cloudSessionStatus(client: anytype, request: CloudSessionStatusRequest) !
     );
 }
 
+pub const ComputerUseApprovalsRequest = struct {
+    action: []const u8,
+    answer: wire.Field([]const u8) = .absent,
+    app_id: wire.Field([]const u8) = .absent,
+    id: wire.Field(u64) = .absent,
+};
+
+pub const ComputerUseApprovalsResult = JsonValue;
+
+pub fn computerUseApprovals(client: anytype, request: ComputerUseApprovalsRequest) !wire.Decoded(ComputerUseApprovalsResult) {
+    return client.callTyped(
+        ComputerUseApprovalsResult,
+        .{
+            .name = "computer-use-approvals",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "computer-use-v1",
+        },
+        request,
+    );
+}
+
+pub const ComputerUseConfigRequest = struct {
+    config: wire.Nullable(JsonValue),
+};
+
+pub const ComputerUseConfigResult = JsonValue;
+
+pub fn computerUseConfig(client: anytype, request: ComputerUseConfigRequest) !wire.Decoded(ComputerUseConfigResult) {
+    return client.callTyped(
+        ComputerUseConfigResult,
+        .{
+            .name = "computer-use-config",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "computer-use-v1",
+        },
+        request,
+    );
+}
+
+pub const ComputerUseEndpointRequest = struct {};
+
+pub const ComputerUseEndpointResult = JsonValue;
+
+pub fn computerUseEndpoint(client: anytype, request: ComputerUseEndpointRequest) !wire.Decoded(ComputerUseEndpointResult) {
+    return client.callTyped(
+        ComputerUseEndpointResult,
+        .{
+            .name = "computer-use-endpoint",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "computer-use-v1",
+        },
+        request,
+    );
+}
+
 pub const ConversationAgentTokenRequest = struct {
     participant: []const u8,
 };
@@ -8449,6 +8512,30 @@ pub fn putSession(client: anytype, request: PutSessionRequest) !wire.Decoded(Put
     );
 }
 
+pub const QuickTerminalRequest = struct {
+    h: wire.Field(f64) = .absent,
+    mode: wire.Field([]const u8) = .absent,
+    screen: Id,
+    w: wire.Field(f64) = .absent,
+    x: wire.Field(f64) = .absent,
+    y: wire.Field(f64) = .absent,
+};
+
+pub const QuickTerminalResult = JsonValue;
+
+pub fn quickTerminal(client: anytype, request: QuickTerminalRequest) !wire.Decoded(QuickTerminalResult) {
+    return client.callTyped(
+        QuickTerminalResult,
+        .{
+            .name = "quick-terminal",
+            .authority = "control",
+            .since = 12,
+            .capability = "quick-terminal-v1",
+        },
+        request,
+    );
+}
+
 pub const ReadScreenRequest = struct {
     surface: Id,
 };
@@ -8629,6 +8716,7 @@ pub fn remoteHostCall(client: anytype, request: RemoteHostCallRequest) !wire.Dec
 }
 
 pub const RemoteHostConfigRequest = struct {
+    app_permissions: wire.Field(RemoteHostAppPermissions) = .absent,
     computer_use: wire.Field(bool) = .absent,
     headless: wire.Field(bool) = .absent,
     screen_sharing: wire.Field(bool) = .absent,
@@ -12671,7 +12759,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 304;
+pub const command_count: usize = 308;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -12739,6 +12827,9 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "cloud-session-clear", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-session-set", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-session-status", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
+    .{ .name = "computer-use-approvals", .authority = "local-admin", .since = 12, .capability = "computer-use-v1", .stream = null },
+    .{ .name = "computer-use-config", .authority = "local-admin", .since = 12, .capability = "computer-use-v1", .stream = null },
+    .{ .name = "computer-use-endpoint", .authority = "local-admin", .since = 12, .capability = "computer-use-v1", .stream = null },
     .{ .name = "conversation-agent-token", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-attachment-link", .authority = "local-admin", .since = 12, .capability = "ws-attachments-v1", .stream = null },
     .{ .name = "conversation-attachment-read", .authority = "local-admin", .since = 12, .capability = "local-attachments-v1", .stream = null },
@@ -12867,6 +12958,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "put-blob", .authority = "control", .since = 12, .capability = "icon-assets-v1", .stream = null },
     .{ .name = "put-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "put-session", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
+    .{ .name = "quick-terminal", .authority = "control", .since = 12, .capability = "quick-terminal-v1", .stream = null },
     .{ .name = "read-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "read-scrollback", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "reattach-view", .authority = "control", .since = 12, .capability = "sizing-view-detach-v1", .stream = null },

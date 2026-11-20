@@ -8,9 +8,10 @@ import CmuxNextDesign
 ///
 ///
 /// One card, one alignment, leading: the machine's name (never an id) with its status as a chip at
-/// the end of the same row, one line of text, then Connect as the theme's primary button (the
-/// dialogs' default button, ``CmuxDialogButtonView``). The text wraps at the card's width, never past
-/// its inset. Leo, 2026-11-16, on the old card: "is is a weirdly styled thing :(".
+/// the end of the same row, then Connect as the theme's primary button (the dialogs' default
+/// button, ``CmuxDialogButtonView``). A Connect card says nothing more; an unavailable one has a line
+/// of why, wrapped at the card's width, never past its inset. Leo, 2026-11-16, on the old card: "is is
+/// a weirdly styled thing :(", and on its line of text: "why even say lal that b******t? esp the second line."
 public final class RemoteViewUnavailableView: NSView {
     public enum Content: Sendable, Hashable {
         case unavailable(RemoteViewUnavailableReason)
@@ -25,7 +26,7 @@ public final class RemoteViewUnavailableView: NSView {
     public var onConnect: (() -> Void)?
     private let icon: NSImageView
     private let title: ChromeLabel
-    private let detail: ChromeLabel
+    private let detail: ChromeLabel?
     private let status: RemoteStatusChip?
     private let button: CmuxDialogButtonView?
     private let surface = Glass.makeOverlayPanel(cornerRadius: 16)
@@ -39,7 +40,7 @@ public final class RemoteViewUnavailableView: NSView {
         let text = Self.text(for: content)
         icon = RemoteChrome.symbol(text.symbol, size: TypeScale.title)
         title = RemoteChrome.label(text.title, size: TypeScale.title, weight: TypeScale.emphasis)
-        detail = RemoteChrome.wrapping(text.detail, size: TypeScale.body, width: 0)
+        detail = text.detail.map { RemoteChrome.wrapping($0, size: TypeScale.body, width: 0) }
         status = text.status.map { RemoteStatusChip(text: $0, live: text.live) }
         switch content {
         case .confirm, .confirmTarget:
@@ -78,12 +79,12 @@ public final class RemoteViewUnavailableView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// Header row (icon, name, status chip at the end), the text at the row's width, then Connect.
+    /// Header row (icon, name, status chip at the end), the text (if any) at the row's width, then Connect.
     private func arrange() -> NSStackView {
         let inset = Metrics.space6 + Metrics.space4
-        detail.alignment = .natural
+        detail?.alignment = .natural
         // The card's width decides where the text breaks, not the text's one-line width.
-        detail.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        detail?.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
@@ -92,11 +93,9 @@ public final class RemoteViewUnavailableView: NSView {
         let column = stack([heading, detail, button], vertical: true, spacing: Metrics.space4)
         column.alignment = .leading
         column.edgeInsets = NSEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
-        column.setCustomSpacing(Metrics.space6, after: detail)
-        NSLayoutConstraint.activate([
-            heading.widthAnchor.constraint(equalTo: column.widthAnchor, constant: -2 * inset),
-            detail.widthAnchor.constraint(equalTo: heading.widthAnchor),
-        ])
+        column.setCustomSpacing(Metrics.space6, after: detail ?? heading)
+        heading.widthAnchor.constraint(equalTo: column.widthAnchor, constant: -2 * inset).isActive = true
+        detail?.widthAnchor.constraint(equalTo: heading.widthAnchor).isActive = true
         return column
     }
 
@@ -129,14 +128,15 @@ public final class RemoteViewUnavailableView: NSView {
         layer?.backgroundColor = next.background.cgColor
         icon.contentTintColor = next.textSecondary
         title.textColor = next.textPrimary
-        detail.textColor = next.textSecondary
+        detail?.textColor = next.textSecondary
         status?.apply(next)
     }
 
     struct Text: Equatable {
         var symbol: String
         var title: String
-        var detail: String
+        /// Why there is no desktop; nil on a Connect card, which says nothing past its name.
+        var detail: String?
         /// The machine's status and region, drawn as a chip beside the title.
         var status: String?
         /// The status is a live one (running, starting): the chip's dot is the success color.
@@ -150,7 +150,7 @@ public final class RemoteViewUnavailableView: NSView {
             return text(for: .confirmTarget(RemoteConnectionTarget(name: host)))
         case let .confirmTarget(target):
             return Text(symbol: target.kind == .desktop ? "display" : "network",
-                        title: RemoteViewStrings.confirmTitle(target), detail: RemoteViewStrings.confirmDetail(target),
+                        title: RemoteViewStrings.confirmTitle(target), detail: nil,
                         status: RemoteViewStrings.confirmStatus(target), live: target.isLive)
         case let .unavailable(reason):
             let detail = switch reason {

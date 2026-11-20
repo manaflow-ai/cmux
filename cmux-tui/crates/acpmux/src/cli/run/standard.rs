@@ -637,7 +637,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if args.detach || json_out {
                 return Ok(());
             }
-            crate::tui::run(client, Some(route_id.to_owned())).await
+            crate::tui_entry::run(client, Some(route_id.to_owned())).await
         }
         Command::Send {
             session,
@@ -1085,7 +1085,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 let id = id.ok_or_else(|| anyhow!("--plain needs a session"))?;
                 return plain_attach(client, &id).await;
             }
-            crate::tui::run(client, id).await
+            crate::tui_entry::run(client, id).await
         }
         Command::ResumeHere { session, print } => {
             crate::cli::resume_here::run(connect(true).await?, &session, print, json_out).await
