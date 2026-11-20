@@ -25,7 +25,14 @@ public nonisolated enum ManagedPreferenceLocation {
     /// DEV builds honor `CMUX_NEXT_MANAGED_PREFS_FILE`; release builds always
     /// read the CFPreferences domain, so an environment variable cannot
     /// override an administrator's profile.
-    public static func defaultReader(environment: [String: String] = ProcessInfo.processInfo.environment) -> any ManagedPreferenceReader {
+    ///
+    /// `keys` limits cmux's own domain to those keys; nil reads every published key
+    /// (``CFManagedPreferenceReader/readKeys``), which builds the whole settings catalog
+    /// (``SettingsSchema/all``, about 50 ms with its localized strings). A reader in `main`,
+    /// before AppKit reports the launch finished (the Dock's bounce), names its keys.
+    public static func defaultReader(environment: [String: String] = ProcessInfo.processInfo.environment,
+                                     keys: [String]? = nil) -> any ManagedPreferenceReader {
+        let cfReader = { keys.map { CFManagedPreferenceReader(keys: $0) } ?? CFManagedPreferenceReader() }
         #if DEBUG
         let chromeFile = environment[ChromePolicyDocument.fileOverrideKey].flatMap { $0.isEmpty ? nil : $0 }
         let chrome: any ChromePolicyReading = chromeFile.map { PlistChromePolicyReader(url: URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath)) }
@@ -36,9 +43,9 @@ public nonisolated enum ManagedPreferenceLocation {
             let cmux = PlistManagedPreferenceReader(url: URL(fileURLWithPath: (path as NSString).expandingTildeInPath))
             return ChromePolicyManagedPreferenceReader(cmux: cmux, chrome: chrome, cmuxBrowser: cmuxBrowser)
         }
-        return ChromePolicyManagedPreferenceReader(cmux: CFManagedPreferenceReader(), chrome: chrome, cmuxBrowser: cmuxBrowser)
+        return ChromePolicyManagedPreferenceReader(cmux: cfReader(), chrome: chrome, cmuxBrowser: cmuxBrowser)
         #else
-        return ChromePolicyManagedPreferenceReader(cmux: CFManagedPreferenceReader())
+        return ChromePolicyManagedPreferenceReader(cmux: cfReader())
         #endif
     }
 

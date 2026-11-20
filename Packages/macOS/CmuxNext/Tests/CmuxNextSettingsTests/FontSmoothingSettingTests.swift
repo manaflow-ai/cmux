@@ -60,4 +60,41 @@ struct FontSmoothingSettingTests {
         #expect(written.rawValue == (mode ?? "auto"))
         #expect((defaults.object(forKey: ProcessFontSmoothing.defaultsKey) as? NSNumber)?.intValue == expected)
     }
+
+    /// CMUX-631: `main` runs this before AppKit reports the launch finished, so every ms here is the Dock's
+    /// bounce. Its managed reader names only this key: the default reader's key list builds the whole settings
+    /// catalog, 51 ms of `main`'s 69 on the 2026-11-19 nightly (launch-ready profile step 77b0c9f1).
+    @Test func theLaunchReaderReadsOnlyThisKey() throws {
+        let reader = try #require(ManagedPreferenceLocation.defaultReader(environment: [:], keys: ["appearance.fontSmoothing"])
+            as? ChromePolicyManagedPreferenceReader)
+        let cmux = try #require(reader.cmux as? CFManagedPreferenceReader)
+        #expect(cmux.keys == ["appearance.fontSmoothing"])
+        let full = try #require(ManagedPreferenceLocation.defaultReader(environment: [:]) as? ChromePolicyManagedPreferenceReader)
+        #expect((full.cmux as? CFManagedPreferenceReader)?.keys == CFManagedPreferenceReader.readKeys, "no keys: every published key, as before")
+    }
+
+    /// The merge `main` runs has no team layer: limiting an empty one to the catalog returns it unchanged
+    /// (and builds no catalog); a layer with keys is still limited.
+    @Test func anEmptyTeamLayerIsNotLimited() {
+        #expect(TeamPolicyLayer.none.limitedToCatalog() == .none)
+        let layer = TeamPolicyLayer(defaults: ["appearance.fontSmoothing": .string("subpixel"), "notASetting.x": .bool(true)])
+        #expect(layer.limitedToCatalog().defaults.keys.sorted() == ["appearance.fontSmoothing"])
+    }
+
+    /// A forced MDM value still wins over the file before AppKit starts.
+    @Test func aForcedManagedValueWinsOverTheFile() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "fs-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: "cmux.json")
+        try Data(#"{"appearance": {"fontSmoothing": "subpixel"}}"#.utf8).write(to: file)
+        let suite = "fs-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let managed = ManagedPreferences(forced: ["appearance.fontSmoothing": .string("antialiased")], recommended: [:])
+
+        let written = FontSmoothingSetting.applyBeforeLaunch(fileURL: file, managed: FixedManagedPreferenceReader(managed), defaults: defaults)
+
+        #expect(written.rawValue == "antialiased")
+    }
 }
