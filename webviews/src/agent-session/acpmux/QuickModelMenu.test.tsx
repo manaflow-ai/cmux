@@ -171,7 +171,7 @@ for (const newTab of [false, true]) {
       });
       const recovery = () =>
         [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
-          (row) => row.textContent?.trim() === "Sign in again",
+          (row) => row.textContent?.trim() === "Sign in to Claude Code",
         );
       expect(recovery()).toBeDefined();
       const input = document.querySelector<HTMLInputElement>(".acpmux-quick-search input")!;
