@@ -734,6 +734,7 @@ fn a_real_partial_write_keeps_recovery_data_and_allows_retry() {
             .unwrap();
     }
     let index = std::fs::read(dst.path().join(".git/index")).unwrap();
+    let index_entries = sh(dst.path(), "git --no-optional-locks ls-files --stage -z");
     // A real file-size write limit applies only to the final Git child. Its first
     // write succeeds; the second hits SIGXFSZ after preflight and snapshotting.
     let write = "git -c core.fsmonitor=false -c core.symlinks=true -C \"$top\" apply --binary --whitespace=nowarn \"$s/patch\"";
@@ -746,6 +747,8 @@ fn a_real_partial_write_keeps_recovery_data_and_allows_retry() {
     let out = here(&failing, &apply_input(&dst.path().to_string_lossy(), &carry).unwrap()).unwrap();
     assert!(!out.ok);
     assert!(out.stdout.contains("PARTIAL_WRITE:changed first"), "{} / {}", out.stdout, out.stderr);
+    // Check carry preservation before the explicit recovery helper refreshes stat data.
+    assert_eq!(std::fs::read(dst.path().join(".git/index")).unwrap(), index);
     if out.stderr.contains("worktree recovery needs attention") {
         assert!(
             out.stderr.contains("preserving ambiguous target path: z-last.txt"),
@@ -755,7 +758,6 @@ fn a_real_partial_write_keeps_recovery_data_and_allows_retry() {
         let saved = tempfile::tempdir().unwrap();
         let current = std::fs::read(dst.path().join("z-last.txt")).unwrap();
         std::fs::write(saved.path().join("partial-write"), &current).unwrap();
-        assert_eq!(std::fs::read(dst.path().join(".git/index")).unwrap(), index);
         recover_owned_fixture(dst.path(), &out);
         assert_eq!(std::fs::read(saved.path().join("partial-write")).unwrap(), current);
     }
@@ -765,7 +767,7 @@ fn a_real_partial_write_keeps_recovery_data_and_allows_retry() {
         b"original"
     );
     assert_eq!(std::fs::read(dst.path().join("z-last.txt")).unwrap(), b"base last\n");
-    assert_eq!(std::fs::read(dst.path().join(".git/index")).unwrap(), index);
+    assert_eq!(sh(dst.path(), "git --no-optional-locks ls-files --stage -z"), index_entries);
     for (path, mode) in directory_modes {
         assert_eq!(
             std::fs::metadata(dst.path().join(path)).unwrap().permissions().mode() & 0o777,
