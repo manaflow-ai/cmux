@@ -45,7 +45,7 @@ title() {
 }
 
 reset() {
-  "$cli" customize discard && "$cli" action run newTab.default && "$cli" customize library status
+  "$cli" customize discard && "$cli" action run newTab.page --focus && "$cli" customize library status
 }
 
 finish() {
@@ -128,7 +128,7 @@ for file in "${list[@]}"; do
   printf '\n[%d/%d] %s  (%s)\n' "$n" "${#list[@]}" "$(title "$file")" "$file"
   "$cli" customize use "$here/$file"
   # An already open page belongs to the previous profile. Show this one's page.
-  "$cli" action run newTab.default
+  "$cli" action run newTab.page --focus
   if [[ -n "$auto" ]]; then
     sleep "$auto"
   elif [[ $n -lt ${#list[@]} ]]; then
