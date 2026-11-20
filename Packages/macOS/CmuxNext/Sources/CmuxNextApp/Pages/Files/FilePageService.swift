@@ -45,6 +45,7 @@ final class FilePageService: InternalPageProvider {
         var files: any FilePageFiles = LocalFilePageFiles()
         /// That machine's id (`local` for this Mac): a tab shows one machine's file of a path.
         var machine = "local"
+        var sourceUses: FilePageSourceContext?
     }
 
     let kind: FilePageKind
@@ -111,6 +112,7 @@ final class FilePageService: InternalPageProvider {
     }
 
     func pageView(_ key: String) -> PageWebView? { tabs[key]?.page }
+    fileprivate func sourceUses(_ key: String) -> FilePageSourceContext? { tabs[key]?.sourceUses }
 
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Each tab's key, file and page, for `debug.filepages`.
@@ -157,7 +159,7 @@ final class FilePageService: InternalPageProvider {
     @discardableResult
     func open(_ file: URL, in pane: PaneController, focus: Bool, userChose: Bool = true, readOnly: Bool = false,
               recoveredText: String? = nil, at position: FilePosition? = nil, on machine: DaemonService? = nil, noFollow: Bool = false,
-              placed: (@MainActor (SurfaceID) -> Void)? = nil, shownInPlace: (@MainActor () -> Void)? = nil) -> String {
+              placed: (@MainActor (SurfaceID) -> Void)? = nil, shownInPlace: (@MainActor () -> Void)? = nil, sourceUses: FilePageSourceContext? = nil) -> String {
         let files = machineFiles(on: machine, noFollow: noFollow)
         let real = files.canonical(file)
         // The viewers' recents are files of this Mac.
@@ -165,9 +167,15 @@ final class FilePageService: InternalPageProvider {
         let reveal = kind == .editor ? position : nil
         let machineID = files.isLocal ? "local" : machine?.machineID ?? "local"
         let tab = Tab(file: real, userChose: userChose, readOnly: readOnly, recoveredText: files.isLocal ? recoveredText : nil,
-                      reveal: reveal, files: files, machine: machineID)
+                      reveal: reveal, files: files, machine: machineID, sourceUses: files.isLocal ? sourceUses : nil)
         let key = show(in: pane, focus: focus, placed: placed, shownInPlace: shownInPlace, tab) { key in
             self.file(key) == real && self.tabs[key]?.machine == machineID && (!noFollow || (self.tabs[key]?.files as? RemoteFilePageFiles)?.noFollow == true)
+        }
+        if let sourceUses, files.isLocal {
+            tabs[key]?.sourceUses = sourceUses
+            // Preserve edits in a reused viewer; update only its originating-chat capability.
+            tabs[key]?.page?.send(command: "sourceContext", arguments: ["path": .string(real.path), "sourceUses": true,
+                                                                      "sourceContext": .string(sourceUses.id)])
         }
         if let reveal { revealAt(reveal, in: key) }
         // The user opened a file a tab already shows (perhaps one an agent opened): it is theirs now.
@@ -551,6 +559,7 @@ final class FilePageTabHost: FilePageHosting {
         self.key = key
     }
 
+    var sourceUses: FilePageSourceContext? { service?.sourceUses(key) }
     var roots: FileWorkspaceRoots { service?.roots ?? FileWorkspaceRoots(folders: []) }
     var remoteImages: Bool { service?.look.remoteImages ?? false }
     func recents() -> JSONValue { service?.recents() ?? ["items": []] }
