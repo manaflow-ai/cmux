@@ -144,6 +144,8 @@ parser.add_argument("--backdrops", default="default",
                          "(Opacity 1), opacity85 (Opacity 0.85, no picture), picture (van-gogh-starry-night at Opacity "
                          "0.85). Each run's session is SESSION/BACKDROP; every measure records the app's and "
                          "WindowServer's CPU over its keys, which is where a see-through terminal's compositing costs")
+parser.add_argument("--variants", default="",
+                    help="EXPERIMENT (lane typing-opus-idle): comma list of VARIANTS names, one launch each per mode")
 opts = parser.parse_args()
 OUT = os.path.abspath(opts.out)
 os.makedirs(OUT, exist_ok=True)
@@ -165,6 +167,42 @@ SESSION = "light"
 ROUND = 0
 # The mode being measured, when --modes is given: its id, its `native` knobs and what it cannot express here.
 MODE = None
+# EXPERIMENT (lane typing-opus-idle): app env additions, key interval and a duty-cycle warmer per variant.
+VARIANTS = {
+    "base": {},
+    "latcrit": {"env": {"CMUX_NEXT_EXP_LATENCY_CRITICAL": "1"}},
+    "nocvdl": {"env": {"CMUX_NEXT_CEF_EXTRA_SWITCHES": "disable-features=CVDisplayLinkBeginFrameSource"}},
+    "int20ms": {"interval": 0.02},
+    "int500ms": {"interval": 0.5},
+    "duty20": {"duty": 0.2},
+}
+VARIANT = {}
+
+
+def run_variant(name, body):
+    """EXPERIMENT (lane typing-opus-idle): one launch with VARIANTS[name]; runs carry `variant`."""
+    global VARIANT
+    if not name:
+        return body()
+    VARIANT = dict(VARIANTS[name], name=name)
+    saved_interval, warmer = opts.interval, None
+    opts.interval = VARIANT.get("interval", opts.interval)
+    if VARIANT.get("duty"):
+        busy_s = 0.01 * VARIANT["duty"]
+        code = (f"import time\nwhile True:\n t=time.perf_counter()\n while time.perf_counter()-t<{busy_s}: pass\n"
+                f" time.sleep({0.01 - busy_s})")
+        warmer = subprocess.Popen([sys.executable, "-I", "-c", code])
+    first = len(results["runs"])
+    note(f"variant {name}: {json.dumps(VARIANTS[name])}")
+    try:
+        body()
+    finally:
+        opts.interval = saved_interval
+        if warmer:
+            warmer.kill()
+        for run in results["runs"][first:]:
+            run["variant"] = name
+        VARIANT = {}
 
 
 # What make_load builds: --busy/--chats by default, a mode's `native` knobs with --modes.
@@ -1010,7 +1048,7 @@ def run_session(session, phases=None, backdrop="default"):
     SESSION = session if backdrop == "default" else f"{session}/{backdrop}"
     LOAD.clear()
     LOAD.update({"made": False, "workspaces": [], "chat_panes": []})
-    env = {"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"}
+    env = {"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8", **VARIANT.get("env", {})}
     if opts.chat_agent == "real":
         env.update(CMUX_NEXT_AGENT_PANE_MOCK=None, ACPMUX_AGENT_LAUNCH=None)
     config = {"browser": {"defaultEngine": "chromium"}}
@@ -1086,8 +1124,9 @@ def main():
                      f"cpu saturation {bool(native['cpuSaturation'])}"
                      + (f"; not expressed here: {'; '.join(missing)}" if missing else ""))
                 phase = "idle" if mode["id"] == "L0" else "load"
-                for backdrop in opts.backdrops.split(","):
-                    run_session(native["session"], [phase], backdrop)
+                for variant in (opts.variants.split(",") if opts.variants else [""]):
+                    run_variant(variant, lambda: [run_session(native["session"], [phase], backdrop)
+                                                  for backdrop in opts.backdrops.split(",")])
             MODE = None
         else:
             for session in sessions:
@@ -1096,7 +1135,7 @@ def main():
     finally:
         summary = {}
         for r in results["runs"]:
-            key = (f"{r['mode']}.{r['surface']}" if r.get("mode")
+            key = (f"{r['mode']}.{r['surface']}{'.' + r['variant'] if r.get('variant') else ''}" if r.get("mode")
                    else f"{r['session']}.{r['surface']}.{r['phase']}")
             summary.setdefault(key, []).append((r.get("key_to_frame_ms") or {}).get("p95"))
         results["summary_p95_ms"] = summary

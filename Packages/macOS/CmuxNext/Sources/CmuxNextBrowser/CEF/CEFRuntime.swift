@@ -13,6 +13,11 @@ import os
 /// quit.
 final class CEFRuntime {
     static let shared = CEFRuntime()
+    #if DEBUG
+    /// EXPERIMENT (lane typing-opus-idle, not for merge): `CMUX_NEXT_EXP_LATENCY_CRITICAL=1` holds a latency-critical
+    /// activity (no App Nap, no timer coalescing) from Chromium's start on.
+    private var latencyExperiment: NSObjectProtocol?
+    #endif
 
     enum State: Equatable {
         case idle
@@ -383,6 +388,11 @@ final class CEFRuntime {
         trigger: String = "tab"
     ) async throws(BrowserEngineError) {
         if let error = startError() { throw error }
+        #if DEBUG
+        if latencyExperiment == nil, environment["CMUX_NEXT_EXP_LATENCY_CRITICAL"] == "1" {
+            latencyExperiment = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .latencyCritical], reason: "typing idle experiment")
+        }
+        #endif
         if state == .ready { return }
         let task: Task<Result<CEFLoadedLibrary, BootError>, Never>
         if let loadTask {
