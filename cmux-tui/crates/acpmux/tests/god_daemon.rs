@@ -2070,6 +2070,21 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let (restart_rss, restart_peak_rss) = daemon.rss();
     drop(rpc);
     daemon.stop();
+
+    // A second restart: the first adoption left whatever it saves for the next one, so this
+    // reads what a chat costs on every restart after its first.
+    let mut daemon = Daemon::start(&scratch, &home, None);
+    let mut rpc = Rpc::connect(&daemon.socket);
+    rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "size-sweep"}}))
+        .unwrap();
+    let second_attach = rpc.call("_acpmux/attach", app_attach(&id));
+    let second_attach_ms = ms(daemon.spawned);
+    rpc.notes.clear();
+    let second_all_logs = wait_all_logs_within(&mut rpc, SIZE_ALL_LOGS);
+    let second_send = send_first_token(&mut rpc, &id, &format!("size {label} restarted twice"));
+    let (_, second_peak_rss) = daemon.rss();
+    drop(rpc);
+    daemon.stop();
     let home_bytes: u64 = home_files(&home).values().sum();
     let result = json!({
         "size": label, "source": source, "bytes": bytes, "logBytes": w.bytes, "records": w.records,
@@ -2100,6 +2115,12 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "restartSendFirstTokenUs": restart_send.as_ref().ok(),
         "restartSendError": restart_send.as_ref().err(),
         "restartRss": restart_rss, "restartPeakRss": restart_peak_rss,
+        "secondRestartAttachMs": second_attach_ms,
+        "secondRestartAttachError": second_attach.as_ref().err(),
+        "secondRestartAllLogsMs": second_all_logs.as_ref().ok(),
+        "secondRestartSendFirstTokenUs": second_send.as_ref().ok(),
+        "secondRestartSendError": second_send.as_ref().err(),
+        "secondRestartPeakRss": second_peak_rss,
         "homeBytes": home_bytes, "freeBytes": free,
     });
     if let Some(out) = std::env::var_os("FAST_CHECKS_OUT") {
@@ -2159,7 +2180,13 @@ const SIZE_RATIO_KEYS: [&str; 16] = [
     "/peakRss",
     "/restartPeakRss",
 ];
-const SIZE_LOAD_KEYS: [&str; 2] = ["/coldAllLogsMs", "/restartAllLogsMs"];
+const SIZE_LOAD_KEYS: [&str; 5] = [
+    "/coldAllLogsMs",
+    "/restartAllLogsMs",
+    "/secondRestartAttachMs",
+    "/secondRestartSendFirstTokenUs",
+    "/secondRestartPeakRss",
+];
 
 /// Each size's numbers against the first size's, and the largest ratio of [`SIZE_RATIO_KEYS`].
 fn size_ratios(base: &Value, size: &Value) -> (Value, Option<(String, f64)>) {
