@@ -81,7 +81,8 @@ jobs:
         continue-on-error: true
         env:
           PROJECTS: ${{ steps.base.outputs.projects }}
-        run: python3 scripts/ci/receipt_input_key.py key react-doctor --units "$PROJECTS" --output "$GITHUB_OUTPUT"
+          BASE: ${{ steps.base.outputs.base }}
+        run: python3 scripts/ci/receipt_input_key.py key react-doctor --units "$PROJECTS" --base "$BASE" --output "$GITHUB_OUTPUT"
 
       - name: Look up a receipt (shadow)
         id: receipt
@@ -98,10 +99,12 @@ jobs:
         continue-on-error: true
         env:
           INPUT_KEY: ${{ steps.key.outputs.input_key }}
-          HIT: ${{ steps.receipt.outputs.cache-hit == 'true' }}
+          # A change to a pinned file (the gate's own scripts, tool or workflow; a check-paths.txt line) never skips.
+          HIT: ${{ steps.receipt.outputs.cache-hit == 'true' && steps.key.outputs.pinned != 'true' }}
+          PINNED: ${{ steps.key.outputs.pinned }}
         run: |
-          echo "::notice title=ci-receipt shadow::react-doctor would_skip=$HIT input_key=$INPUT_KEY"
-          echo "ci-receipt shadow: react-doctor would_skip=$HIT input_key=$INPUT_KEY" >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=ci-receipt shadow::react-doctor would_skip=$HIT pinned=$PINNED input_key=$INPUT_KEY"
+          echo "ci-receipt shadow: react-doctor would_skip=$HIT pinned=$PINNED input_key=$INPUT_KEY" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup Bun
         if: steps.base.outputs.projects != ''

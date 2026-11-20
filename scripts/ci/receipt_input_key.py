@@ -19,7 +19,11 @@ Shadow only. Until the controller signs receipts and posts them as the check run
 (RFD 0019), nothing is skipped: the workflow looks the key up, reports `would_skip`, runs in full, and records its
 own green result. A record here is unsigned and is never skip evidence.
 
-  key CHECK [--units "a b"] [--output FILE]   print input_key (empty when no unit is selected: nothing to key)
+  key CHECK [--units "a b"] [--base SHA] [--output FILE]   print input_key (empty when no unit is selected: nothing
+        to key) and pinned=true|false: with --base, whether the change touches a pinned file, the check's own
+        `*` inputs (its scripts, tool, workflow) or a line of the base's scripts/ci/check-paths.txt (fnmatch). The
+        code under test runs those, so a run that touches one is never skipped, whatever its key (the receipt
+        signer's rule, cmuxterm-hq RFD 0019); its would-skip is false.
   record CHECK --input-key K [--base SHA] [--exit N] --out FILE   write the unsigned ci-receipt/v1 record
   replay CHECK --since ISO [--ref origin/feat-cmux-next]   the base-push hit rate this key would have had: each
         first-parent commit keyed over every unit, a hit when its key was seen on an earlier push
@@ -28,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import fnmatch
 import hashlib
 import json
 import os
@@ -97,6 +102,27 @@ def input_key(check: str, units: list[str], revision: str = "HEAD", rows=None) -
     return hashlib.sha256(blob).hexdigest(), material
 
 
+CHECK_PATHS = "scripts/ci/check-paths.txt"
+
+
+def pinned_patterns(check: str, base: str, rows=None) -> list[str]:
+    rows = load_inputs(check) if rows is None else rows
+    patterns = [rel + "/*" if kind == "tree" else rel for unit, kind, rel in rows if unit == "*"]
+    try:
+        text = git("show", f"{base}:{CHECK_PATHS}")
+    except subprocess.CalledProcessError:
+        text = ""
+    patterns += [line.strip() for line in text.splitlines() if line.strip() and not line.strip().startswith("#")]
+    return patterns
+
+
+def pinned_touched(check: str, base: str, head: str = "HEAD", rows=None) -> list[str]:
+    """The files BASE..HEAD changes that match a pinned pattern."""
+    patterns = pinned_patterns(check, base, rows)
+    changed = [p for p in git("diff", "--name-only", base, head).splitlines() if p]
+    return [p for p in changed if any(fnmatch.fnmatch(p, pattern) for pattern in patterns)]
+
+
 def record(check: str, key: str, base: str, exit_code: int) -> dict:
     env = os.environ
     server, repo = env.get("GITHUB_SERVER_URL", "https://github.com"), env.get("GITHUB_REPOSITORY", "manaflow-ai/cmux")
@@ -123,7 +149,8 @@ def main(argv: list[str] | None = None) -> int:
     k = sub.add_parser("key")
     k.add_argument("check", choices=sorted(CHECKS))
     k.add_argument("--units", default="", help="space-separated units; `all` is every unit listed")
-    k.add_argument("--output", type=Path, help="append input_key= to this file (GITHUB_OUTPUT)")
+    k.add_argument("--base", default="", help="the pull request's base: report whether it touches a pinned file")
+    k.add_argument("--output", type=Path, help="append input_key= and pinned= to this file (GITHUB_OUTPUT)")
     r = sub.add_parser("record")
     r.add_argument("check", choices=sorted(CHECKS))
     r.add_argument("--input-key", required=True)
@@ -157,10 +184,14 @@ def main(argv: list[str] | None = None) -> int:
         if units:
             key, material = input_key(args.check, units)
             print(json.dumps(material, sort_keys=True), file=sys.stderr)
-        print(f"input_key={key}")
+        touched = pinned_touched(args.check, args.base) if key and args.base else []
+        if touched:
+            print(f"pinned files touched (never skipped): {' '.join(touched[:20])}", file=sys.stderr)
+        pinned = "true" if touched else "false"
+        print(f"input_key={key}\npinned={pinned}")
         if args.output:
             with args.output.open("a", encoding="utf-8") as handle:
-                handle.write(f"input_key={key}\n")
+                handle.write(f"input_key={key}\npinned={pinned}\n")
         return 0
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(record(args.check, args.input_key, args.base, args.exit), indent=2) + "\n")

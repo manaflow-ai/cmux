@@ -80,6 +80,21 @@ class KeyTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.key(["unlisted"])
 
+    def test_pinned_files_are_reported(self):
+        base = self.git("rev-parse", "HEAD")
+        self.write("scripts/ci/check-paths.txt", "# pinned\nscripts/ci/check-*\n")
+        self.commit()
+        base = self.git("rev-parse", "HEAD")
+        self.write("app/a.tsx", "changed")
+        self.commit()
+        self.assertEqual(rik.pinned_touched("react-doctor", base, rows=ROWS), [], "a project file is not pinned")
+        self.write("gate.py", "changed")
+        self.write("scripts/ci/check-lint.sh", "x")
+        self.write("app2/x.ts", "x")
+        self.commit()
+        self.assertEqual(sorted(rik.pinned_touched("react-doctor", base, rows=ROWS)),
+                         ["gate.py", "scripts/ci/check-lint.sh"])
+
     def test_record_is_ci_receipt_v1_with_input_key(self):
         rec = rik.record("react-doctor", "k" * 64, "b" * 40, 0)
         for field in ("schema", "check", "repo", "tree", "base", "command_sha256", "exit", "runner", "logs",
