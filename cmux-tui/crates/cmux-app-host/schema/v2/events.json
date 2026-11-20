@@ -44,6 +44,10 @@
       "readsParams": { "provider": "github", "method": "GET" },
       "scope": "integration:github:read"
     },
+    "app.storage.changed": {
+      "docs": "Another of the person's devices changed this app's synced storage (an app granted storage:synced). The body is {\"keys\": [...]}, the keys that changed here; read them again with cmux.storage.get or cmux.storage.keys. An app with only storage:local never hears it.",
+      "reads": "app.storage.get"
+    },
     "theme.changed": {
       "docs": "The theme changed: the theme, app theme, theme file, theme edits, accent, hue, saturation or highlight color. Theme tones (cmux.theme) repaint on their own; read settings.get again for anything you derive from them.",
       "reads": "settings.get"
