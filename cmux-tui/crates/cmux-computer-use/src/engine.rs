@@ -1640,8 +1640,10 @@ impl Engine {
             SettleMode::Adaptive => {
                 // The floor ends at the app's own signal (and its burst),
                 // not at a fixed time: a watch that can block wakes on it.
-                let signals_before = signals_then;
-                self.wait_change(watch, signals_before.unwrap_or(0), s.floor);
+                // The watch counts from before the action (it starts at 0
+                // then): a signal the app sent while the action ran counts.
+                let signals_before = watch.map(|_| 0u32);
+                self.wait_change(watch, signals_then.unwrap_or(0), s.floor);
                 // The newest capture that changed: a later one compares with
                 // it, so an unchanged one after it means the window held.
                 let mut changed_shot: Option<ToolOutput> = None;

@@ -260,37 +260,19 @@ fn a_silent_app_is_not_watched_frame_by_frame() {
 }
 
 /// An app that signalled a change its window does not show yet is still
-/// watched until the change shows (within the ceiling).
+/// watched until the change shows (within the ceiling), a signal it sent
+/// while the action ran included: the watch counts from before the action.
 #[test]
 fn a_signalled_change_is_waited_for_until_it_shows() {
     let d = Arc::new(FakeDesktop::standard());
-    *d.signals.lock().unwrap() = Some(crate::desktop::Signals::default());
     let (e, _) = settling_engine(d.clone());
     assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
-    // The app signalled (the action's effect is under way); it redraws on
-    // the third capture after the agent's screenshot.
+    // One signal since the watch started (sent while the key went in); the
+    // app redraws on the third capture after the agent's screenshot.
     *d.signals.lock().unwrap() =
         Some(crate::desktop::Signals { in_window: 1, ..Default::default() });
     *d.repaint_from.lock().unwrap() = Some((4, 77));
-    let mut out = ToolOutput::ok(json!({"evidence": "delivered"}));
-    let app = e.app_of(&e.window("1").unwrap());
-    let before = Arc::new(Mutex::new(Some(crate::desktop::Signals::default())));
-    struct Then(Arc<Mutex<Option<crate::desktop::Signals>>>, Arc<FakeDesktop>);
-    impl Watch for Then {
-        fn signals(&self) -> crate::desktop::Signals {
-            // The first read is from before the action; later reads see the
-            // desktop's signals.
-            match self.0.lock().unwrap().take() {
-                Some(s) => s,
-                None => self.1.signals.lock().unwrap().clone().unwrap_or_default(),
-            }
-        }
-        fn listening(&self) -> bool {
-            true
-        }
-    }
-    let watch = Then(before, d.clone());
-    e.attach_state(&ctx(None), "1", &app, &mut out, SettleMode::Adaptive, false, Some(&watch));
+    let out = e.call(&ctx(None), "press_key", &json!({"window_id": "1", "keys": "Return"}));
     assert_eq!(out.body["state"]["unchanged"], false, "{}", out.body);
     assert_eq!(*d.captures.lock().unwrap(), 1 + 3);
 }
@@ -321,7 +303,9 @@ fn a_delivered_action_with_no_visible_change_says_so() {
     assert_eq!(out.body["evidence"], "no_visible_change", "{}", out.body);
     assert!(out.body.get("shows").is_none(), "{}", out.body);
     let note = out.body["note"].as_str().unwrap();
-    assert!(note.contains("no visible change within 1000 ms"), "{}", out.body);
+    // The app signalled nothing and its window held at the first look: the
+    // settle ends there (ask-cdfac12eab), not at the 1 s ceiling.
+    assert!(note.contains("no visible change within 120 ms"), "{}", out.body);
     assert!(note.contains("take a screenshot before retrying"), "{}", out.body);
 }
 
