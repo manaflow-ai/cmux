@@ -635,8 +635,12 @@ if [[ "$mode" == release-build ]]; then
   build_settings=(CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO)
 fi
 if [[ "$mode" == handoff ]]; then
-  # The task's own install beside every other build: its bundle id, home-screen name and commit.
-  build_settings+=("CMUX_MOBILE_TAG=.$handoff_tag" "CMUX_MOBILE_DISPLAY_NAME=cmux $handoff_tag"
+  # The task's own install beside every other build: its bundle id, home-screen name and commit, and
+  # its tag's cloud data space (Info.plist CmuxMobileDevTag, `X-Cmux-Build-Space: dev:<tag>`), the space
+  # its same-tag Mac app's hostd registers in. project.yml sets CMUX_MOBILE_DEV_TAG only for Debug: a
+  # shared Demo build (demo-build.sh) stays in the default space, and only the hand-off's Demo build gets
+  # one. The tag is already a slug (checked above), so the space is `dev:<tag>` as the Mac's is.
+  build_settings+=("CMUX_MOBILE_TAG=.$handoff_tag" "CMUX_MOBILE_DEV_TAG=.$handoff_tag" "CMUX_MOBILE_DISPLAY_NAME=cmux $handoff_tag"
     "CMUX_MOBILE_SOURCE_COMMIT=$(git rev-parse HEAD)")
 fi
 build_command=(xcodebuild -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration "$configuration"

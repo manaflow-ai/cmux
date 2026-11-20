@@ -1106,7 +1106,8 @@ jobs:
 
       - name: Validate runner label policy
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_runner_label_policy.py
+        # check_runs_on_pools: same-repo Linux jobs read fromJSON(vars.RUNNER_POOLS), never a literal label.
+        run: python3 tests/test_runner_label_policy.py && python3 scripts/ci/tests/test_check_runs_on_pools.py
 
       - name: Validate side-lane runs-on reads the capability label array
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1176,6 +1177,10 @@ jobs:
       - name: Validate label events skip CI for labels it does not read
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_label_events_skip_full_ci.py
+
+      - name: Validate edits and comments start no runner
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_edit_events_start_no_runner.py
 
       - name: Validate required checks have no paths filters
         if: ${{ !cancelled() && matrix.group == 'ci' }}
