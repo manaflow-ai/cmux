@@ -1088,6 +1088,9 @@ check_no_github_hosted_runners() {
   local hosted='(^|[^A-Za-z0-9_-])(ubuntu-(latest|slim|[0-9]{2}[.][0-9]{2}(-arm)?)|macos-(latest|[0-9]+(-intel|-large|-xlarge|-arm64)?)|windows-(latest|[0-9]{4}(-arm)?|11-arm))([^A-Za-z0-9_.-]|$)'
   local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)"
   local trusted_list='fromJSON[(]'"'"'[[]"ubuntu-24[.]04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
+  # Strip only the bounded mirror term, never an unconditional hosted fallback.
+  # Both scanners share this expression; unsupported labels stay visible.
+  local mirror_term="contains[(]fromJSON[(]'[[]\"ubuntu-24[.]04\",\"blacksmith-(4|8|16)vcpu-ubuntu-2404\"(,\"blacksmith-(4|8|16)vcpu-ubuntu-2404\")*[]]'[)], vars[.]LINUX_RUNNER[)] [&][&] vars[.]LINUX_RUNNER"
   # The signer route's exact runs-on line (its exception below): GitHub-hosted Ubuntu on every attempt.
   # Nightlies never run on Blacksmith (Lawrence, 2026-10-30), so a re-run or a slow hosted start
   # (run 41684606067's signer-app queued 9.3 min) waits for hosted Ubuntu instead of moving to Blacksmith.
@@ -1192,7 +1195,7 @@ SIGNER_BUILD_ROUTE
                "runs-on: \${{ vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}" 'runs-on: macos-15-intel' 'runs-on: windows-2025' \
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-22.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && fromJSON(vars.RUNNER_POOLS).linux_4 || 'ubuntu-24.04' }}"; do
-    if ! printf '%s\n' "$probe" | sed -E "s/$fork_branch//g; s/$trusted_list//g" | grep -Eq "$hosted"; then
+    if ! printf '%s\n' "$probe" | sed -E "s/$fork_branch//g; s/$trusted_list//g; s/$mirror_term//g" | grep -Eq "$hosted"; then
       echo "FAIL: GitHub-hosted runner guard self-test missed a GitHub-hosted label: $probe"
       exit 1
     fi
@@ -1201,7 +1204,7 @@ SIGNER_BUILD_ROUTE
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || 'blacksmith-4vcpu-windows-2025' }}" \
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
                '- blacksmith-6vcpu-macos-15' 'runs-on: blacksmith-4vcpu-ubuntu-2404-arm' '- warp-macos-15-arm64-6x'; do
-    if printf '%s\n' "$probe" | sed -E "s/$fork_branch//g; s/$trusted_list//g" | grep -Eq "$hosted"; then
+    if printf '%s\n' "$probe" | sed -E "s/$fork_branch//g; s/$trusted_list//g; s/$mirror_term//g" | grep -Eq "$hosted"; then
       echo "FAIL: GitHub-hosted runner guard self-test flagged an allowed runner: $probe"
       exit 1
     fi
@@ -1226,10 +1229,10 @@ SIGNER_BUILD_ROUTE
     # YAML parses each workflow, and a multi-line value under runs-on, os or a
     # *runner* key fails when its joined text names a hosted label (the same
     # fork-branch and nightly rules; no exact-line exception can name it).
-    python3 -W ignore::FutureWarning - "$dir" "$ROOT_DIR" "$hosted" "$fork_branch" "$trusted_list" "$nightly_hosted" <<'PY'
+    python3 -W ignore::FutureWarning - "$dir" "$ROOT_DIR" "$hosted" "$fork_branch" "$trusted_list" "$nightly_hosted" "$mirror_term" <<'PY'
 import pathlib, re, sys, yaml
 root, repo = pathlib.Path(sys.argv[1]), sys.argv[2]
-hosted, fork, trusted, nightly = (re.compile(p) for p in sys.argv[3:7])
+hosted, fork, trusted, nightly, mirror = (re.compile(p) for p in sys.argv[3:8])
 key = re.compile(r"^(runs-on|runs_on|os|labels|group|[A-Za-z0-9_-]*runner[A-Za-z0-9_-]*)$", re.IGNORECASE)
 def spans(node):
     """A scalar under a runner key that starts and ends on different lines."""
@@ -1254,7 +1257,7 @@ for f in sorted(root.rglob("*.y*ml")):
         text = " ".join(text.split())
         if is_nightly:
             text = nightly.sub("", text)
-        if not hosted.search(trusted.sub("", fork.sub("", text))):
+        if not hosted.search(mirror.sub("", trusted.sub("", fork.sub("", text)))):
             continue
         print(f"FAIL: multi-line runner selection (write it on one line so this guard can read it): "
               f"{str(f).removeprefix(repo + '/')}:{line}: {name}"[:260])
@@ -1270,7 +1273,7 @@ PY
       if [[ "$(basename "$file")" == *nightly*.yml || "$(basename "$file")" == *notarization*.yml ]]; then
         content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
       fi
-      stripped="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/$trusted_list//g")"
+      stripped="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/$trusted_list//g; s/$mirror_term//g")"
       printf '%s\n' "$stripped" | grep -Eq "$hosted" || continue
       if grep -Fxq "$file:$line_number" <<<"$light_locations"; then continue; fi
       allowed=0
@@ -1309,6 +1312,12 @@ jobs:
     with:
       linux_runner: >-
         ${{ vars.X || 'ubuntu-24.04' }}
+  unsupported_mirror:
+    runs-on: ${{ contains(fromJSON('["ubuntu-22.04","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+  unsupported_multiline_mirror:
+    runs-on: >-
+      ${{ contains(fromJSON('["ubuntu-24.04","self-hosted"]'), vars.LINUX_RUNNER) &&
+      vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
 YAML
   cat > "$fixture/clean-nightly.yml" <<'YAML'
 jobs:
@@ -1324,11 +1333,17 @@ jobs:
       CMUX_CI_RUNNER_VARIABLES: |
         LINUX_RUNNER=${{ vars.LINUX_RUNNER }}
         MACOS_RUNNER_26=${{ vars.MACOS_RUNNER_26 }}
+  bounded_mirror:
+    runs-on: ${{ contains(fromJSON('["ubuntu-24.04","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+  bounded_multiline_mirror:
+    runs-on: >-
+      ${{ contains(fromJSON('["ubuntu-24.04","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) &&
+      vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
 YAML
   scan_out="$(hosted_scan "$fixture")"
   rm -rf "$fixture"
-  if [[ "$(grep -c '^FAIL:' <<<"$scan_out")" -ne 8 ]] || grep -q 'clean-nightly.yml' <<<"$scan_out"; then
-    echo "FAIL: GitHub-hosted runner guard self-test: the scan must flag exactly the eight hosted selections in its fixture and nothing in the clean one:"
+  if [[ "$(grep -c '^FAIL:' <<<"$scan_out")" -ne 10 ]] || grep -q 'clean-nightly.yml' <<<"$scan_out"; then
+    echo "FAIL: GitHub-hosted runner guard self-test: the scan must flag exactly the ten hosted selections in its fixture and nothing in the clean one:"
     echo "$scan_out"
     exit 1
   fi
