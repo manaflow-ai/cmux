@@ -1,4 +1,4 @@
-//! macOS parts of cmux Remote: the staged copy of the signed bundle, the
+//! macOS parts of cmux Computer Use: the staged copy of the signed bundle, the
 //! responsibility-disclaimed spawn, and process identity checks.
 
 use cmux_process::{Command, Stdio};
@@ -11,12 +11,6 @@ use serde_json::Value;
 
 use super::Paths;
 
-/// cmux's signing team: the staged copy must carry it (Developer ID in
-/// Release, the pinned Apple Development signature in DEV builds), so its
-/// grants hold across builds and an ad-hoc copy never runs.
-const TEAM: &str = "7WLXT3NR37";
-const BUNDLE_IDS: [&str; 2] = ["com.cmuxterm.remote", "com.cmuxterm.remote.dev"];
-const BUNDLE_NAMES: [&str; 2] = ["cmux Remote.app", "cmux Remote (dev).app"];
 const EXECUTABLE: &str = "cmux-remote";
 const LOCAL_PEERPID: libc::c_int = 0x002;
 
@@ -49,24 +43,20 @@ pub(super) fn embedded() -> Result<PathBuf, String> {
         .and_then(Path::parent)
         .and_then(Path::parent)
         .ok_or("the daemon is not inside an app bundle")?;
-    BUNDLE_NAMES
-        .iter()
-        .map(|name| contents.join("Library").join(name))
-        .find(|path| path.join("Contents/MacOS").join(EXECUTABLE).is_file())
-        .ok_or_else(|| "this cmux build has no cmux Remote".into())
+    cmux_signed_bundle::computer_use::embedded(contents, EXECUTABLE)
+        .ok_or_else(|| "this cmux build has no cmux Computer Use helper".into())
 }
 
 pub(super) fn bundle_id(app: &Path) -> Option<String> {
     cmux_signed_bundle::bundle_id(app)
 }
 
-/// Whether `app` is a valid, sealed cmux Remote of cmux's team.
+/// Whether `app` is a valid, sealed cmux Computer Use of cmux's team.
 fn verify(app: &Path) -> Result<(), String> {
     let id = bundle_id(app).ok_or("the bundle has no identifier")?;
-    if !BUNDLE_IDS.contains(&id.as_str()) {
-        return Err(format!("{id} is not cmux Remote"));
-    }
-    cmux_signed_bundle::verify(app, &cmux_signed_bundle::team_requirement(&id, TEAM))
+    let requirement = cmux_signed_bundle::computer_use::requirement(app, &id)
+        .ok_or_else(|| format!("{id} is not the cmux Computer Use helper"))?;
+    cmux_signed_bundle::verify(app, &requirement)
 }
 
 /// The verified copy of the embedded bundle that runs, always at one path,
@@ -101,7 +91,7 @@ pub(super) fn stage(state: &Path) -> Result<Staged, String> {
         let copy = temporary.join(name);
         if cmux_signed_bundle::ditto(&source, &copy).is_err() {
             let _ = std::fs::remove_dir_all(&temporary);
-            return Err("cannot copy cmux Remote out of the app".into());
+            return Err("cannot copy cmux Computer Use out of the app".into());
         }
         if let Err(error) = verify(&copy).and_then(|()| {
             (cmux_signed_bundle::digest_of(&copy, &parts)? == digest)
@@ -175,7 +165,7 @@ fn prune(root: &Path) {
 }
 
 /// Starts the host with responsibility disclaimed (its own responsible
-/// process: macOS checks its grants as cmux Remote's), in its own session,
+/// process: macOS checks its grants as cmux Computer Use's), in its own session,
 /// with the bootstrap line on fd 3, and waits for its `ready` line. Without
 /// the disclaim it does not start: the grants would belong to cmux.
 pub(super) fn spawn_host(
@@ -223,11 +213,13 @@ pub(super) fn spawn_host(
     use std::os::fd::AsFd;
     command.inherit_fd(bootstrap_read.as_fd(), 3).map_err(|error| format!("{error}"))?;
     let mut child =
-        command.spawn().map_err(|error| format!("cmux Remote did not start: {error}"))?;
-    child.detach("cmux Remote runs in its own session and outlives this daemon; launchd reaps it");
+        command.spawn().map_err(|error| format!("cmux Computer Use did not start: {error}"))?;
+    child.detach(
+        "cmux Computer Use runs in its own session and outlives this daemon; launchd reaps it",
+    );
     drop(bootstrap_read);
     let pid = child.id();
-    let stdout = child.stdout.take().ok_or("cmux Remote has no stdout")?;
+    let stdout = child.stdout.take().ok_or("cmux Computer Use has no stdout")?;
     // Reaps the host whenever it exits while this daemon lives (its own
     // session survives this daemon; launchd reaps it then).
     let _ = std::thread::Builder::new().name("remote-host-reap".into()).spawn(move || {
@@ -245,7 +237,10 @@ pub(super) fn spawn_host(
     if written.is_err() || !matches!(receiver.recv_timeout(ready_timeout), Ok(true)) {
         // SAFETY: a signal to the child we just started.
         unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
-        return Err(format!("cmux Remote did not report ready (see {})", paths.log().display()));
+        return Err(format!(
+            "cmux Computer Use did not report ready (see {})",
+            paths.log().display()
+        ));
     }
     Ok(pid)
 }

@@ -7,6 +7,8 @@
 //! requirement. The tools it runs exist on macOS only; elsewhere every call that runs one
 //! fails, and the rest (the digest, the slots, the pruning) is tested on any Unix.
 
+pub mod computer_use;
+
 use cmux_process::{Command, Stdio};
 use std::io::Read;
 use std::path::{Path, PathBuf};

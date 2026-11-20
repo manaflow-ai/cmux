@@ -9,7 +9,7 @@ fn dir(tag: &str) -> PathBuf {
 
 fn slot(root: &Path, name: &str, marker: &str) {
     let s = root.join(name);
-    std::fs::create_dir_all(s.join("cmux Remote (dev).app")).unwrap();
+    std::fs::create_dir_all(s.join("cmux Computer Use (dev).app")).unwrap();
     std::fs::write(s.join(".verified"), marker).unwrap();
 }
 
@@ -19,7 +19,7 @@ fn a_new_build_moves_into_the_one_stable_path_and_old_layouts_go() {
     slot(&root, CURRENT, "old");
     slot(&root, NEXT, "new");
     slot(&root, "0123456789abcdef", "older layout");
-    let app = root.join(CURRENT).join("cmux Remote (dev).app");
+    let app = root.join(CURRENT).join("cmux Computer Use (dev).app");
     let staged = Staged {
         executable: app.join("Contents/MacOS/cmux-remote"),
         app: app.clone(),
@@ -40,7 +40,7 @@ fn nothing_waiting_keeps_current_and_a_live_staging_folder() {
     slot(&root, CURRENT, "same");
     let live = root.join(format!(".staging-{}", std::process::id()));
     std::fs::create_dir_all(&live).unwrap();
-    let app = root.join(CURRENT).join("cmux Remote (dev).app");
+    let app = root.join(CURRENT).join("cmux Computer Use (dev).app");
     let staged = Staged {
         executable: app.join("Contents/MacOS/cmux-remote"),
         app,

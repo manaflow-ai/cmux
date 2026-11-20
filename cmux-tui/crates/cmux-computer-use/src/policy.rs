@@ -217,6 +217,8 @@ const PROTECTED_IDS: &[&str] = &[
     "com.apple.coreauthentication.agent",
     "com.apple.localauthenticationremoteservice",
     "com.apple.usernotificationcenter",
+    "com.cmuxterm.cua",
+    "com.cmuxterm.cua.dev",
     "com.cmuxterm.remote",
     "com.cmuxterm.remote.dev",
     "cmux-remote",
@@ -234,8 +236,12 @@ pub fn protected_prefixes() -> &'static [&'static str] {
     PROTECTED_PREFIXES
 }
 
-const PROTECTED_PREFIXES: &[&str] =
-    &["com.apple.coreauthentication.", "com.apple.localauthentication.", "com.cmuxterm.remote."];
+const PROTECTED_PREFIXES: &[&str] = &[
+    "com.apple.coreauthentication.",
+    "com.apple.localauthentication.",
+    "com.cmuxterm.cua.",
+    "com.cmuxterm.remote.",
+];
 
 /// Never usable, in any mode, and not on the editable list.
 fn protected(app_id: &str) -> bool {

@@ -312,15 +312,15 @@ fn a_protected_item_is_hidden_from_a_menu_listing_with_nothing_denied() {
     *d.popups.lock().unwrap() = vec![FakePopup {
         window: "1".into(),
         element: "p3".into(),
-        items: ["Keep", "Open in cmux Remote"].map(String::from).to_vec(),
+        items: ["Keep", "Open in cmux Computer Use"].map(String::from).to_vec(),
         value: "Keep".into(),
         ..Default::default()
     }];
-    *d.installed.lock().unwrap() = vec![("cmux Remote".into(), "com.cmuxterm.remote".into())];
+    *d.installed.lock().unwrap() = vec![("cmux Computer Use".into(), "com.cmuxterm.cua".into())];
     let out = e.call(&ctx("x1"), "click", &json!({"window_id": "1", "element_id": "p3"}));
     assert!(!out.is_error, "{:?}", out.body);
     assert_eq!(out.body["menu"]["hidden"], 1);
-    assert!(!out.body["menu"].to_string().contains("cmux Remote"));
+    assert!(!out.body["menu"].to_string().contains("cmux Computer Use"));
 }
 
 /// Menu mode: a click opens the pop-up's menu, the state lists only its
