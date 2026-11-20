@@ -1,4 +1,4 @@
-import React, { useCallback, useImperativeHandle, useRef, useState, type RefObject } from "react";
+import React, { useCallback, useImperativeHandle, useInsertionEffect, useRef, useState, type RefObject } from "react";
 import { type ComposerAttachment, type DroppedKind, inlineCopyId } from "./attachments";
 import { composerCopy, forgetCopy, pastePlan, pastesPlaced, writeComposerCopy } from "./composer/composerCopy";
 import { useInlineAttachments } from "./composer/inlineAttachments";
@@ -15,6 +15,7 @@ import { ChromeArea, type HideableChromeItem } from "../../ui/HideableChrome";
 import { ComposerListAnchor } from "./backdropLayer";
 import { remember } from "./composer/pasteMarks";
 import { acpmuxPerf } from "./perf";
+import { holdFlag, setRef } from "./heldFlag";
 
 /// What keeps its own press inside the composer card (`focusFromCard`): the text, controls, the menus
 /// and dialogs the card opens, and attachments.
@@ -173,32 +174,29 @@ export function ComposerBox({
     [fieldRef],
   );
   const ownAttachments = useRef(attachments);
-  if (!attachmentsRef) ownAttachments.current = attachments;
   /// Set while a file with no caret of its own is attached (a Pasted text chip with no node, kept as
   /// a file): its intake places it synchronously (attachmentIntake.tsx), so `place` reads this in
   /// the same call and puts it at the start of the prompt, as every attachment goes in the text.
   const atStart = useRef(false);
   // A huge paste is a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
   const keepsTextNow = useRef({ keeps: pasteKeepsText, refused: onPasteRefused });
-  keepsTextNow.current = { keeps: pasteKeepsText, refused: onPasteRefused };
   const pastedChips = usePastedChips(
     attachmentsRef ?? ownAttachments,
     setAttachments,
     prompt,
-    onPasteFile &&
-      ((file, inText = true) => {
-        atStart.current = !inText;
-        try {
-          onPasteFile(file);
-        } finally {
-          atStart.current = false;
-        }
-      }),
+    onPasteFile && ((file, inText = true) => holdFlag(atStart, !inText, () => onPasteFile(file))),
     () => keepsTextNow.current.keeps,
     () => keepsTextNow.current.refused?.(),
   );
   const plainPaste = useRef(pastedChips.plainPaste);
-  plainPaste.current = pastedChips.plainPaste;
+  // The latest of each, written as the render commits: every reader is a handler or an effect, and a
+  // write during render keeps the box out of the React Compiler (each key then re-creates every child's
+  // props).
+  useInsertionEffect(() => {
+    if (!attachmentsRef) ownAttachments.current = attachments;
+    keepsTextNow.current = { keeps: pasteKeepsText, refused: onPasteRefused };
+    plainPaste.current = pastedChips.plainPaste;
+  });
   const inline = useInlineAttachments({
     field: prompt,
     scope: field.selectionKey,
@@ -220,7 +218,7 @@ export function ComposerBox({
     ...(originalFailures ? { originalFailures } : {}),
   });
   // A block pasted again opens its chip as a click does, kept for an undo.
-  pastedChips.opens.current = inline.expand;
+  setRef(pastedChips.opens, inline.expand);
   useImperativeHandle(
     handle,
     () => ({
@@ -256,98 +254,6 @@ export function ComposerBox({
     }
     if (onCancelAttachment) for (const chip of pending ?? []) if (!placed.has(chip.id)) inline.cancel(chip.id);
   };
-  // The field's own handlers, held in one function each across the box's renders: the memoized
-  // MarkdownField then draws again only when what it shows changed (MarkdownField.tsx
-  // sameMarkdownFieldProps). Each calls this render's, which reads this render's props.
-  const fieldNow = {
-    onReady: () => {
-      inline.ready();
-      field.onReady?.();
-    },
-    onCopy: (copy: Parameters<NonNullable<MarkdownFieldProps["onCopy"]>>[0], cut: boolean) => {
-      const made = composerCopy(copy.parts, copy.whole, staged());
-      // Text alone is the field's own copy: the last copy with attachments is gone from the pasteboard.
-      if (!made) {
-        forgetCopy();
-        return false;
-      }
-      writeComposerCopy(made);
-      if (cut && copy.whole) dropStrip();
-      return true;
-    },
-    onPasteFirst: (event: ClipboardEvent) => {
-      const plan = pastePlan(event.clipboardData, inline.known);
-      if (!plan || (!onPasteFiles && plan.some((part) => "file" in part))) return false;
-      pastesPlaced.add(event);
-      onPersonEdit?.();
-      for (const part of plan) {
-        if ("text" in part) prompt.current?.insertText(part.text);
-        // An attachment the prompt still has comes back as a copy of it; one cut from it, as itself.
-        else if ("id" in part)
-          prompt.current?.insertInline(
-            [staged().some((each) => each.id === part.id) ? inlineCopyId(part.id) : part.id],
-            true,
-          );
-        else onPasteFiles?.([part.file]);
-      }
-      return true;
-    },
-    onChange: (markdown: string, caret: number) => {
-      inline.edited(markdown);
-      field.onChange(markdown, caret);
-    },
-    onBeforeInput: (...[data, state]: Parameters<NonNullable<MarkdownFieldProps["onBeforeInput"]>>) => {
-      // A huge paste is a chip, the prompt as it was (pastedText.ts); a chip's own text going
-      // back in is the person's to edit, never the host's (shell mode).
-      if (state.paste && !state.composing && pastedChips.take(data)) {
-        onPersonEdit?.();
-        return true;
-      }
-      if (pastedChips.expanding.current) return false;
-      return onBeforeInput?.(data, state) ?? false;
-    },
-    onKeyDown: (event: KeyboardEvent) => {
-      // Every key belongs to the input method while it composes.
-      const composing = event.isComposing || event.keyCode === 229;
-      if (!composing && isPasteAsPlainTextKey(event)) pastedChips.plainPaste();
-      // Delete over the whole draft takes the strip's attachments with its text.
-      if (
-        !composing &&
-        whole &&
-        (event.key === "Backspace" || event.key === "Delete") &&
-        !event.ctrlKey &&
-        !event.altKey
-      ) {
-        dropStrip();
-        onKeyDown?.(event);
-        return;
-      }
-      // Backspace at the prompt's start takes back the last chip (backspacedAttachment).
-      const backspaced = composing
-        ? undefined
-        : backspacedAttachment(
-            event,
-            prompt.current?.atStart() ?? false,
-            attachments.filter((chip) => attachmentView === "strip" || !placed.has(chip.id)),
-          );
-      if (backspaced) {
-        event.preventDefault();
-        inline.remove(backspaced.id);
-        return;
-      }
-      onKeyDown?.(event);
-    },
-  };
-  const fieldLatest = useRef(fieldNow);
-  fieldLatest.current = fieldNow;
-  const [fieldHandlers] = useState((): typeof fieldNow => ({
-    onReady: () => fieldLatest.current.onReady(),
-    onCopy: (copy, cut) => fieldLatest.current.onCopy(copy, cut),
-    onPasteFirst: (event) => fieldLatest.current.onPasteFirst(event),
-    onChange: (markdown, caret) => fieldLatest.current.onChange(markdown, caret),
-    onBeforeInput: (data, state) => fieldLatest.current.onBeforeInput(data, state),
-    onKeyDown: (event) => fieldLatest.current.onKeyDown(event),
-  }));
   // A press on the card around the text (the field's padding, the gap around the button row, the
   // card's edge) focuses the prompt where its caret was, as in Codex and Claude Code, whose whole
   // input card is the text area. The text keeps its own press (caret, selection), and the card's
@@ -383,8 +289,7 @@ export function ComposerBox({
   const attachBox = useCallback(
     (node: HTMLDivElement | null) => {
       setBoxElement(node);
-      if (typeof boxRef === "function") boxRef(node);
-      else if (boxRef) boxRef.current = node;
+      setRef(boxRef, node);
     },
     [boxRef],
   );
@@ -427,16 +332,87 @@ export function ComposerBox({
           <MarkdownField
             ref={setPrompt}
             {...field}
-            onReady={fieldHandlers.onReady}
+            onReady={() => {
+              inline.ready();
+              field.onReady?.();
+            }}
             onInlineViews={inline.onInlineViews}
             isInlineAttachment={inline.known}
             onWholeSelection={setWhole}
-            onCopy={fieldHandlers.onCopy}
-            onPasteFirst={fieldHandlers.onPasteFirst}
-            onChange={fieldHandlers.onChange}
-            onBeforeInput={fieldHandlers.onBeforeInput}
+            onCopy={(copy, cut) => {
+              const made = composerCopy(copy.parts, copy.whole, staged());
+              // Text alone is the field's own copy: the last copy with attachments is gone from the pasteboard.
+              if (!made) {
+                forgetCopy();
+                return false;
+              }
+              writeComposerCopy(made);
+              if (cut && copy.whole) dropStrip();
+              return true;
+            }}
+            onPasteFirst={(event) => {
+              const plan = pastePlan(event.clipboardData, inline.known);
+              if (!plan || (!onPasteFiles && plan.some((part) => "file" in part))) return false;
+              pastesPlaced.add(event);
+              onPersonEdit?.();
+              for (const part of plan) {
+                if ("text" in part) prompt.current?.insertText(part.text);
+                // An attachment the prompt still has comes back as a copy of it; one cut from it, as itself.
+                else if ("id" in part)
+                  prompt.current?.insertInline(
+                    [staged().some((each) => each.id === part.id) ? inlineCopyId(part.id) : part.id],
+                    true,
+                  );
+                else onPasteFiles?.([part.file]);
+              }
+              return true;
+            }}
+            onChange={(markdown, caret) => {
+              inline.edited(markdown);
+              field.onChange(markdown, caret);
+            }}
+            onBeforeInput={(data, state) => {
+              // A huge paste is a chip, the prompt as it was (pastedText.ts); a chip's own text going
+              // back in is the person's to edit, never the host's (shell mode).
+              if (state.paste && !state.composing && pastedChips.take(data)) {
+                onPersonEdit?.();
+                return true;
+              }
+              if (pastedChips.expanding.current) return false;
+              return onBeforeInput?.(data, state) ?? false;
+            }}
             // ui-allow: the prompt field's own editing keys (⌘⇧V's paste stays text), before the host's.
-            onKeyDown={fieldHandlers.onKeyDown}
+            onKeyDown={(event) => {
+              // Every key belongs to the input method while it composes.
+              const composing = event.isComposing || event.keyCode === 229;
+              if (!composing && isPasteAsPlainTextKey(event)) pastedChips.plainPaste();
+              // Delete over the whole draft takes the strip's attachments with its text.
+              if (
+                !composing &&
+                whole &&
+                (event.key === "Backspace" || event.key === "Delete") &&
+                !event.ctrlKey &&
+                !event.altKey
+              ) {
+                dropStrip();
+                onKeyDown?.(event);
+                return;
+              }
+              // Backspace at the prompt's start takes back the last chip (backspacedAttachment).
+              const backspaced = composing
+                ? undefined
+                : backspacedAttachment(
+                    event,
+                    prompt.current?.atStart() ?? false,
+                    attachments.filter((chip) => attachmentView === "strip" || !placed.has(chip.id)),
+                  );
+              if (backspaced) {
+                event.preventDefault();
+                inline.remove(backspaced.id);
+                return;
+              }
+              onKeyDown?.(event);
+            }}
           />
           {inline.chips}
           {fieldOverlay}
