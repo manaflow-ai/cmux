@@ -5,6 +5,7 @@
 //! packaging and defaults are unchanged.
 
 use std::env;
+#[cfg(target_os = "macos")]
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::path::PathBuf;
 
