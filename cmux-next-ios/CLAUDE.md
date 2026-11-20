@@ -23,7 +23,7 @@ covers your change:
 
 ## Hand-off command
 
-This is the root [CLAUDE.md](../CLAUDE.md#finishing-a-task) "Finishing a task" hand-off for the
+This is the ["Finishing a task"](../skills/cmux-dev-workflow/references/finishing-a-task.md) hand-off for the
 iPhone app. Its phone leg passed end to end on 2026-11-18 on a real iPhone 16 Plus (tag
 `phone-e2e-1118`, [#46718](https://github.com/manaflow-ai/cmux/pull/46718)) in all three modes:
 default, `--manual-pairing` and `--no-auth`. Report any failure as the phone's blocker. It leaves the task's build on every connected iPhone,
@@ -63,7 +63,7 @@ It does, in order, and exits non-zero if any phone fails a check or none is conn
    published to HQ, Tag Opener `http://127.0.0.1:17320/<task-slug>`), and in one simulator step
    (`cmux-next-ios-sim.sh handoff tag=<task-slug>`) the iPhone app (Demo configuration with the
    DEBUG developer surface, bundle `dev.cmux.mobile.<task-slug>`, home-screen name
-   "cmux <task-slug>", an unsigned device app) plus the fleet simulator check: signed in with the
+   "cmux <task-slug>", the tag's cloud build space `dev:<task-slug>` like its Mac's, an unsigned device app) plus the fleet simulator check: signed in with the
    agent account's session (from your Mac, `--sign-in agent`), relaunched with no credentials and
    signed in again from its own session, with screenshots and a recording. Rerunning resumes the saved jobs.
 2. Installs the tagged Mac app at the tag's path and starts it in the background (`open -g`,
@@ -72,8 +72,8 @@ It does, in order, and exits non-zero if any phone fails a check or none is conn
    Apple Development identity and a development profile that names the phone, installs it through
    the sanctioned install, and launches it signed in with the `personal` profile and the tagged
    Mac's own single-use pairing code, the code a scan would open (no Allow prompt, no seed).
-4. Proves each phone with the app's DEBUG readiness receipt (a fresh nonce per launch): signed in,
-   paired and linked with this tag's Mac, which lists the phone as paired and connected; then a
+4. Proves each phone with the app's DEBUG readiness receipt (a fresh nonce per launch): in the tagged
+   Mac's build space (`review_mac.py space`; another space fails at once), signed in, paired and linked with this tag's Mac, which lists the phone as paired and connected; then a
    credential-free relaunch (the person's own cold launch) comes back signed in and linked; then
    the Mac app quits as the person quits it and starts again, and each phone links to it again.
 5. Prints the report, in the root "Finishing a task" format:

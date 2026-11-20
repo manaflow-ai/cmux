@@ -132,7 +132,7 @@ final class HomeService {
     /// (`markdown-viewer/ondine.min.js`); one renderer (one JavaScriptCore context) for every pane.
     /// nil when the bundle lacks the script: fences stay text.
     @ObservationIgnored private(set) lazy var diagrams: OndineMermaidRenderer? = OndineMermaidRenderer.bundled()
-    @ObservationIgnored let homeSource = DaemonHomeSource(me: HomeCoreMapping.participant(HomeService.localUser), startedAgents: { AgentLaneStore.chief.chiefSubagentPeers })
+    @ObservationIgnored let homeSource = DaemonHomeSource(me: HomeCoreMapping.participant(HomeService.localUser), startedAgents: { HomeAgentStarts(peers: AgentLaneStore.chief.chiefSubagentPeers, startedAt: AgentLaneStore.chief.chiefSubagentStarts) })
     /// Cloud conversations through the daemon's proxy (home-cloud-proxy.md),
     /// merged with the local ones into the one store.
     @ObservationIgnored let cloudSource = CloudHomeSource(me: HomeCoreMapping.participant(HomeService.localUser))

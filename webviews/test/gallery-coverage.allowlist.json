@@ -176,7 +176,6 @@
     "pages/settings/components/DensityCard.tsx#DensityPreview",
     "pages/settings/components/EndpointForm.tsx#EndpointForm",
     "pages/settings/components/GitHubAccountsCard.tsx#GitHubAccountsCard",
-    "pages/settings/components/JumpBar.tsx#JumpBar",
     "pages/settings/components/MobileCard.tsx#MobileCard",
     "pages/settings/components/ModelsCard.tsx#AddConnectionSheet",
     "pages/settings/components/ModelsCard.tsx#ChatGPTStatus",
