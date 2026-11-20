@@ -4,6 +4,116 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    CloudVmReceiverLifecycleResultPhase {
+        Idle = "idle",
+        Starting = "starting",
+        Ready = "ready",
+        Stopped = "stopped",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmReceiverLifecycleResult {
+    pub machine: MachineId,
+    pub generation: String,
+    pub phase: CloudVmReceiverLifecycleResultPhase,
+}
+
+wire_errors! {
+    /// The error codes cloud.vm.receiver.lifecycle declares.
+    CloudVmReceiverLifecycleError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        CloudRateLimited = "cloud.rate_limited",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// The VM's own machine record (the public machine view). VM installs only (kind vm, grant vm-self, its own bound machine).
+    CloudVmSelfGetOp {
+        name: "cloud.vm.self.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:CloudDO",
+        risk: "read",
+        principals: [Install],
+        params: CloudVmSelfGetParams,
+        result: CloudVmSelfGetResult,
+        error: CloudVmSelfGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmSelfGetParams {
+    pub machine: MachineId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmSelfGetResult {
+    pub machine: CloudMachine,
+}
+
+wire_errors! {
+    /// The error codes cloud.vm.self.get declares.
+    CloudVmSelfGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        CloudRateLimited = "cloud.rate_limited",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Report the VM's state, daemon and activity. Coalesced: at most 1 applied per 10 s per machine (applied: false = held, the latest held report applies when the window ends). No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine).
+    CloudVmStatusReportOp {
+        name: "cloud.vm.status.report",
+        class: Mutation,
+        idempotency: None,
+        owner: "cloud:CloudDO",
+        risk: "execute",
+        principals: [Install],
+        params: CloudVmStatusReportParams,
+        result: CloudVmStatusReportResult,
+        error: CloudVmStatusReportError,
+    }
+}
+
+wire_enum! {
+    CloudVmStatusReportParamsState {
+        Running = "running",
+        Degraded = "degraded",
+        Stopping = "stopping",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmStatusReportParamsDaemon {
+    pub version: String,
+    pub capabilities: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmStatusReportParamsHealth {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk_free_mb: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub load: Option<WireNumber>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmStatusReportParamsActivity {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_user_input_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_agent_action_at: Option<i64>,
+    pub active_sessions: i64,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudVmStatusReportParams {
     pub machine: MachineId,
@@ -782,118 +892,3 @@ wire_errors! {
         ValidationInvalid = "validation.invalid",
     }
 }
-
-wire_op! {
-    /// Archive items (done) by ids or a filter. Open requests cannot be archived: answer or decline them (a filter skips them).
-    FeedArchiveOp {
-        name: "feed.archive",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:FeedDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: FeedArchiveParams,
-        result: FeedArchiveResult,
-        error: FeedArchiveError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedArchiveParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub items: Option<Vec<FeedItemId>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub filter: Option<FeedFilter>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedArchiveResultItemsItem {
-    pub id: FeedItemId,
-    pub revision: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedArchiveResult {
-    pub items: Vec<FeedArchiveResultItemsItem>,
-}
-
-wire_errors! {
-    /// The error codes feed.archive declares.
-    FeedArchiveError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        FeedClosed = "feed.closed",
-        FeedFull = "feed.full",
-        FeedMoving = "feed.moving",
-        FeedRateLimited = "feed.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerMoved = "owner.moved",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Cancel an open item: its poster withdraws it, an adapter reports it answered elsewhere, or the user declines it.
-    FeedCancelOp {
-        name: "feed.cancel",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:FeedDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: FeedCancelParams,
-        result: FeedCancelResult,
-        error: FeedCancelError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedCancelParams {
-    pub item: FeedItemId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reason: Option<FeedCancelReason>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub note: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedCancelResult {
-    pub item: FeedItem,
-}
-
-wire_errors! {
-    /// The error codes feed.cancel declares.
-    FeedCancelError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        FeedClosed = "feed.closed",
-        FeedFull = "feed.full",
-        FeedMoving = "feed.moving",
-        FeedRateLimited = "feed.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerMoved = "owner.moved",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Badge counts: open requests, unread active items, open requests by priority.
-    FeedCountsOp {
-        name: "feed.counts",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:FeedDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: FeedCountsParams,
-        result: FeedCountsResult,
-        error: FeedCountsError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedCountsParams {}
