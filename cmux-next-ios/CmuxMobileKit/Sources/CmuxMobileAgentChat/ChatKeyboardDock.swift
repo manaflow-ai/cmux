@@ -649,7 +649,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
 
     /// A display frame of the glide: the offset (and the bubble, for A and B) at this frame's time.
     fileprivate func settleFrame() {
-        guard let settle = sendSettle else { return endSendSettle() }
+        guard var settle = sendSettle else { return endSendSettle() }
+        settle.noteFrame(at: settleClock)
+        sendSettle = settle
         if settle.isDone(at: settleClock) || !surface.following || scrollView.isTracking {
             endSendSettle()
             UIView.performWithoutAnimation { updateInsets() }
@@ -690,7 +692,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         settleLink = nil
         if let settle = sendSettle {
             let started = settle.start.map { "after \(Int((settleClock - $0) * 1000)) ms" } ?? "before it began"
-            noteSend("end \(started), reach \(Int(settle.reach))")
+            noteSend("end \(started), reach \(Int(settle.reach)), first step \(Int((settle.firstStep ?? 0).rounded())), "
+                + "largest step \(Int(settle.largestStep.rounded()))")
             for id in settle.rowIDs {
                 guard let view = list.cell(for: id)?.contentView else { continue }
                 view.transform = .identity

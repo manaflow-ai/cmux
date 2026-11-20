@@ -104,6 +104,22 @@ struct ChatSendSettle {
 
     func remaining(at time: Double) -> Double { reach * (1 - progress(at: time)) }
 
+    /// What the rows still had to travel at the last display frame (the travel at the start
+    /// before the first), and how far the first frame and the largest frame moved them: the
+    /// send trace reports both, so a recording can tell a glide from a jump.
+    var lastRemaining: Double?
+    var firstStep: Double?
+    var largestStep: Double = 0
+
+    /// A display frame at `time`: how far the rows moved since the last one.
+    mutating func noteFrame(at time: Double) {
+        let now = remaining(at: time)
+        let step = (lastRemaining ?? reach) - now
+        if firstStep == nil { firstStep = step }
+        largestStep = max(largestStep, step)
+        lastRemaining = now
+    }
+
     func isDone(at time: Double) -> Bool {
         guard let start else { return false }
         return time - start >= ChatSendSpring.settleTime || remaining(at: time) < 0.25
