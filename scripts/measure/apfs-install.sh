@@ -97,7 +97,7 @@ say "tools: afsctool=$(command -v afsctool || echo none) compression_tool=$(comm
 # The DMG: newest NIGHTLY arm64 enclosure of the appcast, as scripts/cmux-next/fetch-nightly-dmg.py picks it.
 if [[ -z "$dmg" ]]; then
   curl -fsSL --retry 3 -o "$w/appcast.xml" "$feed" || { say "appcast download failed"; exit 3; }
-  dmg="$(python3 -I - "$w/appcast.xml" <<'PY'
+  cat >"$w/newest.py" <<'PY'
 import sys, xml.etree.ElementTree as ET
 S = "{http://www.andymatuschak.org/xml-namespaces/sparkle}"
 best = None
@@ -110,7 +110,7 @@ for item in ET.parse(sys.argv[1]).iter("item"):
     if best is None or v > best[0]: best = (v, enc.get("url"))
 print(best[1])
 PY
-)"
+  dmg="$(python3 -I "$w/newest.py" "$w/appcast.xml")"
 fi
 say "dmg $dmg"
 curl -fsSL --retry 3 --retry-all-errors -o "$w/in.dmg" "$dmg" || { say "DMG download failed"; exit 3; }
