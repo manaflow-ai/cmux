@@ -25,6 +25,9 @@ use crate::{access, fsx, host, sys};
 /// schema 1 (shared with lane 1).
 pub const CHANNEL_BASE: &str = "https://cmux.com/server/channel";
 
+/// Why an install fell back to the session service.
+const NO_CHANNEL: &str = "the signed cmux server channel has no release for this machine yet, so this keeps your cmux session running with this binary";
+
 /// The machine's roles for package selection (server.md 5 defaults).
 pub const ROLES: &[&str] = &["server", "session", "apps", "postgres", "health", "updater"];
 
@@ -39,7 +42,7 @@ pub(super) fn config(layout: &Layout) -> Result<ServerConfig> {
 pub(super) fn services<'a>(ctx: &'a Context<'_>, layout: &'a Layout) -> Result<Services<'a>> {
     let uid = sys::uid();
     let user = host::current_user()?;
-    Ok(Services { layout, runner: ctx.runner, uid, user })
+    Ok(Services { layout, runner: ctx.runner, uid, user, session: None })
 }
 
 pub(super) fn pg_options(args: &Args) -> PgOptions {
@@ -205,10 +208,30 @@ fn report_json(report: &ApplyReport) -> Value {
 }
 
 pub fn install(ctx: &Context<'_>, args: &Args) -> Result<Output> {
+    if !args.positionals.is_empty() {
+        return Err(Error::usage(
+            "cmux server install ssh://HOST runs from the cmux CLI; this binary installs only here",
+        ));
+    }
     let layout = mutating_layout(ctx, args.has("system"))?;
     let mode = layout.mode;
+    // Flags that ask for the signed store keep its refusals; without them a
+    // machine with no published channel gets the session service.
+    let store_flags = ["version", "channel", "channel-url", "system"].iter().any(|f| args.has(f));
+    if args.has("yes") || args.has("nightly") {
+        return Err(Error::usage("--yes and --nightly go with an ssh://HOST endpoint"));
+    }
+    if args.has("binary") || args.has("session-name") {
+        if store_flags {
+            return Err(Error::usage("--binary installs this binary; it takes no store flags"));
+        }
+        return super::session_service::install(ctx, args, &layout, None);
+    }
     if ctx.keys.is_empty() {
-        return Err(no_keys());
+        if store_flags {
+            return Err(no_keys());
+        }
+        return super::session_service::install(ctx, args, &layout, Some(NO_CHANNEL));
     }
     if let Some(channel) = args.value("channel")
         && !valid_channel(channel)
@@ -222,7 +245,12 @@ pub fn install(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     if let Some(channel) = args.value("channel") {
         cfg.set_channel(channel);
     }
-    let report = apply_channel(ctx, args, &layout, &cfg)?;
+    let report = match apply_channel(ctx, args, &layout, &cfg) {
+        Err(e) if e.kind == crate::error::ExitKind::NotFound && !store_flags => {
+            return super::session_service::install(ctx, args, &layout, Some(NO_CHANNEL));
+        }
+        result => result?,
+    };
     // A rejected download or package cannot commit identity/channel intent.
     // Keep the previous configuration until the signed profile is installed.
     if new_id || channel_changed {
@@ -331,6 +359,11 @@ fn stop_postgres(ctx: &Context<'_>, args: &Args, layout: &Layout) -> Result<()> 
 }
 
 pub fn uninstall(ctx: &Context<'_>, args: &Args) -> Result<Output> {
+    if !args.positionals.is_empty() {
+        return Err(Error::usage(
+            "cmux server uninstall ssh://HOST runs from the cmux CLI; this binary uninstalls only here",
+        ));
+    }
     let layout = mutating_layout(ctx, false)?;
     let purge = args.has("purge");
     let warning = postgres_guard(ctx, args, &layout, purge)?;
@@ -390,18 +423,21 @@ pub fn status(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     let generation = store.current_generation();
     let entries = store.current_entries().unwrap_or_default();
     let version = entries.iter().find(|e| e.name == "cmux").map(|e| e.version.clone());
-    let service = services(ctx, &layout)?.state();
+    let svc = services(ctx, &layout)?;
+    let service = svc.state();
+    let session = super::session_service::installed(&svc);
     let last = store.last_applied()?.map(|a| a.sequence);
     let json = json!({
         "enabled": service.installed && service.active != Some(false), "mode": host::mode_str(layout.mode),
         "store": {"generation": generation, "version": version, "channel": cfg.channel(),
             "pinned": cfg.pinned_version(), "generations": store.generations(),
             "last_applied_sequence": last, "packages": entries},
-        "service": {"installed": service.installed, "active": service.active, "enabled": service.enabled},
+        "service": {"installed": service.installed, "active": service.active, "enabled": service.enabled,
+            "session": session.as_ref().map(|u| json!({"binary": u.binary, "session": u.session}))},
         "postgres": {"port": cfg.postgres_port(), "state": postgres_state(&layout)},
         "roles": [], "apps": [], "alerts": [], "pairing": super::pairing::app_view(ctx),
     });
-    let human = format!(
+    let mut human = format!(
         "cmux server ({})\n  generation: {}\n  version:    {}\n  channel:    {}{}\n  service:    {}\n  postgres:   {} (port {})\n",
         host::mode_str(layout.mode),
         generation.map_or("none".to_owned(), |g| g.to_string()),
@@ -416,6 +452,9 @@ pub fn status(ctx: &Context<'_>, args: &Args) -> Result<Output> {
         postgres_state(&layout),
         cfg.postgres_port().map_or("-".to_owned(), |p| p.to_string()),
     );
+    if let Some(unit) = &session {
+        human.push_str(&format!("  session:    {} ({})\n", unit.session, unit.binary));
+    }
     Ok(Output::new(json, human))
 }
 
