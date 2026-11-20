@@ -84,9 +84,9 @@ struct NewTabCommandListKeptTests {
             if lister.counts.started != count { rose.append(more) }
         }
         let joined = lister.counts
-        #expect(joined.started == read.started,
-                "the second request started \(joined.started - read.started) listings before the hand-over: the row fired \(more) frames with a lister task, "
-                    + "the count of listings was \(read.started) before them, rose in the frames \(rose), and was \(joined.started) after the last")
+        let order = "the second request started \(joined.started - read.started) listings before the hand-over: the row fired \(more) frames with a lister task, "
+            + "the count of listings was \(read.started) before them, rose in the frames \(rose), and was \(joined.started) after the last"
+        #expect(joined.started == read.started, "\(order)")
         let asked = await Self.handOver(to: waiter, services)
         let list = try #require(asked.list, "the second request never got a list")
         let end = lister.counts
