@@ -9,6 +9,14 @@ sameUser grant and the hub-stamped sender, never the request body. Other mesh
 grants are stamped as device requests. Nested mesh starts use the same person
 check as session/new before forwarding policy.
 
+A grant with both `sameUser` and `daemonId` admits either identity. Admission
+alone therefore does not prove ownership: selecting the host profile additionally
+requires a nonempty hub-stamped user equal to this machine's recorded person.
+The detector `only_a_same_person_mesh_start_gets_the_full_access_host_profile`
+covers mixed grants with another, missing, empty, and matching user, including
+forged host-profile metadata. This keeps authorization to send a control request
+from becoming authorization to execute as the machine's owner.
+
 PR #44541 moves remote-start failure delivery onto the starter's existing durable
 watch/outbox. A child denied repository or socket access cannot reliably report
 its own failure through those same tools. The failure watch survives ordinary

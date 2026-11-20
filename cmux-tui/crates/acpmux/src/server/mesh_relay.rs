@@ -647,9 +647,15 @@ impl ControlHook for MeshControlHook {
             {
                 return Some(Ack::refused("mesh.control_not_allowed"));
             }
-            let same_person = self.allowed.iter().any(|entry| {
-                entry.same_user && entry.allows(&message.from, own_user.as_deref(), op)
-            });
+            // A mixed grant may allow the daemon without matching its user. Only the
+            // hub-stamped person can confer the owner's host execution profile.
+            let same_person = own_user
+                .as_deref()
+                .filter(|user| !user.is_empty())
+                .is_some_and(|user| message.from.user.as_deref() == Some(user))
+                && self.allowed.iter().any(|entry| {
+                    entry.same_user && entry.allows(&message.from, own_user.as_deref(), op)
+                });
             // A read changes nothing, so it needs no ledger: a repeat runs again and answers
             // the session as it is then.
             if op == "read" {

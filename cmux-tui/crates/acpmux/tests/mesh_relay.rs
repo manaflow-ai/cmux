@@ -1469,12 +1469,18 @@ async fn only_a_same_person_mesh_start_gets_the_full_access_host_profile() {
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
-    for (name, same_person, policy, forged_boundary) in [
-        ("own-full", true, "approve-all", false),
-        ("own-asking", true, "ask", false),
-        ("team-forged", false, "approve-all", true),
+    for (name, same_person, policy, forged_boundary, mixed_grant, user) in [
+        ("own-full", true, "approve-all", false, false, Some("person-1")),
+        ("own-asking", true, "ask", false, false, Some("person-1")),
+        ("team-forged", false, "approve-all", true, false, Some("person-2")),
+        ("mixed-other", false, "approve-all", true, true, Some("person-2")),
+        ("mixed-missing", false, "approve-all", true, true, None),
+        ("mixed-empty", false, "approve-all", true, true, Some("")),
+        ("mixed-own", true, "approve-all", false, true, Some("person-1")),
     ] {
-        let grant: MeshControlFrom = serde_json::from_value(if same_person {
+        let grant: MeshControlFrom = serde_json::from_value(if mixed_grant {
+            json!({"sameUser": true, "daemonId": "inst_a", "ops": ["start"]})
+        } else if same_person {
             json!({"sameUser": true})
         } else {
             json!({"daemonId": "inst_a", "ops": ["start"]})
@@ -1483,7 +1489,7 @@ async fn only_a_same_person_mesh_start_gets_the_full_access_host_profile() {
         let hook = MeshControlHook::new(vec![grant], Some(dir.path().join(format!("{name}.json"))))
             .with_own_user(Arc::new(|| Some("person-1".into())));
         let mut request = message(name, "", Kind::Control);
-        request.from.user = Some(if same_person { "person-1" } else { "person-2" }.into());
+        request.from.user = user.map(str::to_owned);
         request.body = json!({"version": 1, "params": {"cwd": dir.path(), "mcpServers": [],
             "_meta": {"acpmux": {"harness": "fake", "name": name, "policy": policy,
                 "vmBoundary": forged_boundary, "via": "peer"}}}})
