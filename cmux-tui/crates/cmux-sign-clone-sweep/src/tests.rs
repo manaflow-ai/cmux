@@ -427,7 +427,7 @@ fn sign_clone_removal_is_bound_to_the_checked_folder() {
     let outside = scratch.0.join("outside-file");
     std::fs::write(&outside, b"keep").unwrap();
     std::os::unix::fs::symlink(&outside, checked.join("b.app.bundle/link")).unwrap();
-    let identity = at::Ident::of(&std::fs::symlink_metadata(&checked).unwrap());
+    let identity = Ident::of(&std::fs::symlink_metadata(&checked).unwrap());
 
     // The checked folder moves away and another, with saved files, takes its name.
     let moved = scratch.0.join("moved-away");
