@@ -68,6 +68,28 @@ import Testing
         #expect(asked == [["provider": "github", "return_to": "cmux-dev-x://integration/complete"]])
     }
 
+    /// An API from before the completion link refuses `return_to`: the connect asks again without it, under a derived key
+    /// (the API keeps the first key; the same key with other params is an `idempotency.conflict`).
+    @Test func anAPIThatRefusesTheCompletionLinkStillConnects() async {
+        var asked: [(JSONValue, String?)] = []
+        var opened: [URL] = []
+        let model = GitHubConnections(scope: { self.scope }, call: { _, op, params, key in
+            if op == "integration.connect" {
+                asked.append((params, key))
+                if params["return_to"] != nil { throw GitHubConnections.GitHubFailure.refused }
+                return ["connection": ["id": "sample"], "authorize_url": "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b"]
+            }
+            return self.listing
+        }, open: { opened.append($0) })
+        model.completionLink = "cmux-dev-x://integration/complete"
+        await model.perform("githubRefresh")
+        await model.perform("githubConnect")
+        #expect(asked.map(\.0) == [["provider": "github", "return_to": "cmux-dev-x://integration/complete"], ["provider": "github"]])
+        #expect(asked[0].1 != nil && asked[1].1 == asked[0].1.map { $0 + ":plain" })
+        #expect(opened.count == 1)
+        #expect(!model.error)
+    }
+
     @Test func aResponseForTheOldAccountCannotPopulateTheNewAccount() async {
         var current: GitHubConnections.Scope? = self.scope
         let model = GitHubConnections(scope: { current }, call: { _, _, _, _ in

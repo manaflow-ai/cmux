@@ -76,7 +76,8 @@
           "crates": ["cmux-tui/crates/cmux-tui", "cmux-tui/bindings/rust", "cmux-tui/bindings/rust-daemon-client"],
           "inputs": [
             "cmux-tui/bindings/", "cmux-tui/spec/", "ghostty", "ghostty-next", "scripts/install-zig-ci.sh",
-            ".github/actions/ghostty-zig-packages/", "scripts/ghostty-zig-version.sh", "scripts/ci/init-submodule.sh"
+            ".github/actions/ghostty-zig-packages/", ".github/actions/zig-global-cache/",
+            "scripts/ghostty-zig-version.sh", "scripts/ci/init-submodule.sh"
           ]
         }
       }

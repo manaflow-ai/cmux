@@ -277,12 +277,12 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertEqual(JOBS["base-only"]["if"], "github.event.action == 'synchronize'")
 
     def test_only_advisory_jobs_and_every_one_waits_on_it(self):
-        self.assertEqual(set(JOBS), {"portable-placement", "base-only", *SKIPPED_ON_BASE_ONLY, *ALWAYS})
+        self.assertEqual(set(JOBS), {"base-only", *SKIPPED_ON_BASE_ONLY, *ALWAYS})
         for job_id in SKIPPED_ON_BASE_ONLY:
             with self.subTest(job=job_id):
                 job = JOBS[job_id]
                 placed = job_id in {"ui-review", "split"}
-                self.assertEqual(job["needs"], ["base-only", "portable-placement"] if placed else "base-only")
+                self.assertEqual(job["needs"], "base-only")
                 # A skipped or failed answer runs the job: no implicit success().
                 prefix = "${{ always() && !cancelled() && " if placed else "${{ !cancelled() && "
                 self.assertTrue(str(job["if"]).startswith(prefix + ANSWER))
@@ -292,7 +292,7 @@ class WorkflowShapeTests(unittest.TestCase):
     def test_the_size_check_never_skips_on_a_base_only_update(self):
         for job_id in ALWAYS:
             job = JOBS[job_id]
-            self.assertEqual(job["needs"], "portable-placement")
+            self.assertNotIn("needs", job)
             self.assertNotIn("base_only", str(job["if"]))
             self.assertTrue(str(job["if"]).startswith("${{ always() && !cancelled() && "))
             self.assertNotIn("continue-on-error", job)
@@ -307,7 +307,7 @@ class WorkflowShapeTests(unittest.TestCase):
 
     def test_a_description_edit_never_cancels_a_push_run(self):
         group = WORKFLOW["concurrency"]["group"]
-        self.assertIn("github.event.action == 'edited' && 'edited' || 'push'", group)
+        self.assertIn("&& 'edited' || github.event.action == 'edited' && format('edit-{0}', github.run_id) || 'push'", group)
         self.assertTrue(WORKFLOW["concurrency"]["cancel-in-progress"])
         for job_id in (*SKIPPED_ON_BASE_ONLY, *ALWAYS):
             self.assertNotIn("concurrency", JOBS[job_id])

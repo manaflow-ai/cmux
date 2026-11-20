@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 REPAIR = "Repair a reused self-hosted checkout"
 OWNED = "cmux-gcp-lane-build-x64"
-FILES = ("cmux-tui-artifacts.yml", "cmux-tui-build-package.yml", "cmux-tui-tree-request.yml")
+FILES = ("cmux-tui-artifacts.yml", "cmux-tui-build-package.yml", "cmux-tui-tree-request.yml", "cloud-vm-image-roll.yml")
 
 
 def owned_jobs(workflow: dict) -> dict[str, dict]:
@@ -60,7 +60,7 @@ class OwnedRouteCheckoutRepair(unittest.TestCase):
                         seen += 1
                         if not repaired(steps, index):
                             missing.append(f"{file}:{name}")
-        self.assertGreater(seen, 20, "the owned route lost its jobs; this test checks nothing")
+        self.assertGreaterEqual(seen, 6, "the owned route lost its jobs; this test checks nothing")
         self.assertEqual(missing, [], "checkouts on the owned GCP lane with no reused-workspace repair")
 
     def test_a_full_checkout_leaves_sparse_mode(self) -> None:

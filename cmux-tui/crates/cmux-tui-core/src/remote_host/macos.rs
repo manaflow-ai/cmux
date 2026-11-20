@@ -22,9 +22,15 @@ const LOCAL_PEERPID: libc::c_int = 0x002;
 
 /// The copy that runs.
 pub(super) struct Staged {
+    /// The bundle in `state/app/current`, whose path stays the same across
+    /// builds (the person's screen-capture approval is kept by path).
+    pub(super) app: PathBuf,
     pub(super) executable: PathBuf,
     /// Content digest of the signed bundle (its executable and seal).
     pub(super) digest: String,
+    /// A verified copy of a new build waiting in `state/app/next` to replace
+    /// `current` ([`promote`]) once no host runs from it.
+    pub(super) next: Option<PathBuf>,
 }
 
 /// The app's embedded bundle: `CMUX_REMOTE_APP`, else `Contents/Library`
@@ -63,18 +69,109 @@ fn verify(app: &Path) -> Result<(), String> {
     cmux_signed_bundle::verify(app, &cmux_signed_bundle::team_requirement(&id, TEAM))
 }
 
-/// A verified copy of the embedded bundle under `state/app/<digest>/`,
-/// reused while the embedded bundle is the same; never followed through a
-/// symlink. The two newest copies are kept (a host of the previous build may
-/// still run from one until it drains). The staging itself is
-/// `cmux-signed-bundle`'s, shared with the acpmux share host's helper.
+/// The verified copy of the embedded bundle that runs, always at one path,
+/// `state/app/current/<bundle>`: macOS keys the person's screen-capture
+/// approvals (and other per-app records) by the app's path, so a path per
+/// build asked them again after every update. A new build is copied and
+/// verified into `state/app/next/` first; [`promote`] moves it to `current`
+/// only when no host runs from `current` (the caller drains or never adopted
+/// one), so a busy host of the previous build keeps its bundle until it
+/// stops. Never followed through a symlink. The digest, copy and signature
+/// checks are `cmux-signed-bundle`'s, shared with the acpmux share host's helper.
 pub(super) fn stage(state: &Path) -> Result<Staged, String> {
     let source = embedded()?;
-    cmux_signed_bundle::private_dir(state)?;
     let parts = cmux_signed_bundle::digest_parts(EXECUTABLE);
-    let staged = cmux_signed_bundle::stage(&source, &state.join("app"), &parts, verify)?;
-    let executable = staged.executable(EXECUTABLE);
-    Ok(Staged { executable, digest: staged.digest })
+    let digest = cmux_signed_bundle::digest_of(&source, &parts)?;
+    let root = state.join("app");
+    cmux_signed_bundle::private_dir(state)?;
+    cmux_signed_bundle::private_dir(&root)?;
+    let name = source.file_name().ok_or("bad bundle name")?;
+    let current = root.join(CURRENT);
+    let app = current.join(name);
+    let executable = app.join("Contents/MacOS").join(EXECUTABLE);
+    if slot_holds(&current, name, &digest, &parts) {
+        let _ = std::fs::remove_dir_all(root.join(NEXT));
+        return Ok(Staged { app, executable, digest, next: None });
+    }
+    let next = root.join(NEXT);
+    if !slot_holds(&next, name, &digest, &parts) {
+        let temporary = root.join(format!(".staging-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temporary);
+        std::fs::create_dir_all(&temporary).map_err(|error| format!("{error}"))?;
+        let copy = temporary.join(name);
+        if cmux_signed_bundle::ditto(&source, &copy).is_err() {
+            let _ = std::fs::remove_dir_all(&temporary);
+            return Err("cannot copy cmux Remote out of the app".into());
+        }
+        if let Err(error) = verify(&copy).and_then(|()| {
+            (cmux_signed_bundle::digest_of(&copy, &parts)? == digest)
+                .then_some(())
+                .ok_or("the copy differs from the embedded bundle".into())
+        }) {
+            let _ = std::fs::remove_dir_all(&temporary);
+            return Err(error);
+        }
+        std::fs::write(temporary.join(".verified"), &digest).map_err(|error| format!("{error}"))?;
+        let _ = std::fs::remove_dir_all(&next);
+        std::fs::rename(&temporary, &next).map_err(|error| format!("{error}"))?;
+    }
+    Ok(Staged { app, executable, digest, next: Some(next) })
+}
+
+/// The slot that runs, and the one a new build waits in.
+const CURRENT: &str = "current";
+const NEXT: &str = "next";
+
+/// Whether `slot` holds a verified copy of the build with `digest`.
+fn slot_holds(slot: &Path, name: &std::ffi::OsStr, digest: &str, parts: &[String]) -> bool {
+    std::fs::read_to_string(slot.join(".verified")).is_ok_and(|text| text.trim() == digest)
+        && cmux_signed_bundle::digest_of(&slot.join(name), parts).is_ok_and(|copy| copy == digest)
+}
+
+/// Moves a waiting new build into `current` and removes copies of earlier
+/// layouts. Call it only when no host runs from any staged copy: right
+/// before starting one.
+pub(super) fn promote(staged: &Staged) -> Result<(), String> {
+    let Some(next) = &staged.next else {
+        if let Some(root) = staged.app.parent().and_then(Path::parent) {
+            prune(root);
+        }
+        return Ok(());
+    };
+    let root = next.parent().ok_or("bad staging path")?;
+    let current = root.join(CURRENT);
+    let previous = root.join(format!(".previous-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&previous);
+    if current.exists() {
+        std::fs::rename(&current, &previous).map_err(|error| format!("{error}"))?;
+    }
+    if let Err(error) = std::fs::rename(next, &current) {
+        let _ = std::fs::rename(&previous, &current);
+        return Err(format!("{error}"));
+    }
+    let _ = std::fs::remove_dir_all(&previous);
+    prune(root);
+    Ok(())
+}
+
+/// Removes copies an earlier layout made (one folder per build digest) and
+/// any interrupted staging; keeps `current` and `next`.
+fn prune(root: &Path) {
+    let Ok(entries) = std::fs::read_dir(root) else { return };
+    for path in entries.filter_map(Result::ok).map(|entry| entry.path()) {
+        let keep = path.file_name().is_some_and(|name| name == CURRENT || name == NEXT);
+        // A staging folder of a live daemon is its own; only dead ones go.
+        let live_staging = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(|name| name.strip_prefix(".staging-"))
+            .and_then(|pid| pid.parse::<i32>().ok())
+            // SAFETY: kill with signal 0 only checks that the process exists.
+            .is_some_and(|pid| unsafe { libc::kill(pid, 0) } == 0);
+        if !keep && !live_staging {
+            let _ = std::fs::remove_dir_all(path);
+        }
+    }
 }
 
 /// Starts the host with responsibility disclaimed (its own responsible
@@ -180,3 +277,7 @@ pub(super) fn peer_pid(stream: &std::os::unix::net::UnixStream) -> Option<u32> {
     } == 0;
     ok.then_some(pid as u32)
 }
+
+#[cfg(test)]
+#[path = "macos_staging_tests.rs"]
+mod staging_tests;
