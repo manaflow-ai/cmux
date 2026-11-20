@@ -211,7 +211,7 @@ def install(smoke, dmg: Path, root: Path) -> tuple[Path, dict]:
     mount.mkdir()
     try:
         started = time.monotonic()
-        subprocess.run(["hdiutil", "attach", str(image), "-nobrowse", "-readonly", "-mountpoint", str(mount)],
+        subprocess.run(["hdiutil", "attach", str(image), "-nobrowse", "-readonly", "-noautofsck", "-mountpoint", str(mount)],
                        check=True, stdout=subprocess.DEVNULL, timeout=600)
         info["mount_ms"] = round((time.monotonic() - started) * 1000)
         apps = sorted(mount.glob("*.app"))
