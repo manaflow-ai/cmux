@@ -440331,6 +440331,1326 @@
           }
         }
       }
+    },
+    "auth.cmux.signedOut": {
+      "comment": "Agent pane: the composer's notice when the chat's model runs through the person's cmux account and it is signed out",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لقد سجّلت الخروج من cmux. سجّل الدخول إلى cmux للمتابعة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odjavljeni ste iz cmux-a. Prijavite se u cmux da nastavite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du er logget ud af cmux. Log ind på cmux for at fortsætte."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du bist von cmux abgemeldet. Melde dich bei cmux an, um fortzufahren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You're signed out of cmux. Sign in to cmux to continue."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Has cerrado sesión en cmux. Inicia sesión en cmux para continuar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous êtes déconnecté de cmux. Connectez-vous à cmux pour continuer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sei disconnesso da cmux. Accedi a cmux per continuare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux からサインアウトしています。続行するには cmux にサインインしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អ្នកបានចាកចេញពី cmux។ ចូល cmux ដើម្បីបន្ត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux에서 로그아웃되었습니다. 계속하려면 cmux에 로그인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du er logget ut av cmux. Logg på cmux for å fortsette."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wylogowano z cmux. Zaloguj się do cmux, aby kontynuować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você saiu do cmux. Entre no cmux para continuar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вы вышли из cmux. Войдите в cmux, чтобы продолжить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คุณออกจากระบบ cmux แล้ว ลงชื่อเข้าใช้ cmux เพื่อดำเนินการต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux oturumunuz kapalı. Devam etmek için cmux'a giriş yapın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ви вийшли з cmux. Увійдіть у cmux, щоб продовжити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bạn đã đăng xuất khỏi cmux. Hãy đăng nhập cmux để tiếp tục."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你已退出 cmux。请登录 cmux 以继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你已登出 cmux。請登入 cmux 以繼續。"
+          }
+        }
+      }
+    },
+    "auth.key.expired": {
+      "comment": "Agent pane: the composer's notice when the model provider expired the API key the agent uses; {provider} is the provider's name (OpenCode Go)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهت صلاحية مفتاح API الخاص بـ {provider}. أنشئ مفتاحًا جديدًا، ثم اختر «استبدال المفتاح»."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaš {provider} API ključ je istekao. Napravite novi ključ, pa odaberite Zamijeni ključ."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din {provider}-API-nøgle er udløbet. Opret en ny nøgle, og vælg derefter Erstat nøgle."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein {provider}-API-Schlüssel ist abgelaufen. Erstelle einen neuen Schlüssel und wähle dann „Schlüssel ersetzen“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your {provider} API key expired. Create a new key, then choose Replace key."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu clave de API de {provider} ha caducado. Crea una nueva y elige Reemplazar clave."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre clé API {provider} a expiré. Créez une nouvelle clé, puis choisissez Remplacer la clé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La tua chiave API di {provider} è scaduta. Crea una nuova chiave, poi scegli Sostituisci chiave."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{provider} の API キーの有効期限が切れました。新しいキーを作成してから「キーを置き換える」を選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សោ API {provider} របស់អ្នកបានផុតកំណត់។ បង្កើតសោថ្មី រួចជ្រើស ប្ដូរសោ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{provider} API 키가 만료되었습니다. 새 키를 만든 다음 키 교체를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{provider}-API-nøkkelen din er utløpt. Lag en ny nøkkel, og velg så Bytt nøkkel."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klucz API {provider} wygasł. Utwórz nowy klucz, a potem wybierz Zastąp klucz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua chave de API do {provider} expirou. Crie uma nova chave e escolha Substituir chave."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Срок действия API-ключа {provider} истёк. Создайте новый ключ и выберите «Заменить ключ»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คีย์ API ของ {provider} หมดอายุแล้ว สร้างคีย์ใหม่ แล้วเลือก แทนที่คีย์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{provider} API anahtarınızın süresi doldu. Yeni bir anahtar oluşturun, ardından Anahtarı değiştir'i seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Термін дії API-ключа {provider} минув. Створіть новий ключ і виберіть «Замінити ключ»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khóa API {provider} của bạn đã hết hạn. Hãy tạo khóa mới, rồi chọn Thay khóa."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 {provider} API 密钥已过期。请创建新密钥，然后选择“替换密钥”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 {provider} API 金鑰已過期。請建立新金鑰，然後選擇「替換金鑰」。"
+          }
+        }
+      }
+    },
+    "auth.key.refused": {
+      "comment": "Agent pane: the composer's notice when the model provider refused the API key the agent uses (invalid or revoked); {provider} is the provider's name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يقبل {provider} مفتاح API الخاص بك. اختر «استبدال المفتاح» لإدخال مفتاح صالح."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{provider} nije prihvatio vaš API ključ. Odaberite Zamijeni ključ i unesite ispravan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{provider} accepterede ikke din API-nøgle. Vælg Erstat nøgle for at indtaste en, der virker."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{provider} hat deinen API-Schlüssel nicht akzeptiert. Wähle „Schlüssel ersetzen“, um einen gültigen einzugeben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{provider} didn't accept your API key. Choose Replace key to enter a working one."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{provider} no aceptó tu clave de API. Elige Reemplazar clave para introducir una válida."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{provider} n’a pas accepté votre clé API. Choisissez Remplacer la clé pour en saisir une valide."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{provider} non ha accettato la tua chiave API. Scegli Sostituisci chiave per inserirne una valida."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{provider} が API キーを受け付けませんでした。「キーを置き換える」を選んで有効なキーを入力してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{provider} មិនទទួលយកសោ API របស់អ្នកទេ។ ជ្រើស ប្ដូរសោ ដើម្បីបញ្ចូលសោដែលដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{provider}에서 API 키를 받아들이지 않았습니다. 키 교체를 선택해 유효한 키를 입력하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{provider} godtok ikke API-nøkkelen din. Velg Bytt nøkkel for å skrive inn en som virker."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{provider} nie przyjął Twojego klucza API. Wybierz Zastąp klucz, aby wpisać działający."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O {provider} não aceitou sua chave de API. Escolha Substituir chave para inserir uma válida."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{provider} не принял ваш API-ключ. Выберите «Заменить ключ», чтобы ввести рабочий."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{provider} ไม่ยอมรับคีย์ API ของคุณ เลือก แทนที่คีย์ เพื่อใส่คีย์ที่ใช้ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{provider} API anahtarınızı kabul etmedi. Çalışan bir anahtar girmek için Anahtarı değiştir'i seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{provider} не прийняв ваш API-ключ. Виберіть «Замінити ключ», щоб ввести робочий."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{provider} không chấp nhận khóa API của bạn. Chọn Thay khóa để nhập khóa dùng được."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{provider} 未接受你的 API 密钥。请选择“替换密钥”输入有效的密钥。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{provider} 未接受你的 API 金鑰。請選擇「替換金鑰」輸入有效的金鑰。"
+          }
+        }
+      }
+    },
+    "auth.login.expired": {
+      "comment": "Agent pane: the composer's notice when the agent's own sign-in (OAuth) expired; {agent} is the agent's name (Claude Code)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهت صلاحية تسجيل دخولك إلى {agent}. سجّل الدخول إلى {agent} للمتابعة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaša prijava u {agent} je istekla. Prijavite se u {agent} da nastavite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dit login til {agent} er udløbet. Log ind på {agent} for at fortsætte."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Anmeldung bei {agent} ist abgelaufen. Melde dich bei {agent} an, um fortzufahren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your {agent} sign-in expired. Sign in to {agent} to continue."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu sesión de {agent} ha caducado. Inicia sesión en {agent} para continuar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre session {agent} a expiré. Connectez-vous à {agent} pour continuer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tuo accesso a {agent} è scaduto. Accedi a {agent} per continuare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent} のサインインの有効期限が切れました。続行するには {agent} にサインインしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចូល {agent} របស់អ្នកបានផុតកំណត់។ ចូល {agent} ដើម្បីបន្ត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent} 로그인이 만료되었습니다. 계속하려면 {agent}에 로그인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Innloggingen din i {agent} er utløpt. Logg på {agent} for å fortsette."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logowanie do {agent} wygasło. Zaloguj się do {agent}, aby kontynuować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua sessão do {agent} expirou. Entre no {agent} para continuar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Срок действия входа в {agent} истёк. Войдите в {agent}, чтобы продолжить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การลงชื่อเข้าใช้ {agent} หมดอายุแล้ว ลงชื่อเข้าใช้ {agent} เพื่อดำเนินการต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent} oturumunuzun süresi doldu. Devam etmek için {agent} hesabına giriş yapın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Термін дії входу в {agent} минув. Увійдіть у {agent}, щоб продовжити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phiên đăng nhập {agent} đã hết hạn. Hãy đăng nhập {agent} để tiếp tục."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 {agent} 登录已过期。请登录 {agent} 以继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 {agent} 登入已過期。請登入 {agent} 以繼續。"
+          }
+        }
+      }
+    },
+    "auth.login.signedOut": {
+      "comment": "Agent pane: the composer's notice when the agent is not signed in; {agent} is the agent's name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لقد سجّلت الخروج من {agent}. سجّل الدخول إلى {agent} للمتابعة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odjavljeni ste iz {agent}. Prijavite se u {agent} da nastavite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du er logget ud af {agent}. Log ind på {agent} for at fortsætte."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du bist von {agent} abgemeldet. Melde dich bei {agent} an, um fortzufahren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You're signed out of {agent}. Sign in to {agent} to continue."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Has cerrado sesión en {agent}. Inicia sesión en {agent} para continuar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous êtes déconnecté de {agent}. Connectez-vous à {agent} pour continuer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sei disconnesso da {agent}. Accedi a {agent} per continuare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent} からサインアウトしています。続行するには {agent} にサインインしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អ្នកបានចាកចេញពី {agent}។ ចូល {agent} ដើម្បីបន្ត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent}에서 로그아웃되었습니다. 계속하려면 {agent}에 로그인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du er logget ut av {agent}. Logg på {agent} for å fortsette."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wylogowano z {agent}. Zaloguj się do {agent}, aby kontynuować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você saiu do {agent}. Entre no {agent} para continuar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вы вышли из {agent}. Войдите в {agent}, чтобы продолжить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คุณออกจากระบบ {agent} แล้ว ลงชื่อเข้าใช้ {agent} เพื่อดำเนินการต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent} oturumunuz kapalı. Devam etmek için {agent} hesabına giriş yapın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ви вийшли з {agent}. Увійдіть у {agent}, щоб продовжити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bạn đã đăng xuất khỏi {agent}. Hãy đăng nhập {agent} để tiếp tục."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你已退出 {agent}。请登录 {agent} 以继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你已登出 {agent}。請登入 {agent} 以繼續。"
+          }
+        }
+      }
+    },
+    "auth.route.signedOut": {
+      "comment": "Agent pane: the composer's notice when the chat's account route needs a new sign-in; {name} is the account's name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج حساب {name} إلى تسجيل دخول جديد. سجّل الدخول إلى {name} للمتابعة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaš {name} račun treba novu prijavu. Prijavite se u {name} da nastavite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din {name}-konto kræver et nyt login. Log ind på {name} for at fortsætte."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein {name}-Konto braucht eine neue Anmeldung. Melde dich bei {name} an, um fortzufahren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your {name} account needs a new sign-in. Sign in to {name} to continue."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu cuenta de {name} necesita un nuevo inicio de sesión. Inicia sesión en {name} para continuar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre compte {name} doit être reconnecté. Connectez-vous à {name} pour continuer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tuo account {name} richiede un nuovo accesso. Accedi a {name} per continuare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} アカウントに再サインインが必要です。続行するには {name} にサインインしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គណនី {name} របស់អ្នកត្រូវការចូលម្ដងទៀត។ ចូល {name} ដើម្បីបន្ត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} 계정에 다시 로그인해야 합니다. 계속하려면 {name}에 로그인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name}-kontoen din trenger ny innlogging. Logg på {name} for å fortsette."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto {name} wymaga ponownego logowania. Zaloguj się do {name}, aby kontynuować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua conta {name} precisa de um novo login. Entre no {name} para continuar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для аккаунта {name} нужно войти заново. Войдите в {name}, чтобы продолжить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บัญชี {name} ต้องลงชื่อเข้าใช้ใหม่ ลงชื่อเข้าใช้ {name} เพื่อดำเนินการต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} hesabınız için yeniden giriş gerekiyor. Devam etmek için {name} hesabına giriş yapın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для облікового запису {name} потрібно увійти знову. Увійдіть у {name}, щоб продовжити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tài khoản {name} cần đăng nhập lại. Hãy đăng nhập {name} để tiếp tục."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 {name} 账户需要重新登录。请登录 {name} 以继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 {name} 帳號需要重新登入。請登入 {name} 以繼續。"
+          }
+        }
+      }
+    },
+    "auth.runOnHost": {
+      "comment": "Agent pane: after a sign-in notice for a chat on another machine: where and what to run; {host} is the machine, {command} the login command",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "على {host}، شغّل {command}."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na {host} pokrenite {command}."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kør {command} på {host}."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Führe auf {host} {command} aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On {host}, run {command}."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En {host}, ejecuta {command}."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur {host}, exécutez {command}."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Su {host}, esegui {command}."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host} で {command} を実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅលើ {host} ដំណើរការ {command}។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host}에서 {command}을(를) 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kjør {command} på {host}."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na {host} uruchom {command}."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Em {host}, execute {command}."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На {host} выполните {command}."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บน {host} ให้รัน {command}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host} üzerinde {command} komutunu çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На {host} виконайте {command}."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trên {host}, hãy chạy {command}."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 {host} 上运行 {command}。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 {host} 上執行 {command}。"
+          }
+        }
+      }
+    },
+    "auth.fix.replaceKey": {
+      "comment": "Agent pane: button and model-chip word that enters a new API key for the agent's provider",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استبدال المفتاح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zamijeni ključ"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erstat nøgle"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schlüssel ersetzen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace key"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reemplazar clave"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remplacer la clé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sostituisci chiave"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーを置き換える"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្ដូរសោ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "키 교체"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bytt nøkkel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zastąp klucz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Substituir chave"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заменить ключ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แทนที่คีย์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anahtarı değiştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Замінити ключ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thay khóa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "替换密钥"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "替換金鑰"
+          }
+        }
+      }
+    },
+    "auth.fix.signInCmux": {
+      "comment": "Agent pane: button and model-chip word that signs the person in to their cmux account",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الدخول إلى cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijava u cmux"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log ind på cmux"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei cmux anmelden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar sesión en cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se connecter à cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accedi a cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux にサインイン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចូល cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux에 로그인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logg på cmux"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaloguj się do cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrar no cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Войти в cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้ cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux'a giriş yap"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увійти в cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đăng nhập cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录 cmux"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入 cmux"
+          }
+        }
+      }
+    },
+    "auth.fix.signInTo": {
+      "comment": "Agent pane: button and model-chip word that signs in to the agent or account; {name} is its name (Claude Code)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الدخول إلى {name}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijava u {name}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log ind på {name}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei {name} anmelden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to {name}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar sesión en {name}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se connecter à {name}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accedi a {name}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} にサインイン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចូល {name}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name}에 로그인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logg på {name}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaloguj się do {name}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrar no {name}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Войти в {name}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้ {name}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} hesabına giriş yap"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увійти в {name}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đăng nhập {name}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录 {name}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入 {name}"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
