@@ -67,5 +67,24 @@ class AgentTypingVerdict(unittest.TestCase):
         self.assertFalse(bench.agent_typing_verdict(stats, self.TEXT, dispatch)["key_order_ok"])
 
 
+class StreamLoadMissing(unittest.TestCase):
+    """cmux20-bench at 8372af35 (2026-11-20): all 18 real-agent chats stayed new_chat pending (attached=False), so L1,
+    L2, L3 and L5 measured no stream while their runs read complete. A chat that never attached is named instead."""
+
+    def test_a_real_chat_that_never_attached_names_the_missing_stream(self):
+        with mock.patch.object(bench.opts, "chat_agent", "real"):
+            attach = {"a": {"attached": True}, "b": {"attached": False}, "c": {"attached": False}}
+            self.assertEqual(bench.stream_load_missing(["a", "b", "c"], attach),
+                             "2 of 3 streaming chats never attached to the agent, so their streams never ran")
+            self.assertEqual(bench.stream_load_missing(["d"], attach),
+                             "1 of 1 streaming chats never attached to the agent, so their streams never ran")
+            self.assertIsNone(bench.stream_load_missing(["a"], attach))
+            self.assertIsNone(bench.stream_load_missing([], attach), "a mode with no stream misses none")
+
+    def test_the_mock_agent_streams_without_a_session(self):
+        with mock.patch.object(bench.opts, "chat_agent", "mock"):
+            self.assertIsNone(bench.stream_load_missing(["b"], {"b": {"attached": False}}))
+
+
 if __name__ == "__main__":
     unittest.main()
