@@ -145,6 +145,9 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ matrix.model == 'real' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
           MODEL: ${{ matrix.model }}
           CMUX_TUI: ${{ steps.build-cmux-tui.outputs.path }}
+          # The dedicated private sandbox repository (OWNER/REPO) the test team's GitHub connection lists: the live
+          # GitHub cells and, with the real model, the agent's. Unset (the repository variable is not set): skipped.
+          CMUX_JOURNEY_GITHUB_REPO: ${{ vars.CMUX_JOURNEY_GITHUB_REPO }}
         run: |
           set -uo pipefail
           out="$RUNNER_TEMP/cloud-journey"
