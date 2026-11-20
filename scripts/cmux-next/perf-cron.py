@@ -249,6 +249,12 @@ PARTS = [
     # chat to 100k rows on simulated time against an empty chat; bytes per simulated hour and their ratio
     # (chat_disk.growth_ratio). About 30 s after the build, which runs first under its own cap.
     {"name": "chat-disk", "where": "linux", "kind": "webui", "needs": "chat-disk"},
+    # The daemon's restart to a non-empty chat attach (scripts/measure/daemon-restart-linux.sh, goal restart-to-chat's
+    # daemon half in cmuxterm-hq's NOW, row restart_chat_attach_daemon_ms, target 178 ms): god_daemon.rs's small and god
+    # homes, up to three runs in 15 minutes after the build (the job's 40-minute cap holds setup, a cold build of about
+    # 15 minutes and this), each home's median restartChatAttachMs (daemon_restart.<shape>_home.chat_attach_ms). No god
+    # home reading gives no metric, so the small home never stands in for the worst of both.
+    {"name": "daemon-restart", "where": "linux", "kind": "webui", "needs": "daemon-restart"},
 ]
 PART_BY_NAME = {p["name"]: p for p in PARTS}
 # Which part measures a row (bisect re-measures only the parts of the regressed rows).
@@ -267,6 +273,7 @@ ROW_PARTS = [
     (r"^webui\.chat_100k_flat\.", "web-ui-flat"),
     (r"^webui\.composer_typing\.", "web-ui-typing"),
     (r"^webui\.chat_disk\.", "chat-disk"),
+    (r"^webui\.daemon_restart\.", "daemon-restart"),
     (r"^webui\.", "web-ui"),
 ]
 # Rows that are stored and shown but never judged: higher is better there (MB/s, a ratio to Ghostty), and every rule
@@ -959,7 +966,7 @@ def linux_bench_runs(root, part="diff-viewer"):
     if part == "web-ui-growth":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "state-growth"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-god":
-        only = ",".join(GOD_BENCHES + [f"{b}-god" for b in GOD_BENCHES])
+        only = ",".join([b for b in GOD_BENCHES if b not in GOD_SELF_PAIRED] + [f"{b}-god" for b in GOD_BENCHES])
         # `paired` runs in rounds (run_paired_rounds): the god and small chats at once, as god-ratio-ab.sh plays them.
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {}),
                 "paired": (["bun", "bench/transcript-replay.bench.ts", "--turns", "600", "--only", "long"],
@@ -977,6 +984,9 @@ def linux_bench_runs(root, part="diff-viewer"):
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "composer-typing"], os.path.join(root, "webviews"), {})}
     if part == "chat-disk":
         script = os.path.join(root, CHAT_DISK)
+        return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
+    if part == "daemon-restart":
+        script = os.path.join(root, DAEMON_RESTART)
         return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
     if part == "infinite-items":
         # The release build first, in a run of its own: each run has its own 30-minute cap (LINUX_RUN_SECONDS) and the
@@ -1942,6 +1952,8 @@ def supported_parts_at(sha):
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{INFINITE_ITEMS}"], capture_output=True).returncode == 0
         elif need == "chat-disk":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{CHAT_DISK}"], capture_output=True).returncode == 0
+        elif need == "daemon-restart":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{DAEMON_RESTART}"], capture_output=True).returncode == 0
         elif need == "terminal-throughput":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
@@ -1998,10 +2010,15 @@ FLAT_100K_BENCH = "webviews/bench/chat-100k-flat.bench.ts"
 COMPOSER_TYPING_ROWS = "webviews/bench/composerTypingRows.ts"
 INFINITE_ITEMS = "scripts/measure/infinite-items-linux.sh"
 CHAT_DISK = "scripts/measure/chat-disk-growth-linux.sh"
+DAEMON_RESTART = "scripts/measure/daemon-restart-linux.sh"
 # The web-ui-god part: the benches that take FIXTURE=god (web-ui-suite.ts lists each as NAME and NAME-god) and the
 # shared fixture a commit needs for the part. A god row is webui.<prefix>.god.<rest>; its ordinary twin drops `.god`.
 GOD_FIXTURE = "webviews/bench/godFixture.ts"
 GOD_BENCHES = ["chat-open", "chat-switch", "transcript-replay"]
+# The god benches that run their ordinary twin themselves, in the same rounds (chat-open-god: PAIRED=1, interleaved
+# with a runner calibration page), so the part runs no separate ordinary bench for them: its rows would duplicate the
+# paired run's ordinary rows, and come from other minutes of the runner than the god rows they pair with.
+GOD_SELF_PAIRED = ("chat-open",)
 # Leo, 2026-11-10: a god session must open and run the same, or close to the same, as a small one. A god row more
 # than this many times its twin is over target. Only time, size and shift rows have a ratio: a count or a slope
 # (a growth per operation or per row) has its own target, and a twin under its noise floor says nothing.
