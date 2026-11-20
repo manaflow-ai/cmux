@@ -20,6 +20,39 @@ enum TerminalChatHandler {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bindEffect("palette.openTerminalChatView", requires: nil, effect: { try open($0, context: context) })
         registry.bindEffect("palette.toggleTerminalChat", requires: nil, effect: { try toggle($0, context: context, watches: true) })
+        // Each row reads as the way it goes (user 2026-11-20, the switch back "inside the 3 dots thing"): Switch to
+        // Chat on a terminal, Switch to Terminal on a chat, in the pane's ⋮, the tab's right-click and the palette.
+        // The CLI and MCP keep the catalog's title and id.
+        ActionTargetTitles.set("palette.toggleTerminalChat", in: registry) { invocation in
+            targetTab(invocation, context: context).flatMap { switchTitle(of: $0, services: context.services) }
+        }
+        ActionTargetTitles.setPaletteTitle("palette.toggleTerminalChat", in: registry) {
+            targetTab(ActionInvocation(), context: context).flatMap { switchTitle(of: $0, services: context.services) }
+        }
+    }
+
+    /// The row's title on `tab`, the way Toggle goes from it: a terminal running a Claude Code or Codex session
+    /// switches to its chat, a chat with such a session to its terminal; nil (the catalog's "Toggle Terminal and Chat")
+    /// for any other tab. Reads only the tab and its session: a palette title must not walk every machine's agents.
+    static func switchTitle(of tab: TabModel, services: AppServices) -> String? {
+        if tab.kind == .pty {
+            guard tab.agent?.harnessSessionID != nil, let agent = tab.agent?.agent, WindowRules().agentHarness(agent) != nil else { return nil }
+            return MiscHandlerStrings.terminalChatSwitchToChat
+        }
+        guard services.agentTabs.isAgentTab(tab.id), let session = chatSession(of: tab, services: services),
+              WindowRules().agentHarness(session.harness) != nil else { return nil }
+        return MiscHandlerStrings.terminalChatSwitchToTerminal
+    }
+
+    /// The tab `invocation` names (a menu row's), else the focused pane's selected tab (the palette's).
+    private static func targetTab(_ invocation: ActionInvocation, context: AppActionContext) -> TabModel? {
+        if let target = invocation.target, target.kind == .tab {
+            let services = context.services
+            // A named machine never falls back to a same-id tab of another (a fork keeps its ids).
+            return (invocation.targetMachineID.map { services.locateTab(target.id, onMachine: $0) } ?? services.locateTab(target.id))?.0
+        }
+        guard let (pane, id) = context.scope(invocation).tab else { return nil }
+        return pane.tab(id)
     }
 
     private static func open(_ invocation: ActionInvocation, context: AppActionContext) throws -> ActionEffect {
