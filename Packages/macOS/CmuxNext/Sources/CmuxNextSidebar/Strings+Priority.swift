@@ -38,6 +38,8 @@ extension Strings {
     static var priorityUnpin: String { String(localized: "sidebar.priority.unpin", defaultValue: "Unpin from Priority", bundle: .module) }
     static var prioritySnooze: String { String(localized: "sidebar.priority.snooze", defaultValue: "Snooze for 1 Hour", bundle: .module) }
     static var priorityArchive: String { String(localized: "sidebar.priority.archive", defaultValue: "Archive", bundle: .module) }
+    /// An archived chat's hover button in the Archived fold: it lists again.
+    static var priorityRestore: String { String(localized: "sidebar.priority.restore", defaultValue: "Restore", bundle: .module) }
     /// A row's VoiceOver actions: the chat moves one place in the Priority view and keeps it.
     static var priorityMoveEarlier: String { String(localized: "sidebar.priority.moveEarlier", defaultValue: "Move Earlier", bundle: .module) }
     static var priorityMoveLater: String { String(localized: "sidebar.priority.moveLater", defaultValue: "Move Later", bundle: .module) }
@@ -50,6 +52,11 @@ extension SidebarPriorityEntry {
 
 extension SidebarPriorityPanel {
     /// Why Toggle Priority View is unavailable while the view is not installed (`sidebar.priorityView.enabled`).
+    /// The toast after a row's Archive (its Undo restores the chat).
+    public static var archivedToast: String {
+        String(localized: "sidebar.priority.archivedToast", defaultValue: "Chat archived", bundle: .module)
+    }
+
     public static var unavailableReason: String {
         String(localized: "sidebar.priority.off", defaultValue: "the Priority view is off; turn it on in the App Store or Settings", bundle: .module)
     }

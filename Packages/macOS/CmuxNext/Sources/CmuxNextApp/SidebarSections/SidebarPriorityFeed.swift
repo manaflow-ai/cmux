@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextAgentLanes
@@ -23,7 +24,8 @@ extension SidebarPriorityFeed {
                                openedSessions: { [weak services] in
                                    guard let tabs = services?.agentTabs else { return [] }
                                    return Set(tabs.listTabsScoped().compactMap { tabs.sessions[tabs.tabKey($0.key, machine: $0.machine)] ?? $0.record.session })
-                               }),
+                               },
+                               openSession: { [weak services] id in if let services { Self.open(session: id, services: services) } }),
                   chats: .app)
     }
 
@@ -33,6 +35,17 @@ extension SidebarPriorityFeed {
         if services.agentTabs.tab(showing: lane.id) == nil, let tab = AgentPriorityChats.app.remoteTab(showing: lane.id),
            services.revealTab(tab) { return }
         services.agentActivityPage.jump(to: lane)
+    }
+
+    /// Opens an archived chat no lane lists (a closed one): the tab that shows it, else the
+    /// `cmux://session/<id>` path in the focused pane, as any session link opens.
+    static func open(session id: String, services: AppServices) {
+        if let tab = services.agentTabs.tab(showing: id), services.revealTab(tab) { return }
+        do {
+            try DeepLinkNavigator(services: services).open(DeepLink(.session(id, turn: nil)), background: false, asking: false)
+        } catch {
+            services.registry.refuse(String(describing: error))
+        }
     }
 
     /// Toggle Priority View flips `sidebar.priorityView.shown` while the view is installed.
@@ -47,6 +60,11 @@ extension SidebarPriorityFeed {
                                                 peer: { [weak machines] in machines?.machineName(peer: $0) },
                                                 local: { nil }) // This Mac's rows gain its name with `sidebar.showLocalMachine` (#22763).
         SidebarPriorityRowActions(chats: .app, unavailable: { preferences().priorityViewEnabled ? nil : SidebarPriorityPanel.unavailableReason }).bind(into: registry)
+        // A row's Archive shows the sidebar's Undo toast (as auto-archive does); Undo restores the chat.
+        AgentPriorityChats.app.onArchived = { [weak services = context.services] id, _ in
+            CmuxToastCenter.shared.showUndo(SidebarPriorityPanel.archivedToast, id: "priority-archive",
+                                            in: services?.windows.active?.window ?? NSApp?.mainWindow) { _ = AgentPriorityChats.app.restore(id) }
+        }
         AgentNeedsInputJump(chats: .app, tabs: { AgentNeedsInputJump.tabs(of: context.services.daemon.store) })
             .bind(into: registry, open: { Self.open($0, services: context.services) }, reveal: { _ = context.services.revealTab($0) })
     }
