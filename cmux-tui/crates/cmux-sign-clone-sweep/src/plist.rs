@@ -167,11 +167,11 @@ fn read_usize(data: &[u8], offset: usize, size: usize) -> Option<usize> {
 /// The binary plist reader: the trailer, the offset table, the top dictionary.
 fn binary_string(data: &[u8], key: &str) -> Option<String> {
     let trailer = data.len().checked_sub(32)?;
-    let offset_size = usize::from(*data.get(trailer + 6)?);
-    let ref_size = usize::from(*data.get(trailer + 7)?);
-    let objects = read_usize(data, trailer + 8, 8)?;
-    let top = read_usize(data, trailer + 16, 8)?;
-    let table = read_usize(data, trailer + 24, 8)?;
+    let offset_size = usize::from(*data.get(trailer.checked_add(6)?)?);
+    let ref_size = usize::from(*data.get(trailer.checked_add(7)?)?);
+    let objects = read_usize(data, trailer.checked_add(8)?, 8)?;
+    let top = read_usize(data, trailer.checked_add(16)?, 8)?;
+    let table = read_usize(data, trailer.checked_add(24)?, 8)?;
     let object_offset = |index: usize| -> Option<usize> {
         if index >= objects {
             return None;

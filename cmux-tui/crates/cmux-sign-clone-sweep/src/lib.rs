@@ -375,7 +375,7 @@ pub fn pass(
     let mut report = Report::default();
     // A folder that cannot be read is a row, not an empty folder.
     let mut unreadable = |at: &Path, root_id: &str, report: &mut Report| {
-        report.kept_in_use += 1;
+        report.kept_in_use = report.kept_in_use.saturating_add(1);
         rows.push(Row {
             path: at.to_path_buf(),
             root_id: root_id.to_owned(),
@@ -441,12 +441,12 @@ fn judge(
     report: &mut Report,
 ) -> Verdict {
     let Some((bundle, plist)) = clone_bundle(&row.path) else {
-        report.kept_foreign += 1;
+        report.kept_foreign = report.kept_foreign.saturating_add(1);
         return Verdict::Foreign { found: None };
     };
     let id = plist_string(&plist, "CFBundleIdentifier");
     if id.as_deref() != Some(row.root_id.as_str()) || !in_family(&row.root_id) {
-        report.kept_foreign += 1;
+        report.kept_foreign = report.kept_foreign.saturating_add(1);
         return Verdict::Foreign { found: id };
     }
     if touched >= pass.started {
@@ -455,16 +455,16 @@ fn judge(
     // The folder the checks below read, by identity; removal is bound to it.
     let identity = |path: &Path| std::fs::symlink_metadata(path).ok().map(|m| Ident::of(&m));
     let Some(checked) = identity(&row.path) else {
-        report.kept_in_use += 1;
+        report.kept_in_use = report.kept_in_use.saturating_add(1);
         return Verdict::Unknown { at: row.path.clone() };
     };
     match scan_clone(&row.path, |file| probe.open_elsewhere(file)) {
         Err(kept) => {
-            report.kept_in_use += 1;
+            report.kept_in_use = report.kept_in_use.saturating_add(1);
             kept
         }
         Ok(_) if identity(&row.path) != Some(checked) => {
-            report.kept_in_use += 1;
+            report.kept_in_use = report.kept_in_use.saturating_add(1);
             Verdict::Unknown { at: row.path.clone() }
         }
         Ok(scan) => {
@@ -472,7 +472,7 @@ fn judge(
             if pass.dry_run {
                 for (file, links, file_bytes) in &scan.shared {
                     let names = pass.planned.entry(*file).or_insert(0);
-                    *names += 1;
+                    *names = names.saturating_add(1);
                     if *names == *links {
                         bytes = bytes.saturating_add(*file_bytes);
                     }
@@ -502,9 +502,9 @@ fn judge(
                 return Verdict::RemoveFailed { error: words };
             }
             let dry_run = pass.dry_run;
-            report.removed += 1;
+            report.removed = report.removed.saturating_add(1);
             if reason == Reason::Superseded {
-                report.removed_superseded += 1;
+                report.removed_superseded = report.removed_superseded.saturating_add(1);
             }
             report.reclaimed_bytes = report.reclaimed_bytes.saturating_add(bytes);
             Verdict::Removed { reason, dry_run }
