@@ -437,7 +437,7 @@ test("an install acpmux still cannot find afterwards says what is missing and of
   expect(after.querySelector(".acpmux-harness-detail")?.textContent).toBe(
     "Installed, but cmux can't find OpenCode on this Mac yet",
   );
-  expect([...after.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Check Again"]);
+  expect([...after.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Check again"]);
   const looks = () =>
     calls.filter((call) => call.method === "harness.health" && call.params.id === "opencode" && call.params.rescan)
       .length;
