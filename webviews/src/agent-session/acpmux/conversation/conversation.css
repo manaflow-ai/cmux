@@ -2571,7 +2571,8 @@ pre.cv-math-source {
   white-space: nowrap;
 }
 .cv-worked__time,
-.cv-worked__own {
+.cv-worked__own,
+.cv-worked .cv-command__elapsed {
   flex: none;
   margin-inline-start: 6px;
 }
