@@ -12,7 +12,9 @@ public import Foundation
 ///
 /// Swift reads the file because the settings load that applies it is Swift (`SettingsController`);
 /// the rule (fill unset keys) is the theme overlay's and build defaults' own, with no new logic.
-public nonisolated enum SidebarLookPreset {
+public nonisolated enum SidebarLookPreset: String, CaseIterable, Sendable {
+    case cmux, claude, codex, studio
+
     public static let folderName = "sidebar-looks"
     /// The look files cmux ships (`<app>/Contents/Resources/sidebar-looks`).
     public static let bundledFolder: URL? = Bundle.main.resourceURL?.appending(path: folderName, directoryHint: .isDirectory)
