@@ -244,6 +244,30 @@
   }
 }
 
+/* COMPOSER LENS (composerLens.ts; Leo 2026-11-20 on the composer over scrolling chat: "Like, why not
+   offer the option? I think it looks neat. I like the refraction."). Under the host's Lens mode
+   (data-glass="lens") in Chromium, the composer box carries data-composer-lens and its filter in
+   --composer-lens-filter: its backdrop, the transcript under it, bends through a convex bezel, then a
+   light frost, under a clearer tint than plain (the point is to see the bend). --composer-lens-tint
+   sets that tint (the gallery's stronger-floor variant raises it). --glass-refraction 0 has the
+   wallpaper lens (lens.ts) draw the box's still flat, so a see-through window bends once, here.
+   Plain mode never matches: nothing changes there. */
+:root {
+  --composer-lens-frost: 3px;
+}
+@media not (prefers-reduced-transparency: reduce) {
+  @supports not (-webkit-backdrop-filter: none) {
+    :root[data-glass="lens"]:not([data-reduce-transparency]) .ui-glass.ui-glass[data-composer-lens] {
+      --glass-backdrop: var(--composer-lens-filter) blur(var(--composer-lens-frost)) saturate(1.4);
+      --glass-tint: var(
+        --composer-lens-tint,
+        color-mix(in srgb, var(--acpmux-composer-solid, var(--glass-surface)) var(--ds-glass-popover-art-tint, 50%), transparent)
+      );
+      --glass-refraction: 0px;
+    }
+  }
+}
+
 /* FISHEYE (Fisheye.tsx; Leo 2026-10-21 on Jump to latest: "I want, like glassier stuff. I want it to
    be like a fucking glass, like a lens thing, like a fisheye. I want more fisheye!"). A small round
    glass that adds .ui-glass-fisheye and renders <FisheyeFilters size=…/> magnifies and bends the page
