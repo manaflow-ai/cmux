@@ -22,7 +22,8 @@ public nonisolated struct TooltipSurface: Hashable, Sendable {
     /// The blur under the tint, in points (pages: `--tooltip-blur`). The
     /// native panel's `NSVisualEffectView` blurs by its material; this is
     /// the pages' radius, matched to it by eye.
-    public static let blurRadius: Double = 24
+    /// The design scale's bar radius (--ds-blur-bar, one of three web blur radii).
+    public static let blurRadius: Double = 20
     /// The least tint alpha (pages' fallback without the host's tint:
     /// `--tooltip-tint`): dense enough that the glass reads as a surface,
     /// light enough that the backdrop's color shows. The 4.5:1 rule decides
