@@ -73,7 +73,7 @@ export interface ConflictPrompt {
 export type Notice = { kind: "unsupported" } | { kind: "failed"; message: string };
 
 export interface KeybindingsSnapshot {
-  /** The whole table, sorted by title then key. */
+  /** The whole table, sorted by title then key. Ids are page ids (model.ts `keepUnchanged`). */
   bindings: Binding[];
   /** The rows the query shows. */
   rows: Binding[];
@@ -186,7 +186,8 @@ export class KeybindingsStore {
     try {
       const result = await this.client.call<BindingListResult>(KeybindingOps.list, {});
       if (generation !== this.generation) return;
-      const bindings = sortBindings(keepUnchanged(this.snapshot.bindings, result.bindings ?? []));
+      // Sorted first: the wire ids break ties, before keepUnchanged gives page ids.
+      const bindings = keepUnchanged(this.snapshot.bindings, sortBindings(result.bindings ?? []));
       let selection = this.snapshot.selection;
       const pending = this.pendingSelect;
       if (pending) {

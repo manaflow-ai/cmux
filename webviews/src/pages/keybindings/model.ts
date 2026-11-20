@@ -145,13 +145,36 @@ export function moveSelection(list: RowList, selection: string | undefined, offs
 /**
  * The re-read table, each entry that did not change kept as the object the page already holds: a
  * re-read sends the whole table, and a memoized row draws again only for the entry that changed.
+ *
+ * Entries are matched by what they are (`identity`, and the nth of equal ones), not by `id`: ids are
+ * positions, so removing one entry moves the id of every later one. The table returned numbers its
+ * entries with page ids instead, stable across re-reads (a kept entry keeps its id; a new one gets
+ * one never used), and its `conflicts` name those ids. `next` comes in display order (sorted, its
+ * wire ids breaking ties), which is kept.
  */
 export function keepUnchanged(previous: readonly Binding[], next: readonly Binding[]): Binding[] {
   if (!previous.length) return [...next];
-  const held = new Map(previous.map((binding) => [`${binding.id}\u0000${identity(binding)}`, binding]));
-  return next.map((binding) => {
-    const old = held.get(`${binding.id}\u0000${identity(binding)}`);
-    return old && sameBinding(old, binding) ? old : binding;
+  const names = new Map<string, number>();
+  const name = (binding: Binding) => {
+    const id = identity(binding);
+    const nth = names.get(id) ?? 0;
+    names.set(id, nth + 1);
+    return `${id}\u0000${nth}`;
+  };
+  const held = new Map(previous.map((binding) => [name(binding), binding]));
+  names.clear();
+  const olds = next.map((binding) => held.get(name(binding)));
+  // Wire id to page id.
+  let fresh = previous.reduce((most, binding) => Math.max(most, binding.id), -1) + 1;
+  const ids = new Map(next.map((binding, at) => [binding.id, olds[at]?.id ?? fresh++]));
+  return next.map((binding, at) => {
+    const paged: Binding = {
+      ...binding,
+      id: ids.get(binding.id)!,
+      conflicts: binding.conflicts.flatMap((id) => (ids.has(id) ? [ids.get(id)!] : [])),
+    };
+    const old = olds[at];
+    return old && sameBinding(old, paged) ? old : paged;
   });
 }
 
