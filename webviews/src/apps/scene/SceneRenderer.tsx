@@ -432,7 +432,6 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
     if (frame.height === undefined && frame.maxHeight === undefined && frame.minHeight === undefined)
       style.height = side;
     if (frame.maxWidth === "infinity" && frame.width === undefined) style.width = "100%";
-    if (frame.maxHeight === "infinity" && frame.height === undefined) style.height = "100%";
     style.backgroundImage = sceneGradient(props.fill);
     style.backgroundColor = style.backgroundImage
       ? undefined
