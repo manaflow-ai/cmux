@@ -533,7 +533,8 @@ async fn surge_cold_headless_burst_uses_the_last_held_measurement() {
     assert!(session.time_breakdown.lock().unwrap().reply_period_ms(now_ms()).is_none());
     assert!(session.turn().is_none());
     for id in ["first-after-restart", "second-after-restart"] {
-        let receipt = hub.hold_surge_message(&session, id, "cli", &blocks, &opts).unwrap();
+        let receipt =
+            hub.hold_surge_message(&session, id, "cli", &blocks, &opts, now_ms()).unwrap();
         assert_eq!(receipt.unwrap()["surgeHeld"], true);
     }
     assert_eq!(hub.inbox_threads(&session)["surge"]["held"], 3);
