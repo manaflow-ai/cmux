@@ -47,7 +47,8 @@ def table_row(run: dict, date: str, sha: str, host: str) -> str:
     """One docs/perf/glass-bench.md row for a run (pure)."""
     total = run.get("total") or {}
     frame = run.get("frame") or {}
-    state = run["state"] + (" (lens: wallpaper still)" if run.get("lens_source") == "wallpaper-still" else "")
+    state = run["state"] + {"wallpaper-still": " (lens: wallpaper still)",
+                            "live-content": " (lens: live chat)"}.get(run.get("lens_source"), "")
     gpu = f"{cell(run.get('gpu_pct'))} / {cell(run.get('gpu_ms_per_frame'), 2)}"
     frames = f"{cell(frame.get('page_p50_ms'))} / {cell(frame.get('page_p95_ms'))}" if frame else "- / -"
     return (f"| {date} | {sha[:10]} | {host} | {state} | {run.get('mode')} | {run.get('surfaces', '-')} | "
