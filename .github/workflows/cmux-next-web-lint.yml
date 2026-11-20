@@ -25,7 +25,7 @@ jobs:
   web-lint:
     name: web lint (fast)
     # Blacksmith 4 vCPU, never GitHub-hosted (Leo, 2026-10-27: "just put it on blacksmith").
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     steps:
       - name: Checkout

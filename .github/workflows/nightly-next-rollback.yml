@@ -319,7 +319,7 @@ jobs:
   fix-forward:
     needs: rollback
     if: needs.rollback.result == 'success' && needs.rollback.outputs.changed == 'true' && !inputs.dry_run && !inputs.drill
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       actions: write # dispatch nightly-next-train.yml

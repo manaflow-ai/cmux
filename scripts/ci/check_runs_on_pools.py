@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
-"""Fail when a workflow job's `runs-on` names a literal Linux runner label outside a fork-only branch.
+"""Fail when a same-repository Linux job picks its runner instead of naming the runner pool.
 
-Leo, 2026-11-19: "why are there even 20,000? What are the 20,000 [jobs] doing?" At 20:12Z
-28,318 cmux jobs were queued, and 1,822 of the 2,284 jobs queued since 19:40Z targeted labels
-no runner served, because their workflows hardcoded `blacksmith-*-ubuntu-*` / `ubuntu-*` labels.
-A label in a repository variable can be moved in one `gh variable set`; a label in workflow text
-needs a PR on every branch. So same-repository Linux jobs read their label from
-`fromJSON(vars.RUNNER_POOLS).<key>` (linux, linux_2 .. linux_32, linux_arm64, promotion, provenance).
+Linux CI is one persistent runner pool (cmuxterm-hq decisions/junctions.md, 2026-11-20, Leo: "let this thing run,
+we can clean up at some later point, let our caches do work, install stuff properly"). A same-repository Linux job
+says `'cmux-linux'`; a fork keeps its GitHub-hosted or one-job branch. Two kinds of hit:
 
-Allowed: a literal inside an `||` alternative whose `&&` chain is fork-only, at that level or an
-enclosing one: `github.repository_owner != 'manaflow-ai'` (a fork repository, which has no
-variables) or `head.repo.full_name != github.repository` / `head.repo.fork` (a fork pull request,
-which gets no variables either). Everything else is a hit, unless EXCEPTIONS lists the job with
-its reason.
+- a literal `blacksmith-*-ubuntu-*` / `ubuntu-*` label outside a fork-only branch (on 2026-11-19 1,822 of 2,284
+  queued jobs targeted labels no runner served);
+- a picker: a runs-on that reads `vars.RUNNER_POOLS`, `vars.LINUX_RUNNER`, `vars.CI_CLOUD_OVERFLOW_SAVED` or
+  `vars.CI_LINUX_GATE_OWNED_RUNNER`, unless it keeps its runner for a reason the pool cannot meet: the line says
+  `# ephemeral-required` or `# github-hosted-required`, the job holds signing or release material (rule 7 of
+  tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py: ephemeral runner), or the expression is a
+  trusted-runner, nightly, macOS, Windows, Arm or placement-output route (KEEP below).
+
+Allowed literals: inside an `||` alternative whose `&&` chain is fork-only, at that level or an enclosing one:
+`github.repository_owner != 'manaflow-ai'` (a fork repository) or `head.repo.full_name != github.repository` /
+`head.repo.fork` (a fork pull request). Everything else is a hit, unless EXCEPTIONS lists the job with its reason.
 
 Reads `runs-on` as a string, a list, or a mapping's labels, with `${{ matrix.KEY }}` expanded to
 each value the matrix gives it (tests/workflow_jobs.py).
@@ -69,6 +72,47 @@ EXCEPTIONS: dict[tuple[str, str], str] = {
     ("ci-cloud-overflow-probe.yml", "watch"): "github-hosted-required: it must run while Blacksmith starts nothing, "
                                               "to switch overflow on",
 }
+
+POOL_LABEL = "cmux-linux"
+PICKER = re.compile(r"RUNNER_POOLS|LINUX_RUNNER|CI_CLOUD_OVERFLOW_SAVED|CI_LINUX_GATE_OWNED_RUNNER")
+KEEP = re.compile(r"macos|windows|arm64|CI_TRUSTED_RUNNER|nightly|glaeda|CI_RELEASE_PIN_SLOT|DARWIN_CROSS|"
+                  r"cmux-gcp-|matrix\.|inputs\.|needs\.|ubuntu-latest|provenance|promotion")
+KEEP_MARK = re.compile(r"#.*\b(ephemeral-required|github-hosted-required)\b")
+RUNS_ON_LINE = re.compile(r"^\s*runs-on:\s*(?P<value>[^#]*?)\s*(?P<comment>#.*)?$")
+JOB_LINE = re.compile(r"^  ([A-Za-z0-9_-]+):\s*(#.*)?$")
+RELEASE_SECRET = re.compile(r"secrets(\.|\[\s*(format\(\s*)?\\?['\"])(APPLE_|ASC_API_|IOS_|SPARKLE_|NIGHTLY_SPARKLE_|"
+                            r"CMUX_RELEASE_APP_|CONTENT_SIGNING_|CF_R2_|NIGHTLY_NEXT_R2_|HOMEBREW_TAP_TOKEN)", re.I)
+RELEASE_ENV = re.compile(r"\b(release|release-next|content-signing|nightly-next-promote|release-surface-ack)\b")
+
+
+def signing_job(job: dict) -> bool:
+    """A job holding signing or release material keeps an ephemeral runner (rule 7)."""
+    import json  # noqa: PLC0415
+
+    return bool(RELEASE_SECRET.search(json.dumps(job))) or bool(
+        RELEASE_ENV.search(json.dumps(job.get("environment") or "")))
+
+
+def picker_jobs(path: Path, jobs: dict) -> set[str]:
+    """Jobs whose runs-on line picks a Linux runner from a variable instead of naming the pool."""
+    found: set[str] = set()
+    job, in_jobs = None, False
+    for line in path.read_text(encoding="utf-8").split("\n"):
+        if line.startswith("jobs:"):
+            in_jobs = True
+            continue
+        if in_jobs and (m := JOB_LINE.match(line)):
+            job = m.group(1)
+        m = RUNS_ON_LINE.match(line)
+        if not m or job is None or not PICKER.search(m.group("value")):
+            continue
+        if KEEP_MARK.search(m.group("comment") or "") or KEEP.search(m.group("value")):
+            continue
+        if isinstance(jobs.get(job), dict) and signing_job(jobs[job]):
+            continue
+        found.add(job)
+    return found
+
 
 COMPARISON = re.compile(r"(?:==|!=)\s*$")
 COMPARED = re.compile(r"^\s*(?:==|!=)")
@@ -183,10 +227,11 @@ def hits(files: list[Path]) -> list[tuple[str, str, list[str]]]:
     for path in files:
         doc = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader) or {}
         jobs = doc.get("jobs") if isinstance(doc, dict) else None
+        pickers = picker_jobs(path, jobs or {})
         for job_id, job in (jobs or {}).items():
             if not isinstance(job, dict) or (path.name, job_id) in EXCEPTIONS:
                 continue
-            labels = job_hits(job)
+            labels = job_hits(job) + (["a runner picker"] if job_id in pickers else [])
             if labels:
                 found.append((path.name, job_id, labels))
     return found
@@ -203,9 +248,10 @@ def main(argv: list[str]) -> int:
         print(f"{len(found):4d} jobs in {len(per_file)} files")
         return 0
     for name, job_id, labels in found:
-        print(f"{name} {job_id}: runs-on names {', '.join(labels)} outside a fork-only branch. Fix: read "
-              "fromJSON(vars.RUNNER_POOLS).<linux|linux_2..linux_32|linux_arm64|promotion|provenance> "
-              "(or add the job to EXCEPTIONS in scripts/ci/check_runs_on_pools.py with its reason)")
+        print(f"{name} {job_id}: runs-on uses {', '.join(labels)} outside a fork-only branch. Fix: name the "
+              f"runner pool, `'{POOL_LABEL}'` (cmuxterm-hq decisions/junctions.md 2026-11-20: Linux CI is one "
+              "persistent pool, no pickers), or add the job to EXCEPTIONS in scripts/ci/check_runs_on_pools.py "
+              "with its reason")
     return 1 if found else 0
 
 

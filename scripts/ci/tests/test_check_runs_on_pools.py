@@ -81,7 +81,45 @@ class WorkflowTests(unittest.TestCase):
                 steps: []
             """)
         self.assertEqual(found, [("w.yml", "a", ["ubuntu-22.04"]),
-                                 ("w.yml", "b", ["blacksmith-4vcpu-ubuntu-2404-arm"])])
+                                 ("w.yml", "b", ["blacksmith-4vcpu-ubuntu-2404-arm"]),
+                                 ("w.yml", "c", ["a runner picker"])])
+
+    def test_the_pool_label_passes_and_pickers_fail(self):
+        """Linux CI is one persistent pool: a same-repository job names it; a variable picker is a hit."""
+        found = self.run_on("""
+            on: pull_request
+            jobs:
+              pool:
+                runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
+                steps: []
+              linux-runner:
+                runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'cmux-linux' }}
+                steps: []
+              overflow:
+                runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'cmux-linux' || 'cmux-linux' }}
+                steps: []
+            """)
+        self.assertEqual(found, [("w.yml", "linux-runner", ["a runner picker"]),
+                                 ("w.yml", "overflow", ["a runner picker"])])
+
+    def test_a_picker_kept_for_a_reason_the_pool_cannot_meet_passes(self):
+        """Ephemeral-required, GitHub-hosted-required, signing jobs and trusted or nightly routes keep their runner."""
+        found = self.run_on("""
+            on: push
+            jobs:
+              marked:
+                runs-on: ${{ fromJSON(vars.RUNNER_POOLS).linux }} # ephemeral-required: holds a write token
+                steps: []
+              signer:
+                runs-on: ${{ fromJSON(vars.RUNNER_POOLS).linux }}
+                environment: release
+                steps:
+                  - run: echo "${{ secrets.APPLE_CERTIFICATE }}"
+              trusted:
+                runs-on: ${{ contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || fromJSON(vars.RUNNER_POOLS).linux }}
+                steps: []
+            """)
+        self.assertEqual(found, [])
 
     def test_exceptions_are_skipped(self):
         found = self.run_on("""

@@ -51,7 +51,7 @@ jobs:
     name: portable light placement
     # An edit places only for PR size or UI review, when it moved a line they read.
     if: ${{ vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' && (github.event.action != 'edited' || (github.event.changes.body && (contains(github.event.pull_request.body, 'Size:') || contains(github.event.changes.body.from, 'Size:'))) || (github.event.changes.body && (contains(github.event.pull_request.body, 'UI review') || contains(github.event.changes.body.from, 'UI review') || contains(github.event.pull_request.body, 'Verdict:') || contains(github.event.changes.body.from, 'Verdict:')))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || 'cmux-linux' }}
     timeout-minutes: 4
     permissions:
       contents: read
@@ -92,7 +92,7 @@ jobs:
   base-only:
     name: base-only update
     if: github.event.action == 'synchronize'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || 'cmux-linux' }}
     timeout-minutes: 6
     # contents: read only. The repository is public, so the one run read below needs
     # no Actions scope; a refused read answers false.
