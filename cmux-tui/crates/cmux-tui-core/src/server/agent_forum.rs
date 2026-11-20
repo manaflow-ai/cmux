@@ -36,10 +36,7 @@ impl crate::mux::Mux {
         let session = validate(&params)?;
         // A peer can have the same session id. Never borrow this daemon's owner
         // access to satisfy a remote-chat read or a caller-selected address.
-        if !self.chat_rows().iter().any(|row| {
-            row.get("id").and_then(Value::as_str) == Some(session)
-                && row.get("machine").is_none_or(Value::is_null)
-        }) {
+        if !self.local_chat_listed(session) {
             return Err(error("forum.unavailable", "select a local chat listed on this machine"));
         }
         #[cfg(unix)]

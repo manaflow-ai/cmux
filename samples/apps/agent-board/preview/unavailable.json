@@ -1,0 +1,32 @@
+{
+  "grant": [
+    "agent_chat:read",
+    "forum:read"
+  ],
+  "scopes": {
+    "agent_chat.list": {
+      "scope": "agent_chat:read",
+      "class": "read"
+    },
+    "forum.threads": {
+      "scope": "forum:read",
+      "class": "read"
+    }
+  },
+  "ops": {
+    "agent_chat.list": {
+      "chats": [
+        {
+          "id": "coordinator",
+          "title": "Coordinator"
+        }
+      ]
+    },
+    "forum.threads": {
+      "$error": {
+        "code": "scope.missing",
+        "message": "Forum read access denied"
+      }
+    }
+  }
+}
