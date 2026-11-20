@@ -16,4 +16,11 @@ extension CEFTab {
             runtime.logger.error("passkeys stay allowed in agent-driven browser \(browserID, privacy: .public): fork has no WebAuthn refusal")
         }
     }
+
+    /// The person took the page over (their own click or key in it, or their click on an agent's passkey request): its
+    /// WebAuthn runs as in Chrome until an agent acts in it again (``refuseWebAuthnForAgent()``).
+    public func allowWebAuthnForPerson() {}
+
+    /// An agent clicks, types or navigates in the page again: a person's hand-over ends and WebAuthn is refused.
+    public func refuseWebAuthnForAgent() {}
 }
