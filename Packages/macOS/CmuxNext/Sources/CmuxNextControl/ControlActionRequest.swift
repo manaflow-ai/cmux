@@ -27,6 +27,9 @@ public struct ControlActionRequest: Sendable, Hashable {
     public var callerTerminal: String?
     /// `caller.home_chat`: a Chief turn, whose chat is the Home chat (ControlCaller).
     public var callerHomeChat = false
+    /// `caller.workspace`: the key of the workspace the agent session runs in (`CMUX_WORKSPACE_ID`),
+    /// where its run is placed when no tab shows its chat (ControlCallerLocation).
+    public var callerWorkspace: String?
     public var besideCaller = false
     /// That column does not exist: the target is the chat itself, and the
     /// handler moves the new tab into a new column right of it.

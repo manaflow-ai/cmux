@@ -37,7 +37,7 @@ enum DaemonPairingStrings {
 
     /// Deny on Escape. Approve has no key.
     static func spec(code: String, peer: String) -> CmuxDialogSpec {
-        CmuxDialogSpec(
+        CmuxDialogSpec(usesTransientMaterial: true,
             title: title, lines: [message(code: code)] + (peer.isEmpty ? [] : [Self.peer(peer)]) + [detail],
             buttons: [
                 CmuxDialogButton(id: denyID, title: deny, role: .cancel),

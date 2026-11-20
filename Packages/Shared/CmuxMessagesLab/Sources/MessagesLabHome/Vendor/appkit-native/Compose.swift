@@ -292,6 +292,9 @@ final class FieldTextView: NSTextView {
     override func becomeFirstResponder() -> Bool {
         let ok = super.becomeFirstResponder()
         if ok { PaletteScope.claimProcess(PaletteScope.palette(of: self)) } // cmux: the chat typed in gives the process palette
+        if ok, let home = sequence(first: superview, next: { $0?.superview }).lazy.compactMap({ $0 as? MessagesLabHomeView }).first {
+            home.onComposerFocused?(self) // cmux: the host's "window takes keys" launch mark
+        }
         DispatchQueue.main.async { [weak self] in self?.updateCaret() }
         return ok
     }

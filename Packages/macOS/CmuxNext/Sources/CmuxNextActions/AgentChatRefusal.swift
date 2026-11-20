@@ -39,13 +39,29 @@ public extension ActionRegistry {
     }
 
     /// Refuses the action `id` with `cause`'s reason. Returns nil, for `guard ... else { return refuse(...) }`.
+    /// Quiet: a caller (palette, CLI, MCP) gets the reason; a shortcut or menu run on something that
+    /// is not a chat it serves does nothing, never a toast that says to go focus one (Leo
+    /// 2026-11-17: "just... stop showijg the toggle on gui").
     @discardableResult func refuse<T>(_ cause: AgentChatRefusal, _ id: ActionID) -> T? {
-        refuse(reason(cause, for: id))
+        refuse(reason(cause, for: id), quiet: true)
         return nil
     }
 
     /// Statement form of ``refuse(_:_:)-generic``.
     func refuse(_ cause: AgentChatRefusal, _ id: ActionID) {
-        refuse(reason(cause, for: id))
+        refuse(reason(cause, for: id), quiet: true)
+    }
+
+    /// Offers the bound action `id` (call after its bind) only where it runs: wherever `lookup`, the
+    /// handler's own lookup of what it acts on, refuses, the action's palette and menu rows are
+    /// disabled with that reason, its context-menu row is left out, a keyboard or menu run does
+    /// nothing, and a CLI or MCP run gets the reason back (``ActionTargetVisibility/gate(_:in:reason:)``).
+    /// One lookup decides both, so a row's state and its run agree. An explicit target that names
+    /// nothing is left to the handler (`not_found` on the socket).
+    @MainActor func gate(_ id: ActionID, onRefusalOf lookup: @escaping @MainActor (ActionInvocation) -> Void) {
+        ActionTargetVisibility.gate(id, in: self) { [weak self] invocation in
+            guard let refused = self?.capturingTypedRefusal({ lookup(invocation) }), !refused.isNotFound else { return nil }
+            return refused.reason
+        }
     }
 }

@@ -144,8 +144,13 @@ enum Command {
     /// caller that just wrote an app's files (`cmux ext dev`) asks, so its
     /// reload never waits on file events. The `apps-changed` and
     /// `apps-reload-failed` events of the pass go out before the reply.
+    /// `folders` names the package folders the caller wrote: the pass reads
+    /// only those when each is a watched one, else every folder.
     #[serde(rename = "apps-reload-local")]
-    ReloadLocal,
+    ReloadLocal {
+        #[serde(default)]
+        folders: Option<Vec<std::path::PathBuf>>,
+    },
     #[serde(rename = "apps-logs")]
     Logs {
         app: String,
@@ -516,7 +521,7 @@ pub(super) fn try_handle(
     };
     let result = match command {
         Command::List => Ok(supervisor.list()),
-        Command::ReloadLocal => Ok(supervisor.reload_local_apps_now()),
+        Command::ReloadLocal { folders } => Ok(supervisor.reload_local_apps_named(folders)),
         Command::Capabilities { op, brief } => capabilities(op.as_deref(), brief),
         Command::Place { contribution, region } => supervisor.place_sidebar(&contribution, region),
         // Answered on its own thread above.

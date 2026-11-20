@@ -55,9 +55,9 @@ OUR_LABELS = {NIGHTLY_ONLY, NIGHTLY_SLOT, SIGNING_SLOT, HOSTED}
 # override): an upload with the release App key that held the whole signing Mac.
 HOSTED_SECRET_JOBS = ('sentry-dsyms-nightly', 'sign-release-notes', 'publish-release-notes', 'publish-nightly-reel',
                       'publish-nightly-next-github')
-# The secret-free runner preflight ahead of decide: it judges the routing labels, so it never waits on one of them
-# (test_nightly_owned_minis_only.HOSTED_PREFLIGHT_JOBS has its reason).
-HOSTED_PREFLIGHT_JOBS = ('runner-preflight',)
+# No hosted preflight: runner-preflight runs on the nightly-only pool since 2026-11-18
+# (test_nightly_owned_minis_only.HOSTED_PREFLIGHT_JOBS has the reason).
+HOSTED_PREFLIGHT_JOBS: tuple[str, ...] = ()
 # On our minis for nightly-next only; classic and RC keep GitHub-hosted Ubuntu, as their release uploads may wait out
 # the rate limit for 360 min (test_nightly_owned_minis_only.NIGHTLY_NEXT_ONLY_OWNED).
 NIGHTLY_NEXT_ONLY_OWNED = ('republish-nightly-deltas',)

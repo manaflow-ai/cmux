@@ -35,7 +35,7 @@ pub(in crate::mux) fn structural_tab_move_plan(
         let next = if source_screen_slot == target_location_screen(state, target_location) {
             target_pane
         } else {
-            source_layout.root.first_visible_pane()
+            source_layout.focus_after_leave()
         };
         source_layout.set_active_pane(next);
     }

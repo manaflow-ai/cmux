@@ -23,7 +23,7 @@ enum BrowserHTTPAuth {
         if failedBefore {
             lines.append(String(localized: "browser.auth.failed", defaultValue: "The user name or password is not correct.", bundle: .localizedModule))
         }
-        return CmuxDialogSpec(
+        return CmuxDialogSpec(usesTransientMaterial: true,
             title: String(format: String(localized: "browser.auth.title", defaultValue: "Sign in to %@", bundle: .localizedModule), host),
             lines: lines,
             origin: host,

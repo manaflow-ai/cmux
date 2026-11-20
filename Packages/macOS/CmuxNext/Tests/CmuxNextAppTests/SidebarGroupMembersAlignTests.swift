@@ -105,7 +105,8 @@ import Testing
             if let landing = list.landing { list.finishLand(landing, then: nil) }
         }
         let lift = try #require(list.subviews.first { $0 is DragLiftView })
-        #expect(lift.frame.minX == line.frame.minX, "the card starts at \(lift.frame.minX), the line at \(line.frame.minX)")
+        #expect(lift.frame.minX == line.frame.minX - SidebarStyle.groupRailInset,
+                "the card starts at its header's edge \(lift.frame.minX), the line \(SidebarStyle.groupRailInset) pt in at \(line.frame.minX)")
         let block = try #require(Self.descendant(of: lift) { $0 is SidebarLiftBlockView })
         let members = block.subviews.compactMap { $0 as? WorkspaceRowView }
         let lines = block.subviews.filter { !($0 is SidebarRowView) }

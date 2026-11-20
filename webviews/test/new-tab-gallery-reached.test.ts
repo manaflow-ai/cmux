@@ -162,6 +162,62 @@ await requireBrowserLane("new-tab-gallery-reached.test.ts", async () => {
     }
   });
 
+  test("a favicon draws centered in the icon's box at a logo's size, in the suggestions and the lists", async () => {
+    const page = await browser!.newPage();
+    try {
+      const css = readFileSync(path.join(webviews, "src/agent-session/acpmux/newtab/screen.css"), "utf8");
+      const icon = `data:image/svg+xml,${encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="red"/></svg>',
+      )}`;
+      const pair = [
+        renderToStaticMarkup(createElement(RowGlyph, { kind: "tab", icon })),
+        renderToStaticMarkup(createElement(RowGlyph, { kind: "browser" })),
+      ].join("");
+      await page.setContent(
+        `<style>${css}</style><div class="nt-popover">${pair}</div><nav class="nt-open-tabs">${pair}</nav>`,
+      );
+      await page
+        .locator("img.nt-row-favicon")
+        .first()
+        .evaluate((img) => (img as HTMLImageElement).decode());
+      for (const size of [16, 24, 32]) {
+        await page.evaluate((size) => {
+          for (const list of document.querySelectorAll<HTMLElement>(".nt-popover, .nt-open-tabs"))
+            list.style.setProperty("--acpmux-composer-glyph", `${size}px`);
+        }, size);
+        for (const [list, ink] of [
+          [".nt-popover", (size * 14) / 16],
+          [".nt-open-tabs", size],
+        ] as const) {
+          const glyphs = await page.locator(`${list} .nt-row-glyph`).evaluateAll((elements) =>
+            elements.map((element) => {
+              const box = element.getBoundingClientRect();
+              const drawn = element.firstElementChild!.getBoundingClientRect();
+              return {
+                box: box.width,
+                width: drawn.width,
+                height: drawn.height,
+                centerX: (drawn.left + drawn.right - box.left - box.right) / 2,
+                centerY: (drawn.top + drawn.bottom - box.top - box.bottom) / 2,
+              };
+            }),
+          );
+          expect(glyphs).toHaveLength(2);
+          const [favicon, outline] = glyphs as [(typeof glyphs)[0], (typeof glyphs)[0]];
+          // The outline icon fills the ink size; a favicon, a filled logo, 12 of its 14 as an agent mark does.
+          expect(favicon.box).toBeCloseTo(outline.box, 2);
+          expect(outline.width).toBeCloseTo(ink, 1);
+          expect(favicon.width).toBeCloseTo((ink * 12) / 14, 1);
+          expect(favicon.height).toBeCloseTo((ink * 12) / 14, 1);
+          expect(favicon.centerX).toBeCloseTo(0, 1);
+          expect(favicon.centerY).toBeCloseTo(0, 1);
+        }
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
   for (const variant of ["cards", "list"] as const) {
     test(`recent chat ${variant} placeholders preserve row heights and metadata positions`, async () => {
       const port = (vite!.httpServer!.address() as { port: number }).port;

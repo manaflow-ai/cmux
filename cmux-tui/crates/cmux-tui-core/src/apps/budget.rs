@@ -93,6 +93,12 @@ pub(super) struct MountBudget {
     last_sent: Option<Instant>,
     pending: Vec<Value>,
     flush_armed: bool,
+    /// A widget mount (`widgets.rs`): outside its settle window, one batch per this interval.
+    quiet: Option<Duration>,
+    /// Until then a widget mount sends at frame rate (after a mount, tick, tap or show).
+    settle_until: Option<Instant>,
+    /// Batches that had to wait (a widget's edit-mode meter).
+    pub held: u64,
     /// Batches the app sent, and batches forwarded (perf-gate counters).
     pub batches_in: u64,
     pub batches_out: u64,
@@ -108,6 +114,9 @@ impl Default for MountBudget {
             last_sent: None,
             pending: Vec::new(),
             flush_armed: false,
+            quiet: None,
+            settle_until: None,
+            held: 0,
             batches_in: 0,
             batches_out: 0,
         }
@@ -115,6 +124,26 @@ impl Default for MountBudget {
 }
 
 impl MountBudget {
+    /// Makes this a widget mount's budget (`widgets.rs`): one batch per `quiet` outside a settle
+    /// window, the first of which lasts `settle` from `now` (the mount's first render).
+    pub(super) fn quiet_after(&mut self, quiet: Duration, now: Instant, settle: Duration) {
+        self.quiet = Some(quiet);
+        self.settle(now, settle);
+    }
+
+    /// Opens a settle window of `settle` from `now`: batches go out at frame rate in it.
+    pub(super) fn settle(&mut self, now: Instant, settle: Duration) {
+        let until = now.checked_add(settle).unwrap_or(now);
+        if self.settle_until.is_none_or(|at| at < until) {
+            self.settle_until = Some(until);
+        }
+    }
+
+    /// Whether a widget mount is outside its settle window at `now`.
+    fn quiet_at(&self, now: Instant) -> bool {
+        self.quiet.is_some() && self.settle_until.is_none_or(|until| now > until)
+    }
+
     /// Drops held ops (the host restarted: they belong to the old tree).
     pub(super) fn clear_pending(&mut self) {
         self.pending.clear();
@@ -159,6 +188,9 @@ impl MountBudget {
         }
         append(&mut self.pending, ops);
         self.send_or_hold(now, &mut outcome);
+        if outcome.deliver.is_none() && self.quiet_at(now) {
+            self.held = self.held.saturating_add(1);
+        }
         outcome
     }
 
@@ -173,7 +205,11 @@ impl MountBudget {
     }
 
     fn send_or_hold(&mut self, now: Instant, outcome: &mut Outcome) {
-        let interval = if self.slowed_since.is_some() { SLOWED_INTERVAL } else { FRAME };
+        let interval = match self.quiet {
+            _ if self.slowed_since.is_some() => SLOWED_INTERVAL,
+            Some(quiet) if self.quiet_at(now) => quiet,
+            _ => FRAME,
+        };
         let due = self.last_sent.map_or(now, |at| at.checked_add(interval).unwrap_or(at));
         if now >= due {
             self.last_sent = Some(now);
@@ -641,5 +677,34 @@ mod tests {
         assert!(!ladder.memory_kill());
         assert!(ladder.memory_kill());
         assert_eq!(ladder.paused, Some(PauseCause::Memory));
+    }
+
+    /// A widget mount (`widgets.rs`): frame rate while settled (after its mount, a tick, a tap or
+    /// a show), then one batch per quiet interval, counted as held for the edit-mode meter.
+    #[test]
+    fn a_widget_mount_is_quiet_outside_its_settle_window() {
+        let start = Instant::now();
+        let mut budget = MountBudget::default();
+        budget.quiet_after(Duration::from_secs(15), start, Duration::from_secs(5));
+        assert!(budget.offer(start, update("n", "a")).deliver.is_some());
+        let settled = start + Duration::from_millis(100);
+        assert!(budget.offer(settled, update("n", "b")).deliver.is_some(), "settled: frame rate");
+        let quiet = start + Duration::from_secs(6);
+        let held = budget.offer(quiet, update("n", "c"));
+        assert_eq!(held.deliver, None);
+        assert_eq!(held.flush_at, Some(settled + Duration::from_secs(15)));
+        assert_eq!(budget.held, 1);
+        // A tick settles it again: the next batch goes at once, merged with the held one.
+        let tick = quiet + Duration::from_secs(1);
+        budget.settle(tick, Duration::from_secs(5));
+        let sent = budget.offer(tick, update("n", "d"));
+        assert_eq!(sent.deliver.map(|ops| ops.len()), Some(1));
+        assert_eq!(budget.held, 1);
+        // Another mount kind never goes quiet.
+        let mut section = MountBudget::default();
+        assert!(section.offer(quiet, update("n", "a")).deliver.is_some());
+        assert!(
+            section.offer(quiet + Duration::from_millis(20), update("n", "b")).deliver.is_some()
+        );
     }
 }

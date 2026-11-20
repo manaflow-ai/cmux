@@ -58,6 +58,12 @@ nonisolated enum RemoteViewStrings {
         String(format: t("rd.state.stopped.detail", "%@ turned off Remote Desktop. The last frame is shown."), host)
     }
 
+    static var hostFailedTitle: String { t("rd.state.hostFailed.title", "Host couldn’t share its screen") }
+    /// The host's own reason (`failed: <reason>`), named for the host.
+    static func hostFailedDetail(_ host: String, _ reason: String) -> String {
+        String(format: t("rd.state.hostFailed.detail", "%1$@ couldn’t share its screen: %2$@"), host, reason)
+    }
+
     static var viewerStoppedTitle: String { t("rd.state.viewerStopped.title", "Session ended") }
     static var viewerStoppedDetail: String { t("rd.state.viewerStopped.detail", "You stopped this session.") }
     static var lostTitle: String { t("rd.state.lost.title", "Connection lost") }
@@ -113,12 +119,6 @@ nonisolated enum RemoteViewStrings {
     static func confirmTitle(_ target: RemoteConnectionTarget) -> String {
         let name = target.name.trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? cloudMachine : name
-    }
-    /// The card's one line.
-    static func confirmDetail(_ target: RemoteConnectionTarget) -> String {
-        target.requiresConfirmation
-            ? t("rd.gate.approval", "Another action opened this tab. Nothing connects until you choose Connect.")
-            : t("rd.gate.open", "Connect to see what is running here.")
     }
     /// The status chip's text: status and region, or nil when there is neither.
     static func confirmStatus(_ target: RemoteConnectionTarget) -> String? {

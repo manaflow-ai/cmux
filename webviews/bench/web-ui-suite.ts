@@ -165,6 +165,17 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 1_770_000,
     ownPart: true,
   },
+  // Composer typing under load (CMUX-571, Leo 2026-11-16: "but typing under load is not good enough"): 500 keys
+  // 20 ms apart in Chromium and WebKit, idle (L0), a focused reply and tool stream (L1), ten other streaming documents
+  // (L2) and a focused 100k-row stream (L3); keydown to paint p95/p99 against the report-only 16/33 ms targets
+  // (composerTypingRows.ts). perf-cron.py's web-ui-typing part runs it; each load ends by its 120 s safety deadline.
+  {
+    name: "composer-typing",
+    file: "composer-typing.bench.ts",
+    args: ["--mode", "L0,L1,L2,L3", "--engines", "chromium,webkit", "--lengths", "60", "--keys", "500", "--gap", "20"],
+    timeoutMs: 1_500_000,
+    ownPart: true,
+  },
   // The same clock tick and 30-row list update drawn by an app (scene ops) and by the first-party component:
   // main-thread ms and React commits per update. Run with `--only extension-parity`.
   {
@@ -172,6 +183,16 @@ export const BENCHES: readonly Bench[] = [
     file: "extension-parity.bench.ts",
     args: ["3", "200"],
     timeoutMs: 180_000,
+    ownPart: true,
+  },
+  // The markdown page at 10 KB to 50 MB, deep nesting, a 5 MB line and a file appended to 50 times: first-screen
+  // ms per case, and exits 1 when a case's first screen passes 3x the 10 KB one's. Run with
+  // `--only markdown-viewer-stress`.
+  {
+    name: "markdown-viewer-stress",
+    file: "markdown-viewer-stress.bench.ts",
+    args: ["2"],
+    timeoutMs: 900_000,
     ownPart: true,
   },
   // The same benches on the god session (bench/godFixture.ts: tens of thousands of rows, MB tool outputs, nested

@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesignTokens
+import CmuxTheme
 
 /// The one floating material, native side: every cmux-drawn menu and popover (``GlassMenu``, and the
 /// popovers made with ``Glass/makeMenuPanel(content:cornerRadius:)``) is the App's glass at the menu
@@ -17,7 +18,7 @@ import CmuxNextDesignTokens
 public nonisolated struct GlassMenuMaterial {
     public nonisolated init() {}
     /// The theme surface laid on the glass, percent (design-scale.json glass `menu` `veil`).
-    public static let veilPercent: Double = 40
+    public static let veilPercent: Double = TransientMaterial.standard.hostVeil * 100
     /// The one popup radius when the person set no corner radius of their own (design-scale.json
     /// namedRadii `popup`; the native default outer radius, `MetricTunables.densityPaneCornerRadius`).
     public static let defaultCornerRadius: CGFloat = 8

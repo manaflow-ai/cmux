@@ -73,9 +73,9 @@ public final class AgentPaneView: NSView {
     public typealias PageFocusLoss = @MainActor (_ window: NSWindow?, _ detail: String) -> Void
     /// The app's focus log for this page's `focus-lost` events (``AgentPaneShared/focusLoss``); nil records none.
     public var onPageFocusLost: PageFocusLoss?
-    /// Draws this chat's last page (its saved or held frame, or the New Tab frame) under it in its pane, when a hold
-    /// gave up on it before it painted (``standInUntilPainted()``), true when a picture shows; set by its pane.
-    public var drawsLastPage: (() -> Bool)?
+    /// Draws this chat's last page (its saved or held frame, or the New Tab frame) under it in its pane, when a hold gave up on
+    /// it before it painted (``standInUntilPainted()``) or a New Tab page has a new size unpainted; true when one shows; set by its pane.
+    public var drawsLastPage: (() -> Bool)? { didSet { redraw.paneWired(self) } }
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
     var otherInstallNotice: AgentPaneNotice?
     /// The pane's daemon is another cmux install's (cx-fcaq); the line shows only while a request waits.
@@ -122,8 +122,6 @@ public final class AgentPaneView: NSView {
         self?.evaluateScript($0)
     }
     private var uiScaleObservation: Task<Void, Never>?
-    /// Hands the old host's document `app.language` on every change (``observeLanguage()``).
-    private var languageObservation: Task<Void, Never>?
     /// The indicator while Computer use can act as me is on; it has no pill until the grant is on (``showActAsMe(_:)``).
     let actAsMePill = AgentPaneActAsMePill()
     public var zoom: Double = 1 {
@@ -131,6 +129,8 @@ public final class AgentPaneView: NSView {
     }
     private var reduceMotionObserver: MainActorObservation?
     private var reduceMotionOverrideObserver: MainActorObservation?
+    /// The app finished a GitHub install (``CloudGitHubChanges``): the folder menu reads GitHub again.
+    var gitHubChangeObservation: Task<Void, Never>? { didSet { oldValue?.cancel() } }
     /// Records the user's real key and mouse events in this pane (``AgentPaneUserGestures``).
     private var gestureMonitor: Any?
     var transportPacer: AgentPaneFramePacer?
@@ -376,7 +376,6 @@ public final class AgentPaneView: NSView {
         observeMotion()
         observeUIScale()
         observeIconFamily()
-        observeLanguage()
         sessionStatusObservation = AgentPaneSessionStatus.follow(self)
         model.onCloudTeamChange = { [weak self] in self?.evaluateScript(AgentPaneCloudMachines.teamChangeScript) }
         installSessionInfo()
@@ -405,30 +404,6 @@ public final class AgentPaneView: NSView {
             for await _ in ObservationStream({ IconFamily.tunable.value }) {
                 guard let self else { return }
                 self.applyIconFamily()
-            }
-        }
-    }
-
-    /// Hands the page `app.language` (nil: System): the page host's ``PageWebView`` takes it
-    /// itself; the old host's document gets the same call (``PageWebView/languageScript(_:)``) on
-    /// load, on the handshake and on every change, so the chat switches language live.
-    func applyLanguage() {
-        if let page {
-            page.applyLanguage()
-            return
-        }
-        evaluateScript(PageWebView.languageScript(DesignSettings.shared.appLanguage))
-    }
-
-    /// The old host only: `AppLanguageApplier` pushes every change to the registered pages, which
-    /// the page host's ``PageWebView`` is and the old host's web view is not.
-    private func observeLanguage() {
-        guard page == nil else { return }
-        // task-owner: this pane (cancelled in close()); event-driven (Observation).
-        languageObservation = Task { [weak self] in
-            for await _ in ObservationStream({ DesignSettings.shared.appLanguage }) {
-                guard let self else { return }
-                self.applyLanguage()
             }
         }
     }
@@ -477,7 +452,7 @@ public final class AgentPaneView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
-            languageObservation?.cancel()
+            gitHubChangeObservation?.cancel()
             actAsMePill.stop()
             sessionStatusObservation?.cancel()
             model.sessionInfo.hostObservation?.cancel()
@@ -572,8 +547,6 @@ public final class AgentPaneView: NSView {
         motionObservation = nil
         iconFamilyObservation?.cancel()
         iconFamilyObservation = nil
-        languageObservation?.cancel()
-        languageObservation = nil
         sessionStatusObservation?.cancel()
         model.sessionInfo.hostObservation?.cancel()
         model.sessionInfo.hostObservation = nil
@@ -642,7 +615,7 @@ public final class AgentPaneView: NSView {
 
     public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
-        themeFollower.rebind()
+        themeFollower.rebind(); redraw.paneWired(self)
         onNativeToolOwnerChange?()
     }
 
