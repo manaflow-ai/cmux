@@ -47,6 +47,29 @@ await requireBrowserLane("transcript-hover-gallery.test.ts", async () => {
           if (link) expect(await page.locator(".lg-run-links a").getAttribute("target")).toBe("_blank");
           if (process.env.FAST_CHECKS_OUT)
             await page.screenshot({ path: `${process.env.FAST_CHECKS_OUT}/${variant}-${colorScheme}.png` });
+          if (link) {
+            // Channels has no agent browser.openIn host. Both preview actions must use the
+            // original anchor's navigation, including its new browsing context.
+            await page
+              .context()
+              .route("https://example.com/**", (route) =>
+                route.fulfill({ contentType: "text/html", body: "Reference opened" }),
+              );
+            for (const action of ["open", "menu"]) {
+              await page.locator(".lg-run-links a").hover();
+              await popup.waitFor({ timeout: 3000 });
+              if (action === "menu") await popup.locator(".acpmux-open-in").click();
+              const [opened] = await Promise.all([
+                page.waitForEvent("popup", { timeout: 3000 }),
+                action === "open"
+                  ? popup.locator(".cv-link-preview__open").click()
+                  : page.getByRole("menuitem").first().click(),
+              ]);
+              await opened.waitForLoadState();
+              expect(opened.url()).toBe("https://example.com/reference");
+              await opened.close();
+            }
+          }
         } catch (error) {
           if (process.env.FAST_CHECKS_OUT)
             await page.screenshot({ path: `${process.env.FAST_CHECKS_OUT}/${variant}-${colorScheme}-failed.png` });

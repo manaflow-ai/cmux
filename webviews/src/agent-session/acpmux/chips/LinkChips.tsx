@@ -247,6 +247,9 @@ export function UrlChip({
         <LinkHoverCard
           href={href}
           anchor={anchor}
+          // Preserve the page's link-click route for links with an explicit browsing target.
+          // Channels has no agent browser.openIn host; clicking its anchor lets the app handle it.
+          onOpenLink={target === "_blank" ? () => anchor?.click() : undefined}
           hover={hover}
           mark={cardMark}
           siteTitle={site?.title}
