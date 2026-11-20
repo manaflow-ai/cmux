@@ -372,6 +372,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             after_echo,
             instructions,
             tty,
+            prints_only,
             command,
         }) => {
             crate::cli::cli_agent::run(crate::cli::cli_agent::Options {
@@ -381,6 +382,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 after_echo,
                 instructions,
                 tty,
+                prints_only,
             })
             .await
         }

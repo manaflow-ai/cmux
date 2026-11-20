@@ -2130,6 +2130,39 @@ test("a page that has focus already reports its field ready at once, and only on
   expect(ready).toEqual(["cmd-t-1", "cmd-t-2"]);
 });
 
+// Lawrence 2026-11-19: "i did cmd n and started typing and it didnt have focus". On the cmux23 bench, typing
+// "hello world 123" at once after Cmd-N left "llo world 123", "lo world 123" or "ello world 123": every key reached the
+// field, but a token change after the readiness (an adopt that takes the next token in place, a context update with no
+// token) ran the field's show-focus again, and it selected all the text typed so far. The next key replaced it.
+test.each([
+  ["a context update with no token", undefined],
+  ["an adopt with the next token", "cmd-n-2"],
+] as const)("keys typed after the readiness stay when %s comes", async (_, next) => {
+  Object.defineProperty(dom!.window.document, "hasFocus", { configurable: true, value: () => true });
+  const render = (token: string | undefined) =>
+    act(async () => {
+      root!.render(
+        <NewTabScreen
+          snapshot={noChat()}
+          inputToken={token}
+          onInputReady={() => {}}
+          onAsk={() => {}}
+          onOpen={() => {}}
+          onSearch={() => {}}
+          onShell={() => {}}
+          onJump={() => {}}
+          onOpenSession={() => {}}
+          onShowAll={() => {}}
+        />,
+      );
+    });
+  await render("cmd-n-1");
+  const field = await typePrompt("he");
+  await render(next);
+  await act(async () => field.acpmuxMarkdownField!.insertText("llo"));
+  expect(promptValue(), "the token change selected the typed text, and the next keys replaced it").toBe("hello");
+});
+
 test("Return runs a typed shell command in a terminal; Cmd-Return still asks the agent", async () => {
   const shells: string[] = [];
   const asks: unknown[][] = [];
@@ -2153,4 +2186,31 @@ test("Return runs a typed shell command in a terminal; Cmd-Return still asks the
   await press(field, "Enter", { metaKey: true });
   expect(shells).toEqual(["git status"]);
   expect(asks.map((ask) => ask[1])).toEqual(["git status"]);
+});
+
+// Lawrence 2026-11-19 (New Tab typing lag): a key in the New Tab field renders what the key changed, never the
+// composer chips (the agent and model pickers, the folder and machine chips, each with its own menus): on cmux21
+// they rendered again on every key, about 2 ms of page work a key, because the screen handed them new props each render.
+test("a key in the New Tab field renders the chips no more", async () => {
+  const renders: Record<string, unknown>[] = [];
+  const Counted = (chipProps: Record<string, unknown>) => {
+    renders.push(chipProps);
+    return <span className="counted-chips" />;
+  };
+  await act(async () => root!.render(<NewTabScreen {...firstRunProps} snapshot={noChat()} chips={Counted} />));
+  const field = await typePrompt("a");
+  const before = renders.length;
+  for (const text of ["ab", "abc", "abcd", "abcde"]) {
+    field.acpmuxMarkdownField!.writeText(text, text.length, text.length);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  }
+  const changed = renders.slice(before).map((now, index) => {
+    const last = renders[before + index - 1] ?? {};
+    return Object.keys({ ...last, ...now }).filter((key) => last[key] !== now[key]);
+  });
+  expect(promptValue()).toBe("abcde");
+  expect(
+    renders.length - before,
+    `chips rendered again for 4 keys, props that changed: ${JSON.stringify(changed)}`,
+  ).toBe(0);
 });
