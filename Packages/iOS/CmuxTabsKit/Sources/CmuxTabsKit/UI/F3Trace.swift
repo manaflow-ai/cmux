@@ -35,8 +35,7 @@ public enum F3Trace {
         self.link = link
     }
 
-    fileprivate static func tick(_ link: CADisplayLink) {
-        let now = link.timestamp
+    fileprivate static func tick(_ now: CFTimeInterval) {
         if last > 0, now - last > 0.05 {
             log.notice("FRAMELOG list-stress f3 longframe end=\(String(format: "%.3f", now), privacy: .public) gap=\(String(format: "%.1f", (now - last) * 1000), privacy: .public)")
         }
@@ -44,7 +43,10 @@ public enum F3Trace {
     }
 
     private final class Proxy: NSObject {
-        @objc func tick(_ link: CADisplayLink) { MainActor.assumeIsolated { F3Trace.tick(link) } }
+        @objc func tick(_ link: CADisplayLink) {
+            let now = link.timestamp
+            MainActor.assumeIsolated { F3Trace.tick(now) }
+        }
     }
 }
 #endif
