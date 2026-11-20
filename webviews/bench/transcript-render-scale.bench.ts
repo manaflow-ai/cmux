@@ -283,6 +283,9 @@ type ProfileResult = {
   /// React work a TranscriptView handler or effect flushed synchronously that is not TranscriptView's
   /// own (row renders, the minimap, DOM commit): reported beside it, not in it.
   triggeredMs: number;
+  /// Every sample with a rail frame on its stack (threadMinimap/), whoever rendered it: the rail's
+  /// own render, effects and handlers, which the TranscriptView passes above do not count.
+  minimapMs: number;
   renders: number[];
   /// ms by pass: the first source frame below the TranscriptView body, or an effect or handler.
   passes: Map<string, number>;
@@ -388,12 +391,24 @@ function readProfile(profile: Profile, map: ReturnType<typeof mapperFor>, counts
   let viewMs = 0;
   let bodyMs = 0;
   let triggeredMs = 0;
+  let minimapMs = 0;
+  const railFrame = new Map<number, boolean>();
+  const inRail = (leaf: number): boolean => {
+    const known = railFrame.get(leaf);
+    if (known !== undefined) return known;
+    const up = parent.get(leaf);
+    const here = where.get(leaf)?.startsWith("src/agent-session/acpmux/threadMinimap/") === true;
+    const result = here || (up !== undefined && inRail(up));
+    railFrame.set(leaf, result);
+    return result;
+  };
   // One render of the body: a run of consecutive samples inside it.
   const renders: number[] = [];
   let run = 0;
   for (let index = 0; index < profile.samples.length; index += 1) {
     const ms = (profile.timeDeltas[index + 1] ?? 0) / 1000;
     const judged = judge(profile.samples[index]!);
+    if (inRail(profile.samples[index]!)) minimapMs += ms;
     if (judged.body) run += ms;
     else if (run > 0) {
       renders.push(run);
@@ -430,6 +445,7 @@ function readProfile(profile: Profile, map: ReturnType<typeof mapperFor>, counts
     viewMs,
     bodyMs,
     triggeredMs,
+    minimapMs,
     renders,
     passes,
     leaves,
@@ -545,6 +561,7 @@ try {
             `  ${phase}: commits=${counts.commits} TranscriptView renders=${counts.view} RowFrame renders=${counts.rows}` +
               ` view_ms=${read.viewMs.toFixed(1)} (body ${read.bodyMs.toFixed(1)}, outside body ${(read.viewMs - read.bodyMs).toFixed(1)})` +
               ` triggered_ms=${read.triggeredMs.toFixed(1)}` +
+              ` minimap_ms=${read.minimapMs.toFixed(1)}` +
               ` per_render_ms=${(read.viewMs / Math.max(1, counts.view)).toFixed(2)}` +
               ` body_run_ms p50/p95/max=${q(0.5)}/${q(0.95)}/${q(1)}`,
           );

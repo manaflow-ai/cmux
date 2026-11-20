@@ -57,6 +57,7 @@ const within = (element: Element | null, to: EventTarget | null) =>
 export function ScrollMap({
   rows,
   turns,
+  base = 0,
   layout,
   scroller,
   viewportHeight,
@@ -67,6 +68,8 @@ export function ScrollMap({
 }: {
   rows: readonly AcpmuxRow[];
   turns: readonly MinimapTurn[];
+  /// Where the turns' row numbering starts (model.ts MinimapTurns `base`).
+  base?: number;
   layout: TranscriptLayout;
   scroller: React.RefObject<HTMLElement | null>;
   viewportHeight: number;
@@ -79,7 +82,7 @@ export function ScrollMap({
 }) {
   const t = useT();
   const height = Math.max(0, Math.floor(viewportHeight - 2 * MAP_MARGIN));
-  const marks = useMemo(() => mapMarks(rows, turns, layout, height), [rows, turns, layout, height]);
+  const marks = useMemo(() => mapMarks(rows, turns, layout, height, base), [rows, turns, layout, height, base]);
   /// Each mark's place in `marks`, by its row's id. The state below names row ids, not places: which
   /// replies merge moves as a reply streams, and older turns arriving renumber every place and row.
   const keyOf = (mark: MapMark | undefined) => (mark ? (rows[mark.row]?.id ?? `#${mark.row}`) : undefined);

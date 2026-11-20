@@ -5,7 +5,8 @@
 // counts how many blocks ran per TranscriptView render while the transcript scrolls a viewport a
 // frame, takes a page of older history above its first row, and takes a streamed reply, at 10k
 // and 100k rows. A block count is deterministic, which a time is not; one that grows with the chat
-// is an O(rows) pass. 100k rows may cost at most 1.2x what 10k do.
+// is an O(rows) pass. 100k rows may cost at most 1.2x what 10k do, in all (HELD) and in the thread
+// minimap's code (RAIL) in every phase.
 //
 // The rows are shaped before they are handed over (the harness's `__prepend` and `__streamShaped`):
 // the pane shapes them outside the transcript (App.tsx `shapeFrom`), and the harness reshaping a
@@ -31,9 +32,19 @@ await requireBrowserLane("transcript-render-scale-browser.test.ts", async () => 
   type Phase = (typeof PHASES)[number];
   /// The most 100k rows may cost per render over 10k.
   const BAR = 1.2;
-  /// The phases held to the bar on this branch; every phase is printed. Stream is held by
-  /// lane/transcript-view-o-window-b, an older page (prepend) by lane/transcript-view-o-window-c.
+  /// Past VirtualTranscript's PROMPT_TOPS_QUIET_MS (1 s), the wait before its idle pass is asked for.
+  const PROMPT_TOPS_SETTLE_MS = 1200;
+  /// The phases held to the bar in all; every phase is printed. Stream is held since
+  /// lane/transcript-view-o-window-b. An older page (prepend) is not yet: the rail's share of it is
+  /// O(page) since lane/transcript-view-o-window-d (RAIL below), and what still grows is the
+  /// transcript's own placement of the window (placedHeightIndex.ts, transcriptGrid.ts, and RowFrame
+  /// rows drawn again at 100k rows), 13.4k -> 17.5k blocks per render, 1.30x.
   const HELD: readonly Phase[] = ["step", "stream"];
+  /// The thread minimap's code (the prompt rail's model, rows and component): held to the bar in every
+  /// phase. A page of older history builds only its own turns and ticks there and reuses the rest by
+  /// reference (threadMinimap/model.ts minimapTurns, foldIncoming; keyIndex.ts); it walked every turn
+  /// before, 10x the blocks at 10x the rows.
+  const RAIL = "/threadMinimap/";
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   beforeAll(async () => {
@@ -136,6 +147,17 @@ await requireBrowserLane("transcript-render-scale-browser.test.ts", async () => 
       for (let frame = 0; frame < n; frame += 1) await new Promise(requestAnimationFrame);
     }, count);
 
+  /// Lets the idle work the last phase armed run before a count starts: the transcript keeps every
+  /// prompt's top a second after its placement settles, in idle time (VirtualTranscript `keep`, one
+  /// O(rows) pass per settled placement, never per render). Armed by the phase before, it otherwise
+  /// lands in this one's count whenever the 100k chat's slower setup outlasts that second.
+  const settleIdle = (page: Page) =>
+    page.evaluate(
+      (ms) =>
+        new Promise<void>((resolve) => setTimeout(() => requestIdleCallback(() => resolve(), { timeout: 3000 }), ms)),
+      PROMPT_TOPS_SETTLE_MS,
+    );
+
   /// The phase's input, from the latest row settled. Shaping happens before the count starts.
   const drive = async (page: Page, phase: Phase, count: (on: boolean) => Promise<void>) => {
     await page.evaluate(async () => {
@@ -143,6 +165,7 @@ await requireBrowserLane("transcript-render-scale-browser.test.ts", async () => 
       scroller.scrollTop = scroller.scrollHeight;
     });
     await frames(page, 30);
+    await settleIdle(page);
     if (phase === "step") {
       await count(true);
       await page.evaluate(async () => {
@@ -168,6 +191,7 @@ await requireBrowserLane("transcript-render-scale-browser.test.ts", async () => 
       // The older page goes again before the count: the stream starts from the rows it was shaped on.
       await page.evaluate(() => (window as unknown as { __prepended?: (shown: boolean) => void }).__prepended?.(false));
       await frames(page, 10);
+      await settleIdle(page);
       await page.evaluate(() => {
         (window as unknown as { __streamed: (at: number) => void }).__streamed = (
           window as unknown as { __streamShaped: (count: number) => (at: number) => void }
@@ -235,14 +259,22 @@ await requireBrowserLane("transcript-render-scale-browser.test.ts", async () => 
     const [small, large] = [await measure(SIZES[0]), await measure(SIZES[1])];
     const report: string[] = [];
     const over: Phase[] = [];
+    const railOver: Phase[] = [];
+    /// Blocks per render in the rail's files.
+    const rail = (read: { renders: number; blocks: Map<string, number> }) =>
+      [...read.blocks].reduce((sum, [key, count]) => (key.includes(RAIL) ? sum + count : sum), 0) /
+      Math.max(1, read.renders);
     for (const phase of PHASES) {
       const a = small[phase];
       const b = large[phase];
       const ratio = b.perRender / Math.max(1, a.perRender);
+      const railRatio = rail(b) / Math.max(1, rail(a));
       report.push(
-        `${phase}: ${a.perRender.toFixed(0)} -> ${b.perRender.toFixed(0)} blocks per render (renders ${a.renders} -> ${b.renders}), ${ratio.toFixed(2)}x`,
+        `${phase}: ${a.perRender.toFixed(0)} -> ${b.perRender.toFixed(0)} blocks per render (renders ${a.renders} -> ${b.renders}), ${ratio.toFixed(2)}x;` +
+          ` rail ${rail(a).toFixed(0)} -> ${rail(b).toFixed(0)}, ${railRatio.toFixed(2)}x`,
       );
       if (ratio > BAR) over.push(phase);
+      if (railRatio > BAR) railOver.push(phase);
       // The blocks that grew most, per render: where the O(rows) pass is.
       const grew = [...b.blocks]
         .map(([key, count]) => ({
@@ -255,5 +287,6 @@ await requireBrowserLane("transcript-render-scale-browser.test.ts", async () => 
     }
     console.log(`transcript-render-scale (lane-VM, Chromium, dev build)\n${report.join("\n")}`);
     expect(over.filter((phase) => HELD.includes(phase))).toEqual([]);
+    expect(railOver).toEqual([]);
   });
 });

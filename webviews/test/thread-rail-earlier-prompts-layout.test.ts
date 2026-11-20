@@ -51,7 +51,7 @@ test("the rail holds every turn's tick while history pages in", async () => {
   for (const n of [6, 3, 0]) {
     const next = heldFrom(n, previous);
     expect(next.ticks.map((tick) => tick.key)).toEqual(keys);
-    expect(next.turns.map((turn) => turn.index >= 0)).toEqual(keys.map((_, index) => index >= n));
+    expect(next.turns.map((turn) => turn.slot !== undefined)).toEqual(keys.map((_, index) => index >= n));
     previous = next;
   }
 });
@@ -72,7 +72,7 @@ test("the index arriving after the open, then a streamed reply, keeps every tick
     const streamed = held.map((row) => (row === reply ? { ...row, text: `${row.text} more ${n}` } : row));
     const next = minimapTurns(streamed, CHAT, read, undefined, earlier);
     expect(next.ticks.map((tick) => tick.key)).toEqual(keys);
-    expect(next.turns.map((turn) => turn.index >= 0)).toEqual(keys.map((_, index) => index >= 5));
+    expect(next.turns.map((turn) => turn.slot !== undefined)).toEqual(keys.map((_, index) => index >= 5));
     // The committed result's lists are never written into by the next read.
     expect(read.turns.map((turn) => turn.key)).toEqual(keys);
     read = next;
