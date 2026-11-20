@@ -409,8 +409,9 @@ mod tests {
 
     #[test]
     fn a_refused_value_already_there_unchanged_is_not_introduced() {
-        let stale = "{ \"workspaceColors\": { \"indicatorStyle\": \"solidFill\" } }";
-        let moved = "{\n  // mine\n  \"sidebar\": {},\n  \"workspaceColors\": {\n    \"indicatorStyle\": \"solidFill\"\n  }\n}";
+        let stale =
+            "{ \"workspaceColors\": { \"indicatorStyle\": \"__unsupported_indicator__\" } }";
+        let moved = "{\n  // mine\n  \"sidebar\": {},\n  \"workspaceColors\": {\n    \"indicatorStyle\": \"__unsupported_indicator__\"\n  }\n}";
         let other = "{ \"workspaceColors\": { \"indicatorStyle\": \"glow\" } }";
         assert_eq!(settings_problems(stale).len(), 1);
         // The same value, wherever it sits in the file, is still theirs.
