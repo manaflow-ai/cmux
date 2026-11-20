@@ -317,6 +317,10 @@ def run(app, opts, pid=None):
     heavy = summarize(heavy_rows, heavy_hangs)
     if sample_out:
         heavy["main_thread_sample"] = main_thread_sample(sample_out) if os.path.exists(sample_out) else []
+        if not heavy["main_thread_sample"]:
+            # No main thread found: the file's head says what `sample` wrote (two fleet runs kept nothing).
+            heavy["sample_head"] = (open(sample_out, errors="replace").read(6000).splitlines()[:80]
+                                    if os.path.exists(sample_out) else [f"no file at {os.path.abspath(sample_out)}"])
         if os.path.exists(sample_out + ".err"):
             heavy["sample_errors"] = open(sample_out + ".err", errors="replace").read()[-2000:]
     print(f"activation-perf: heavy {json.dumps({k: v for k, v in heavy.items() if k != 'main_thread_sample'})}", flush=True)
