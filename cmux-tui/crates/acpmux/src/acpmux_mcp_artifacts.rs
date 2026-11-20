@@ -240,6 +240,7 @@ impl Artifacts {
     pub fn new(base: String, bearer: Bearer) -> Result<Self> {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let http = reqwest::Client::builder()
+            .default_headers(cmux_build_space::headers()?)
             .redirect(reqwest::redirect::Policy::none())
             .read_timeout(CALL_TIMEOUT)
             .connect_timeout(Duration::from_secs(10))

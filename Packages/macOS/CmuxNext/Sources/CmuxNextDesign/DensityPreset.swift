@@ -56,6 +56,9 @@ public nonisolated enum DensityPreset: String, Sendable, CaseIterable {
         sizes["sidebarRowHeight"] = rowHeight - Double(DensityTokens.half(2 * t))
         sizes["browserRowHeight"] = rowHeight
         sizes["tabStripHeight"] = rowHeight + 2 * Double(DensityTokens.half(3 * t))
+        // Compact's tabs sit a point further from the omnibar than their strip padding (Lucas 2026-11-20: "give compact 1
+        // more px of bottom padding below the tab"): 3.5 pt from the tab pills to the bar, 2.5 above the tabs and under the bar.
+        if self == .compact { sizes["tabToOmnibarGap"] = Double(DensityTokens.half(3 * t)) + Self.compactTabToOmnibarExtra }
         // Default's omnibar is Compact's (``omnibarScaleFactor``).
         if self == .cozy {
             for (key, value) in Self.compact.tokens.tokens where Self.isOmnibarToken(key) { sizes[key] = value }
@@ -91,6 +94,8 @@ public nonisolated enum DensityPreset: String, Sendable, CaseIterable {
     /// The sizes ``omnibarScaleFactor`` scales: every `omnibar*` token and the toolbar glyphs beside the bar.
     static func isOmnibarToken(_ key: String) -> Bool { key.hasPrefix("omnibar") || key == "toolbarGlyphSize" }
 
+    /// What Compact's gap from its tabs to the omnibar adds to its strip padding (`tabToOmnibarGap`).
+    static let compactTabToOmnibarExtra: Double = 1
     /// Default's location bar: Chrome's 34 pt (`kLocationBarHeight` in Chrome's layout constants).
     static let chromeOmnibarHeight: Double = 34
     /// Default's URL capitals: 11 pt, a point over Compact's 10.

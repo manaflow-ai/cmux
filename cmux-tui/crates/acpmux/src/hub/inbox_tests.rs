@@ -2,6 +2,21 @@
 
 use super::*;
 
+#[test]
+fn fyi_flush_is_a_fifteen_minute_austerity_window() {
+    // FYIs are intentionally coalesced to at most four notice turns per hour;
+    // blockers and questions still bypass this timer in `wakes_as`.
+    assert_eq!(FLUSH_MS, 15 * 60 * 1000);
+}
+
+#[test]
+fn an_unclassified_notice_defaults_to_fyi_without_changing_explicit_classes() {
+    assert_eq!(default_notice_class(None), PromptClass::Fyi);
+    for class in PromptClass::ALL {
+        assert_eq!(default_notice_class(Some(class)), class);
+    }
+}
+
 fn item(
     prompt_id: &str,
     thread: &str,
