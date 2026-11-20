@@ -135,7 +135,7 @@ describe("switching modes never loses a mode's folder or picture", () => {
     expect(value("appearance.background")).toBe(ART);
   });
 
-  test("the folder survives closing Settings in another mode, and the picker offers it again", async () => {
+  test("the folder survives leaving Appearance in another mode, and the picker offers it again", async () => {
     await card({ "appearance.background": ART });
     await click(mode("Light & Dark"));
     page!.unmount();
@@ -148,7 +148,7 @@ describe("switching modes never loses a mode's folder or picture", () => {
     expect(value("appearance.background")).toBe(ART);
   });
 
-  test("a chosen No Wallpaper is what Off puts back, also after Settings reopens", async () => {
+  test("a chosen No Wallpaper is what Off puts back, also after the card remounts", async () => {
     await card({ "appearance.background": "none" });
     await click(mode("Rotate"));
     page!.unmount();
