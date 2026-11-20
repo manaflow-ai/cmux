@@ -27,12 +27,11 @@
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-chrome-tint), transparent);
   /* The frost inside the glass, a length (the lens blurs by it; the CSS fallback too). */
   /* glass-raw-blur-allow: the lens shader's own frost (lens.ts reads it), not a CSS backdrop level */
-  --glass-blur: 2px;
+  --glass-blur: 2px; /* glass-blur-off-scale: a shader uniform, never a backdrop-filter radius */
   /* The light blur the surface itself keeps while the lens draws, so page text under a menu, a
      hover card or the composer frosts instead of reading crisp through the tint. Small enough that
      the lens's bend still shows through it. */
-  /* glass-raw-blur-allow: the lens mode's frost, the radius of --ds-glass-lens-blur */
-  --glass-frost: 6px;
+  --glass-frost: var(--ds-blur-scrim); /* the lens mode's frost, the radius of --ds-glass-lens-blur */
   /* How far the rim bends the wallpaper, CSS px (the lens's displacement at the edge). */
   --glass-refraction: 22px;
   /* --glass-refract (unset here: rimRefraction.ts's default, ios): how a floating glass's rim

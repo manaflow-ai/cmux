@@ -161,7 +161,7 @@ await requireBrowserLane("composer-glass.test.ts", async () => {
       for (const id of ["composer", "strip-composer", "codex-strip-composer"]) {
         const { fill, backdrop } = await look(page, id);
         expect(fill[3], `${id} keeps the selected 70% tint`).toBeCloseTo(0.7, 2);
-        expect(backdrop, `${id} keeps the selected 24px blur`).toContain("blur(24px)");
+        expect(backdrop, `${id} keeps the popover level 32px blur`).toContain("blur(32px)");
       }
       await page.close();
     });

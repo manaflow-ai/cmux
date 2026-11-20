@@ -1141,10 +1141,8 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
     padding: 0;
     border: 0;
     background: var(--cmux-scrim, color-mix(in srgb, #000 38%, transparent));
-    /* glass-raw-blur-allow: a scrim's softening under a dialog, not a glass surface */
-    -webkit-backdrop-filter: blur(2px);
-    /* glass-raw-blur-allow: a scrim's softening under a dialog, not a glass surface */
-    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(var(--ds-blur-scrim)); /* a scrim: the scrim radius */
+    backdrop-filter: blur(var(--ds-blur-scrim));
     cursor: default;
   }
   #app[data-file-search-open="true"] #files-sidebar-backdrop:focus-visible {
