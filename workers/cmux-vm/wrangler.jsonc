@@ -197,14 +197,18 @@
         // A request made with these service keys (CMUX_VM_SERVICE_KEYS ids, never key material) is entitled for the team it
         // acts for: cmux-platform has already decided that team's plan (the company grant for @cmux.com members), so a
         // member's personal team needs no entry in MANAFLOW_TEAM_TENANT_IDS. The key's teams, scopes and labels still apply.
-        // ci-product-smoke is the CI trust row below, entitled for its own team only (its row names one team).
-        "CMUX_VM_ENTITLED_SERVICE_IDS": "cloud-platform-production,ci-product-smoke",
+        // ci-product-smoke and ci-product-smoke-platform are the CI trust rows below, entitled for their own team only (each
+        // row names one team).
+        "CMUX_VM_ENTITLED_SERVICE_IDS": "cloud-platform-production,ci-product-smoke,ci-product-smoke-platform",
         // GitHub Actions jobs trusted by their OIDC token (src/auth/ci-trust.ts); no key exists to leak or rotate, and
         // removing a row revokes it. ci-product-smoke: cmux-vm.yml's smoke-production job on feat-cmux-next in the
         // cmux-vm-production environment. It acts only for cmux-vm-product-smoke (no Stack team, not dev/test, so its
         // VMs take the product's never-pause idle default), only on VMs labelled cmux.ci=product-smoke, at most 2 live
         // (and TENANT_VM_QUOTAS above), each paused after 15 minutes and deleted once stopped.
-        "CMUX_VM_CI_TRUST": "[{\"id\":\"ci-product-smoke\",\"audience\":\"https://vm.cmux.dev\",\"repository\":\"manaflow-ai/cmux\",\"environment\":\"cmux-vm-production\",\"workflowRef\":\"manaflow-ai/cmux/.github/workflows/cmux-vm.yml@refs/heads/feat-cmux-next\",\"team\":\"cmux-vm-product-smoke\",\"scopes\":[\"vm:read\",\"vm:write\",\"vm:exec\"],\"labels\":{\"cmux.ci\":\"product-smoke\"},\"maxVms\":2,\"maxUsdPerHour\":1,\"maxRunSeconds\":900}]",
+        // ci-product-smoke-platform: the same job of manaflow-ai/cmux-platform's cmux-vm.yml on main (same environment, team,
+        // labels and limits), so the product smoke keeps running when production deploys from there (cmux-platform
+        // workers/cmux-vm/MOVED.md, step 3). The two share the team's quota of 2; only one repository deploys at a time.
+        "CMUX_VM_CI_TRUST": "[{\"id\":\"ci-product-smoke\",\"audience\":\"https://vm.cmux.dev\",\"repository\":\"manaflow-ai/cmux\",\"environment\":\"cmux-vm-production\",\"workflowRef\":\"manaflow-ai/cmux/.github/workflows/cmux-vm.yml@refs/heads/feat-cmux-next\",\"team\":\"cmux-vm-product-smoke\",\"scopes\":[\"vm:read\",\"vm:write\",\"vm:exec\"],\"labels\":{\"cmux.ci\":\"product-smoke\"},\"maxVms\":2,\"maxUsdPerHour\":1,\"maxRunSeconds\":900},{\"id\":\"ci-product-smoke-platform\",\"audience\":\"https://vm.cmux.dev\",\"repository\":\"manaflow-ai/cmux-platform\",\"environment\":\"cmux-vm-production\",\"workflowRef\":\"manaflow-ai/cmux-platform/.github/workflows/cmux-vm.yml@refs/heads/main\",\"team\":\"cmux-vm-product-smoke\",\"scopes\":[\"vm:read\",\"vm:write\",\"vm:exec\"],\"labels\":{\"cmux.ci\":\"product-smoke\"},\"maxVms\":2,\"maxUsdPerHour\":1,\"maxRunSeconds\":900}]",
         // Mesh experiment (cx-0op): on for cmux-platform production's own requests only, as staging has it for its
         // platforms: each team's Cloud mesh is made in that team's personal tenant, which no hand-kept list knows in
         // advance. No tenant is listed, so every other caller still gets 404.
