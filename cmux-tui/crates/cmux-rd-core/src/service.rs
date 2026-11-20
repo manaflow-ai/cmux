@@ -40,9 +40,22 @@ pub mod caps {
     /// viewer that does not offer it refuses such headers, so it gets those frames with
     /// only the parity one block holds.
     pub const FEC_BLOCKS: &str = "fec.blocks";
+    /// Clipboard text both ways (`clipboard` control messages, cmux-rd-proto `clipboard`):
+    /// the host applies the viewer's text and sends its own only in a control session.
+    pub const CLIPBOARD_TEXT: &str = "clipboard.text";
     /// Every named cap.
-    pub const ALL: [&str; 9] =
-        [INPUT_SERVICE, TILE, UP_MEDIA, BULK, STREAM_OPEN, CLOCK, LINK_UDP, CURSOR, FEC_BLOCKS];
+    pub const ALL: [&str; 10] = [
+        INPUT_SERVICE,
+        TILE,
+        UP_MEDIA,
+        BULK,
+        STREAM_OPEN,
+        CLOCK,
+        LINK_UDP,
+        CURSOR,
+        FEC_BLOCKS,
+        CLIPBOARD_TEXT,
+    ];
 }
 
 /// Why a hello is refused.
