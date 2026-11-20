@@ -50,10 +50,41 @@ const WORDS: &[&str] = &[
 /// A stable fallback for sessions made before spoken handles shipped.
 pub fn fallback(id: &str) -> String {
     let digest = crate::sha256::sha256_hex(id.as_bytes());
-    let word = WORDS[usize::from(digest.as_bytes()[0]) % WORDS.len()];
-    // Two hex digits keep the common case short while making the generated namespace
-    // deterministic and collision-resistant enough for a daemon's live session set.
-    format!("{word}-{}", &digest[..2])
+    match WORDS.get(usize::from(digest.as_bytes()[0]) % WORDS.len()) {
+        Some(word) => (*word).to_owned(),
+        None => "Mango".to_owned(),
+    }
+}
+
+/// Allocate a spoken handle that is free among the live handles already assigned on this host.
+/// The first choice is always a food word; a numeric suffix is used only when that word is taken.
+pub fn allocate(id: &str, existing: impl IntoIterator<Item = impl AsRef<str>>) -> String {
+    let digest = crate::sha256::sha256_hex(id.as_bytes());
+    let start = usize::from(digest.as_bytes()[0]) % WORDS.len();
+    let used: std::collections::HashSet<String> =
+        existing.into_iter().map(|value| value.as_ref().to_owned()).collect();
+    for offset in 0..WORDS.len() {
+        let word = WORDS[(start + offset) % WORDS.len()];
+        if !used.contains(word) {
+            return word.to_owned();
+        }
+        let mut suffix = 2;
+        loop {
+            let candidate = format!("{word}-{suffix}");
+            if !used.contains(&candidate) {
+                return candidate;
+            }
+            suffix += 1;
+        }
+    }
+    let mut suffix = used.len().saturating_add(2);
+    loop {
+        let candidate = format!("Mango-{suffix}");
+        if !used.contains(&candidate) {
+            return candidate;
+        }
+        suffix = suffix.saturating_add(1);
+    }
 }
 
 /// The effective handle for a session metadata record.
@@ -110,6 +141,18 @@ mod tests {
         assert!(!validate("M"));
         assert!(!validate("two words"));
         meta.tags.remove(TAG);
-        assert!(of_meta(&meta).contains('-'));
+        assert!(validate(&of_meta(&meta)));
+    }
+
+    #[test]
+    fn two_hundred_allocations_are_distinct_and_spoken() {
+        let mut assigned = Vec::new();
+        for i in 0..200 {
+            let handle = allocate(&format!("session-{i}"), &assigned);
+            assert!(validate(&handle));
+            assert!(assigned.iter().all(|old| old != &handle));
+            assigned.push(handle);
+        }
+        assert_eq!(assigned.len(), 200);
     }
 }
