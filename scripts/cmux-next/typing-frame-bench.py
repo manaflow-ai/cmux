@@ -174,6 +174,9 @@ VARIANTS = {
     "rqos": {"env": {"CMUX_NEXT_EXP_RENDERER_QOS": "1"}},
     "rqos_latcrit": {"env": {"CMUX_NEXT_EXP_RENDERER_QOS": "1", "CMUX_NEXT_EXP_LATENCY_CRITICAL": "1"}},
     "nocvdl": {"env": {"CMUX_NEXT_CEF_EXTRA_SWITCHES": "disable-features=CVDisplayLinkBeginFrameSource"}},
+    # The paint-to-present pipeline: unlocked from vsync (the floor), and CoreAnimation overlays off (GL composite).
+    "vsyncoff": {"env": {"CMUX_NEXT_CEF_EXTRA_SWITCHES": "disable-gpu-vsync:disable-frame-rate-limit"}},
+    "nooverlay": {"env": {"CMUX_NEXT_CEF_EXTRA_SWITCHES": "disable-mac-overlays"}},
     "int20ms": {"interval": 0.02},
     "int500ms": {"interval": 0.5},
     "duty20": {"duty": 0.2},
