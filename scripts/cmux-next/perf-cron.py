@@ -37,7 +37,7 @@ Subcommands: fetch-state, plan, fleet-check, run-part, part-cleanup, run-linux-p
 replay-results (see each --help). Tests: scripts/cmux-next/tests/test_perf_cron.py (decisions) and test_perf_cron_io.py (GitHub, git, the
 fleet client and multi-tick runs, faked) (run them yourself; no CI job runs them).
 """
-import argparse, collections, datetime, hashlib, importlib.util, io, json, os, random, re, subprocess, sys, time, urllib.error
+import argparse, collections, datetime, hashlib, importlib.util, io, json, os, random, re, subprocess, sys, tempfile, time, urllib.error
 import urllib.parse, urllib.request, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -3971,7 +3971,10 @@ GO_TIME_RE = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?Z$")
 def controller_ended_at(value):
     """When the controller's step ended (its ended_at, Go's RFC 3339 with nanoseconds), or None (pure)."""
     m = GO_TIME_RE.match(str(value.get("ended_at") or ""))
-    return parse_iso(m.group(1) + "Z") if m else None
+    try:
+        return parse_iso(m.group(1) + "Z") if m else None
+    except ValueError:
+        return None
 
 
 def cmd_replay_results(o):
@@ -3988,8 +3991,10 @@ def cmd_replay_results(o):
     except (OSError, ValueError, urllib.error.URLError) as error:
         print(f"perf-cron replay-results: the controller's results were not read ({error!r}); the state is as fetched")
         return
-    values = [v for v in (raw.get("results") if isinstance(raw, dict) else None) or [] if isinstance(v, dict)]
+    listed = raw.get("results") if isinstance(raw, dict) else None
+    values = [v for v in listed if isinstance(v, dict)] if isinstance(listed, list) else []
     stored = 0
+    os.makedirs(os.path.join(o.dir, "replay"), exist_ok=True)
     for value in sorted(values, key=lambda v: str(v.get("ended_at") or "")):
         value = controller_result(json.dumps(value))
         at = controller_ended_at(value) if value else None
@@ -3999,7 +4004,9 @@ def cmd_replay_results(o):
         if why:
             print(f"perf-cron replay-results: {why}")
             continue
-        part_dir = os.path.join(o.dir, "replay", str(value.get("step_id") or value["part"]))
+        # A fresh directory per part, never named from the feed: a step_id of "../x" or "/abs" must not place
+        # result.json or report.json outside the copy (review of cmux#47673).
+        part_dir = tempfile.mkdtemp(prefix="part-", dir=os.path.join(o.dir, "replay"))
         cmd_fetch_result(argparse.Namespace(result=json.dumps(value), out=part_dir))
         report(argparse.Namespace(repo="", dir=o.dir, result=[f"{value['part']}={part_dir}"], run_url="", finish=False,
                                   issues=False, output=os.path.join(o.dir, "replay", "report.out")), t=at)

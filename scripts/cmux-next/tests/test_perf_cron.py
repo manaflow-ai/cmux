@@ -3422,6 +3422,37 @@ class ReplayControllerResultsTests(unittest.TestCase):
             state = self.replay(d, [self.result(ended_at="")])
             self.assertFalse(state.get("part_rows"), "a row is never dated by its read")
 
+    def test_a_step_id_never_names_a_path_outside_the_copy(self):
+        # review of cmux#47673 (F1): the feed's step_id named the part's directory, so "../x" or "/abs" wrote
+        # result.json and report.json outside --dir.
+        for bad in ("../../escaped", "ABSOLUTE"):
+            with tempfile.TemporaryDirectory() as outer:
+                d = os.path.join(outer, "copy")
+                os.mkdir(d)
+                state = PartRowsStoredAtOnceTests().state_with(["stress"])
+                with open(os.path.join(d, "state.json"), "w") as f:
+                    json.dump(state, f)
+                step_id = os.path.join(outer, "escaped") if bad == "ABSOLUTE" else bad
+                state = self.replay(d, [self.result(step_id=step_id)])
+                self.assertTrue(state.get("part_rows"), "the part is still stored")
+                self.assertEqual(sorted(os.listdir(outer)), ["copy"], f"nothing is written outside the copy ({bad})")
+
+    def test_a_malformed_feed_or_entry_stores_the_rest(self):
+        # review of cmux#47673 (F4): a non-list results, or an entry whose ended_at is not a real time, aborted the
+        # replay before the valid results.
+        with tempfile.TemporaryDirectory() as d:
+            state = PartRowsStoredAtOnceTests().state_with(["stress"])
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump(state, f)
+            path = os.path.join(d, "results.json")
+            with open(path, "w") as f:
+                json.dump({"results": {"not": "a list"}}, f)
+            cron.cmd_replay_results(argparse.Namespace(dir=d, url="", file=path))
+            with open(os.path.join(d, "state.json")) as f:
+                self.assertEqual(json.load(f), state, "a non-list results is no result")
+            state = self.replay(d, [self.result(step_id="bad", ended_at="2026-13-45T99:99:99.1Z"), self.result()])
+            self.assertTrue(state.get("part_rows"), "the valid result after a bad one is stored")
+
 
 class StalePartFirstTests(unittest.TestCase):
     """A part whose newest stored rows (part_stored) are older than PART_STALE_HOURS runs ahead of the PARTS order, so
