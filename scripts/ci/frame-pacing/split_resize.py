@@ -383,6 +383,13 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
             seeded["waited_s"] = round(time.monotonic() - began, 1)
             opened = {"opened": opened, "seeded": seeded}
             if not (isinstance(seeded.get("rows"), int) and seeded["rows"] >= seed - 1):
+                # Why: the page's state at the end (`pane_failure` names a throw that took it down, hq#15602), for the
+                # pane the seed went to and the pane the chat was opened in.
+                resolved = ((opened.get("opened") or {}).get("resolved") or {}).get("id")
+                seeded["after"] = {p: driver.call("debug.agent_pane", {"action": "readiness", "pane": p}, timeout=30)
+                                   for p in dict.fromkeys(x for x in (chat_pane, resolved) if x)}
+                # The page's own wire log: its handshake, the socket's lifecycle and acpmux's replies.
+                seeded["acp_log"] = driver.call("debug.agent_pane", {"action": "acp_log", **target}, timeout=30)
                 # A short chat measures nothing about a long one: say so instead of reporting its drags.
                 driver.save("split_resize", {"error": f"the chat never held its {seed}-row seed", "pane": pane,
                                              "split": split, "opened": opened})
