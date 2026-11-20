@@ -272,6 +272,11 @@ impl Hub {
         };
         let duplicate = |v: Value| {
             let mut answer = json!({"sessionId": session.id, "promptId": prompt_id, "duplicate": true, "queued": false, "turnId": v.pointer("/_meta/acpmux/turnId")});
+            if v.pointer("/_meta/acpmux/surgeHeld").and_then(Value::as_bool) == Some(true) {
+                answer["inbox"] = json!(true);
+                answer["surgeHeld"] = json!(true);
+                answer["threadId"] = v["_meta"]["acpmux"]["threadId"].clone();
+            }
             name_kept_message(&mut answer, session, &prompt_id);
             answer
         };
@@ -293,7 +298,18 @@ impl Hub {
                     // this copy then knows the prompt was taken. With none yet, the first run
                     // may still be held or refused, and only its answer says.
                     let (turn, queued) = pending_turn(session, &prompt_id).unzip();
-                    let mut notice = duplicate(json!({"_meta": {"acpmux": {"turnId": turn}}}));
+                    let previous = first
+                        .borrow()
+                        .as_ref()
+                        .and_then(|r| r.as_ref().ok())
+                        .filter(|v| {
+                            v.pointer("/_meta/acpmux/surgeHeld").and_then(Value::as_bool)
+                                == Some(true)
+                        })
+                        .cloned();
+                    let mut notice = duplicate(
+                        previous.unwrap_or_else(|| json!({"_meta": {"acpmux": {"turnId": turn}}})),
+                    );
                     if queued == Some(true) {
                         notice.set("queued", json!(true));
                     }
