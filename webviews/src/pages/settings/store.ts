@@ -52,8 +52,9 @@ import {
   type ChannelsState,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
+  type LibraryListing,
+  type LibraryRun,
   type SharesState,
-  type KeysState,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -64,15 +65,10 @@ import {
   type HarnessesState,
   type HostLists,
   type IntegrationsRun,
-  type AgentToolsCardRun,
-  type AgentToolsCardState,
   type IntegrationsState,
-  type McpServersRun,
-  type McpServersState,
   type ListRow,
   type ManagedInfo,
   type MuseumArtResult,
-  type RowNoteData,
   type SettingsClient,
   type SettingsOpName,
   type SettingsOps,
@@ -83,10 +79,14 @@ import {
   SETTINGS_SENTENCES,
   type CustomizeTryOn,
   type JoinConsentSurface,
-  type LibraryListing,
-  type LibraryRun,
+  type KeysState,
   type ModelsRun,
   type ModelsState,
+  type AgentToolsCardRun,
+  type AgentToolsCardState,
+  type McpServersRun,
+  type McpServersState,
+  type RowNoteData,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -678,6 +678,12 @@ export class SettingsStore {
   async runWebUpdates(action: "check" | "rollback"): Promise<boolean> {
     const reply = await this.request(`cmux.settings.web_updates.${action}` as const, {});
     await this.refreshHost();
+    return reply.ok;
+  }
+
+  /** General > Language: Relaunch, so the native menus take the Language setting; false when the host refused. */
+  async runLanguageRelaunch(): Promise<boolean> {
+    const reply = await this.request("cmux.settings.language.relaunch", {});
     return reply.ok;
   }
 

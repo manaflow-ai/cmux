@@ -205,3 +205,33 @@ The push run's half of the nightly-next pipeline (decide's pipeline): once the u
 sentry-dsyms-nightly:
 
 nightly-next's dSYMs to Sentry, off the build's path (Sentry held it 10.8 and 19.7 min in runs 41471126151, 41466468306). Nothing needs it; it continues on error. It runs with the rest of the tail (run_tail: on nightly-next the dispatched tail run), outside the push group: in the loop run it held the push group until its hosted queue (39 min for the oldest job on 2026-11-08) and its upload were done, and in a pipelined push run (decide's pipeline) it held the group after dispatch-nightly-next-sign. It stays on GitHub-hosted Ubuntu (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS): the Sentry token keeps it off the nightly mini's shared light runners, and on the trusted signing runner its 11-20 min upload would hold the whole Mac while the next run builds and signs there. The dSYMs come from the run that compiled the published binary, as keep-published-dsyms finds them.
+
+## note-29
+
+NIGHTLY_NEXT_BROWSER_DATA_IMPORT:
+
+cx-f58x: Apple held the browser-data import (status 7000, 2026-10-09) and accepted it again in run 42176643049 (notary_test_import_part=full, 2026-11-06), so `full` builds the import into every nightly-next build. `compiled-out` is the switch back: every nightly-next build then compiles the import out (CMUX_NO_PASSWORD_IMPORT, CMUX_NO_BROWSER_DATA_IMPORT, empty browser-sources.json), proves it, and may notarize and publish even with NIGHTLY_NEXT_NOTARY_PAUSED=1. With the import in, the pause still stops a build before notarization, so a build with the import is never published while the pause is set.
+
+## note-30
+
+runner-preflight:
+
+Fails the run in minutes when a label its jobs would wait on has no online runner, instead of every job sitting queued for hours (2026-11-10: CI_NIGHTLY_MINI named cmux-lawrence-2-light, whose runners went offline at 00:45Z; the nightly sat queued for 3+ h). It takes decide's own route, so it never waits longer than decide would, and in one-mini mode it stays on vars.CI_NIGHTLY_MINI with the rest of the run (never split across Macs); there a dead mini holds it like every other job. It was on GitHub-hosted Ubuntu until 2026-11-18, when the org-wide hosted queue held it 1h25m+ (run 44207617943) and with it every nightly, while the nightly Macs were idle. It holds no secret and reads only vars.CI_RUNNER_STATE (scripts/ci/nightly_runner_preflight.py). It never cancels anything; an unreadable or stale census lets the run go on. A failure files the nightly's failure incident with the job's token (report-nightly-failure never runs then). hq docs/handbook/runner-var-points-at-dead-host.md.
+
+## note-31
+
+pick-nightly-build-runner:
+
+The route for build-nightly-app on nightly-next, read right before it queues (scripts/ci/nightly_build_runner.py): `owned`, the owned label while one of its runners is idle now. The build takes `owned` when set by a pick made for its own attempt (`attempt`): a push, a dispatch, or a re-run that ran this job again. Anything else (a failed-jobs re-run that kept an earlier attempt's pick, a failed pick) takes the plain nightly-only pool, never the label that refused it and never Blacksmith (nightlies never use Blacksmith, Lawrence 2026-10-30). The picker's `blacksmith` output is no longer read by any nightly job.
+
+## note-32
+
+build-nightly-app's if:
+
+pick-nightly-build-runner is continue-on-error, and its pre-job hook can wait out its 13-minute timeout while a signing job holds the mini it landed on. A timed-out job ends `cancelled`, and an `if` with no status function (an implicit success() over every ancestor) then skipped this job and lost the started build (runs 43129045111, 43138638076 on 2026-11-12). So this job and the jobs below it start with !cancelled() and their own needs' success, and the pick's empty outputs fall back to the plain pool (tests/test_nightly_delivery_concurrency.py::test_a_tolerated_need_never_skips_its_dependents).
+
+## note-33
+
+verify-recovered-nightly-next:
+
+No environment and no secrets: verifies the DMG that recover-nightly-next-notarization continued and stapled with static checks deferred, and records the tested bytes; publish-nightly publishes a recovered build only when this job passed, and only those bytes. It takes the build pick's owned Mac (no signing key), never the recovery's signer pin (sign_owned): glaeda admits only the signing jobs on a signing mini and refused this one ("untrusted: NEXT nightly needs its exact nightly.yml signing job"), so every build whose notarization outlasted its 20 minutes was notarized and never published (run 43224144950).

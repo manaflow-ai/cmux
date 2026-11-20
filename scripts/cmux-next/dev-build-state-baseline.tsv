@@ -30,6 +30,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextCompat/BuildStatePaths.swift	3	the resol
 Packages/macOS/CmuxNext/Sources/CmuxNextCompat/NextSupport.swift	1	the resolver: shared builds keep this path, a DEV build gets its own (BuildStatePaths, NextSupport, BuildIdentity)
 Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/LaunchTimesFile.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/CloudLinkLauncher.swift	1	cmux-tui's default state root, only for a build without its own state directory (release); a DEV build has its own (linkStateRoot)
+Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/LanguagePackService.swift	1	per build: the language pack cache folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArtDownloads.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropImageStore.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropShader.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)

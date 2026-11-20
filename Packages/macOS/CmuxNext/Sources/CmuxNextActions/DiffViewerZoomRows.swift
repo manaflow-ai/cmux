@@ -21,12 +21,12 @@ struct DiffViewerZoomRows {
                              targets: [.pane], cliName: cli)
         }
         return [
-            row(zoomIn, String(localized: "action.diffViewerZoomIn", defaultValue: "Diff: Zoom In", table: "ActionCatalog", bundle: .module),
+            row(zoomIn, String(localized: "action.diffViewerZoomIn", defaultValue: "Diff: Zoom In", table: "ActionCatalog", bundle: .localizedModule),
                 "=", ["diff", "zoom"], "plus.magnifyingglass", "browser diff-zoom-in"),
-            row(zoomOut, String(localized: "action.diffViewerZoomOut", defaultValue: "Diff: Zoom Out", table: "ActionCatalog", bundle: .module),
+            row(zoomOut, String(localized: "action.diffViewerZoomOut", defaultValue: "Diff: Zoom Out", table: "ActionCatalog", bundle: .localizedModule),
                 "-", ["diff", "zoom"], "minus.magnifyingglass", "browser diff-zoom-out"),
             row(zoomReset, String(localized: "action.diffViewerZoomReset", defaultValue: "Diff: Actual Size", table: "ActionCatalog",
-                                  bundle: .module),
+                                  bundle: .localizedModule),
                 "0", ["diff", "zoom", "reset"], "1.magnifyingglass", "browser diff-actual-size"),
         ]
     }
