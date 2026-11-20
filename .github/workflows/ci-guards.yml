@@ -217,6 +217,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cloud_overflow_switch.py
 
+      - name: Validate a reused workspace left sparse or broken is removed before checkout
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_reused_sparse_checkout.py
+
       - name: Validate guard failure attribution
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_guard_attribution.py
@@ -765,6 +769,10 @@ jobs:
       - name: Check that path-filtered workflows start for their tests' inputs
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_paths_cover_inputs.py
+
+      - name: Check that a docs-only pull request starts only the allowed workflows
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_docs_only_prs.py
 
       - name: Check that a cmux-rd-host change runs its macOS clippy and tests
         if: ${{ !cancelled() && matrix.group == 'ci' }}

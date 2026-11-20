@@ -1,5 +1,6 @@
 import { acpmuxPerf } from "./perf";
 import { authChipText, authLoginText, authText, canSessionLogin } from "./sessionAuth";
+import { installedFirst } from "./railOrder";
 import {
   useCallback,
   useContext,
@@ -913,8 +914,11 @@ export function ModelPicker(props: ModelPickerProps) {
     if (!modelsNeeded) return [];
     const row = (entry: HarnessChoice, model: ModelChoice) => quickRow(entry.id, model);
     // A started chat that forks lists every harness, as a New Tab does; its own stays the chat's.
-    const startable = (forkHarnesses ? allHarnesses : harnesses).filter(
-      (entry) => !entry.folder && entry.pickable && !blockedProfile(entry),
+    // The harnesses this Mac has lead the rail; the ones to install follow (railOrder.ts).
+    const startable = installedFirst(
+      (forkHarnesses ? allHarnesses : harnesses).filter(
+        (entry) => !entry.folder && entry.pickable && !blockedProfile(entry),
+      ),
     );
     const list: QuickFamily[] = [];
     // A harness whose probe failed lends no rows to Starred (they are stale), unless it runs the chat.

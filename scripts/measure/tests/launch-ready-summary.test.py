@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""launch-ready-summary.py judges each restore case against its expectation, prints LR-SURFACE per side and
-LR-SURFACE-DIFF when an A/B's arms first showed different surfaces.
+"""launch-ready-summary.py judges each restore case against its expectation, prints LR-SURFACE per side,
+LR-SURFACE-DIFF when an A/B's arms first showed different surfaces, and LR-KEYS per side with keys=1.
 
     python3 scripts/measure/tests/launch-ready-summary.test.py
 """
@@ -8,7 +8,10 @@ LR-SURFACE-DIFF when an A/B's arms first showed different surfaces.
 import contextlib
 import importlib.util
 import io
+import json
+import os
 from pathlib import Path
+import tempfile
 import unittest
 
 HERE = Path(__file__).resolve().parent
@@ -32,10 +35,10 @@ def row(side, label, front=None, marks=None, first=None, **extra):
     return r
 
 
-def run(rows, case="kept", seeded=""):
+def run(rows, case="kept", seeded="", keys=False):
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
-        result = module.summarize(rows, case, seeded)
+        result = module.summarize(rows, case, seeded, keys)
     return result, out.getvalue().splitlines()
 
 
@@ -258,6 +261,39 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(module.first_surface({"marks": {"launch_snapshot_shown": 1}}), "tabs")
         self.assertEqual(module.first_surface({"marks": {"home.first_page": 1}}), "home")
         self.assertEqual(module.first_surface({"marks": {}}), "none")
+
+
+class KeysTests(unittest.TestCase):
+    # head: three measured launches, two whose message held keys (first_key_ms 900 and 1100); base: one, none held.
+    ROWS = [
+        row("head", "prime", HOME, HOME_MARKS, "home", first_key_ms=None, keys_landed=0),
+        row("head", "run1", HOME, HOME_MARKS, "home", first_key_ms=900.0, keys_sent=12, keys_landed=8, keys_text="efghijkl"),
+        row("head", "run2", HOME, HOME_MARKS, "home", first_key_ms=None, keys_sent=36, keys_landed=0, keys_text=None),
+        row("head", "run3", HOME, HOME_MARKS, "home", first_key_ms=1100.0, keys_sent=15, keys_landed=3, keys_text="mno"),
+        row("base", "prime", HOME, HOME_MARKS, "home"),
+        row("base", "run1", HOME, HOME_MARKS, "home", first_key_ms=None, keys_sent=36, keys_landed=0, keys_text=None),
+    ]
+
+    def test_keys_line_is_the_median_first_key_and_the_launches_that_kept_one(self):
+        _, lines = run(self.ROWS, keys=True)
+        self.assertIn("LR-KEYS head 1000.0 2/3", lines)
+        self.assertIn("LR-KEYS base None 0/1", lines)
+
+    def test_no_keys_line_without_keys(self):
+        _, lines = run(self.ROWS)
+        self.assertFalse(any(l.startswith("LR-KEYS") for l in lines))
+        self.assertIn("LR-USABLE head 3/3", lines)
+
+    def test_main_passes_keys(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runs = os.path.join(tmp, "runs.jsonl")
+            with open(runs, "w") as handle:
+                handle.writelines(json.dumps(r) + "\n" for r in self.ROWS)
+            for argv, want in ((["--keys", "1"], True), ([], False)):
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    module.main([runs] + argv)
+                self.assertEqual("LR-KEYS head 1000.0 2/3" in out.getvalue().splitlines(), want)
 
 
 def layout(window_moved, window_changes, sidebar_moved=None, sidebar_changes=0):

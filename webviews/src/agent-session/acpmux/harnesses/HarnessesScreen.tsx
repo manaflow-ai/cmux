@@ -9,6 +9,7 @@ import type { AcpmuxSnapshot } from "../model";
 import type { PickerCatalog } from "../modelCatalogData";
 import { harnessRows, type HarnessRow, type HarnessStatus } from "./harnessRows";
 import { HostCommandFailed, runHostCommand } from "./hostCommand";
+import { installFailure, installProgress } from "./installRetry";
 import "./harnesses.css";
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -27,8 +28,18 @@ const STATUS: Record<HarnessStatus, StringKey> = {
 type Progress =
   | { kind: "installing"; line?: string }
   /// `retrySignIn`: a rejected sign-in terminal, retried with its saved `login`; `retryLaunch`: a
-  /// rejected Start Chat, retried with the row's action.
-  | { kind: "failed"; reason: string; retrySignIn?: boolean; login?: string; retryLaunch?: boolean }
+  /// rejected Start Chat, retried with the row's action; `retryInstall`: a failed install or update
+  /// command, which Retry runs again (first-run finding 6), its row text `shown` (plain words) and
+  /// `reason` the command's own last line, one hover away.
+  | {
+      kind: "failed";
+      reason: string;
+      shown?: string;
+      retrySignIn?: boolean;
+      login?: string;
+      retryLaunch?: boolean;
+      retryInstall?: string;
+    }
   | { kind: "done" }
   | { kind: "waiting" }
   | { kind: "launching" };
@@ -201,20 +212,29 @@ export function HarnessesScreen({
         const ended = await runHostCommand(callNative, command, {
           ...inFolder,
           alive: () => live.current,
-          onLine: (line) => mark(row.harness, { kind: "installing", line }),
+          onLine: (line) => mark(row.harness, { kind: "installing", line: installProgress(line, t) }),
         });
         if (ended === "stopped" || !live.current) return;
         await rescan(row);
         mark(row.harness, { kind: "done" });
       } catch (error) {
+        // The installer's last line becomes plain words (a dropped network, a terminal-only hint
+        // such as "--force"); the line itself stays in the tooltip. Retry runs the command again.
+        const line = error instanceof HostCommandFailed ? error.line : undefined;
+        const reason =
+          error instanceof HostCommandFailed
+            ? (error.line ?? t("harnesses.commandFailed"))
+            : error instanceof Error
+              ? error.message
+              : String(error);
         mark(row.harness, {
           kind: "failed",
-          reason:
+          reason,
+          shown:
             error instanceof HostCommandFailed
-              ? (error.line ?? t("harnesses.commandFailed"))
-              : error instanceof Error
-                ? error.message
-                : String(error),
+              ? installFailure(line, t)
+              : t("harnesses.commandFailedBecause", { reason }),
+          retryInstall: command,
         });
       }
     })();
@@ -338,17 +358,25 @@ export function HarnessesScreen({
             : finished?.kind === "done"
               ? undefined
               : finished;
-          // A failed login launch retries the login; failed installs offer setup or another look.
+          // A failed login launch retries the login; a failed install offers Retry, then its setup
+          // page or another look; one that finished but still cannot run offers setup or a look.
+          const otherFix =
+            doing?.kind === "failed"
+              ? row.docsUrl
+                ? { label: t("harnesses.setupGuide"), run: () => openDocs(row) }
+                : { label: t("harnesses.checkAgain"), run: () => checkAgain(row) }
+              : undefined;
           const failedFix =
             doing?.kind === "failed"
               ? doing.retrySignIn && doing.login
                 ? { label: t("harnesses.signIn"), run: () => retrySignIn(row, doing.login!) }
                 : doing.retryLaunch && action(row)
                   ? { label: action(row)!, run: () => act(row) }
-                  : row.docsUrl
-                    ? { label: t("harnesses.setupGuide"), run: () => openDocs(row) }
-                    : { label: t("harnesses.checkAgain"), run: () => checkAgain(row) }
+                  : doing.retryInstall
+                    ? { label: t("harnesses.retry"), run: () => runInPlace(row, doing.retryInstall!) }
+                    : otherFix
               : undefined;
+          const secondFix = doing?.kind === "failed" && doing.retryInstall ? otherFix : undefined;
           const label =
             doing?.kind === "installing" || doing?.kind === "waiting" ? undefined : (failedFix?.label ?? action(row));
           // acpmux's reason can run to several lines: the row shows the first, the tooltip all.
@@ -358,7 +386,7 @@ export function HarnessesScreen({
               : doing?.kind === "failed"
                 ? stuck
                   ? doing.reason
-                  : t("harnesses.commandFailedBecause", { reason: doing.reason })
+                  : (doing.shown ?? t("harnesses.commandFailedBecause", { reason: doing.reason }))
                 : doing?.kind === "waiting" && row.status === "signIn"
                   ? t("harnesses.waitingSignIn")
                   : (row.detail?.split("\n")[0] ?? t(STATUS[row.status]));
@@ -393,6 +421,11 @@ export function HarnessesScreen({
                   onClick={() => (failedFix ? failedFix.run() : act(row))}
                 >
                   {label}
+                </button>
+              )}
+              {secondFix && (
+                <button type="button" className="acpmux-harness-action" onClick={secondFix.run}>
+                  {secondFix.label}
                 </button>
               )}
             </li>
