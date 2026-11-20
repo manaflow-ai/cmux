@@ -974,7 +974,12 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
             Ok(words) => {
                 let parsed = cloud_start_chat::parse(&words, read_stdin);
                 match parsed {
-                    Ok(cloud_start_chat::Parsed::Run(request)) => {
+                    Ok(cloud_start_chat::Parsed::Run(mut request)) => {
+                        if let Some(end) = deadline {
+                            request.until = Some(end);
+                            request.timeout =
+                                end.saturating_duration_since(std::time::Instant::now());
+                        }
                         cloud_start_chat::start(global, &request)
                     }
                     Ok(cloud_start_chat::Parsed::Help) => {

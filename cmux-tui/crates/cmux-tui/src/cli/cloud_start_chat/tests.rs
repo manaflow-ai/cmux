@@ -239,6 +239,24 @@ fn no_login_goes_to_start_session() {
     assert!(!fake.ran.iter().flatten().any(|word| word == "--login"), "{:?}", fake.ran);
 }
 
+#[test]
+fn named_cloud_launch_does_not_replay_an_unconfirmed_start() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        Ran { code: 124, stdout: String::new(), stderr: "response lost".into() },
+    ]);
+    let mut req = request(&["--target", "machine:vm-1"]);
+    req.until = Some(fake.now() + Duration::from_secs(9));
+    let Outcome::Failed { error, .. } = run(&mut fake, &req) else {
+        panic!("unconfirmed start succeeded")
+    };
+    assert_eq!(fake.ran.iter().filter(|args| args[1] == "start-session").count(), 1);
+    assert_eq!(error["details"]["start_confirmed"], false);
+    assert_eq!(error["details"]["machine"]["value"], "vm-1");
+    assert_eq!(error["retryable"], false);
+    assert!(error["details"].get("again").is_none());
+}
+
 /// A fake app: answers each step from a queue and records what ran.
 struct Fake {
     answers: VecDeque<Ran>,

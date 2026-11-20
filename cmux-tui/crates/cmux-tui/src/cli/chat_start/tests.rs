@@ -18,6 +18,27 @@ fn words(list: &[&str]) -> Vec<String> {
 }
 
 #[test]
+fn named_cloud_and_auto_targets_share_the_launch_budget() {
+    for target in ["auto", "lane-1", "vm:vm-1", "vm", "cloud", "joined:abc"] {
+        assert!(super::named_launch::deadline(&start(&["--machine", target])).is_some());
+        assert!(super::named_launch::deadline(&start(&["--on", target])).is_none());
+    }
+    let local = JoinedMachine {
+        id: None,
+        name: "picked-vm".into(),
+        host: "picked-vm".into(),
+        carrier: Carrier::Local,
+    };
+    let args =
+        joined::start_words(&start(&["--machine", "auto", "--harness", "codex"]), &local, "demo")
+            .unwrap();
+    assert_eq!(
+        args,
+        words(&["new", "--machine", "local", "-n", "demo", "-d", "-m", "codex", "--json"])
+    );
+}
+
+#[test]
 fn named_launch_routes_the_prompt_file_to_the_requested_machine() {
     let file = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(file.path(), "--model\nDo the work.\n").unwrap();

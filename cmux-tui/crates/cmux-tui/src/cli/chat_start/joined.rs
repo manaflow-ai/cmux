@@ -55,6 +55,8 @@ pub(in crate::cli) enum Carrier {
     Hub,
     /// acpmux's own link to it (`acpmux machine add HOST`: ssh or direct).
     Peer,
+    /// Placement picked the local daemon; no peer connection or desktop app is required.
+    Local,
 }
 
 /// A joined machine, or one of acpmux's peers, a chat starts on.
@@ -73,6 +75,7 @@ impl JoinedMachine {
     /// The answer's `placement`: `joined:ID`, `peer:HOST`, or `hub:HOST` with no id.
     pub(in crate::cli) fn placement(&self) -> String {
         match (self.carrier, &self.id) {
+            (Carrier::Local, _) => "here".to_owned(),
             (Carrier::Peer, _) => format!("peer:{}", self.host),
             (Carrier::Hub, Some(id)) => format!("{PREFIX}{id}"),
             (Carrier::Hub, None) => format!("hub:{}", self.host),
@@ -375,8 +378,9 @@ pub(in crate::cli) fn start_words(
         Carrier::Hub => {
             ["session", "start", name, "--machine", &machine.host].map(str::to_owned).to_vec()
         }
-        Carrier::Peer => {
-            ["new", "--machine", &machine.host, "-n", name, "-d"].map(str::to_owned).to_vec()
+        Carrier::Peer | Carrier::Local => {
+            let selector = if machine.carrier == Carrier::Local { "local" } else { &machine.host };
+            ["new", "--machine", selector, "-n", name, "-d"].map(str::to_owned).to_vec()
         }
     };
     let harness = match (&start.agent, &start.model) {
@@ -432,7 +436,11 @@ pub(in crate::cli) fn run(
         other => other.map(str::to_owned),
     };
     let words: Vec<&str> = words.iter().map(String::as_str).collect();
-    let target = format!("{}/{name}", machine.host);
+    let target = if machine.carrier == Carrier::Local {
+        name.clone()
+    } else {
+        format!("{}/{name}", machine.host)
+    };
     let prompt = prompt.filter(|prompt| !prompt.trim().is_empty());
     let receipt = machine.carrier == Carrier::Hub;
     let budget =
@@ -477,6 +485,13 @@ pub(in crate::cli) fn run(
             ));
         }
     }
+    if deadline.is_some() && answer["link"].is_null() {
+        return fail(
+            global,
+            json!({"code":"chat.link_pending", "retryable":false,
+            "message":format!("{target} started, but its harness session link is not available yet. Inspect it with `cmux acp session info {target}`; do not start another chat."), "details":answer}),
+        );
+    }
     // `--wait`: the turn the first prompt started, its reply printed as a chat here prints it.
     if let Ok(Some(timeout)) = super::here_wait(start)
         && answer.get("prompt").is_some_and(|sent| !sent.is_null())
@@ -513,7 +528,7 @@ pub(in crate::cli) fn start_answer(
         acpmux::agent_link::AgentLink::from_start_record(&started, Some(&machine.host), name);
     let (remote_session_id, started) = match machine.carrier {
         Carrier::Hub => (started.get_str("detail").map(str::to_owned), started),
-        Carrier::Peer => {
+        Carrier::Peer | Carrier::Local => {
             let id = started.get_str("sessionId").map(str::to_owned);
             let name = started.get_str("name").map(str::to_owned);
             (id.clone(), json!({"sessionId": id, "name": name}))

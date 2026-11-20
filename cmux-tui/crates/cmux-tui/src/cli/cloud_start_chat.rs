@@ -211,6 +211,9 @@ pub(super) fn start(global: &GlobalArgs, request: &Request) -> i32 {
     // A folder's size never stops a start: one past what a copy sends whole goes as a first pass
     // (`size_cap`; Leo, 2026-11-15: "why are you guys still blocking on these?").
     let mut runner = SelfRunner::new(global);
+    if let Some(end) = request.until {
+        runner = runner.until(end);
+    }
     let outcome = run(&mut runner, request);
     report(&outcome, global.output)
 }
@@ -1140,6 +1143,8 @@ fn out_of_time_again(
 /// What [`steps`] got to, for the answer [`run`] gives when a step answered after the deadline.
 #[derive(Debug, Default)]
 struct Progress {
+    /// The start-session request may already have created a chat.
+    dispatched: bool,
     /// The machine id this run made, once it has one.
     made: Option<String>,
     /// The machine the command to ask again names, once the run has one.
@@ -1177,6 +1182,32 @@ impl Progress {
     /// have reached the machine, `cloud.start_pending`; once it may have, `chat.wait_timeout` on the chat's session
     /// or, with no session, `cloud.start_pending` that says it may be there.
     fn late(&self, request: &Request) -> Outcome {
+        if self.dispatched && !request.wait && request.until.is_some() {
+            if let Some((machine, session, answer)) = &self.chat {
+                return failed(
+                    OUT_OF_TIME,
+                    format!(
+                        "Session {session} started on {machine}, but the command did not finish before the deadline. Inspect that session in cmux before sending anything else."
+                    ),
+                    json!({"machine_id":machine,"session_id":session,"answer":answer,"start_confirmed":true}),
+                    75,
+                );
+            }
+            let target = self.machine.as_ref().unwrap_or(&request.machine);
+            let (kind, machine) = match target {
+                Machine::Target(id) => ("id", id.as_str()),
+                Machine::Named(name) => ("name", name.as_str()),
+                Machine::New => ("name", "new VM"),
+            };
+            return failed(
+                OUT_OF_TIME,
+                format!(
+                    "The start on {machine} was dispatched but no session was confirmed before the deadline. Inspect its chats in cmux before starting another."
+                ),
+                json!({"machine": {"kind":kind,"value":machine}, "start_confirmed":false}),
+                75,
+            );
+        }
         let request = &self.rerun(request);
         let machine = self.machine.clone().unwrap_or_else(|| request.machine.clone());
         match (&self.chat, self.sending) {
@@ -1640,6 +1671,7 @@ fn steps(
         .as_ref()
         .filter(|_| request.from_folder.is_none())
         .map(|_| fresh::start_until(runner, deadline));
+    progress.dispatched = true;
     let ran = match bound {
         Some(until) => runner.cmux_by(&start, until),
         None => runner.cmux(&start),

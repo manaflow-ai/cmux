@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 
 pub(super) fn deadline(start: &Start) -> Option<Instant> {
     let target = start.on.as_deref()?;
-    (start.named_machine && !start.wait && target != "here" && !super::names_cloud(target))
+    (start.named_machine && !start.wait && target != "here")
         .then(|| Instant::now() + Duration::from_secs(9))
 }
 
@@ -28,8 +28,9 @@ fn lookup(global: &GlobalArgs, start: &Start, deadline: Option<Instant>) -> Resu
     let first = || super::route_start(start, reads);
     if deadline.is_some()
         && !crate::cli::cloud_machines::app_found()
-        && let Some(selector) =
-            start.on.as_deref().filter(|selector| !selector.starts_with(joined::PREFIX))
+        && let Some(selector) = start.on.as_deref().filter(|selector| {
+            !selector.starts_with(joined::PREFIX) && !super::names_cloud(selector)
+        })
     {
         let catalog = first();
         if catalog.as_ref().err().and_then(|error| error["code"].as_str())
@@ -81,8 +82,23 @@ fn find_named(
         let host = verdict["pick"].as_str().filter(|name| !name.is_empty()).ok_or_else(|| json!({
             "code":"chat_target.unavailable", "message":"Placement selected no machine. Run `cmux acp machine pick` for its reasons.", "details":verdict, "retryable":true
         }))?;
-        start.on =
-            Some(if verdict["local"].as_bool() == Some(true) { "here" } else { host }.to_owned());
+        if verdict["local"].as_bool() == Some(true) {
+            return Ok((local_route(host), start));
+        }
+        start.on = Some(host.to_owned());
     }
-    Ok((lookup(global, &start, Some(end))?, start))
+    let route = match lookup(global, &start, Some(end))? {
+        Route::Here => local_route(start.on.as_deref().expect("named machine")),
+        route => route,
+    };
+    Ok((route, start))
+}
+
+fn local_route(host: &str) -> Route {
+    Route::Joined(joined::JoinedMachine {
+        id: None,
+        name: host.to_owned(),
+        host: host.to_owned(),
+        carrier: joined::Carrier::Local,
+    })
 }
