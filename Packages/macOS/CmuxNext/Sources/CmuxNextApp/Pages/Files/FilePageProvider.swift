@@ -214,23 +214,14 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             return ["path": .string(chosen.path)]
         case kind.op("sourceUses") where kind == .markdown:
             let requested = try path(params["path"])
-            guard files.isLocal, let file, canonical(requested) == file,
-                  let source = host.sourceUses, source.matches(file) else {
-                throw PageError.invalidParams("no source context for this page's file")
-            }
-            let result = try await source.read(cursor: params["cursor"]?.stringValue)
-            guard !isClosed, self.file == file, host.sourceUses === source else { throw PageError.closed }
-            return result
+            return try await AgentSourceUsesPageBridge.sourceUses(local: files.isLocal, file: file,
+                requested: requested, matches: canonical(requested) == file, source: host.sourceUses, read: { !isClosed && self.file == file && host.sourceUses != nil },
+                stillCurrent: { self.file == file && host.sourceUses != nil }, cursor: params["cursor"]?.stringValue)
         case kind.op("revealSourceUse") where kind == .markdown:
-            guard context.userGesture else { throw PageError(code: "cmux.page.gesture", message: "opening a reply needs a user gesture") }
             let requested = try path(params["path"])
-            guard files.isLocal, let file, canonical(requested) == file,
-                  let source = host.sourceUses, source.matches(file),
-                  let reply = params["replyId"]?.stringValue, let turn = params["turnId"]?.stringValue,
-                  source.reveal(reply: reply, turn: turn) else {
-                throw PageError.invalidParams("reply is not a recorded use of this page's file")
-            }
-            return .object([:])
+            return try AgentSourceUsesPageBridge.reveal(gesture: context.userGesture, local: files.isLocal,
+                file: file, requested: requested, matches: canonical(requested) == file, source: host.sourceUses,
+                reply: params["replyId"]?.stringValue, turn: params["turnId"]?.stringValue)
         case kind.op("openLink"):
             try await openLink(params, host: host, userGesture: context.userGesture)
             return .object([:])

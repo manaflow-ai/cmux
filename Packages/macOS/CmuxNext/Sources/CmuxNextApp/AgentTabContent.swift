@@ -39,39 +39,22 @@ struct AgentTabContent {
         // Set on each show, so a tab moved to another pane opens files there.
         // A file or preview the person clicks in the chat opens beside it (LinkOpener,
         // `layout.linkPlacement`), never over the chat; the external editor keeps its own path.
-        view.model.onOpenFile = { [weak pane] url, target in
-            guard let pane else { return false }
-            pane.services.chatQuoteOpeners.noteOpened(url, byAgentTab: key)
-            if target == .tab { return pane.services.linkOpener.openFile(url, from: pane) }
-            return pane.services.registry.openAgentFile(path: url.path, target: target, pane: pane.paneKey, machineID: pane.daemon.machineID)
-        }
-        view.model.onOpenFileWithSource = { [weak pane, weak view] url, target, rawPath in
-            guard let pane else { return false }
-            pane.services.chatQuoteOpeners.noteOpened(url, byAgentTab: key)
-            guard target == .tab else {
+        view.model.installSourceFileOpener(
+            noteOpened: { [weak pane] url in pane?.services.chatQuoteOpeners.noteOpened(url, byAgentTab: key) },
+            openTab: { [weak pane] url, source in
+                guard let pane else { return false }
+                return pane.services.linkOpener.openFile(url, from: pane, sourceUses: source)
+            },
+            openOther: { [weak pane] url, target in
+                guard let pane else { return false }
                 return pane.services.registry.openAgentFile(path: url.path, target: target, pane: pane.paneKey, machineID: pane.daemon.machineID)
-            }
-            guard let view, let session = view.model.sessionId, view.model.canReadSourceUses,
-                  let rawPath, let uri = FilePageSourceContext.sourceURI(rawPath) else {
-                return pane.services.linkOpener.openFile(url, from: pane)
-            }
-            let sourceUses = FilePageSourceContext(file: url,
-                read: { [weak view] cursor in
-                    guard let view else { throw PageError.closed }
-                    return try await view.model.sourceUses(uri: uri, session: session, cursor: cursor)
-                },
-                current: { [weak view] in
-                    view?.model.sessionId == session && view?.model.canReadSourceUses == true
-                },
-                reveal: { [weak view, weak services = pane.services] reply, seq in
-                    guard let view, view.model.sessionId == session, view.model.canReadSourceUses,
-                          services?.revealTab(key, onMachine: pane.daemon.machineID) == true else { return false }
-                    let target: JSONValue = ["replyId": .string(reply), "seq": JSONValue(seq)]
-                    view.revealTurn("source-reply:" + target.compactText)
-                    return true
-                })
-            return pane.services.linkOpener.openFile(url, from: pane, sourceUses: sourceUses)
-        }
+            },
+            reveal: { [weak pane, weak view] reply, seq in
+                guard let pane, let view, pane.services.revealTab(key, onMachine: pane.daemon.machineID) else { return false }
+                let target: JSONValue = ["replyId": .string(reply), "seq": JSONValue(seq)]
+                view.revealTurn("source-reply:" + target.compactText)
+                return true
+            })
         view.model.onOpenMachineFile = { [weak pane] path in guard let pane, case let tabs = pane.services.agentTabs, tabs.remoteMachineID(of: key, machine: pane.daemon.machineID) != nil, let daemon = tabs.daemon(for: tabs.resolvedKey(tabs.tabKey(key, machine: pane.daemon.machineID))), !daemon.isLocal, case let link = pane.services.agentGit.link(for: daemon), await !link.reachesThroughLink(path) else { return false }
             if (try? await link.stat(path))?.isFolder == true { pane.services.viewers.fileTrees.openBeside(folder: URL(fileURLWithPath: path, isDirectory: true), chat: key, target: nil, link: link, machine: daemon); return true }
             return pane.services.linkOpener.openFile(URL(fileURLWithPath: path, isDirectory: false), on: daemon, from: pane, noFollow: true) }
