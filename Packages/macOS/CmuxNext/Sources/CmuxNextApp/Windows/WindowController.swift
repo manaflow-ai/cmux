@@ -495,7 +495,6 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
     /// Zoom without AppKit's blocking animation (``WindowZoom``): every entrypoint comes here.
     private let zoomState = WindowZoom()
     override func zoom(_ sender: Any?) { if !zoomState.zoom(self) { super.zoom(sender) } }
-    override func becomeKey() { CEFProbe.keyChange(self, "SHELL-BECOME-KEY"); super.becomeKey() }; override func resignKey() { CEFProbe.keyChange(self, "SHELL-RESIGN-KEY"); super.resignKey() } // PROBE
     override var isZoomed: Bool { zoomState.isZoomingIn ?? super.isZoomed }
     func windowZoomFinished(_ generation: Int) { zoomState.end(generation) }
 
