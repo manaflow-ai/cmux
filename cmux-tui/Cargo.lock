@@ -2420,6 +2420,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-tag-cache"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-tailnet"
 version = "0.1.0"
 dependencies = [
@@ -2566,6 +2570,7 @@ dependencies = [
  "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
+ "cmux-tag-cache",
  "cmux-terminal-client",
  "cmux-theme-tokens",
  "cmux-tui-cdp",

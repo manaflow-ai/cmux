@@ -11,6 +11,7 @@ impl RemoteSession {
     }
 
     fn invalidate_tree_once(&self) -> bool {
+        self.held_trees().invalidate();
         !self.tree_stale.swap(true, Ordering::AcqRel)
     }
 
@@ -366,7 +367,7 @@ impl RemoteSession {
                 self.emit(MuxEvent::Empty);
             }
             Some("tree-changed") => {
-                self.tree_stale.store(true, Ordering::Release);
+                self.mark_tree_stale();
                 self.emit(MuxEvent::TreeChanged);
             }
             Some("size-state") => {
@@ -434,7 +435,7 @@ impl RemoteSession {
                 self.emit(event);
             }
             Some("layout-changed") => {
-                self.tree_stale.store(true, Ordering::Release);
+                self.mark_tree_stale();
                 if let Some(screen) = value.get("screen").and_then(|v| v.as_u64()) {
                     self.emit(MuxEvent::LayoutChanged(screen, None));
                 } else {
@@ -447,7 +448,7 @@ impl RemoteSession {
                     // refresh may lag this event, but input and reattach must
                     // already fail closed for a known-exited surface.
                     self.drop_surface(id);
-                    self.tree_stale.store(true, Ordering::Release);
+                    self.mark_tree_stale();
                     let end = value.get("end").filter(|end| !end.is_null()).cloned();
                     self.emit(MuxEvent::SurfaceExited(id, end.map(Arc::new)));
                 }
@@ -575,7 +576,7 @@ impl RemoteSession {
                     }
                     return;
                 }
-                self.tree_stale.store(true, Ordering::Release);
+                self.mark_tree_stale();
                 self.start_subscription_recovery();
             }
             Some("status") => {
