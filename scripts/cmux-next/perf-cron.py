@@ -2219,6 +2219,15 @@ def issue_body(state, repo, now):
             first = next((r.get("first_bad") for r in regs if r["name"] == rows[0]), None) or {}
             narrowed = [f"{rng['steps']} bisect step(s)"] if rng.get("steps") else []
             narrowed += [f"{len(rng['skip'])} commit(s) skipped"] if rng.get("skip") else []
+            named = next((c for c in reversed(state.get("culprits") or []) if c.get("sha") == rng.get("culprit")), None)
+            if rng.get("culprit"):
+                pr = f" (#{named['pr']})" if named and named.get("pr") else " (a direct push)" if named else ""
+                lines.append(f"- **Culprit** of {', '.join(rows[:6])}{f' and {len(rows) - 6} more' if len(rows) > 6 else ''}: "
+                             f"{link(repo, rng['culprit'])}{pr}; its parent {link(repo, rng['good'])} is good (a bisect "
+                             f"commit is decided by {BISECT_RUNS} agreeing runs; {', '.join(narrowed) or 'no bisect step'}).")
+                continue
+            if rng.get("unresolved"):
+                narrowed += [f"unresolved: only {len(rng['unresolved'])} commit(s) that could not be judged are left"]
             lines.append(f"- Culprit range of {', '.join(rows[:6])}{f' and {len(rows) - 6} more' if len(rows) > 6 else ''}: "
                          f"[`{rng['good'][:11]}...{rng['bad'][:11]}`](https://github.com/{repo}/compare/{rng['good']}...{rng['bad']})"
                          + (f" ({', '.join(narrowed)})" if narrowed else "")
@@ -2433,34 +2442,139 @@ def judging_rows(state, t):
     return out
 
 
+# A bisect step's commit is decided by repeated runs, as a perf bisect should: BISECT_RUNS runs that
+# agree with at most one against. A commit with no decision after BISECT_MAX_RUNS runs is within noise (skipped). Each
+# run is bad or good by the row's candidate rule (worse_than: past its reference by 10 % and its floor), so the noise
+# threshold of a bisect is the row's own. scripts/cmux-next/perf_bisect.py replays a range with the same rule.
+BISECT_RUNS = 3
+BISECT_MAX_RUNS = 5
+BAD, GOOD, AGAIN, NOISE = "bad", "good", "again", "noise"
+SUBJECT_PR_RE = re.compile(r"\(#(\d+)\)\s*$")
+
+
+def bisect_threshold(ref, floor, regression):
+    """How much worse than its reference a run must be to count as bad (pure): worse_than's rule as one number."""
+    return max(floor, abs(ref) * regression)
+
+
+def commit_verdict(bad_runs, runs=BISECT_RUNS, max_runs=BISECT_MAX_RUNS):
+    """A commit's verdict from its runs (pure); bad_runs lists, per run, whether it was bad. BAD or GOOD when `runs`
+    runs agree and at most one disagrees; AGAIN before that; NOISE after max_runs runs without it."""
+    n, bad = len(bad_runs), sum(1 for b in bad_runs if b)
+    side = max(bad, n - bad)
+    if side >= runs and n - side <= 1:
+        return BAD if bad == side else GOOD
+    return NOISE if n >= max_runs else AGAIN
+
+
+def group_verdict(verdicts):
+    """The verdict of the rows of one range at a commit (pure): BAD when any row is bad there, AGAIN when any row
+    still needs a run, GOOD when every row is good, NOISE otherwise."""
+    v = set(verdicts)
+    if BAD in v:
+        return BAD
+    if AGAIN in v:
+        return AGAIN
+    return GOOD if v == {GOOD} else NOISE
+
+
+def range_culprit(between, skip, bad):
+    """What a range names once no commit is left to try (pure). between: the first-parent commits strictly between its
+    ends; skip: those that could not be judged. (bad, []) when nothing is between (bad is the culprit), (None, the
+    unjudged commits) when only skipped ones are, None while a commit is left to try."""
+    if any(c not in set(skip) for c in between):
+        return None
+    return (bad, []) if not between else (None, list(between))
+
+
+def culprit_nominee(sha, subject, parent, rows, steps):
+    """What culprit_revert.py (cmuxterm-hq tools/fleet-reconcilers) takes for a one-commit perf culprit (pure): the
+    commit, its PR from its squash subject's `(#N)` (None for a direct push), its parent and the rows' numbers."""
+    m = SUBJECT_PR_RE.search(subject or "")
+    return {"kind": "perf", "sha": sha, "pr": int(m.group(1)) if m else None, "subject": subject or "",
+            "parent": parent, "rows": rows, "steps": steps, "runs": BISECT_RUNS}
+
+
+CULPRITS_KEEP = 40
+
+
+def name_culprit(state, group, named, subject, t):
+    """Record what a range with nothing left to bisect names (pure but for t), once per range. named: range_culprit's
+    (sha or None, unjudged commits). A one-commit culprit goes into state['culprits'] as culprit_nominee's record (the
+    issue names it; culprit_revert.py takes it); a range of only skipped commits is marked unresolved. Returns
+    whether a new culprit was recorded."""
+    sha, unjudged = named
+    rng = group["range"]
+    if rng.get("culprit") == sha and (sha or rng.get("unresolved") == unjudged):
+        return False
+    regs = [r for r in state.get("regressions") or [] if r["name"] in group["rows"]]
+    for r in regs:
+        r["range"]["culprit"] = sha
+        r["range"]["unresolved"] = unjudged
+    if not sha:
+        return False
+    rows = [{"name": r["name"], "ref": r.get("ref", r.get("base")), "value": r.get("p95"), "floor": r.get("floor")}
+            for r in regs]
+    nominee = {**culprit_nominee(sha, subject, rng["good"], rows, rng.get("steps", 0)), "at": iso(t)}
+    state["culprits"] = (state.get("culprits") or [])[-(CULPRITS_KEEP - 1):] + [nominee]
+    return True
+
+
 def bisect_step(state, cur, part_rows, regs):
     """Fold a bisect step into the culprit range it searched (pure). part_rows: the rows the step measured AND could
-    compare (a frame row on another display refresh than its reference is not judged). bad: a row of that range
-    regressed; good: every row of it was judged and is within its threshold; skip (`git bisect skip`): some row of it
-    was not judged (the commit did not build, a part failed or yielded, or the display refresh differed), so the next
-    step picks another commit. Returns (verdict, note)."""
+    compare (a frame row on another display refresh than its reference is not judged). A step is one run of its
+    commit: a row's run is bad when the row regressed in it (the candidate rule: worse than its reference by more than
+    10 % and its floor), good when it was judged and within. On 2026-11-15 one slow-runner run called 48ec7aa (no web
+    code) bad and every later step searched the wrong half, so a commit is decided only by commit_verdict
+    (BISECT_RUNS agreeing runs, at most one against): until then the step is 'again' and the range is left as it
+    is, so the next step runs the same commit. After BISECT_MAX_RUNS runs without a decision the commit is within
+    noise and skipped (`git bisect skip`), as is a run that judged none of the range's rows (the commit did not build,
+    a part failed or yielded, or the display refresh differed). bad: a row of the range is bad at the commit; good:
+    every row is good there. Returns (verdict, note): 'bad', 'good', 'again', 'skip' or 'gone'."""
     key = cur.get("bisect_range") or {}
     group = [r for r in state.get("regressions") or [] if same_range(r.get("range"), key)]
     if not group:
         return "gone", f"the range {str(key.get('good'))[:11]}...{str(key.get('bad'))[:11]} is no longer open"
+    sha = cur["sha"]
     names = {r["name"] for r in group}
     regressed = names & {r["name"] for r in regs}
     unmeasured = sorted(names - set(part_rows))
-    verdict = "bad" if regressed else ("skip" if unmeasured else "good")
+    # The runs kept are the current commit's only: a range that moved, or a step on another commit, starts again.
+    tries = 1 + max((r["range"].get("tries") or {}).get(sha, 0) for r in group)
+    per_row = {}
     for r in group:
         rng = r["range"]
         rng["steps"] = rng.get("steps", 0) + 1
-        if verdict == "bad":
-            rng["bad"] = cur["sha"]
-        elif verdict == "good":
-            rng["good"] = cur["sha"]
-        elif cur["sha"] not in (rng.setdefault("skip", [])):
-            rng["skip"].append(cur["sha"])
+        runs = list((rng.get("runs") or {}).get(sha) or [])
+        if r["name"] in part_rows:
+            runs.append(r["name"] in regressed)
+        rng["runs"], rng["tries"] = {sha: runs}, {sha: tries}
+        v = commit_verdict(runs) if runs else AGAIN
+        per_row[r["name"]] = NOISE if v == AGAIN and tries >= BISECT_MAX_RUNS else v
+    verdict = "skip" if len(unmeasured) == len(names) else group_verdict(list(per_row.values()))
+    counts = "; ".join(f"{name} {sum(runs)} of {len(runs)} bad" for name, runs in
+                       sorted((r["name"], r["range"]["runs"][sha]) for r in group) if runs)
+    for r in group:
+        rng = r["range"]
+        if verdict == AGAIN:
+            continue
+        rng.pop("runs", None)
+        rng.pop("tries", None)
+        if verdict == BAD:
+            rng["bad"] = sha
+        elif verdict == GOOD:
+            rng["good"] = sha
+        elif sha not in (rng.setdefault("skip", [])):
+            rng["skip"].append(sha)
     rng = group[0]["range"]
     where = f"range now {rng['good'][:11]}...{rng['bad'][:11]}"
     if verdict == "skip":
         return verdict, f"skipped, {', '.join(unmeasured[:6])} not measured; {where}"
-    return verdict, f"{verdict} ({', '.join(sorted(regressed)[:6]) or 'every row within its threshold'}); {where}"
+    if verdict == AGAIN:
+        return "again", f"run {tries} of {sha[:12]} not decided ({counts}), runs it again; {where}"
+    if verdict == NOISE:
+        return "skip", f"within noise after {tries} run(s) ({counts}), skipped; {where}"
+    return verdict, f"{verdict} after {tries} run(s) ({counts or 'every row within its threshold'}); {where}"
 
 
 def rebase_rows(state, part_rows, names, t):
@@ -3012,6 +3126,11 @@ def plan(o):
                 continue
             between = range_commits(rng["good"], rng["bad"])
             if between is None:
+                continue
+            named = range_culprit(between, rng.get("skip") or [], rng["bad"])
+            if named is not None:
+                if name_culprit(state, group, named, git("log", "-1", "--format=%s", rng["bad"]).strip(), t):
+                    print(f"perf-cron: PERF_CULPRIT={json.dumps(state['culprits'][-1], sort_keys=True)}")
                 continue
             ok = bisect_measurable(group["rows"], lambda c: fleet_runs(c, tip_version) and tree_published(c),
                                    supported_parts_at)
@@ -3938,8 +4057,11 @@ def controller_result(raw):
         value = json.loads(raw)
     except (TypeError, ValueError):
         return None
-    if not isinstance(value, dict) or not is_sha(str(value.get("sha") or "")) or value.get("part") not in PART_BY_NAME \
-            or is_linux_part(value.get("part")) or value.get("state") not in RESULT_STATES:
+    # A field of the wrong type (a feed entry's "part": []) is no result, not a TypeError (review of cmux#47673).
+    if not isinstance(value, dict) or not is_sha(str(value.get("sha") or "")) or not isinstance(value.get("part"), str) \
+            or value.get("part") not in PART_BY_NAME or is_linux_part(value.get("part")) \
+            or not isinstance(value.get("state"), str) or value.get("state") not in RESULT_STATES \
+            or not isinstance(value.get("step_id"), (str, int, type(None))):
         return None
     return value
 
@@ -3947,10 +4069,15 @@ def controller_result(raw):
 def result_refusal(state, value):
     """Why the controller's result (controller_result) is not stored into state, or None (pure). A result for another
     measurement, or for a part not to do, is dropped (a late result after an abandon); so is a step stored already
-    (the controller may send a result twice: a lost answer, a restart; replay-results reads it again)."""
+    (the controller may send a result twice: a lost answer, a restart; replay-results reads it again), and so is a step
+    that ended before the measurement started (an older measurement of the same SHA; review of cmux#47673)."""
     cur = state.get("current") or {}
     if value is None:
         return "the controller's perf_result is not a result"
+    ended, started = controller_ended_at(value), parse_started(cur.get("started_at"))
+    if ended and started and ended < started:
+        return (f"the controller's {value['part']} result of step {value.get('step_id') or '?'} ended "
+                f"{iso(ended)}, before the measurement in flight started ({iso(started)}); dropped")
     if value.get("step_id") and value["step_id"] in {(e or {}).get("step_id") for e in (cur.get("parts") or {}).values()}:
         return f"the controller's result of step {value['step_id']} was stored already; dropped"
     if value["sha"] != cur.get("sha") or value["part"] not in (cur.get("parts_todo") or []):
@@ -4015,14 +4142,30 @@ def cmd_fetch_result(o):
 # /perf-cron/results.json, the last 24 h): a result run waits for a runner on the shared Linux queue (each tick took
 # ~16 h on 2026-11-19, and no Mac row was stored for 2 days), so a reader of the state replays them into its copy.
 CONTROLLER_RESULTS_URL = "https://gh-events.cmux.com/perf-cron/results.json"
-GO_TIME_RE = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?Z$")
+GO_TIME_RE = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?Z$")
 
 
 def controller_ended_at(value):
-    """When the controller's step ended (its ended_at, Go's RFC 3339 with nanoseconds), or None (pure)."""
+    """When the controller's step ended (its ended_at, Go's RFC 3339 with nanoseconds), to the second, or None (pure)."""
     m = GO_TIME_RE.match(str(value.get("ended_at") or ""))
     try:
         return parse_iso(m.group(1) + "Z") if m else None
+    except ValueError:
+        return None
+
+
+def controller_ended_key(value):
+    """A sort key for the controller's results in the order their steps ended, fractional seconds included (text
+    puts .11Z before .1Z; review of cmux#47673); a result with no readable end sorts last (pure)."""
+    at = controller_ended_at(value)
+    m = GO_TIME_RE.match(str(value.get("ended_at") or ""))
+    return (0, at, (m.group(2) or "").ljust(9, "0")) if at and m else (1,)
+
+
+def parse_started(s):
+    """A measurement's started_at, or None when it is not a time (pure)."""
+    try:
+        return parse_iso(s) if isinstance(s, str) else None
     except ValueError:
         return None
 
@@ -4045,7 +4188,7 @@ def cmd_replay_results(o):
     values = [v for v in listed if isinstance(v, dict)] if isinstance(listed, list) else []
     stored = 0
     os.makedirs(os.path.join(o.dir, "replay"), exist_ok=True)
-    for value in sorted(values, key=lambda v: str(v.get("ended_at") or "")):
+    for value in sorted(values, key=controller_ended_key):
         value = controller_result(json.dumps(value))
         at = controller_ended_at(value) if value else None
         if value is None or value["state"] != "done" or at is None:
@@ -4058,6 +4201,12 @@ def cmd_replay_results(o):
         # result.json or report.json outside the copy (review of cmux#47673).
         part_dir = tempfile.mkdtemp(prefix="part-", dir=os.path.join(o.dir, "replay"))
         cmd_fetch_result(argparse.Namespace(result=json.dumps(value), out=part_dir))
+        # An artifact not read (expired, a network error) is no verdict on the part: fetch-result writes it as failed,
+        # which report would take out of parts_todo and a later readable result of the part would be dropped.
+        if not os.path.exists(os.path.join(part_dir, "report.json")):
+            print(f"perf-cron replay-results: the artifact of step {value.get('step_id') or '?'} was not read; "
+                  f"part {value['part']} left pending")
+            continue
         report(argparse.Namespace(repo="", dir=o.dir, result=[f"{value['part']}={part_dir}"], run_url="", finish=False,
                                   issues=False, output=os.path.join(o.dir, "replay", "report.out")), t=at)
         stored += 1
