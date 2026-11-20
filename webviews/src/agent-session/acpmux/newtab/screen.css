@@ -1321,3 +1321,10 @@
 .nt-screen .nt-create .nt-tool-icon > svg{width:100%;height:100%}
 
 .nt-row:has(.nt-row-shortcut) .nt-row-title{flex-shrink:1}
+/* Signed out (NewTabScreen `signedOut`): the cause in one line, then its two fixes as quiet text
+   buttons (the trust ask's), wrapping under the text on a narrow pane. */
+.nt-signed-out { display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--grid-gap); row-gap: var(--grid-half-step); }
+.nt-signed-out-text { flex: 1 1 220px; min-width: 0; }
+.nt-signed-out-text strong { color: var(--agent-text); font-weight: 600; }
+.nt-signed-out-actions { display: flex; flex: none; gap: var(--grid-half-step); }
+.nt-signed-out .acpmux-trust-ask-action { height: var(--grid-pill); font-size: var(--text-detail); }

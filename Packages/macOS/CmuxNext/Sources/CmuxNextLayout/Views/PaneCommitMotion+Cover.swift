@@ -143,6 +143,7 @@ extension PaneCommitMotion {
         }
         for host in bare.isEmpty ? [] : hosts where !host.isHidden && !changes.contains(where: { $0.host === host }) {
             guard let layer = host.layer else { continue }
+            if inFlight { endOwnMove(of: host) }
             let frame = layer.frame
             var across = Span(), down = Span()
             for change in bare where Self.area(frame.intersection(change.old.union(change.new))) >= 1 {
@@ -176,6 +177,24 @@ extension PaneCommitMotion {
             window(layer, token, from: start, to: end, over: base)
             covers[id] = (host: host, kept: host.isLeaving, frame: frame, window: end, acts: acts)
             stale[id] = nil
+        }
+    }
+
+    /// Ends the own move of an act before on `host`, a pane that this act keeps under a pane with no ground: its
+    /// layer, its inner clip, its ring and its copy of the window's picture are at their places from this pass. A
+    /// window is made for a pane at rest; a pane that still moved would show past its window, inside the pane over
+    /// it. The pane's window of an act before stays, and each animation of this act.
+    private func endOwnMove(of host: PaneHostView) {
+        let kept = ((covers[ObjectIdentifier(host)]?.acts ?? []) + [serial]).map { "pane.commit.\($0)." }
+        let ring: CALayer? = host.chrome.layer
+        let copy: CALayer? = sheets.first(where: { $0.host === host })?.picture
+        var layers: [CALayer] = [host.layer, host.clipView.layer, ring, copy].compactMap { $0 }
+        layers += ring?.sublayers ?? []
+        for layer in layers {
+            for key in layer.animationKeys() ?? [] where key.hasSuffix(".position") || key.hasSuffix(".bounds.size") {
+                let isOfAnActBefore = key.hasPrefix("pane.commit.") && !kept.contains(where: { key.hasPrefix($0) })
+                if isOfAnActBefore { layer.removeAnimation(forKey: key) }
+            }
         }
     }
 
