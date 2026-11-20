@@ -218,6 +218,21 @@ async fn running_chat_uses_its_own_providers_later_model_page() {
     let hub = hub_with(
         json!({"harnesses": harnesses, "defaultHarness": "work", "permissionPolicy": "ask"}),
     );
+    // Both profiles run the same older binary. Only the work account already advertises Astra.
+    let release_rows = profiles
+        .iter()
+        .map(|(name, _)| {
+            serde_json::from_value(json!({
+            "id": name, "program": "codex", "channel": "npm", "package": "@openai/codex",
+            "auth": "unknown", "version": "0.164.0", "latest": "0.171.0",
+            "outdated": true, "checkedAt": 1, "newCodexModels": {"gpt-6.2-astra": "GPT-6.2 Astra"}
+        })).unwrap()
+        })
+        .collect();
+    hub.health.attach(acpmux::harness_health::Settings {
+        fixture: Some(release_rows),
+        ..Default::default()
+    });
     let mut c = Client::local(&hub);
     let catalog = c.call("_acpmux/models", json!({"refresh": true})).await;
     for (name, model) in profiles {
@@ -229,7 +244,15 @@ async fn running_chat_uses_its_own_providers_later_model_page() {
             .unwrap();
         assert!(row["models"].as_array().unwrap().iter().any(|m| m["id"] == model), "{row}");
         let other = profiles.iter().find(|(n, _)| *n != name).unwrap().1;
-        assert!(!row["models"].as_array().unwrap().iter().any(|m| m["id"] == other), "{row}");
+        let models = row["models"].as_array().unwrap();
+        let astra = models.iter().find(|m| m["id"] == "gpt-6.2-astra").expect("release row");
+        if name == "personal" {
+            assert_eq!(astra["codexUpdateVersion"], "0.171.0", "{row}");
+            assert!(astra["unavailable"].is_string(), "{row}");
+        } else {
+            assert!(astra.get("unavailable").is_none(), "{row}");
+            assert!(!models.iter().any(|m| m["id"] == other), "{row}");
+        }
         let (session, _) = harness_of_new(&mut c, &d, name).await;
         for (key, value) in
             [("model", model), ("reasoning_effort", "high"), ("fast-mode", "priority")]

@@ -1,7 +1,7 @@
 //! Visible models added between two published Codex CLI bundles. A release's catalog is
 //! immutable; reuse the saved delta until either version changes. The live provider list
 //! still decides what the session can select.
-use super::{HarnessHealth, latest};
+use super::{HarnessHealth, channel::Channel, latest};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 
@@ -42,7 +42,12 @@ async fn read(version: &str) -> Option<BTreeMap<String, String>> {
 pub(super) async fn fill(rows: &mut [HarnessHealth], previous: &[HarnessHealth]) {
     let mut answers = HashMap::new();
     for row in rows {
-        if !row.outdated || !matches!(row.package.as_deref(), Some("@openai/codex" | "codex")) {
+        let official = matches!(
+            (row.channel, row.package.as_deref()),
+            (Channel::Npm | Channel::Bun | Channel::Native, Some("@openai/codex"))
+                | (Channel::Brew | Channel::BrewCask, Some("codex"))
+        );
+        if !row.outdated || !official {
             continue;
         }
         let (Some(old), Some(new)) = (&row.version, &row.latest) else { continue };
