@@ -1348,6 +1348,7 @@ fn two_slow_calls_end_at_the_one_start_deadline() {
         target: "studio/n",
         prompt: Some("go"),
         receipt: true,
+        fast: false,
     };
     let limit = Duration::from_secs(1);
     let began = std::time::Instant::now();
@@ -1386,6 +1387,7 @@ fn a_first_prompt_not_confirmed_in_time_is_not_retryable() {
         target: "studio/n",
         prompt: Some("go"),
         receipt: true,
+        fast: false,
     };
     // The start answers at once; the send takes longer than the deadline.
     let mut acp = slow_acp(Duration::ZERO, started, &calls);
@@ -1545,6 +1547,7 @@ fn a_peer_start_is_acpmuxs_new_on_that_machine() {
         target: "gcp-agent-lane-3/n",
         prompt: Some("go"),
         receipt: false,
+        fast: false,
     };
     let (started, sent) = joined::start_chat(
         &steps,

@@ -14,7 +14,7 @@ You need an Apple Silicon Mac, membership in the team that owns the machine, and
    cmux chat new --machine "$machine" --harness codex --prompt-file "$brief"
    ```
 
-   Use `--harness claude` for Claude, or add `--model MODEL` for a model available on that machine. Open the chat in cmux. A reply from the selected host verifies that the machine received the prompt; the creation receipt alone does not. If the command reports an uncertain start, inspect the named chat before retrying.
+   Use `--harness claude` for Claude, or add `--model MODEL` for a model available on that machine. On a joined lane, add `--fast` to use a faster tier offered by the selected model. If the harness cannot confirm that tier, cmux gives you the started chat’s name and does not send the prompt. Open the chat in cmux. A reply from the selected host verifies that the machine received the prompt; the creation receipt alone does not. If the command reports an uncertain start, inspect the named chat before retrying.
 
 **Copy this into a chat with an agent helping you set up:**
 

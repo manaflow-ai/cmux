@@ -51,6 +51,7 @@ use super::cloud_start_chat::{self, Machine};
 use super::{GlobalArgs, OutputMode, UsageError};
 use cmux_cloud_start_core::machine_repo::Repo;
 
+mod launch_speed;
 mod local_repo;
 mod named_launch;
 mod prompt_file;
@@ -119,7 +120,7 @@ usage: cmux chat [--on TARGET] [--environment ENV] [--harness HARNESS] [--model 
                  [--effort EFFORT] [--mode MODE]
                  [--cwd DIR | --from-folder DIR | --no-folder] [--repo URL] [--name NAME]
                  [--attach FILE]... [-w] [--timeout DURATION] [--json] [[--prompt] TEXT]
-       cmux chat new --machine TARGET --harness claude|codex [--model MODEL] [--prompt-file FILE]
+       cmux chat new --machine TARGET --harness claude|codex [--model MODEL] [--fast] [--prompt-file FILE]
 
 Starts an agent chat, right here unless --on names another target:
 
@@ -213,6 +214,7 @@ pub(super) struct Start {
     /// `--on`'s value, else `CMUX_ON`'s, else the `chat.on` setting's; None is here.
     pub on: Option<String>,
     named_machine: bool,
+    fast: bool,
     pub agent: Option<String>,
     pub model: Option<String>,
     /// `--effort`: the agent's thinking effort (the composer's effort picker), here and in Cloud.
@@ -327,6 +329,7 @@ pub(super) fn parse_with(
     let mut start = Start {
         on: None,
         named_machine: false,
+        fast: false,
         agent: None,
         model: None,
         effort: None,
@@ -429,6 +432,7 @@ pub(super) fn parse_with(
                 start.environment = Some(environment);
             }
             "--timeout" => start.timeout = Some(value()?),
+            "--fast" => start.fast = true,
             "--wait" | "-w" => start.wait = true,
             "--no-wait" => start.wait = false,
             "--allow-large" => start.allow_large = true,
@@ -913,6 +917,12 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
         Ok(route) => route,
         Err(error) => return usage_failure(&error, global.output),
     };
+    if start.fast && !matches!(route, Route::Joined(_)) {
+        return usage_failure(
+            &UsageError::new("--fast needs a joined lane machine; use --machine NAME"),
+            global.output,
+        );
+    }
     if route == Route::Here && start.from_folder.is_some() {
         return usage_failure(&UsageError::new(FROM_FOLDER_CLOUD_ONLY), global.output);
     }

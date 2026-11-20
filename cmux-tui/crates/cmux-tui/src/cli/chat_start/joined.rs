@@ -446,7 +446,13 @@ pub(in crate::cli) fn run(
     let budget =
         deadline.map_or(START_DEADLINE, |end| end.saturating_duration_since(Instant::now()));
     let started = start_chat(
-        &Steps { words: &words, target: &target, prompt: prompt.as_deref(), receipt },
+        &Steps {
+            words: &words,
+            target: &target,
+            prompt: prompt.as_deref(),
+            receipt,
+            fast: start.fast,
+        },
         budget,
         RECEIPT_POLL,
         acp_json,
@@ -710,6 +716,7 @@ pub(in crate::cli) struct Steps<'a> {
     pub target: &'a str,
     pub prompt: Option<&'a str>,
     pub receipt: bool,
+    pub fast: bool,
 }
 
 /// Runs `steps` through `acp` (`cmux acp WORDS` with a stdin, for at most a limit: [`acp_json`]
@@ -741,6 +748,9 @@ where
     } else {
         enqueued
     };
+    if steps.fast {
+        super::launch_speed::enable(steps.target, &receipt, &mut call)?;
+    }
     let Some(prompt) = steps.prompt else { return Ok((receipt, None)) };
     let id = prompt_id();
     let words = send_words(steps.target, &id);
