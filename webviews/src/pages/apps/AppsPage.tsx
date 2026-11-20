@@ -312,11 +312,11 @@ function CatalogList({
   }, [place]);
   const columns = grid ? gridColumns(box.width) : 1;
   const previous = useRef<CatalogRows | undefined>(undefined);
-  const model = useMemo(() => {
-    const next = catalogRows(apps, columns, previous.current);
-    previous.current = next;
-    return next;
-  }, [apps, columns]);
+  const model = useMemo(() => catalogRows(apps, columns, previous.current), [apps, columns]);
+  // The committed rows, whose unchanged rows the next build keeps.
+  useLayoutEffect(() => {
+    previous.current = model;
+  }, [model]);
   const { rows, rowOf } = model;
   // The listing that holds focus (a click or Tab focuses one) stays mounted however far it scrolls.
   const [focused, setFocused] = useState<string | undefined>(undefined);
@@ -324,6 +324,7 @@ function CatalogList({
   const kind = grid ? `grid:${card}` : "list";
   const sizes = useRef(new Map<string, number>());
   const itemKey = useCallback((index: number) => rows[index]![0]!.id, [rows]);
+  // react-doctor-disable-next-line react-hooks-js/incompatible-library -- TanStack Virtual returns functions the React Compiler cannot memoize safely, so the catalog stays uncompiled on purpose; it lays out rows of columns and keeps the selected and focused listings mounted, so ui/VirtualList does not fit.
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: scrollElement,
