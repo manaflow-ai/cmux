@@ -559,7 +559,7 @@ const sectionDividers: Play = async (ctx) => {
     ...ctx.document.querySelectorAll<HTMLElement>(".acpmux-session-info-sections > .acpmux-session-info-slot"),
   ];
   const probe = ctx.document.createElement("div");
-  probe.style.color = "var(--acpmux-session-info-divider)";
+  probe.style.color = "var(--acpmux-session-info-divider, var(--agent-border))"; // the line's own fallback
   slots[0]!.append(probe);
   const color = style(ctx, probe).color;
   probe.remove();

@@ -538,23 +538,23 @@
    matched and none showed. Its color is the theme's `separator` token (--agent-border, AgentPaneTheme.swift;
    `cmux customize schema theme`), so a theme or look restyles it with every other separator, light or dark;
    --acpmux-session-info-divider lets a look set this one alone. Not beside the Show more line, which draws its
-   own rule, and not while a section is dragged. SessionInfo.gallery.tsx sectionDividers keeps it drawn. */
-.acpmux-session-info {
-  --acpmux-session-info-divider: var(--agent-border);
-}
-@media (prefers-contrast: more) {
-  .acpmux-session-info {
-    --acpmux-session-info-divider: var(--agent-border-strong);
-  }
-}
+   own rule, and not while a section is dragged. SessionInfo.gallery.tsx sectionDividers keeps it drawn.
+   The color falls back on the line itself, not on a panel root: the sections also draw without
+   .acpmux-session-info around them (a gallery body, the browser test), and an unset variable there made the
+   border-top invalid, so the rule matched and drew nothing. */
 .acpmux-session-info-slot:not([data-slot="more"]):not(:empty)
   + .acpmux-session-info-slot:not([data-slot="more"]):not(:empty)::before {
   content: "";
   position: absolute;
   inset-inline: 0;
   top: calc(-1 * var(--grid-gap) / 2);
-  border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-session-info-divider);
+  border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-session-info-divider, var(--agent-border));
   pointer-events: none;
+}
+@media (prefers-contrast: more) {
+  .acpmux-session-info-slot::before {
+    border-top-color: var(--acpmux-session-info-divider, var(--agent-border-strong));
+  }
 }
 .acpmux-session-info-sections[data-dragging] > .acpmux-session-info-slot::before {
   content: none;
