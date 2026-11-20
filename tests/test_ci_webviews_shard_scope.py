@@ -46,6 +46,8 @@ class ShardScopeTest(unittest.TestCase):
         self.assertEqual(len(selected), 1)
         self.assertEqual(selected[0]["files"], "test/leaf.test.ts")
         self.assertEqual({result["mode"] for result in results}, {"focused"})
+        self.assertTrue(results[0]["setup"])
+        self.assertFalse(results[1]["setup"])
 
     def test_full_ci_keeps_every_matrix_shard(self) -> None:
         out = self.root / "scope-full.json"
@@ -53,7 +55,7 @@ class ShardScopeTest(unittest.TestCase):
             "python3", str(SCRIPT), "--root", str(self.root), "--base", "HEAD^1", "--manifest", str(self.manifest),
             "--shard", "4", "--shard-count", "4", "--pull-request", "--full-ci", "--out", str(out),
         ], check=True)
-        self.assertEqual(json.loads(out.read_text()), {"files": "", "mode": "full", "run": True})
+        self.assertEqual(json.loads(out.read_text()), {"files": "", "mode": "full", "run": True, "setup": True})
 
 
 if __name__ == "__main__":

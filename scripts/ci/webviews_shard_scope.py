@@ -7,8 +7,9 @@ with the same duration manifest and lane widths as run-webviews-tests.sh. A shar
 files can publish an empty result and reuse the base-history verdict without starting Bun or the
 browser engines.
 
-The JSON output contains ``run`` (whether this shard has work), ``mode`` (``focused`` or ``full``),
-and ``files`` (newline-separated paths relative to webviews/).
+The JSON output contains ``run`` (whether this shard has tests), ``setup`` (whether it must install
+the shared web checks), ``mode`` (``focused`` or ``full``), and ``files`` (newline-separated paths
+relative to webviews/).
 """
 from __future__ import annotations
 
@@ -69,14 +70,15 @@ def plan(root: Path, base: str, head: str, manifest: Path, shard: int, count: in
          pull_request: bool, full_ci: bool) -> dict[str, object]:
     files = test_files(root)
     if not pull_request or full_ci:
-        return {"run": True, "mode": "full", "files": ""}
+        return {"run": True, "setup": True, "mode": "full", "files": ""}
     changed = webviews_affected.changed(root, base, head)
     selected, _ = webviews_affected.Selector(root).select(changed)
     if selected is None:
-        return {"run": True, "mode": "full", "files": ""}
+        return {"run": True, "setup": True, "mode": "full", "files": ""}
     wanted = sorted(path.removeprefix("webviews/") for path in selected)
     assigned = assign(root, wanted, manifest, shard, count)
-    return {"run": bool(assigned), "mode": "focused", "files": "\n".join(assigned)}
+    return {"run": bool(assigned), "setup": bool(assigned) or shard == 1,
+            "mode": "focused", "files": "\n".join(assigned)}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -99,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, subprocess.CalledProcessError, ValueError) as error:
         # A missing base or an unreadable graph is unsafe to scope: run the full shard.
         print(f"webview shard scope: {error}; running this shard fully", file=sys.stderr)
-        result = {"run": True, "mode": "full", "files": ""}
+        result = {"run": True, "setup": True, "mode": "full", "files": ""}
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(result, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(result, sort_keys=True))

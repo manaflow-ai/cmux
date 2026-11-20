@@ -42,7 +42,7 @@ WEB = "webviews/"
 EVERYTHING = re.compile(
     r"^webviews/(package\.json|bun\.lock|bunfig\.toml|tsconfig[^/]*\.json|vite[^/]*\.(ts|mjs|js)|"
     r"reactCompiler\.mjs|scripts/|test/support/|test/setup|test/preload)"
-    r"|^scripts/ci/(run-webviews-tests\.sh|webviews-tests-new-reds\.sh|webviews_test_[^/]*\.py|webviews_affected\.py"
+    r"|^scripts/ci/(run-webviews-tests\.sh|webviews-tests-new-reds\.sh|webviews_test_[^/]*\.py|webviews_affected\.py|webviews_shard_scope\.py"
     r"|focused_tests\.py)$|^\.github/workflows/ci-web\.yml$|^config/vite-plus/")
 # What a module does that the import graph cannot follow: read files, import a computed path or
 # an alias, run Vite or a browser (which load the app themselves), or spawn a process. App code

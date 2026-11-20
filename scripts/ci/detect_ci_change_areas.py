@@ -1285,6 +1285,7 @@ def is_web_change(path: str) -> bool:
         "scripts/ci/run-webviews-tests.sh",
         # and splits and orders its files by recorded duration through this.
         "scripts/ci/webviews_test_shards.py",
+        "scripts/ci/webviews_shard_scope.py",
         # and compares its reds with the base's through these.
         "scripts/ci/webviews-tests-new-reds.sh",
         "scripts/ci/webviews_test_results.py",
