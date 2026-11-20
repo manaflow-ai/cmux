@@ -444,7 +444,7 @@ final class SidebarBridge {
     private let remoteHostMenu = SidebarRemoteHostExperiment()
     func contextMenu(for target: SidebarContextTarget) -> NSMenu? {
         remoteHostMenu.menu(originalMenu(for: target), for: target, anchoredIn: container, settings: services.settings?.snapshot, registry: services.registry) { [machines = services.machines] id in
-            machines.sshSession(id)?.host.destination.host ?? machines.session(id).map { "cloud-machine:" + $0.machine.id }
+            machines.sshSession(id).map { AgentChatDestinations.peerSelector($0.host.destination.host) } ?? machines.session(id).map { "cloud-machine:" + $0.machine.id }
         }
     }
 

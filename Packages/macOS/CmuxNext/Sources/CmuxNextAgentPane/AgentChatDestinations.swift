@@ -130,6 +130,9 @@ public struct AgentChatDestinations {
     /// (`cloud-machine:<id>`) needs only the Cloud inventory, so it never waits on this Mac's
     /// acpmux; any other name waits for the full list (the caller's cancel ends that wait).
     public func load(for wanted: String) async -> [Destination] {
+        if wanted.hasPrefix(Self.peerPrefix) {
+            return Self.rows(localTitle: local.title, peers: (try? await peers()) ?? [], cloud: .init(signedIn: false, loaded: false, machines: []))
+        }
         guard wanted.hasPrefix("cloud-machine:") else { return await load() }
         return Self.rows(localTitle: local.title, peers: [], cloud: await cloud())
     }
@@ -158,9 +161,18 @@ public struct AgentChatDestinations {
         return rows
     }
 
+    private static let peerPrefix = "acpmux-peer:"
+
+    /// A sidebar host is already selected. Never reinterpret its missing peer as a Cloud or local title.
+    public static func peerSelector(_ name: String) -> String { peerPrefix + name }
+
     /// Exact ids take precedence. Names must be unique; an unknown or ambiguous name never
     /// silently falls back to this Mac. CLI may use the Cloud id without the row prefix.
     public static func resolve(_ name: String, in rows: [Destination]) -> Destination? {
+        if name.hasPrefix(peerPrefix) {
+            let peer = String(name.dropFirst(peerPrefix.count))
+            return rows.first { $0.route == .peer(peer) }
+        }
         if let exact = rows.first(where: { $0.id == name }) { return exact }
         if let cloud = rows.first(where: {
             if case .cloud(let id) = $0.route { return id == name }

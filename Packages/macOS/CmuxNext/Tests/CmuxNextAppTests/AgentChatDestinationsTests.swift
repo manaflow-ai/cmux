@@ -94,6 +94,15 @@ struct AgentChatDestinationsTests {
         #expect(AgentChatDestinations.resolve("cloud-machine:" + cloudID, in: rows) == cloud)
     }
 
+    @Test func sidebarPeerDoesNotFallBackToAnotherMachine() async {
+        let rows = await Self.source.load()
+        let pick = AgentChatDestinations.peerSelector
+        #expect(AgentChatDestinations.resolve(pick("dev-box"), in: rows)?.route == .peer("dev-box"))
+        for missingPeer in ["local", "vm-ready", "Cloud workspace"] {
+            #expect(AgentChatDestinations.resolve(pick(missingPeer), in: rows) == nil)
+        }
+    }
+
     @Test func paletteLoadsTheSameRowsAndForwardsTheChosenHost() async throws {
         let registry = ActionRegistry.standard()
         var chosen: String?
