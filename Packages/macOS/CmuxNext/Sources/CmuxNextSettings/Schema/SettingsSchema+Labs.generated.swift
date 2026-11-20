@@ -5,6 +5,9 @@ extension CmuxConfigSnapshot {
     /// `labs.previewFeatures`: Surfaces still being shaped (the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.
     public nonisolated static let previewFeaturesPath = ["labs", "previewFeatures"]
     public nonisolated static let previewFeaturesDefault = false
+    /// `labs.shadowReview`: Default-off local, log-only stalled-goal review. Records proposals in the session journal every 15 minutes while enabled; never prompts a harness or calls a model.
+    public nonisolated static let shadowReviewPath = ["labs", "shadowReview"]
+    public nonisolated static let shadowReviewDefault = false
     /// `labs.voiceRoom`: Unofficial Labs feature (plans/cmux-next/voice-room-DESIGN.md): Open Voice Room transcribes the mic on device, reads the screen's text on device when it changes, and posts both to the room server at labs.voiceRoomURL, whose cheap model keeps the room's memory and sends asks spoken to Chief as tasks. Off by default; while off the Voice Room actions are unavailable everywhere. The person turns it on: agents may not (not in SettingsSchema agent-writable keys).
     public nonisolated static let voiceRoomPath = ["labs", "voiceRoom"]
     public nonisolated static let voiceRoomDefault = false
@@ -37,6 +40,16 @@ nonisolated enum LabsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.previewFeaturesDefault),
                 keywords: ["labs", "preview", "experimental", "beta", "prototype"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.shadowReviewPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.shadowReview", "Stalled Goal Review"),
+                help: SettingsText.keyed("settings.labs.shadowReview.help", "Records a recovery proposal for stalled goals every 15 minutes. Log only; sends no messages."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.shadowReviewDefault),
+                keywords: ["labs", "experiment", "goal", "stalled", "review", "shadow"]
             ),
             SettingDescriptor(
                 CmuxConfigSnapshot.voiceRoomPath,

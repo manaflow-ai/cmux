@@ -259,6 +259,7 @@ pub(super) const MUX: &[Kind] = &[
         &[("session_offer_decision", "offerId"), ("session_offer", "groupId")],
     ),
     code("session_offer_decision", PATCHES),
+    notice("shadow_review", &[]),
     not("start_default_skipped", UNREAD),
     page("status"),
     not("stderr", UNREAD),

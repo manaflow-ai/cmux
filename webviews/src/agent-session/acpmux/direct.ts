@@ -9967,6 +9967,11 @@ export class AcpmuxDirectClient {
         if (decision) this.applyPresetApprovals(this.presetApprovals.decide(event.seq, decision));
       } else if (event.kind === BACKGROUND_TURN_KIND) {
         this.reduceBackgroundTurn(event, msg);
+      } else if (event.kind === "shadow_review") {
+        if (typeof msg.text === "string" && msg.text.trim()) {
+          const id = `shadow-review-${event.seq}`;
+          this.rows.set(id, { id, version: 1, at: event.at, kind: "shadowReview", text: msg.text });
+        }
       } else if (event.kind === "host_notice") {
         // Older daemons journaled every recovered sleep. Recovery is silent now; replay its
         // old diagnostics without filling the transcript with pause notices.

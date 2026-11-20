@@ -32,6 +32,28 @@
           ]
         },
         {
+          "key": "labs.shadowReview",
+          "note": "Default-off local, log-only stalled-goal review. Records proposals in the session journal every 15 minutes while enabled; never prompts a harness or calls a model.",
+          "title": {
+            "key": "settings.labs.shadowReview",
+            "text": "Stalled Goal Review"
+          },
+          "help": {
+            "key": "settings.labs.shadowReview.help",
+            "text": "Records a recovery proposal for stalled goals every 15 minutes. Log only; sends no messages."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "experiment",
+            "goal",
+            "stalled",
+            "review",
+            "shadow"
+          ]
+        },
+        {
           "key": "labs.voiceRoom",
           "note": "Unofficial Labs feature (plans/cmux-next/voice-room-DESIGN.md): Open Voice Room transcribes the mic on device, reads the screen's text on device when it changes, and posts both to the room server at labs.voiceRoomURL, whose cheap model keeps the room's memory and sends asks spoken to Chief as tasks. Off by default; while off the Voice Room actions are unavailable everywhere. The person turns it on: agents may not (not in SettingsSchema agent-writable keys).",
           "title": {

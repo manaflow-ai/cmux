@@ -75,7 +75,7 @@ async function until(ready: () => boolean, what: string) {
   }
 }
 
-async function connect(daemon: ReturnType<typeof fakeDaemon>) {
+async function connect(daemon: ReturnType<typeof fakeDaemon>, prefix = "host-notice-") {
   let snapshot: any;
   let attached = false;
   const client = await AcpmuxDirectClient.connect(
@@ -90,7 +90,7 @@ async function connect(daemon: ReturnType<typeof fakeDaemon>) {
   await until(() => attached, "the attach");
   const notes = () =>
     (snapshot.rows as AcpmuxRow[])
-      .filter((row) => row.id.startsWith("host-notice-"))
+      .filter((row) => row.id.startsWith(prefix))
       .map((row) => ({ id: row.id, kind: row.kind, text: row.text }));
   return { client, notes };
 }
@@ -201,6 +201,19 @@ test("a host notice in the middle of a reply draws under the whole reply", async
       .filter((row) => row.kind === "assistant" || row.id.startsWith("host-notice-"))
       .map((row) => (row.kind === "assistant" ? row.text : `notice: ${row.text}`));
     expect(order).toEqual(["Building now. Done.", `notice: ${GREW}`]);
+  } finally {
+    client.close();
+  }
+});
+
+test("shadow review survives history and live delivery as a log-only notice", async () => {
+  const daemon = fakeDaemon(record([["mux", "shadow_review", { text: "Repair the fixture" }]]), "pi", "pi");
+  const { client, notes } = await connect(daemon, "shadow-review-");
+  try {
+    expect(notes()).toEqual([{ id: "shadow-review-1", kind: "shadowReview", text: "Repair the fixture" }]);
+    daemon.push(record([["mux", "shadow_review", { text: "Verify the new goal" }]], 2));
+    await until(() => notes().length === 2, "live shadow review");
+    expect(notes()[1]?.text).toBe("Verify the new goal");
   } finally {
     client.close();
   }

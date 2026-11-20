@@ -2424,6 +2424,7 @@ const staysOut = (row: AcpmuxRow) =>
   (row.kind === "backgroundTask" && row.backgroundTask?.state === "failed") ||
   // An error or a refusal the pane noted, and an ask still waiting on the person.
   row.kind === "notice" ||
+  row.kind === "shadowReview" ||
   row.kind === "permission" ||
   // A move to the fallback harness changes who answers the rest of the turn; folded, nobody would
   // see it happened.

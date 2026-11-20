@@ -1,6 +1,270 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.labs.shadowReview.help": {
+      "comment": "Default-off Labs experiment: local log-only stalled-goal review.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يسجّل اقتراحًا لاستئناف الأهداف المتوقفة كل 15 دقيقة. تسجيل فقط؛ لا يرسل رسائل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilježi prijedlog oporavka za zaustavljene ciljeve svakih 15 minuta. Samo zapis; ne šalje poruke."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrerer et forslag til at genoptage fastlåste mål hvert 15. minut. Kun logføring; sender ingen beskeder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeichnet alle 15 Minuten einen Lösungsvorschlag für blockierte Ziele auf. Nur Protokollierung; keine Nachrichten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Records a recovery proposal for stalled goals every 15 minutes. Log only; sends no messages."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registra una propuesta de recuperación para objetivos bloqueados cada 15 minutos. Solo registro; no envía mensajes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consigne une proposition de reprise pour les objectifs bloqués toutes les 15 minutes. Journal uniquement ; aucun message envoyé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registra una proposta di ripresa per gli obiettivi bloccati ogni 15 minuti. Solo registrazione; non invia messaggi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "15分ごとに停滞した目標の復旧案を記録します。記録のみで、メッセージは送信しません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កត់ត្រាសំណើស្ដារគោលដៅដែលជាប់គាំងរៀងរាល់ 15 នាទី។ កត់ត្រាតែប៉ុណ្ណោះ មិនផ្ញើសារទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "15분마다 정체된 목표의 복구 제안을 기록합니다. 기록만 하며 메시지는 보내지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrerer et forslag til å gjenoppta fastlåste mål hvert 15. minutt. Kun logging; sender ingen meldinger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Co 15 minut zapisuje propozycję wznowienia zablokowanych celów. Tylko zapis; nie wysyła wiadomości."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registra uma proposta de recuperação para metas bloqueadas a cada 15 minutos. Apenas registro; não envia mensagens."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каждые 15 минут записывает предложение по возобновлению заблокированных целей. Только журнал; сообщения не отправляются."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บันทึกข้อเสนอเพื่อดำเนินเป้าหมายที่หยุดชะงักต่อทุก 15 นาที บันทึกเท่านั้น ไม่ส่งข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duraklayan hedefler için her 15 dakikada bir kurtarma önerisi kaydeder. Yalnızca günlük tutar; mesaj göndermez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кожні 15 хвилин записує пропозицію щодо відновлення заблокованих цілей. Лише журнал; повідомлення не надсилаються."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghi lại đề xuất khôi phục cho các mục tiêu bị đình trệ mỗi 15 phút. Chỉ ghi nhật ký; không gửi tin nhắn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每15分钟记录一条停滞目标的恢复建议。仅记录，不发送消息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每15分鐘記錄一條停滯目標的恢復建議。僅記錄，不傳送訊息。"
+          }
+        }
+      }
+    },
+    "settings.labs.shadowReview": {
+      "comment": "Default-off Labs experiment: local log-only stalled-goal review.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مراجعة الأهداف المتوقفة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pregled zaustavljenih ciljeva"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gennemgang af fastlåste mål"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfung blockierter Ziele"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stalled Goal Review"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revisión de objetivos bloqueados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Examen des objectifs bloqués"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revisione degli obiettivi bloccati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停滞した目標の確認"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពិនិត្យគោលដៅដែលជាប់គាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정체된 목표 검토"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gjennomgang av fastlåste mål"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przegląd zablokowanych celów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revisão de metas bloqueadas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверка заблокированных целей"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรวจสอบเป้าหมายที่หยุดชะงัก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duraklayan Hedef İncelemesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перевірка заблокованих цілей"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xem xét mục tiêu bị đình trệ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停滞目标审查"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停滯目標審查"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.thinking.shimmer": {
       "comment": "Settings > Chat > Transcript > Thinking Shimmer: title of the setting for how the agent chat's live status line shimmers",
       "extractionState": "manual",

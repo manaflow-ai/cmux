@@ -1,6 +1,138 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "shadowReview.logged": {
+      "comment": "Default-off Labs experiment: local log-only stalled-goal review.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تسجيل مراجعة الهدف المتوقف (لم تُرسل رسالة): {goal}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zabilježen pregled zaustavljenog cilja (poruka nije poslana): {goal}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gennemgang af fastlåst mål registreret (ingen besked sendt): {goal}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfung des blockierten Ziels protokolliert (keine Nachricht gesendet): {goal}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stalled goal review recorded (no message sent): {goal}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revisión del objetivo bloqueado registrada (sin enviar mensajes): {goal}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Examen de l’objectif bloqué consigné (aucun message envoyé) : {goal}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revisione dell’obiettivo bloccato registrata (nessun messaggio inviato): {goal}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停滞した目標の確認を記録しました（メッセージ送信なし）：{goal}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានកត់ត្រាការពិនិត្យគោលដៅដែលជាប់គាំង (មិនបានផ្ញើសារ)៖ {goal}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정체된 목표 검토가 기록됨(메시지 전송 없음): {goal}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gjennomgang av fastlåst mål registrert (ingen melding sendt): {goal}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zapisano przegląd zablokowanego celu (bez wysyłania wiadomości): {goal}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revisão de meta bloqueada registrada (nenhuma mensagem enviada): {goal}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверка заблокированной цели записана (сообщение не отправлено): {goal}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บันทึกการตรวจสอบเป้าหมายที่หยุดชะงักแล้ว (ไม่ได้ส่งข้อความ): {goal}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duraklayan hedef incelemesi kaydedildi (mesaj gönderilmedi): {goal}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перевірку заблокованої цілі записано (повідомлення не надіслано): {goal}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã ghi lại việc xem xét mục tiêu bị đình trệ (không gửi tin nhắn): {goal}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已记录停滞目标审查（未发送消息）：{goal}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已記錄停滯目標審查（未傳送訊息）：{goal}"
+          }
+        }
+      }
+    },
     "error.subsessionsFull": {
       "comment": "Agent pane: why a plan build or sub-session start was refused (after 'The plan was not built:'): the chat already runs its limit of sub-sessions",
       "extractionState": "manual",

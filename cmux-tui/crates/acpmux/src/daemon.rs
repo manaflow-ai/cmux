@@ -1051,6 +1051,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         let weak = weak.clone();
         crate::supervise::restarting("resume", &hub.fatal, move || Hub::resume_loop(weak.clone()));
     }
+    let _shadow_review =
+        hub.scope.spawn_until_cancelled("shadow-review", Hub::shadow_review_loop(weak.clone()));
     // Claude and Codex desktop sessions listed as chats, while `agents.desktopBridge.enabled`
     // (`hub/desktop_bridge.rs`).
     crate::supervise::restarting("desktop bridge", &hub.fatal, move || {

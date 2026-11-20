@@ -163,6 +163,7 @@ const NOTICE_KINDS: &[&str] = &[
     "host_notice",
     "policy_unenforced",
     "recap",
+    "shadow_review",
     "stopping",
     "stopped",
     "exited",

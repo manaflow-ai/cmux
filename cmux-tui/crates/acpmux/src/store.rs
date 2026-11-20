@@ -177,9 +177,21 @@ pub struct AwayRecap {
     pub dismissed: bool,
 }
 
+/// Constant-size checkpoint for the default-off review experiment. The event keeps the evidence.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ShadowReviewReceipt {
+    pub snapshot_hash: String,
+    pub at: u64,
+    pub seq: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMeta {
+    /// Last successful log-only stalled-goal review; absent in older stores.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow_review: Option<ShadowReviewReceipt>,
     pub schema: String,
     pub id: String,
     pub name: String,
