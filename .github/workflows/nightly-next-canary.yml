@@ -50,7 +50,7 @@ env:
 jobs:
   pick:
     if: github.repository == 'manaflow-ai/cmux' && vars.NIGHTLY_NEXT_CANARY != 'off' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'schedule' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'cmux-gcp-pr-control-jit-x64' }}
     timeout-minutes: 5
     permissions:
       contents: read

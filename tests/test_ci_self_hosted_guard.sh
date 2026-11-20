@@ -1088,6 +1088,8 @@ check_no_github_hosted_runners() {
   # and inputs feed runs-on too).
   local hosted='(^|[^A-Za-z0-9_-])(ubuntu-(latest|slim|[0-9]{2}[.][0-9]{2}(-arm)?)|macos-(latest|[0-9]+(-intel|-large|-xlarge|-arm64)?)|windows-(latest|[0-9]{4}(-arm)?|11-arm))([^A-Za-z0-9_.-]|$)'
   local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)"
+  # A PR into the upstream repository also uses hosted Ubuntu when its head names a real fork.
+  fork_branch+="|github[.]event_name == 'pull_request' [&][&] github[.]event[.]pull_request[.]head[.]repo[.]full_name != '' [&][&] github[.]event[.]pull_request[.]head[.]repo[.]full_name != github[.]repository [&][&] 'ubuntu-24[.]04'"
   local trusted_list='fromJSON[(]'"'"'[[]"blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
   # The signer route's exact runs-on line (its exception below): GitHub-hosted Ubuntu on every attempt.
   # Nightlies never run on Blacksmith (Lawrence, 2026-10-30), so a re-run or a slow hosted start
@@ -1630,6 +1632,11 @@ PYTHON
       content="${content/"$next_repository_guard"/}"
       content="${content/"$nightly_main_trusted_selector"/}"
       content="${content/"$nightly_next_side_selector"/}"
+    fi
+    # On a Linux pool route, the comparison also contains the repository name.
+    # Strip the predicate only; still inspect every actual runner label.
+    if [[ "$content" == *"&& 'cmux-linux'"* ]]; then
+      content="${content/"$next_repository_guard"/}"
     fi
     # A pull request workflow keeps the exemption only while its fork pull
     # request branch comes first on the line; base autofix runs on push only.

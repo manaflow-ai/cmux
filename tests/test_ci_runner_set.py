@@ -17,6 +17,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import workflow_jobs  # noqa: E402
+from runs_on_labels import resolve_labels  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,6 +45,12 @@ def runs_on_text(job: dict, where: str) -> str:
     return cells[0]
 
 
+def labels_at(route: str, event: str, head: str = "manaflow-ai/cmux") -> set:
+    return resolve_labels(route, context={"github.event_name": event, "github.repository": "manaflow-ai/cmux",
+                                         "github.event.pull_request.head.repo.full_name": head,
+                                         "github.ref": "refs/heads/feature", "github.sha": "abc"})
+
+
 class RunnerSetTests(unittest.TestCase):
     def test_secret_bearing_changes_takes_live_placement_then_ephemeral_blacksmith(self) -> None:
         # Its credentialed body takes a live verified fleet Linux placement when available, then
@@ -59,34 +66,25 @@ class RunnerSetTests(unittest.TestCase):
         self.assertEqual(job["needs"], ["portable-placement"])
         self.assertEqual(yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]["portable-placement"]["steps"][-1]["env"]["LINUX_ONLY"], "changes")
 
-    def test_light_report_jobs_run_on_blacksmith_every_attempt(self) -> None:
-        # A few seconds of report or routing work each. They took hosted Ubuntu on attempt 1 until
-        # 2026-11-18, when GitHub-hosted runners left them queued for hours (cmux#45735); Blacksmith
-        # is the rule for all CI, so every attempt reads the declared pool.
-        import json
+    def test_light_report_jobs_keep_the_writer_isolated(self) -> None:
+        for workflow, name in (("pr-red-checks-comment.yml", "comment"), ("cmux-next.yml", "path_route"),
+                               ("ci-guards.yml", "guard-status"), ("pr-checks.yml", "size"),
+                               ("pr-checks.yml", "ui-review")):
+            with self.subTest(workflow=workflow, job=name):
+                job = workflow_jobs.jobs(WORKFLOWS / workflow)[name]
+                route = runs_on_text(job, name)
+                expected = "cmux-gcp-pr-control-jit-x64" if name == "comment" else "cmux-linux"
+                self.assertEqual(labels_at(route, "pull_request"), {expected})
+                fork_labels = labels_at(route, "pull_request", "outside/fork")
+                if name == "comment":
+                    self.assertEqual(fork_labels, {"ubuntu-24.04"})
+                else:
+                    self.assertNotIn("cmux-linux", fork_labels)
 
-        declared = json.loads((ROOT / ".github" / "runners.json").read_text())["hosted_light_jobs"]
-        hosted = "github.run_attempt == 1 && 'ubuntu-24.04'"
-        # The job that holds a pull-requests write token, or runs the checked-out revision's
-        # scripts, retries only on ephemeral Blacksmith; the rest may take the reconciled pool.
-        ephemeral = "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"
-        cases = {
-            ("pr-red-checks-comment.yml", "comment"): "|| 'cmux-linux' }}",
-            ("cmux-next.yml", "path_route"): ephemeral,
-            ("ci-guards.yml", "guard-status"): f"|| {POOL} }}}}",
-            ("pr-checks.yml", "size"): "|| 'cmux-linux' }}",
-            ("pr-checks.yml", "ui-review"): "|| 'cmux-linux' }}",
-        }
-        for (workflow, name), tail in cases.items():
-            with self.subTest(job=f"{workflow}#{name}"):
-                self.assertNotIn(f"{workflow}#{name}", declared)
-                runs_on = runs_on_text(yaml.safe_load((WORKFLOWS / workflow).read_text())["jobs"][name], f"{workflow}#{name}")
-                # A fork's run keeps the label it had; every other run reads the pool.
-                runs_on = re.sub(r"\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name"
-                                 r" != github\.repository && 'blacksmith-\d+vcpu-ubuntu-2404' \|\| (fromJSON\(vars\.RUNNER_POOLS\)\.[a-z0-9_]+)\)", r"\1", runs_on)
-                self.assertNotIn(hosted, runs_on)
-                self.assertTrue(runs_on.rstrip().endswith(tail), runs_on)
-                self.assertNotIn("cmux-fleet-linux-x64", runs_on)
+    def test_release_verifier_executes_the_tag_only_on_a_single_job_runner(self) -> None:
+        job = workflow_jobs.jobs(WORKFLOWS / "coderouter-verify-release.yml")["verify"]
+        for event in ("release", "workflow_dispatch"):
+            self.assertEqual(labels_at(runs_on_text(job, "verify"), event), {"cmux-gcp-pr-control-jit-x64"})
 
     def test_no_light_job_takes_hosted_ubuntu_on_attempt_one(self) -> None:
         # On 2026-11-18 jobs that finished on GitHub-hosted had waited a median 10,768 s, so every pull request's
@@ -109,29 +107,84 @@ class RunnerSetTests(unittest.TestCase):
             for name in names:
                 with self.subTest(workflow=workflow, job=name):
                     runs_on = runs_on_text(jobs[name], f"{workflow}#{name}")
-                    direct = ((workflow == "web-validation.yml" and name == "web-validation") or
-                              (workflow == "pr-checks.yml" and name in {"size", "ui-review", "split"}))
-                    if direct:
-                        self.assertTrue(runs_on.endswith("|| 'cmux-linux' }}"), runs_on)
-                        self.assertIn("github.event.pull_request.head.repo.full_name != github.repository", runs_on)
-                        self.assertNotIn("needs.", runs_on)
-                    else:
+                    if workflow == "fast-checks.yml":
+                        # A dispatch can name a different source revision. Keep the bounded dispatch pool.
                         self.assertIn(POOL, runs_on)
-                    self.assertNotIn("vars.LINUX_RUNNER || 'blacksmith-", runs_on)
-                    self.assertNotIn("CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-", runs_on)
-                    self.assertNotIn("outputs.map", runs_on)
-                    # Past the fork branches, no Blacksmith size is written down.
-                    self.assertNotIn("'blacksmith-", runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1])
-                    self.assertNotRegex(runs_on, r"RUNNER_POOLS\)\.linux_\d")
+                        self.assertNotIn("cmux-linux", runs_on)
+                    else:
+                        triggers = document.get("on", document.get(True, {}))
+                        event = "push" if "push" in triggers else "pull_request"
+                        self.assertEqual(labels_at(runs_on, event), {"cmux-linux"})
+                        self.assertNotIn("cmux-linux", labels_at(runs_on, "pull_request", "outside/fork"))
 
-    def test_gallery_health_reads_the_live_16_vcpu_pool(self) -> None:
-        # A CPU-bound render (ask-378f0fa70e: 4 vCPU 30.5 s, 16 vCPU 13.4 s for the same cases): the 16 vCPU
-        # pool, never a fixed size, so a stalled 16 vCPU moves it to 32 like any pool.
-        job = yaml.safe_load((WORKFLOWS / "gallery-health.yml").read_text(encoding="utf-8"))["jobs"]["health"]
-        runs_on = runs_on_text(job, "gallery-health.yml#health")
-        self.assertTrue(runs_on.rstrip().endswith("|| fromJSON(vars.RUNNER_POOLS).linux_16 }}"), runs_on)
-        self.assertNotIn("vars.LINUX_RUNNER", runs_on)
-        self.assertNotIn("'blacksmith-", runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1])
+    def test_dispatch_with_a_different_checkout_or_a_tag_uses_one_job(self) -> None:
+        job = next(job for job in workflow_jobs.jobs(WORKFLOWS / "cmux-mobile-ffi.yml").values()
+                   if "!inputs.ref" in str(job.get("runs-on")))
+        route = runs_on_text(job, "cmux-mobile-ffi")
+        context = {"github.event_name": "workflow_dispatch", "github.repository": "manaflow-ai/cmux",
+                   "github.sha": "abc", "github.event.pull_request.head.sha": "",
+                   "github.event.pull_request.head.repo.full_name": ""}
+        for ref, checkout, wanted in (("refs/heads/main", "abc", "cmux-linux"),
+                                      ("refs/heads/main", "other", "cmux-gcp-pr-control-jit-x64"),
+                                      ("refs/tags/v1", "abc", "cmux-gcp-pr-control-jit-x64")):
+            with self.subTest(ref=ref, checkout=checkout):
+                self.assertEqual(resolve_labels(route, context={**context, "github.ref": ref, "inputs.ref": checkout}),
+                                 {wanted})
+
+    def test_dispatched_unverified_macos_refs_use_ephemeral_capacity(self) -> None:
+        mobile = yaml.safe_load((WORKFLOWS / "cmux-mobile-ffi.yml").read_text())["jobs"]["apple"]
+        mobile_route = runs_on_text(mobile, "cmux-mobile-ffi.yml#apple")
+        batch = yaml.safe_load((WORKFLOWS / "cmux-next-batch.yml").read_text())["jobs"]["regen"]
+        batch_route = runs_on_text(batch, "cmux-next-batch.yml#regen")
+        context = {
+            "github.event_name": "workflow_dispatch",
+            "github.repository": "manaflow-ai/cmux",
+            "github.sha": "abc",
+            "github.ref": "refs/heads/feat-cmux-next",
+            "github.event.pull_request.head.repo.full_name": "",
+            "github.event.pull_request.head.sha": "",
+        }
+        self.assertEqual(resolve_labels(mobile_route, context={**context, "inputs.ref": "other"}),
+                         {"blacksmith-6vcpu-macos-26"})
+        self.assertEqual(resolve_labels(batch_route, context={**context, "inputs.sha": "other"}),
+                         {"blacksmith-6vcpu-macos-26"})
+
+    def test_dispatch_inputs_keep_unverified_revisions_off_persistent_linux(self) -> None:
+        context = {
+            "github.event_name": "workflow_dispatch",
+            "github.repository": "manaflow-ai/cmux",
+            "github.ref": "refs/heads/feat-cmux-next",
+            "github.sha": "abc",
+            "github.event.pull_request.head.repo.full_name": "",
+            "github.event.pull_request.head.sha": "",
+        }
+
+        web = yaml.safe_load((WORKFLOWS / "cmux-next-web-bundle-publish.yml").read_text())["jobs"]["build"]
+        web_route = runs_on_text(web, "cmux-next-web-bundle-publish.yml#build")
+        base_context = {**context, "inputs.pr": "", "inputs.ref": "", "inputs.base": ""}
+        self.assertEqual(resolve_labels(web_route, context=base_context), {"cmux-linux"})
+        for key, value in (("inputs.pr", "47965"), ("inputs.ref", "feature"), ("inputs.base", "deadbeef")):
+            with self.subTest(workflow="web-bundle", input=key):
+                self.assertEqual(resolve_labels(web_route, context={**base_context, key: value}), {"cmux-gcp-pr-control-jit-x64"})
+
+        tui = yaml.safe_load((WORKFLOWS / "cmux-tui-spec.yml").read_text())["jobs"]["clippy"]
+        tui_route = runs_on_text(tui, "cmux-tui-spec.yml#clippy")
+        base_context = {**context, "inputs.commit": "", "inputs.base": ""}
+        self.assertEqual(resolve_labels(tui_route, context=base_context), {"cmux-linux"})
+        for key, value in (("inputs.commit", "deadbeef"), ("inputs.base", "deadbeef")):
+            with self.subTest(workflow="tui-spec", input=key):
+                self.assertEqual(resolve_labels(tui_route, context={**base_context, key: value}), {"cmux-gcp-pr-control-jit-x64"})
+
+        skew = yaml.safe_load((WORKFLOWS / "cmux-next-skew-matrix.yml").read_text())["jobs"]["skew-matrix"]
+        skew_route = runs_on_text(skew, "cmux-next-skew-matrix.yml#skew-matrix")
+        self.assertEqual(resolve_labels(skew_route, context={**context, "inputs.commit": "abc", "inputs.old_commit": ""}), {"cmux-linux"})
+        self.assertEqual(resolve_labels(skew_route, context={**context, "inputs.commit": "abc", "inputs.old_commit": "deadbeef"}), {"cmux-gcp-pr-control-jit-x64"})
+
+    def test_gallery_health_uses_the_pool_for_owned_work(self) -> None:
+        job = workflow_jobs.jobs(WORKFLOWS / "gallery-health.yml")["health"]
+        route = runs_on_text(job, "gallery-health.yml#health")
+        self.assertEqual(labels_at(route, "pull_request"), {"cmux-linux"})
+        self.assertNotIn("cmux-linux", labels_at(route, "pull_request", "elsewhere/fork"))
 
     def test_cmux_next_pr_quiet_period_comes_before_every_mac_job(self) -> None:
         # A PR run sleeps until about 5 minutes after the PR's last push, so a newer push cancels a
@@ -150,12 +203,9 @@ class RunnerSetTests(unittest.TestCase):
         self.assertIn("github.run_attempt == 1", gate["if"])
         # landing.md: a leo-named-fix PR lands with no wait.
         self.assertIn("!contains(github.event.pull_request.labels.*.name, 'leo-named-fix')", gate["if"])
-        # Hosted Ubuntu only outside manaflow-ai; a fork PR takes the smallest fixed size, every other
-        # run the smallest pool (review F1 of #36353: a sleep never takes a bigger runner than it needs).
-        self.assertEqual(gate_runs_on.count("'ubuntu-24.04'"), 1)
-        self.assertTrue(gate_runs_on.startswith("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "))
-        self.assertEqual(re.findall(r"'blacksmith-[^']+'", gate_runs_on), ["'blacksmith-2vcpu-ubuntu-2404'"])
-        self.assertTrue(gate_runs_on.rstrip().endswith("|| fromJSON(vars.RUNNER_POOLS).linux_2 }}"))
+        self.assertEqual(labels_at(gate_runs_on, "pull_request"), {"cmux-linux"})
+        self.assertEqual(labels_at(gate_runs_on, "pull_request", "elsewhere/fork"),
+                         {"ubuntu-24.04"})
         self.assertEqual(gate["permissions"], {})
         self.assertTrue(all(step.get("continue-on-error") for step in gate["steps"]))
         # Only the Mac jobs wait for it (Leo, 2026-11-08, choosing "the Linux checks start at once and only

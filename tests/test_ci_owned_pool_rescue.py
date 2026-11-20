@@ -2501,11 +2501,10 @@ class Workflow(unittest.TestCase):
         self.assertEqual(step["env"]["POOL_OWNED"], "${{ vars.CI_PR_POOL_OWNED }}")
 
     def test_polls_from_an_ephemeral_runner(self):
-        # Never from an owned pool it may rescue, and never only from
-        # GitHub-hosted: a GitHub billing block must not stop the rescue.
+        # A rescue must be able to run outside the pool that it rescues.
         self.assertEqual(
             workflow_jobs.runs_on_cells(self.doc["jobs"]["rescue"]),
-            ['${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || contains(fromJSON(\'["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}'],
+            ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-pr-control-jit-x64' }}"],
         )
 
     def test_marker_steps_never_fail_the_changes_job(self):

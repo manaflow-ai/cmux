@@ -301,7 +301,7 @@ class _Evaluator:
 
 
 def resolve_labels(runs_on, owner: str = OWNER, variables: Mapping[str, Iterable[str]] | None = None,
-                   silent: Iterable[str] = ()) -> set:
+                   silent: Iterable[str] = (), context: Mapping[str, str] | None = None) -> set:
     """Every label `runs_on` (a string, an expression or a list of them) can select for `owner`.
 
     `variables` gives the values a repository variable can hold (it may also be unset, '');
@@ -313,7 +313,7 @@ def resolve_labels(runs_on, owner: str = OWNER, variables: Mapping[str, Iterable
     if isinstance(runs_on, list):
         out = set()
         for item in runs_on:
-            out |= resolve_labels(item, owner, variables, silent)
+            out |= resolve_labels(item, owner, variables, silent, context)
         return out
     if isinstance(runs_on, dict):
         raise ValueError(f"runs-on group/labels mappings are not modelled: {runs_on!r}")
@@ -328,7 +328,9 @@ def resolve_labels(runs_on, owner: str = OWNER, variables: Mapping[str, Iterable
     choices = [sorted({EMPTY, *variables[name]}) for name in names]
     out = set()
     for values in itertools.product(*choices):
-        out |= _Evaluator(owner, dict(zip(names, values)), silent)(tree)
+        evaluate = _Evaluator(owner, dict(zip(names, values)), silent)
+        evaluate.variables.update({key: {value} for key, value in (context or {}).items()})
+        out |= evaluate(tree)
     return out
 
 

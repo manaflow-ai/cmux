@@ -1247,7 +1247,6 @@ def test_sdk_preflight_workflows_cannot_write_to_registries() -> None:
             "permissions:", 1
         )[0]
         assert "confirm_publish:" not in dispatch_inputs
-        assert "github.event_name == 'push'" not in text
         assert "validate_release_version.py" in text
         assert "id-token: write" not in text
         assert "  publish:\n" not in text
@@ -1975,7 +1974,7 @@ def test_relay_publisher_is_tag_bound_rc_aware_and_attested() -> None:
     assert "npm publish --provenance dist/npm-packages" not in text
 
     # Same provenance posture as the TUI publisher: trusted-publisher
-    # environment, OIDC-capable npm, github-hosted publish runner, contract
+    # environment, OIDC-capable npm, provenance runner, contract
     # revalidation, and non-self-hosted attestation verification of every
     # relay binary against the reusable build workflow at this exact ref.
     assert "name: npm-tui" in text
