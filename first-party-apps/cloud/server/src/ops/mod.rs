@@ -45,6 +45,7 @@ const OPS: &[(&str, Kind)] = &[
     ("cloud.machine.rename", Kind::Mutation),
     ("cloud.machine.start", Kind::Mutation),
     ("cloud.machine.pause", Kind::Mutation),
+    ("cloud.machine.pause_all", Kind::Mutation),
     ("cloud.machine.resize", Kind::UserOnly),
     ("cloud.machine.delete", Kind::UserOnly),
     ("cloud.machine.idle_policy.set", Kind::Mutation),

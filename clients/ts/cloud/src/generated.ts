@@ -2172,6 +2172,20 @@ export interface CloudOps {
       readonly machine: CloudMachine
     }
   }
+  /** Pause every claimed machine the caller may manage, including machines already automatically paused. Automatic wakes remain held until an explicit start. Returns each machine's outcome; a busy or failed machine does not prevent the others from being paused. After mutation.indeterminate, retry with the same idempotency key. */
+  readonly "cloud.machine.pause_all": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly machines: ReadonlyArray<{
+        readonly machine: MachineId
+        readonly status: "pausing" | "paused" | "skipped" | "failed"
+        readonly error?: {
+          readonly code: string
+          readonly message: string
+        }
+      }>
+    }
+  }
   /** Rename a machine. */
   readonly "cloud.machine.rename": {
     readonly params: {
@@ -4507,6 +4521,7 @@ export const cloudOpMeta = {
   "cloud.machine.link_token": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.machine.list": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.machine.pause": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "mutate-shared" },
+  "cloud.machine.pause_all": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "mutate-shared" },
   "cloud.machine.rename": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "mutate-shared" },
   "cloud.machine.resize": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
   "cloud.machine.start": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "mutate-shared" },

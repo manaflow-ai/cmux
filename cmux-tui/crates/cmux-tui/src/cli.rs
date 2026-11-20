@@ -74,6 +74,8 @@ mod cloud_machine_io;
 #[cfg(unix)]
 mod cloud_machines;
 #[cfg(unix)]
+mod cloud_pause_all;
+#[cfg(unix)]
 mod cloud_repo;
 #[cfg(unix)]
 mod cloud_retention;
@@ -857,6 +859,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_start_chat::run_if_requested(args))
         .or_else(|| cloud_run_account::run_if_requested(args))
         .or_else(|| cloud_retention::run_if_requested(args))
+        .or_else(|| cloud_pause_all::run_if_requested(args))
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| cloud_machine_auth::run_if_requested(args))

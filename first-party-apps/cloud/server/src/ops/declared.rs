@@ -97,6 +97,7 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
     ("cloud.machine.delete", MUTATION, &["cloud.machine.not_found", "cloud.rate_limited"]),
     ("cloud.machine.idle_policy.set", MUTATION, &["cloud.machine.not_found"]),
     ("cloud.machine.keep", MUTATION, &["cloud.machine.not_found"]),
+    ("cloud.machine.pause_all", MUTATION, &[]),
     (
         "cloud.machine.archive_delete",
         MUTATION,

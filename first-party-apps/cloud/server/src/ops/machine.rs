@@ -41,6 +41,12 @@ pub(super) fn run<C: ControlPlane>(
 ) -> Result<Value, CloudError> {
     match name {
         "cloud.machine.list" => list(ctx, raw),
+        "cloud.machine.pause_all" => {
+            args::object(raw, &[])?;
+            // The owner pauses and holds machines atomically. Stream events update the
+            // projection; preserve per-machine outcomes so partial failures stay visible.
+            Ok(ctx.wire(name, json!({}))?.value)
+        }
         "cloud.machine.watch" => {
             // The events are the stream (`cloud.machine.watch` lines after
             // each op result); this read only names where it stands.

@@ -47,6 +47,31 @@ fn err_json(out: Result<Value, CloudError>) -> Value {
 }
 
 #[test]
+fn pause_all_preserves_partial_results_and_replays_the_same_key() {
+    let mut s = server();
+    let outcomes = json!({"machines": [
+        {"machine": vm(1), "status": "pausing"},
+        {"machine": vm(2), "status": "paused"},
+        {"machine": vm(3), "status": "failed", "error": {
+            "code": "cloud.machine.busy", "message": "The machine is starting"
+        }}
+    ]});
+    s.control_plane_mut().answer(
+        "cloud.machine.pause_all",
+        json!({}),
+        Some("pause-all-key"),
+        outcomes.clone(),
+    );
+    let request =
+        Request::new("cloud.machine.pause_all", json!({})).key("pause-all-key").origin(Origin::Cli);
+    let first = s.handle(&request).unwrap();
+    assert_eq!(first, outcomes);
+    assert_eq!(s.handle(&request).unwrap(), outcomes);
+    assert_eq!(s.control_plane().calls.len(), 1, "same-key retry is replayed");
+    assert_eq!(s.control_plane().calls[0].idempotency_key.as_deref(), Some("pause-all-key"));
+}
+
+#[test]
 fn create_options_reach_backend_and_preserve_its_capability_refusal() {
     let mut s = server();
     let args = json!({"name":"custom", "size":{"cpu":2,"memory_mb":4096,"disk_mb":16384},
