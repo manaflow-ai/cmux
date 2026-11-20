@@ -89,6 +89,10 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         crate::qos::enter(crate::qos::Role::BackgroundTaskRunner);
         return crate::bg_run::main();
     }
+    // A bench's sized chat, written by this build's store (`god_fixture.rs`): no daemon, no CLI.
+    if args.first().is_some_and(|a| a == crate::god_fixture::SEED_CHAT_ARG) {
+        return crate::god_fixture::seed_chat_main(args.get(1..).unwrap_or_default());
+    }
     // Claude Code's PreToolUse hook for background shells (`bg_hook.rs`).
     if args.first().is_some_and(|a| a == crate::bg_hook::HOOK_ARG) {
         return crate::bg_hook::main(args.get(1).map(std::path::PathBuf::from));
