@@ -127,7 +127,7 @@ impl Hub {
                 json!({"threadId": thread, "promptIds": ids,
                     "surge": {"held": counts.held, "needYou": need_you}}),
             );
-            counts.apply(&event);
+            counts.restore(&event);
         }
     }
 }
