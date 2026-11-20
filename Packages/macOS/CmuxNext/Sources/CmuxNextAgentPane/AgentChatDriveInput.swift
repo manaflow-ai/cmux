@@ -209,7 +209,7 @@ public struct AgentChatDriveInput {
     /// effect: WebKit's next presentation update, then its pending mouse events (each bounded to
     /// `bound`, and cut to the time left before `deadline`: none left, no wait); Chromium handled each
     /// DevTools input before it answered.
-    public func settle(bound: Duration = .seconds(1), before deadline: ContinuousClock.Instant? = nil) async {
+    public func settle(bound: Duration = .seconds(1), before deadline: ContinuousClock.Instant? = nil) async { // timeout: only how long one settle waits for WebKit to answer; when it runs out the run goes on, and nothing the person does waits on it
         guard case .webKit(let webView)? = engine else { return }
         // A wheel that reaches a page before its next presentation update is dropped (WebKitNativeInput).
         if let bound = Self.bounded(bound, before: deadline) { _ = await presentationUpdate(webView, bound) }
