@@ -31,6 +31,9 @@ ALLOWED: dict[str, str] = {
     "ci-macos.yml: Wait for routed Linux preflight":
         "release-admission only (release_build and full_suite): one jobs read every 5 s, up to 210; "
         "should become a `needs:` on linux-preflight",
+    "ci-shed-superseded-runs.yml: Cancel queued runs nobody will read":
+        "every 10 minutes (#47662): reads the queued list once, then one cancel per picked run, spaced by "
+        "--spacing so the writes stay under the secondary limit; it stops at a primary rate limit. Not a poll",
     "cmux-tui-release.yml: Dispatch registry publishers": "a release, by hand: finds the publisher runs it dispatched",
     "cmux-next.yml: Dispatch with GITHUB_TOKEN, waiting through a rate limit":
         "the DEV handoff's fallback dispatch (#25458), only when the App token cannot: at most three "

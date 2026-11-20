@@ -106,9 +106,11 @@ def post_publish_runnable() -> list[str]:
         return term
 
     def requires_a_skipped_job(term: str, skipped: set[str]) -> bool:
-        """The term holds only if one of the skipped jobs ran: needs.<job>.result or an output equals a non-empty value."""
+        """The term holds only if one of the skipped jobs ran: needs.<job>.result or an output equals a non-empty value,
+        or an output is not empty (a skipped job's outputs are all '': report-nightly-fix-forward, #47756)."""
         alternatives = [alt.strip() for alt in unwrap(term).split("||")]
         found = [re.fullmatch(r"needs\.([A-Za-z0-9_-]+)\.(?:result|outputs\.[A-Za-z0-9_]+) == '[^']+'", alt)
+                 or re.fullmatch(r"needs\.([A-Za-z0-9_-]+)\.outputs\.[A-Za-z0-9_]+ != ''", alt)
                  for alt in alternatives]
         return all(found) and all(match.group(1) in skipped for match in found)
 
