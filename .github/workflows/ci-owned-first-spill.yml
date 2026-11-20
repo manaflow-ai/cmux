@@ -1,7 +1,7 @@
 name: CI owned-first spill
 
 # The nightly path's tree jobs (feat-cmux-next's cmux-tui-artifacts.yml) queue on our own GCP Linux labels on attempt
-# 1 and take the Blacksmith pools on attempt 2+; no one-shot runner census decides that route any more (feat-cmux-next
+# 1 and take the overflow pools on attempt 2+; no one-shot runner census decides that route any more (feat-cmux-next
 # tests/test_ci_owned_first_not_census_frozen.py). GitHub never moves a queued job, so this sweep is the bound: a run
 # with a job queued on an owned label past SPILL_MINUTES, and nothing of it running, is cancelled and its failed and
 # cancelled jobs re-run as attempt 2. scripts/ci/owned_first_spill.py holds the rules. Scheduled workflows run from
@@ -35,7 +35,7 @@ jobs:
   spill:
     name: Spill owned-first jobs past their bound
     if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: polls the Actions API; never takes an owned runner it may be freeing
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-pr-control-jit-x64' }}
     # Up to MAX_SPILLS (3) spills, each with a 300 s settle budget, and the reads: the job must outlive them all.
     timeout-minutes: 30
     permissions:

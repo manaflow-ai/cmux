@@ -35,11 +35,11 @@ jobs:
       )
     # A fork pull request, or a comment on one, runs this job with a write
     # token. Neither event says whether the head is a fork, so the job must
-    # run on a VM that is destroyed after one job. CI_TRUSTED_RUNNER can pick
-    # only GitHub-hosted ubuntu-24.04 or a Blacksmith Ubuntu VM, never an
-    # owned host, so either provider can carry this check while the other is
-    # down. validate-cla-policy.rb pins these exact bytes.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || fromJSON(vars.RUNNER_POOLS).linux }} # ephemeral-required: write token on fork pull requests
+    # run on a VM that is destroyed after one job. The fork branch uses
+    # GitHub-hosted ubuntu-24.04; same-repository runs use the dedicated
+    # cmux-gcp-pr-control-jit-x64 one-job label. validate-cla-policy.rb pins
+    # these exact bytes.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-pr-control-jit-x64' }}
     timeout-minutes: 10
     # One run at a time per pull request so two signature events cannot write
     # the ledger from different snapshots. Independent pull requests proceed.
@@ -58,13 +58,13 @@ jobs:
       # Read the trusted merge status on catch-up merge commits.
       statuses: read
     steps:
-      # Blacksmith reports itself as self-hosted. Refuse any runner that is
-      # neither GitHub-hosted nor a Blacksmith VM for the labels above.
-      - name: Require GitHub-hosted or Blacksmith runner
-        if: (runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-')) || contains(runner.name, 'glaeda')
+      # The JIT control runner reports itself as self-hosted. Refuse
+      # any runner that is neither GitHub-hosted nor the dedicated one-job VM.
+      - name: Require GitHub-hosted or one-job runner
+        if: (runner.environment != 'github-hosted' && !startsWith(runner.name, 'cmux-gcp-pr-control-jit-x64-')) || contains(runner.name, 'glaeda')
         run: |
           set -euo pipefail
-          echo "::error::CLA policy requires a GitHub-hosted or Blacksmith runner"
+          echo "::error::CLA policy requires a GitHub-hosted or one-job runner"
           exit 1
       - name: "CLA Assistant"
         id: cla
