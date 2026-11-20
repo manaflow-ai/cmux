@@ -212,6 +212,23 @@ pub(super) async fn handle(
     // The same prompt id again: the first delivery, already on its way.
     if delivery.id == new.id {
         spawn(hub.clone(), delivery.id.clone());
+    } else if handed_away(&delivery) {
+        // A sibling daemon hands back a message this one handed it (`hand_to_socket`): its chat
+        // moved back here before the sibling delivered it. Nothing ran it on either side (each
+        // refused it as moved), so it opens again and is delivered here, where the chat is now.
+        // Before, the hand-back read the first delivery's `delivered` and the message was lost.
+        if let Some(path) = kept {
+            forget_attachments(path).await;
+        }
+        hub.outbox.update_saved(&delivery.id, |d| {
+            d.state = State::Queued;
+            d.accepted = None;
+            d.pin = None;
+            d.error = Some("handed back here: its chat moved back".into());
+        });
+        spawn(hub.clone(), delivery.id.clone());
+        let delivery = hub.outbox.get(&delivery.id).unwrap_or(delivery);
+        return Ok(delivery.status());
     } else {
         if let Some(path) = kept {
             forget_attachments(path).await;
@@ -1293,6 +1310,13 @@ fn follow_move(hub: &Hub, id: &str, to: &str, followed: u32) -> bool {
         d.state = State::Queued;
         d.error = Some(format!("the chat moved; following it to {to}"));
     })
+}
+
+/// Whether `d` settled by handing its message to a sibling daemon its chat moved to
+/// (`hand_to_socket`), so a hand-back of the same prompt id reopens it rather than reading it as
+/// delivered.
+fn handed_away(d: &Delivery) -> bool {
+    d.state == State::Delivered && d.accepted.as_ref().is_some_and(|a| a.get("handedTo").is_some())
 }
 
 #[cfg(test)]
