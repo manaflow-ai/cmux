@@ -101,6 +101,7 @@ impl Hub {
                 coderouter_claude_route,
                 machine_wake,
                 btw,
+                remote_sandbox,
                 titles,
                 context_overrides,
                 send_relay,
@@ -183,6 +184,8 @@ impl Hub {
             current.coderouter_claude_route = coderouter_claude_route;
             current.machine_wake = machine_wake;
             current.btw = btw;
+            // The next remote chain carries the new hook list (`remote_sandbox.rs`).
+            current.remote_sandbox = remote_sandbox;
             current.titles = titles;
             current.context_overrides = context_overrides;
             current.send_relay = send_relay;
