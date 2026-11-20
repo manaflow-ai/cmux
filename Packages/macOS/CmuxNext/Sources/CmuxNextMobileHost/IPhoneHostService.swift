@@ -462,19 +462,19 @@ public final class IPhoneHostService {
 
     /// hostd reported the removal: remember it (across relaunches) and forget the device id.
     private func recordRemoval() {
-        removed = true
-        setKeepAwake(false)
-        pairTokens.revoke()
-        guard let dependencies, let key = running, let owner = Self.owner(of: key) else { return }
-        if let stopped = state.stoppedDevice, stopped.owner != owner {
+        if let dependencies, let key = running, let owner = Self.owner(of: key),
+           let stopped = state.stoppedDevice, stopped.owner != owner {
             // An older account's hostd, still running after a switch, was removed: that account's id
-            // goes (only that exact id), and this account's own start carries on.
-            removed = false
+            // goes (only that exact id), and this account's own start, keep-awake and pairing code carry on.
             let identity = MobileHostDeviceIdentity(directory: dependencies.stateDirectory, owner: stopped.owner)
             // task-owner: one file removal off the main actor
             Task.detached(priority: .utility) { identity.forget(ifID: stopped.deviceID) }
             return
         }
+        removed = true
+        setKeepAwake(false)
+        pairTokens.revoke()
+        guard let dependencies, let key = running, let owner = Self.owner(of: key) else { return }
         resolvedDevice = nil
         do {
             try MobileHostRemovalMarker(directory: dependencies.stateDirectory)

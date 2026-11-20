@@ -123,6 +123,40 @@ import Testing
         #expect(try identity(directory, "user-b").deviceID() != legacy)
     }
 
+    /// An older build's `device-id` in a folder Migration Assistant copied (hostd's `machine-id`
+    /// marker names another computer) is the old Mac's: nobody here adopts it.
+    @Test func aMigratedOlderBuildsIDIsNotAdopted() throws {
+        let directory = folder()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let legacy = "6f1c1a1e-0000-4000-8000-000000000003"
+        try Data(legacy.utf8).write(to: directory.appendingPathComponent("device-id"))
+        try Data(MobileHostDeviceIdentity.machineTag(owner: "user-a", hostUUID: otherMac).utf8)
+            .write(to: directory.appendingPathComponent("machine-id"))
+        #expect(try identity(directory, "user-a").deviceID() != legacy)
+        // On the Mac it was made on, the same account adopts it.
+        let home = folder()
+        defer { try? FileManager.default.removeItem(at: home) }
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try Data(legacy.utf8).write(to: home.appendingPathComponent("device-id"))
+        try Data(MobileHostDeviceIdentity.machineTag(owner: "user-a", hostUUID: thisMac).utf8)
+            .write(to: home.appendingPathComponent("machine-id"))
+        #expect(try identity(home, "user-a").deviceID() == legacy)
+    }
+
+    /// Two first reads at once (the start's and the paired list's) agree on one id.
+    @Test func concurrentFirstReadsAgree() async throws {
+        let directory = folder()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let ids = try await withThrowingTaskGroup(of: String.self) { group in
+            for _ in 0..<8 {
+                group.addTask(priority: .medium) { try self.identity(directory, "user-a").deviceID() }
+            }
+            return try await group.reduce(into: Set<String>()) { $0.insert($1) }
+        }
+        #expect(ids.count == 1)
+    }
+
     /// The tag matches the machine id hostd registers (cmux-mobile-host `config::machine_id`, same vector).
     @Test func theMachineTagMatchesHostd() {
         let uuid = Data((0..<16).map { UInt8($0) })

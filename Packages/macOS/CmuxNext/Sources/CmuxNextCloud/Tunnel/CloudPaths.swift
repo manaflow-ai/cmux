@@ -25,8 +25,10 @@ public struct CloudPaths: Sendable {
     /// Where builds before the per-launch key kept this Mac's WireGuard private key.
     var legacyPrivateKey: URL { root.appendingPathComponent("wireguard.private.key") }
     var deviceIDFile: URL { root.appendingPathComponent("device-id") }
-    /// The computer `device-id` was made on (``HostMachine/stamp(purpose:)``).
+    /// Which id was made on which computer (``MachineRecord``).
     var deviceMachineFile: URL { root.appendingPathComponent("device-id.machine") }
+    /// Held while a copied id is checked and replaced.
+    var deviceIDLock: URL { root.appendingPathComponent("device-id.lock") }
     static let machinePurpose = "cmux cloud install machine v1"
     /// Where builds before the stdin config wrote the hub's config (with the private key).
     var legacyWireGuardConfig: URL { root.appendingPathComponent("wireguard.conf") }
@@ -80,21 +82,40 @@ public struct CloudPaths: Sendable {
     /// main-thread caller before that read ends, the tunnel hub) all return the same id: the first id
     /// written wins (``createSecretIfAbsent(_:at:)``) and every caller returns the file's id.
     ///
-    /// An id made on another computer (its `device-id.machine` names another Mac: the folder came over
-    /// with Migration Assistant or a restore) is set aside and a new one made, so this Mac is a new
-    /// install, not a second copy of the old Mac's. An id with no record of its computer (an older
-    /// build's) is kept and stamped with this one.
+    /// An id made on another computer is replaced, so a Mac that Migration Assistant or a restore copied the
+    /// folder to is a new install, not a second copy of the old Mac. `device-id.machine` records which id was
+    /// made on which computer (`<id> <stamp>`, ``HostMachine/stamp(purpose:)``); `device-id` itself stays one
+    /// line, so an older build (a rollback) reads the same id. A record that names another id, or none (an
+    /// older build's id), is not a copy: the id is kept and the record written for this computer. Without a
+    /// host UUID every id is kept.
+    ///
+    /// The check and the replacement run under an flock on `device-id.lock` (blocking file I/O, like every
+    /// call here: ``CloudDeviceID`` reads on the files lane), so concurrent first reads on the new Mac agree
+    /// on one new id. The fast path (an id this computer already recorded) takes no lock.
     public func loadOrCreateDeviceID() throws -> String {
-        let stamp = host()?.stamp(purpose: Self.machinePurpose)
-        if let id = readDeviceID() {
-            guard let stamp, let made = readMachine(), made != stamp else {
-                if let stamp, readMachine() != stamp { try? writeSecret(stamp + "\n", to: deviceMachineFile) }
-                return id
-            }
-            return try replaceCopiedDeviceID(stamp: stamp)
+        guard let stamp = host()?.stamp(purpose: Self.machinePurpose) else { return try loadOrCreateUnstamped() }
+        if let id = readDeviceID(), readMachineRecord() == MachineRecord(id: id, stamp: stamp) { return id }
+        try prepare()
+        let lock = open(deviceIDLock.path, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard lock >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        defer { close(lock) }
+        guard flock(lock, LOCK_EX) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        var id = try loadOrCreateUnstamped()
+        if let record = readMachineRecord(), record.id == id, record.stamp != stamp {
+            // Made on another computer: this Mac is a new install.
+            id = Self.newDeviceID()
+            try writeSecret(id + "\n", to: deviceIDFile)
         }
-        if let stamp { try? prepare(); try? writeSecret(stamp + "\n", to: deviceMachineFile) }
-        let id = "mac-\(UUID().uuidString.lowercased())"
+        if readMachineRecord() != MachineRecord(id: id, stamp: stamp) {
+            try writeSecret(MachineRecord(id: id, stamp: stamp).text, to: deviceMachineFile)
+        }
+        return id
+    }
+
+    /// The id in `device-id`, made when there is none (the first id written wins).
+    private func loadOrCreateUnstamped() throws -> String {
+        if let id = readDeviceID() { return id }
+        let id = Self.newDeviceID()
         // Read before any Cloud sign-in (agent tabs' install id): the directory may not exist yet.
         try prepare()
         try createSecretIfAbsent(id + "\n", at: deviceIDFile)
@@ -104,24 +125,20 @@ public struct CloudPaths: Sendable {
         return id
     }
 
-    /// Replaces a `device-id` another Mac made. Concurrent first reads on the new Mac agree: the copied id
-    /// moves aside by one atomic rename (only one reader's rename finds it), that reader makes the new id
-    /// (``createSecretIfAbsent(_:at:)``, the first id written wins), and every reader returns the file's id.
-    private func replaceCopiedDeviceID(stamp: String) throws -> String {
-        try prepare()
-        let aside = root.appendingPathComponent("device-id.copied-\(UUID().uuidString)")
-        if rename(deviceIDFile.path, aside.path) == 0 { try? FileManager.checked.removeItem(at: aside) }
-        try writeSecret(stamp + "\n", to: deviceMachineFile)
-        try createSecretIfAbsent("mac-\(UUID().uuidString.lowercased())\n", at: deviceIDFile)
-        guard let id = readDeviceID() else { throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: deviceIDFile.path]) }
-        return id
+    static func newDeviceID() -> String { "mac-\(UUID().uuidString.lowercased())" }
+
+    /// `device-id.machine`: which id was made on which computer.
+    struct MachineRecord: Equatable {
+        var id: String
+        var stamp: String
+        var text: String { "\(id) \(stamp)\n" }
     }
 
-    /// The stamp in `device-id.machine`, or nil when there is none.
-    private func readMachine() -> String? {
+    private func readMachineRecord() -> MachineRecord? {
         guard let text = try? String(blockingContentsOf: deviceMachineFile, encoding: .utf8) else { return nil }
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        let parts = text.split(whereSeparator: \.isWhitespace)
+        guard parts.count == 2 else { return nil }
+        return MachineRecord(id: String(parts[0]), stamp: String(parts[1]))
     }
 
     /// The ids in the `device-id` of each folder under ``root`` (`<root>/<backend namespace>`, #35284): the

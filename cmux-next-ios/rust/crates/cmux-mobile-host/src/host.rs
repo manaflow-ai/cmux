@@ -373,8 +373,6 @@ pub fn removed(reason: &str) -> bool {
     reason.starts_with("signaling closed by server: 4002 ")
 }
 
-/// Whether `error` is the backend refusing the access token (HTTP 401 from the API or
-/// the signaling upgrade).
 /// Whether registering this device was refused because another account owns its id
 /// (`POST /v1/devices` answered `403 not_owner`, PROTOCOL.md).
 pub fn not_owner(error: &anyhow::Error) -> bool {
@@ -386,6 +384,8 @@ pub fn not_owner(error: &anyhow::Error) -> bool {
     })
 }
 
+/// Whether `error` is the backend refusing the access token (HTTP 401 from the API or
+/// the signaling upgrade).
 pub fn unauthorized(error: &anyhow::Error) -> bool {
     error.chain().any(|cause| {
         if let Some(cmux_mobile_link::api::ApiError::Status { status, .. }) =

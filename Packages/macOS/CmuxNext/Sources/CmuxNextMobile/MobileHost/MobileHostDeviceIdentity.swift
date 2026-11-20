@@ -47,24 +47,43 @@ public struct MobileHostDeviceIdentity: Sendable {
     public var machineFile: URL { directory.appendingPathComponent("device-id.\(Self.component(of: owner)).machine", isDirectory: false) }
     /// The one id builds before per-account ids kept for whoever was signed in.
     public var legacyFile: URL { directory.appendingPathComponent("device-id", isDirectory: false) }
+    /// Held while this account's id is made, adopted or replaced.
+    var lockFile: URL { directory.appendingPathComponent("device-id.\(Self.component(of: owner)).lock", isDirectory: false) }
 
     /// The stored id, or a new one written now. Throws when the folder cannot be written.
     ///
     /// A stored id made on another computer (a copied folder) is replaced. Before per-account
     /// ids, a build kept one `device-id` for whoever registered it: the account that owns it
     /// adopts it (``adoptsLegacy()``), so its phones keep this Mac; any other account gets a new id.
+    ///
+    /// Only the fast path (an id this computer already recorded) runs without a lock: making,
+    /// adopting or replacing an id runs under an flock on `device-id.<owner>.lock`, so two first
+    /// reads at once (the start's and the paired list's) agree on one id. Blocking file I/O: call it
+    /// off the main thread.
     public func deviceID() throws -> String {
         let machine = hostUUID().map { Self.machineTag(owner: owner, hostUUID: $0) }
+        if let id = Self.readID(file), let machine, readMachine() == machine { return id }
+        try fileManager().createDirectory(at: directory, withIntermediateDirectories: true,
+                                          attributes: [.posixPermissions: 0o700])
+        let lock = open(lockFile.path, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard lock >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        defer { close(lock) }
+        guard flock(lock, LOCK_EX) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        return try resolve(machine: machine)
+    }
+
+    /// ``deviceID()``'s work under the lock.
+    private func resolve(machine: String?) throws -> String {
         if let id = Self.readID(file) {
-            let stored = (try? String(blockingContentsOf: machineFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let machine, let stored, !stored.isEmpty, stored != machine else {
+            let stored = readMachine()
+            guard let machine, let stored, stored != machine else {
                 // Same computer, or a record from before the machine check: keep it (and record this computer).
                 // A failed stamp leaves the id as it is: the check runs again next time.
                 if let machine, stored != machine { try? write(machine, to: machineFile) }
                 return id
             }
             // Copied from another Mac: this computer is a new device.
-        } else if adoptsLegacy(), let id = Self.readID(legacyFile) {
+        } else if adoptsLegacy(machine: machine), let id = Self.readID(legacyFile) {
             try write(id, to: file)
             if let machine { try write(machine, to: machineFile) }
             try? fileManager().removeItem(at: legacyFile)
@@ -97,8 +116,18 @@ public struct MobileHostDeviceIdentity: Sendable {
     /// beside it names the account that ran hostd here last, and when there is no list (no phone
     /// was ever allowed, so no phone pins this Mac) the first account takes it. If that guess is
     /// wrong the service answers `not_owner` and the id is replaced (``forget()``).
-    func adoptsLegacy() -> Bool {
+    ///
+    /// Never one another computer made: hostd's `machine-id` marker beside it (the machine id it
+    /// registered, the same value as ``machineTag(owner:hostUUID:)``) names another computer when
+    /// Migration Assistant or a restore copied the folder here.
+    func adoptsLegacy(machine: String? = nil) -> Bool {
         guard fileManager().fileExists(atPath: legacyFile.path) else { return false }
+        if let machine,
+           let marker = (try? String(blockingContentsOf: directory.appendingPathComponent("machine-id", isDirectory: false),
+                                     encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+           marker.count == 32, marker != machine {
+            return false
+        }
         let list = directory.appendingPathComponent(MobileHostPairedDevicesFile.fileName, isDirectory: false)
         guard let data = try? Data(blockingContentsOf: list) else { return true }
         guard let users = MobileHostPairedDevicesFile.storedUserIDs(in: data) else { return true }
@@ -120,6 +149,12 @@ public struct MobileHostDeviceIdentity: Sendable {
 
     /// This computer's host UUID (``HostMachine``).
     public static func currentHostUUID() -> Data? { HostMachine.current()?.uuid }
+
+    /// The computer recorded beside this account's id, or nil when there is none.
+    private func readMachine() -> String? {
+        let text = (try? String(blockingContentsOf: machineFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text?.isEmpty == false ? text : nil
+    }
 
     private static func readID(_ url: URL) -> String? {
         guard let text = try? String(blockingContentsOf: url, encoding: .utf8),

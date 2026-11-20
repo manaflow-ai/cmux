@@ -54,6 +54,26 @@ struct CloudInstallIDMigrationTests {
         #expect(ids.count == 1 && !ids.contains(old))
     }
 
+    /// `device-id` stays one line, so an older build (a rollback) reads the same id.
+    @Test func theIDFileStaysOneLine() throws {
+        let root = root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let id = try CloudPaths(root: root, host: { Self.newMac }).loadOrCreateDeviceID()
+        let text = try String(contentsOf: root.appendingPathComponent("device-id"), encoding: .utf8)
+        #expect(text.trimmingCharacters(in: .whitespacesAndNewlines) == id)
+    }
+
+    /// A record that names another id (an older build rewrote `device-id` after this Mac recorded an
+    /// earlier one) is not a copy: the id is kept, and the record written for it.
+    @Test func aRecordForAnotherIDIsNotACopy() throws {
+        let root = root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try CloudPaths(root: root, host: { Self.oldMac }).loadOrCreateDeviceID()
+        try Data("mac-rewritten-by-an-older-build\n".utf8).write(to: root.appendingPathComponent("device-id"))
+        #expect(try CloudPaths(root: root, host: { Self.newMac }).loadOrCreateDeviceID() == "mac-rewritten-by-an-older-build")
+        #expect(try CloudPaths(root: root, host: { Self.newMac }).loadOrCreateDeviceID() == "mac-rewritten-by-an-older-build")
+    }
+
     @Test func stampsDifferByPurposeAndMachine() {
         #expect(Self.oldMac.stamp(purpose: "a") != Self.newMac.stamp(purpose: "a"))
         #expect(Self.oldMac.stamp(purpose: "a") != Self.oldMac.stamp(purpose: "b"))
