@@ -125,6 +125,7 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
     };
     Ok(SessionCfg {
         display,
+        display_pick: opts.get("monitor").map(str::to_owned),
         max_fps,
         start_kbps: opts.num_or("start-kbps", 8000)?,
         max_kbps: opts.num_or("max-kbps", 50_000)?,
