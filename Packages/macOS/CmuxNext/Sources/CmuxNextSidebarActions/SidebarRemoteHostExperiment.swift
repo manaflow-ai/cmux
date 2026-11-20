@@ -11,21 +11,25 @@ public final class SidebarRemoteHostExperiment {
     public init() {}
 
     public func menu(_ menu: NSMenu?, for target: SidebarContextTarget, anchoredIn sidebar: NSView,
-                     settings: CmuxConfigSnapshot?, registry: ActionRegistry, host: (String) -> String?) -> NSMenu? {
+                     settings: CmuxConfigSnapshot?, registry: ActionRegistry,
+                     startSession: @escaping @MainActor (MachineID) async -> ActionWorkFailure?) -> NSMenu? {
         guard let menu, settings?.root.value(at: ["labs", "sidebarRemoteHosts"])?.boolValue == true else { return menu }
-        let machine: String?
         switch target {
-        case .background: machine = nil
-        case .section(.machine(let id)):
-            guard let name = host(id.rawValue), name != "local" else { return menu }
-            machine = name
+        case .section(.machine(let machine)) where machine != .local:
+            menu.insertItem(RemoteHostMenuAction.item(Self.newSession) {
+                // task-owner: one workspace creation for this menu selection.
+                Task { @MainActor in
+                    if let failure = await startSession(machine) { registry.refuse(failure: failure) }
+                }
+            }, at: 0)
+            return menu
+        case .background: break
         default: return menu
         }
-        let args: [String: ActionValue] = machine.map { ["host": .string($0)] } ?? [:]
-        if let start = registry.makeArgumentMenuItem(for: machine == nil ? "palette.newAgentChat" : "palette.newAgentChatOn", arguments: args, title: Self.newSession) {
+        if let start = registry.makeMenuItem(for: "palette.newAgentChat") {
+            start.title = Self.newSession
             menu.insertItem(start, at: 0)
         }
-        guard machine == nil else { return menu }
         let index = min(1, menu.items.count)
         // Save the anchor now. Menu tracking moves the pointer away from the original click.
         let point = sidebar.convert(sidebar.window?.mouseLocationOutsideOfEventStream ?? .zero, from: nil)

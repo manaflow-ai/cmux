@@ -1,4 +1,3 @@
-import CmuxNextRemote
 
 /// The sources consumed by EnvironmentPicker: acpmux's status peers and cloudMachine.list.
 /// Peers and account machines retain their own identities and availability even when names match.
@@ -12,7 +11,6 @@ public struct AgentChatDestinations {
         public let symbol: String
         public let isReady: Bool
         public let route: Route
-        var sshRoute: SSHDestination?
     }
 
     private var peers: () async throws -> [AgentChatPeer]
@@ -132,9 +130,6 @@ public struct AgentChatDestinations {
     /// (`cloud-machine:<id>`) needs only the Cloud inventory, so it never waits on this Mac's
     /// acpmux; any other name waits for the full list (the caller's cancel ends that wait).
     public func load(for wanted: String) async -> [Destination] {
-        if wanted.hasPrefix(Self.peerPrefix) {
-            return Self.rows(localTitle: local.title, peers: (try? await peers()) ?? [], cloud: .init(signedIn: false, loaded: false, machines: []))
-        }
         guard wanted.hasPrefix("cloud-machine:") else { return await load() }
         return Self.rows(localTitle: local.title, peers: [], cloud: await cloud())
     }
@@ -150,7 +145,7 @@ public struct AgentChatDestinations {
         var rows = [local(title: localTitle)]
         for peer in peers where seen.insert(peer.name).inserted {
             rows.append(.init(id: peer.name, title: peer.name, state: peer.state ?? (peer.connected == false ? "offline" : nil),
-                              symbol: peer.isSSH ? "network" : "cloud", isReady: peer.isReady, route: .peer(peer.name), sshRoute: peer.sshRoute))
+                              symbol: peer.isSSH ? "network" : "cloud", isReady: peer.isReady, route: .peer(peer.name)))
         }
         // Keep Cloud identities even when acpmux reports a peer with the same display name:
         // callers can choose the machine's stable id independently of that peer's link state.
@@ -163,22 +158,9 @@ public struct AgentChatDestinations {
         return rows
     }
 
-    private static let peerPrefix = "sidebar-ssh:"
-
-    /// A sidebar host is already selected. Never reinterpret its missing peer as a Cloud or local title.
-    public static func sshSelector(_ address: String) -> String { peerPrefix + address }
-
     /// Exact ids take precedence. Names must be unique; an unknown or ambiguous name never
     /// silently falls back to this Mac. CLI may use the Cloud id without the row prefix.
     public static func resolve(_ name: String, in rows: [Destination]) -> Destination? {
-        if name.hasPrefix(peerPrefix) {
-            guard let wanted = try? SSHDestination(parsing: String(name.dropFirst(peerPrefix.count))) else { return nil }
-            let matches = rows.filter { row in
-                guard let ssh = row.sshRoute else { return false }
-                return ssh.host.lowercased() == wanted.host.lowercased() && ssh.user == wanted.user && ssh.port == wanted.port
-            }
-            return matches.count == 1 ? matches.first : nil
-        }
         if let exact = rows.first(where: { $0.id == name }) { return exact }
         if let cloud = rows.first(where: {
             if case .cloud(let id) = $0.route { return id == name }

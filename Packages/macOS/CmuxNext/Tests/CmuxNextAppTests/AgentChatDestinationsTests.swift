@@ -94,23 +94,6 @@ struct AgentChatDestinationsTests {
         #expect(AgentChatDestinations.resolve("cloud-machine:" + cloudID, in: rows) == cloud)
     }
 
-    @Test func sidebarSSHGroupUsesTheUniquePeerAtItsAddress() {
-        let peers = AgentChatPeer.read(["peers": [
-            ["name": "box", "url": "ssh://other@box:8090"],
-            ["name": "build-lane", "url": "ssh://dev@BOX:8090"],
-            ["name": "web-lane", "url": "wss://box"],
-        ]])
-        let cloud = AgentPaneCloudMachines.Inventory(signedIn: true, loaded: true, machines: [.init(id: "vm", name: "box", stage: "ready")])
-        let rows = AgentChatDestinations.rows(localTitle: "box", peers: peers, cloud: cloud)
-        let pick = AgentChatDestinations.sshSelector
-        #expect(AgentChatDestinations.resolve(pick("ssh://dev@box"), in: rows)?.route == .peer("build-lane"))
-        for missing in ["ssh://box", "ssh://Dev@box", "ssh://dev@box:8090", "ssh://web-lane"] {
-            #expect(AgentChatDestinations.resolve(pick(missing), in: rows) == nil)
-        }
-        let ambiguous = peers + AgentChatPeer.read(["peers": [["name": "other-daemon", "url": "ssh://dev@box:8091"]]])
-        #expect(AgentChatDestinations.resolve(pick("ssh://dev@box"), in: AgentChatDestinations.rows(localTitle: "local", peers: ambiguous, cloud: cloud)) == nil)
-    }
-
     @Test func paletteLoadsTheSameRowsAndForwardsTheChosenHost() async throws {
         let registry = ActionRegistry.standard()
         var chosen: String?

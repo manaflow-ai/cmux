@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextAgentLanes
 import CmuxNextAgentPane
+import CmuxNextAppCore
 import CmuxNextBridge
 import CmuxNextCloud
 import CmuxNextCompat
@@ -443,8 +444,16 @@ final class SidebarBridge {
 
     private let remoteHostMenu = SidebarRemoteHostExperiment()
     func contextMenu(for target: SidebarContextTarget) -> NSMenu? {
-        remoteHostMenu.menu(originalMenu(for: target), for: target, anchoredIn: container, settings: services.settings?.snapshot, registry: services.registry) { [machines = services.machines] id in
-            machines.sshSession(id).map { AgentChatDestinations.sshSelector($0.host.destination.route) } ?? machines.session(id).map { "cloud-machine:" + $0.machine.id }
+        remoteHostMenu.menu(originalMenu(for: target), for: target, anchoredIn: container,
+                            settings: services.settings?.snapshot, registry: services.registry) { [services, weak state] machine in
+            guard let window = state?.id, let daemon = services.machines.daemon(machine: machine.rawValue),
+                  !daemon.isLocal, daemon.connection != nil else { return ActionWorkFailure(refusal: .unavailable, reason: WorkspaceVerbStrings.machineNotConnected) }
+            guard services.agentTabs.canHost(on: daemon) else { return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.agentTabsUnsupported) }
+            var spawn = WorkspaceSpawn()
+            spawn.firstChat = AgentPaneSeed()
+            spawn.placesBySetting = false
+            do { _ = try await services.windows.createWorkspace(spawn, on: daemon, into: window); return nil }
+            catch { return ActionWorkFailure("new remote session", error) }
         }
     }
 
