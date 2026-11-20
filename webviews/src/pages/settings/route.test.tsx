@@ -27,9 +27,12 @@ test("a route the host opens moves the section list's mark with the page", async
   expect(current(page)).toEqual(["appearance"]);
   await run(() => page!.history.push("/settings/appearance?focus=appearance.borders"));
   expect(current(page)).toEqual(["appearance"]);
-  // Density is drawn on Personalization: a link to it marks Personalization.
+  // A link to Density opens Personalization and marks its Text and Density child.
   await run(() => page!.history.push("/settings/appearance?focus=appearance.density"));
-  expect(current(page)).toEqual(["personalization"]);
+  expect(current(page)).toEqual([]);
+  expect(page.container.querySelector('[data-part-link][aria-current="page"]')?.getAttribute("data-part-link")).toBe(
+    "text",
+  );
 });
 
 // Regression (gallery `*-group-N` variants never scrolled): the page's own query string is not
@@ -51,6 +54,7 @@ test("the route comes from the fragment alone, never the page's query string", a
     section: "general",
     focus: "app.quitBehavior",
     workspace: null,
+    part: null,
     query: "",
   });
   expect(history.createHref("/settings/browser")).toBe("/frame.html?entry=pages.settings&variant=x#/settings/browser");

@@ -60,6 +60,25 @@ impl Trust {
     }
 }
 
+/// One wake run (a turn only notes started: a check-in, a follow-up, a
+/// sleep wake, a watch), as recursive's `chief_wakes` row: what woke it, how
+/// it ended (`send`, `ask`, `nothing`, `none` when it ended with none of
+/// them), and what it cost.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WakeRun {
+    pub id: String,
+    pub at: i64,
+    pub reasons: String,
+    pub outcome: String,
+    pub text: String,
+    pub cost_usd: Option<f64>,
+    pub limit_usd: Option<f64>,
+    /// Why the host stopped it (`cost limit`), or empty.
+    pub stopped: String,
+}
+
+const WAKE_SETTINGS_KEY: &str = "wake.settings";
+
 /// One file.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Row {
@@ -133,6 +152,8 @@ CREATE TABLE IF NOT EXISTS memory_forgotten (path TEXT PRIMARY KEY, words TEXT N
 CREATE TABLE IF NOT EXISTS memory_dreams (day TEXT PRIMARY KEY, record TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS memory_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS message_authors (key TEXT PRIMARY KEY, kind TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS wake_runs (id TEXT PRIMARY KEY, at INTEGER NOT NULL, reasons TEXT NOT NULL,
+  outcome TEXT NOT NULL, text TEXT NOT NULL, cost_usd REAL, limit_usd REAL, stopped TEXT NOT NULL DEFAULT '');
 ";
 
 impl MemoryFiles {
@@ -486,6 +507,71 @@ impl MemoryFiles {
         )
         .map(|_| ())
         .map_err(sql)
+    }
+
+    /// The wake settings (check_in.rs `WakeSettings`), as stored.
+    pub fn wake_settings(&self) -> crate::check_in::WakeSettings {
+        self.meta(WAKE_SETTINGS_KEY)
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn put_wake_settings(
+        &self,
+        settings: &crate::check_in::WakeSettings,
+    ) -> Result<(), String> {
+        let text = serde_json::to_string(settings).map_err(|e| format!("memory files: {e}"))?;
+        self.put_meta(WAKE_SETTINGS_KEY, &text)
+    }
+
+    /// Records (or replaces) one wake run's row.
+    pub fn record_wake_run(&self, run: &WakeRun) -> Result<(), String> {
+        let conn = self.lock();
+        conn.execute(
+            "INSERT OR REPLACE INTO wake_runs (id, at, reasons, outcome, text, cost_usd, limit_usd, stopped) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                run.id,
+                run.at,
+                run.reasons,
+                run.outcome,
+                run.text,
+                run.cost_usd,
+                run.limit_usd,
+                run.stopped
+            ],
+        )
+        .map(|_| ())
+        .map_err(sql)?;
+        conn.execute(
+            "DELETE FROM wake_runs WHERE at < ?1",
+            params![now_ms() - HISTORY_MS],
+        )
+        .map(|_| ())
+        .map_err(sql)
+    }
+
+    /// The newest `n` wake runs, newest first.
+    pub fn wake_runs(&self, n: usize) -> Result<Vec<WakeRun>, String> {
+        let conn = self.lock();
+        let mut stmt = conn
+            .prepare("SELECT id, at, reasons, outcome, text, cost_usd, limit_usd, stopped FROM wake_runs ORDER BY at DESC LIMIT ?1")
+            .map_err(sql)?;
+        let rows = stmt
+            .query_map(params![n as i64], |r| {
+                Ok(WakeRun {
+                    id: r.get(0)?,
+                    at: r.get(1)?,
+                    reasons: r.get(2)?,
+                    outcome: r.get(3)?,
+                    text: r.get(4)?,
+                    cost_usd: r.get(5)?,
+                    limit_usd: r.get(6)?,
+                    stopped: r.get(7)?,
+                })
+            })
+            .map_err(sql)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(sql)
     }
 
     /// The open loops (path, description, body).

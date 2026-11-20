@@ -1665,7 +1665,9 @@ async fn harnesses_report_each_agents_modes_and_options_for_a_new_chat() {
     assert!(before["picker"].get("reported").is_none(), "no chat yet: {before}");
 
     let (_, _) = app.chat(&dir, "picker").await;
-    for mut client in [Client::app(&daemon).await, Client::new(&daemon, Origin::Web, ConnAuth::ListenerToken)] {
+    for mut client in
+        [Client::app(&daemon).await, Client::new(&daemon, Origin::Web, ConnAuth::ListenerToken)]
+    {
         let r = client.call("_acpmux/harnesses", json!({})).await;
         assert!(r.get("error").is_none(), "{r}");
         let reported = &rows(&r)["picker"]["reported"];
@@ -1684,5 +1686,45 @@ async fn harnesses_report_each_agents_modes_and_options_for_a_new_chat() {
         // A phone may set the model (a free option); it is told so.
         assert_eq!(model["remoteSettable"], true, "{reported}");
     }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Before any chat of an agent runs here, `_acpmux/harnesses` `reported` is what the agent's
+/// startup model probe answered `session/new` with (Lawrence 2026-11-19, a first New Tab on Pi:
+/// "pi should not have a "mode""): the pane learns Pi reports options and no permission modes
+/// before its first chat, instead of holding a Mode chip for it.
+#[tokio::test]
+async fn harnesses_report_the_startup_probes_choices_before_any_chat() {
+    let dir = home("probed", json!({}));
+    let path = dir.join("config.json");
+    let mut config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    config["harnesses"]["picker"] = json!({"argv": ["python3", FAKE_AGENT]});
+    std::fs::write(&path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let daemon = hub(&dir);
+    daemon.set_probe_only(Some(["picker".to_owned()].into_iter().collect()));
+    daemon.refresh_models().await;
+    let mut app = Client::app(&daemon).await;
+    let r = app.call("_acpmux/harnesses", json!({})).await;
+    let reported = &r["result"]["harnesses"]["picker"]["reported"];
+    let ids: Vec<&str> = reported["modes"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{r}"))
+        .iter()
+        .filter_map(|m| m["id"].as_str())
+        .collect();
+    assert_eq!(ids, ["normal", "strict"], "the probe's answer, with no chat yet: {reported}");
+    let model = reported["configOptions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["id"] == "model")
+        .unwrap_or_else(|| panic!("{reported}"));
+    assert!(model.get("currentValue").is_none(), "definitions only: {reported}");
+    assert!(
+        app.call("session/list", json!({})).await["result"]["sessions"]
+            .as_array()
+            .is_none_or(|s| s.iter().all(|s| s["harness"] != "picker")),
+        "the probe left no chat behind"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
