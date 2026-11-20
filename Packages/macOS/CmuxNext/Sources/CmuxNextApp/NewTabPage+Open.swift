@@ -295,20 +295,18 @@ extension NewTabPage {
     /// the first keystroke if that comes first, so Cmd-T shows the page without waiting for them; while the last list holds, the page shows with it (``NativeNewTabList``).
     private static func nativeView(_ key: String, in pane: PaneController) -> NSView {
         let services = pane.services
-        var page = BenchSpans.measure("newTab.nativeContext") {
+        let page = BenchSpans.measure("newTab.nativeContext") {
             Self.page(services, selected: pane.selectedTab, window: pane.view.window, pane: pane, paletteActions: false)
         }
-        let list = NativeNewTabList(services.newTabActions), show = list.show(in: &page)
+        let list = NativeNewTabList(services.newTabActions)
         let actions = nativeActions(key, cwd: page.cwd, pane: pane, list: list)
         // Cmd-T took the prepared page: it takes this tab's context, already laid out.
         if let spare = services.newTabSpares.claimNative(key), let model = spare.model {
-            model.adopt(page: page, actions: actions, paletteActions: show, paletteRefresh: list.use, chats: services.agentTabs.pageChats.chats)
-            list.model = model
+            model.adopt(page: page, actions: actions, list: list, chats: services.agentTabs.pageChats.chats)
             closeFrame.scheduleFrame { closeFrame.scheduleFrameFromMain { [weak model] in model?.loadPaletteActions() } }
             return spare
         }
-        let model = NativeNewTabModel(page: page, actions: actions, paletteActions: show, paletteRefresh: list.use, chats: services.agentTabs.pageChats.chats)
-        list.model = model
+        let model = NativeNewTabModel(page: page, actions: actions, list: list, chats: services.agentTabs.pageChats.chats)
         closeFrame.scheduleFrame { closeFrame.scheduleFrameFromMain { [weak model] in model?.loadPaletteActions() } }
         let host = NativeNewTabView.hosted(model)
         // The page counts as shown (leaving it ends the hold) only once its field exists: until then

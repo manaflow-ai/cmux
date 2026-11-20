@@ -12,8 +12,7 @@ import Foundation
 ///
 /// ```swift
 /// let list = NativeNewTabList(lister)
-/// let show = list.show(in: &page)
-/// list.model = NativeNewTabModel(page: page, actions: actions, paletteActions: show, paletteRefresh: list.use)
+/// let model = NativeNewTabModel(page: page, actions: actions, list: list)
 /// ```
 @MainActor
 public final class NativeNewTabList {
@@ -21,7 +20,7 @@ public final class NativeNewTabList {
     /// A listing with a key was read for this page: its first use asks for nothing.
     private var own = false
     /// The page, for the rows of a list read after a run that the palette refused.
-    public weak var model: NativeNewTabModel?
+    public fileprivate(set) weak var model: NativeNewTabModel?
 
     /// - Parameter lister: The app's lister of the palette's actions.
     public init(_ lister: AgentPaneNewTabActions) { self.lister = lister }
@@ -56,6 +55,38 @@ public final class NativeNewTabList {
 
     private func read(_ wanted: @escaping @MainActor () -> Bool, _ deliver: @escaping @MainActor ([AgentPaneOmnibar.Action]) -> Void) {
         lister.read(wanted: wanted) { deliver($0.actions) }
+    }
+}
+
+extension NativeNewTabModel {
+    /// Creates the model of a native page whose palette actions come from `list`: the page shows with the kept list
+    /// when one holds, asks `list` at its person's first use, and takes the rows of a list read after a refused run.
+    ///
+    /// - Parameters:
+    ///   - page: The page's context, built without the palette's actions.
+    ///   - actions: What the page asks its host to do.
+    ///   - list: The page's asks for the palette's actions; one for each page.
+    ///   - chats: The device's newest chats (the host's Chats feed), for the chat rows.
+    public convenience init(page: AgentPaneNewTab, actions: NativeNewTabActions, list: NativeNewTabList, chats: [AgentPaneDeviceChat] = []) {
+        var shown = page
+        let show = list.show(in: &shown)
+        self.init(page: shown, actions: actions, paletteActions: show, paletteRefresh: list.use, chats: chats)
+        list.model = self
+    }
+
+    /// Cmd-T adopted this prepared page (``adopt(page:actions:paletteActions:paletteRefresh:chats:)``), with the asks
+    /// of `list` as ``init(page:actions:list:chats:)`` takes them.
+    ///
+    /// - Parameters:
+    ///   - page: The new tab's context, built without the palette's actions.
+    ///   - actions: What the page asks its host to do, for the tab it now is.
+    ///   - list: The page's asks for the palette's actions; one for each page.
+    ///   - chats: The device's newest chats (the host's Chats feed), for the chat rows.
+    public func adopt(page: AgentPaneNewTab, actions: NativeNewTabActions, list: NativeNewTabList, chats: [AgentPaneDeviceChat] = []) {
+        var shown = page
+        let show = list.show(in: &shown)
+        adopt(page: shown, actions: actions, paletteActions: show, paletteRefresh: list.use, chats: chats)
+        list.model = self
     }
 }
 

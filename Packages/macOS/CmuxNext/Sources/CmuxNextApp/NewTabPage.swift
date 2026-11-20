@@ -175,7 +175,9 @@ enum NewTabPage {
                 }.value
             },
             // As the palette runs its row: an action that needs arguments asks for them there. A row it refuses now (it cannot run, or its title changed) leaves the bar's list or changes in it: the actions are read again.
-            action: { [weak services] id, shown in if let services, !services.palette.runCommand(ActionID(rawValue: id), shown: shown, relativeTo: services.windows.active?.window) { fillPaletteActions(services, again: true) } },
+            action: { [weak services] id, shown in
+                if let services, !services.palette.runCommand(ActionID(rawValue: id), shown: shown, relativeTo: services.windows.active?.window) { fillPaletteActions(services, again: true) }
+            },
             listsAtViewMake: { [weak services] key in
                 guard let services else { return nil }
                 fillPaletteActions(services)
