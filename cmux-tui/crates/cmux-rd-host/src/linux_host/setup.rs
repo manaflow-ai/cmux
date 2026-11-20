@@ -344,11 +344,15 @@ fn net_client_list(conn: &impl x11rb::connection::Connection, root: u32) -> Opti
     if atom == 0 {
         return None;
     }
-    let reply = conn.get_property(false, root, atom, AtomEnum::WINDOW, 0, 4096).ok()?.reply().ok()?;
+    let reply =
+        conn.get_property(false, root, atom, AtomEnum::WINDOW, 0, 4096).ok()?.reply().ok()?;
     if reply.type_ == 0 {
         return None;
     }
-    Some(reply.value32()?.collect())
+    // Collected into a local first: as the tail expression, the iterator's temporary outlives
+    // `reply` and the release build fails to compile (E0597).
+    let clients: Vec<u32> = reply.value32()?.collect();
+    Some(clients)
 }
 
 /// Whether `window`'s `WM_CLASS` names the session's terminal ([`SESSION_TERMINAL_CLASS`]).
@@ -587,7 +591,11 @@ mod tests {
 
     #[test]
     fn the_session_unit_puts_a_desktop_on_the_display_and_stops_with_it() {
-        let unit = session_unit(Path::new("/usr/bin/openbox-session"), Some(Path::new("/usr/bin/xterm")), 99);
+        let unit = session_unit(
+            Path::new("/usr/bin/openbox-session"),
+            Some(Path::new("/usr/bin/xterm")),
+            99,
+        );
         assert!(unit.contains("PartOf=cmux-screen-display.service\n"));
         assert!(unit.contains("WantedBy=cmux-screen-display.service\n"));
         assert!(unit.contains("Environment=DISPLAY=:99\n"));

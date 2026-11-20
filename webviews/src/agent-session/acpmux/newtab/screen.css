@@ -221,7 +221,7 @@
 }
 .nt-screen .nt-create .nt-tool:hover,
 .nt-screen .nt-create .nt-tool:focus-visible {
-  background: var(--ds-color-hover);
+  background: var(--ds-surface-hover);
   color: var(--agent-text);
 }
 .nt-screen .nt-create .nt-tool:focus-visible {
@@ -284,7 +284,7 @@
   box-shadow: none;
 }
 .nt-cards[data-variant="list"] .nt-card:hover {
-  background: var(--ds-color-hover);
+  background: var(--ds-surface-hover);
 }
 .nt-cards[data-variant="list"] .nt-card-title {
   flex: 0 1 auto;
@@ -358,7 +358,7 @@
 .nt-chats-filter-chevron{width:var(--grid-glyph);height:var(--grid-glyph);opacity:.7}
 .nt-chats-filter-list{min-width:150px}
 .nt-all-search{margin-left:auto;display:flex;align-items:center;gap:var(--ds-space-2);width:min(200px,45%);height:26px;padding:0 var(--ds-space-2);box-sizing:border-box;border-radius:var(--ds-radius-popup);color:var(--acpmux-composer-dim)}
-.nt-all-search:hover,.nt-all-search:focus-within{background:var(--ds-color-hover)}
+.nt-all-search:hover,.nt-all-search:focus-within{background:var(--ds-surface-hover)}
 .nt-all-search svg{flex:none}
 .nt-all-search input{flex:1;min-width:0;height:100%;padding:0;border:0;outline:0;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-detail);-webkit-appearance:none;appearance:none;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-all-search input::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
@@ -695,7 +695,7 @@
   padding: 0 var(--ds-space-1);
   border: 0;
   border-radius: var(--ds-radius-control);
-  background: var(--ds-color-hover);
+  background: var(--ds-surface-hover);
   color: var(--agent-soft);
   font: inherit;
   font-size: var(--text-caption);
@@ -1321,3 +1321,10 @@
 .nt-screen .nt-create .nt-tool-icon > svg{width:100%;height:100%}
 
 .nt-row:has(.nt-row-shortcut) .nt-row-title{flex-shrink:1}
+/* Signed out (NewTabScreen `signedOut`): the cause in one line, then its two fixes as quiet text
+   buttons (the trust ask's), wrapping under the text on a narrow pane. */
+.nt-signed-out { display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--grid-gap); row-gap: var(--grid-half-step); }
+.nt-signed-out-text { flex: 1 1 220px; min-width: 0; }
+.nt-signed-out-text strong { color: var(--agent-text); font-weight: 600; }
+.nt-signed-out-actions { display: flex; flex: none; gap: var(--grid-half-step); }
+.nt-signed-out .acpmux-trust-ask-action { height: var(--grid-pill); font-size: var(--text-detail); }
