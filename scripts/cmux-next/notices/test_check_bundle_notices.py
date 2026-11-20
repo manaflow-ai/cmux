@@ -203,6 +203,26 @@ class CheckBundleNoticesTest(unittest.TestCase):
         errors = [e for e in checker.check(self.app, bundle_map, notices) if "WebRTC" in e]
         self.assertEqual(errors, [])
 
+    def test_the_stub_executable_needs_only_first_party_and_the_framework_carries_the_app(self) -> None:
+        # CMUX-629: Contents/MacOS/cmux is a stub; the Swift, Ghostty (Zig) and Sparkle code is
+        # CmuxNextApp.framework, mapped once through its real binary (not its symlinks).
+        bundle_map = json.loads((HERE / "bundle-map.json").read_text())
+        stub = self.app / "Contents/MacOS/cmux"
+        stub.write_bytes(THIN)
+        fw = self.app / "Contents/Frameworks/CmuxNextApp.framework"
+        (fw / "Versions/A").mkdir(parents=True)
+        (fw / "Versions/A/CmuxNextApp").write_bytes(FAT)
+        (fw / "Versions/Current").symlink_to("A")
+        (fw / "CmuxNextApp").symlink_to("Versions/Current/CmuxNextApp")
+        errors = checker.check(self.app, bundle_map, ROOT / "THIRD_PARTY_LICENSES.md")
+        self.assertEqual([e for e in errors if e.startswith("Contents/MacOS/cmux:")], [])
+        framework_errors = [e for e in errors if "CmuxNextApp.framework" in e]
+        self.assertTrue(framework_errors, "the framework's zig-std notice is not bundled here, so it must be asked for")
+        self.assertTrue(all(e.startswith("Contents/Frameworks/CmuxNextApp.framework/Versions/A/CmuxNextApp: missing notice zig-std")
+                            for e in framework_errors), framework_errors)
+        [entry] = [e for e in bundle_map["entries"] if e["path"] == "Contents/MacOS/cmux"]
+        self.assertEqual(entry["notices"], ["first-party"])
+
     def test_the_map_covers_bundled_ghostty_themes(self) -> None:
         bundle_map = json.loads((HERE / "bundle-map.json").read_text())
         paths = {entry["path"] for entry in bundle_map.get("resources", [])}
@@ -232,7 +252,7 @@ class CheckBundleNoticesTest(unittest.TestCase):
         "Contents/Frameworks/libcmux_app_ffi.dylib",
     )
     ZIG_BINARIES = (
-        "Contents/MacOS/cmux",  # GhosttyNextKit (static)
+        "Contents/Frameworks/CmuxNextApp.framework/*",  # GhosttyNextKit (static), behind the stub Contents/MacOS/cmux
         "Contents/Resources/bin/cmux",  # libghostty-vt
         "Contents/Resources/bin/cmux-tui-host",  # libghostty-vt
         "Contents/Resources/bin/cmux-tui-ssh/cmux-tui-*",
@@ -464,23 +484,18 @@ class CheckBundleNoticesTest(unittest.TestCase):
     # nightly-next run 43864670865 (97eacf0d, 2026-11-16) failed the signed-app checks: these three
     # Mach-O files had no bundle-map entry.
     REMOTE = "Contents/Library/cmux Remote (dev).app"
-    REMOTE_SDK = f"{REMOTE}/Contents/Frameworks/libcua_driver_sdk.dylib"
-    # cua-driver-sdk.pin.json: upstream trycua/cua cua-driver-rs-v0.38.0, built with rustc 1.97.1.
-    REMOTE_SDK_RUSTC = "8bab26f4f68e0e26f0bb7960be334d5b520ea452"
+    # The cmux Computer Use engine, built from cmux-tui with the workspace's own toolchain.
+    REMOTE_ENGINE = f"{REMOTE}/Contents/Frameworks/libcmux_computer_use.dylib"
 
     def test_the_map_covers_every_binary_of_the_embedded_cmux_remote(self) -> None:
         bundle_map = json.loads((HERE / "bundle-map.json").read_text())
         for rel in (f"{self.REMOTE}/Contents/MacOS/cmux-remote", f"{self.REMOTE}/Contents/Frameworks/libWebRTC.dylib",
-                    self.REMOTE_SDK):
+                    self.REMOTE_ENGINE):
             entries = [e for e in bundle_map["entries"] if fnmatch.fnmatchcase(rel, e["path"])]
             self.assertTrue(entries, f"{rel}: no bundle-map entry")
-        sdk = [e for e in bundle_map["entries"] if fnmatch.fnmatchcase(self.REMOTE_SDK, e["path"])][0]
+        sdk = [e for e in bundle_map["entries"] if fnmatch.fnmatchcase(self.REMOTE_ENGINE, e["path"])][0]
         self.assertIn("rust-std", sdk["notices"])
         self.assertIn(self.STD_SECTION, sdk["notices"])
-
-    def test_the_rustc_of_the_remote_sdk_is_reviewed(self) -> None:
-        manifest = json.loads((ROOT / "cmux-tui/build-support/notices/toolchains/toolchains.json").read_text())
-        self.assertIn(self.REMOTE_SDK_RUSTC, {r["rustc_commit"] for r in manifest["rust"]})
 
 
 if __name__ == "__main__":

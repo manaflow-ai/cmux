@@ -3,8 +3,9 @@
 # shellcheck disable=SC2016
 # launch-reboot.sh on Linux with stand-ins for every Mac command (sysctl, ps, sudo, xcrun, curl, hdiutil, ditto, stat,
 # sleep, PlistBuddy, /usr/bin/time, the console hop and the probe): bad arguments are refused (exit 2, LB-FAIL); the
-# before phase installs the copy, primes it and calls `sudo -n /sbin/shutdown -r now` last (recorded, never run); the
-# after phase's s_since_login comes from loginwindow's age, else kern.boottime; the read arm prints one LB-READ per
+# before phase installs the copy, primes it, exits 0 and calls `sudo -n /sbin/shutdown -r now` after it, detached
+# (recorded, never run), from / with an empty environment; the after phase refuses with no before step's state, while
+# kern.boottime is still the before step's and when the boot is over 600 s old, and prints the reboot's log; its s_since_login comes from loginwindow's age, else kern.boottime; the read arm prints one LB-READ per
 # binary; the residency arm prints LB-RESIDENT at +1m, +10m and +60m; a missing copy is an LB-FAIL.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -55,10 +56,16 @@ head -c 5000 /dev/zero >"$app/Contents/Frameworks/CmuxNextApp.framework/Versions
 head -c 7000 /dev/zero >"$app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Chromium Embedded Framework"
 
 export PATH="$bin:$PATH" LB_ROOT="$tmp/root" LB_CONSOLE="$bin/console" LB_TIME="$bin/time" LB_PLISTBUDDY="$bin/plistbuddy" \
-  FAKE_PROBE="$tmp/probe" FAKE_APP="$app" FAKE_PS_N="$tmp/ps-n" FAKE_BOOT=0
+  FAKE_PROBE="$tmp/probe" FAKE_APP="$app" FAKE_PS_N="$tmp/ps-n" FAKE_BOOT=0 LB_REBOOT_DELAY=0
 unset RUNNER_TEMP CMUX_SIGNING_KEYCHAIN_STATE_DIR FAKE_LOGIN_ETIME FAKE_NO_USABLE
 [[ "$(command -v sudo)" == "$bin/sudo" ]] || { echo "launch-reboot test: sudo is not the stand-in" >&2; exit 1; }
 die() { echo "launch-reboot test: $*" >&2; exit 1; }
+# shutdown_called: the detached shutdown recorded, within 5 s of the before step's exit.
+shutdown_called() {
+  local i
+  for ((i = 0; i < 50; i++)); do grep -q '^sudo -n /sbin/shutdown -r now$' "$calls" && return 0; /bin/sleep 0.1; done
+  return 1
+}
 
 # Bad arguments: exit 2 with an LB-FAIL row.
 for args in "" "phase=after reboot=1" "phase=after arm=bogus reboot=1" "phase=before reboot=x" "phase=before reboot=1 arm=read" \
@@ -68,25 +75,56 @@ for args in "" "phase=after reboot=1" "phase=after arm=bogus reboot=1" "phase=be
   [[ $rc == 2 && "$out" == "LB-FAIL bad argument:"* ]] || die "args '$args': want exit 2 and LB-FAIL, got $rc: $out"
 done
 
-# The after phase with no copy yet.
+# The after phase with no before step's state (a root the before step never wrote, as under a per-step HOME).
 set +e; out="$(FAKE_BOOT=$(($(date +%s) - 100)) bash "$script" phase=after arm=noread reboot=1)"; rc=$?; set -e
-if [[ $rc != 3 ]] || ! grep -q '^LB-FAIL reboot=1 no probe' <<<"$out"; then die "missing copy: want LB-FAIL and exit 3, got $rc: $out"; fi
+if [[ $rc != 3 ]] || ! grep -q '^LB-FAIL reboot=1 no before step: ' <<<"$out"; then die "no before step: want LB-FAIL and exit 3, got $rc: $out"; fi
 
-# Before: installs the copy (reboot=1), primes it, shuts down last.
+# Before: installs the copy (reboot=1), primes it, exits 0, then the detached shutdown.
 : >"$calls"
 out="$(bash "$script" phase=before reboot=1 dmg=nightly)" || die "before failed: $out"
+shutdown_called || die "before: no shutdown after the step: $(tail -3 "$calls")"
 [[ "$(tail -1 "$calls")" == "sudo -n /sbin/shutdown -r now" ]] || die "before: the last command is not the shutdown: $(tail -3 "$calls")"
 [[ "$(grep -c '^sudo -n /sbin/shutdown' "$calls")" == 1 ]] || die "before: want one shutdown"
 grep -q '^probe open .* prime 6 term$' "$calls" || die "before: no priming launch: $(cat "$calls")"
 grep -q '^LB-COPY reboot=1 installed=new version=0.1-123 cmux_bytes=3000 CmuxNextApp_bytes=5000 Chromium_Embedded_Framework_bytes=7000 path=' <<<"$out" \
   || die "before: LB-COPY: $out"
-[[ "$(tail -1 <<<"$out")" == "LB-REBOOT reboot=1 left=0" ]] || die "before: LB-REBOOT is not the last row: $out"
+[[ "$(tail -1 <<<"$out")" == "LB-REBOOT reboot=1 left=0 in_s=0" ]] || die "before: LB-REBOOT is not the last row: $out"
+: >"$calls"
 out="$(bash "$script" phase=before reboot=2)" || die "before 2 failed"
 grep -q '^LB-COPY reboot=2 installed=kept' <<<"$out" || die "before 2: the copy was not kept: $out"
+shutdown_called || die "before 2: no shutdown"
+
+# After, claimed before the reboot reached the host (kern.boottime unchanged): refused, nothing launched.
+: >"$calls"
+set +e; out="$(bash "$script" phase=after arm=noread reboot=2)"; rc=$?; set -e
+if [[ $rc != 3 ]] || ! grep -q '^LB-FAIL reboot=2 not rebooted: kern.boottime is still the before step' <<<"$out"; then
+  die "not rebooted: want LB-FAIL and exit 3, got $rc: $out"
+fi
+grep -q '^probe open' "$calls" && die "not rebooted: launched anyway"
+
+# The shutdown's shell: from /, with only PATH in its environment, its outcome in ROOT/reboot.log.
+grep -q '^asked=.* delay_s=0$' "$LB_ROOT/reboot.log" || die "reboot.log: no asked= line: $(cat "$LB_ROOT/reboot.log")"
+grep -q '^shutdown_rc=0$' "$LB_ROOT/reboot.log" || die "reboot.log: no shutdown_rc: $(cat "$LB_ROOT/reboot.log")"
+stub sudo '[[ "$2" == /sbin/shutdown ]] && { echo "cwd=$PWD"; env | grep -c "^CI_JOB_DIR=" ; } >"$(dirname "$0")/../shutdown-env"; exit 0'
+: >"$calls"
+CI_JOB_DIR=/step bash "$script" phase=before reboot=2 >/dev/null || die "before (env check) failed"
+shutdown_called || die "before (env check): no shutdown"
+for ((i = 0; i < 50; i++)); do [[ -s "$tmp/shutdown-env" ]] && break; /bin/sleep 0.1; done
+[[ "$(cat "$tmp/shutdown-env" 2>/dev/null)" == $'cwd=/\n0' ]] || die "the shutdown's shell is not in / with CI_JOB_DIR gone: $(cat "$tmp/shutdown-env" 2>/dev/null)"
+stub sudo 'exit 0'
+
+# After, the boot older than 600 s: not a first launch after a reboot any more; refused, nothing launched.
+: >"$calls"
+set +e; out="$(FAKE_BOOT=$(($(date +%s) - 700)) bash "$script" phase=after arm=noread reboot=2)"; rc=$?; set -e
+if [[ $rc != 3 ]] || ! grep -qE '^LB-FAIL reboot=2 booted too long ago: 70[0-4] s, over 600$' <<<"$out"; then
+  die "old boot: want LB-FAIL and exit 3, got $rc: $out"
+fi
+grep -q '^probe open' "$calls" && die "old boot: launched anyway"
 
 # After, arm=read, no loginwindow: s_since_login from kern.boottime (120 s ago).
 : >"$calls"; rm -f "$tmp/ps-n"
 out="$(FAKE_BOOT=$(($(date +%s) - 120)) bash "$script" phase=after arm=read reboot=3)" || die "after read failed: $out"
+grep -q '^LB-REBOOT-LOG reboot=3 asked=' <<<"$out" || die "read: no LB-REBOOT-LOG: $out"
 s="$(sed -n 's/^LB-LOGIN .*source=boot s_since_login=\([0-9]*\) .*/\1/p' <<<"$out")"
 [[ -n "$s" && "$s" -ge 120 && "$s" -le 125 ]] || die "read: s_since_login from kern.boottime: $out"
 [[ "$(grep -c '^LB-READ reboot=3 arm=read ' <<<"$out")" == 3 ]] || die "read: want 3 LB-READ rows: $out"

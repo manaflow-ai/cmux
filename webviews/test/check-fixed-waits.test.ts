@@ -50,6 +50,19 @@ test("a fixed-wait comment with a reason, on the line or the line above, lets on
   expect(lines(findFixedWaits(file, source))).toEqual([5]);
 });
 
+test("a fixed-wait reason that wraps onto more comment lines still lets one stay", () => {
+  const source = [
+    "// fixed-wait: past the read ahead's refresh floor (5 s), so a run on",
+    "// would be read again.",
+    "await new Promise((resolve) => setTimeout(resolve, 5_500));",
+    "// fixed-wait: a marker above code does not reach past it",
+    "const x = 1;",
+    "// an unrelated comment",
+    "await page.waitForTimeout(100);",
+  ].join("\n");
+  expect(lines(findFixedWaits(file, source))).toEqual([7]);
+});
+
 test("a helper with no delay parameter counts at each call, and helpers built on helpers too", () => {
   const source = [
     "const settle = () => new Promise((resolve) => setTimeout(resolve, 50));",

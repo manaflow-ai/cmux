@@ -8,7 +8,8 @@
 //! 1. Signs in to the account (a kept Stack refresh token, else a browser link) and registers
 //!    this machine as a `linux` viewer device with its own key (`cmux/screen-viewer/`, apart
 //!    from `linux-host`'s, because the hub keeps one socket per device).
-//! 2. Picks DEVICE (a name or an id prefix; with none, the only shared device online) and asks
+//! 2. Picks DEVICE (a name or an id prefix; with none, the only shared device online; a whole
+//!    device id this account does not list goes to the hub, which refuses another account's) and asks
 //!    for a session (`POST /v1/sessions`); the host's person allows it unless they already did.
 //! 3. Takes the viewer ticket from the user socket, opens the session's signaling socket, sends a
 //!    signed cmux.rd/1 offer, checks the host's signed answer, and opens the secure link in this
@@ -257,6 +258,14 @@ fn pick(devices: &[HostDevice], target: Option<&str>) -> Res<HostDevice> {
     }
     match unique.as_slice() {
         [one] => Ok((*one).clone()),
+        // A whole device id this account does not list is asked of the hub all the same: the hub
+        // decides who may view a device (another account's is refused there, not here).
+        [] if device_id_shaped(target) => Ok(HostDevice {
+            id: target.to_owned(),
+            name: target.to_owned(),
+            platform: "unknown".into(),
+            online: false,
+        }),
         [] => {
             Err(format!("no shared device is called {}; shared: {}", printable(target), names())
                 .into())
@@ -275,8 +284,22 @@ fn explain_request(
         "host_offline" => format!("{host} is offline").into(),
         "not_shared" => format!("{host} does not share its screen").into(),
         "permission_none" => format!("{host} does not let this device in").into(),
+        "not_found" => {
+            format!("{host} is no device of this account (device hub {} not_found)", h.status)
+                .into()
+        }
         _ => e,
     }
+}
+
+/// A whole device id as the hub makes them (a UUID: 8-4-4-4-12 hex digits).
+fn device_id_shaped(text: &str) -> bool {
+    let groups: Vec<&str> = text.split('-').collect();
+    groups.len() == 5
+        && groups
+            .iter()
+            .zip([8, 4, 4, 4, 12])
+            .all(|(g, n)| g.len() == n && g.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
 /// Reads the user socket until the viewer ticket for `session_id` (or the request's end).
@@ -634,6 +657,29 @@ mod tests {
             })
             .collect();
         assert!(pick(&two_online, None).unwrap_err().to_string().contains("several"));
+    }
+
+    #[test]
+    fn a_whole_device_id_this_account_does_not_list_is_asked_of_the_hub() {
+        let list = shared_devices(&devices(), "aaaa1111-0000");
+        // Another account's machine: the hub answers (and refuses), not this list.
+        let other = "0f1e2d3c-4b5a-4697-8877-665544332211";
+        let host = pick(&list, Some(other)).unwrap();
+        assert_eq!((host.id.as_str(), host.online), (other, false));
+        // A name or a prefix that matches nothing is still this list's error.
+        assert!(pick(&list, Some("0f1e2d3c")).is_err());
+        assert!(pick(&list, Some("0f1e2d3c-4b5a-4697-8877-66554433221")).is_err());
+        assert!(pick(&list, Some("zf1e2d3c-4b5a-4697-8877-665544332211")).is_err());
+        assert!(device_id_shaped(other));
+        assert!(!device_id_shaped("bbbb2222-0000"));
+        // The hub's refusal names its code.
+        let refused: Box<dyn std::error::Error + Send + Sync> = Box::new(HubError {
+            status: 404,
+            code: "not_found".into(),
+            message: "device not found".into(),
+        });
+        let said = explain_request(refused, other).to_string();
+        assert!(said.contains("is no device of this account (device hub 404 not_found)"), "{said}");
     }
 
     #[test]
