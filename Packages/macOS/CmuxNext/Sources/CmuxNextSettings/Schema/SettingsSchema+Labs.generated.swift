@@ -5,6 +5,9 @@ extension CmuxConfigSnapshot {
     /// `labs.previewFeatures`: Surfaces still being shaped (the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.
     public nonisolated static let previewFeaturesPath = ["labs", "previewFeatures"]
     public nonisolated static let previewFeaturesDefault = false
+    /// `labs.highContrastLook`: High Contrast look experiment from RFD 0008. Off by default; when enabled, derived chrome text targets a 7:1 contrast floor while the existing look and theme defaults remain unchanged.
+    public nonisolated static let highContrastLookPath = ["labs", "highContrastLook"]
+    public nonisolated static let highContrastLookDefault = false
     /// `labs.voiceRoom`: Unofficial Labs feature (plans/cmux-next/voice-room-DESIGN.md): Open Voice Room transcribes the mic on device, reads the screen's text on device when it changes, and posts both to the room server at labs.voiceRoomURL, whose cheap model keeps the room's memory and sends asks spoken to Chief as tasks. Off by default; while off the Voice Room actions are unavailable everywhere. The person turns it on: agents may not (not in SettingsSchema agent-writable keys).
     public nonisolated static let voiceRoomPath = ["labs", "voiceRoom"]
     public nonisolated static let voiceRoomDefault = false
@@ -37,6 +40,16 @@ nonisolated enum LabsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.previewFeaturesDefault),
                 keywords: ["labs", "preview", "experimental", "beta", "prototype"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.highContrastLookPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.highContrastLook", "High Contrast Look"),
+                help: SettingsText.keyed("settings.labs.highContrastLook.help", "Raises derived chrome text to a 7:1 contrast floor. Off, cmux keeps its normal 4.5:1 floor."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.highContrastLookDefault),
+                keywords: ["labs", "contrast", "high contrast", "accessible", "look", "experiment"]
             ),
             SettingDescriptor(
                 CmuxConfigSnapshot.voiceRoomPath,
