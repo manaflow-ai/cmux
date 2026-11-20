@@ -20,7 +20,7 @@ type Inset = { offsetY: number; spread: number; alpha: number };
 
 await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
   /** The composer edge's alpha over this page's transparent background, focused or not. */
-  const EDGE = 0.18;
+  const EDGE = 0.22;
   setDefaultTimeout(120_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -111,7 +111,7 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
           expect(devicePixels(Math.abs(spread || offsetY), scale), `${id} rim at ${scale}x`).toBe(1);
       }
       // The rims keep their colors: only the width changed.
-      // The rim is the composer edge hairline (--acpmux-composer-edge: 18% text, hq#1957).
+      // The rim is the composer edge hairline (--acpmux-composer-edge: 22% text, hq#1957; CMUX-652).
       expect((await insets(page, "composer"))[0]?.alpha, "composer rim alpha").toBeCloseTo(EDGE, 2);
       const shell = await insets(page, "shell");
       expect(shell.length, "shell draws a rim").toBeGreaterThan(0);
@@ -135,6 +135,33 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
       await page.close();
     });
   }
+
+  // New Tab draws its composer and suggestions under the density's zoom (newtab/screen.css, 0.8 at Ultra-compact to
+  // 1.2 at Spacious). The rim is not zoomed with them: it stays one device pixel, as session info's edge does (CMUX-652).
+  for (const zoom of [0.8, 0.9, 1.1, 1.2])
+    test(`under New Tab's ${zoom} zoom the box's and the suggestions' rims are one device pixel`, async () => {
+      const page = await open(2);
+      await page.evaluate((zoom) => {
+        document.documentElement.style.setProperty("--cmux-composer-zoom", String(zoom));
+        const composer = document.getElementById("newtab")!.closest(".nt-composer")!;
+        const screen = document.createElement("div");
+        screen.className = "nt-screen";
+        composer.replaceWith(screen);
+        screen.append(composer);
+      }, zoom);
+      for (const id of ["newtab", "popover"]) {
+        const drawnZoom = await page.$eval(
+          `#${id}`,
+          (node) => (node as HTMLElement & { currentCSSZoom?: number }).currentCSSZoom ?? 1,
+        );
+        expect(drawnZoom, `${id} is zoomed`).toBeCloseTo(zoom, 3);
+        const rings = (await insets(page, id)).filter(({ spread }) => spread > 0);
+        expect(rings.length, `${id} draws a rim`).toBeGreaterThan(0);
+        for (const { spread } of rings)
+          expect(devicePixels(spread * drawnZoom, 2), `${id} rim at zoom ${zoom}`).toBe(1);
+      }
+      await page.close();
+    });
 
   test("the composer's rim clears with appearance.borders none, as the New Tab box's does", async () => {
     const page = await open(2);
