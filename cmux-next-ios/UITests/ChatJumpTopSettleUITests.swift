@@ -1,0 +1,48 @@
+import XCTest
+
+/// Stress finding F8 (scratch diagnostic, never lands): after the list rig opens a 200-turn chat and
+/// jumps to its top (`CMUX_MOBILE_LIST_LEAVE_NEWEST` unset, as a reader leaves the newest turn), are
+/// rows near the reader blank only while older pages are read in, or do they stay blank?
+/// Screenshots and the count of on-screen transcript texts at 3, 8, 20 and 45 s after launch answer it.
+final class ChatJumpTopSettleUITests: XCTestCase {
+    override func setUp() {
+        continueAfterFailure = true
+    }
+
+    @MainActor
+    func testRowsAfterJumpToTopSettle() {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
+        app.launchEnvironment["CMUX_MOBILE_LIST_SCREEN"] = "chat"
+        app.launchEnvironment["CMUX_MOBILE_LIST_COUNT"] = "200"
+        app.launchEnvironment["CMUX_MOBILE_LIST_PASSES"] = "0"
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-no-restore"]
+        let launched = Date()
+        app.launch()
+        defer { app.terminate() }
+
+        var counts: [String] = []
+        for mark in [3.0, 8.0, 20.0, 45.0] {
+            let left = mark - Date().timeIntervalSince(launched)
+            if left > 0 { _ = XCTWaiter().wait(for: [XCTestExpectation(description: "t\(Int(mark))")], timeout: left) }
+            let frame = app.windows.firstMatch.frame
+            // Texts drawn inside the window's middle band (below the navigation bar, above the composer).
+            let band = frame.insetBy(dx: 0, dy: frame.height * 0.18)
+            let visible = app.staticTexts.allElementsBoundByIndex.filter { element in
+                let f = element.frame
+                return !f.isEmpty && band.intersects(f) && !(element.label.isEmpty)
+            }.count
+            counts.append("t\(Int(mark))s=\(visible)")
+            let shot = XCTAttachment(screenshot: app.screenshot())
+            shot.name = "f8-t\(Int(mark))s"
+            shot.lifetime = .keepAlways
+            add(shot)
+        }
+        let summary = XCTAttachment(string: counts.joined(separator: " "))
+        summary.name = "f8-visible-text-counts"
+        summary.lifetime = .keepAlways
+        add(summary)
+        print("F8 visible transcript texts: \(counts.joined(separator: " "))")
+    }
+}
