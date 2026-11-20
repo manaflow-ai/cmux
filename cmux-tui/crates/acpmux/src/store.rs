@@ -42,7 +42,7 @@ mod meta_parts;
 pub use meta_parts::PARTS_FILE;
 mod shared_value;
 mod text_index;
-pub use shared_value::{SharedRows, SharedValue};
+pub use shared_value::{SharedRows, SharedText, SharedValue};
 
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
