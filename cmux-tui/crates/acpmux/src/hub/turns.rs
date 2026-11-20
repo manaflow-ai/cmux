@@ -207,7 +207,7 @@ impl Hub {
         self.check_finished(session)?;
         let retry = super::resume_admission::automatic(&opts);
         let background =
-            !super::inbox::persons_prompt(opts.agent.as_deref(), opts.provenance.as_ref());
+            !super::resume_admission::person(opts.agent.as_deref(), opts.provenance.as_ref());
         let mut resume_permit = if retry || (background && self.resume_admission.recovering()) {
             Some(
                 self.resume_admission
@@ -849,8 +849,9 @@ impl Hub {
         // Another agent's message shows as its sender and words (`prompt_line.rs`).
         let trigger = crate::prompt_provenance::is_trigger(run.provenance.as_ref());
         let prompted_by_person =
-            super::inbox::persons_prompt(run.agent.as_deref(), run.provenance.as_ref());
-        let persons = prompted_by_person && self.config.read().await.agent_inbox();
+            super::resume_admission::person(run.agent.as_deref(), run.provenance.as_ref());
+        let persons = super::inbox::persons_prompt(run.agent.as_deref(), run.provenance.as_ref())
+            && self.config.read().await.agent_inbox();
         let mut turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control)
             .shown_as(&super::prompt_line::prompt_line(&text, client, provenance.as_ref()))
             .noticed(super::prompt_line::is_notice(provenance.as_ref()))

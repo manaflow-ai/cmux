@@ -160,6 +160,12 @@ pub(super) fn automatic(opts: &PromptOptions) -> bool {
         || opts.provenance.as_ref().and_then(|p| p["kind"].as_str()) == Some("auto_resume")
 }
 
+/// Unlike the inbox's presentation flag, unverified programs and relay messages count as
+/// background work even when they have no agent display name.
+pub(super) fn person(agent: Option<&str>, provenance: Option<&Value>) -> bool {
+    agent.is_none() && provenance.is_none_or(|p| p["kind"] == "person_message")
+}
+
 pub(super) fn priority(opts: &PromptOptions, session: &Session) -> u8 {
     let meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(tag) = meta.tags.get("lane.priority") {

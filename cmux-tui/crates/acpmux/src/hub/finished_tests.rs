@@ -76,6 +76,27 @@ async fn finished_fences_prepared_turns_and_pause_fences_automatic_turns() {
     assert_eq!(error.data.unwrap()["reason"], "session.finished");
 }
 
+#[tokio::test(start_paused = true)]
+async fn finished_or_paused_never_admits_notices_goals_or_unnamed_relay_messages() {
+    for kind in ["notice", "auto_resume", "session_message", "unverified", "trigger"] {
+        let hub = memory_hub();
+        let session = chat(&hub);
+        hub.set_fleet_pause(true, "outage").unwrap();
+        let mut waiting = Box::pin(hub.prompt_with(
+            &session,
+            vec![json!({"type": "text", "text": "continue"})],
+            "relay",
+            false,
+            PromptOptions { provenance: Some(json!({"kind": kind})), ..Default::default() },
+        ));
+        assert!(futures::poll!(&mut waiting).is_pending(), "{kind} bypassed pause");
+        hub.finish_session(&session, "done while paused").unwrap();
+        hub.set_fleet_pause(false, "capacity restored").unwrap();
+        let error = waiting.await.unwrap_err();
+        assert_eq!(error.data.unwrap()["reason"], "session.finished");
+    }
+}
+
 #[tokio::test]
 async fn finished_fresh_session_seeds_only_the_handoff_and_retires_the_old_harness() {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
