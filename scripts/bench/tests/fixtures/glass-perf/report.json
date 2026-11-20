@@ -1,0 +1,23 @@
+{
+ "sha": "6e9068ed2b17aaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+ "host": "cmux20",
+ "errors": ["glass.lens=spectrum: unknown"],
+ "runs": [
+  {"state": "idle", "mode": "plain", "surfaces": 10, "seconds": 60.0,
+   "total": {"rss_mb": 1012.4, "cpu_pct": 0.9, "energy_mw": 85.0},
+   "groups": {"app": {"n": 1, "rss_mb": 310.2, "cpu_pct": 0.3, "energy_mw": 30.0},
+              "web": {"n": 5, "rss_mb": 560.0, "cpu_pct": 0.4, "energy_mw": 40.0},
+              "daemon": {"n": 4, "rss_mb": 142.2, "cpu_pct": 0.2, "energy_mw": 15.0}},
+   "gpu": {"samples": 60, "device_utilization_pct": 1.2}, "power": {}, "gpu_pct": 1.2, "gpu_ms_per_frame": 0.2,
+   "frame": null},
+  {"state": "load", "mode": "plain", "surfaces": 10, "seconds": 45.1,
+   "total": {"rss_mb": 1104.0, "cpu_pct": 48.5, "energy_mw": 912.0},
+   "groups": {"app": {"n": 1, "rss_mb": 330.0, "cpu_pct": 20.1, "energy_mw": 400.0}},
+   "gpu": {"samples": 45, "device_utilization_pct": 22.0}, "power": {}, "gpu_pct": 22.0, "gpu_ms_per_frame": 2.9,
+   "frame": {"page_frames": 3420, "page_p50_ms": 8.3, "page_p95_ms": 18.2}},
+  {"state": "composer-scroll", "mode": "lens", "surfaces": 0, "seconds": 45.0, "lens_source": "wallpaper-still",
+   "total": {"rss_mb": 1090.0, "cpu_pct": 30.0, "energy_mw": 600.0}, "groups": {},
+   "gpu": {"samples": 45, "device_utilization_pct": 15.0}, "power": {}, "gpu_pct": 15.0, "gpu_ms_per_frame": 1.25,
+   "frame": {"page_frames": 5400, "page_p50_ms": 8.3, "page_p95_ms": 9.1}}
+ ]
+}
