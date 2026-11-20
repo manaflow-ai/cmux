@@ -251,8 +251,13 @@ jobs:
           RECEIPT_RUN: ${{ needs.receipt.outputs.run_url }}
           RECEIPT_PRODUCER: ${{ needs.receipt.outputs.producer }}
         run: |
+          # A receipt skip says so in the log, a notice and the step summary, so neither a reader nor merge_hold
+          # takes it for a plain skip (work nobody judged). tests/test_ci_receipt.py runs this step.
           if [[ "$RECEIPT_VALID" == true && "$RECEIPT_AUDIT" != true ]]; then
-            echo "rust workspaces: local test receipt $RECEIPT_RUN (by $RECEIPT_PRODUCER) covers this merge"
+            line="rust workspaces: verified reuse of receipt $RECEIPT_RUN (by $RECEIPT_PRODUCER); plan and every workspace skipped on it"
+            echo "$line"
+            echo "::notice title=CI receipt::$line"
+            [[ -z "${GITHUB_STEP_SUMMARY:-}" ]] || echo "$line" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           if [[ "$RECEIPT_AUDIT" == true && ( "$PLAN" == failure || "$WORKSPACES" == failure ) ]]; then
