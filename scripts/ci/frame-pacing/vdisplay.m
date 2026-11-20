@@ -151,15 +151,16 @@ int main(int argc, char **argv) {
           [[CGVirtualDisplayMode alloc] initWithWidth:width height:height refreshRate:hz]]
       : @[[[CGVirtualDisplayMode alloc] initWithWidth:width height:height refreshRate:hz]];
     if (![display applySettings:settings]) { printf("error: applySettings failed\n"); return 1; }
-    waitForScreens(display.displayID, NO, 5.0);
+    // A HiDPI display (twice the pixels) comes online slower: fleet step 368e35ec listed it after more than 5 s.
+    waitForScreens(display.displayID, NO, hidpi ? 20.0 : 5.0);
     if (hidpi) {
       // The display's mode list fills in after AppKit lists it, a beat later on a busy host (fleet step b44f5987: no
-      // 2x mode on the first read, and the display stayed 1x): read it for up to 5 s, and say what it offered if no
+      // 2x mode on the first read, and the display stayed 1x): read it for up to 15 s, and say what it offered if no
       // mode is WIDTHxHEIGHT points at twice the pixels.
       NSDictionary *options = @{(__bridge NSString *)kCGDisplayShowDuplicateLowResolutionModes: @YES};
       CGDisplayModeRef picked = NULL;
       NSMutableString *offered = [NSMutableString string];
-      for (int attempt = 0; attempt < 50 && !picked; attempt++) {
+      for (int attempt = 0; attempt < 150 && !picked; attempt++) {
         if (attempt) [[NSRunLoop mainRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
         CFArrayRef modes = CGDisplayCopyAllDisplayModes(display.displayID, (__bridge CFDictionaryRef)options);
         [offered setString:@""];

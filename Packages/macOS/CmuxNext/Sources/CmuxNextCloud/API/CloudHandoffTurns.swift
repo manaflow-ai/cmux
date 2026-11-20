@@ -38,11 +38,10 @@ extension CloudOwnerAPIClient {
         let timeout = Duration.seconds(20)
         var request = URLRequest(url: url, timeoutInterval: TimeInterval(timeout.components.seconds))
         request.httpMethod = "POST"
-        // RULE (cx-kvmz, hq-84), as in post(_:_:body:timeout:as:): Authorization, Content-Type and
-        // x-cmux-team only; the path's one varying part is a checked id.
-        request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
+        // RULE (cx-kvmz, hq-84), as in post(_:_:body:timeout:as:): Authorization, Content-Type,
+        // x-cmux-team and the build space only; the path's one varying part is a checked id.
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let team = await teamID() { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
+        request = try await authorized(request, access: access)
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let data: Data
         let response: URLResponse

@@ -23,7 +23,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "chat-disk", "daemon-restart"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "web-ui-typing", "chat-disk", "daemon-restart"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -760,6 +760,17 @@ class WebUiTests(unittest.TestCase):
         argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-flat")["suite"]
         self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat"])
         self.assertEqual(cwd, "/r/webviews")
+
+    def test_the_composer_typing_rows_have_their_own_part(self):
+        self.assertTrue(cron.is_linux_part("web-ui-typing"))
+        self.assertEqual(cron.part_for_row("webui.composer_typing.l1.webkit.rows60.to_paint@linux"), "web-ui-typing")
+        self.assertEqual(cron.part_for_row("webui.composer_typing.l3.chromium.rows60.invalid@linux"), "web-ui-typing")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-typing")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "composer-typing"])
+        self.assertEqual(cwd, "/r/webviews")
+        # The suite names the bench the part asks for (web-ui-suite.ts), as its own part outside the suite's cap.
+        suite = open(os.path.join(cron.ROOT, "webviews/bench/web-ui-suite.ts"), encoding="utf-8").read()
+        self.assertRegex(suite, r'name: "composer-typing",\s*file: "composer-typing\.bench\.ts"')
 
     def test_the_chat_disk_rows_have_their_own_linux_part(self):
         self.assertTrue(cron.is_linux_part("chat-disk"))
@@ -3372,6 +3383,49 @@ class PartRowsStoredAtOnceTests(unittest.TestCase):
                                                          self.STRESS)])
             self.assertEqual(cron.stale_parts(state, at(2)), [])
             self.assertEqual(cron.stale_parts(state, at(2 + cron.STALE_HOURS)), ["stress"])
+
+
+class StalePartFirstTests(unittest.TestCase):
+    """A part whose newest stored rows (part_stored) are older than PART_STALE_HOURS runs ahead of the PARTS order, so
+    every row the cron feeds gets a pass within 24 h (2026-11-19: throughput, the last Mac part, went 38 h without one
+    while earlier parts yielded and retried, and goal terminal-throughput reads its row)."""
+
+    def mid_measurement(self, stored_hours_ago):
+        state = cron.empty_state(T0)
+        cron.decide(state, T0, "a" * 40, None, lambda sha: ALL, None)
+        cur = state["current"]
+        cron.record_part(cur, "build", {"state": "done", "worker": cron.BENCH_WORKER}, "u", T0)
+        cron.record_part(cur, "stress", {"state": "yielded", "worker": cron.BENCH_WORKER}, "u", T0)
+        self.assertIn("stress", cur["parts_todo"], "stress is mid-yield: still to do")
+        now = at(1)
+        state["part_stored"] = {
+            name: {"sha": "0" * 40, "at": cron.iso(now - datetime.timedelta(hours=stored_hours_ago.get(name, 2))), "rows": 1}
+            for name in ALL if name != "build"}
+        return state, now
+
+    def test_a_part_past_the_bound_runs_before_a_yielding_one(self):
+        state, now = self.mid_measurement({"throughput": 30, "chat-disk": 25})
+        d = cron.decide(state, now, None, None, lambda sha: ALL, None)
+        self.assertEqual((d["action"], d["part"]), ("part", "throughput"))
+        self.assertEqual(d["linux_part"], "chat-disk", "a stale Linux part goes first among the Linux parts too")
+
+    def test_the_oldest_stale_part_goes_first(self):
+        state, now = self.mid_measurement({"throughput": 30, "sidebar": 40})
+        d = cron.decide(state, now, None, None, lambda sha: ALL, None)
+        self.assertEqual(d["part"], "sidebar")
+
+    def test_nothing_stale_keeps_the_parts_order(self):
+        state, now = self.mid_measurement({})
+        todo = list(state["current"]["parts_todo"])
+        d = cron.decide(state, now, None, None, lambda sha: ALL, None)
+        self.assertEqual((d["part"], d["linux_part"]), ("stress", "diff-viewer"))
+        self.assertEqual(state["current"]["parts_todo"], todo)
+
+    def test_the_build_stays_first_when_a_part_is_stale(self):
+        state = cron.empty_state(T0)
+        state["part_stored"] = {"throughput": {"sha": "0" * 40, "at": cron.iso(at(-30)), "rows": 1}}
+        d = cron.decide(state, T0, "a" * 40, None, lambda sha: ALL, None)
+        self.assertEqual(d["part"], "build")
 
 
 if __name__ == "__main__":
