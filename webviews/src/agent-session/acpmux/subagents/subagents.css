@@ -749,7 +749,6 @@ button.cv-subagent > :last-child {
   padding: var(--ds-space-1);
   margin: calc(-1 * var(--ds-space-1));
   border-radius: var(--ds-radius-sm);
-  cursor: pointer;
 }
 .acpmux-running-tray__thumb > * {
   pointer-events: none;
