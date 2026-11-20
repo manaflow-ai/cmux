@@ -2819,80 +2819,55 @@ impl Hub {
     /// local session by accident. Declared labels (`source`, `fromAgent`, `fromName`, and
     /// `fromRelay`) are intentionally ignored.
     fn typed_work_provenance(&self, mut provenance: Value) -> Value {
-        let Some(sender_id) = crate::prompt_provenance::sender_of(Some(&provenance)).0 else {
-            return provenance;
-        };
-        let transport = provenance
-            .get(crate::prompt_provenance::TRANSPORT)
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-
-        let author = if matches!(transport, "peer" | "carrier") {
-            self.remote_author(&sender_id)
-        } else if matches!(transport, "unix" | "app")
-            && provenance.get(crate::prompt_provenance::VERIFIED).and_then(Value::as_bool)
-                == Some(true)
-        {
-            self.local_author(&sender_id)
-        } else {
-            None
-        };
-        if let Some(author) = author
-            && let Some(fields) = provenance.as_object_mut()
-        {
-            fields.insert("author".to_owned(), author);
+        let author =
+            crate::prompt_provenance::sender_of(Some(&provenance)).0.and_then(|sender_id| {
+                let transport =
+                    provenance.get(crate::prompt_provenance::TRANSPORT).and_then(Value::as_str);
+                let verified =
+                    provenance.get(crate::prompt_provenance::VERIFIED).and_then(Value::as_bool)
+                        == Some(true);
+                match (transport, verified) {
+                    (Some("peer" | "carrier"), _) => self.remote_work_author(sender_id),
+                    (Some("unix" | "app"), true) => {
+                        let session = self
+                            .sessions
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .get(&sender_id)
+                            .cloned()?;
+                        Some(self.forum_agent(&session))
+                    }
+                    _ => None,
+                }
+            });
+        if let Some(fields) = provenance.as_object_mut() {
+            fields.remove("author");
+            if let Some(author) = author {
+                fields.insert("author".to_owned(), json!(author));
+            }
         }
         provenance
     }
 
-    fn local_author(&self, sender_id: &str) -> Option<Value> {
-        let session = self.resolve(sender_id).ok().filter(|session| session.id == sender_id)?;
-        let meta = session.meta();
-        let mut author = serde_json::Map::new();
-        author.insert("kind".to_owned(), Value::String("agent".to_owned()));
-        author.insert("sessionId".to_owned(), Value::String(session.id.clone()));
-        // Spoken handles are durable tags. The handles module adds deterministic fallbacks for
-        // old sessions; the parent integration wires that helper when it is available.
-        if let Some(handle) = meta
-            .tags
-            .get("acpmux.spokenHandle")
-            .map(|tag| tag.value.clone())
-            .filter(|value| !value.is_empty())
-        {
-            author.insert("handle".to_owned(), Value::String(handle));
-        }
-        author.insert("name".to_owned(), Value::String(meta.name));
-        Some(Value::Object(author))
-    }
-
-    fn remote_author(&self, sender_id: &str) -> Option<Value> {
+    fn remote_work_author(&self, sender_id: String) -> Option<crate::forum::Author> {
         let rows = self.remote_sessions.read();
         let mut matches = rows
-            .values()
-            .filter(|row| row.receipt.mux_session_id == sender_id)
-            .map(|row| &row.summary)
-            .filter_map(|summary| {
-                let name = summary.value().get("name").and_then(Value::as_str).map(str::to_owned);
-                let handle =
-                    summary.value().get("spokenHandle").and_then(Value::as_str).map(str::to_owned);
-                Some((handle, name))
-            });
-        let (handle, name) = matches.next()?;
-        // A UUID may be present on more than one peer. Without the originating peer in the
-        // stamped provenance, refusing an ambiguous match is safer than attributing it wrongly.
+            .named(&sender_id)
+            .into_iter()
+            .filter(|(_, row)| row.receipt.mux_session_id == sender_id);
+        let (_, row) = matches.next()?;
+        let summary = &row.summary;
+        // A UUID may be visible on more than one peer. The stamped sender ID alone cannot
+        // establish which mirrored row supplied the post.
         if matches.next().is_some() {
             return None;
         }
-        let mut author = serde_json::Map::new();
-        author.insert("kind".to_owned(), Value::String("agent".to_owned()));
-        author.insert("sessionId".to_owned(), Value::String(sender_id.to_owned()));
-        if let Some(handle) = handle.filter(|value| !value.is_empty()) {
-            author.insert("handle".to_owned(), Value::String(handle));
-        }
-        if let Some(name) = name.filter(|value| !value.is_empty()) {
-            author.insert("name".to_owned(), Value::String(name));
-        }
-        Some(Value::Object(author))
+        let handle = crate::session_handle::display(summary.handle(), &sender_id).into_owned();
+        Some(crate::forum::Author::Agent {
+            session_id: sender_id,
+            handle: Some(handle),
+            name: summary.name().unwrap_or_default().to_owned(),
+        })
     }
 }
 

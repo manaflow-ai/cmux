@@ -31,6 +31,12 @@ fn forum_api_list_projects_only_authenticated_author_metadata() {
     assert_eq!(projected["name"], "runner-check");
     assert!(projected.get("body").is_none());
     assert!(projected.get("secret").is_none());
+    let oversized = json!({"transport": {"author": {
+        "kind": "agent", "sessionId": "session-uuid", "handle": "Mango", "name": "z".repeat(8192)
+    }}});
+    let projected = super::source_author(&oversized).unwrap();
+    assert_eq!(projected["handle"], "Mango");
+    assert!(projected.get("name").is_none());
 }
 
 #[test]

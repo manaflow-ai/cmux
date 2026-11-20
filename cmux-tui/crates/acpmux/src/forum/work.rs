@@ -51,22 +51,29 @@ fn post_summary(post: &Post) -> Value {
 /// Project only the authenticated author metadata into a thread-list summary.
 /// Source provenance remains available in a bounded detail page, while this
 /// view must never expose the transport body or arbitrary provenance fields.
+/// Each displayed field is bounded so 128 sources still fit in a list row.
 fn source_author(provenance: &Value) -> Option<Value> {
     let author = provenance.get("transport")?.get("author")?;
-    let kind = author.get("kind")?.as_str()?;
+    let field = |key: &str| {
+        author
+            .get(key)?
+            .as_str()
+            .filter(|value| value.len() <= MAX_KEY_BYTES && !value.chars().any(char::is_control))
+    };
+    let kind = field("kind")?;
     let mut projected = serde_json::Map::new();
     projected.insert("kind".into(), Value::String(kind.into()));
     match kind {
         "person" => {
-            let account = author.get("account")?.as_str()?;
+            let account = field("account")?;
             projected.insert("account".into(), Value::String(account.into()));
         }
         "agent" => {
-            let session_id = author.get("sessionId")?.as_str()?;
+            let session_id = field("sessionId")?;
             projected.insert("sessionId".into(), Value::String(session_id.into()));
-            for field in ["handle", "name"] {
-                if let Some(value) = author.get(field).and_then(Value::as_str) {
-                    projected.insert(field.into(), Value::String(value.into()));
+            for key in ["handle", "name"] {
+                if let Some(value) = field(key) {
+                    projected.insert(key.into(), Value::String(value.into()));
                 }
             }
         }
