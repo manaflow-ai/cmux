@@ -79,7 +79,6 @@ final class ThemeCoordinator {
     private var accentObservation: Task<Void, Never>?
     private var artAccentObservation: Task<Void, Never>?
     private var machineColorsObservation: Task<Void, Never>?
-    private var contrastObservation: Task<Void, Never>?
 
     /// Follows `appearance.appTheme`: the theme the native chrome (window, sidebar, tab strips, light/dark)
     /// and the pages (`--cmux-app-*`, `WebTheme`) take: the system appearance's variant, its file and edits only
@@ -88,8 +87,7 @@ final class ThemeCoordinator {
         let store = services.themeStore
         // `applied`: a live preview (a theme picker's highlighted row) shows too.
         chromeTheme = settings.applied.chromeTheme
-        store.setAccent(settings.applied.accent)
-        store.setContrastFloor(settings.applied.highContrastLook ? 7 : ThemeTokens.minimumTextContrast)
+        store.setAccent(settings.applied.accent); store.setContrastFloor(settings.applied.highContrastLook ? 7 : ThemeTokens.minimumTextContrast)
         store.setAccentFollowsArt(AccentSetting.followsArt(settings.applied.root))
         applyChromeTheme()
         artAccentObservation = Task { [weak self] in
@@ -105,11 +103,6 @@ final class ThemeCoordinator {
                 self.applyChromeTheme()
             }
         }
-        contrastObservation = Task {
-            for await highContrast in ObservationStream({ settings.applied.highContrastLook }) {
-                store.setContrastFloor(highContrast ? 7 : ThemeTokens.minimumTextContrast)
-            }
-        }
         chromeObservation = Task { [weak self] in
             for await theme in ObservationStream({ settings.applied.chromeTheme }) {
                 guard let self, theme != self.chromeTheme else { continue }
@@ -119,9 +112,7 @@ final class ThemeCoordinator {
         }
         // `appearance.machineColors`: every machine mark reads the store's picks (MachineColor).
         store.setMachineColors(settings.applied.machineColors)
-        machineColorsObservation = Task {
-            for await colors in ObservationStream({ settings.applied.machineColors }) { store.setMachineColors(colors) }
-        }
+        machineColorsObservation = Task { for await values in ObservationStream({ (settings.applied.machineColors, settings.applied.highContrastLook) }) { store.setMachineColors(values.0); store.setContrastFloor(values.1 ? 7 : ThemeTokens.minimumTextContrast) } }
     }
 
     private func applyChromeTheme() {
