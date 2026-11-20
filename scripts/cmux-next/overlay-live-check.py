@@ -18,13 +18,16 @@ import argparse, glob, http.server, json, os, plistlib, signal, socket, subproce
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--idle", type=float, default=10.0)
+parser.add_argument("--app", help="the tagged .app to launch (default: the tag's DerivedData app)")
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="overlay-live-"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import in_tree_mode  # noqa: E402
 in_tree_mode.add_argument(parser)
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
-APP = next(iter(glob.glob(os.path.expanduser(
+# --app: the step's own app. Without it, the tag's DerivedData app, which on a fleet host can be an old local build of
+# the same tag (step 9d6f7f59 on cmux19 ran one that ignored CMUX_IN_TREE_PAGES and reported in_tree off).
+APP = opts.app or next(iter(glob.glob(os.path.expanduser(
     f"~/Library/Developer/Xcode/DerivedData/cmux-{opts.tag}/Build/Products/Debug/cmux DEV {opts.tag}.app"))), None)
 if not APP:
     sys.exit(f"no tagged app for {opts.tag}")
@@ -97,7 +100,7 @@ env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR":
 in_tree_mode.apply(opts.in_tree, env)
 log = open(os.path.join(opts.out, "app.log"), "a")
 app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-report = {"pid": app.pid}
+report = {"pid": app.pid, "app": APP}
 failures = []
 try:
     if not wait(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), 90):

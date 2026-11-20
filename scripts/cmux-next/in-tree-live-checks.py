@@ -36,7 +36,7 @@ with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
     BINARY = os.path.join(opts.app, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 ROWS, RAW = [], {}
-MARKER = "intreefocus0123456789abcdefghijklmnopqr"  # 40 characters, keys debug.key types by name
+MARKER = "intreefocus0123456789abcdefghijklmnopqrs"  # 40 characters, keys debug.key types by name
 assert len(MARKER) == 40
 
 PAGE = """<!doctype html><html><head><title>in-tree probe</title></head>
