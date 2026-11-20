@@ -37,6 +37,30 @@ pub(super) struct Launch {
 }
 
 impl Launch {
+    /// On a bounded launch the supplied prompt may be a pipe whose writer has not arrived.
+    /// Preserve those inputs, including fd 0. This worker only reads and validates: once the
+    /// caller times out it cannot later create a session or submit a prompt. A runtime
+    /// blocking-pool task would hold CLI shutdown open until the writer arrived.
+    pub(super) async fn before_create(
+        args: NewArgs,
+        deadline: Option<Instant>,
+    ) -> Result<(NewArgs, Self)> {
+        let prepare = move || {
+            let launch = Self::prepare(&args)?;
+            Ok((args, launch))
+        };
+        let Some(end) = deadline else { return prepare() };
+        let (send, read) = tokio::sync::oneshot::channel();
+        std::thread::Builder::new().name("acpmux-launch-input".into()).spawn(move || {
+            let _ = send.send(prepare());
+        })?;
+        tokio::time::timeout_at(end, read).await.map_err(|_| {
+            errors::AppError::timeout(
+                "Launch inputs were not ready before the deadline. No session was created.",
+            )
+        })??
+    }
+
     /// Checks the launcher flags and reads the prompt file, before anything
     /// is created; every mistake fails here.
     pub(super) fn prepare(args: &NewArgs) -> Result<Self> {
@@ -543,12 +567,13 @@ fn is_executable_file(path: &Path) -> bool {
 mod tests {
     use super::*;
 
+    #[derive(clap::Parser)]
+    struct New {
+        #[command(flatten)]
+        args: NewArgs,
+    }
+
     fn launch(words: &[&str]) -> Launch {
-        #[derive(clap::Parser)]
-        struct New {
-            #[command(flatten)]
-            args: NewArgs,
-        }
         // A brief of its own per call: tests run in parallel, and a shared
         // file one test rewrites (truncate, then write) reads empty in another.
         let dir = tempfile::tempdir().unwrap();
@@ -558,6 +583,38 @@ mod tests {
         argv.extend(words.iter().map(|w| w.replace("BRIEF", &brief.to_string_lossy())));
         let new = <New as clap::Parser>::try_parse_from(argv).unwrap();
         Launch::prepare(&new.args).unwrap()
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_prompt_pipe_cannot_hold_a_bounded_start_open() {
+        use std::io::Write as _;
+        use std::time::Duration;
+        let dir = tempfile::tempdir().unwrap();
+        let pipe = dir.path().join("brief");
+        assert!(std::process::Command::new("mkfifo").arg(&pipe).status().unwrap().success());
+        let args = <New as clap::Parser>::try_parse_from([
+            "new",
+            "-d",
+            "--machine",
+            "test-lane",
+            "--prompt-file",
+            pipe.to_str().unwrap(),
+        ])
+        .unwrap()
+        .args;
+        let (release, waiting) = std::sync::mpsc::channel::<()>();
+        let writer = std::thread::spawn(move || {
+            let mut file = std::fs::OpenOptions::new().write(true).open(pipe).unwrap();
+            let _ = waiting.recv_timeout(Duration::from_secs(3));
+            file.write_all(b"late prompt").unwrap();
+        });
+        let result =
+            Launch::before_create(args, Some(Instant::now() + Duration::from_millis(150))).await;
+        drop(release);
+        writer.join().unwrap();
+        let error = result.err().expect("a late brief must not proceed to creation");
+        assert!(error.to_string().contains("No session was created"), "{error}");
     }
 
     #[test]

@@ -54,7 +54,7 @@ pub struct NewArgs {
     /// Label the new session (repeatable `key=value`).
     #[arg(long = "tag", value_name = "K=V")]
     pub tags: Vec<String>,
-    /// Do not open the TUI after creating.
+    /// Do not open the TUI after creating. With --machine, startup has a nine-second deadline unless --timeout is given.
     #[arg(long, short)]
     pub detach: bool,
     /// With a prompt: print only the final reply (implied by `acpmux run`).

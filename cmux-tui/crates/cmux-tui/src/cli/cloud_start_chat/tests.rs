@@ -240,6 +240,24 @@ fn no_login_goes_to_start_session() {
     assert!(!fake.ran.iter().flatten().any(|word| word == "--login"), "{:?}", fake.ran);
 }
 
+#[test]
+fn named_cloud_launch_does_not_replay_an_unconfirmed_start() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        Ran { code: 124, stdout: String::new(), stderr: "response lost".into() },
+    ]);
+    let mut req = request(&["--target", "machine:vm-1"]);
+    req.until = Some(fake.now() + Duration::from_secs(9));
+    let Outcome::Failed { error, .. } = run(&mut fake, &req) else {
+        panic!("unconfirmed start succeeded")
+    };
+    assert_eq!(fake.ran.iter().filter(|args| args[1] == "start-session").count(), 1);
+    assert_eq!(error["details"]["start_confirmed"], false);
+    assert_eq!(error["details"]["machine"]["value"], "vm-1");
+    assert_eq!(error["retryable"], false);
+    assert!(error["details"].get("again").is_none());
+}
+
 /// A fake app: answers each step from a queue and records what ran.
 struct Fake {
     answers: VecDeque<Ran>,
@@ -388,7 +406,7 @@ fn started() -> Ran {
 fn started_value() -> Value {
     json!({"machine_id": "vm-1", "machine_name": "chat-fresh", "session_id": "sess-1",
            "host": "registry:x", "agent": "claude", "workspace_id": "ws_1",
-           "tab_id": "tab-1", "target": "machine:vm-1"})
+           "tab_id": "tab-1", "target": "machine:vm-1", "link": "cmux-dev://cloud/session/team/vm-1/sess-1"})
 }
 
 #[test]
@@ -410,6 +428,7 @@ fn a_new_chat_starts_on_a_new_machine_sends_waits_and_answers_the_reply() {
     for (key, value) in [
         ("machine_id", "vm-1"),
         ("session_id", "sess-1"),
+        ("link", "cmux-dev://cloud/session/team/vm-1/sess-1"),
         ("workspace_id", "ws_1"),
         ("tab_id", "tab-1"),
         ("target", "machine:vm-1"),

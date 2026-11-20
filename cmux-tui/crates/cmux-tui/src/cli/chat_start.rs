@@ -40,7 +40,7 @@
 //! by its id.
 
 use std::os::unix::net::UnixStream;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cmux::{CallKind, ChatTarget, ChatTargetRefusal};
 use cmux_json::JsonGet as _;
@@ -51,12 +51,18 @@ use super::cloud_start_chat::{self, Machine};
 use super::{GlobalArgs, OutputMode, UsageError};
 use cmux_cloud_start_core::machine_repo::Repo;
 
+mod acp_io;
+mod launch_speed;
 mod local_repo;
+mod named_launch;
+mod prompt_file;
 
 /// This command's flags that take the next word as their value.
 const TAKES_VALUE: &[&str] = &[
     "--on",
+    "--machine",
     "--prompt",
+    "--prompt-file",
     "-p",
     "--agent",
     "--harness",
@@ -115,6 +121,7 @@ usage: cmux chat [--on TARGET] [--environment ENV] [--harness HARNESS] [--model 
                  [--effort EFFORT] [--mode MODE]
                  [--cwd DIR | --from-folder DIR | --no-folder] [--repo URL] [--name NAME]
                  [--attach FILE]... [-w] [--timeout DURATION] [--json] [[--prompt] TEXT]
+       cmux chat new --machine TARGET --harness HARNESS [--model MODEL] [--fast] [--prompt-file FILE]
 
 Starts an agent chat, right here unless --on names another target:
 
@@ -207,6 +214,8 @@ waits on a permission (chat.permission_waiting), 3 --timeout passed
 pub(super) struct Start {
     /// `--on`'s value, else `CMUX_ON`'s, else the `chat.on` setting's; None is here.
     pub on: Option<String>,
+    named_machine: bool,
+    fast: bool,
     pub agent: Option<String>,
     pub model: Option<String>,
     /// `--effort`: the agent's thinking effort (the composer's effort picker), here and in Cloud.
@@ -224,6 +233,7 @@ pub(super) struct Start {
     pub repo: Option<Repo>,
     pub name: Option<String>,
     pub prompt: Option<String>,
+    prompt_from_file: bool,
     /// `--attach` files for the first prompt (a chat here; a Cloud chat refuses them).
     pub attach: Vec<String>,
     /// `--environment ENV`: the Cloud environment a new machine boots in (`cloud start-chat
@@ -260,6 +270,7 @@ pub(super) enum Route {
 /// `Some(exit code)` when `args` is a chat start: `cmux chat` with no words, `cmux chat new …`,
 /// or `cmux chat` followed by a flag or the prompt. Every other `chat` verb runs where it did.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
+    let began = Instant::now();
     let (mut global, command) = super::parse_globals(args).ok()?;
     let (scope, rest) = command.split_first()?;
     if scope != "chat" {
@@ -269,7 +280,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let words = cloud_start_chat::lift_output_of(rest, &mut global.output, TAKES_VALUE);
     let env = std::env::var(TARGET_ENV).ok();
     let mut unanswered = None;
-    let parsed = parse_with(&words, env, || {
+    let parsed = parse_with(&words, env, began, || {
         setting_target(&global).unwrap_or_else(|error| {
             unanswered = Some(error);
             None
@@ -289,7 +300,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         Ok(Parsed::Run(start)) => start,
         Err(error) => return Some(usage_failure(&error, global.output)),
     };
-    Some(run(&global, start))
+    Some(run(&global, start, began))
 }
 
 /// The start's words after `chat`, or `None` for another chat verb. Anything but a verb (a flag,
@@ -307,7 +318,7 @@ fn start_words(rest: &[String]) -> Option<&[String]> {
 /// CLI runs [`parse_with`].
 #[cfg(test)]
 pub(super) fn parse(words: &[String], env_target: Option<String>) -> Result<Parsed, UsageError> {
-    parse_with(words, env_target, || None)
+    parse_with(words, env_target, Instant::now(), || None)
 }
 
 /// [`parse`], with `setting` the `chat.on` read, called only when neither `--on` nor `CMUX_ON`
@@ -315,10 +326,13 @@ pub(super) fn parse(words: &[String], env_target: Option<String>) -> Result<Pars
 pub(super) fn parse_with(
     words: &[String],
     env_target: Option<String>,
+    began: Instant,
     setting: impl FnOnce() -> Option<String>,
 ) -> Result<Parsed, UsageError> {
     let mut start = Start {
         on: None,
+        named_machine: false,
+        fast: false,
         agent: None,
         model: None,
         effort: None,
@@ -329,6 +343,7 @@ pub(super) fn parse_with(
         repo: None,
         name: None,
         prompt: None,
+        prompt_from_file: false,
         attach: Vec::new(),
         environment: None,
         wait: false,
@@ -368,9 +383,9 @@ pub(super) fn parse_with(
         };
         match flag {
             "-h" | "--help" => return Ok(Parsed::Help),
-            "--on" => {
+            "--on" | "--machine" => {
                 if start.on.is_some() {
-                    return Err(UsageError::new("give --on once"));
+                    return Err(UsageError::new("give the target once (--on or --machine)"));
                 }
                 let on = value()?.trim().to_owned();
                 if on.is_empty() {
@@ -379,10 +394,16 @@ pub(super) fn parse_with(
                     ));
                 }
                 start.on = Some(on);
+                start.named_machine = flag == "--machine";
             }
             "--prompt" | "-p" => {
                 let text = value()?;
                 set_prompt(&mut start.prompt, text)?;
+            }
+            "--prompt-file" => {
+                // The target can follow the file. Defer I/O until all flags are known.
+                set_prompt(&mut start.prompt, value()?)?;
+                start.prompt_from_file = true;
             }
             "--agent" | "--harness" => start.agent = Some(value()?),
             "--model" => start.model = Some(value()?),
@@ -414,6 +435,7 @@ pub(super) fn parse_with(
                 start.environment = Some(environment);
             }
             "--timeout" => start.timeout = Some(value()?),
+            "--fast" => start.fast = true,
             "--wait" | "-w" => start.wait = true,
             "--no-wait" => start.wait = false,
             "--allow-large" => start.allow_large = true,
@@ -429,6 +451,12 @@ pub(super) fn parse_with(
     start.on = pick_target(start.on.take(), env_target, setting);
     if start.on.as_deref() == Some("vm:") {
         return Err(UsageError::new("--on vm: needs new, or a VM's id or name"));
+    }
+    if start.prompt_from_file
+        && let Some(path) = start.prompt.take()
+    {
+        let deadline = named_launch::deadline(&start, began);
+        start.prompt = Some(prompt_file::read_by(path, deadline)?);
     }
     Ok(Parsed::Run(start))
 }
@@ -884,26 +912,26 @@ where
     }
 }
 
-fn run(global: &GlobalArgs, start: Start) -> i32 {
-    let reads = Reads {
-        catalog: || read_catalog(global),
-        signed_in: || cloud_start_chat::app_signed_in(global),
-        cloud_machines: || cloud_start_chat::app_machines(global),
-        peers: || super::agents::chat::chat_peers(global),
-    };
+fn run(global: &GlobalArgs, start: Start, began: Instant) -> i32 {
     // Refused before any target is read, so a signed-out or ambiguous Cloud target says this.
     if start.repo.is_some() && start.on.as_deref().is_some_and(names_cloud) {
         return usage_failure(&UsageError::new(REPO_HERE_ONLY), global.output);
     }
-    let sources = joined::Sources { hub: joined::hub_peers, rows: || joined::account_rows(global) };
-    let route = match route_or_joined(start.on.as_deref(), || route_start(&start, reads), sources) {
-        Ok(route) => route,
+    let deadline = named_launch::deadline(&start, began);
+    let (route, start) = match named_launch::route(global, start, deadline) {
+        Ok(found) => found,
         Err(error) => return super::wire::print_local_error(&error, global.output, 1),
     };
     let route = match in_environment(&start, route) {
         Ok(route) => route,
         Err(error) => return usage_failure(&error, global.output),
     };
+    if start.fast && !matches!(route, Route::Joined(_)) {
+        return usage_failure(
+            &UsageError::new("--fast needs a joined lane machine; use --machine NAME"),
+            global.output,
+        );
+    }
     if route == Route::Here && start.from_folder.is_some() {
         return usage_failure(&UsageError::new(FROM_FOLDER_CLOUD_ONLY), global.output);
     }
@@ -963,9 +991,14 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
         },
         Route::Cloud(machine) => match cloud_words(&start, &machine) {
             Ok(words) => {
-                let parsed = cloud_start_chat::parse(&words, read_stdin);
+                let parsed = cloud_start_chat::parse(&words, || read_prompt(deadline));
                 match parsed {
-                    Ok(cloud_start_chat::Parsed::Run(request)) => {
+                    Ok(cloud_start_chat::Parsed::Run(mut request)) => {
+                        if let Some(end) = deadline {
+                            request.until = Some(end);
+                            request.timeout =
+                                end.saturating_duration_since(std::time::Instant::now());
+                        }
                         cloud_start_chat::start(global, &request)
                     }
                     Ok(cloud_start_chat::Parsed::Help) => {
@@ -982,7 +1015,7 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
             Ok(words) => super::agents::run_if_requested(&words).unwrap_or(2),
             Err(error) => usage_failure(&error, global.output),
         },
-        Route::Joined(machine) => joined::run(global, &start, &machine),
+        Route::Joined(machine) => joined::run(global, &start, &machine, deadline),
     }
 }
 
@@ -1210,7 +1243,9 @@ pub(super) fn here_words(prefix: &[String], start: &Start) -> Result<Vec<String>
 /// The words after `agents chat new` for this start (`-` read from stdin now).
 pub(super) fn new_args(start: &Start) -> Result<Vec<String>, UsageError> {
     let prompt = match &start.prompt {
-        Some(prompt) if prompt == "-" => Some(read_stdin().map_err(UsageError::new)?),
+        Some(prompt) if prompt == "-" && !start.prompt_from_file => {
+            Some(read_stdin().map_err(UsageError::new)?)
+        }
         prompt => prompt.clone(),
     };
     new_words(start, prompt)
@@ -1254,10 +1289,12 @@ pub(super) fn cloud_words(start: &Start, machine: &Machine) -> Result<Vec<String
              nothing was started (put the files in the VM's folder, or start the chat here)",
         ));
     }
-    let Some(prompt) = &start.prompt else {
-        return Err(UsageError::new("a Cloud chat needs a first prompt: --prompt TEXT"));
+    let mut words = match &start.prompt {
+        Some(prompt) if !start.prompt_from_file => vec!["--prompt".to_owned(), prompt.clone()],
+        Some(_) => Vec::new(),
+        None if start.named_machine => Vec::new(),
+        None => return Err(UsageError::new("a Cloud chat needs a first prompt: --prompt TEXT")),
     };
-    let mut words = vec!["--prompt".to_owned(), prompt.clone()];
     match machine {
         Machine::Named(name) => words.extend(["--name".to_owned(), name.clone()]),
         Machine::Target(id) => words.extend(["--target".to_owned(), format!("machine:{id}")]),
@@ -1287,7 +1324,20 @@ pub(super) fn cloud_words(start: &Start, machine: &Machine) -> Result<Vec<String
     if start.no_folder {
         words.push("--no-folder".to_owned());
     }
+    if start.prompt_from_file
+        && let Some(prompt) = &start.prompt
+    {
+        words.extend(["--".to_owned(), prompt.clone()]);
+    }
     Ok(words)
+}
+
+fn read_prompt(deadline: Option<std::time::Instant>) -> Result<String, String> {
+    match deadline {
+        Some(end) => cloud_start_chat::read_prompt_by(std::io::stdin(), end)
+            .map_err(|error| format!("{error}. No chat was started.")),
+        None => read_stdin(),
+    }
 }
 
 pub(super) fn read_stdin() -> Result<String, String> {

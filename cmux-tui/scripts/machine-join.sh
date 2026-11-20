@@ -304,21 +304,24 @@ else
   say "installed acpmux to $acpmux"
 fi
 
-# Best effort: the cmux CLI to ~/.cmux/bin/cmux, as install-static.sh does.
+# The CLI and acpmux must come from the selected channel. The CLI manifest is
+# indexed by the source commit, not the tree key used for the acpmux binary.
 install_cli() {
-  base="$files/latest"
-  fetch "$base/manifest.json" "$tmp/manifest.json" || return 1
+  [ -n "$want" ] || return 1
+  commit="$(json_hex commit "$tmp/channel.json")"
+  [ "${#commit}" -eq 40 ] || return 1
+  fetch "$files/$commit/manifest.json" "$tmp/manifest.json" || return 1
+  [ "$(json_hex commit "$tmp/manifest.json")" = "$commit" ] || return 1
   sum="$(json_hex "cmux-tui-$cli_target" "$tmp/manifest.json")"
-  commit="$(json_hex commit "$tmp/manifest.json")"
-  [ "${#sum}" -eq 64 ] && [ "${#commit}" -eq 40 ] || return 1
+  [ "${#sum}" -eq 64 ] || return 1
   cli="$HOME/.cmux/bin/cmux"
-  if [ -x "$cli" ] && [ "$(sha256 "$cli")" = "$sum" ]; then
-    return 0
+  if [ ! -x "$cli" ] || [ "$(sha256 "$cli")" != "$sum" ]; then
+    fetch "$files/$commit/cmux-tui-$cli_target" "$tmp/cmux" || return 1
+    [ "$(sha256 "$tmp/cmux")" = "$sum" ] || return 1
+    mkdir -p "$HOME/.cmux/bin" && [ ! -d "$cli" ] && install -m 755 "$tmp/cmux" "$cli" || return 1
+    say "installed cmux to $cli"
   fi
-  fetch "$files/$commit/cmux-tui-$cli_target" "$tmp/cmux" || return 1
-  [ "$(sha256 "$tmp/cmux")" = "$sum" ] || return 1
-  mkdir -p "$HOME/.cmux/bin"
-  install -m 755 "$tmp/cmux" "$cli"
+  # A repair can follow a shell change even when the binary is current.
   case ":$PATH:" in
     *":$HOME/.cmux/bin:"*) ;;
     *)
@@ -327,12 +330,14 @@ install_cli() {
         bash) profile="$HOME/.bashrc" ;;
         *) profile="" ;;
       esac
-      if [ -n "$profile" ] && ! grep -F "$HOME/.cmux/bin" "$profile" >/dev/null 2>&1; then
-        printf '\n# cmux\nexport PATH="%s:$PATH"\n' "$HOME/.cmux/bin" >>"$profile"
+      path_line='export PATH="$HOME/.cmux/bin:$PATH"'
+      if [ -n "$profile" ] && ! grep -Fxq -e "$path_line" -e "export PATH=\"$HOME/.cmux/bin:\$PATH\"" "$profile" 2>/dev/null; then
+        if ! printf '\n# cmux\n%s\n' "$path_line" >>"$profile"; then
+          say "warning: could not update $profile; run $cli directly or add its directory to PATH"
+        fi
       fi
       ;;
   esac
-  say "installed cmux to $cli"
 }
 install_cli || say "warning: the cmux CLI did not install (acpmux is enough to join); retry later with the same line without a token"
 

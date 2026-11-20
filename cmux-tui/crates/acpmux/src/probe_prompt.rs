@@ -5,7 +5,7 @@
 //! in Leo's list, the chats it started read "Subagent of · Reply with only: OK", and it
 //! folded under the agent that ran the check. A probe titles no chat (`hub/titles.rs`: the
 //! first real message does), and a one-shot probe from an agent's shell runs ephemeral: its
-//! chat goes after the reply, never kept as the agent's subagent (`cli/run/standard.rs`).
+//! chat goes after the reply, never kept as the agent's subagent (`cli/run/standard/start_session.rs`).
 
 /// The longest prompt that can still be a probe.
 const MAX_CHARS: usize = 80;

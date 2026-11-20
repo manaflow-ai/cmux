@@ -116,7 +116,7 @@ done
 case "\$url" in
   https://files.cmux.com/cmux-tui/channels/*.json) src="\$JT_SERVE/channel.json" ;;
   https://files.cmux.com/cmux-tui/tree/*/cmux-tui-acpmux-*) src="\$JT_SERVE/acpmux" ;;
-  https://files.cmux.com/cmux-tui/latest/manifest.json) src="\$JT_SERVE/manifest.json" ;;
+  https://files.cmux.com/cmux-tui/0bb2eda1a2029e41086d6ef6d2afadd85e99235f/manifest.json) src="\$JT_SERVE/manifest.json" ;;
   https://files.cmux.com/cmux-tui/*/cmux-tui-*) src="\$JT_SERVE/cmux" ;;
   https://claude.ai/install.sh) src="\$JT_SERVE/claude-install.sh" ;;
   *) exit 6 ;;
@@ -275,7 +275,7 @@ EOS
   mkdir -p "$1/codex dir"
   cp "$1/codex" "$1/codex dir/codex"
   c="$(sha "$1/cmux")"
-  printf '{"commit": "a6d89d443f5f9ffb66c296d7a9680e307bbe6c58", "cmux-tui-x86_64-unknown-linux-gnu": "%s", "cmux-tui-aarch64-apple-darwin": "%s"}\n' "$c" "$c" >"$1/manifest.json"
+  printf '{"commit": "0bb2eda1a2029e41086d6ef6d2afadd85e99235f", "cmux-tui-x86_64-unknown-linux-gnu": "%s", "cmux-tui-aarch64-apple-darwin": "%s"}\n' "$c" "$c" >"$1/manifest.json"
 }
 
 # A fresh case: its own HOME, log and fixtures.
@@ -360,6 +360,33 @@ suite() {
   check "replace exit 0 (got $rc)" rc_is 0
   check "replace passes --replace" grep -q -- "--replace" "$d/log/joins"
   check "replace: token on stdin" token_on_stdin_once
+
+  new_case channel-cli
+  run_join env
+  check "joined with selected channel" rc_is 0
+  check "the CLI came from the selected commit" cmp "$d/home/.cmux/bin/cmux" "$d/serve/cmux"
+  check "the binary URL uses the channel commit" grep -Fq '/0bb2eda1a2029e41086d6ef6d2afadd85e99235f/cmux-tui-x86_64-unknown-linux-gnu' "$d/log/argv"
+
+  # The teammate switches to zsh after enrollment. Repair the new profile
+  # without re-downloading the CLI or adding a second entry on the next repair.
+  : >"$d/log/argv"
+  for repair in 1 2; do
+    run_join none SHELL=/bin/zsh
+    check "zsh repair $repair succeeds" rc_is 0
+  done
+  check "new shell can resolve cmux" env -i HOME="$d/home" PATH="$shims" /bin/sh -c '. "$HOME/.zshrc" && [ "$(command -v cmux)" = "$HOME/.cmux/bin/cmux" ]'
+  check "repair adds one PATH entry" test "$(grep -c '^export PATH=' "$d/home/.zshrc")" = 1
+  check "repair did not download the CLI again" eval '! grep -Fq "/cmux-tui-x86_64-unknown-linux-gnu" "$d/log/argv"'
+
+  new_case mismatched-cli-manifest
+  sed 's/0bb2eda1a2029e41086d6ef6d2afadd85e99235f/1111111111111111111111111111111111111111/g' "$d/serve/manifest.json" >"$d/wrong-release"
+  mv "$d/wrong-release" "$d/serve/manifest.json"
+  mkdir -p "$d/home/.cmux/bin"
+  printf 'previous CLI\n' >"$d/home/.cmux/bin/cmux"
+  run_join env
+  check "CLI mismatch does not prevent joining" rc_is 0
+  check "wrong-release CLI did not replace the previous one" grep -Fxq 'previous CLI' "$d/home/.cmux/bin/cmux"
+  check "wrong-release CLI warning is visible" out_has 'the cmux CLI did not install'
 
   # A caller that exported `t` (or `j`) must not get the token exported.
   new_case exported-t

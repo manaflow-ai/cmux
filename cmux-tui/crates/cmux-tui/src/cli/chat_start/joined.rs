@@ -29,7 +29,7 @@ use std::io::Write as _;
 use std::time::{Duration, Instant};
 
 use cmux_json::{JsonGet as _, JsonSet as _};
-use cmux_process::{Command, Stdio};
+use cmux_process::Command;
 use serde_json::{Value, json};
 
 use super::super::agents::turn::Outcome;
@@ -55,6 +55,8 @@ pub(in crate::cli) enum Carrier {
     Hub,
     /// acpmux's own link to it (`acpmux machine add HOST`: ssh or direct).
     Peer,
+    /// Placement picked the local daemon; no peer connection or desktop app is required.
+    Local,
 }
 
 /// A joined machine, or one of acpmux's peers, a chat starts on.
@@ -73,6 +75,7 @@ impl JoinedMachine {
     /// The answer's `placement`: `joined:ID`, `peer:HOST`, or `hub:HOST` with no id.
     pub(in crate::cli) fn placement(&self) -> String {
         match (self.carrier, &self.id) {
+            (Carrier::Local, _) => "here".to_owned(),
             (Carrier::Peer, _) => format!("peer:{}", self.host),
             (Carrier::Hub, Some(id)) => format!("{PREFIX}{id}"),
             (Carrier::Hub, None) => format!("hub:{}", self.host),
@@ -302,27 +305,7 @@ pub(in crate::cli) fn peers_within(limit: Duration) -> Result<Vec<Value>, String
 
 /// The account's joined machines: with `CMUX_CLOUD_ACCESS_TOKEN`, else a token the app mints.
 pub(in crate::cli) fn account_rows(global: &GlobalArgs) -> Result<Vec<Value>, String> {
-    let credential = match crate::cli::joined_machine_credential(None, false)? {
-        Some(credential) => credential,
-        None => app_token(global)?,
-    };
-    crate::cli::joined_machine_rows(None, Some(credential))
-        .unwrap_or_else(|| Err("not signed in".to_owned()))
-}
-
-/// A short-lived token from the cmux app's sign-in (`auth.token`, as `cmux auth token`); also
-/// `automation create --webhook --on cloud`.
-pub(in crate::cli) fn app_token(global: &GlobalArgs) -> Result<String, String> {
-    const TIMEOUT: Duration = Duration::from_secs(30);
-    let mut stream = super::super::app::connect_command(global)
-        .map_err(|_| "not signed in: no CMUX_CLOUD_ACCESS_TOKEN and no cmux app".to_owned())?;
-    let params = Value::Object(super::super::auth_token::request(None));
-    let answer = super::super::app::request(&mut stream, "auth.token", params, TIMEOUT)?.map_err(
-        |error| error.get("message").and_then(Value::as_str).unwrap_or("not signed in").to_owned(),
-    )?;
-    super::super::auth_token::token_line(&answer)
-        .map(|line| line.trim().to_owned())
-        .ok_or_else(|| "the cmux app gave no token".to_owned())
+    crate::cli::machine_join::account_rows(global, &Default::default())
 }
 
 /// The chat's name on the machine: `--name`, else a few words of the prompt, with four letters
@@ -355,7 +338,7 @@ fn letters() -> String {
     bytes.iter().map(|byte| char::from(b'a' + byte % 26)).collect()
 }
 
-/// `acp session start …`'s words for this start on a joined machine, `acp new --machine …`'s on
+/// `acp session start …`'s words for this start on a joined machine, `acp new-session --machine …`'s on
 /// a peer. A bad `--wait`/`--timeout` is refused here, before anything starts.
 pub(in crate::cli) fn start_words(
     start: &Start,
@@ -375,8 +358,9 @@ pub(in crate::cli) fn start_words(
         Carrier::Hub => {
             ["session", "start", name, "--machine", &machine.host].map(str::to_owned).to_vec()
         }
-        Carrier::Peer => {
-            ["new", "--machine", &machine.host, "-n", name, "-d"].map(str::to_owned).to_vec()
+        Carrier::Peer | Carrier::Local => {
+            let selector = if machine.carrier == Carrier::Local { "local" } else { &machine.host };
+            ["new-session", "--machine", selector, "-n", name, "-d"].map(str::to_owned).to_vec()
         }
     };
     let harness = match (&start.agent, &start.model) {
@@ -413,26 +397,43 @@ pub(in crate::cli) fn settled(receipt: &Value) -> Settled {
 }
 
 /// Starts the chat on `machine` and sends its first prompt; prints the answer.
-pub(in crate::cli) fn run(global: &GlobalArgs, start: &Start, machine: &JoinedMachine) -> i32 {
+pub(in crate::cli) fn run(
+    global: &GlobalArgs,
+    start: &Start,
+    machine: &JoinedMachine,
+    deadline: Option<Instant>,
+) -> i32 {
     let name = chat_name(start, &letters());
     let words = match start_words(start, machine, &name) {
         Ok(words) => words,
         Err(error) => return super::usage_failure(&error, global.output),
     };
     let prompt = match start.prompt.as_deref() {
-        Some("-") => match super::read_stdin() {
+        Some("-") if !start.prompt_from_file => match super::read_prompt(deadline) {
             Ok(text) => Some(text),
             Err(error) => return super::usage_failure(&UsageError::new(error), global.output),
         },
         other => other.map(str::to_owned),
     };
     let words: Vec<&str> = words.iter().map(String::as_str).collect();
-    let target = format!("{}/{name}", machine.host);
+    let target = if machine.carrier == Carrier::Local {
+        name.clone()
+    } else {
+        format!("{}/{name}", machine.host)
+    };
     let prompt = prompt.filter(|prompt| !prompt.trim().is_empty());
     let receipt = machine.carrier == Carrier::Hub;
+    let budget =
+        deadline.map_or(START_DEADLINE, |end| end.saturating_duration_since(Instant::now()));
     let started = start_chat(
-        &Steps { words: &words, target: &target, prompt: prompt.as_deref(), receipt },
-        START_DEADLINE,
+        &Steps {
+            words: &words,
+            target: &target,
+            prompt: prompt.as_deref(),
+            receipt,
+            fast: start.fast,
+        },
+        budget,
         RECEIPT_POLL,
         acp_json,
     );
@@ -442,7 +443,30 @@ pub(in crate::cli) fn run(global: &GlobalArgs, start: &Start, machine: &JoinedMa
     };
     // `cmux chat send TEXT` (no SESSION) goes on with this chat, as after a start here.
     super::super::last_chat::remember(&target, None);
-    let answer = start_answer(machine, &target, started, sent);
+    let mut answer = start_answer(machine, &target, started, sent);
+    if let Some(end) = deadline
+        && answer["link"].is_null()
+        && let Some(expected) = answer.get_str("remote_session_id")
+    {
+        let left = end.saturating_duration_since(Instant::now()).min(Duration::from_secs(1));
+        if !left.is_zero()
+            && let Ok(record) = acp_json(&["session", "info", &target, "--json"], None, left)
+            && record.get_str("sessionId") == Some(expected)
+        {
+            answer["link"] = json!(acpmux::agent_link::AgentLink::from_start_record(
+                &record,
+                Some(&machine.host),
+                &name
+            ));
+        }
+    }
+    if deadline.is_some() && answer["link"].is_null() {
+        return fail(
+            global,
+            json!({"code":"chat.link_pending", "retryable":false,
+            "message":format!("{target} started, but its harness session link is not available yet. Inspect it with `cmux acp session info {target}`; do not start another chat."), "details":answer}),
+        );
+    }
     // `--wait`: the turn the first prompt started, its reply printed as a chat here prints it.
     if let Ok(Some(timeout)) = super::here_wait(start)
         && answer.get("prompt").is_some_and(|sent| !sent.is_null())
@@ -454,6 +478,9 @@ pub(in crate::cli) fn run(global: &GlobalArgs, start: &Start, machine: &JoinedMa
         OutputMode::Human => {
             let mut out = std::io::stdout().lock();
             let _ = writeln!(out, "{target} started on {}", machine.name);
+            if let Some(link) = answer.get_str("link") {
+                let _ = writeln!(out, "{link}");
+            }
             let _ = writeln!(out, "send: cmux chat send {target} 'TEXT'");
             let _ = writeln!(out, "read: cmux acp last {target}");
             0
@@ -471,9 +498,12 @@ pub(in crate::cli) fn start_answer(
     started: Value,
     sent: Option<Value>,
 ) -> Value {
+    let name = target.rsplit('/').next().unwrap_or(target);
+    let link =
+        acpmux::agent_link::AgentLink::from_start_record(&started, Some(&machine.host), name);
     let (remote_session_id, started) = match machine.carrier {
         Carrier::Hub => (started.get_str("detail").map(str::to_owned), started),
-        Carrier::Peer => {
+        Carrier::Peer | Carrier::Local => {
             let id = started.get_str("sessionId").map(str::to_owned);
             let name = started.get_str("name").map(str::to_owned);
             (id.clone(), json!({"sessionId": id, "name": name}))
@@ -484,6 +514,7 @@ pub(in crate::cli) fn start_answer(
         "machine": {"id": machine.id, "name": machine.name, "host": machine.host},
         "placement": machine.placement(),
         "remote_session_id": remote_session_id,
+        "link": link,
         "start": started,
         "prompt": sent,
         "next": {
@@ -654,6 +685,7 @@ pub(in crate::cli) struct Steps<'a> {
     pub target: &'a str,
     pub prompt: Option<&'a str>,
     pub receipt: bool,
+    pub fast: bool,
 }
 
 /// Runs `steps` through `acp` (`cmux acp WORDS` with a stdin, for at most a limit: [`acp_json`]
@@ -679,12 +711,24 @@ where
         Some(left) => acp(words, stdin, left),
         None => Err(error("acpmux.timeout", "the start's deadline passed", true)),
     };
-    let enqueued = call(steps.words, None).map_err(|e| late(e, || not_taken(limit, None)))?;
+    if limit.is_zero() {
+        return Err(error(
+            "chat_target.unavailable",
+            "No time remained to start the chat; no request was sent",
+            true,
+        ));
+    }
+    let enqueued = call(steps.words, None).map_err(|e| {
+        late(e, || uncertain_start(steps.target, None, &format!("after {}s", limit.as_secs())))
+    })?;
     let receipt = if steps.receipt {
-        wait_started(&enqueued, deadline, limit, poll, &mut call)?
+        wait_started(&enqueued, steps.target, deadline, limit, poll, &mut call)?
     } else {
         enqueued
     };
+    if steps.fast {
+        super::launch_speed::enable(steps.target, &receipt, &mut call)?;
+    }
     let Some(prompt) = steps.prompt else { return Ok((receipt, None)) };
     let id = prompt_id();
     let words = send_words(steps.target, &id);
@@ -700,6 +744,7 @@ where
 /// until `deadline`.
 fn wait_started<C>(
     enqueued: &Value,
+    target: &str,
     deadline: Instant,
     limit: Duration,
     poll: Duration,
@@ -709,7 +754,7 @@ where
     C: FnMut(&[&str], Option<&str>) -> Result<Value, Value>,
 {
     let Some(id) = enqueued.get_str("messageId").map(str::to_owned) else {
-        return Err(error("acpmux.invalid_response", "acpmux's start answered no receipt", false));
+        return Err(uncertain_start(target, None, "because the machine returned no receipt"));
     };
     let mut receipt = enqueued.clone();
     loop {
@@ -725,13 +770,26 @@ where
             Settled::Pending => {
                 let left = deadline.saturating_duration_since(Instant::now());
                 if left.is_zero() {
-                    return Err(not_taken(limit, Some(&id)));
+                    return Err(uncertain_start(
+                        target,
+                        Some(&id),
+                        &format!("after {}s", limit.as_secs()),
+                    ));
                 }
                 std::thread::sleep(poll.min(left));
             }
         }
-        receipt = call(&["session", "receipt", &id, "--json"], None)
-            .map_err(|e| late(e, || not_taken(limit, Some(&id))))?;
+        receipt = call(&["session", "receipt", &id, "--json"], None).map_err(|e| {
+            let why = if e.get_str("code") == Some("acpmux.timeout") {
+                format!("after {}s", limit.as_secs())
+            } else {
+                format!(
+                    "because the receipt could not be read: {}",
+                    e.get_str("message").unwrap_or("connection lost")
+                )
+            };
+            uncertain_start(target, Some(&id), &why)
+        })?;
     }
 }
 
@@ -740,16 +798,15 @@ fn late(error: Value, instead: impl FnOnce() -> Value) -> Value {
     if error.get_str("code") == Some("acpmux.timeout") { instead() } else { error }
 }
 
-/// The machine did not take the chat by the deadline (it may still: `id` is its receipt).
-fn not_taken(limit: Duration, id: Option<&str>) -> Value {
-    let receipt = id
-        .map(|id| format!("; `cmux acp session receipt {id}` says when it does"))
-        .unwrap_or_default();
-    error(
-        "chat_target.unavailable",
-        &format!("the machine has not taken the chat after {}s{receipt}", limit.as_secs()),
-        true,
-    )
+/// The create may already have reached the host. Inspect it before issuing another create.
+fn uncertain_start(target: &str, id: Option<&str>, why: &str) -> Value {
+    let next = match id {
+        Some(id) => format!("cmux acp session receipt {id}"),
+        None => format!("cmux acp session info {target}"),
+    };
+    json!({"code":"chat_target.unavailable", "retryable":false,
+        "message":format!("Could not confirm the start of {target} {why}. Check `{next}` before starting another chat."),
+        "details":{"session_id":target, "receipt_id":id, "next":next}})
 }
 
 /// `what` (a prompt to `target`) was not confirmed within `limit`. It may have been delivered,
@@ -810,7 +867,11 @@ pub(in crate::cli) fn fail(global: &GlobalArgs, error: Value) -> i32 {
 
 /// `cmux acp WORDS` (this binary's acpmux) for at most `limit`: its stdout's last JSON line, or
 /// the failure.
-fn acp_json(words: &[&str], stdin: Option<&str>, limit: Duration) -> Result<Value, Value> {
+pub(super) fn acp_json(
+    words: &[&str],
+    stdin: Option<&str>,
+    limit: Duration,
+) -> Result<Value, Value> {
     let exe = std::env::current_exe()
         .map_err(|e| error("acpmux.unreachable", &format!("cannot find cmux: {e}"), true))?;
     let mut command = Command::new(exe);
@@ -835,58 +896,20 @@ pub(in crate::cli) fn acp_command(mut command: Command, words: &[&str]) -> Comma
 /// process group (dropping its `Child` sends SIGTERM, then SIGKILL) and the answer is
 /// `acpmux.timeout`.
 pub(in crate::cli) fn run_acp(
-    mut command: Command,
+    command: Command,
     words: &[&str],
     stdin: Option<&str>,
     limit: Duration,
 ) -> Result<Value, Value> {
-    // Its own process group: at the limit the group is ended, with anything it started that
-    // still holds its pipes.
-    command
-        .process_group(0)
-        .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let mut child = command
-        .spawn()
-        .map_err(|e| error("acpmux.unreachable", &format!("cannot run cmux acp: {e}"), true))?;
-    let stdin_pipe = child.stdin.take();
-    // The prompt is written and both pipes are read on threads this scope owns, so the wait is
-    // the only thing bounded: a child that never reads its stdin cannot hold a prompt larger
-    // than a pipe (about 64 KiB) past the limit (#38355 review), and a full pipe never stalls
-    // the child. At the limit the child's whole group is ended (it leads one), its pipes close
-    // and the writer and the readers end with it.
-    let finished = std::thread::scope(|scope| {
-        let writer = stdin.zip(stdin_pipe).map(|(text, mut pipe)| {
-            scope.spawn(move || {
-                // Its end closes when the thread does: the child reads to the end of the prompt.
-                let _ = pipe.write_all(text.as_bytes());
-            })
-        });
-        let read = |pipe: Option<Box<dyn std::io::Read + Send>>| {
-            scope.spawn(move || {
-                let mut bytes = Vec::new();
-                if let Some(mut pipe) = pipe {
-                    let _ = std::io::Read::read_to_end(&mut pipe, &mut bytes);
-                }
-                bytes
-            })
-        };
-        let stdout = read(child.stdout.take().map(|pipe| Box::new(pipe) as _));
-        let stderr = read(child.stderr.take().map(|pipe| Box::new(pipe) as _));
-        let status = child.wait_timeout(limit);
-        if !matches!(status, Ok(Some(_))) {
-            drop(child);
-        }
-        if let Some(writer) = writer {
-            let _ = writer.join();
-        }
-        (status, stdout.join().unwrap_or_default(), stderr.join().unwrap_or_default())
-    });
-    let (out_bytes, err_bytes) = match finished {
-        (Ok(Some(status)), out, err) if status.success() => (out, Ok(err)),
-        (Ok(Some(_)), out, err) => (out, Err(err)),
-        (Ok(None), _, _) => {
+    let (out_bytes, err_bytes) = match super::acp_io::output(command, stdin, limit) {
+        Ok(output) if output.status.success() => (output.stdout, Ok(output.stderr)),
+        Ok(output) => (output.stdout, Err(output.stderr)),
+        Err(e)
+            if matches!(
+                e.kind(),
+                std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+            ) =>
+        {
             return Err(error(
                 "acpmux.timeout",
                 &format!(
@@ -897,7 +920,7 @@ pub(in crate::cli) fn run_acp(
                 true,
             ));
         }
-        (Err(e), _, _) => {
+        Err(e) => {
             return Err(error(
                 "acpmux.unreachable",
                 &format!("cmux acp did not finish: {e}"),
@@ -913,6 +936,21 @@ pub(in crate::cli) fn run_acp(
     });
     if let Err(err_bytes) = err_bytes {
         let stderr = String::from_utf8_lossy(&err_bytes).trim().to_owned();
+        // The legacy create can hit its own deadline just before its parent does. Treat an
+        // uncertain create the same whichever clock fires first; never encourage a duplicate.
+        if matches!(words.first().copied(), Some("new-session" | "new"))
+            && let Ok(envelope) = serde_json::from_str::<Value>(&stderr)
+            && matches!(
+                envelope.pointer("/error/detail").and_then(Value::as_str),
+                Some("start_unconfirmed" | "peer_start_timeout")
+            )
+        {
+            return Err(error(
+                "acpmux.timeout",
+                "The machine has not confirmed the chat start.",
+                false,
+            ));
+        }
         let message = if stderr.is_empty() { stdout.trim().to_owned() } else { stderr };
         let mut failure =
             error("acpmux.failed", &format!("cmux acp {}: {message}", words.join(" ")), false);

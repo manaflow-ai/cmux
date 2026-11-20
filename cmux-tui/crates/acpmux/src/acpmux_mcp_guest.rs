@@ -127,7 +127,7 @@ fn session_name(name: &str) -> String {
 
 /// What `new` runs for guest `app`: the session's name, the argv after the binary, and the
 /// prompt, which goes on stdin (`--prompt-file -`) so a detached `--json new` returns once the
-/// session exists instead of waiting for its reply (`cli/run/standard.rs` `one_shot`). Or the
+/// session exists instead of waiting for its reply (`cli/run/standard/start_session.rs` `one_shot`). Or the
 /// refusal.
 pub(super) fn new_argv(app: &str, args: &Value) -> Result<(String, Vec<String>, String), String> {
     let Some(prompt) = args.get("prompt").and_then(Value::as_str).filter(|p| !p.trim().is_empty())
@@ -169,16 +169,11 @@ pub(super) fn new_argv(app: &str, args: &Value) -> Result<(String, Vec<String>, 
     if args.get("showInCmux").and_then(Value::as_bool) == Some(true) {
         argv.extend(["--group".to_owned(), label.to_owned()]);
     }
-    // The task is the app's message, never the person's words (`cli/run/standard.rs`
+    // The task is the app's message, never the person's words (`cli/run/standard/start_session.rs`
     // `first_prompt_id`): the session's agent reads who sent it.
     argv.extend(["--from".to_owned(), label.to_owned()]);
     argv.extend(["--prompt-file".to_owned(), "-".to_owned()]);
     Ok((name, argv, prompt.to_owned()))
-}
-
-/// The harness a link names for a session's harness or profile name (`claude-opus` is Claude).
-fn link_harness(harness: &str) -> &str {
-    ["claude", "codex"].into_iter().find(|h| harness.starts_with(h)).unwrap_or(harness)
 }
 
 /// What `new` answers for the CLI's `--json` record of the created session.
@@ -186,17 +181,7 @@ pub(super) fn new_result(name: &str, record: &Value) -> Value {
     let id = record["sessionId"].as_str().unwrap_or_default();
     let peer = record["peer"].as_str().filter(|p| !p.is_empty());
     let shown = record["name"].as_str().unwrap_or(name);
-    let harness = record["harness"].as_str().or_else(|| record["agent"].as_str()).unwrap_or("");
-    let link = record["agentSessionId"].as_str().and_then(|session| {
-        crate::agent_link::AgentLink {
-            harness: link_harness(harness).to_owned(),
-            session: session.to_owned(),
-            host: peer.map(str::to_owned),
-            name: Some(shown.to_owned()),
-            ..Default::default()
-        }
-        .web_url()
-    });
+    let link = crate::agent_link::AgentLink::from_start_record(record, peer, shown);
     let at = peer.map(|p| format!(" on {p}")).unwrap_or_default();
     let mut text = format!("Started {shown}{at} ({id}).");
     match &link {

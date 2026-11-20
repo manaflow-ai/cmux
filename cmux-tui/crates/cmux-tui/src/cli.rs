@@ -1328,7 +1328,8 @@ fn scan_globals(
             index += 1;
             continue;
         }
-        if machine_flag == MachineFlag::Command
+        if (machine_flag == MachineFlag::Command
+            || command.get(..2).is_some_and(|words| words == ["chat", "new"]))
             && !command.is_empty()
             && (value == "--machine" || value.starts_with("--machine="))
         {

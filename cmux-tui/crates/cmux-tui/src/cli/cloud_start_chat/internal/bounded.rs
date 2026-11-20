@@ -251,7 +251,7 @@ pub(in crate::cli::cloud_start_chat) fn remote_script(
 }
 
 /// All of `reader` (stdin), by `until`, read on this thread: past it the read stops waiting and is an error.
-pub(in crate::cli::cloud_start_chat) fn read_by(
+pub(in crate::cli) fn read_by(
     reader: impl std::os::fd::AsFd,
     until: Instant,
 ) -> Result<String, String> {
@@ -303,7 +303,8 @@ mod tests {
     fn a_stdin_read_stops_at_the_deadline() {
         use std::io::Write as _;
         // A pipe nobody closes: its reader never sees an end.
-        let (reader, writer) = std::io::pipe().unwrap();
+        let (reader, mut writer) = std::io::pipe().unwrap();
+        writer.write_all(b"partial prompt").unwrap();
         let began = Instant::now();
         assert!(read_by(&reader, began + Duration::from_millis(200)).is_err());
         assert!(began.elapsed() < Duration::from_secs(5), "{:?}", began.elapsed());

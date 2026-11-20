@@ -17,6 +17,145 @@ fn words(list: &[&str]) -> Vec<String> {
     list.iter().map(|word| (*word).to_owned()).collect()
 }
 
+#[test]
+fn named_cloud_and_auto_targets_share_the_launch_budget() {
+    for target in ["auto", "lane-1", "vm:vm-1", "vm", "cloud", "joined:abc"] {
+        assert!(
+            super::named_launch::deadline(
+                &start(&["--machine", target]),
+                std::time::Instant::now()
+            )
+            .is_some()
+        );
+        assert!(
+            super::named_launch::deadline(&start(&["--on", target]), std::time::Instant::now())
+                .is_none()
+        );
+    }
+    let local = JoinedMachine {
+        id: None,
+        name: "picked-vm".into(),
+        host: "picked-vm".into(),
+        carrier: Carrier::Local,
+    };
+    let args =
+        joined::start_words(&start(&["--machine", "auto", "--harness", "codex"]), &local, "demo")
+            .unwrap();
+    assert_eq!(
+        args,
+        words(&["new-session", "--machine", "local", "-n", "demo", "-d", "-m", "codex", "--json"])
+    );
+}
+
+#[test]
+fn automatic_placement_with_wait_keeps_the_start_budget_and_turn_timeout() {
+    for wait in [false, true] {
+        for local in [false, true] {
+            let args = if wait {
+                vec!["--machine", "auto", "--wait", "--timeout", "45", "go"]
+            } else {
+                vec!["--machine", "auto", "go"]
+            };
+            let request = start(&args);
+            let began = std::time::Instant::now();
+            let end = super::named_launch::deadline(&request, began)
+                .expect("automatic placement keeps its startup deadline with --wait");
+            let calls = Cell::new(0);
+            let (route, placed) = super::named_launch::find_with(
+                request,
+                end,
+                |left| {
+                    calls.set(calls.get() + 1);
+                    assert!(!left.is_zero() && left <= acpmux::launch_contract::NAMED_START_LIMIT);
+                    Ok(json!({"pick":"chosen-machine", "local":local}))
+                },
+                |placed| {
+                    assert!(!local, "a local placement does not query the remote catalog");
+                    assert_eq!(placed.on.as_deref(), Some("chosen-machine"));
+                    Ok(Route::Peer("chosen-machine".into()))
+                },
+            )
+            .unwrap();
+            assert_eq!(calls.get(), 1);
+            if local {
+                assert!(matches!(route, Route::Joined(machine)
+                    if machine.host == "chosen-machine" && machine.carrier == Carrier::Local));
+            } else {
+                assert_eq!(route, Route::Peer("chosen-machine".into()));
+            }
+            assert_eq!(placed.wait, wait);
+            assert_eq!(here_wait(&placed).unwrap(), wait.then(|| Duration::from_secs(45)));
+        }
+    }
+}
+
+#[test]
+fn a_named_start_never_opens_the_prompt_file_after_its_deadline() {
+    let began = std::time::Instant::now() - acpmux::launch_contract::NAMED_START_LIMIT;
+    for args in [
+        ["--machine", "lane", "--prompt-file", "/not-a-real-prompt"],
+        ["--prompt-file", "/not-a-real-prompt", "--machine", "lane"],
+    ] {
+        let err =
+            parse_with(&words(&args), None, began, || panic!("explicit machine")).unwrap_err();
+        assert!(err.0.contains("No chat was started"), "{err:?}");
+    }
+}
+
+#[test]
+fn named_launch_routes_the_prompt_file_to_the_requested_machine() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(file.path(), "--model\nDo the work.\n").unwrap();
+    let path = file.path().to_str().unwrap();
+    for selector in [vec!["--machine", "test-lane"], vec!["--machine=test-lane"]] {
+        let mut args = vec!["chat", "new"];
+        args.extend(selector);
+        args.extend(["--harness", "codex", "--model", "example", "--prompt-file", path]);
+        let (global, command) = super::super::parse_globals(&words(&args)).ok().unwrap();
+        assert!(global.machine.is_none());
+        let parsed = start(&command[2..].iter().map(String::as_str).collect::<Vec<_>>());
+        assert_eq!(parsed.on.as_deref(), Some("test-lane"));
+        assert_eq!(parsed.agent.as_deref(), Some("codex"));
+        assert_eq!(parsed.model.as_deref(), Some("example"));
+        assert_eq!(parsed.prompt.as_deref(), Some("--model\nDo the work.\n"));
+    }
+    std::fs::write(file.path(), "-").unwrap();
+    let parsed = start(&["--prompt-file", path]);
+    assert_eq!(new_args(&parsed).unwrap(), words(&["--", "-"]));
+    let args = cloud_words(&parsed, &Machine::New).unwrap();
+    let super::super::cloud_start_chat::Parsed::Run(req) =
+        super::super::cloud_start_chat::parse(&args, || panic!("file content must not read stdin"))
+            .unwrap()
+    else {
+        panic!("expected chat start")
+    };
+    assert_eq!(req.prompt.as_deref(), Some("-"));
+    assert!(parse(&words(&["--on", "a", "--machine", "b"]), None).is_err());
+    assert!(parse(&words(&["--prompt-file", path, "--prompt", "two"]), None).is_err());
+    std::fs::write(file.path(), " \n").unwrap();
+    assert!(parse(&words(&["--prompt-file", path]), None).is_err());
+}
+
+#[test]
+fn named_launch_links_use_the_harness_id_on_the_selected_host() {
+    let machine = JoinedMachine {
+        id: None,
+        name: "build".into(),
+        host: "build".into(),
+        carrier: Carrier::Peer,
+    };
+    let record =
+        json!({"sessionId":"mux-1", "agentSessionId":"agent-2", "harness":"codex", "name":"demo"});
+    let answer = joined::start_answer(&machine, "build/demo", record, None);
+    assert_eq!(answer["remote_session_id"], "mux-1");
+    assert_eq!(
+        answer["link"],
+        "https://cmux.com/deeplink/agent?harness=codex&session=agent-2&host=build&name=demo"
+    );
+    let pending = joined::start_answer(&machine, "build/demo", json!({"sessionId":"mux-1"}), None);
+    assert!(pending["link"].is_null());
+}
+
 fn start(list: &[&str]) -> Start {
     match parse(&words(list), None).unwrap() {
         Parsed::Run(start) => start,
@@ -189,7 +328,9 @@ fn cmux_chat_reads_the_setting_only_without_on_and_cmux_on() {
             read.set(true);
             Some("cloud".to_owned())
         };
-        match parse_with(&words(list), env.map(str::to_owned), setting).unwrap() {
+        match parse_with(&words(list), env.map(str::to_owned), std::time::Instant::now(), setting)
+            .unwrap()
+        {
             Parsed::Run(start) => (start.on, read.get()),
             Parsed::Help => (None, read.get()),
         }
@@ -198,7 +339,10 @@ fn cmux_chat_reads_the_setting_only_without_on_and_cmux_on() {
     assert_eq!(on(&["--on", "here", "hi"], None), (Some("here".into()), false));
     assert_eq!(on(&["hi"], Some("vm:dev")), (Some("vm:dev".into()), false));
     assert_eq!(on(&["--help"], None), (None, false));
-    assert!(parse_with(&words(&["hi"]), None, || Some("vm:".into())).is_err());
+    assert!(
+        parse_with(&words(&["hi"]), None, std::time::Instant::now(), || Some("vm:".into()))
+            .is_err()
+    );
 }
 
 #[test]
@@ -1200,6 +1344,19 @@ fn a_cmux_acp_that_hangs_ends_with_a_timeout_error() {
     assert!(began.elapsed() < Duration::from_secs(20), "{:?}", began.elapsed());
 }
 
+/// The launcher may already have exited successfully while a background process still owns
+/// both output descriptors. A JSON fragment before EOF is not a confirmed response.
+#[test]
+fn a_descendant_holding_launch_output_cannot_extend_the_deadline() {
+    let mut command = cmux_process::Command::new("/bin/sh");
+    command.args(["-c", "sleep 6 & echo '{}'"]);
+    let began = std::time::Instant::now();
+    let error =
+        joined::run_acp(command, &["host", "ls"], None, Duration::from_millis(300)).unwrap_err();
+    assert_eq!(error["code"], "acpmux.timeout", "{error}");
+    assert!(began.elapsed() < Duration::from_secs(3));
+}
+
 /// #38355 review 2a: without the account's list nothing says a machine the hub lists is still
 /// the person's (the hub may list a revoked one), so it is refused as unverified, never started
 /// on with no id.
@@ -1273,6 +1430,7 @@ fn two_slow_calls_end_at_the_one_start_deadline() {
         target: "studio/n",
         prompt: Some("go"),
         receipt: true,
+        fast: false,
     };
     let limit = Duration::from_secs(1);
     let began = std::time::Instant::now();
@@ -1290,6 +1448,37 @@ fn two_slow_calls_end_at_the_one_start_deadline() {
     let calls = calls.into_inner();
     assert!(calls.len() >= 2, "{calls:?}");
     assert!(calls.iter().skip(1).all(|(_, left)| *left < Duration::from_millis(200)), "{calls:?}");
+}
+
+#[test]
+fn a_lost_create_receipt_never_invites_a_second_launch() {
+    let steps = joined::Steps {
+        words: &["session", "start"],
+        target: "studio/n",
+        prompt: Some("go"),
+        receipt: true,
+        fast: false,
+    };
+    for queued in [false, true] {
+        let mut calls = Vec::new();
+        let error = joined::start_chat(&steps, Duration::from_secs(9), Duration::ZERO, |words, _, _| {
+            calls.push(words.join(" "));
+            if words == steps.words && queued {
+                Ok(json!({"messageId":"m1", "state":"queued"}))
+            } else if queued {
+                Err(json!({"code":"acpmux.unreachable", "message":"hub disconnected", "retryable":true}))
+            } else {
+                Err(json!({"code":"acpmux.timeout", "retryable":true}))
+            }
+        }).unwrap_err();
+        assert_eq!(error["retryable"], false);
+        assert_eq!(error["details"]["session_id"], "studio/n");
+        assert_eq!(
+            error["details"]["next"],
+            if queued { "cmux acp session receipt m1" } else { "cmux acp session info studio/n" }
+        );
+        assert_eq!(calls.len(), if queued { 2 } else { 1 });
+    }
 }
 
 /// #38355 review 4: a first prompt whose send timed out answered `retryable: true`, but it may
@@ -1311,6 +1500,7 @@ fn a_first_prompt_not_confirmed_in_time_is_not_retryable() {
         target: "studio/n",
         prompt: Some("go"),
         receipt: true,
+        fast: false,
     };
     // The start answers at once; the send takes longer than the deadline.
     let mut acp = slow_acp(Duration::ZERO, started, &calls);
@@ -1436,7 +1626,7 @@ fn a_machine_acpmux_reaches_itself_is_a_chat_target() {
     assert!(matches!(found, Ok(Route::Joined(JoinedMachine { carrier: Carrier::Peer, .. }))));
 }
 
-/// The start on a peer is acpmux's own `new --machine HOST`, detached, with the harness and
+/// The start on a peer is acpmux's own `new-session --machine HOST`, detached, with the harness and
 /// folder; it answers once the session runs, so no receipt is read.
 #[test]
 fn a_peer_start_is_acpmuxs_new_on_that_machine() {
@@ -1446,7 +1636,7 @@ fn a_peer_start_is_acpmuxs_new_on_that_machine() {
     assert_eq!(
         joined::start_words(&full, &machine, "n").unwrap(),
         words(&[
-            "new",
+            "new-session",
             "--machine",
             "gcp-agent-lane-3",
             "-n",
@@ -1461,15 +1651,16 @@ fn a_peer_start_is_acpmuxs_new_on_that_machine() {
     );
     let calls = std::cell::RefCell::new(Vec::new());
     let answers = |words: &[&str]| match words.first() {
-        Some(&"new") => json!({"sessionId": "s-1", "name": "n", "state": "ready"}),
+        Some(&"new-session") => json!({"sessionId": "s-1", "name": "n", "state": "ready"}),
         Some(&"send") => json!({"status": "delivered"}),
         other => panic!("{other:?} called"),
     };
     let steps = joined::Steps {
-        words: &["new", "--machine", "gcp-agent-lane-3", "-n", "n", "-d", "--json"],
+        words: &["new-session", "--machine", "gcp-agent-lane-3", "-n", "n", "-d", "--json"],
         target: "gcp-agent-lane-3/n",
         prompt: Some("go"),
         receipt: false,
+        fast: false,
     };
     let (started, sent) = joined::start_chat(
         &steps,

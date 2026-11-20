@@ -352,6 +352,10 @@ export class AcpmuxPerf {
     for (const [name, at] of Object.entries(this.agentMarks)) {
       if (at === undefined) continue;
       value[`${name}_ms`] = round2(start === undefined ? at : at - start);
+      // The launch click is in a different view on this Mac. Preserve the chat's time origin
+      // so its first assistant chunk can be timed from that click, including startup.
+      if (name === "firstToken" || name === "composerReady")
+        value[`${name}_epoch_ms`] = round2(performance.timeOrigin + at);
     }
     if (start !== undefined && this.agentMarks.composerReady !== undefined)
       value.composer_ready_ms = round2(this.agentMarks.composerReady - start);

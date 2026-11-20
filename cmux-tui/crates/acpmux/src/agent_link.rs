@@ -17,6 +17,28 @@ pub struct AgentLink {
 }
 
 impl AgentLink {
+    pub fn from_start_record(
+        record: &serde_json::Value,
+        host: Option<&str>,
+        name: &str,
+    ) -> Option<String> {
+        // The resolver matches the complete family; a configured family can itself begin
+        // with `codex-` or `claude-`. Old peers put the same lookup key in `harness`.
+        let harness = Self::record_family(record)?;
+        Self {
+            harness: harness.to_owned(),
+            session: record["agentSessionId"].as_str()?.to_owned(),
+            host: host.map(str::to_owned),
+            name: Some(name.to_owned()),
+            ..Default::default()
+        }
+        .web_url()
+    }
+
+    pub(crate) fn record_family(record: &serde_json::Value) -> Option<&str> {
+        record["family"].as_str().or(record["harness"].as_str()).or(record["agent"].as_str())
+    }
+
     /// The web link, its query in the schema's `queryParams` order; None when the harness or
     /// session is not one the schema takes. A hint it does not take is left out, not escaped.
     pub fn web_url(&self) -> Option<String> {
