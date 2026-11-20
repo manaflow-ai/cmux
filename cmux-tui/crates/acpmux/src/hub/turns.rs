@@ -519,7 +519,7 @@ impl Hub {
             }
             return Ok(json!({"stopReason":"end_turn","_meta":{"acpmux":receipt}}));
         }
-        let mut on_accepted = self.with_host_pressure(opts.on_accepted);
+        let mut on_accepted = self.with_host_pressure(opts.on_accepted.take());
         // The prompts this one replaced (`supersede.rs`), named in its acceptance: set where it
         // is committed (queued, started, or steered in), never before a refusal.
         let supersede = opts.supersede.clone();

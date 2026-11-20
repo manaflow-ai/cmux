@@ -2,9 +2,9 @@
 //! `inbox_forum.rs`: real `session/prompt` sends from two hosts' agent connections, one durable
 //! forum post with both sources, one held row under the forum thread's topic, routed by the
 //! recipient's grant to the thread's subscribed owner; protected classes never stored or held.
+use super::surge_triage::PassEnd;
 use super::*;
 use crate::surge_triage as triage;
-use crate::surge_triage::PassEnd;
 
 const TOPIC: &str = "topic:ops/runner-capacity/ubuntu-24";
 
