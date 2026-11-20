@@ -1702,6 +1702,35 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Review F2 of #45480: the machine left and joined again under another deployment while
+    /// the acpmux daemon kept the first join's device hub. The credential on disk is the new
+    /// deployment's, so it is never sent to the earlier deployment's hub, and nothing is set
+    /// up for it there.
+    #[test]
+    fn a_rejoin_under_another_deployment_never_signs_in_at_the_earlier_hub() {
+        use super::stack_login::tests::stub;
+        let (earlier_hub, seen) = stub(|_, _| {
+            (
+                200,
+                serde_json::json!({ "session": "s", "userId": "p:u", "expiresAt": now_ms() + 3_600_000 }),
+            )
+        });
+        let dir = consent_dir("rejoin-other-deployment");
+        identity::private_dir(&dir).unwrap();
+        let credential: machine::MachineCredential = serde_json::from_str(
+            r#"{"credential":"cmm_new","name":"vm","machine_id":"m-new","credential_generation":1,"hub_origin":"https://cmux-platform-production.debussy.workers.dev"}"#,
+        )
+        .unwrap();
+        let home = dir.join("acpmux-home");
+        let got = join_device(&dir, &earlier_hub, Some((home, credential)), &NoUnit);
+        assert!(got.is_err(), "a hub that is not the credential's own deployment's is refused");
+        let calls: Vec<String> = seen.lock().unwrap().iter().map(|s| s.path.clone()).collect();
+        assert!(calls.is_empty(), "the earlier deployment's hub saw {calls:?}");
+        assert_eq!(Account::load(&dir).unwrap(), None, "nothing is signed in");
+        assert_eq!(machine::Joined::load(&dir).unwrap(), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn the_virtual_display_stops_only_after_ten_idle_minutes() {
         let start = Instant::now();
