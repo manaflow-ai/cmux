@@ -37,13 +37,13 @@ public final class SettingsAgentSkills: PageProvider {
                 enabled: @escaping @MainActor () -> Bool,
                 workingFolder: @escaping @MainActor () -> URL? = { nil },
                 openFile: @escaping @MainActor (URL) -> Void,
-                reveal: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.revealInBackground([$0]) },
+                reveal: (@MainActor (URL) -> Void)? = nil,
                 runCLI: @escaping @Sendable (URL, [String], [String: String]) async throws -> (Int32, Data, Data) = SettingsMcpServers.run) {
         self.cli = cli
         self.enabled = enabled
         self.workingFolder = workingFolder
         self.openFile = openFile
-        self.reveal = reveal
+        self.reveal = reveal ?? { NSWorkspace.shared.revealInBackground([$0]) }
         self.runCLI = runCLI
     }
 

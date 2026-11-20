@@ -238,7 +238,10 @@ pub(super) fn table(listing: &skills::Listing) -> String {
             line
         };
         out.push_str(&format!(
-            "{agent:6}  {kind:7}  {scope:7}  {:3}  {:width$}  {line}\n",
+            "{:<6}  {:<7}  {:<7}  {:3}  {:width$}  {line}\n",
+            agent,
+            kind,
+            scope,
             if skill.enabled { "on" } else { "off" },
             skill.name,
         ));

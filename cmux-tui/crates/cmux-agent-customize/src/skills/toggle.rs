@@ -148,10 +148,10 @@ fn codex(homes: &Homes, file: &Path, skill: &Path, enabled: bool) -> Result<(), 
             "`skills.config` is not [[skills.config]]".into(),
         ));
     };
-    match rules
-        .iter_mut()
-        .find(|rule| rule.get("path").and_then(|p| p.as_str()) == Some(path_text.as_str()))
-    {
+    let existing = rules
+        .iter()
+        .position(|rule| rule.get("path").and_then(|p| p.as_str()) == Some(path_text.as_str()));
+    match existing.and_then(|index| rules.get_mut(index)) {
         Some(rule) => {
             rule["enabled"] = toml_edit::value(enabled);
         }
