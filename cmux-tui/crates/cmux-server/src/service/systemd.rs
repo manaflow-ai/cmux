@@ -71,6 +71,15 @@ fn systemctl(s: &Services<'_>) -> Cmd {
     cmd
 }
 
+/// The file systemd loads `cmux-server.service` from, when it knows the
+/// unit (`None`: unknown unit, or no service manager to ask).
+pub fn loaded_fragment(s: &Services<'_>) -> Option<PathBuf> {
+    let cmd = systemctl(s).args(["show", "--property=FragmentPath", "--value", SYSTEMD_UNIT]);
+    let out = s.runner.run(&cmd).ok()?;
+    let path = out.stdout_text();
+    (out.ok() && path.starts_with('/')).then(|| PathBuf::from(path))
+}
+
 /// `loginctl show-user <user> -p Linger --value`: `Some(true)` for `yes`,
 /// `None` when logind cannot answer.
 pub fn linger_state(runner: &dyn Runner, user: &str) -> Option<bool> {
@@ -141,7 +150,12 @@ pub fn install(s: &Services<'_>, restart: bool) -> Result<ServiceReport> {
         report.changed |= fsx::write_if_changed(path, text.as_bytes(), 0o644)?;
     }
     if !system(s) {
-        ensure_linger(s, &mut report);
+        if s.linger {
+            ensure_linger(s, &mut report);
+        } else {
+            // `install --user`: linger stays as it is.
+            report.linger = linger_state(s.runner, &s.user);
+        }
     }
     let ctl = systemctl(s);
     if report.changed {

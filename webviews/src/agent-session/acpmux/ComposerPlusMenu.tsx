@@ -17,7 +17,9 @@ import { composerPlusCommands } from "./composerPlusCommands.experiment";
 import { composerPlusMenuSections } from "./composerPlusMenuModel";
 import { acpmuxPerf } from "./perf";
 import { useStableHandlers } from "./stableHandlers";
-import { memo } from "react";
+import { memo, useEffect, useEffectEvent } from "react";
+import { PLAN_TOGGLE_OPENER } from "./composerControls";
+import { registerPicker } from "./pickerOpeners";
 
 export type ComposerPlusMenuProps = {
   /** The rows, from composerPlusRegistry, already narrowed to what this composer can run. */
@@ -56,22 +58,34 @@ const MemoPlusMenu = memo(function PlusMenu({
   acpmuxPerf.render("composer:plus");
   const t = useT();
   const addShortcut = useShortcut(SHORTCUT_ACTIONS.composerAddMenu);
+  const planShortcut = useShortcut(SHORTCUT_ACTIONS.composerTogglePlan);
+  // Toggle Plan Mode (composerControls.ts) runs the Plan/Build row's own action, the path a click
+  // on the row takes: the app draws no Plan toggle chip, so this row owns the key.
+  const planEntry = entries.find((entry) => entry.id.startsWith("add.mode."));
+  const runPlan = useEffectEvent(() => {
+    if (planEntry) runComposerPlusAction(planEntry.action, { command: onCommand, slash: onSlash });
+  });
+  const hasPlan = planEntry !== undefined;
+  useEffect(() => (hasPlan ? registerPicker(PLAN_TOGGLE_OPENER, () => runPlan()) : undefined), [hasPlan]);
   // Untitled groups: a hairline splits them (styles.css), with no header band between.
-  const sections: Section[] = composerPlusMenuSections(entries, planning, experimentArm(composerPlusCommands)).map(
-    (group) => ({
-      choices: group.choices,
-      onPick: (id: string) => {
-        const entry = group.entries.find((row) => row.id === id);
-        if (!entry) return "keep";
-        const handled = runComposerPlusAction(entry.action, {
-          command: onCommand,
-          ...(onExtension ? { extension: onExtension } : {}),
-          slash: onSlash,
-        });
-        return handled ? undefined : "keep";
-      },
-    }),
-  );
+  const sections: Section[] = composerPlusMenuSections(
+    entries,
+    planning,
+    experimentArm(composerPlusCommands),
+    planShortcut,
+  ).map((group) => ({
+    choices: group.choices,
+    onPick: (id: string) => {
+      const entry = group.entries.find((row) => row.id === id);
+      if (!entry) return "keep";
+      const handled = runComposerPlusAction(entry.action, {
+        command: onCommand,
+        ...(onExtension ? { extension: onExtension } : {}),
+        slash: onSlash,
+      });
+      return handled ? undefined : "keep";
+    },
+  }));
   return (
     <Picker
       label={t("composer.add")}
