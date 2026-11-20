@@ -111,7 +111,11 @@ and fixture renderer alone are not proof that those features work in NIGHTLY.
 
 Hosts pages its host and session lists, so a large fleet does not exceed the app runtime's
 execution budget. Previous/Next controls keep every host and session reachable; the picker
-searches the whole inventory before paging. The regression detector in
+searches the whole inventory before paging. The regression suite reverses activity timestamps
+to ensure hosts stay on the same page. Hosts are
+ordered by name with This Mac first. The Hosts profile uses the thin sidebar rail; open its full
+sidebar with `cmux action run toggleSidebar` to exercise the sidebar's own paging controls.
+The regression detector in
 `looks/check/views.test.ts` mounts all four app looks and exercises Hosts with 100 and 3,000
 sessions, navigation, search, and a shrinking inventory. To compare scene counts and fixture
 render times before/after, set `DEMO_BEFORE_HOSTS` to a saved earlier Hosts `main.js` when running

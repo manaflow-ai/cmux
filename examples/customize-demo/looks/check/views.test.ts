@@ -94,7 +94,7 @@ for (const size of [100, 3000]) {
   for (const render of ["renderHosts", "renderPicker"]) {
     test(`hosts ${render} stays bounded with ${size} sessions`, async () => {
       const many = Array.from({ length: size }, (_, i) => ({ ...CHATS[0], id: `c${i}`, title: `Chat ${i}`,
-        workspace: null, machine: `host-${Math.floor(i / 20)}`, updated_ms: NOW - i }))
+        workspace: null, machine: `host-${String(Math.floor(i / 20)).padStart(3, "0")}`, updated_ms: NOW - i }))
       const sources: Array<[string, string | undefined]> = process.env.DEMO_BEFORE_HOSTS
         ? [["before", readFileSync(process.env.DEMO_BEFORE_HOSTS, "utf8")]]
         : [["after", undefined]]
@@ -120,7 +120,16 @@ for (const size of [100, 3000]) {
           expect(nextHosts).toBeDefined()
           h.dispatch("m", nextHosts, "tap")
           await h.settle()
-          expect(texts(h, "m")).toContain(render === "renderHosts" ? "host-5" : "host-6")
+          expect(texts(h, "m")).toContain(render === "renderHosts" ? "host-005" : "host-006")
+          // Changing activity order must not move hosts between pages under the pointer.
+          const hostNames = () => texts(h, "m").filter((text) => /^host-\d+$/.test(text))
+          const before = hostNames()
+          h.handlers["agent_chat.list"] = () => ({ ok: true, body: { value: {
+            chats: many.map((chat, i) => ({ ...chat, updated_ms: NOW + i }))
+          } } })
+          h.emit("agent_chat.changed")
+          await h.settle(10)
+          expect(hostNames()).toEqual(before)
         }
         if (render === "renderPicker") {
           const search = h.findNode("m", (n) => n.type === "TextField")!
