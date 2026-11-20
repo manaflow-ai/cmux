@@ -47,6 +47,12 @@ struct PagedListShiftLedger {
         return true
     }
 
+    /// The offset the visible cells were last laid out against, from the offset now: a layout pass
+    /// that keeps the reader in place holds them against it. Each pass takes it once.
+    mutating func takeDrawnOffset(_ offset: CGFloat) -> CGFloat {
+        offset
+    }
+
     /// A sample was taken: the next interval starts empty.
     mutating func reset() {
         explained = 0

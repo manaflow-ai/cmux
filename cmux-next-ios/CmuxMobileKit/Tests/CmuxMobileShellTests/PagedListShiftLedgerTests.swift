@@ -54,6 +54,30 @@ struct PagedListShiftLedgerTests {
         #expect(shift(ledger, moved: -8) == 0)
     }
 
+    /// Step ecc34bbc8080: a row above the reader sized 118 pt taller outside a layout pass, UIKit
+    /// moved the offset 118 pt at once, and the next pass held the reader against its cell's frame
+    /// from before that move, so it corrected the same 118 pt again: the reader jumped 118 pt
+    /// (`trail=m+118.0,p+118.0,c+118.0 moved=-118.0`).
+    @Test func aPassAfterUIKitsCorrectionHoldsTheReaderOnce() {
+        var ledger = PagedListShiftLedger()
+        ledger.sized(item: 4, by: 118, aboveReader: true)
+        let paid = ledger.pays(118)
+        #expect(paid)
+        // The cells were laid out against offset 1000; UIKit's correction made it 1118.
+        let held = ledger.takeDrawnOffset(1118)
+        #expect(held == 1000)
+        // That pass lays them out against 1118: the next one holds against the offset as it is.
+        let next = ledger.takeDrawnOffset(1118)
+        #expect(next == 1118)
+        // A sample in between does not forget a correction no pass has laid out yet.
+        ledger.sized(item: 5, by: 20, aboveReader: true)
+        let again = ledger.pays(20)
+        #expect(again)
+        ledger.reset()
+        let afterSample = ledger.takeDrawnOffset(1138)
+        #expect(afterSample == 1118)
+    }
+
     @Test func aSampleStartsTheNextIntervalEmpty() {
         var ledger = PagedListShiftLedger()
         ledger.sized(item: 3, by: 20, aboveReader: true)
