@@ -47,6 +47,17 @@ pub struct Services<'a> {
     /// The installing user (`loginctl`, `launchctl gui/<uid>`).
     pub uid: u32,
     pub user: String,
+    /// `Some`: the units run this session daemon (the session service)
+    /// instead of the store's `host run`. Paths and names are the same, so
+    /// `up`, `down`, `status` and `uninstall` need no `Some` here.
+    pub session: Option<SessionHost>,
+}
+
+/// The session service's binary and session name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionHost {
+    pub binary: String,
+    pub session: String,
 }
 
 fn unsupported(kind: &ServiceKind) -> Error {

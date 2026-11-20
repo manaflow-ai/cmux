@@ -506,6 +506,10 @@ impl HealthService {
                 {
                     row.update = None;
                 }
+                // A copy saved before this binary's version rules (a dev build's
+                // placeholder `0.0.0-next` read as older than a release) says
+                // outdated by this binary's comparison only.
+                row.outdated = matches!((&row.latest, &row.version), (Some(l), Some(v)) if probe::is_newer(l, v));
             }
             self.replace_rows(rows);
         }
