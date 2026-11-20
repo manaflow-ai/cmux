@@ -30,3 +30,9 @@ command-wide false attribution (`ask_traces_are_only_from_the_literal_inline_bod
 and mixed PR outcomes (`a_mixed_merge_and_close_keeps_each_targets_state`).
 The opt-in and deletion tests prevent an off experiment from recording new data
 or retaining a deleted chat after it is re-enabled.
+
+Capture fixtures must opt in explicitly without machine settings, and secret
+fixtures must satisfy the shared scanner's entropy rules. The detectors are
+`the_hubs_append_path_records_the_persons_prompts_only` and
+`capture_masks_credentials_before_truncating`; the latter also crosses the
+1,000-character boundary with multibyte text to detect truncation before masking.

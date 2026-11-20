@@ -299,8 +299,8 @@ fn query_params_are_checked() {
 
 /// The hub's own append path feeds it: the person's prompt is an ask of its chat with the chat's
 /// title, another agent's message is not, and a fork's copies (the cost ledger's fence) are not.
-#[tokio::test]
-async fn the_hubs_append_path_records_the_persons_prompts_only() {
+#[test]
+fn the_hubs_append_path_records_the_persons_prompts_only() {
     use crate::store::{MemoryStore, SessionMeta};
     let meta = |id: &str| -> SessionMeta {
         serde_json::from_value(json!({
@@ -312,7 +312,10 @@ async fn the_hubs_append_path_records_the_persons_prompts_only() {
     };
     let mut cfg: crate::config::Config = serde_json::from_value(json!({})).unwrap();
     cfg.store.mode = crate::config::StoreMode::Memory;
-    let hub = crate::hub::Hub::new(cfg, Box::new(MemoryStore::default()));
+    // Build outside a runtime so no background task holds an Arc. Opt in only this
+    // in-memory fixture, without depending on or changing the machine's settings.
+    let mut hub = crate::hub::Hub::new(cfg, Box::new(MemoryStore::default()));
+    std::sync::Arc::get_mut(&mut hub).unwrap().asks = ledger();
     let chat = hub.insert_test_session(meta("chat"));
     hub.append(&chat, "mux", "user_message", person("p1", "make it a service"));
     let agent = json!({"kind": "agent_message", "from": "lane", "to": "chat", "msgId": "m", "threadId": "t"});
@@ -426,12 +429,19 @@ fn an_explicit_empty_body_unlinks_but_a_state_only_note_preserves_links() {
 
 #[test]
 fn capture_masks_credentials_before_truncating() {
-    let l = ledger();
-    let secret = format!("ghp_{}", "a".repeat(36));
-    l.record("chat", &rec(1, 10, person("p1", &format!("Fix this token {secret}"))), || {
-        "codex".into()
-    });
-    assert!(!asks_of(&l, &all())[0]["text"].as_str().unwrap().contains(&secret));
+    // Use the scanner's established synthetic fixture: repeated-character tokens
+    // are intentionally excluded as low-entropy placeholders.
+    let secret = "ghp_aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jSaZ3k";
+    for prefix in ["Fix this token ".to_owned(), format!("{} ", "é".repeat(MAX_TEXT_CHARS - 11))] {
+        let l = ledger();
+        let text = format!("{prefix}{secret} and more words after it");
+        l.record("chat", &rec(1, 10, person("p1", &text)), || "codex".into());
+        let rows = asks_of(&l, &all());
+        let captured = rows[0]["text"].as_str().unwrap();
+        assert!(!captured.contains("ghp_"), "{captured}");
+        assert!(!captured.contains("aZ3kQ9"), "{captured}");
+        assert!(captured.chars().count() <= MAX_TEXT_CHARS);
+    }
 }
 
 #[test]
