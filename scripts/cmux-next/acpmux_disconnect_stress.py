@@ -78,8 +78,11 @@ TTL_S = 9
 
 # The stand-in agent behind a wrapper that logs each prompt it is given, then passes every line on.
 WRAPPER = r'''
-import json, os, subprocess, sys, time, threading
+import json, os, re, subprocess, sys, time, threading
 log = os.environ["STRESS_PROMPT_LOG"]
+# Every marker of the whole prompt: a batch of held messages is one long prompt, and a cut text
+# would drop the markers past the cut (or cut one mid-number).
+MARK = re.compile(r"\b(?:HUB|DIRECT)-\d+\b")
 child = subprocess.Popen([sys.executable, os.environ["STRESS_FAKE_AGENT"]], stdin=subprocess.PIPE)
 lock = threading.Lock()
 for line in sys.stdin.buffer:
@@ -91,7 +94,8 @@ for line in sys.stdin.buffer:
         p = msg.get("params") or {}
         text = "\n".join(b.get("text", "") for b in p.get("prompt") or [] if isinstance(b, dict))
         row = {"at": time.time(), "pid": os.getpid(), "rpc": msg.get("id"), "session": p.get("sessionId"),
-               "promptId": ((p.get("_meta") or {}).get("acpmux") or {}).get("promptId"), "text": text[:2000]}
+               "promptId": ((p.get("_meta") or {}).get("acpmux") or {}).get("promptId"),
+               "markers": MARK.findall(text), "text": text[:500]}
         with lock, open(log, "a", encoding="utf-8") as f:
             f.write(json.dumps(row) + "\n")
     try:
@@ -617,7 +621,7 @@ class Stress:
                 row = json.loads(line)
             except ValueError:
                 continue
-            for m in {m.group(0) for m in MARK.finditer(row.get("text", ""))}:
+            for m in row_markers(row):
                 out.setdefault(m, []).append(row)
         return out
 
@@ -767,6 +771,13 @@ def grep_logs(out: Path, needle: str, limit: int = 12) -> list[str]:
     return rows[-limit:]
 
 
+def row_markers(row: dict) -> set[str]:
+    """The markers one logged prompt gave its agent: the wrapper's full list, else (an older log) its text."""
+    if "markers" in row:
+        return set(row["markers"])
+    return {m.group(0) for m in MARK.finditer(row.get("text", ""))}
+
+
 def tally(out: Path) -> dict:
     """The counts, from the run's files alone (`--recount DIR` gives the same result again)."""
     meta = json.loads((out / "meta.json").read_text())
@@ -778,7 +789,7 @@ def tally(out: Path) -> dict:
             row = json.loads(line)
         except ValueError:
             continue
-        for m in {m.group(0) for m in MARK.finditer(row.get("text", ""))}:
+        for m in row_markers(row):
             got.setdefault(m, []).append(row)
     hub_rows = [json.loads(x) for x in (out / "hub.ndjson").read_text().splitlines() if x.strip()] \
         if (out / "hub.ndjson").exists() else []
