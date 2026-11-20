@@ -5,7 +5,7 @@ import path from "node:path";
 import { createServer } from "vite-plus";
 import { chromium } from "playwright";
 
-const out = path.resolve("../.cmux-scratch/provider-rehearsal-proof");
+const out = path.resolve(process.env.FAST_CHECKS_OUT || "../.cmux-scratch/provider-rehearsal-proof");
 await fs.mkdir(out, { recursive: true });
 const server = await createServer({
   configFile: "vite.config.pages-dev.ts",
