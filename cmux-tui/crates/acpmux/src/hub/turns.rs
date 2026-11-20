@@ -523,6 +523,41 @@ impl Hub {
                 }
             }
         };
+        // Typed work posts use the ordinary authenticated delivery transport, but their
+        // acceptance means durable forum storage, never a prompt or an agent's answer.
+        // Pair/protected holds and race checks above still apply. Storage starts no agent,
+        // needs no cold child, and does not grant a Web caller a local forum identity.
+        if control != Control::Web
+            && !opts.send_now
+            && !super::queue::closing(session)
+            && super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref())
+                .is_some()
+            && blocks.len() == 1
+            && let Some(wire) = blocks[0].get("text").and_then(Value::as_str).and_then(|text| {
+                super::inbox::relay_body(text).strip_prefix(crate::forum::work::PREFIX)
+            })
+        {
+            let input: crate::forum::work::Input = serde_json::from_str(wire)
+                .map_err(|e| RpcError::invalid_params(format!("forum.bad_post: {e}")))?;
+            let provenance = opts.provenance.clone().unwrap_or(Value::Null);
+            let recipient = session.id.clone();
+            let hub = self.clone();
+            let receipt = tokio::task::spawn_blocking(move || {
+                hub.forum().work_post(&recipient, input, provenance, now_ms())
+            })
+            .await
+            .map_err(|e| RpcError::internal(format!("forum storage task: {e}")))?
+            .map_err(|e| RpcError::internal(format!("forum storage: {e:#}")))?;
+            if receipt["duplicate"] != true {
+                self.append(session, "mux", "forum_work", receipt.clone());
+            }
+            accept(
+                json!({"sessionId": session.id, "promptId": prompt_id, "queued": false, "forum": receipt}),
+            );
+            return Ok(
+                json!({"stopReason": "end_turn", "_meta": {"acpmux": {"forum": receipt, "stored": true}}}),
+            );
+        }
         // A prompt that cannot reach any agent (none running, and its folder or harness is gone)
         // is refused before it is recorded (`cold_prompt_check`, after steer-only's refusal).
         let live = match session.child.lock().await.as_ref() {

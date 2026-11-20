@@ -27,6 +27,8 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+pub mod work;
+
 /// Longest post body, in bytes.
 pub const MAX_BODY_BYTES: usize = 8 * 1024;
 /// Longest key or topic, in bytes.
@@ -117,6 +119,7 @@ pub struct Mark {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum Record {
     Post(Post),
+    Work(work::Event),
     #[serde(rename_all = "camelCase")]
     Delivered {
         post_id: String,
@@ -143,6 +146,7 @@ pub struct PostView {
 
 #[derive(Default)]
 struct State {
+    work: work::State,
     posts: Vec<Post>,
     /// Post id to its index in `posts`.
     index: BTreeMap<String, usize>,
@@ -157,6 +161,7 @@ struct State {
 impl State {
     fn apply(&mut self, record: Record) {
         match record {
+            Record::Work(event) => self.work.apply(event),
             Record::Post(post) => {
                 if self.index.contains_key(&post.id) {
                     return;
