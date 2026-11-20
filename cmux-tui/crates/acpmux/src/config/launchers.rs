@@ -240,16 +240,18 @@ fn which_in(path: &std::ffi::OsStr, bin: &str) -> Option<String> {
     None
 }
 
-/// Claude Code's native installer puts `claude` in `~/.local/bin`, which a login PATH may not list
-/// (the installer only asks the person to add it), and a daemon read that PATH when it started: so a
-/// `claude` installed there (`acpmux harness install claude`) is found on the next reload.
+/// Claude Code's and Codex's own installers put `claude` and `codex` in `~/.local/bin`, which a login
+/// PATH may not list (the installers only ask the person to add it), and a daemon read that PATH when
+/// it started: so one installed there (`acpmux harness install`, the Harnesses page's Install on a Mac
+/// with no npm) is found on the next look. Without it a fresh Mac's Codex install ended in "cmux can't
+/// run it yet" (first-run findings row 3).
 fn native_install(bin: &str) -> Option<String> {
     native_install_in(&dirs::home_dir()?, bin)
 }
 
 /// [`native_install`] under `home`.
 fn native_install_in(home: &std::path::Path, bin: &str) -> Option<String> {
-    if bin != "claude" {
+    if !matches!(bin, "claude" | "codex") {
         return None;
     }
     let candidate = home.join(".local/bin").join(bin);
