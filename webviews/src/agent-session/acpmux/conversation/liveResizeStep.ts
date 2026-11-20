@@ -80,5 +80,5 @@ export interface LaidOutWidth {
 /// Whether the chat's last layout was at another width (or only partly laid out), so the rows away
 /// from the view keep their last heights until they come near it.
 export function widthChanged(last: LaidOutWidth | undefined, sessionId: string | undefined, width: number): boolean {
-  return last?.sessionId === sessionId && (last.width !== width || last.partial === true);
+  return last !== undefined && last.sessionId === sessionId && (last.width !== width || last.partial === true);
 }
