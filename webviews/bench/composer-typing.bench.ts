@@ -95,6 +95,12 @@ const QUEUED = Number(flag("--queue") ?? 0);
 /// With --draft N the prompt already holds N characters of text (lines of about 80) when the measured keys are typed
 /// at its end: a key into a long draft should cost what a key into an empty one does.
 const DRAFT = Number(flag("--draft") ?? 0);
+if (!Number.isInteger(DRAFT) || DRAFT < 0)
+  throw new Error(`--draft must be a whole number of characters, not ${DRAFT}`);
+// WebKit runs and the L0-L3 load modes go through runComposerLoad, which never fills the draft: refuse them
+// rather than measure an empty prompt and call it a long draft.
+if (DRAFT > 0 && (ENGINE === "webkit" || ENGINES.includes("webkit") || MODES.some((mode) => mode.startsWith("L"))))
+  throw new Error("--draft runs in Chromium's idle and stream modes only; WebKit and L0-L3 never fill the draft");
 /// What an A/B of arms summarizes: key to frame, key to listener and the long tasks.
 const ARM_METRICS = [
   "to_frame_p50",
