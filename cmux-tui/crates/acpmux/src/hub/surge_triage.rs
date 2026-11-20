@@ -135,12 +135,15 @@ pub(crate) struct Journal {
     /// Undelivered digests: their items by prompt id.
     pub(super) owed: BTreeMap<String, BTreeMap<String, Line>>,
     pub(super) delivered: BTreeSet<String>,
+    /// What its digests told whom, for [`triage::mark_repeats`].
+    pub(super) told: triage::Told,
     /// `needs_this_session` items: prompt id to thread, while unread.
     pub(super) open: BTreeMap<String, String>,
 }
 
 impl Journal {
-    pub(super) fn read(&mut self, kind: &str, msg: &Value) {
+    /// One journal event of `kind`, written at `at` (ms).
+    pub(super) fn read(&mut self, kind: &str, msg: &Value, at: u64) {
         match kind {
             "inbox" => {
                 if let Some(h) = triage::held_from_inbox(msg)
@@ -159,9 +162,21 @@ impl Journal {
                     self.owed.remove(d);
                     self.delivered.insert(d.to_owned());
                 }
+                // Owner items whose owner lost its authorization before delivery: told here.
+                let redirected = msg.get("redirected").and_then(Value::as_array);
+                for r in redirected.into_iter().flatten() {
+                    let s = |k: &str| r.get(k).and_then(Value::as_str).map(str::to_owned);
+                    if let (Some(id), Some(thread)) = (s("promptId"), s("threadId")) {
+                        self.open.insert(id, thread);
+                    }
+                }
                 let Some(d) = msg.get("digestPromptId").and_then(Value::as_str) else { return };
+                let recipient = msg.get("recipient").and_then(Value::as_str).unwrap_or_default();
+                self.told.read_record(recipient, msg, at);
                 for line in triage::record_lines(msg) {
-                    if line.category == triage::Category::NeedsThisSession {
+                    if line.category == triage::Category::NeedsThisSession
+                        && line.repeat_of.is_none()
+                    {
                         self.open.insert(line.prompt_id.clone(), line.thread_id.clone());
                     }
                     if !self.delivered.contains(d) {
@@ -362,16 +377,50 @@ impl Hub {
             all.remove(&session.id)
         };
         let mut journal = cached.unwrap_or_default();
+        self.surge_journal_tail(session, &mut journal)?;
+        Ok(journal)
+    }
+
+    /// Reads `journal`'s records past its cursor.
+    fn surge_journal_tail(&self, session: &Session, journal: &mut Journal) -> Result<(), RpcError> {
         let kinds = ["inbox", triage::RECORD_KIND, triage::GRANT_KIND];
         let mut newest = journal.cursor;
         self.scan_kinds_after_and_kept(session, journal.cursor, &kinds, &mut |e: EventRecord| {
             newest = newest.max(e.seq);
-            journal.read(&e.kind, &e.msg);
+            journal.read(&e.kind, &e.msg, e.at);
             true
         })
         .map_err(|e| RpcError::internal(format!("read surge records: {e}")))?;
         journal.cursor = newest;
-        Ok(journal)
+        Ok(())
+    }
+
+    /// `lines` as delivered now: an owner item whose owner is no longer the thread's
+    /// authorized owner (its grant revoked, its subscription removed since the pass decided
+    /// it) is this chat's again, never the old owner's. Returns the lines and the redirected.
+    fn surge_reauthorize(
+        &self,
+        session: &Session,
+        grants: &Owners,
+        mut lines: Vec<Line>,
+    ) -> (Vec<Line>, Vec<Line>) {
+        let mut redirected = Vec::new();
+        if !lines.iter().any(|l| l.owner.is_some()) {
+            return (lines, redirected);
+        }
+        let owners = self.surge_owners(session, grants);
+        for l in &mut lines {
+            let Some(owner) = l.owner.as_deref() else { continue };
+            if owners.0.get(&l.thread_id).map(String::as_str) == Some(owner) {
+                continue;
+            }
+            l.category = triage::Category::NeedsThisSession;
+            l.owner = None;
+            // The chat was never told it: the owner's receipt says nothing to it.
+            l.repeat_of = None;
+            redirected.push(l.clone());
+        }
+        (lines, redirected)
     }
 
     /// One pass (module doc).
@@ -421,6 +470,12 @@ impl Hub {
                 decided.push((batch, d));
             }
         }
+        // A repeat of what a digest already told its recipient (another host's report of one
+        // incident, the same blocker again) is journaled with its receipt and shown nowhere.
+        let now = crate::store::now_ms();
+        for (batch, d) in &mut decided {
+            triage::mark_repeats(batch, d, &mut journal.told, now);
+        }
         // The pass's one digest is named by every item it carries, before any is journaled.
         let lines: Vec<Line> = decided
             .iter()
@@ -429,8 +484,9 @@ impl Hub {
         if !lines.is_empty() {
             let id = triage::digest_id(&session.id, &lines);
             for (batch, d) in &decided {
-                let record = triage::triaged_record(batch, d, Some(&id));
-                journal.read(triage::RECORD_KIND, &record);
+                let mut record = triage::triaged_record(batch, d, Some(&id));
+                record["at"] = json!(now);
+                journal.read(triage::RECORD_KIND, &record, now);
                 let open = self.surge_open_topics(session, journal);
                 self.surge_persist(session, record, open)?;
             }
@@ -448,10 +504,22 @@ impl Hub {
             .iter()
             .map(|(id, lines)| (id.clone(), lines.values().cloned().collect()))
             .collect();
+        // A grant revoked or a subscription removed since the decision counts at delivery.
+        if owed.iter().any(|(_, lines)| lines.iter().any(|l| l.owner.is_some())) {
+            self.surge_journal_tail(session, journal)?;
+        }
         for (id, lines) in owed {
-            self.deliver_surge_digests(session, &id, &lines).await?;
-            let marker = json!({"digestDelivered": id, "items": []});
-            journal.read(triage::RECORD_KIND, &marker);
+            let (lines, redirected) = self.surge_reauthorize(session, &journal.grants, lines);
+            self.deliver_surge_digests(session, &id, &lines, &redirected).await?;
+            let redirected: Vec<Value> = redirected
+                .iter()
+                .map(|l| json!({"promptId": l.prompt_id, "threadId": l.thread_id}))
+                .collect();
+            let mut marker = json!({"digestDelivered": id, "items": []});
+            if !redirected.is_empty() {
+                marker["redirected"] = json!(redirected);
+            }
+            journal.read(triage::RECORD_KIND, &marker, crate::store::now_ms());
             let open = self.surge_open_topics(session, journal);
             self.surge_persist(session, marker, open)?;
         }
@@ -484,10 +552,18 @@ impl Hub {
         session: &Arc<Session>,
         id: &str,
         lines: &[Line],
+        redirected: &[Line],
     ) -> Result<(), RpcError> {
         if let Some(text) = triage::digest(&session.id, lines) {
             let mine = triage::digest_lines(lines);
-            self.send_surge_digest(session, id, text, &mine).await?;
+            // Redirected items change what the chat's digest says: its own prompt id, so a
+            // copy sent before the revocation does not swallow it as a duplicate.
+            let id = if redirected.is_empty() {
+                id.to_owned()
+            } else {
+                owner_digest_id(id, &triage::digest_id(&session.id, redirected))
+            };
+            self.send_surge_digest(session, &id, text, &mine).await?;
         }
         let owners: BTreeSet<&str> = lines.iter().filter_map(|l| l.owner.as_deref()).collect();
         for owner in owners {
