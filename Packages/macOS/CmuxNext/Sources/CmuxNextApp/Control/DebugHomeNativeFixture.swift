@@ -169,8 +169,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             guard let fixture = shownFixture else { return .object(["error": .string("stream needs the Home fixture (debug.home_native_fixture.open)")]) }
             ok = fixture.debugStream(params["text"]?.stringValue ?? "", done: params["done"]?.boolValue ?? false)
         case "agent_messages":
-            // The fixture's Chief run with messages to five agents and one report; `pill` clicks its pill (its workspace opens; Home never splits);
-            // `ago` S: the run began S seconds ago (its working agents' pills show their time).
+            // The fixture's Chief run with five agents told and one report, begun `ago` s ago; `pill` clicks its pill (its workspace opens; Home never splits).
             guard let fixture = shownFixture else { return .object(["error": .string("agent_messages needs the native Home fixture (debug.home_native_fixture.open)")]) }
             ok = fixture.debugAgentMessages(notes: params["notes"]?.boolValue ?? false, open: params["open"]?.boolValue ?? false, group: params["group"]?.boolValue ?? false, step: params["step"]?.intValue ?? 0, pill: params["pill"]?.stringValue, queued: params["queued"]?.boolValue ?? false, ago: params["ago"]?.doubleValue ?? 0)
         case "live":
