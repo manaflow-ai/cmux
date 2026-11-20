@@ -1,0 +1,3 @@
+#!/bin/sh
+# The shared-Chief experiment uses the same Rust implementation as cmux chief build.
+exec cmux chief build "$@"

@@ -13,6 +13,7 @@ mod acp;
 mod adapter;
 mod avatar;
 mod backend;
+mod build;
 pub(in crate::cli) mod caller;
 mod chat;
 pub(in crate::cli) mod chat_scope;
@@ -264,6 +265,9 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     }
     if args.first().is_some_and(|word| word == "acp") {
         return acp::run(&global, args.get(1..).unwrap_or_default());
+    }
+    if args.first().is_some_and(|word| word == "build") {
+        return build::run(&global, &args[1..]);
     }
     if args.first().is_some_and(|word| word == "usage") {
         return usage::run(&global, &args[1..]);

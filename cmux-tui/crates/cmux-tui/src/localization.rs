@@ -11,6 +11,7 @@ mod auth_token;
 mod automation;
 mod billing;
 mod browser;
+pub(crate) mod chief_build;
 mod cli_connection;
 mod coderouter;
 mod config;
