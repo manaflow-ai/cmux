@@ -14,6 +14,8 @@ enum Strings {
     static var closeRefused: String { String(localized: "sidebar.close.refused", defaultValue: "The workspace could not be closed.", bundle: .module) }
     static var dismissCard: String { String(localized: "sidebar.card.dismiss", defaultValue: "Dismiss", bundle: .module) }
     static var newWorkspace: String { String(localized: "sidebar.newWorkspace", defaultValue: "New Workspace", bundle: .module) }
+    /// The one "+ New workspace" row at the top of the list under the row restyle (`SidebarNewWorkspaceRowView`).
+    static var newWorkspaceRow: String { String(localized: "sidebar.newWorkspace.row", defaultValue: "New workspace", bundle: .module) }
     /// This Mac's machine header button: its tooltip and VoiceOver label.
     static var shareScreen: String { String(localized: "sidebar.machine.shareScreen", defaultValue: "Share screen", bundle: .module) }
     static var sharingScreen: String { String(localized: "sidebar.machine.sharingScreen", defaultValue: "Sharing screen", bundle: .module) }

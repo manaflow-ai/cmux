@@ -152,6 +152,70 @@
             "theme",
             "labs"
           ]
+        },
+        {
+          "key": "experiments.sidebarRowStyle",
+          "note": "Taste build 7 (2026-11-19): an off-by-default sidebar row restyle (SidebarRowStyle in CmuxNextDesignTokens). Off draws today's rows; capsule, bar and soft draw a full-width row band, semibold project headers, pin and close on hover and one New workspace row at the top, and differ only in how the selected row reads. A look only, so agents may set it.",
+          "title": {
+            "key": "settings.experiments.sidebarRowStyle",
+            "text": "Sidebar row style"
+          },
+          "help": {
+            "key": "settings.experiments.sidebarRowStyle.help",
+            "text": "Try a restyled sidebar: a full-width row band, bold project headers, pin and close on hover and one New workspace row at the top. Off keeps today's sidebar."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.sidebarRowStyle.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "capsule",
+              "title": {
+                "key": "settings.choice.sidebarRowStyle.capsule",
+                "text": "Accent capsule"
+              }
+            },
+            {
+              "value": "bar",
+              "title": {
+                "key": "settings.choice.sidebarRowStyle.bar",
+                "text": "Accent bar"
+              }
+            },
+            {
+              "value": "soft",
+              "title": {
+                "key": "settings.choice.sidebarRowStyle.soft",
+                "text": "Soft fill"
+              }
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "sidebar",
+            "row",
+            "rows",
+            "style",
+            "restyle",
+            "capsule",
+            "bar",
+            "soft",
+            "selection",
+            "highlight",
+            "experimental",
+            "labs"
+          ],
+          "swift_enum": {
+            "name": "SidebarRowStyle",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": "SidebarRowStyleSetting"
         }
       ]
     }

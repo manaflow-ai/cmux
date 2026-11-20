@@ -289,7 +289,7 @@ final class GroupHeaderRowView: SidebarRowView {
     }
     override var titleInk: NSColor? { name.textColor }
     /// The editor ends before the unread badge and the chevron, which stay where they are.
-    override var titleEditMaxX: CGFloat { (badge.isHidden ? chevronFrame.minX : badge.frame.minX) - Metrics.space2 }
+    override var titleEditMaxX: CGFloat { (badge.isHidden ? SidebarRowRestyle.headerRestSlot(self, chevronFrame: chevronFrame).minX : badge.frame.minX) - Metrics.space2 }
     private var renaming = false
     override func setTitleHidden(_ hidden: Bool) {
         renaming = hidden
@@ -329,7 +329,7 @@ final class GroupHeaderRowView: SidebarRowView {
             // Every group draws a visible bar (Lawrence 2026-11-05), a group nobody colored too. Glass (Leo 2026-11-05,
             // `sidebar.groupGlass`) where `sidebar.groupHeader.background` asks for it, else the solid band. Sections, the
             // one opt-out (Leo 2026-11-05), draws a plain heading.
-            if !backgroundStyle.drawsBackground {
+            if !backgroundStyle.drawsBackground || rowStyle.isOn { // the row restyle: a plain heading on the band
                 rim.isHidden = true
                 return paintSection(tokens)
             }
@@ -418,7 +418,7 @@ final class GroupHeaderRowView: SidebarRowView {
     /// the row's own fill, as a workspace row's do; the open editor lights its more button only.
     private func paintSection(_ tokens: ThemeTokens) {
         let quiet = tokens.textSecondary.nsColor.withAlphaComponent(archived ? SidebarStyle.archivedAlpha : 1)
-        name.textColor = quiet
+        name.textColor = rowStyle.isOn && !archived ? SidebarStyle.titleInk : quiet
         count.textColor = quiet.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
         glyph.symbolInk = quiet
         pin.contentTintColor = quiet
@@ -512,21 +512,21 @@ final class GroupHeaderRowView: SidebarRowView {
         // The bar fills the row (as tall as a workspace row); the type and glyphs keep their scale.
         // Type and glyphs follow a one-line row: an Expanded header is two lines tall, its name is not bigger.
         let barHeight = SidebarStyle.groupHeaderContentHeight(rowHeight: min(b.height, SidebarLayoutMetrics.standard.rowHeight))
-        let columns = SidebarStyle.columns(rowWidth: b.width, leadingOffset: railReach)
+        let columns = SidebarStyle.columns(rowWidth: b.width, leadingOffset: railReach + SidebarRowRestyle.headerLeadShift(self))
         // The name starts where ungrouped rows start (`SidebarStyle.contentInset`): an icon
         // on their icon column with the name on their text column, or the name alone on it.
         let lead = columns.lead
         name.isHidden = renaming
-        name.font = SidebarStyle.groupHeaderFont(barHeight: barHeight)
+        name.font = rowStyle.isOn ? SidebarRowRestyle.emphasizedTitleFont : SidebarStyle.groupHeaderFont(barHeight: barHeight)
         count.font = SidebarStyle.groupHeaderCountFont(name: name.font ?? SidebarStyle.headerFont)
         // The chevron takes a trailing control's size (cx-fo2t), centered
         // on the trailing column every row's dot and spinner share (SidebarStyle+TrailingColumn).
         let chevronSide = min(b.height, SidebarStyle.trailingSlotSide)
-        chevronFrame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.height / 2, side: chevronSide)
+        chevronFrame = SidebarRowRestyle.headerChevronFrame(self, columns: columns, height: b.height, side: chevronSide)
         chevron.frame = chevronFrame
         let control = SidebarStyle.controlSize
         // The more button sits left of the chevron.
-        moreButton.frame = columns.trailingFrame(index: 1, centerY: b.midY, side: control)
+        moreButton.frame = columns.trailingFrame(index: 1 - SidebarRowRestyle.headerSlotShift(self), centerY: b.midY, side: control)
         // Lawrence 2026-10-11: the + and more show only on hover, keyboard
         // focus or while the editor is open. Cleared by paint (HOVER COMMIT 2: a
         // crossing changes no view tree): a clear one takes no click (a click
@@ -544,7 +544,7 @@ final class GroupHeaderRowView: SidebarRowView {
         let fades = fadesNextHover && !onColumn
         setHoverPainted(moreButton, showsActions, fades: fades, token: .hoverReveal)
         moreButton.setAccessibilityElement(showsActions)
-        addButton.frame = columns.trailingFrame(index: 2, centerY: b.midY, side: control)
+        addButton.frame = columns.trailingFrame(index: 2 - SidebarRowRestyle.headerSlotShift(self), centerY: b.midY, side: control)
         // An empty group offers its + too (user 17912, "empty workspace needs plus button"): New Workspace in Group
         // keeps a new group the editor would drop when it closes (`SidebarGroupFlow.performEditorItem`).
         let offersAdd = onAdd != nil
@@ -552,16 +552,16 @@ final class GroupHeaderRowView: SidebarRowView {
         addButton.setAccessibilityElement(offersAdd && showsActions)
         // A pinned group's Unpin sits left of the + (of the more when there is no +).
         let offersUnpin = pinned && onUnpin != nil
-        pinButton.frame = columns.trailingFrame(index: offersAdd ? 3 : 2, centerY: b.midY, side: control)
+        pinButton.frame = columns.trailingFrame(index: (offersAdd ? 3 : 2) - SidebarRowRestyle.headerSlotShift(self), centerY: b.midY, side: control)
         setHoverPainted(pinButton, offersUnpin && showsActions, fades: fades, token: .hoverReveal)
         pinButton.setAccessibilityElement(offersUnpin && showsActions)
         // Lawrence 2026-10-20: at rest a loading spinner takes the chevron's place, on the trailing
         // column every row's dot and spinner share (a296). Leo 2026-10-28: "If you're hovering over a
         // workspace or whatever, just don't show the spinner": a hover hides it at once and brings the
         // chevron back on the column, with the + and more left of it; never the spinner beside them.
-        setHoverShown(chevron, !onColumn, fades: !onColumn && (fades || fadesNextActivity), token: .hoverReveal)
+        setHoverShown(chevron, rowStyle.isOn || !onColumn, fades: !rowStyle.isOn && !onColumn && (fades || fadesNextActivity), token: .hoverReveal)
         let leadingAction = offersUnpin ? pinButton.frame : offersAdd ? addButton.frame : moreButton.frame
-        var trailing = columns.trailingEdge(before: showsActions ? leadingAction : chevronFrame)
+        var trailing = columns.trailingEdge(before: showsActions ? leadingAction : SidebarRowRestyle.headerRestSlot(self, chevronFrame: chevronFrame))
         trailing = layoutMachineTrailing(trailing, height: b.height, showsActions: showsActions)
         if badge.state.isUnread {
             badge.isHidden = false

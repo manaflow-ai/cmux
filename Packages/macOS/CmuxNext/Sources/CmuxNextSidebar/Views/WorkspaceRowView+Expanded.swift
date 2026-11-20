@@ -38,7 +38,7 @@ extension WorkspaceRowView {
         // The text's own width too: a time today ("1:26 AM") came out a few points short and ended in "…".
         // A status there (`trailingStatus`) truncates at 40% of the row; the name keeps the rest.
         let w = min(ceil(max(timeLabel.intrinsicContentSize.width, timeLabel.attributedStringValue.size().width + 2 * Self.labelInset)),
-                    (bounds.width * 0.4).rounded(.down))
+                    ((bounds.width - contentIndent) * 0.4).rounded(.down))
         let columns = SidebarStyle.columns(rowWidth: layoutBounds.width)
         timeLabel.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: w, height: height))
         timeLabel.frame.origin.y = SidebarStyle.textY(timeLabel, centerY: cy)
@@ -51,6 +51,7 @@ extension WorkspaceRowView {
     /// hover; Pin Workspace stays in its ⋮ menu (Leo 2026-10-21: "no empty pin
     /// symbol by default").
     func layoutPin(rowWidth: CGFloat, showMore: Bool, moreFrame: NSRect, control: CGFloat, fades: Bool) -> CGFloat? {
+        if rowStyle.isOn { return SidebarRowRestyle.layoutPin(self, rowWidth: rowWidth, control: control, fades: fades) }
         let pinned = isExpanded && isPinned?() == true
         setHoverShown(pinSlot, showMore && pinned, fades: fades)
         guard pinned else { return nil }

@@ -91,6 +91,9 @@ public final class SidebarView: NSView {
     /// The +'s menu segment, right of the + as one split button (Lawrence 2026-10-30: "the dropdown
     /// on left of plus is ugly"): the + itself remains a one-click workspace action.
     let newWorkspaceOptionsButton = TitlebarBandButton(symbol: "chevron.down")
+    /// The one "+ New workspace" row at the list's top while the row restyle is on (`SidebarView+NewWorkspaceRow`);
+    /// made the first time it shows, so a sidebar with the restyle off has no such view.
+    var newWorkspaceRowView: SidebarNewWorkspaceRowView?
     /// The footer's Search button, after the profile avatar (plans/cmux-next/sidebar-search.md):
     /// a press runs ``onSearch`` (the centered Search palette). `sidebar.showSearchButton` hides it.
     let searchButton = SidebarIconButton(icon: .search, pointSize: { Metrics.iconSize }, label: Strings.searchButton)
@@ -414,8 +417,11 @@ public final class SidebarView: NSView {
         let pairMinX = trailing - segment - button - (priorityButton.isHidden ? 0 : Metrics.space1 + button) - accessoryRoom
         // `sidebar.showNewWorkspaceChooser` (off by default, Lawrence 2026-10-30: "by default i dont want to have
         // workspace titlebar dropdowns at all"): without it the + stands alone and its right-click menu holds the chooser.
-        let showsChevron = design.sidebarSections.showNewWorkspaceChooser && pairMinX >= x
+        // The row restyle's "+ New workspace" row stands in for the + and its chevron: both hide while it shows.
+        let rowStandsIn = showsNewWorkspaceRow
+        let showsChevron = !rowStandsIn && design.sidebarSections.showNewWorkspaceChooser && pairMinX >= x
         SidebarHiddenState.apply(!showsChevron, to: newWorkspaceOptionsButton)
+        SidebarHiddenState.apply(rowStandsIn, to: newButton)
         // The + alone centers on the trailing column, the rows' status marks' and footer Search's one x (Leo
         // 2026-11-07: "the top of the sidebar with the subsequent elements below (workspaces and their notification
         // symbols, then the search icon)"); with its chooser segment the pair keeps the row's trailing inset.
@@ -424,7 +430,8 @@ public final class SidebarView: NSView {
         newButton.frame = NSRect(x: plusX, y: buttonY, width: button, height: button)
         newWorkspaceOptionsButton.frame = NSRect(x: newButton.frame.maxX, y: buttonY, width: segment, height: button)
         joinSplitButtonCorners(showsChevron)
-        let titlebarButtonsMinX = layoutPriorityButton(before: newButton.frame)
+        // With the + hidden the Priority bell takes its slot on the trailing column.
+        let titlebarButtonsMinX = layoutPriorityButton(before: rowStandsIn ? newButton.frame.offsetBy(dx: button + Metrics.space1, dy: 0) : newButton.frame)
         if let accessory = titlebarAccessory {
             accessory.frame = Self.titlebarAccessoryFrame(fitting: accessory.fittingSize, x: x,
                                                           room: titlebarButtonsMinX - Metrics.space2 - x,
@@ -489,9 +496,10 @@ public final class SidebarView: NSView {
         // The faded cards' room goes to the list too; the cards keep their place and show over it only revealed.
         let cardFraction = cardCollapseFraction()
         let cardCollapse = ((updateHeight + cardsHeight) * cardFraction).rounded()
-        let listFrame = layoutBands(top: listTop + (topCardHeight * (1 - cardFraction)).rounded(),
-                                   footerHeight: footerHeight - rowCollapse + updateHeight + cardsHeight - cardCollapse,
-                                   collapse: pinnedCollapse)
+        // The "+ New workspace" row (row restyle) takes one row step off the list's top; off, the frame is unchanged.
+        let listFrame = layoutNewWorkspaceRow(in: layoutBands(top: listTop + (topCardHeight * (1 - cardFraction)).rounded(),
+                                                              footerHeight: footerHeight - rowCollapse + updateHeight + cardsHeight - cardCollapse,
+                                                              collapse: pinnedCollapse))
         if !isChromeRevealed { belowFade.alphaValue = belowRegion.restAlpha(hiddenByMode: minimalHiddenBands.bottom) }
         footer.frame = NSRect(x: 0, y: belowFade.frame.minY - footerHeight + rowCollapse, width: b.width, height: footerHeight)
         cardSlot.place(above: footer.frame.minY, top: listTop, width: b.width, slotHeight: slotHeight, in: self)

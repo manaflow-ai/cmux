@@ -11,6 +11,7 @@ extension SidebarListViewComponents {
         // mouse-up) ends now: its rows come back where they were, and this press starts clean.
         endPointerGesture()
         hoverCards.dismiss(.click)
+        SidebarRowRestyle.noteMouse(in: self) // the row restyle: the selection is the pointer's again
         if inlineRename.isActive { inlineRename.end(commit: true) }
         // A click in the list closes the group editor, like a click outside it.
         if groupEditor.isVisible { groupEditor.hide() }
@@ -204,6 +205,7 @@ extension SidebarListViewComponents {
                 return
             }
         }
+        if event.specialKey == .upArrow || event.specialKey == .downArrow { SidebarRowRestyle.noteKey(in: self) }
         if SidebarGroupKeys(list: self).handle(event, flags: flags) { return }
         switch event.specialKey {
         case .upArrow?, .downArrow?:

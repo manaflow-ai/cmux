@@ -74,7 +74,8 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
         var pinnedRow: SidebarItemRowView?
         if let row = list.rowViews[key] {
             // The row's settled frame, not the view's: a row that just appeared (a group made by a drop) is still animating in.
-            let rowFrame = list.displayed.row(for: key).map(list.frame(for:)) ?? row.frame
+            // Its content's frame: the title's coordinates start there (`SidebarRowView.contentIndent`).
+            let rowFrame = list.displayed.row(for: key).map(list.contentFrame(for:)) ?? row.contentFrame(of: row.frame)
             (view, toList) = (row, { NSPoint(x: $0.x + rowFrame.minX, y: $0.y + rowFrame.minY) })
         } else if case let .workspace(id) = key, let item = pinnedItem(id) {
             list.scrollToVisible(list.convert(item.bounds, from: item))

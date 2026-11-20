@@ -53,14 +53,16 @@ extension SidebarViewComponents {
         // Tracking areas do not fire during an app-driven drag; reveal the
         // "+" drop target explicitly.
         setChromeRevealed(true)
-        if !newButton.isHidden, newButton.frame.insetBy(dx: -Metrics.space2, dy: -Metrics.space2).contains(local) {
+        // The + (or the row restyle's "+ New workspace" row standing in for it) takes the tab as a new workspace.
+        let newTarget = newWorkspaceDropTarget
+        if !newTarget.isHidden, newTarget.frame.insetBy(dx: -Metrics.space2, dy: -Metrics.space2).contains(local) {
             list.externalDragExited()
             let machine = sourceMachine ?? .local
             let index = model.section(.machine(machine))?.nodes.count ?? 0
-            showDropOutline(convert(newButton.frame, to: nil), refused: false)
+            showDropOutline(convert(newTarget.frame, to: nil), refused: false)
             return SidebarTabDropHit(
                 drop: .newWorkspace(section: .machine(machine), group: nil, index: index),
-                highlightFrame: window.convertToScreen(convert(newButton.frame, to: nil))
+                highlightFrame: window.convertToScreen(convert(newTarget.frame, to: nil))
             )
         }
         guard let nearest = nearestListPoint(windowPoint),

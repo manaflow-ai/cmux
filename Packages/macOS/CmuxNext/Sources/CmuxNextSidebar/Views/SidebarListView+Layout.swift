@@ -146,7 +146,10 @@ extension SidebarListViewComponents {
         }
         return o
     }
-    func frame(for row: SidebarRow) -> NSRect {
+    /// Where `row`'s content sits (list coordinates): its indent and a group header's reach over its rail. The row's
+    /// view frame is this rect, or under the row restyle the full-width one `frame(for:)` makes of it; group lines and
+    /// anything placed against the row's content (a rename editor, the group editor) read this one.
+    func contentFrame(for row: SidebarRow) -> NSRect {
         // A block's region draws its own insets, as the band did.
         if case .block = row.key { return NSRect(x: 0, y: row.y, width: bounds.width, height: row.height) }
         // The one indent rule (`SidebarIndent`): from the drawn tree, a top-level group's rows flush with ungrouped
@@ -177,12 +180,12 @@ extension SidebarListViewComponents {
         return false
     }
     /// The indent rule every row, rail, lifted card and drop line of this list uses.
-    var indent: SidebarIndent { SidebarIndent(step: SidebarStyle.groupGutter) }
+    var indent: SidebarIndent { SidebarIndent(step: restyleIndentStep) }
     /// The width a level-0 row has: the indent cap is computed from it.
     var indentWidth: CGFloat { max(0, bounds.width - inset * 2 - SidebarStyle.rowTrailingTrim) }
     /// How far `row` moves in from the list's inset.
     func indentOffset(for row: SidebarRow) -> CGFloat {
-        indent.offset(level: row.indentLevel, width: indentWidth)
+        indent.offset(level: row.indentLevel, width: indentWidth) + restyleMemberStep(for: row)
     }
     func realizationRect() -> NSRect {
         // A space page never scrolls: the rows in its frame, no overscan.
@@ -488,6 +491,7 @@ extension SidebarListViewComponents {
     }
     func configure(_ view: SidebarRowView, row: SidebarRow, animated: Bool) {
         SidebarPerfCounters.add(.rowConfigures)
+        view.contentIndent = contentIndent(for: row) // the row restyle's full-width frame; 0 off
         view.isHovered = hoveredKey == row.key && drag == nil
         view.isSelected = selectedRowKey == row.key
         switch (row.key, view) {
@@ -606,6 +610,7 @@ extension SidebarListViewComponents {
         for (key, view) in rowViews {
             guard let row = displayed.row(for: key) else { continue }
             let target = frame(for: row)
+            view.contentIndent = contentIndent(for: row) // a narrower list can cap a deep row's indent
             view.targetSize = target.size
             view.frame = target
         }

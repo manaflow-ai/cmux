@@ -18,6 +18,9 @@ typealias SidebarListViewComponents = SidebarListView
 final class SidebarListView: NSView {
     let model: SidebarModel
     var displayed = SidebarLayout.empty
+    /// The row restyle: this list's arrow keys moved its selection last, so its selected row reads as keyboard-focused
+    /// (`SidebarRowRestyle.noteKey`, `noteMouse`).
+    var restyleKeyboard = false
     /// The model revision and options `displayed` is the full layout of (a plain reload): a one-row insert splices onto
     /// it (`spliceInsertion`). Nil after any other apply.
     var spliceBase: (revision: UInt64, options: SidebarLayoutOptions)?
@@ -444,7 +447,7 @@ final class SidebarListView: NSView {
     func hoverHit(at point: CGPoint) -> SidebarRow? {
         // The stuck header covers the rows under it (`SidebarListView+StickyHeader`).
         if let stuck = stuckHit(at: point) { return stuck }
-        return displayed.hoverRow(at: point, current: hoveredKey, frame: frame(for:),
+        return displayed.hoverRow(at: point, current: hoveredKey, frame: hoverFrame(for:),
                            cornerRadius: Metrics.cornerRadius(nestedIn: SidebarStyle.rowCornerRadius, inset: -Metrics.space1), inset: Metrics.space1)
     }
     /// The row a click at `point` acts on: the hovered row when the pointer

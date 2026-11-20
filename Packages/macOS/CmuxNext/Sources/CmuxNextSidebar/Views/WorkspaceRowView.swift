@@ -122,8 +122,9 @@ final class WorkspaceRowView: SidebarRowView {
             needsLayout = true
         }
     }
-    /// The hover controls (more, close, the chevron) show: under the pointer, or while their menu is open.
-    var revealsHoverControls: Bool { isHovered || showsMenu }
+    /// The hover controls (more, close, the chevron) show: under the pointer, while their menu is open, or (the row
+    /// restyle) while the arrow keys have the row (`SidebarRowRestyle`).
+    var revealsHoverControls: Bool { isHovered || showsMenu || restyle.keyboardFocused }
     /// nil: the App offers no pin; the pin button does not show.
     var onPin: (() -> Void)?, isPinned: (() -> Bool?)?
     /// Activates this workspace from an accessibility AXPress.
@@ -219,13 +220,10 @@ final class WorkspaceRowView: SidebarRowView {
         isDropTarget = false
         isKeyboardFocused = false
         standingGroup = nil
-        onClose = nil
-        onMore = nil
+        (onClose, onMore) = (nil, nil)
         showsMenu = false
         (onPin, isPinned) = (nil, nil)
-        onSelect = nil
-        onToggleTree = nil
-        onToggleAudio = nil
+        (onSelect, onToggleTree, onToggleAudio) = (nil, nil, nil)
         title.stopMarquee()
         title.cancelRoll()
         title.layer?.removeAnimation(forKey: "workspace-title-motion")

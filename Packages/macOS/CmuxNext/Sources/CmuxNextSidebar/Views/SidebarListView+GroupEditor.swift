@@ -100,7 +100,8 @@ struct SidebarGroupEditing {
         guard let view = list.rowViews[.group(id)] as? GroupHeaderRowView else { return openAtStandingRow(group, window: window) }
         view.layoutSubtreeIfNeeded()
         // The row's settled frame: a group made a moment ago may still be moving in.
-        let rowFrame = list.displayed.row(for: .group(id)).map(list.frame(for:)) ?? view.frame
+        // Its content's frame: the name's and the more button's coordinates start there (`SidebarRowView.contentIndent`).
+        let rowFrame = list.displayed.row(for: .group(id)).map(list.contentFrame(for:)) ?? view.contentFrame(of: view.frame)
         let control: PopupAnchor = switch opener {
         case .name: PopupAnchor(rect: view.nameHitFrame.offsetBy(dx: rowFrame.minX, dy: rowFrame.minY), edge: .leading)
         case .moreButton: PopupAnchor(rect: view.moreButton.frame.offsetBy(dx: rowFrame.minX, dy: rowFrame.minY), edge: .trailing)
@@ -118,7 +119,7 @@ struct SidebarGroupEditing {
     /// The editor of a group drawn as its one row, at that row's title: Rename from its menu, Return from the keyboard.
     private func openAtStandingRow(_ group: SidebarGroup, window: NSWindow) {
         guard let row = list.displayed.groupRow(group.id), let view = list.rowViews[row.key] else { return }
-        let rowFrame = list.frame(for: row)
+        let rowFrame = list.contentFrame(for: row)
         let title = view.titleFrame.offsetBy(dx: rowFrame.minX, dy: rowFrame.minY)
         let anchor = PopupAnchor(rect: window.convertToScreen(list.convert(title, to: nil)), edge: .leading)
         list.hoverCards.dismiss(.click)
