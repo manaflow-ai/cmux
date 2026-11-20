@@ -261,6 +261,13 @@ public final class PageInputReadiness {
           // The command target a focused element is marked as (`data-cmux-command-focus`, Cmd-F's find field); "" for none.
           const commandFocus = (el) => (el && el.closest && el.closest('[data-cmux-command-focus]')?.getAttribute('data-cmux-command-focus')) || '';
           let command = '';
+          // Chromium temporarily disables Runtime events after a document commit. A focus event
+          // during that gap can be dropped even though the binding function is present. The host
+          // calls this after re-adding the binding so the native readiness state is repaired from
+          // the page's current state instead of relying on another focus transition.
+          window.__cmuxInputReadyResend = () => {
+            post({ ready: sent, epoch, commandFocus: command, list, editing });
+          };
           document.addEventListener('focusin', (event) => {
             const now = commandFocus(event.target);
             if (event.target !== focused) {

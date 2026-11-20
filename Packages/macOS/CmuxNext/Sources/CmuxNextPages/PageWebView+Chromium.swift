@@ -331,7 +331,7 @@ extension PageWebView {
                 return
             }
             // The Runtime domain off before the document's scripts run, and the binding again.
-            chromiumSession.bridge.documentCommitted()
+            chromiumSession.bridge.documentCommitted(resendInputReadiness: true)
             documentCommitted()
             chromiumSession.bridge.evaluate(chromiumZoomScript)
         case .finished:

@@ -147,12 +147,17 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     }
 
     /// The main frame committed a new document of the page: the Runtime domain goes off before the
-    /// document's scripts run (``commitCalls(runtimeEnabled:)``).
-    public func documentCommitted() {
+    /// document's scripts run (``commitCalls(runtimeEnabled:)``). When requested, the readiness
+    /// script is asked to resend its current state after the binding is re-added; this closes the
+    /// Runtime-disable event gap without keeping the expensive Runtime domain enabled.
+    public func documentCommitted(resendInputReadiness: Bool = false) {
         rendererGone = false
         let calls = Self.commitCalls(runtimeEnabled: runtimeEnabled)
         runtimeEnabled = false
-        switchRuntime(calls)
+        switchRuntime(calls) { [weak self] in
+            guard resendInputReadiness else { return }
+            self?.evaluate("globalThis.__cmuxInputReadyResend?.();")
+        }
     }
 
     /// The page's renderer ended: until a document commits again, ``navigate(_:)`` does not wait on
