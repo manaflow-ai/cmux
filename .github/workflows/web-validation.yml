@@ -29,7 +29,9 @@ jobs:
   # job to an idle owned mini; stale state fails open to the existing overflow.
   portable-placement:
     name: portable light placement
-    if: ${{ github.event_name != 'merge_group' && vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' }}
+    # Not on a pull request: there web-validation is a one-step status echo, and
+    # placing it took a second runner pickup for it. It takes the pool fallback.
+    if: ${{ github.event_name != 'merge_group' && github.event_name != 'pull_request' && vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 4
     permissions:
