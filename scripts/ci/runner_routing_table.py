@@ -510,7 +510,7 @@ FORK_PR_BLACKSMITH = re.compile(
 # The CI_TRUSTED_RUNNER selector (scripts/ci/validate-cla-policy.rb), split at its top-level `||`. A
 # secretless declared light job whose workflow cannot read RUNNER_POOLS may retry on it.
 TRUSTED_SELECTOR_TAIL = [
-    "contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "
+    "contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "
     "vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER",
     "'blacksmith-4vcpu-ubuntu-2404'",
 ]

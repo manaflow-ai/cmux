@@ -149,6 +149,8 @@ final class PaneCommitMotion {
     var zooms: Bool { armed?.act == .zoom }
     /// The change that waits for its frame is an unzoom that can move its pane.
     var unzooms: Bool { armed?.act == .unzoom }
+    /// The change that waits for its frame is an act (a split, a close, a zoom or an unzoom), with the move on or off.
+    var acts: Bool { armed?.act != nil }
 
     /// `screen` is about to give its panes the sizes of the change that waits for its frame: no pane heard a size yet.
     /// Each pane that stays and gets smaller in a change that can move, and whose content keeps its own picture, starts
@@ -182,6 +184,13 @@ final class PaneCommitMotion {
         return true
     }
 
+    /// For a probe's note: that each of `riders` rides, or the class of the top view of each one that does not.
+    private static func ride(of riders: [PaneHostView]) -> String {
+        let stops = riders.map(\.content).filter { !$0.paneRidesCommitMotion }
+        let kinds = Set(stops.map { content in content.paneCommitMotionTop.map { "\(type(of: $0))" } ?? "no top view in \(type(of: content))" })
+        return kinds.isEmpty ? "each rides: true" : "each rides: false, the top view that does not ride: \(kinds.sorted().joined(separator: ", "))"
+    }
+
     private static func shown(_ views: [NSView]) -> [ObjectIdentifier: CGRect] {
         var frames: [ObjectIdentifier: CGRect] = [:]
         for view in views where !view.isHidden && view.alphaValue > 0 {
@@ -202,6 +211,8 @@ final class PaneCommitMotion {
         let last = taken
         taken = nil
         guard let act = armed.act, moves(on: screen) else {
+            // Only an act gets a note: a change of no act is not a move that did not come, and a record has few places.
+            if let act = armed.act { MotionTrace.note("layout.commit: \(act) in one frame (the panes move at a commit: false)") }
             finish()
             return nil
         }
@@ -234,9 +245,12 @@ final class PaneCommitMotion {
         let closes = act != .unzoom || (changes.count == 1 && screen.baseGeometry.floatingCards.isEmpty
             && (last?.host === changes[0].host || changes[0].host.holdsContentForMove))
         guard !changes.isEmpty, time > 0, covered, closes, riders.allSatisfy({ $0.content.paneRidesCommitMotion }) else {
+            MotionTrace.note("layout.commit: \(act) in one frame (panes that change: \(changes.count), time: \(time), covered: \(covered), "
+                + "closes: \(closes), \(Self.ride(of: riders)))")
             finish()
             return nil
         }
+        MotionTrace.note("layout.commit: \(act) moves \(changes.count) panes for \(time) s")
         serial += 1
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -297,6 +311,9 @@ final class PaneCommitMotion {
     /// tick that shows it), then its time ends it: a change whose pass never comes keeps no motion.
     func step(_ dt: Double) {
         guard remaining > 0 else { return }
+        // A probe's count while `debug.motion` records: one sample for each frame tick with a move in flight (the
+        // layout's springs give none in a move: no pane is on one), its value the animations on the layers.
+        if MotionTrace.isEnabled { MotionTrace.sample("layout.commit", Double(moved.count)) }
         if armed != nil, remaining - dt <= PaneZoomDim.spent, overtime <= ScreenContentView.commitBound {
             overtime += 1
             return
@@ -309,6 +326,7 @@ final class PaneCommitMotion {
     /// changed, the screen goes out of sight or away, or panes stopped animating. What the screen showed before the
     /// change is not where its panes show now, so a change that comes before that one's pass does not move either.
     func cancel() {
+        if let act = armed?.act { MotionTrace.note("layout.commit: \(act) in one frame (cancelled before its frame)") }
         armed?.act = nil
         armed?.still = true
         taken = nil
