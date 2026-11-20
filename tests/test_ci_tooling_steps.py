@@ -66,6 +66,12 @@ jobs:
       - name: F runs every shell test in a folder through a variable
         id: tt-f
         run: bash tests/run-all.test.sh
+      - name: G checks the paths a data file lists
+        id: tt-g
+        run: python3 tests/test_g.py
+      - name: H checks every tracked file
+        id: tt-h
+        run: python3 tests/test_h.py
 """
 FILES = {
     WORKFLOW: FIXTURE_WORKFLOW,
@@ -88,6 +94,16 @@ FILES = {
     "scripts/env.sh": "true\n",
     "tests/run-all.test.sh": 'for t in tests/shell/*.test.sh; do timeout 60 bash "$t"; done\n',
     "webviews/src/pane.tsx": "export {}\n",
+    "tests/test_g.py": textwrap.dedent("""\
+        from pathlib import Path
+        LISTED = Path(__file__).resolve().parents[1] / "data/listed.txt"
+        """),
+    "data/listed.txt": "tools/listed_tool.py\n",
+    "tools/listed_tool.py": "print('listed')\n",
+    "tests/test_h.py": textwrap.dedent("""\
+        import subprocess
+        tracked = subprocess.run(["git", "ls-files", "-z"], capture_output=True).stdout
+        """),
 }
 
 
@@ -132,9 +148,22 @@ class FixtureRepo(unittest.TestCase):
         decision = self.route(["webviews/src/pane.tsx"])
         self.assertFalse(decision.all)
         steps = self.verdicts(decision)
-        self.assertEqual({k for k, s in steps.items() if not s.run}, {"tt-a", "tt-b"})
+        self.assertEqual({k for k, s in steps.items() if not s.run}, {"tt-a", "tt-b", "tt-g"})
         # Setup steps are never selectable: they always run.
         self.assertNotIn("setup-python", steps)
+
+    def test_a_path_a_data_input_names_selects_its_step(self):
+        # A deleted script still listed in a data file the test reads (scripts/ci/check-paths.txt): the walker does
+        # not follow the data file's lines, so the router reads its text.
+        steps = self.verdicts(self.route(["tools/listed_tool.py"]))
+        self.assertTrue(steps["tt-g"].run, steps["tt-g"].reason)
+        self.assertIn("data/listed.txt", steps["tt-g"].reason)
+        self.assertFalse(steps["tt-a"].run, steps["tt-a"].reason)
+
+    def test_a_test_listing_every_tracked_file_always_runs(self):
+        steps = self.verdicts(self.route(["webviews/src/pane.tsx"]))
+        self.assertTrue(steps["tt-h"].run, steps["tt-h"].reason)
+        self.assertIn("lists every tracked file", steps["tt-h"].reason)
 
     def test_an_unknown_input_runs_the_step(self):
         steps = self.verdicts(self.route(["webviews/src/pane.tsx"]))
@@ -169,7 +198,7 @@ class FixtureRepo(unittest.TestCase):
             tooling_steps.write_outputs(decision, output, summary, "tooling-tests")
             values = dict(line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines())
             self.assertEqual(values["tooling_all"], "false")
-            self.assertEqual(values["tooling_steps"], " tt-a tt-c tt-d tt-e tt-f ")
+            self.assertEqual(values["tooling_steps"], " tt-a tt-c tt-d tt-e tt-f tt-h ")
             self.assertIn("`tt-b` B:", summary.read_text(encoding="utf-8"))
 
 

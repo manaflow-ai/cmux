@@ -54,6 +54,10 @@ SETUP_ID = "setup-"
 THIRD_PARTY = {"yaml", "pytest", "_pytest", "xdist", "PIL"}
 EXPR = "$__EXPR"
 POSITIONAL = re.compile(r"\$(?:[@*0-9]|\{(?:[@*0-9]|[0-9]+)\})")
+# `git ls-files` with no pathspec, in a Python argument list (`["git", "-C", root, "ls-files", "-z"]`) or a shell
+# command (`git ls-files | grep`): the whole tracked tree is an input.
+WHOLE_TREE_LIST = re.compile(r"""["']ls-files["']\s*(?:,\s*["']-[\w=-]+["']\s*)*[\])]"""
+                             r"""|\bgit(?:\s+-C\s+\S+)?\s+ls-files(?:\s+-[\w=-]+)*\s*(?:$|[|;&)>])""", re.M)
 WORKSPACE_PATH = re.compile(r"^\$\{?GITHUB_WORKSPACE(?::-[^}]*)?\}?/(.+)$")
 
 
@@ -173,6 +177,15 @@ def reach_of(repo: Repo, walker: Walker, rel: str) -> Reach:
     return reach
 
 
+def read_text(repo: Repo, rel: str) -> str:
+    """A file's text, or "" for a directory, a binary file or one that is gone."""
+    try:
+        data = Path(repo.abs(rel)).read_bytes()
+    except OSError:
+        return ""
+    return "" if b"\0" in data[:8192] else data.decode("utf-8", errors="replace")
+
+
 def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], workdir: str,
                changed: set[str]) -> tuple[bool, str]:
     """(run, reason) for one selectable step."""
@@ -214,12 +227,15 @@ def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], work
             for name in sorted(changed):
                 if name.startswith(directory + "/"):
                     return True, f"{path} reads directory {directory}, which holds {name}"
-    # A path the walker does not follow: a changed file a code file of the closure spells out by path or file name.
+    # A code file that lists every tracked file (`git ls-files` with no pathspec) can fail on any added, deleted or
+    # renamed file: tests/test_check_paths.py checks each pattern of scripts/ci/check-paths.txt still matches one.
     for path in code:
-        try:
-            text = Path(repo.abs(path)).read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
+        if WHOLE_TREE_LIST.search(read_text(repo, path)):
+            return True, f"{path} lists every tracked file"
+    # A path the walker does not follow: a changed file any input of the closure spells out by path or file name,
+    # a data file (scripts/ci/check-paths.txt naming a script) as much as code.
+    for path in sorted(inputs):
+        text = read_text(repo, path)
         for name in sorted(changed):
             if name in text or name.rsplit("/", 1)[-1] in text:
                 return True, f"{path} names {name.rsplit('/', 1)[-1]}"
