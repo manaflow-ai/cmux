@@ -13,7 +13,18 @@ test("a held inbox event carries the cumulative snapshot; an ordinary inbox even
     needYou: 0,
     seq: 41,
   });
+  // A read or removal moves the row only with the whole snapshot; a bare one, or a part, moves nothing.
   expect(surgeOfEvent("inbox_read", { surge: { held: 3 } }, 42)).toBeUndefined();
+  expect(surgeOfEvent("inbox_read", { threadId: "from:lane" }, 42)).toBeUndefined();
+  expect(surgeOfEvent("inbox_read", { surge: { held: 3, needYou: 0 } }, 42)).toEqual({ held: 3, needYou: 0, seq: 42 });
+  expect(surgeOfEvent("inbox_removed", { surge: { held: 1, needYou: 0 } }, 43, 9)).toEqual({
+    held: 1,
+    needYou: 0,
+    seq: 43,
+    at: 9,
+  });
+  expect(surgeOfEvent("inbox_removed", { surge: { needYou: 0 } }, 43)).toBeUndefined();
+  expect(surgeOfEvent("user_message", { surge: { held: 3, needYou: 0 } }, 44)).toBeUndefined();
 });
 
 test("counts are whole and never negative; a missing count is zero", () => {

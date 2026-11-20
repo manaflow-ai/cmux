@@ -7,7 +7,9 @@
 //
 // The wire (acpmux's receiver, forum-surge-inbox): a persisted mux `inbox` event with
 // `msg.surgeHeld === true` and `msg.surge = {held, needYou}`, a cumulative snapshot, and later
-// `inbox_triaged` events with a new `msg.surge`. The newest snapshot by seq is the row; a page of
+// `inbox_triaged` events with a new `msg.surge`; an `inbox_read` or `inbox_removed` that clears what
+// needed the chat (read here or from another client) carries the whole snapshot too, and a bare one
+// (no `surge`, or only part of it) moves nothing. The newest snapshot by seq is the row; a page of
 // older events read later never moves it back. `_acpmux/inbox_threads` lists the threads, and may
 // carry the same `surge` snapshot.
 import type { InboxNotice, InboxThread, SenderRef } from "./inboxNotice";
@@ -38,11 +40,24 @@ export function surgeCounts(value: unknown): { held: number; needYou: number } |
   return { held: held ?? 0, needYou: needYou ?? 0 };
 }
 
-/// The snapshot a mux event carries: a held `inbox` event's or an `inbox_triaged` event's.
+/// The mux event kinds that can carry the surge's snapshot (direct.ts folds only these).
+export const SURGE_EVENT_KINDS: ReadonlySet<string> = new Set([
+  "inbox",
+  "inbox_triaged",
+  "inbox_read",
+  "inbox_removed",
+]);
+
+/// The snapshot a mux event carries: a held `inbox` event's, an `inbox_triaged` event's, or an
+/// `inbox_read` / `inbox_removed` event's whole one (both counts; a read names no partial snapshot).
 export function surgeOfEvent(kind: string, msg: unknown, seq: number, at?: number): SurgeHold | undefined {
-  if (kind !== "inbox" && kind !== "inbox_triaged") return undefined;
+  if (!SURGE_EVENT_KINDS.has(kind)) return undefined;
   const record = (msg ?? {}) as Record<string, unknown>;
   if (kind === "inbox" && record.surgeHeld !== true) return undefined;
+  if (kind === "inbox_read" || kind === "inbox_removed") {
+    const surge = record.surge as Record<string, unknown> | undefined;
+    if (count(surge?.held) === undefined || count(surge?.needYou) === undefined) return undefined;
+  }
   const counts = surgeCounts(record.surge);
   return counts && { ...counts, seq, ...(at !== undefined && { at }) };
 }

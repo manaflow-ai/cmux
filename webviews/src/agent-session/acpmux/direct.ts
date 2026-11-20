@@ -162,7 +162,7 @@ import {
 } from "./conversation/incomingMessage";
 import { noticeRowText } from "./conversation/agentNotice";
 import { inboxMessages, inboxText, type InboxMessage, type InboxNotice } from "./conversation/inboxNotice";
-import { newerSurge, surgeCounts, surgeOfEvent, type SurgeHold } from "./conversation/surgeHold";
+import { newerSurge, SURGE_EVENT_KINDS, surgeCounts, surgeOfEvent, type SurgeHold } from "./conversation/surgeHold";
 import { withoutRelayEnvelope, withoutRelayLabel, withoutRelayLabelOfMessage } from "./conversation/relayEnvelope";
 import { bareSender, provenanceAuthenticated } from "./conversation/senderIdentity";
 import { recapDismissed, rememberRecapDismissed } from "./conversation/recapDismissed";
@@ -9922,8 +9922,9 @@ export class AcpmuxDirectClient {
             failover: { from: msg.from, to: msg.to },
           });
         }
-      } else if (event.kind === "inbox" || event.kind === "inbox_triaged") {
-        // A held surge's snapshot (acpmux's receiver): the hat's one row, never a row per message.
+      } else if (SURGE_EVENT_KINDS.has(event.kind)) {
+        // A held surge's snapshot (acpmux's receiver, a triage, a read or removal that cleared what
+        // needed the chat): the hat's one row, never a row per message.
         this.surge = newerSurge(this.surge, surgeOfEvent(event.kind, msg, event.seq, event.at));
       } else if (event.kind === "recap") {
         this.recordRecap(event, msg);
