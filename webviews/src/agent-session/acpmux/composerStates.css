@@ -34,6 +34,13 @@
      a part of the page that caps them below (SEND-SLIM) without reading its own value. */
   --agent-motion-send-root: var(--agent-motion-send);
   --agent-motion-send-fade-root: var(--agent-motion-send-fade);
+  /* The fade and move tokens as the root holds them (the host's, after ui.animationSpeed, Reduce
+     Motion and animations off), for the transcript's scroll thumb: the chat's MINIMAL-MOTION below
+     zeroes the chat's own, and under it the thumb went from full to none in one frame as the pointer
+     left its bar and as a scroll up through loading history stopped (Leo's NIGHTLY, 2026-11-20).
+     A thumb's fade moves nothing; it is the reader's own input answered. */
+  --agent-motion-in-root: var(--agent-motion-in);
+  --agent-motion-move-root: var(--agent-motion-move);
   --agent-ease-send: var(--cmux-ease-send, cubic-bezier(0.16, 1, 0.3, 1));
   /* Core Animation's easeOut, which the native fades use. */
   --agent-ease-out: var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
