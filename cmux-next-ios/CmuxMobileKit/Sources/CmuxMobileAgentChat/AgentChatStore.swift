@@ -193,6 +193,12 @@ public struct QueuedPrompt: Hashable, Sendable, Identifiable {
     public var text: String
 }
 
+/// A list showing a chat that draws a prompt shown as sent at once (`ChatTranscriptList`).
+@MainActor
+protocol AgentChatSendViewer: AnyObject {
+    func showSentNow()
+}
+
 /// The chat's state, built from the source's event stream. Views read it; intents go back to the source.
 @MainActor
 @Observable
@@ -590,6 +596,10 @@ public final class AgentChatStore {
         turns.append(turn)
         justSent = (key, ProcessInfo.processInfo.systemUptime)
         refreshDerived()
+        // The lists showing the chat draw the bubble now, in the frame the composer clears in.
+        // Their observation rebuilds a main-queue turn later, behind the keyboard's resign: 3 to
+        // 4 frames after the field emptied.
+        for viewer in viewers { (viewer.owner as? AgentChatSendViewer)?.showSentNow() }
     }
 
     /// The row key of the turn the last send drew and when: its rows settle in on the send's

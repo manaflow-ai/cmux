@@ -514,7 +514,7 @@ enum ChatRowCost {
 /// (`ChatTranscriptBuilder`), a diffable snapshot of stable row ids, and a reconfigure of
 /// only the rows whose content changed (the streaming block, a finished tool call).
 @MainActor
-final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollectionViewDataSourcePrefetching {
+final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollectionViewDataSourcePrefetching, AgentChatSendViewer {
     let collectionView: ChatTranscriptCollectionView
     let layout: ChatTranscriptLayout
     private(set) var store: AgentChatStore
@@ -846,6 +846,15 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                 self.reload()
             }
         }
+    }
+
+    /// A send drew its bubble (`AgentChatStore.showSent`): rebuild in this turn, so it is laid out
+    /// in the frame the composer clears in. A held list (a card on the tab grid) waits, as for any
+    /// change; the observation's rebuild after this one finds nothing new.
+    func showSentNow() {
+        if surface.holdsTranscript, surface.heldRefresh == appliedHeldRefresh { return }
+        appliedHeldRefresh = surface.heldRefresh
+        reload()
     }
 
     /// Any file: reading whether it is viewed observes every viewed mark.
