@@ -3648,6 +3648,12 @@
       "title" : "Show Preview Features",
       "type" : "boolean"
     },
+    "labs.shadowReview" : {
+      "default" : false,
+      "description" : "Records a recovery proposal for stalled goals every 15 minutes. Log only; sends no messages.",
+      "title" : "Stalled Goal Review",
+      "type" : "boolean"
+    },
     "labs.voiceRoom" : {
       "default" : false,
       "description" : "While a room is open, cmux sends a transcript of your mic and your screen's text to it.",

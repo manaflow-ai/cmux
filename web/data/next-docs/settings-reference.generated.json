@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 632,
+  "count": 633,
   "sections": [
     {
       "id": "general",
@@ -6872,6 +6872,14 @@
           "key": "labs.previewFeatures",
           "title": "Show Preview Features",
           "help": "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
+          "key": "labs.shadowReview",
+          "title": "Stalled Goal Review",
+          "help": "Records a recovery proposal for stalled goals every 15 minutes. Log only; sends no messages.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"
