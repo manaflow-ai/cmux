@@ -362,3 +362,98 @@ async fn owner_items_go_only_to_owners_the_recipient_authorized() {
     assert_eq!(last["items"][0]["promptId"], "m5");
     assert_eq!(last["items"][0]["category"], "needs_this_session", "{last}");
 }
+
+#[test]
+fn a_later_self_subscription_never_shadows_an_authorized_owner() {
+    let mut map = BTreeMap::new();
+    let sub =
+        |o: &str, active: bool| json!({"threadId": "pr:1", "ownerSessionId": o, "active": active});
+    apply_subscription(&mut map, "owner", &sub("owner", true), 10);
+    apply_subscription(&mut map, "stranger", &sub("stranger", true), 20);
+    let only_owner = |_: &str, o: &str| o == "owner";
+    assert_eq!(
+        authorized_owners(&map, only_owner).0.get("pr:1").map(String::as_str),
+        Some("owner")
+    );
+    // The stranger's unsubscribe drops only its own entry.
+    apply_subscription(&mut map, "stranger", &sub("stranger", false), 30);
+    assert_eq!(
+        authorized_owners(&map, only_owner).0.get("pr:1").map(String::as_str),
+        Some("owner")
+    );
+    // A record in one session's journal naming another changes nothing.
+    apply_subscription(&mut map, "stranger", &sub("owner", false), 40);
+    assert_eq!(
+        authorized_owners(&map, only_owner).0.get("pr:1").map(String::as_str),
+        Some("owner")
+    );
+    // Two authorized: the most recent wins, the same every time.
+    apply_subscription(&mut map, "lead", &sub("lead", true), 50);
+    let both = |_: &str, o: &str| o == "owner" || o == "lead";
+    assert_eq!(authorized_owners(&map, both).0.get("pr:1").map(String::as_str), Some("lead"));
+    apply_subscription(&mut map, "owner", &sub("owner", false), 60);
+    apply_subscription(&mut map, "lead", &sub("lead", false), 70);
+    assert!(map.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn each_digest_names_only_its_own_recipients_messages() {
+    let (hub, s) = chat(Some("1 owner\n2 this")).await;
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let owner = hub.new_session(req).await.unwrap();
+    let params = json!({"sessionId": owner.id, "threadId": "runners"});
+    let method = crate::rpc::method::MUX_INBOX_SUBSCRIPTION_SET;
+    rpc_as(&hub, &owner.id, method, params).await;
+    let grant = json!({"threadId": "runners", "ownerSessionId": owner.id, "active": true});
+    hub.append(&s, "mux", triage::GRANT_KIND, grant);
+    hold(&hub, &s, "m1", "runners", "fyi", "runner queued");
+    hold(&hub, &s, "m2", "review", "result", "pick a base");
+    hub.surge_triage_pass(&s).await.unwrap();
+    let ids_in = |who: &str| -> Vec<Value> {
+        let events = hub.events(who, 0, 100_000).unwrap();
+        events
+            .iter()
+            .filter_map(|e| e.msg.pointer("/_meta/provenance").or(e.msg.get("provenance")))
+            .filter(|p| p["kind"] == PROVENANCE_KIND)
+            .map(|p| p["promptIds"].clone())
+            .collect()
+    };
+    let to_owner = ids_in(&owner.id);
+    let to_chat = ids_in(&s.id);
+    assert!(!to_owner.is_empty() && !to_chat.is_empty(), "{to_owner:?} {to_chat:?}");
+    assert!(to_owner.iter().all(|ids| *ids == json!(["m1"])), "{to_owner:?}");
+    assert!(to_chat.iter().all(|ids| *ids == json!(["m2"])), "{to_chat:?}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn failed_journal_writes_lose_no_decision_and_no_delivery() {
+    let (hub, s) = chat(Some("1 this\n2 noise")).await;
+    hold(&hub, &s, "m1", "review", "result", "pick a base");
+    hold(&hub, &s, "m2", "runners", "fyi", "queued");
+    // The batch write fails: nothing counts as decided; the retry triages both, once.
+    FAIL_WRITES.lock().unwrap().insert((s.id.clone(), "batch"), 1);
+    assert!(hub.surge_triage_pass(&s).await.is_err());
+    assert_eq!(records(&hub.events(&s.id, 0, 100_000).unwrap(), triage::RECORD_KIND).count(), 0);
+    // The digest goes out but its delivered marker's write fails: the retry sends it again as
+    // its own duplicate, then writes the marker.
+    FAIL_WRITES.lock().unwrap().insert((s.id.clone(), "marker"), 1);
+    assert!(hub.surge_triage_pass(&s).await.is_err());
+    assert_eq!(hub.surge_triage_pass(&s).await.unwrap(), PassEnd::Done);
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    let recs: Vec<&Value> = records(&events, triage::RECORD_KIND).collect();
+    let decided: Vec<String> = recs.iter().flat_map(|r| triage::triaged_ids(r)).collect();
+    assert_eq!(decided, ["m1", "m2"], "each decided once: {recs:?}");
+    let digest = recs[0]["digestPromptId"].as_str().unwrap();
+    let markers: Vec<&&Value> = recs.iter().filter(|r| r["digestDelivered"] == digest).collect();
+    assert_eq!(markers.len(), 1, "{recs:?}");
+    let accepts: Vec<Value> = DIGEST_ACCEPTS
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(to, a)| *to == s.id && a["promptId"] == digest)
+        .map(|(_, a)| a.clone())
+        .collect();
+    assert_eq!(accepts.len(), 2, "sent, then resent: {accepts:?}");
+    assert_ne!(accepts[0]["duplicate"], true);
+    assert_eq!(accepts[1]["duplicate"], true, "the resend is the first one's duplicate");
+}
