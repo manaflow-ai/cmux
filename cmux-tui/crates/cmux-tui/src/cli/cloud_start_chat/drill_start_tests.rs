@@ -45,7 +45,8 @@ fn a_drill_whose_start_answers_past_its_deadline_sends_nothing() {
 fn a_drill_mints_its_credential_for_the_team_its_machine_is_in() {
     use crate::carrier::fault::{FaultPlan, FaultSpec, Route};
     const MACHINE_TEAM: &str = "team_d9753ae7bf17ea2f6eaf";
-    let mut fake = Fake::new(vec![signed_in(), started()]);
+    // The start reads where the chat runs (no prompt: `run`'s folder read), then the drill asks its credential.
+    let mut fake = Fake::new(vec![signed_in(), started(), exec_out("@@cwd\n[]\n")]);
     fake.app_answers = vec![
         (
             "cloud.machines",
