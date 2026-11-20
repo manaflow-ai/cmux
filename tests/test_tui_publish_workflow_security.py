@@ -31,6 +31,12 @@ import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in
 ROOT = Path(__file__).resolve().parents[1]
 
 
+# A provenance publish job runs on the provenance pool (GitHub-hosted: npm provenance and attestations need it) and says
+# why. #47603 routed the literal `ubuntu-latest` through RUNNER_POOLS; a fork still gets ubuntu-latest.
+PROVENANCE_RUNS_ON = (
+    "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-latest' || fromJSON(vars.RUNNER_POOLS).provenance }}"
+)
+
 def load_tests(
     loader: unittest.TestLoader,
     standard_tests: unittest.TestSuite,
@@ -456,10 +462,7 @@ def test_npm_bootstrap_preserves_the_first_stable_version() -> None:
             "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
             "vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}" in block
         )
-    assert (
-        "runs-on: ubuntu-latest # github-hosted-required: npm provenance publishing"
-        in publish
-    )
+    assert f"{PROVENANCE_RUNS_ON} # github-hosted-required: npm provenance publishing" in publish
     assert "id-token: write" in bootstrap
     assert "NPM_BOOTSTRAP_TOKEN" in bootstrap
     assert 'BOOTSTRAP_VERSION: "0.0.0-bootstrap.0"' in bootstrap
@@ -1977,7 +1980,7 @@ def test_relay_publisher_is_tag_bound_rc_aware_and_attested() -> None:
     # relay binary against the reusable build workflow at this exact ref.
     assert "name: npm-tui" in text
     assert "npm install -g npm@11.5.1" in text
-    assert "runs-on: ubuntu-latest" in text
+    assert f"{PROVENANCE_RUNS_ON} # github-hosted-required: npm provenance" in text
     assert "uses: ./.github/workflows/cmux-tui-build-package.yml" in text
     assert "attest_packages: true" in text
     # The Rust machine relay has no Windows PTY backend yet. Its stable npm

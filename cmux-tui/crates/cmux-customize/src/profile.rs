@@ -111,7 +111,13 @@ impl Customize {
                 live.insert(path.clone(), bytes);
             }
         }
-        let problems = validate::problems(&live);
+        let all = validate::problems(&live);
+        // A value the schema refuses in the person's own settings does not
+        // stop a save: that key is left out of the profile (and said so),
+        // since no one could use a profile that carries it.
+        let refused: Vec<String> =
+            all.iter().filter_map(validate::Problem::refused_setting).map(str::to_owned).collect();
+        let problems = validate::introduced(all.clone(), &all);
         if !problems.is_empty() {
             return Err(Error::Invalid(problems));
         }
@@ -146,6 +152,13 @@ impl Customize {
                     let (settings, credentials, private) =
                         shareable_settings(&String::from_utf8_lossy(bytes));
                     profile.settings = settings;
+                    for key in &refused {
+                        if profile.settings.remove(key).is_some() {
+                            left_out.push(format!(
+                                "the setting {key}: its value is one this setting does not accept"
+                            ));
+                        }
+                    }
                     for key in credentials {
                         left_out.push(format!(
                             "the setting {key}: its value carries a credential (a user, password or token)"
@@ -391,6 +404,19 @@ impl Customize {
             .into_iter()
             .filter(|problem| files.contains_key(&problem.path))
             .collect();
+        // What the person's own files already hold that the schema refuses
+        // (a value an older build wrote) is theirs and stays as written; only
+        // what this profile brings stops it. "Already" is what the apply
+        // after this will judge by, so a preview never writes what its apply
+        // then refuses: with no preview open, the live files (the begin below
+        // records them as a generation); with one open, the applied
+        // generation (the open preview's edits are not the person's yet).
+        let before = if self.store().draft()?.is_some() {
+            self.settings_problems_in(&self.current_tree(&self.store().index()?)?)?
+        } else {
+            self.live_problems(files.keys())?
+        };
+        let problems = validate::introduced(problems, &before);
         if !problems.is_empty() {
             return Err(Error::Invalid(problems));
         }

@@ -16,9 +16,12 @@ sys.path.insert(0, str(HERE.parent / "scripts" / "ci"))
 import react_doctor_gate as gate  # noqa: E402
 import receipt_input_key as rik  # noqa: E402
 
+sys.path.insert(0, str(HERE))
+import git_fixture_env  # noqa: E402
+
 ROWS = [("*", "blob", "gate.py"), ("app", "tree", "app"), ("app", "tree", "shared"), ("site", "tree", "site")]
-ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
-       "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+ENV = git_fixture_env.fixture_env({**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+       "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
 
 
 class KeyTest(unittest.TestCase):
