@@ -66,8 +66,10 @@ fn exclusions_and_phrases() {
     let index = index();
     assert_eq!(keys(&index, "deploy -staging"), ["command", "chat"]);
     assert_eq!(keys(&index, "\"the prod\""), ["chat"]);
-    // A word too short for the trigram index is still left out.
+    // A word too short for the trigram index is still left out, from the
+    // text and from the title.
     assert_eq!(keys(&index, "deploy -qa"), ["chat", "old-chat"]);
+    assert_eq!(keys(&index, "deploy -ld"), ["command", "chat"]);
     // Exclusions alone test the text too, not only names.
     assert_eq!(keys(&index, "-staging"), ["tab", "command", "chat"]);
 }
