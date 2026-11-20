@@ -1263,7 +1263,9 @@ if [[ "$mode" == shots ]]; then
       # @S,S,...: the times arrive as the leading words (the scene's commas split them).
       words[0]="${words[0]#@}"
       while [[ ${#words[@]} -gt 0 && "${words[0]}" =~ ^[0-9]+$ ]]; do
-        (( words[0] >= 1 && words[0] <= 60 )) || { note "- scene '$name': shot time ${words[0]} s is outside 1..60"; words=(); times=(); break; }
+        # Decimal 1..60, checked as text after leading zeros go: bash arithmetic reads a leading 0 as octal.
+        while [[ "${words[0]}" == 0?* ]]; do words[0]="${words[0]#0}"; done
+        [[ "${words[0]}" =~ ^([1-9]|[1-5][0-9]|60)$ ]] || { note "- scene '$name': shot time ${words[0]} s is outside 1..60"; words=(); times=(); break; }
         times+=("${words[0]}"); words=("${words[@]:1}")
       done
       [[ ${#times[@]} -gt 0 ]] || continue
@@ -1283,14 +1285,16 @@ if [[ "$mode" == shots ]]; then
         shots+=("screens/$name-$look.png")
       else
         for t in $(printf '%s\n' "${times[@]}" | sort -n); do
-          (( SECONDS - launched < t )) && sleep $(( t - (SECONDS - launched) ))
+          if (( SECONDS - launched < t )); then sleep $(( t - (SECONDS - launched) )); fi
           simctl io "$udid" screenshot "$out/screens/$name-$look-t$t.png" >/dev/null
           shots+=("screens/$name-$look-t$t.png")
         done
       fi
       simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
     done
-    note "- $name: $(IFS=' '; echo "${shots[*]}")"
+    shot_list="${shots[0]}"
+    for shot in "${shots[@]:1}"; do shot_list+=", $shot"; done
+    note "- $name: $shot_list"
   done
   simctl ui "$udid" appearance dark >/dev/null 2>&1 || true
   note "- screens: $((SECONDS - t0)) s"
