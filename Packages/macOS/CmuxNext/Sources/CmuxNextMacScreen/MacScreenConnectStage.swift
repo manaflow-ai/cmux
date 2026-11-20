@@ -4,7 +4,7 @@ import Foundation
 /// secure link, then the first picture. ``MacScreenSession`` gives a connect 15 s to show a
 /// picture; past that it fails with the stage it was in, so the card says where it stopped
 /// instead of "Connecting..." forever.
-public nonisolated enum MacScreenConnectStage: Int, Sendable, Comparable {
+public nonisolated enum MacScreenConnectStage: Int, Sendable, Comparable, CaseIterable {
     /// The offer went; the host's answer has not come.
     case answer
     /// The host answered; the link to it is not up.
@@ -22,6 +22,16 @@ public nonisolated enum MacScreenConnectStage: Int, Sendable, Comparable {
         case .answer: "no_answer"
         case .link: "no_link"
         case .frame: "no_frame"
+        case .shown: "shown"
+        }
+    }
+
+    /// The stage's key in `mac_screen.state`'s `connect_stage_ms`, the time it ended.
+    public var timingKey: String {
+        switch self {
+        case .answer: "answer"
+        case .link: "link"
+        case .frame: "frame"
         case .shown: "shown"
         }
     }
