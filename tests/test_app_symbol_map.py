@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """The release strip keeps cmux's function names in an app symbol map.
 
-The cmux NEXT executable links with -no_exported_symbols, and the release
-strip then removes every name from it. Before stripping,
+The cmux NEXT code image (CmuxNextApp.framework behind a stub executable,
+CMUX-629; the executable itself in a static live code build) exports only the
+stub's entry point, and the release strip then removes every name from it. Before stripping,
 scripts/strip-release-bundle.sh writes Contents/Resources/cmux-symbols.bin:
 per slice, the LC_UUID and the __TEXT,__text functions as offsets from the
 image's __TEXT segment, so hang records and exception traces still name app
@@ -28,7 +29,7 @@ TEXT_VMADDR = 0x1_0000_0000
 SLICE_UUID = uuid.UUID("0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0")
 
 
-def macho(symbols: list[tuple[str, int, int, int]]) -> bytes:
+def macho(symbols: list[tuple[str, int, int, int]], slice_uuid: uuid.UUID = SLICE_UUID) -> bytes:
     """A thin arm64 MH_EXECUTE: __TEXT (one __text section), LC_UUID, LC_SYMTAB.
     symbols: (name, n_type, n_sect, n_value)."""
     strtab = b"\x00"
@@ -40,7 +41,7 @@ def macho(symbols: list[tuple[str, int, int, int]]) -> bytes:
                           0x1000, 4, 0, 0, 0x80000400, 0, 0, 0)
     segment = struct.pack("<II16sQQQQiiII", 0x19, 72 + len(section), b"__TEXT", TEXT_VMADDR, 0x2000,
                           0, 0x2000, 5, 5, 1, 0) + section
-    uuid_cmd = struct.pack("<II16s", 0x1B, 24, SLICE_UUID.bytes)
+    uuid_cmd = struct.pack("<II16s", 0x1B, 24, slice_uuid.bytes)
     commands = segment + uuid_cmd
     header_size = 32 + len(commands) + 24
     symoff = header_size
@@ -132,6 +133,27 @@ class AppSymbolMapTest(unittest.TestCase):
             exe.write_bytes(macho([("__mh_execute_header", 0x0F, 1, TEXT_VMADDR)]))
             self.strip(app)
             self.assertEqual((app / "Contents/Resources/cmux-symbols.bin").read_bytes(), before)
+
+    def test_release_strip_maps_the_framework_behind_the_stub(self):
+        # CMUX-629: the code is CmuxNextApp.framework; the stub executable has only main.
+        with tempfile.TemporaryDirectory() as tmp:
+            app = Path(tmp) / "cmux.app"
+            (app / "Contents/MacOS").mkdir(parents=True)
+            (app / "Contents/Resources").mkdir()
+            stub = app / "Contents/MacOS/cmux"
+            stub.write_bytes(macho([("_main", 0x0F, 1, TEXT_VMADDR + 0x1000)],
+                                   uuid.UUID("11111111-2222-3333-4444-555555555555")))
+            stub.chmod(0o755)
+            fw = app / "Contents/Frameworks/CmuxNextApp.framework"
+            (fw / "Versions/A").mkdir(parents=True)
+            code = fw / "Versions/A/CmuxNextApp"
+            code.write_bytes(macho([("_$s4cmux3AppV3runyyF", 0x0E, 1, TEXT_VMADDR + 0x1000)]))
+            code.chmod(0o755)
+            (fw / "Versions/Current").symlink_to("A")
+            (fw / "CmuxNextApp").symlink_to("Versions/Current/CmuxNextApp")
+            self.strip(app)
+            symbols = read_map(app / "Contents/Resources/cmux-symbols.bin")
+            self.assertEqual(symbols, {SLICE_UUID: [(0x1000, "$s4cmux3AppV3runyyF"), (0x2000, "")]})
 
 
 if __name__ == "__main__":

@@ -1,0 +1,8 @@
+{
+  "cmuxProfile": 1,
+  "name": "vertical-tabs",
+  "description": "Tabs in a column beside the panes instead of a strip above them.",
+  "settings": {
+    "tabs.verticalTabs": true
+  }
+}

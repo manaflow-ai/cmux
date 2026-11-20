@@ -23,17 +23,15 @@
   letter-spacing: normal;
 }
 
+/* The card level (design/chat-surfaces.md): the page's ink over clear, as every transcript card, never the
+   page colour (opaque in an opaque window, clear in a see-through one); its head is the card itself. */
 div.acpmux-edited {
-  background: var(--agent-page-bg);
+  background: var(--ds-surface-card);
 }
-.acpmux-edited .acpmux-edited-head {
-  background: color-mix(in srgb, var(--agent-text) 3%, transparent);
-}
+/* The glyph's tile is the inset level, one step over the card: never the page colour mixed with black,
+   which drew a dark hole over a see-through window's picture. */
 .acpmux-edited .acpmux-edited-icon {
-  background: light-dark(
-    color-mix(in srgb, var(--agent-page-bg) 94%, black),
-    color-mix(in srgb, var(--agent-page-bg) 68%, black)
-  );
+  background: var(--ds-surface-inset);
   box-shadow: none;
   color: var(--agent-muted);
 }
