@@ -249,6 +249,20 @@ class ReplayTests(unittest.TestCase):
         self.assertEqual(pb.sample("x", measure, 1.0, 0.1, 3, 5), (cron.NOISE, []))
         self.assertEqual(len(calls), pb.FAILS_IN_A_ROW, "a commit that does not build costs two attempts, not five")
 
+    def test_a_bad_end_that_never_measures_is_unmeasured_not_within_noise(self):
+        cs = commits(6)
+        out = pb.replay(cs, lambda sha: 1.0 if sha == cs[0] else None, floor=0.1)
+        self.assertEqual(out["verdict"], "unmeasured")
+
+    def test_a_failed_run_is_not_kept_so_a_resume_tries_it_again(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "cache.json")
+            first = pb.cached(lambda sha: None, path)
+            self.assertIsNone(first("a"))
+            again = pb.cached(lambda sha: 2.5, path)
+            self.assertEqual(again("a"), 2.5, "the host's failure was not remembered as the commit's")
+
     def test_a_replay_started_again_resumes_from_its_cache(self):
         import tempfile
         cs = commits(33)

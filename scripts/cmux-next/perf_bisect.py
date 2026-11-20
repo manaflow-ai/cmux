@@ -83,6 +83,10 @@ def replay(commits, measure, floor, regression=REGRESSION, runs=cron.BISECT_RUNS
     log(f"bad {bad[:12]}: {values} -> {end}")
     out = {"good": good, "bad": bad, "commits": len(commits) - 2, "reference": ref, "threshold": thr, "floor": floor,
            "regression": regression, "runs": runs, "max_runs": max_runs, "probes": probes}
+    if not values:
+        # No run at the bad end measured: nothing says the ends differ or not (2026-11-20: "within noise" from zero
+        # runs, every attempt a missing bun).
+        return {**out, "verdict": "unmeasured", "why": f"the bad end {bad[:12]} did not measure"}
     if end != cron.BAD:
         return {**out, "verdict": "within noise",
                 "why": f"the bad end {bad[:12]} ({values}) is not worse than the good end's {ref:g} by more than "
@@ -129,14 +133,16 @@ def shell_measure(template, row):
 
 
 def cached(measure, path):
-    """measure, with every run's result kept in the JSON file path ({sha: [value or null, ...]}, in run order). A
-    replay started again (the host restarted, the job hit its cap) takes each commit's kept results first, in order,
-    and runs the bench only past them: the walk is the same, and no run is paid twice."""
+    """measure, with every measured run kept in the JSON file path ({sha: [value, ...]}, in run order). A replay
+    started again (the host restarted, the job hit its cap) takes each commit's kept values first, in order, and runs
+    the bench only past them, so no measured run is paid twice. A run that did not measure is not kept: it is most
+    often the host (a missing tool, a timeout under load), so a replay started again tries that commit again."""
     try:
         with open(path) as f:
             kept = json.load(f)
     except (OSError, ValueError):
         kept = {}
+    kept = {sha: [x for x in xs if isinstance(x, (int, float))] for sha, xs in kept.items() if isinstance(xs, list)}
     used = {}
 
     def run(sha):
@@ -145,6 +151,9 @@ def cached(measure, path):
         if i < len(kept.get(sha, [])):
             return kept[sha][i]
         x = measure(sha)
+        if x is None:
+            used[sha] = i  # the next call at sha runs again instead of reading past a gap
+            return None
         kept.setdefault(sha, []).append(x)
         tmp = path + ".tmp"
         with open(tmp, "w") as f:
