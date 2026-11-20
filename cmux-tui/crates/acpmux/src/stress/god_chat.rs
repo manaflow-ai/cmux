@@ -393,10 +393,15 @@ fn costs(bytes: u64) -> Costs {
         tokio::time::sleep(Duration::from_millis(200)).await;
         let read = process_read();
         let cfg = config();
-        let again = Hub::new(cfg.clone(), crate::store::open(&cfg.store, home.path()).unwrap());
-        let second_restart_read = (process_read() - read) as f64;
-        drop(again);
-        eprintln!("STRESS god chat second restart read={second_restart_read:.0} B");
+        match crate::store::open(&cfg.store, home.path()) {
+            Ok(store) => {
+                let again = Hub::new(cfg.clone(), store);
+                let second_restart_read = (process_read() - read) as f64;
+                drop(again);
+                eprintln!("STRESS god chat second restart read={second_restart_read:.0} B");
+            }
+            Err(error) => eprintln!("STRESS god chat second restart: the store did not open: {error}"),
+        }
         Costs {
             log_mb,
             restart_read,
