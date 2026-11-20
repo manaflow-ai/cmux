@@ -60,7 +60,8 @@ const TURNS = Number(flag("--turns") ?? 30);
 /// The hidden chat's turns (two rows each): a long coordinator chat.
 const LONG = Number(flag("--long") ?? 2000);
 const SECONDS = Number(flag("--seconds") ?? 6);
-const SETTLE_MS = Number(flag("--settle") ?? 3000);
+/// Past a hidden page's watch park (direct.ts `WATCH_PARK_AFTER_MS`, 5 s), so the window reads the steady state.
+const SETTLE_MS = Number(flag("--settle") ?? 8000);
 /// The renderer's CPU slowed this many times (CDP `Emulation.setCPUThrottlingRate`): a fleet core has more
 /// headroom than a busy laptop's, so 1 reads a laptop's margin as larger than it is.
 const CPU = Number(flag("--cpu") ?? 1);
@@ -158,8 +159,14 @@ async function installDriver({ size, rate, pad }: { size: number; rate: number; 
 async function openPage(page: Page, port: number, size: number, kind: "chat" | "long" | "newtab") {
   await page.addInitScript(
     ({ count, newTab }) => {
-      const mock = globalThis as { cmuxAcpmuxMockListSize?: number; __cmuxNewTabContext?: unknown };
+      const mock = globalThis as {
+        cmuxAcpmuxMockListSize?: number;
+        cmuxAcpmuxMockCapabilities?: string[];
+        __cmuxNewTabContext?: unknown;
+      };
       mock.cmuxAcpmuxMockListSize = count;
+      // As acpmux does since its row log: a list follows from a cursor, so a watch may turn off and catch up.
+      mock.cmuxAcpmuxMockCapabilities = ["session-list-follow-v1"];
       // A New Tab page as the app opens one: the host injects its context before the first render.
       if (newTab) mock.__cmuxNewTabContext = {};
     },

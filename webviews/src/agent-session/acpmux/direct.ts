@@ -724,6 +724,9 @@ const NATIVE_HISTORY_KIND = "native_history";
 const NATIVE_PAGES_PER_ASK = 4;
 /** How long a session list that failed to load waits before it is read once more. */
 const SESSION_REREAD_MS = 2000;
+/// How long a page stays hidden before its session watch turns off (`parkWatchWhenHidden`): past a
+/// quick tab switch, so flipping between two tabs never re-reads the list.
+const WATCH_PARK_AFTER_MS = 5000;
 /// How often the pane reads the peers again while a missing chat's machine is still connecting.
 const MISSING_RECHECK_MS = 2000;
 
@@ -3131,6 +3134,10 @@ export class AcpmuxDirectClient {
   private frameSnapshot?: string;
   /// Another chat changed while the page was hidden: the list draws again when it shows.
   private listChangedWhileHidden = false;
+  /// The session watch is off while the page stays hidden (`parkWatchWhenHidden`): acpmux sends it no
+  /// `session_changed`, and showing it follows the list from its cursor (`unparkWatch`).
+  private watchParked = false;
+  private parkTimer?: ReturnType<typeof setTimeout>;
   /// `isWorking` as the last snapshot said it, and a hidden page's draw of a change other than its
   /// text stream (`emitInFrame`): one 50 ms timer at a time, which ends when it fires or on close.
   private drawnWorking = false;
@@ -4393,6 +4400,8 @@ export class AcpmuxDirectClient {
           this.readPeers(status, peersSince);
           if (!this.opening && !this.snapshotHold) this.emit();
         });
+      // A new connection's watch starts on (`SessionPager.first`); a hidden page parks it once listed.
+      this.watchParked = false;
       const listRead = this.sessionPages.first();
       // Awaited below: a list that fails meanwhile is not left unobserved.
       listRead.catch(() => undefined);
@@ -4428,6 +4437,7 @@ export class AcpmuxDirectClient {
         if (this.selectedSessionId !== undefined) await this.listOne(this.selectedSessionId);
       }
       this.listedSessions = !attachedRow && (first !== undefined || this.sessions.length > 0);
+      this.parkWatchWhenHidden();
       // A known chat on this daemon can draw from its attach without the machine list. Keep
       // status on the path for remote wires, peer chats and missing/unspecified sessions: they
       // use it to choose a peer copy or explain availability. The late local reply fills the
@@ -5929,10 +5939,13 @@ export class AcpmuxDirectClient {
   /// every page. A selection made while the request was out is newer than the list.
   /// True once this read set the list (false when a newer reread will).
   private async refreshSessions(firstRead = this.sessionPages.first()): Promise<boolean> {
+    // Every list read turns the watch on (`SessionPager.first`).
+    this.watchParked = false;
     const generation = this.selectionGeneration;
     const first = await firstRead;
     // A newer reread started meanwhile; it sets the list.
     if (!first) return false;
+    this.parkWatchWhenHidden();
     // Changes that came while the read was out are newer than it.
     this.sessions = this.sessionPages.settle(first.sessions);
     this.sessionPages.done(first.run);
@@ -5951,6 +5964,57 @@ export class AcpmuxDirectClient {
     if (missing && generation === this.selectionGeneration) this.selectFallbackSession("session changed");
     else if (!this.reopenMissing()) this.emit("session changed");
     return true;
+  }
+
+  /// Turns the session watch off once the page has stayed hidden `WATCH_PARK_AFTER_MS` (a tab in a
+  /// background workspace, an occluded window). acpmux tells every watching connection every chat's
+  /// change, one whole row each, so each hidden agent page parsed and laid every change of every chat
+  /// over its list: the shared renderer's cost grew with chats times pages, 168% of a core at about
+  /// 600 chats on Leo's Mac (2026-11-20: "My Mac is at load 272 on 15 cores"). Parked, a hidden page
+  /// costs nothing per change; showing it reads only the rows changed since (`unparkWatch`). Only a
+  /// list held whole to a cursor parks (`SessionPager.followable`): any other could not catch up.
+  private parkWatchWhenHidden(): void {
+    if (this.closed || this.watchParked || this.parkTimer || pageShown()) return;
+    this.parkTimer = setTimeout(() => {
+      this.parkTimer = undefined;
+      if (this.closed || this.watchParked || pageShown() || !this.sessionPages.followable) return;
+      if (this.lagRead || this.sessionReread) return this.parkWatchWhenHidden();
+      this.watchParked = true;
+      this.request("_acpmux/watch", { enabled: false }).catch(() => {
+        // Still on: changes keep coming as before, and the next hide tries again.
+        this.watchParked = false;
+      });
+    }, WATCH_PARK_AFTER_MS);
+  }
+
+  /// The page shows again: a parked watch turns back on from the list's cursor, and every row that
+  /// changed meanwhile goes through what its `session_changed` would have done (the shown chat's
+  /// summary and queue, its started chats, Needs you's asks).
+  private unparkWatch(): void {
+    if (this.parkTimer) clearTimeout(this.parkTimer);
+    this.parkTimer = undefined;
+    if (!this.watchParked || this.closed) return;
+    const prior = new Set(this.sessions);
+    const priorIds = new Set(this.sessions.map((session) => session.sessionId));
+    void this.refreshSessions()
+      .then((settled) => {
+        if (!settled || this.closed) return;
+        const listed = new Set<string>();
+        for (const session of this.sessions) {
+          listed.add(session.sessionId);
+          // A row the follow kept is the same object; a changed one is new.
+          if (prior.has(session)) continue;
+          this.asks.session(session, "updated");
+          if (
+            session.sessionId === this.selectedSessionId ||
+            this.offerChildIds().includes(session.sessionId) ||
+            this.isStartedChild(session)
+          )
+            this.sessionChanged({ session, kind: "updated" } as SessionChanged);
+        }
+        for (const sessionId of priorIds) if (!listed.has(sessionId)) this.asks.forget(sessionId);
+      })
+      .catch(() => this.rereadSessionsLater(true));
   }
 
   /// The open's chat row from the attach asked with the list (`askEarly`), when that attach answers
@@ -6272,6 +6336,8 @@ export class AcpmuxDirectClient {
   /// The page was hidden or shown (a tab in a background workspace, an occluded window): acpmux
   /// leaves a turn that ends while nobody shows the chat unread, and showing it is seeing it.
   private showChanged = (): void => {
+    if (pageShown()) this.unparkWatch();
+    else this.parkWatchWhenHidden();
     if (this.listChangedWhileHidden && pageShown() && !this.closed) {
       this.listChangedWhileHidden = false;
       this.emitInFrame("session changed");
@@ -16462,6 +16528,8 @@ export class AcpmuxDirectClient {
   }
   /// The socket's own onclose ignores a socket close() already let go of, so settle requests here.
   close(): void {
+    if (this.parkTimer) clearTimeout(this.parkTimer);
+    this.parkTimer = undefined;
     this.raceListeners.clear();
     this.pendingPeerTrust = undefined;
     this.refusedPeerTrust = undefined;
