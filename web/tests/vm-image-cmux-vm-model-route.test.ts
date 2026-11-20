@@ -148,4 +148,19 @@ describe("cmux VM image model route", () => {
       rmSync(stub, { recursive: true, force: true });
     }
   });
+
+  // Leo, 2026-11-18, on a Claude Code holding another session's message: "can you make this accept", "they
+  // shouldnt hold em". Every Cloud machine, whatever its model route, takes messages from the person's other
+  // sessions by default, from the person's user settings: a managed setting would outrank the person's own
+  // "refuse", which must win.
+  test("every machine's Claude Code accepts messages from the person's other sessions unless they refuse", () => {
+    for (const file of bake.agentModelRouteFiles()) expect(file.text).not.toContain("crossSessionInbound");
+    const source = readFileSync(new URL("../scripts/cmux-vm-image/bake.ts", import.meta.url), "utf8");
+    expect(source).not.toContain("managed-settings.d");
+    // After the sign-in files (claude-onboarding.py) are on the machine.
+    const signIn = source.indexOf('L.step(vm, "agent-sign-in"');
+    const defaults = source.indexOf('L.step(vm, "claude-settings-defaults", devboxClaudeSettingsDefaultsCommand())');
+    expect(signIn).toBeGreaterThan(0);
+    expect(defaults).toBeGreaterThan(signIn);
+  });
 });

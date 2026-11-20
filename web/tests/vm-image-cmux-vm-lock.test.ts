@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   aptClosureProblems,
   basePackageProblems,
@@ -559,7 +560,7 @@ describe("cmux-rd (the cmux.rd/1 Linux host, role desktop; release cmux-rd-v<V> 
   // against 0.2.7, screen share part 9). Every cmux-rd pin (this lock, and any acpmux source that
   // names a cmux-rd-v<V> release URL) must be at least cmux-rd-host's crate version.
   test("no cmux-rd pin falls behind cmux-rd-host's crate version", () => {
-    const repo = path.join(import.meta.dir, "..", "..");
+    const repo = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
     const cargo = readFileSync(path.join(repo, "cmux-tui/crates/cmux-rd-host/Cargo.toml"), "utf8");
     const packageTable = cargo.split(/^\[package\]\s*$/m)[1]?.split(/^\[/m)[0] ?? "";
     const crate = /^version\s*=\s*"(\d+\.\d+\.\d+[^"]*)"/m.exec(packageTable)?.[1];
@@ -572,7 +573,8 @@ describe("cmux-rd (the cmux.rd/1 Linux host, role desktop; release cmux-rd-v<V> 
     };
     const pins = [{ where: "images/cmux-vm/inputs.lock.json", version: readInputsLock().programs.find((p) => p.name === "cmux-rd")!.version }];
     const acpmux = path.join(repo, "cmux-tui/crates/acpmux/src");
-    for (const file of new Bun.Glob("**/*.rs").scanSync(acpmux)) {
+    const sources = readdirSync(acpmux, { recursive: true, encoding: "utf8" }).filter((file) => file.endsWith(".rs"));
+    for (const file of sources) {
       for (const m of readFileSync(path.join(acpmux, file), "utf8").matchAll(/releases\/download\/cmux-rd-v(\d+\.\d+\.\d+[^/"]*)\//g)) {
         pins.push({ where: `cmux-tui/crates/acpmux/src/${file}`, version: m[1]! });
       }

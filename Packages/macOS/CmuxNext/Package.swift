@@ -53,7 +53,7 @@ import PackageDescription
 //   CmuxNextHomeEngine -> AgentPane, Actions, Cloud, Compat, Daemon, Design, Home, HomeModel, Icons, Wakeups,
 //     CmuxHomeCore, CmuxHomeRender, CmuxAgentQuestion (Home sources, Chief host and migration, Home strings; the App
 //     supplies HomeService over AppServices)
-//   CmuxNextDaemonService -> Daemon, Actions, AgentPane, Apps, Compat, Control, Layout, Wakeups
+//   CmuxNextDaemonService -> Daemon, Actions, AgentPane, Apps, Compat, Control, Layout, Wakeups, WindowRules (Update When Idle)
 //     (DaemonService: one machine's daemon connection, command funnels, launch snapshot; FrameBatcher;
 //     the Refusals and Cloud strings it shows; no AppServices; the App sets its launch-mark hook)
 //   CmuxNextFocusUI -> Actions, Design (AppKit overlays of keys: the shortcut hint overlay and capture
@@ -193,7 +193,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 9478c1ee2ae40ac0c6c7e35b0422307b730b3643e99e81ceb7eecb6cff14b8c4
+// app-ffi-pin-checksum: 3c41717f227faf8c22f88a83dd35d9464fa1a4b8e1fa959cbc06bd44ed9356d9
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -282,7 +282,12 @@ let appFrameworkLinkerSettings: [LinkerSetting] = [
 ] + (appLinksStatically ? [] : [
     .unsafeFlags(["-Xlinker", "-objc_stubs_small"]),
     // Release only: a Debug or `swift test` link of a test bundle keeps every symbol.
-    .unsafeFlags(["-Xlinker", "-exported_symbol", "-Xlinker", "_cmux_next_*", "-Xlinker", "-dead_strip"],
+    // A release test bundle gets these flags too (it links this target), and swiftpm-testing-helper
+    // finds the bundle's Swift Testing runner with dlsym("main"): with only `_cmux_next_*` exported
+    // it found nothing and every release suite ran 0 tests. `_mai[n]` is a pattern, so the
+    // framework, which has no `main`, links as before.
+    .unsafeFlags(["-Xlinker", "-exported_symbol", "-Xlinker", "_cmux_next_*",
+                  "-Xlinker", "-exported_symbol", "-Xlinker", "_mai[n]", "-Xlinker", "-dead_strip"],
                  .when(configuration: .release)),
 ])
 
@@ -305,6 +310,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextWakeups",
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
             ],
             swiftSettings: daemonSwiftSettings
         ),
@@ -1021,6 +1027,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextFiles",
                 "CmuxNextLayout",
                 "CmuxNextWakeups",
+                "CmuxNextWindowRules",
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
             ],
             resources: [
@@ -1630,6 +1637,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextAgentActivity",
                 "CmuxNextChiefViews",
+                "CmuxNextDesign",
                 "CmuxNextPages",
                 "CmuxNextSettings",
                 "CmuxNextTestSupport",
@@ -1858,6 +1866,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextRemote",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
             ],
             resources: [
                 .process("Resources"),
@@ -1995,6 +2004,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemon",
                 "CmuxNextWakeups",
                 "CmuxNextWakeupsTestSupport",
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
             ],
             swiftSettings: daemonSwiftSettings
         ),
@@ -2588,6 +2598,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextSettingsTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextActions",
+                "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextSettings",
                 "CmuxNextTestSupport",
@@ -2620,6 +2631,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextProcessEnvironment",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
             ],
             resources: [
                 .process("Localizable.xcstrings"),
@@ -2765,6 +2777,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWindowRules",
                 "CmuxNextWorkspaceNaming",
                 "CmuxNextWorkspaceRepair",
+                // BuildSpaceFailClosedTests builds the misconfigured build space a dev build refuses with.
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 // GhosttyGlassMinimumContrastTests builds a Ghostty config.
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
@@ -2792,6 +2806,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextWakeups",
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
             ],
             swiftSettings: daemonSwiftSettings
         ),
@@ -2814,6 +2829,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextRemoteBrowser",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
             ],
             resources: [
                 .process("Resources"),
@@ -2842,6 +2858,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemon",
                 "CmuxNextMobile",
                 "CmuxNextTestSupport",
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
                 .product(name: "CmuxMobileRPC", package: "CmuxMobileRPC"),
                 .product(name: "CmuxMobileSSH", package: "CmuxMobileSSH"),
