@@ -621,7 +621,7 @@ fn a_spare_that_flips_after_ready_reports_degraded_until_its_daemon_identifies()
     store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
     let key = ensure_install_key(&mut store, "i-aaa", &rng).unwrap().key;
     let bound = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), None, T0);
-    assert!(matches!(bound, BindResult::Bound(_)), "bind failed");
+    assert!(matches!(bound, BindResult::Bound(..)), "bind failed");
     let saved: Bound = serde_json::from_str(&store.read(BOUND_FILE).unwrap()).unwrap();
     let mut client = CloudClient::new(fake.clone(), saved, key);
     let send = |client: &mut CloudClient<Fake>, s: &mut Session, reqs: Vec<_>, now| {
@@ -694,7 +694,7 @@ fn the_flips_stopping_report_says_stopping_with_the_last_reported_block() {
     store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
     let key = ensure_install_key(&mut store, "i-aaa", &SystemRandom::new()).unwrap().key;
     let bound = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), None, T0);
-    assert!(matches!(bound, BindResult::Bound(_)), "bind failed");
+    assert!(matches!(bound, BindResult::Bound(..)), "bind failed");
     let reported = DaemonInfo { version: "0.40.1".to_owned(), ..daemon() };
     let state = json!({ "daemon": reported.to_json() });
     store.write(AGENT_STATE_FILE, &format!("{state}\n"), 0o644).unwrap();
