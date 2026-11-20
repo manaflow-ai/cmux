@@ -316,7 +316,11 @@ try {
   const { build } = await import("vite");
   await build({
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true, ...(PROFILE || RENDERS || process.env.HEAP_PROBE ? { minify: false } : {}) },
+    build: {
+      outDir: out,
+      emptyOutDir: true,
+      ...(PROFILE || RENDERS || process.env.HEAP_PROBE ? { minify: false } : {}),
+    },
     logLevel: "error",
   });
   const statics = Bun.serve({
