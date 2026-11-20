@@ -69,6 +69,70 @@ export function rawChatFills(): Record<string, string[]> {
   return out;
 }
 
+const STATE = /:(hover|active|focus-visible)\b|\[(aria-expanded|aria-pressed)(=["']?true["']?)?\]|\[data-popup-open\]/g;
+const NOT = /:not\((?:[^()]|\([^()]*\))*\)/g;
+const STATE_FILL = /var\(--ds-(color-hover|color-pressed|surface-hover)\)/;
+
+/// The rules of `css` as [selector, body], comments blanked, selector lists split at top-level commas.
+function* selectorRules(css: string): Generator<[string, string]> {
+  const text = blankComments(css);
+  for (const match of text.matchAll(/([^{}@]+)\{([^{}]*)\}/g)) {
+    let depth = 0;
+    let current = "";
+    for (const char of match[1]!) {
+      if (char === "(") depth += 1;
+      if (char === ")") depth -= 1;
+      if (char === "," && depth === 0) {
+        yield [current.trim().replace(/\s+/g, " "), match[2]!];
+        current = "";
+      } else current += char;
+    }
+    yield [current.trim().replace(/\s+/g, " "), match[2]!];
+  }
+}
+
+const fillOf = (body: string) => /(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/.exec(body)?.[1]?.trim();
+/// The element a state selector styles at rest: the states and `:not()`s out, a leading tag dropped.
+const restOf = (selector: string) =>
+  selector
+    .replace(STATE, "")
+    .replace(NOT, "")
+    .replace(/^(button|a|div|li)(?=[.[])/, "")
+    .trim();
+
+/// `file: selector` for each hover or press that paints the host's state fill in place of a level the
+/// same element rests on (design/chat-surfaces.md: a state over a filled rest is a layer,
+/// --ds-surface-hover-layer and --ds-surface-pressed-layer). In place, the host's hover (ink 4 to 5%) is
+/// quieter than an inset rest (8%), so the pointer would lighten the control.
+export function statesReplacingFilledRest(): string[] {
+  const rest = new Map<string, string>();
+  const states: [string, string][] = [];
+  for (const file of cssFiles(CHAT_ROOT)) {
+    for (const [selector, body] of selectorRules(readFileSync(file, "utf8"))) {
+      const fill = fillOf(body);
+      if (!fill) continue;
+      STATE.lastIndex = 0;
+      if (STATE.test(selector)) {
+        if (STATE_FILL.test(fill)) states.push([relative(SRC, file), selector]);
+      } else if (!rest.has(restOf(selector))) rest.set(restOf(selector), fill);
+    }
+  }
+  return states
+    .filter(([, selector]) => /var\(--ds-surface-(card|inset)\)/.test(rest.get(restOf(selector)) ?? ""))
+    .map(([file, selector]) => `${file}: ${selector}`);
+}
+
+/// `file: selector` for each toggle that shows "on" (aria-pressed true) with the pressed fill, the
+/// transient press: an on toggle is the checked segment, --ds-color-selection, so its press still shows.
+export function togglesOnWithPressedFill(): string[] {
+  const out: string[] = [];
+  for (const file of cssFiles(CHAT_ROOT))
+    for (const [selector, body] of selectorRules(readFileSync(file, "utf8")))
+      if (/\[aria-pressed=["']?true/.test(selector) && /var\(--ds-color-pressed\)/.test(fillOf(body) ?? ""))
+        out.push(`${relative(SRC, file)}: ${selector}`);
+  return out;
+}
+
 if (import.meta.main) {
   const all = rawChatFills();
   let total = 0;
