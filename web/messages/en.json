@@ -2204,6 +2204,7 @@
     "typingProgrammability": "programmability",
     "taglineStatic": "The terminal built for multitasking, organization, and programmability.",
     "subtitle": "Free and open source native macOS terminal built on Ghostty. Vertical tabs, notification rings when agents need attention, split panes, and a <cliLink>CLI</cliLink> for programmability.",
+    "nextCallout": "New: try <link>cmux NEXT</link>, a preview of the next cmux.",
     "features": "Features",
     "faq": "FAQ",
     "communitySection": "Community",
