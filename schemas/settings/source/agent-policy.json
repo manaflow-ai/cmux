@@ -1268,6 +1268,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "Whether new nonpersistent Cloud machines opt into the backend VM gateway pause/resume experiment: the person decides this lifecycle change.",
+      "keys": [
+        "labs.backendVMGateway"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "Whether cmux's own pages open developer tools, which read and change their live content: the person's call.",
       "keys": [
         "developerTools.appPages"
