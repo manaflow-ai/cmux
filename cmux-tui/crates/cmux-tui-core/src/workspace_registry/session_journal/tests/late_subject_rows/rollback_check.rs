@@ -118,6 +118,43 @@ fn the_rollback_check_of_a_store_at_16_that_an_owner_has_writes_nothing() {
     store.check_file("after the check of a store that an owner has");
 }
 
+/// A session reset renames the session's folder in the state root to a name
+/// of its own (`.reset-<session>-session-<id>.deleting`), then deletes it. A
+/// reset that did not end leaves that folder with its store, and no guard
+/// file has that name. No build opens the folder again, so it is no session
+/// for the check: the check gives the number of the sessions, and it does not
+/// open that folder's store.
+#[test]
+fn the_rollback_check_does_not_take_the_folder_of_a_session_reset_that_did_not_end() {
+    let crashed = crashed("rollback-reset-folder");
+    let root = &crashed.store.root;
+    let folder = crashed.database.parent().unwrap();
+    let session = folder.file_name().unwrap().to_str().unwrap();
+    let id = new_uuid_v4();
+    let reset = root.join(format!(".reset-{session}-session-{id}.deleting"));
+    copy_the_files(folder, &reset);
+    let store_of_the_reset = reset.join(crashed.database.file_name().unwrap());
+    let before = file_state(&store_of_the_reset, crashed.head);
+    // The 2 controls: the reset's own list of the folders that it left has
+    // this folder, and the folder's store is at 16.
+    let left = pending_session_reset_dirs(root, SESSION).unwrap();
+    assert_eq!(left.len(), 1, "the folders that a reset of the session left: {left:?}");
+    assert_eq!(before.2, DUE_NUMBER, "the store of the reset's folder is at 16");
+    let opened = subject_rows::stores_opened_for_a_write();
+    let got = stored_numbers(root)
+        .map(|found| found.get("workspace_registry").copied())
+        .map_err(|error| format!("{error:#}"));
+    let opened = subject_rows::stores_opened_for_a_write() - opened;
+    assert_eq!(
+        (got, opened, crashed.file_state(), file_state(&store_of_the_reset, crashed.head)),
+        (Ok(Some(15)), 1, (crashed.head, 0, PLAIN_NUMBER.to_string()), before),
+        "a session at 16 with no owner, and beside it the folder of a session reset that did \
+         not end, with a store at 16: the check's number for the registry, the stores that it \
+         opened for a write, (the mark, the journal rows after it, the number) of the session's \
+         store, and of the store of the reset's folder"
+    );
+}
+
 /// The write of the check is one transaction. The test fails its last
 /// statement, after the subject rows and the mark: the check reads 16, and
 /// the file has the mark, the number and the subject rows of before. Then
@@ -740,4 +777,55 @@ fn the_rollback_check_of_80_sessions_at_16_with_no_owner_writes_each_store_one_t
 #[test]
 fn the_rollback_check_of_800_sessions_at_16_with_no_owner_writes_each_store_one_time() {
     the_check_of_sessions_at_16_with_no_owner(800);
+}
+
+/// The check's end time and its write. The caller ends the check's process
+/// after a fixed time, so the check stops at its own end time, before the
+/// next session. Here 3 sessions are at 16 with no owner, and the end time is
+/// not after the check's start: the check reads and writes the first session,
+/// its answer says 1 of 3, and the other 2 stores are as they were. The call
+/// after it starts at the first session again, finds it written, and writes
+/// the other 2.
+#[test]
+fn a_rollback_check_that_stops_at_its_end_time_wrote_each_store_that_it_read_and_no_other() {
+    use crate::store_schemas::{Stored, stored_until};
+
+    let crashed = crashed("rollback-end-time");
+    let root = &crashed.store.root;
+    // The check reads the folders in the order of their paths: the session
+    // itself, then its 2 copies.
+    let Sessions { databases, .. } = copy_the_session(&crashed, 3);
+    let numbers = || -> Vec<String> {
+        databases.iter().map(|database| file_state(database, crashed.head).2).collect()
+    };
+    let (plain, due) = (PLAIN_NUMBER.to_string(), DUE_NUMBER.to_string());
+    let rows = subject_rows::rows_taken_by_writes();
+    let opened = subject_rows::stores_opened_for_a_write();
+    // The clock of before the call: each read of the clock in the call is at
+    // this time or after it.
+    let end = Instant::now();
+    let first = stored_until(root, Some(end)).map_err(|error| format!("{error:#}"));
+    let first_wrote = (
+        subject_rows::rows_taken_by_writes() - rows,
+        subject_rows::stores_opened_for_a_write() - opened,
+    );
+    let after_the_first = numbers();
+    let second = check(root);
+    assert_eq!(
+        (first, first_wrote, after_the_first, second, numbers()),
+        (
+            Ok(Stored::NotReady { sessions: 3, sessions_read: 1 }),
+            (crashed.after, 1),
+            vec![plain.clone(), due.clone(), due],
+            (15, 2 * crashed.after, 2),
+            vec![plain.clone(), plain.clone(), plain],
+        ),
+        "3 sessions at 16 with {} journal rows after the mark and no owner, and an end time \
+         that is not after the check's start: the first check's answer, (the journal rows that \
+         its writes took, the stores that it opened for a write), the number in each store's \
+         file after it, (the check after it with no end time: its number, the journal rows \
+         that its writes took, the stores that it opened for a write), the number in each \
+         store's file after that",
+        crashed.after
+    );
 }

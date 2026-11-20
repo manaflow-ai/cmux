@@ -221,7 +221,7 @@ impl RecordTimeTable {
 /// The mark, the count of active journal rows after it, and the schema
 /// number, each as the file has it. A store with no mark is the store of a
 /// build that writes the subject rows at record time: its mark is the head.
-fn file_state(database: &Path, head: u64) -> (u64, u64, String) {
+pub(crate) fn file_state(database: &Path, head: u64) -> (u64, u64, String) {
     let connection = open_registry_database_read_only(database).unwrap();
     let stored = connection
         .query_row("SELECT value FROM meta WHERE key = ?1", [MARK_KEY], |row| {

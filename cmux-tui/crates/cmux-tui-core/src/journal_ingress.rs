@@ -946,6 +946,20 @@ impl JournalIngressSender {
         }
     }
 
+    /// A test of a stop puts a thread that ends only when the returned sender
+    /// is dropped in the writer's place: a close then finds a writer that
+    /// does not end in its time. The writer of before runs on with no owner,
+    /// and it ends at the close as before.
+    #[cfg(test)]
+    pub(crate) fn put_a_writer_that_does_not_end_for_test(&self) -> io::Result<SyncSender<()>> {
+        let (release, released) = sync_channel::<()>(1);
+        let stalled = JournalWriter::spawn("journal-writer-does-not-end-test", move || {
+            let _ = released.recv();
+        })?;
+        *self.writer.lock().recover_poison() = JournalWriterOwner::Running(stalled);
+        Ok(release)
+    }
+
     /// A test about the deadline sets this ingress's durable wait (others keep the 30 s default).
     #[cfg(test)]
     pub(crate) fn set_durable_wait_for_test(&self, wait: Duration) {

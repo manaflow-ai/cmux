@@ -16,7 +16,7 @@ use std::time::Instant;
 use super::*;
 use crate::workspace_registry::new_uuid_v4;
 use crate::workspace_registry::session_journal::tests::late_subject_rows::{
-    DUE_NUMBER, PERIOD, fixture_subjects, lose_rows, ms, records, stopped_file_problem,
+    DUE_NUMBER, PERIOD, file_state, fixture_subjects, lose_rows, ms, records, stopped_file_problem,
 };
 
 /// The journal rows before the tail, and the tail: one row less than a
@@ -117,5 +117,47 @@ fn a_journal_row_after_the_stops_write_gets_its_subject_rows_before_the_session_
         at_the_release.is_none(),
         "after 2 journal rows that came after the stop's write, and the release of the \
          session: {at_the_release:?}"
+    );
+}
+
+/// A journal writer that does not end in the stop's time can still append,
+/// and it has the registry's connection while it does. The stop writes no
+/// subject rows then. The release of the session writes none too, and it
+/// does not wait for the connection: the store stays at 16 with its rows
+/// due, and a build that does not know that number refuses it until this
+/// build opens the session again.
+#[test]
+fn the_release_of_the_session_writes_nothing_when_the_journals_writer_did_not_end() {
+    let label = "stop-writer-did-not-end";
+    let root =
+        std::env::temp_dir().join(format!("cmux-late-subject-rows-{label}-{}", new_uuid_v4()));
+    let mux = open_persistent_test_mux(label, &root);
+    mux.stop_journal_maintenance();
+    let database = {
+        let registry = mux.workspace_registry.lock().unwrap();
+        registry.append_journal_records_for_test(&records(&[fixture_subjects(0)]));
+        registry.session_journal_database_path().unwrap()
+    };
+    // The test's writer ends when `writer` is dropped, after the release.
+    let writer = mux.journal_ingress.put_a_writer_that_does_not_end_for_test().unwrap();
+    mux.shutdown();
+    let head = mux.workspace_registry.lock().unwrap().session_journal_head().unwrap();
+    let at_the_stop = file_state(&database, head);
+    mux.release_ownership(&root.join("no-socket"));
+    let at_the_release = file_state(&database, head);
+    drop(writer);
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+    // The control: the stop made no write, so the row below is not green
+    // with nothing due.
+    assert!(
+        at_the_stop.1 > 0 && at_the_stop.2 == DUE_NUMBER,
+        "after a stop whose journal writer did not end (the mark, the journal rows after it, \
+         the number): {at_the_stop:?}"
+    );
+    assert_eq!(
+        at_the_release, at_the_stop,
+        "the release of the session after a stop whose journal writer did not end: (the mark, \
+         the journal rows after it, the number) after the release, and before it"
     );
 }
