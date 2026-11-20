@@ -1336,22 +1336,45 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
 }
 #endif
 
-/// Runs `sample` once per main run loop turn, after Core Animation commits the turn's frame (its
-/// observer runs at order 2000000 before the loop waits): what the sample sees is what draws.
+/// Runs `sample` once per display frame, after Core Animation commits it: a display link marks each
+/// frame due, and the first main run loop turn after it samples (its observer runs after the commit
+/// observer at order 2000000, before the loop waits). Once per frame, not per turn: a busy main
+/// thread turns the loop many times a frame (the up-fast-busy stress case's hitches rose 8.7 to 70
+/// ms/s when it sampled every turn, steps 87db292d and 57fdbd67).
 @MainActor
 final class PagedListCommitWatch {
-    // Invalidating a run loop observer is safe from any thread.
+    // Invalidating a run loop observer or a display link is safe from any thread.
     nonisolated(unsafe) private let observer: CFRunLoopObserver
+    nonisolated(unsafe) private let link: CADisplayLink
+    private let tick = PagedListCommitTick()
 
     init(_ sample: @escaping @MainActor () -> Void) {
+        let tick = tick
         let activities = CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue
         observer = CFRunLoopObserverCreateWithHandler(nil, activities, true, 2_000_100) { _, _ in
-            MainActor.assumeIsolated { sample() }
+            MainActor.assumeIsolated {
+                guard tick.due else { return }
+                tick.due = false
+                sample()
+            }
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        link = CADisplayLink(target: tick, selector: #selector(PagedListCommitTick.frame(_:)))
+        link.add(to: .main, forMode: .common)
     }
 
     deinit {
+        link.invalidate()
         CFRunLoopObserverInvalidate(observer)
+    }
+}
+
+/// The display link's target: marks a frame due (a separate object, so the link does not retain the watch).
+@MainActor
+private final class PagedListCommitTick: NSObject {
+    var due = false
+
+    @objc func frame(_ link: CADisplayLink) {
+        due = true
     }
 }
