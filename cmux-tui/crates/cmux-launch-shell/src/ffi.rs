@@ -110,11 +110,16 @@ pub unsafe extern "C" fn cmux_launch_shell_plan(
     now: *const CmuxLaunchShellNow,
     out: *mut CmuxLaunchShellPlan,
 ) -> bool {
-    if out.is_null() || now.is_null() {
+    if out.is_null() {
         return false;
     }
+    // Cleared before any other check, so every failed call leaves a plan that makes no window,
+    // even when the caller reuses one that did.
     let o = unsafe { &mut *out };
     *o = CmuxLaunchShellPlan::default();
+    if now.is_null() {
+        return false;
+    }
     let now = unsafe { &*now };
     let (Some(build), Some(support_dir), Some(record_path), Some(image_dir)) = (
         unsafe { c_str(now.build) },

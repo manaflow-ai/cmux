@@ -136,6 +136,29 @@ fn a_missing_argument_makes_no_window() {
 }
 
 #[test]
+fn a_failed_call_clears_a_reused_plan_that_showed_a_window() {
+    // A plan reused from an earlier call that drew the image: a null `now` must not leave it.
+    let support = Support::new("reused");
+    let data = LaunchRecordData {
+        windows: vec![window("w1")],
+        sidebar_rows: vec![],
+        session_socket_path: String::new(),
+        session_registry_id: String::new(),
+    };
+    write_atomic(support.0.join("launch-record.bin"), &data).unwrap();
+    std::fs::write(support.0.join("launch-images/w1.7.png"), png(2200, 1440)).unwrap();
+    let (ok, mut out) = plan_in(&support);
+    assert!(ok && out.shows_window && !text(&out.image_path).is_empty());
+    let record = CString::new(support.0.join("launch-record.bin").to_str().unwrap()).unwrap();
+    assert!(!unsafe {
+        cmux_launch_shell_plan(record.as_ptr(), record.as_ptr(), std::ptr::null(), &mut out)
+    });
+    assert!(!out.shows_window);
+    assert_eq!(text(&out.image_path), "");
+    assert_eq!(text(&out.window_id), "");
+}
+
+#[test]
 fn the_plan_struct_has_the_headers_layout() {
     // cmux_launch_shell.h's CmuxLaunchShellPlan; launch_shell_header.rs asserts the same size in C.
     assert_eq!(std::mem::size_of::<CmuxLaunchShellPlan>(), 1200);
