@@ -44,17 +44,6 @@ const MICROBITS_PER_BYTE_US: u128 = 8_000_000;
 const DEFAULT_BURST_BYTES: usize = 64 * 1024;
 const DEFAULT_MAX_QUEUE_BYTES: usize = 4 * 1024 * 1024;
 const DEFAULT_MAX_CONTROL_BYTES: usize = 64 * 1024;
-/// Strict mode: frames queue at most this much wire time at the held rate (D2, newest
-/// frame wins), two 60 fps frames. A byte bound alone held seconds once the rate was cut:
-/// 4 MB at 23 Mbit/s is 1.4 s (netem at 30 Mbit/s: key to frame p50 389 ms, p95 1 s).
-const STRICT_FRAME_QUEUE_US: u64 = 33_000;
-
-/// The bytes [`STRICT_FRAME_QUEUE_US`] carries at `config`'s rate, at least one burst and
-/// at most `max_queue_bytes`.
-fn strict_frame_queue_bytes(config: StrictWireBudget) -> usize {
-    let wire = u128::from(config.rate_bps) * u128::from(STRICT_FRAME_QUEUE_US) / 8_000_000;
-    usize::try_from(wire).unwrap_or(usize::MAX).max(config.burst_bytes).min(config.max_queue_bytes)
-}
 
 /// The accounting class of a queued datagram.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -277,8 +266,7 @@ impl Pacer {
     /// `enqueue_*` methods when queueing a non-protocol test/datagram.
     ///
     /// Strict mode bounds its queue by the D2 rule, newest frame wins: when this
-    /// frame does not fit in [`STRICT_FRAME_QUEUE_US`] of wire time at the held rate
-    /// (within `max_queue_bytes`), whole older frames none of whose
+    /// frame does not fit under `max_queue_bytes`, whole older frames none of whose
     /// datagrams has left are dropped, oldest first, until it fits (or none is
     /// left), and nothing is asked for. They are counted ([`Pacer::frames_dropped`])
     /// and handed back by [`Pacer::take_dropped`] so the sender can retire them. A
@@ -293,7 +281,7 @@ impl Pacer {
     ) {
         if let PacerPolicy::Strict(config) = self.policy {
             let bytes = datagrams.iter().map(Vec::len).sum::<usize>();
-            self.make_room(bytes, strict_frame_queue_bytes(config));
+            self.make_room(bytes, config.max_queue_bytes);
             if self.queue.is_empty() {
                 // A new busy period starts with no credit (as `enqueue_budgeted`).
                 self.strict_last_us = Some(now_us);

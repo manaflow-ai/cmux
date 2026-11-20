@@ -1,5 +1,6 @@
 //! D10 ultra, host half: an ultra session paces every budgeted byte with the strict
-//! one-budget pacer at the engine's held rate (standard keeps the balanced pacer); its
+//! one-budget pacer, at the probed capacity (2.5x the held rate until a probe measures
+//! one; standard keeps the balanced pacer); its
 //! probe train leaves at once with each departure told to the engine, its bytes are
 //! charged to that budget, and the viewer's probe arrivals raise the held rate to at most
 //! 0.8 times the measured capacity.
@@ -46,7 +47,7 @@ fn session(profile: EncodeProfile) -> MediaSession {
     .expect("session");
     // Pacing is on unless `CMUX_RD_PACE=0`; keep the session's own pacer when it built one.
     if session.pacer.is_none() {
-        session.pacer = Some(new_pacer(profile, session.engine.target_bps()));
+        session.pacer = Some(new_pacer(profile, session.engine.pacing_bps()));
     }
     session
 }
@@ -59,8 +60,8 @@ fn policy(session: &MediaSession) -> Option<PacerPolicy> {
 fn ultra_paces_with_the_strict_budget_and_standard_with_the_balanced_pacer() {
     assert_eq!(
         policy(&session(EncodeProfile::Ultra)),
-        Some(PacerPolicy::Strict(StrictWireBudget::new(START_BPS))),
-        "ultra holds its start rate on one strict budget until a probe measures the path"
+        Some(PacerPolicy::Strict(StrictWireBudget::new(START_BPS * 5 / 2))),
+        "ultra targets its start rate, paced at 2.5x it, until a probe measures the path"
     );
     assert_eq!(policy(&session(EncodeProfile::Standard)), Some(PacerPolicy::Balanced));
 }
@@ -94,9 +95,12 @@ fn an_ultra_probe_train_leaves_at_once_and_its_arrivals_raise_the_held_rate() {
     assert!(held > START_BPS, "the probe's capacity reached the controller: {held}");
     assert!(held <= 38_400_000, "at most 0.8 x the measured 48 Mbps: {held}");
 
-    // The strict budget follows the held rate from the next send on.
+    // From the next send on, the strict budget paces at the measured capacity (the
+    // encoder targets the held rate under it).
     s.send_paced(&mut carrier).expect("send");
-    assert_eq!(policy(&s), Some(PacerPolicy::Strict(StrictWireBudget::new(held))));
+    let Some(PacerPolicy::Strict(budget)) = policy(&s) else { panic!("strict pacer") };
+    assert!(budget.rate_bps > held, "paced at the capacity, over the held rate: {budget:?}");
+    assert!(budget.rate_bps <= 48_000_000, "at most the measured 48 Mbps: {budget:?}");
 }
 
 #[test]
@@ -106,16 +110,14 @@ fn an_ultra_probe_train_is_charged_to_the_wire_budget() {
     let _first_frame = s.engine.start(now_us());
     let out = s.engine.tick(false, now_us());
     s.send_output(&mut carrier, out.datagrams);
-    // 16 x 1,200 probe bytes at the 2 Mbps start rate hold the wire for 76.8 ms: a
-    // datagram queued right after waits for that, not for its own 4.8 ms.
+    // Unmeasured, ultra paces at 2.5 x its 2 Mbps start rate, 5 Mbps: 16 x 1,200 probe
+    // bytes hold the wire for 30.7 ms, and a datagram queued right after waits for that,
+    // not for its own 1.9 ms.
     let queued_at = now_us();
     let pacer = s.pacer.as_mut().expect("pacer");
     pacer.push_frame(vec![vec![0; 1200]], START_BPS, 16_667, queued_at);
     assert!(pacer.due(queued_at).is_empty());
     let next = pacer.next_deadline_us().expect("deadline");
-    // Uncharged it would be due 4.8 ms after queueing; 50 ms of slack for a slow runner.
-    assert!(
-        next > queued_at + 4_800 + 50_000,
-        "the probe bytes were not charged: {next} vs {queued_at}"
-    );
+    // Uncharged it would be due 1.9 ms after queueing; the charge is 30.7 ms.
+    assert!(next > queued_at + 20_000, "the probe bytes were not charged: {next} vs {queued_at}");
 }
