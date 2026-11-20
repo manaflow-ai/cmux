@@ -2,7 +2,7 @@
 //! lock and the state lock in a bigger session, and the journal writer's disk time for it must
 //! not hold a lock that a request of the person takes.
 //!
-//! Lawrence's Mac (2026-11-10, build 824dfe557cb2: 826 workspaces, 798 terminals, a 10 GB
+//! A large session (2026-11-10, build 824dfe557cb2: 826 workspaces, 798 terminals, a 10 GB
 //! registry file, 13 clients): the registry lock was held at `creation_settlement.rs:183`, the
 //! commit of a create, for 739 ms in the mean and 2157 ms at the most (9 creates), and the state
 //! lock at the same site for 2105 ms at the most. Requests waited behind it: a terminal read

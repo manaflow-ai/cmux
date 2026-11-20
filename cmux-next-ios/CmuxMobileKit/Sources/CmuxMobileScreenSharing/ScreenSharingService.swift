@@ -137,16 +137,22 @@ public final class ScreenSharingService {
         attach(hub)
     }
 
-    /// The account's Macs, those sharing their screen and online first, then by name. Until the
-    /// hub's list is read, the Macs the last read list held, so the page draws them in its first
-    /// frame instead of "Finding your Macs…" (conn-quiet).
+    /// The account's Macs and Linux desktops, those sharing their screen and online first, then by
+    /// name. Until the hub's list is read, the ones the last read list held, so the page draws them
+    /// in its first frame instead of "Finding your Macs…" (conn-quiet).
     public var macs: [HubDevice] {
         #if DEBUG
         if demoDiscovery != nil { return demoMacs }
         #endif
-        if discovery == .finding { return preferences.lastMacs(for: configuration.accountID).filter { $0.platform == .macos }.sorted(by: Self.listOrder) }
+        if discovery == .finding { return Self.hosts(preferences.lastMacs(for: configuration.accountID)) }
         guard let hub else { return [] }
-        return hub.otherDevices.filter { $0.platform == .macos }.sorted(by: Self.listOrder)
+        return Self.hosts(hub.otherDevices)
+    }
+
+    /// The devices in `devices` whose screen this phone can view, in list order: Macs and Linux
+    /// desktops (`DevicePlatform.hostsScreen`), never another iPhone or a device that sent no platform.
+    nonisolated static func hosts(_ devices: [HubDevice]) -> [HubDevice] {
+        devices.filter { $0.platform?.hostsScreen == true }.sorted(by: listOrder)
     }
 
     /// Why `mac` can't be shared now, as the list last read it (nil: it can be). Tapping such a
