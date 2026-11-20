@@ -250,7 +250,8 @@ fn resolve(store: &Store, spec: &str) -> PathBuf {
 
 pub(super) fn run(global: &GlobalArgs, prefix: &[String], request: Request) -> i32 {
     let paths = Paths::current();
-    let store = Store::new(&paths.config_dir);
+    // Pruning never removes the theme file the setting picks now.
+    let store = Store::new(&paths.config_dir).keeping(paths.in_use());
     let base = paths.settings_root();
     // Before anything touches the schema, so its first touch is timed cold.
     if let Request::Bench { dirs, runs } = &request {
@@ -297,7 +298,7 @@ pub(super) fn run(global: &GlobalArgs, prefix: &[String], request: Request) -> i
             if !watch {
                 return code;
             }
-            watch_and_reload(global, &store, &dir, &paths, &context)
+            watch_and_reload(global, prefix, &dir, &paths, &context)
         }
         Request::Edit { key, value } => {
             let in_use = paths.in_use();
@@ -441,12 +442,15 @@ fn relevant(event: &notify::Result<notify::Event>) -> bool {
 }
 
 /// `use --watch`: reapplies the pack on each save in `dir` (debounced) as a
-/// live generation, so saving twenty times is one undo step. The theme file
-/// name does not change, so no settings write: the app repaints from the
-/// file. A pack that cannot be read keeps the last good look. Ctrl-C ends it.
+/// live generation, so saving twenty times is one undo step. While the pack
+/// stays applied the theme file name does not change, so no settings write:
+/// the app repaints from the file. When the history moved meanwhile (an undo,
+/// another pack), the reload is a new step under a new name, picked the way
+/// `use` picks it. A pack that cannot be read keeps the last good look.
+/// Ctrl-C ends it.
 fn watch_and_reload(
     global: &GlobalArgs,
-    store: &Store,
+    prefix: &[String],
     dir: &Path,
     paths: &Paths,
     context: &Context<'_>,
@@ -480,8 +484,15 @@ fn watch_and_reload(
         }
         reloads += 1;
         let started = Instant::now();
-        match store.apply(dir, paths.in_use(), true, context) {
-            Ok((pack, _)) => {
+        match reload(dir, paths, context) {
+            Ok((pack, step, in_use)) => {
+                // As `use`: pick the step's file when its name changed.
+                if settings(prefix, in_use.as_deref(), &step) != 0 {
+                    eprintln!(
+                        "could not pick themes/{}.json; the watch goes on",
+                        step_theme(&step).unwrap_or("?")
+                    );
+                }
                 let ms = milliseconds(started.elapsed());
                 print_problems(&pack.diagnostics);
                 if json {
@@ -505,6 +516,21 @@ fn watch_and_reload(
             }
         }
     }
+}
+
+/// One `--watch` reload: the pack in `dir` as a live generation, with the
+/// setting read fresh (an undo or another pack since may have changed what
+/// it picks). Returns that setting too, so the caller picks the step's file
+/// when the name differs.
+fn reload(
+    dir: &Path,
+    paths: &Paths,
+    context: &Context<'_>,
+) -> Result<(Pack, Step, Option<String>), StoreError> {
+    let in_use = paths.in_use();
+    let store = Store::new(&paths.config_dir).keeping(in_use.clone());
+    let (pack, step) = store.apply(dir, in_use.clone(), true, context)?;
+    Ok((pack, step, in_use))
 }
 
 /// The nearest-rank `percent` percentile of sorted `samples`.

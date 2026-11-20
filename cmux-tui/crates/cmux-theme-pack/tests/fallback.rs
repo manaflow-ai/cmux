@@ -419,3 +419,99 @@ fn the_example_packs_read_as_documented() {
     }
     assert_app_clean(&garbage);
 }
+
+/// Every string in a value is checked, not only a top-level `file:` one: a
+/// `system:` picture, an absolute path and a `file:` outside the pack inside
+/// a schedule object are all dropped, per key; a schedule of the pack's own
+/// pictures is resolved into its assets.
+#[test]
+fn nested_and_system_paths_are_refused() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("pack");
+    std::fs::create_dir_all(dir.join("assets")).unwrap();
+    std::fs::write(dir.join("assets/ok.png"), b"\x89PNG").unwrap();
+    let refused = [
+        ("appearance.background", json!("system:/Library/Desktop Pictures/secret.png")),
+        ("appearance.background", json!("/Users/me/secret.png")),
+        ("appearance.backgroundSchedule", json!({ "07:00": "file:/Users/me/secret.png" })),
+        ("appearance.backgroundSchedule", json!({ "07:00": "system:/Users/me/secret.png" })),
+        ("appearance.backgroundSchedule", json!({ "07:00": ["file:../secret.png"] })),
+    ];
+    for (key, value) in refused {
+        let manifest = json!({
+            "cmuxPack": 1, "id": "cmux/nested", "capabilities": ["backgrounds"],
+            "look": { key: value, "appearance.backgroundOpacity": 0.8 }
+        });
+        write_pack(&dir, &manifest.to_string());
+        let pack = read(&dir).unwrap();
+        assert!(!pack.theme.contains_key(key), "{key} = {value} should be dropped");
+        assert!(
+            pack.diagnostics.iter().any(|d| d.section == "assets" && d.key.as_deref() == Some(key)),
+            "{key} = {value}: {:?}",
+            pack.diagnostics
+        );
+        assert!(pack.theme.contains_key("appearance.backgroundOpacity"), "the rest still applies");
+    }
+    // The pack's own picture in a schedule resolves into its assets.
+    let manifest = json!({
+        "cmuxPack": 1, "id": "cmux/nested", "capabilities": ["backgrounds"],
+        "look": { "appearance.backgroundSchedule": { "07:00": "file:assets/ok.png" } }
+    });
+    write_pack(&dir, &manifest.to_string());
+    let pack = read(&dir).unwrap();
+    assert!(!pack.diagnostics.iter().any(|d| d.section == "assets"), "{:?}", pack.diagnostics);
+    if let Some(picture) =
+        pack.theme.get("appearance.backgroundSchedule").and_then(|s| s["07:00"].as_str())
+    {
+        let path = picture.strip_prefix("file:").unwrap();
+        assert!(Path::new(path).is_absolute() && path.ends_with("/assets/ok.png"), "{picture}");
+    }
+}
+
+/// An `assets` folder that is a link out of the pack (here to the folder
+/// holding the pack; `/` is the same) holds nothing the pack may name.
+#[cfg(unix)]
+#[test]
+fn an_assets_link_out_of_the_pack_is_refused() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("pack");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(root.path().join("secret.png"), b"\x89PNG").unwrap();
+    std::os::unix::fs::symlink(root.path(), dir.join("assets")).unwrap();
+    let manifest = json!({
+        "cmuxPack": 1, "id": "cmux/link", "capabilities": ["backgrounds"],
+        "look": { "appearance.background": "file:assets/secret.png" }
+    });
+    write_pack(&dir, &manifest.to_string());
+    let pack = read(&dir).unwrap();
+    assert!(!pack.theme.contains_key("appearance.background"), "{:?}", pack.theme);
+    assert!(pack.diagnostics.iter().any(|d| d.section == "assets"), "{:?}", pack.diagnostics);
+}
+
+/// The terminal palette needs the colors capability however a pack writes
+/// it: a `ghostty` block or `appearance.themeEdits` in `look` is no token.
+#[test]
+fn palette_keys_in_look_need_the_colors_capability() {
+    let dir = tempfile::tempdir().unwrap();
+    write_pack(
+        dir.path(),
+        r##"{
+          "cmuxPack": 1, "id": "cmux/palette", "capabilities": ["tokens"],
+          "look": {
+            "appearance.accent": "theme",
+            "ghostty": ["background = #2e3440"],
+            "appearance.themeEdits": { "Nord/background": "#2e3440" }
+          }
+        }"##,
+    );
+    let pack = read(dir.path()).unwrap();
+    assert!(pack.theme.contains_key("appearance.accent"));
+    for key in ["ghostty", "appearance.themeEdits"] {
+        assert!(!pack.theme.contains_key(key), "{key} applied without colors: {:?}", pack.theme);
+    }
+    assert!(
+        pack.diagnostics.iter().any(|d| d.message.contains("colors capability")),
+        "{:?}",
+        pack.diagnostics
+    );
+}

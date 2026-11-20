@@ -43,6 +43,10 @@ pub struct History {
     /// How many generations are applied: 0 is `before`, `n` is generation `n - 1`.
     #[serde(default)]
     pub cursor: usize,
+    /// Theme file names this store wrote and has not removed: the only
+    /// files pruning may delete (never a theme of the person's own).
+    #[serde(default)]
+    pub written: Vec<String>,
 }
 
 /// What applying a step writes: a theme file and the setting that picks it.

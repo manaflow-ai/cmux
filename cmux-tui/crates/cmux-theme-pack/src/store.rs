@@ -17,6 +17,8 @@ const HISTORY_FILE: &str = ".history.json";
 
 pub struct Store {
     config_dir: PathBuf,
+    /// The theme file `appearance.themeFile` picks now, never pruned.
+    in_use: Option<String>,
 }
 
 /// Why a store operation did nothing.
@@ -67,7 +69,14 @@ impl From<LoadError> for StoreError {
 
 impl Store {
     pub fn new(config_dir: &Path) -> Store {
-        Store { config_dir: config_dir.to_path_buf() }
+        Store { config_dir: config_dir.to_path_buf(), in_use: None }
+    }
+
+    /// The same store, told which theme file the setting picks now, so
+    /// pruning never removes the file the app is showing.
+    pub fn keeping(mut self, in_use: Option<String>) -> Store {
+        self.in_use = in_use;
+        self
     }
 
     pub fn folder(&self) -> PathBuf {
@@ -116,14 +125,14 @@ impl Store {
         } else {
             history.push(generation, in_use)
         };
-        self.write_step(&step)?;
-        history.write(&self.history_path())?;
-        self.prune(&history);
+        self.commit(&mut history, &step)?;
         Ok((pack, step))
     }
 
     /// Sets one look value over the applied pack, as one undo step. The value
-    /// passes the same capability and schema checks as the pack's own.
+    /// passes the same capability and schema checks as the pack's own: it is
+    /// flattened to dotted keys the way the manifest's `look` is, and any of
+    /// those keys refused refuses the edit.
     pub fn edit(
         &self,
         key: &str,
@@ -136,18 +145,47 @@ impl Store {
             .filter(|current| !current.is_off())
             .cloned()
             .ok_or(StoreError::NothingApplied)?;
+        let flat = load::flatten_edit(context.schema, key, &value);
+        if flat.is_empty() {
+            return Err(StoreError::Refused(vec![PackDiagnostic {
+                section: "look".into(),
+                key: Some(key.to_string()),
+                message: "sets no value".into(),
+                value: Some(cmux_config::render::compact(&value)),
+            }]));
+        }
         let mut edits = current.edits.clone();
-        edits.insert(key.to_string(), value);
+        for (dotted, value) in &flat {
+            edits.insert(dotted.clone(), value.clone());
+        }
         let pack = load::load(&current.dir, &edits, context)?;
-        let refused: Vec<PackDiagnostic> =
-            pack.diagnostics.iter().filter(|d| d.key.as_deref() == Some(key)).cloned().collect();
+        let set = |name: &str| flat.iter().any(|(dotted, _)| dotted == name);
+        let refused: Vec<PackDiagnostic> = pack
+            .diagnostics
+            .iter()
+            .filter(|d| d.section != "colors" && d.key.as_deref().is_some_and(set))
+            .cloned()
+            .collect();
         if !refused.is_empty() {
             return Err(StoreError::Refused(refused));
         }
+        // Whatever is left was kept by the check; a key it silently dropped
+        // (no diagnostic) is a refusal too, never a reported success.
+        let dropped: Vec<PackDiagnostic> = flat
+            .iter()
+            .filter(|(dotted, _)| !pack.theme.contains_key(dotted))
+            .map(|(dotted, value)| PackDiagnostic {
+                section: "look".into(),
+                key: Some(dotted.clone()),
+                message: "not applied".into(),
+                value: Some(cmux_config::render::compact(value)),
+            })
+            .collect();
+        if !dropped.is_empty() {
+            return Err(StoreError::Refused(dropped));
+        }
         let step = history.push(generation(&pack, edits), Some(current.theme));
-        self.write_step(&step)?;
-        history.write(&self.history_path())?;
-        self.prune(&history);
+        self.commit(&mut history, &step)?;
         Ok((pack, step))
     }
 
@@ -170,10 +208,21 @@ impl Store {
     ) -> Result<Step, StoreError> {
         let mut history = self.history();
         let step = motion(&mut history).ok_or(none)?;
-        self.write_step(&step)?;
-        history.write(&self.history_path())?;
-        self.prune(&history);
+        self.commit(&mut history, &step)?;
         Ok(step)
+    }
+
+    /// Writes `step`'s theme file, records it as written by this store,
+    /// prunes, and saves the history.
+    fn commit(&self, history: &mut History, step: &Step) -> std::io::Result<()> {
+        self.write_step(step)?;
+        if let Step::Apply { theme, .. } = step
+            && !history.written.contains(theme)
+        {
+            history.written.push(theme.clone());
+        }
+        self.prune(history);
+        history.write(&self.history_path())
     }
 
     /// Writes a step's theme file (atomically: the app never reads half a pack).
@@ -185,16 +234,28 @@ impl Store {
     }
 
     /// Removes compiled pack files no generation in `history` names, so the
-    /// themes folder holds at most one file per kept generation.
-    fn prune(&self, history: &History) {
-        let Ok(entries) = std::fs::read_dir(theme_file::folder(&self.config_dir)) else { return };
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let Some(stem) = name.strip_suffix(".json") else { continue };
-            if stem.starts_with("pack-") && !history.generations.iter().any(|g| g.theme == stem) {
-                let _ = std::fs::remove_file(entry.path());
+    /// themes folder holds at most one file per kept generation. Only files
+    /// this store wrote (`history.written`) are candidates, so a theme of the
+    /// person's own is never touched, whatever its name; the file the
+    /// setting picks now (`keeping`) and `before` are always kept.
+    fn prune(&self, history: &mut History) {
+        let keep = |name: &str| {
+            history.generations.iter().any(|g| g.theme == name)
+                || history.before.as_deref() == Some(name)
+                || self.in_use.as_deref() == Some(name)
+        };
+        let (kept, gone): (Vec<String>, Vec<String>) =
+            std::mem::take(&mut history.written).into_iter().partition(|name| keep(name));
+        let mut still = kept;
+        for name in gone {
+            match std::fs::remove_file(theme_file::path(&self.config_dir, &name)) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                // Not removed: keep it listed so a later prune tries again.
+                Err(_) => still.push(name),
             }
         }
+        history.written = still;
     }
 }
 

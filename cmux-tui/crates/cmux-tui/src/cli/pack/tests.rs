@@ -83,3 +83,43 @@ fn percentiles_are_nearest_rank() {
     assert_eq!(percentile(&[7.0], 95), 7.0);
     assert_eq!(percentile(&[], 50), 0.0);
 }
+
+/// `use --watch` after the history moved (another pack applied since): the
+/// reload is a new step under a new name and reads the setting fresh, so
+/// the caller's `settings` call picks the new file instead of leaving the
+/// setting on the other pack.
+#[test]
+fn a_watch_reload_after_the_history_moved_picks_its_new_file() {
+    let root = tempfile::tempdir().unwrap();
+    let config_dir = root.path().join("config");
+    std::fs::create_dir_all(&config_dir).unwrap();
+    let paths =
+        Paths { settings: config_dir.join("cmux-next.json"), config_dir: config_dir.clone() };
+    let pack = |name: &str| {
+        let dir = root.path().join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        let manifest = json!({
+            "cmuxPack": 1, "id": format!("cmux/{name}"), "capabilities": ["motion"],
+            "look": { "ui.animationSpeed": "fast" }
+        });
+        std::fs::write(dir.join("cmux-pack.json"), manifest.to_string()).unwrap();
+        dir
+    };
+    let (a, b) = (pack("a"), pack("b"));
+    let base = json!({});
+    let domains = Domains::default();
+    let context = Context { schema: Schema::embedded(), domains: &domains, base: &base };
+    let store = Store::new(&config_dir);
+    store.apply(&a, None, false, &context).unwrap();
+    let (_, step) = store.apply(&b, None, false, &context).unwrap();
+    let theme_b = step_theme(&step).unwrap().to_string();
+    std::fs::write(&paths.settings, json!({ "appearance": { "themeFile": theme_b } }).to_string())
+        .unwrap();
+
+    let (_, step, in_use) = reload(&a, &paths, &context).unwrap();
+    assert_eq!(in_use.as_deref(), Some(theme_b.as_str()), "the setting is read fresh");
+    let theme_a = step_theme(&step).unwrap();
+    assert!(theme_a.starts_with("pack-cmux-a-"), "{theme_a}");
+    assert_ne!(in_use.as_deref(), Some(theme_a), "the reload needs a settings write");
+    assert_eq!(step_settings_args(&step), ["set", "appearance.themeFile", theme_a]);
+}

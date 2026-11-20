@@ -194,3 +194,76 @@ fn load_and_swap_stay_under_100_ms() {
     );
     assert!(p95 < Duration::from_millis(100), "p95 {p95:?} is over 100 ms");
 }
+
+/// A nested edit is flattened like the manifest's `look`: a bad nested value
+/// is refused (no step, nothing applied), a good one is stored and applied
+/// under its dotted key, and an edit that sets nothing is refused too.
+#[test]
+fn nested_edits_are_checked_like_the_manifest() {
+    let root = tempfile::tempdir().unwrap();
+    let config = root.path().join("config");
+    let a = root.path().join("a");
+    write_pack(&a, "cmux/a", 0.25);
+    let base = json!({});
+    let context = Context { schema: Schema::embedded(), domains: domains(), base: &base };
+    let store = Store::new(&config);
+    store.apply(&a, None, false, &context).unwrap();
+
+    let before = store.history();
+    match store.edit("sidebar", json!({ "sectionLook": "not-a-look" }), &context) {
+        Err(StoreError::Refused(diagnostics)) => {
+            assert!(
+                diagnostics.iter().any(|d| d.key.as_deref() == Some("sidebar.sectionLook")),
+                "{diagnostics:?}"
+            );
+        }
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+    assert_eq!(store.history(), before, "a refused nested edit costs no step");
+    assert!(matches!(store.edit("sidebar", json!({}), &context), Err(StoreError::Refused(_))));
+    // A system picture is no pack asset, edited or not.
+    assert!(matches!(
+        store.edit("appearance.background", json!("system:/Users/me/secret.png"), &context),
+        Err(StoreError::Refused(_))
+    ));
+    assert_eq!(store.history(), before);
+
+    let (_, step) = store.edit("ui", json!({ "animationSpeed": "fast" }), &context).unwrap();
+    assert_eq!(compiled(&config, theme_of(&step))["ui.animationSpeed"], "fast");
+    let history = store.history();
+    let edits = &history.current().unwrap().edits;
+    assert!(edits.contains_key("ui.animationSpeed") && !edits.contains_key("ui"), "{edits:?}");
+}
+
+/// Pruning deletes only files this store wrote: a theme of the person's own
+/// named `pack-*` stays, and so does the file the setting picks now.
+#[test]
+fn prune_keeps_files_the_store_did_not_write_and_the_one_in_use() {
+    let root = tempfile::tempdir().unwrap();
+    let config = root.path().join("config");
+    let (a, b, c) = (root.path().join("a"), root.path().join("b"), root.path().join("c"));
+    write_pack(&a, "cmux/a", 0.25);
+    write_pack(&b, "cmux/b", 0.75);
+    write_pack(&c, "cmux/c", 0.5);
+    let base = json!({});
+    let context = Context { schema: Schema::embedded(), domains: domains(), base: &base };
+    let mine = theme_file::path(&config, "pack-mine");
+    std::fs::create_dir_all(mine.parent().unwrap()).unwrap();
+    std::fs::write(&mine, "{\"name\": \"mine\"}\n").unwrap();
+
+    let store = Store::new(&config);
+    let (_, step) = store.apply(&a, None, false, &context).unwrap();
+    let first_a = theme_of(&step).to_string();
+    store.undo().unwrap();
+    // The setting still picks A's file: a new pack drops A from the history
+    // (the redo tail) but its file stays while it is in use.
+    let store = Store::new(&config).keeping(Some(first_a.clone()));
+    store.apply(&b, None, false, &context).unwrap();
+    assert!(theme_file::path(&config, &first_a).exists(), "the file in use was pruned");
+    assert!(mine.exists(), "a theme the store did not write was pruned");
+    // Once the setting moved on, A's file goes; the person's own stays.
+    let store = Store::new(&config);
+    store.apply(&c, None, false, &context).unwrap();
+    assert!(!theme_file::path(&config, &first_a).exists(), "a superseded file stayed");
+    assert!(mine.exists(), "a theme the store did not write was pruned");
+}
