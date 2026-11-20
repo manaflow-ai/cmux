@@ -431,7 +431,9 @@ export function NewTabPage({
       // A page shown in a window that is not key yet gets no focus event until it is.
       setFocused(input.focused());
     };
-    focus();
+    // Not again while the field has the keyboard: a token change after the readiness selected the keys typed so far
+    // (the screen's show-focus has the same rule).
+    if (!field.current?.focused()) focus();
     const host = fieldElement()?.ownerDocument.defaultView;
     // The app replays the keys typed after Cmd-T at this readiness: it waits for the page's focus.
     let cancelReady = () => {};

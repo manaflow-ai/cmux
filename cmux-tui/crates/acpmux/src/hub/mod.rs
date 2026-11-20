@@ -983,6 +983,10 @@ pub struct Hub {
     /// The harnesses whose `known_models` entry is that disk copy, not a report of this
     /// daemon's: the probe still runs for them.
     pub(super) acp_from_disk: StdMutex<std::collections::HashSet<String>>,
+    /// What each ACP harness's startup probe's `session/new` answered about a new chat's choices,
+    /// by profile name: its `modes` and `configOptions`, as sent. A `_acpmux/harnesses` row's
+    /// `reported` falls back to it until a chat of the harness reports (`start_mode.rs`).
+    pub(super) probed_choices: StdMutex<HashMap<String, (Option<Value>, Option<Value>)>>,
     /// Model lists from Claude Code's and Codex's own CLIs, by profile name
     /// (`hub/live_models.rs`): richer than `known_models` (efforts, fast).
     pub(super) live_models: StdMutex<HashMap<String, Vec<crate::live_models::LiveModel>>>,
@@ -1464,6 +1468,7 @@ impl Hub {
             known_models: StdMutex::new(HashMap::new()),
             acp_cached: StdMutex::new(HashMap::new()),
             acp_from_disk: StdMutex::new(std::collections::HashSet::new()),
+            probed_choices: StdMutex::new(HashMap::new()),
             live_models: StdMutex::new(HashMap::new()),
             live_rechecks: StdMutex::new(HashMap::new()),
             live_ages: StdMutex::new(live_ages::LiveAges::default()),

@@ -33,6 +33,9 @@ Full loop: the [cmux-hot-loop skill](skills/cmux-hot-loop/SKILL.md) and
 - **Wait on GitHub with one shared waiter, never a poll**: one background `glaeda-gh wait pr OWNER/REPO#N --sha
   FULL_SHA` per PR, or the acpmux `run_wait` tool; never `gh pr checks --watch`, `gh run watch` or a sleep loop
   ([verification rules](skills/cmux-dev-workflow/references/verification-rules.md)).
+- **Make worktrees with `python3 scripts/cmux_worktree.py add -b BRANCH PATH origin/feat-cmux-next`** (APFS clones
+  of a seed: about 4 s, almost no disk); never symlink node_modules or share one Cargo target dir
+  ([worktrees](skills/cmux-dev-workflow/SKILL.md#worktrees)).
 - **Scope every search** to your worktree or a named subfolder, never `..`, `~`, `/` or `$TMPDIR`.
 - **Before every push**, `python3 scripts/cmux-next/prepush-gate.py` (the pre-push hook runs it) and, for
   `webviews/` or `web/`, `scripts/web-lint.sh`. Never `--no-verify` or `CMUX_NEXT_CHECKS_SKIP_REASON` unless the
