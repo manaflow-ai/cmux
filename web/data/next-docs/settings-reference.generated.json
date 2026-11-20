@@ -1815,7 +1815,7 @@
           "title": "Free Idle Terminals",
           "help": "Ends idle shells of long-unused workspaces; they restart in the same folder.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Hibernation"
         },
         {

@@ -1,6 +1,372 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.agentPane.display.thinking.shimmer": {
+      "comment": "Settings > Chat > Transcript > Thinking Shimmer: title of the setting for how the agent chat's live status line shimmers",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Thinking Shimmer"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "وميض التفكير"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Svjetlucanje razmišljanja"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Tænke-glimt"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Schimmer beim Denken"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Brillo al pensar"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Scintillement de réflexion"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Scintillio del pensiero"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "思考中のきらめき"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ពន្លឺភ្លឹបភ្លែតពេលគិត"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "생각 중 반짝임"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Tenkeglimt"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Połysk myślenia"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Brilho do pensamento"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Мерцание при размышлении"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แสงวาบขณะคิด"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Düşünme parıltısı"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Мерехтіння під час роздумів"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Hiệu ứng ánh sáng khi suy nghĩ"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "思考光泽"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "思考光澤"}}
+      }
+    },
+    "settings.agentPane.display.thinking.shimmer.help": {
+      "comment": "Settings > Chat > Transcript > Thinking Shimmer: help",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "How the light band moves across the live status line."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "كيف يتحرك شريط الضوء عبر سطر الحالة المباشر."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Kako se svijetla traka kreće preko živog statusnog reda."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Hvordan lysbåndet bevæger sig hen over den levende statuslinje."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Wie das Lichtband über die Live-Statuszeile wandert."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Cómo se mueve la banda de luz por la línea de estado en vivo."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Comment la bande lumineuse traverse la ligne d'état en direct."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Come la banda luminosa attraversa la riga di stato in tempo reale."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ライブのステータス行を光の帯がどう流れるか。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "របៀបដែលបន្ទះពន្លឺផ្លាស់ទីឆ្លងកាត់បន្ទាត់ស្ថានភាពផ្ទាល់។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "빛 띠가 실시간 상태 줄을 지나가는 방식입니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Hvordan lysbåndet beveger seg over den levende statuslinjen."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Jak jasny pas przesuwa się po wierszu stanu na żywo."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Como a faixa de luz se move pela linha de status ao vivo."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Как светлая полоса движется по строке текущего состояния."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แถบแสงเคลื่อนผ่านบรรทัดสถานะสดอย่างไร"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Işık bandının canlı durum satırında nasıl ilerlediği."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Як світла смуга рухається рядком поточного стану."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Cách dải sáng di chuyển qua dòng trạng thái trực tiếp."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "光带如何扫过实时状态行。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "光帶如何掃過即時狀態列。"}}
+      }
+    },
+    "settings.agentPane.display.thinking.shimmerPeriod": {
+      "comment": "Settings > Chat > Transcript > Shimmer Speed: title of the setting for one shimmer pass in milliseconds",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Shimmer Speed"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "سرعة الوميض"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Brzina svjetlucanja"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Glimtets hastighed"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Schimmer-Geschwindigkeit"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Velocidad del brillo"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Vitesse du scintillement"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Velocità dello scintillio"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "きらめきの速さ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ល្បឿនពន្លឺភ្លឹបភ្លែត"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "반짝임 속도"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Glimtets hastighet"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Szybkość połysku"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Velocidade do brilho"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Скорость мерцания"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ความเร็วของแสงวาบ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Parıltı hızı"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Швидкість мерехтіння"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tốc độ ánh sáng"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "光泽速度"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "光澤速度"}}
+      }
+    },
+    "settings.agentPane.display.thinking.shimmerPeriod.help": {
+      "comment": "Settings > Chat > Transcript > Shimmer Speed: help",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "How long one continuous pass of the shimmer takes."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "المدة التي يستغرقها مرور واحد متواصل للوميض."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Koliko traje jedan neprekidni prolaz svjetlucanja."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Hvor lang tid et sammenhængende gennemløb af glimtet tager."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Wie lange ein durchgehender Schimmer-Durchlauf dauert."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Cuánto dura una pasada continua del brillo."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Durée d'un passage continu du scintillement."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Quanto dura un passaggio continuo dello scintillio."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "連続したきらめきが1回流れるのにかかる時間。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "រយៈពេលដែលការឆ្លងកាត់ជាប់ៗមួយដងនៃពន្លឺត្រូវការ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "연속 반짝임이 한 번 지나가는 데 걸리는 시간입니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Hvor lang tid ett sammenhengende gjennomløp av glimtet tar."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Jak długo trwa jedno ciągłe przejście połysku."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Quanto tempo leva uma passagem contínua do brilho."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Сколько длится один непрерывный проход мерцания."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ระยะเวลาที่แสงวาบเคลื่อนผ่านต่อเนื่องหนึ่งรอบ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Parıltının kesintisiz bir geçişinin ne kadar sürdüğü."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Скільки триває один безперервний прохід мерехтіння."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Thời gian một lượt quét liên tục của ánh sáng."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "连续光泽扫过一次所需的时间。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "連續光澤掃過一次所需的時間。"}}
+      }
+    },
+    "settings.agentPane.display.thinking.shimmerBand": {
+      "comment": "Settings > Chat > Transcript > Shimmer Width: title of the setting for the shimmer band's width in points",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Shimmer Width"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "عرض الوميض"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Širina svjetlucanja"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Glimtets bredde"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Schimmer-Breite"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Ancho del brillo"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Largeur du scintillement"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Larghezza dello scintillio"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "きらめきの幅"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ទទឹងពន្លឺភ្លឹបភ្លែត"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "반짝임 너비"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Glimtets bredde"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Szerokość połysku"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Largura do brilho"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Ширина мерцания"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ความกว้างของแสงวาบ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Parıltı genişliği"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Ширина мерехтіння"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Độ rộng ánh sáng"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "光泽宽度"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "光澤寬度"}}
+      }
+    },
+    "settings.agentPane.display.thinking.shimmerBand.help": {
+      "comment": "Settings > Chat > Transcript > Shimmer Width: help; 0 is the number zero",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The width of the shimmer's light band. 0 uses half the line."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "عرض شريط الضوء. القيمة 0 تستخدم نصف السطر."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Širina svijetle trake. 0 koristi pola reda."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Bredden af glimtets lysbånd. 0 bruger halvdelen af linjen."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Die Breite des Lichtbands. 0 nimmt die halbe Zeile."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "El ancho de la banda de luz. 0 usa la mitad de la línea."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "La largeur de la bande lumineuse. 0 utilise la moitié de la ligne."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "La larghezza della banda luminosa. 0 usa metà della riga."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "光の帯の幅。0 は行の半分の幅です。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ទទឹងនៃបន្ទះពន្លឺ។ 0 ប្រើពាក់កណ្តាលបន្ទាត់។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "빛 띠의 너비입니다. 0이면 줄의 절반을 씁니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Bredden på glimtets lysbånd. 0 bruker halve linjen."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Szerokość jasnego pasa. 0 to połowa wiersza."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "A largura da faixa de luz. 0 usa metade da linha."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Ширина светлой полосы. 0 — половина строки."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ความกว้างของแถบแสง 0 ใช้ครึ่งหนึ่งของบรรทัด"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Işık bandının genişliği. 0 satırın yarısını kullanır."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Ширина світлої смуги. 0 — половина рядка."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Độ rộng của dải sáng. 0 dùng một nửa dòng."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "光带的宽度。0 表示使用半行宽。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "光帶的寬度。0 代表使用半行寬。"}}
+      }
+    },
+    "settings.agentPane.display.thinking.jumpButton": {
+      "comment": "Settings > Chat > Transcript > Jump to Latest While Working: title of the setting for the scroll-to-latest button's look while the agent works",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Jump to Latest While Working"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "الانتقال إلى الأحدث أثناء العمل"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Skok na najnovije tokom rada"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Gå til seneste under arbejde"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Zum Neuesten springen während der Arbeit"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Ir a lo último mientras trabaja"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Aller au plus récent pendant le travail"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Vai all'ultimo durante il lavoro"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "作業中の最新へ移動"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "លោតទៅថ្មីបំផុតពេលកំពុងធ្វើការ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "작업 중 최신으로 이동"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Gå til siste under arbeid"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Przejdź do najnowszych podczas pracy"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Ir para o mais recente durante o trabalho"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Перейти к последнему во время работы"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ข้ามไปล่าสุดขณะทำงาน"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Çalışırken en sona git"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Перейти до останнього під час роботи"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Nhảy đến mới nhất khi đang làm việc"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "工作时的跳至最新"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "工作時的跳至最新"}}
+      }
+    },
+    "settings.agentPane.display.thinking.jumpButton.help": {
+      "comment": "Settings > Chat > Transcript > Jump to Latest While Working: help; Jump to latest is the chat's button that scrolls to the newest message",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "What the Jump to latest button shows while the agent works."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "ما يعرضه زر الانتقال إلى الأحدث أثناء عمل الوكيل."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Šta dugme za skok na najnovije prikazuje dok agent radi."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Hvad knappen Gå til seneste viser, mens agenten arbejder."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Was die Schaltfläche „Zum Neuesten“ zeigt, während der Agent arbeitet."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Lo que muestra el botón Ir a lo último mientras el agente trabaja."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Ce que le bouton Aller au plus récent affiche pendant que l'agent travaille."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Cosa mostra il pulsante Vai all'ultimo mentre l'agente lavora."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "エージェントの作業中に「最新へ移動」ボタンに表示するもの。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "អ្វីដែលប៊ូតុងលោតទៅថ្មីបំផុតបង្ហាញពេលភ្នាក់ងារកំពុងធ្វើការ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "에이전트가 작업하는 동안 최신으로 이동 버튼에 표시되는 내용입니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Hva knappen Gå til siste viser mens agenten arbeider."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Co pokazuje przycisk przejścia do najnowszych, gdy agent pracuje."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O que o botão Ir para o mais recente mostra enquanto o agente trabalha."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Что показывает кнопка перехода к последнему, пока агент работает."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "สิ่งที่ปุ่มข้ามไปล่าสุดแสดงขณะที่เอเจนต์ทำงาน"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Ajan çalışırken En sona git düğmesinin gösterdiği şey."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Що показує кнопка переходу до останнього, поки агент працює."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Nút Nhảy đến mới nhất hiển thị gì khi tác nhân đang làm việc."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "智能体工作时“跳至最新”按钮显示的内容。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "代理程式工作時「跳至最新」按鈕顯示的內容。"}}
+      }
+    },
+    "settings.choice.thinkingShimmerCadenced": {
+      "comment": "Settings > Chat > Thinking Shimmer: choice, a short sweep every few seconds (today's look)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Every Few Seconds"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "كل بضع ثوانٍ"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Svakih nekoliko sekundi"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Med få sekunders mellemrum"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Alle paar Sekunden"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Cada pocos segundos"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Toutes les quelques secondes"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Ogni pochi secondi"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "数秒ごと"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "រៀងរាល់ប៉ុន្មានវិនាទី"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "몇 초마다"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Med noen sekunders mellomrom"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Co kilka sekund"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "A cada poucos segundos"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Каждые несколько секунд"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ทุก ๆ ไม่กี่วินาที"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Birkaç saniyede bir"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Кожні кілька секунд"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Vài giây một lần"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "每隔几秒"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "每隔幾秒"}}
+      }
+    },
+    "settings.choice.thinkingShimmerContinuous": {
+      "comment": "Settings > Chat > Thinking Shimmer: choice, the band sweeps back to back",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Continuous"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "متواصل"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Neprekidno"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Uafbrudt"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Durchgehend"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Continuo"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Continu"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Continuo"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "連続"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ជាប់ៗ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "연속"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Sammenhengende"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Ciągły"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Contínuo"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Непрерывно"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ต่อเนื่อง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Sürekli"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Безперервно"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Liên tục"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "连续"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "連續"}}
+      }
+    },
+    "settings.choice.thinkingJumpArrow": {
+      "comment": "Settings > Chat > Jump to Latest While Working: choice, the usual arrow",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Arrow"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "سهم"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Strelica"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Pil"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Pfeil"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Flecha"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Flèche"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Freccia"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "矢印"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ព្រួញ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "화살표"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Pil"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Strzałka"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Seta"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Стрелка"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ลูกศร"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Ok"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Стрілка"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Mũi tên"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "箭头"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "箭頭"}}
+      }
+    },
+    "settings.choice.dots": {
+      "comment": "Settings > Chat > Jump to Latest While Working: choice, three small animated dots",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Dots"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "نقاط"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Tačke"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Prikker"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Punkte"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Puntos"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Points"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Puntini"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ドット"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ចំណុច"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "점"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Prikker"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Kropki"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Pontos"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Точки"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "จุด"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Noktalar"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Крапки"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Dấu chấm"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "圆点"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "圓點"}}
+      }
+    },
+    "settings.attention.mark": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Needs You Look"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "مظهر «بحاجة إليك»"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Darstellung von „Braucht dich“"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Aspecto de «Te necesita»"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Apparence de « Vous attend »"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "「要対応」の見た目"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "확인 필요 표시 방식"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "“需要你”的外观"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "「需要你」的外觀"}}
+      }
+    },
+    "settings.attention.mark.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "How a tab and a sidebar row that wait for you show it: the badge, or a gentle glow until you look at them."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "كيف تُظهر علامة التبويب وصف الشريط الجانبي أنهما بانتظارك: الشارة، أو توهّج هادئ حتى تنظر إليهما."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Wie ein Tab und eine Seitenleistenzeile zeigen, dass sie auf dich warten: mit dem Abzeichen oder einem sanften Leuchten, bis du sie ansiehst."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cómo muestran una pestaña y una fila de la barra lateral que te esperan: con la insignia o con un brillo suave hasta que las mires."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Comment un onglet et une ligne de la barre latérale qui vous attendent le montrent : le badge, ou une douce lueur jusqu’à ce que vous les regardiez."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "対応待ちのタブとサイドバーの行の示し方：バッジ、または見るまでやさしく光る表示。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "확인이 필요한 탭과 사이드바 행을 표시하는 방식: 배지, 또는 확인할 때까지 은은하게 빛나기."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "等待你的标签页和侧边栏行如何显示：使用标记，或在你查看前柔和地发光。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "等待你的分頁與側邊欄列如何顯示：使用標記，或在你查看前柔和地發光。"}}
+      }
+    },
+    "settings.choice.badge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Badge"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "شارة"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Abzeichen"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Insignia"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Pastille"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "バッジ"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "배지"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "标记"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "標記"}}
+      }
+    },
     "settings.group.agentGuidance": {
       "comment": "Settings > Agents: group title for cmux's guidance and the person's skills",
       "extractionState": "manual",
@@ -186006,6 +186372,270 @@
         }
       }
     },
+    "settings.appearance.agentGlow": {
+      "comment": "Settings row title: the window background glows in the machine's color when an agent needs you.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "React to Agents"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التفاعل مع الوكلاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reaguj na agente"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reager på agenter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf Agenten reagieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reaccionar a los agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réagir aux agents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reagisci agli agenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントに反応"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រតិកម្មតាមភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트에 반응"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reager på agenter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reaguj na agentów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reagir aos agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Реагировать на агентов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตอบสนองต่อเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanlara tepki ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Реагувати на агентів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phản hồi theo tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "响应智能体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回應代理程式"
+          }
+        }
+      }
+    },
+    "settings.appearance.agentGlow.help": {
+      "comment": "Settings row help for React to Agents.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calm while agents are idle; a soft glow in the machine's color when an agent needs you."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هادئة ما دام الوكلاء خاملين، وتوهج خفيف بلون الجهاز عندما يحتاجك وكيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mirno dok agenti miruju; blagi sjaj u boji mašine kada te agent treba."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roligt, mens agenter er inaktive; en blød glød i maskinens farve, når en agent har brug for dig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruhig, solange Agenten untätig sind; ein sanftes Leuchten in der Farbe des Rechners, wenn ein Agent dich braucht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En calma mientras los agentes están inactivos; un brillo suave del color de la máquina cuando un agente te necesita."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calme tant que les agents sont inactifs ; une douce lueur de la couleur de la machine quand un agent a besoin de vous."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calmo quando gli agenti sono inattivi; un leggero bagliore del colore della macchina quando un agente ha bisogno di te."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが待機中は落ち着いた表示に。エージェントが呼んでいるときは、マシンの色でやさしく光ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្ងប់ពេលភ្នាក់ងារទំនេរ ហើយភ្លឺស្រាលៗតាមពណ៌ម៉ាស៊ីន ពេលភ្នាក់ងារត្រូវការអ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 쉬는 동안은 차분하게, 에이전트가 당신을 필요로 하면 기기 색으로 은은하게 빛납니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rolig mens agenter er inaktive; en myk glød i maskinens farge når en agent trenger deg."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spokojne, gdy agenci są bezczynni; delikatna poświata w kolorze maszyny, gdy agent cię potrzebuje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calmo enquanto os agentes estão ociosos; um brilho suave na cor da máquina quando um agente precisa de você."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спокойный фон, пока агенты простаивают; мягкое свечение цветом машины, когда агенту нужны вы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สงบเมื่อเอเจนต์ว่าง และเรืองแสงอ่อนๆ ตามสีของเครื่องเมื่อเอเจนต์ต้องการคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanlar boştayken sakin; bir ajanın sana ihtiyacı olduğunda makinenin renginde yumuşak bir parıltı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спокійне тло, поки агенти бездіяльні; м'яке сяйво кольором машини, коли агентові потрібні ви."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yên tĩnh khi các tác tử rảnh; ánh sáng dịu theo màu của máy khi một tác tử cần bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体空闲时保持平静；有智能体需要你时，以机器的颜色柔和发光。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式閒置時保持平靜；有代理程式需要你時，以機器的顏色柔和發光。"
+          }
+        }
+      }
+    },
     "settings.group.media": {
       "extractionState": "manual",
       "localizations": {
@@ -228615,6 +229245,530 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "在主題檔案設定它們時你變更過的設定。你的值優先於檔案的值；重設該列會恢復檔案的值。選擇其他主題檔案會清空此列表。"
+          }
+        }
+      }
+    },
+    "settings.updates.installWhenIdle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update When Idle"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التحديث عند الخمول"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ažuriraj kada je neaktivan"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdater ved inaktivitet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei Inaktivität aktualisieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizar en reposo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettre à jour en cas d'inactivité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiorna quando inattivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイドル時にアップデート"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធ្វើបច្ចុប្បន្នភាពនៅពេលទំនេរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유휴 시 업데이트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppdater ved inaktivitet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualizuj w bezczynności"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualizar quando ocioso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновлять при бездействии"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัปเดตเมื่อไม่มีการใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boşta Kalınca Güncelle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оновлювати під час бездіяльності"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cập nhật khi nhàn rỗi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空闲时更新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閒置時更新"
+          }
+        }
+      }
+    },
+    "settings.updates.installWhenIdle.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يثبّت تحديثًا تم تنزيله بعد أن يبقى cmux خاملًا للمدة أدناه، ولا يفعل ذلك أبدًا أثناء عمل وكيل أو وجود رسالة لم تُرسل. تستمر الوكلاء في العمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalira preuzeto ažuriranje kada cmux bude neaktivan tokom vremena ispod, nikad dok agent radi ili poruka nije poslana. Agenti nastavljaju raditi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installerer en hentet opdatering, når cmux har været inaktiv i tiden nedenfor, aldrig mens en agent arbejder, eller en besked ikke er sendt. Agenter kører videre."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installiert ein geladenes Update, wenn cmux so lange wie unten angegeben inaktiv war, nie während ein Agent arbeitet oder eine Nachricht nicht gesendet ist. Agenten laufen weiter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instala una actualización descargada cuando cmux lleva inactivo el tiempo indicado abajo, nunca mientras un agente trabaja o hay un mensaje sin enviar. Los agentes siguen en marcha."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installe une mise à jour téléchargée quand cmux est inactif depuis la durée ci-dessous, jamais pendant qu'un agent travaille ou qu'un message n'est pas envoyé. Les agents continuent de tourner."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installa un aggiornamento scaricato dopo che cmux è rimasto inattivo per il tempo indicato sotto, mai mentre un agente lavora o un messaggio non è inviato. Gli agenti continuano a funzionare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が下の時間だけアイドル状態になると、ダウンロード済みのアップデートをインストールします。エージェントの作業中や未送信のメッセージがあるときは行いません。エージェントは動き続けます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដំឡើងបច្ចុប្បន្នភាពដែលបានទាញយក បន្ទាប់ពី cmux ទំនេររយៈពេលខាងក្រោម មិនដែលដំឡើងពេលភ្នាក់ងារកំពុងធ្វើការ ឬមានសារមិនទាន់ផ្ញើឡើយ។ ភ្នាក់ងារនៅតែដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 아래 시간 동안 유휴 상태이면 다운로드한 업데이트를 설치합니다. 에이전트가 작업 중이거나 보내지 않은 메시지가 있을 때는 설치하지 않습니다. 에이전트는 계속 실행됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installerer en nedlastet oppdatering når cmux har vært inaktiv i tiden nedenfor, aldri mens en agent jobber eller en melding ikke er sendt. Agenter fortsetter å kjøre."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instaluje pobraną aktualizację, gdy cmux jest bezczynny przez czas podany niżej, nigdy gdy agent pracuje lub wiadomość nie została wysłana. Agenci działają dalej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instala uma atualização baixada depois que o cmux fica ocioso pelo tempo abaixo, nunca enquanto um agente trabalha ou há uma mensagem não enviada. Os agentes continuam rodando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Устанавливает загруженное обновление, когда cmux бездействует указанное ниже время, но никогда во время работы агента или при неотправленном сообщении. Агенты продолжают работать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ติดตั้งอัปเดตที่ดาวน์โหลดแล้วเมื่อ cmux ไม่มีการใช้งานตามเวลาด้านล่าง และจะไม่ติดตั้งขณะที่เอเจนต์กำลังทำงานหรือมีข้อความที่ยังไม่ได้ส่ง เอเจนต์ยังคงทำงานต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux aşağıdaki süre boyunca boşta kaldığında indirilen güncellemeyi yükler; bir ajan çalışırken veya gönderilmemiş bir mesaj varken asla yüklemez. Ajanlar çalışmaya devam eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Встановлює завантажене оновлення, коли cmux бездіяльний протягом часу нижче, але ніколи під час роботи агента чи з невідправленим повідомленням. Агенти продовжують працювати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cài bản cập nhật đã tải về sau khi cmux nhàn rỗi trong khoảng thời gian bên dưới, không bao giờ khi một tác nhân đang làm việc hoặc có tin nhắn chưa gửi. Các tác nhân vẫn tiếp tục chạy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 空闲达到下方时长后安装已下载的更新；代理工作时或有未发送的消息时绝不安装。代理会继续运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 閒置達到下方時長後安裝已下載的更新；代理正在工作或有未傳送的訊息時絕不安裝。代理會繼續執行。"
+          }
+        }
+      }
+    },
+    "settings.updates.installWhenIdleMinutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idle Time Before Updating"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مدة الخمول قبل التحديث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vrijeme neaktivnosti prije ažuriranja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inaktiv tid før opdatering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inaktivität vor dem Aktualisieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiempo inactivo antes de actualizar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inactivité avant la mise à jour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tempo di inattività prima dell'aggiornamento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートまでのアイドル時間"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រយៈពេលទំនេរមុនពេលធ្វើបច្ចុប្បន្នភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 전 유휴 시간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inaktiv tid før oppdatering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czas bezczynności przed aktualizacją"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tempo ocioso antes de atualizar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Время бездействия перед обновлением"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เวลาที่ไม่มีการใช้งานก่อนอัปเดต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güncellemeden Önce Boşta Kalma Süresi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Час бездіяльності перед оновленням"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thời gian nhàn rỗi trước khi cập nhật"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新前的空闲时长"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新前的閒置時長"
+          }
+        }
+      }
+    },
+    "settings.updates.installWhenIdleMinutes.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How long cmux must be idle before Update When Idle installs."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المدة التي يجب أن يبقى فيها cmux خاملًا قبل أن يثبّت «التحديث عند الخمول»."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koliko dugo cmux mora biti neaktivan prije nego što Ažuriraj kada je neaktivan instalira."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor længe cmux skal være inaktiv, før Opdater ved inaktivitet installerer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie lange cmux inaktiv sein muss, bevor „Bei Inaktivität aktualisieren“ installiert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuánto tiempo debe estar cmux inactivo antes de que Actualizar en reposo instale."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durée d'inactivité de cmux avant que « Mettre à jour en cas d'inactivité » installe."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per quanto tempo cmux deve restare inattivo prima che Aggiorna quando inattivo installi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「アイドル時にアップデート」がインストールするまでに cmux がアイドル状態である必要がある時間。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រយៈពេលដែល cmux ត្រូវទំនេរ មុនពេល «ធ្វើបច្ចុប្បន្នភាពនៅពេលទំនេរ» ដំឡើង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'유휴 시 업데이트'가 설치하기 전에 cmux가 유휴 상태여야 하는 시간입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor lenge cmux må være inaktiv før Oppdater ved inaktivitet installerer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jak długo cmux musi być bezczynny, zanim Aktualizuj w bezczynności zainstaluje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Por quanto tempo o cmux precisa ficar ocioso antes que Atualizar quando ocioso instale."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сколько cmux должен бездействовать, прежде чем «Обновлять при бездействии» установит обновление."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระยะเวลาที่ cmux ต้องไม่มีการใช้งานก่อนที่ อัปเดตเมื่อไม่มีการใช้งาน จะติดตั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boşta Kalınca Güncelle yüklemeden önce cmux'un ne kadar boşta kalması gerektiği."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скільки cmux має бути бездіяльним, перш ніж «Оновлювати під час бездіяльності» встановить оновлення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thời gian cmux phải nhàn rỗi trước khi Cập nhật khi nhàn rỗi cài đặt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 需空闲多久，“空闲时更新”才会安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 需閒置多久，「閒置時更新」才會安裝。"
           }
         }
       }

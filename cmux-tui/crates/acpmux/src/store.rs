@@ -183,6 +183,9 @@ pub struct SessionMeta {
     pub schema: String,
     pub id: String,
     pub name: String,
+    /// Explicit spoken handle. Older and unnamed sessions derive one from the same stable id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handle: Option<String>,
     /// Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
     /// default (`hub/new_request.rs` `unique_name_among`). False in a log from before it was kept.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -840,6 +843,10 @@ pub struct ToolRow {
 pub const RETIRED_AGENT_SESSION_IDS: usize = 32;
 
 impl SessionMeta {
+    pub(crate) fn spoken_handle(&self) -> std::borrow::Cow<'_, str> {
+        crate::session_handle::display(self.handle.as_deref(), &self.id)
+    }
+
     /// Whether its harness counts a turn's input apart from the prompt cache, as Anthropic's
     /// usage does, told from what this record knows of how the chat ran (a daemon that has its
     /// config asks the profile's kind first, `Hub::input_excludes_cache`):
