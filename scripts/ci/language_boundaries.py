@@ -40,7 +40,7 @@ Changed files arrive as REST's JSON lines (`--format json`) or `git diff -z --na
 both carry any path byte for byte. The TSV form (`--format tsv`) refuses a git-quoted path, since git quotes a path
 with a quote, tab, newline or backslash in it, and the quoted form would match no area.
 
-Also a library: `load(path)` and `violations(areas, records)` are what the agents' merge gate (merge_hold) can read the
+Also a library: `load(path)` and `violations(areas, records)` are what the agents' merge gate (land-judge) can read the
 same file with.
 """
 
