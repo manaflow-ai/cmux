@@ -5622,6 +5622,89 @@
       }
     }
   },
+  "backdrop.shader.aero": {
+    "source": "Aero",
+    "identityLocales": {
+      "bs": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "da": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "de": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "es": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "fr": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "it": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "nb": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "pl": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "tr": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "vi": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      }
+    }
+  },
   "backdrop.martin-pandemonium.title": {
     "source": "Pandemonium",
     "identityLocales": {
