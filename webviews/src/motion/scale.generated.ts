@@ -45,5 +45,10 @@ export const MOTION_SETTLE = "cubic-bezier(0.16, 1, 0.3, 1)";
 /** How long the settle runs (ms, `--cmux-motion-settle`): measured, not a step of the scale. */
 export const MOTION_SETTLE_MS = 180;
 
+/**
+ * One pass of a shimmer's band (`--cmux-ease-sweep`): one pass of a shimmer's band across its words (the live line, a running tool row): it speeds up out of the start and slows into the end, never one constant speed (Leo 2026-11-08 on the glimmer pacing: i know there's some accel/decel aka easing); the ease-in-out the Home shimmers already sweep on (CAMediaTimingFunction easeInEaseOut).
+ */
+export const MOTION_EASE_SWEEP = "cubic-bezier(0.42, 0, 0.58, 1)";
+
 /** One turn of every spinner (ms, `--cmux-spinner-period`); a loop, not a step of the scale. */
 export const SPINNER_PERIOD_MS = 2000;
