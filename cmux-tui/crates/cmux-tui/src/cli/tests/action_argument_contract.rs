@@ -94,6 +94,7 @@ struct Action {
 }
 
 fn repo_root() -> PathBuf {
+    // affected-reads: plans/cmux-next/action-surfaces.json cmux-tui
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
