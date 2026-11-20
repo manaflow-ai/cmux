@@ -166,6 +166,7 @@ fn a_key_names_a_session_id_or_a_name_on_its_host() {
             "sessionId": "x",
             "host": "y",
             "query": "ship the build",
+            "withTurnTime": true,
             "role": "assistant",
             "sinceMs": 123,
             "limit": 4,
@@ -174,7 +175,7 @@ fn a_key_names_a_session_id_or_a_name_on_its_host() {
     .unwrap();
     assert_eq!(
         search["params"],
-        json!({"query": "ship the build", "role": "assistant", "sinceMs": 123, "limit": 4})
+        json!({"query": "ship the build", "role": "assistant", "sinceMs": 123, "limit": 4, "withTurnTime": true})
     );
 }
 

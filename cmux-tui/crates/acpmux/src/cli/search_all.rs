@@ -21,7 +21,8 @@ use std::sync::{Arc, Mutex};
 const MAX_CONCURRENT_SEARCHES: usize = 16;
 
 pub async fn run(client: Arc<Client>, args: SearchArgs, json_out: bool) -> Result<()> {
-    let params = args.params()?;
+    let mut params = args.params()?;
+    params["withTurnTime"] = json!(true);
     let limit =
         crate::session_search::Query::from_params(&params).map_err(anyhow::Error::msg)?.limit;
     let listed = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
@@ -101,7 +102,9 @@ pub async fn run(client: Arc<Client>, args: SearchArgs, json_out: bool) -> Resul
 }
 
 fn utc_time(hit: &Value) -> Option<String> {
-    chrono::DateTime::from_timestamp_millis(hit.get("at")?.as_i64()?)
+    // Older peer daemons return only the timestamp of the matching message.
+    let millis = hit.get("turnStartedAt").or_else(|| hit.get("at"))?.as_i64()?;
+    chrono::DateTime::from_timestamp_millis(millis)
         .map(|time| time.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
 }
 
@@ -146,7 +149,8 @@ mod tests {
     #[test]
     fn text_has_session_host_utc_time_role_and_one_line_preview() {
         let mut answer = json!({"hits": [{
-            "session": "peer/s-1", "host": "peer", "at": 1_735_689_600_000_i64,
+            "session": "peer/s-1", "host": "peer", "at": 1_735_689_605_000_i64,
+            "turnStartedAt": 1_735_689_600_000_i64,
             "role": "assistant", "snippet": "first line\nsecond line"
         }]});
         answer["hits"][0]["time"] = json!(utc_time(&answer["hits"][0]));
@@ -154,6 +158,7 @@ mod tests {
             text(&answer),
             "peer/s-1 peer 2025-01-01T00:00:00Z assistant first line second line\n"
         );
+        assert_eq!(utc_time(&json!({"at": 0})).as_deref(), Some("1970-01-01T00:00:00Z"));
     }
 
     #[test]

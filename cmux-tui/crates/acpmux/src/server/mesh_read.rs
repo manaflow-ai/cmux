@@ -70,7 +70,7 @@ fn crossing(m: &str) -> &'static [&'static str] {
     match m {
         _ if pages(m) => EVENT_PARAMS,
         method::MUX_HISTORY => &["limit"],
-        method::MUX_SESSION_SEARCH => &["query", "role", "sinceMs", "limit"],
+        method::MUX_SESSION_SEARCH => &["query", "role", "sinceMs", "limit", "withTurnTime"],
         _ => &[],
     }
 }
