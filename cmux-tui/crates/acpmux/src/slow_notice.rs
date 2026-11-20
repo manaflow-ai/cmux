@@ -15,6 +15,39 @@ pub(crate) async fn noted<T>(what: &str, read: impl Future<Output = T>) -> T {
     noted_to(what, after(), read, |line| eprintln!("{line}")).await
 }
 
+/// One notice budget across placement, name resolution and creation. Advancing to a new
+/// step does not reset the clock; a notice leaves the original request in flight.
+pub(crate) struct StartNotice {
+    started: tokio::time::Instant,
+    after: Duration,
+    printed: bool,
+}
+
+impl StartNotice {
+    pub(crate) fn new() -> Self {
+        Self { started: tokio::time::Instant::now(), after: after(), printed: false }
+    }
+
+    pub(crate) async fn waiting<T>(&mut self, what: &str, request: impl Future<Output = T>) -> T {
+        if self.printed {
+            return request.await;
+        }
+        let mut request = std::pin::pin!(request);
+        tokio::select! {
+            biased;
+            result = &mut request => result,
+            () = tokio::time::sleep_until(self.started + self.after) => {
+                self.printed = true;
+                eprintln!(
+                    "acpmux: session start has taken {:.0?}; waiting for {what}. Daemon log: {}",
+                    self.after, crate::config::home().join("daemon.log").display(),
+                );
+                request.await
+            }
+        }
+    }
+}
+
 /// [`AFTER`]; in a debug build `ACPMUX_TEST_SLOW_NOTICE_MS` when set (`tests/slow_notice.rs`).
 fn after() -> Duration {
     #[cfg(debug_assertions)]
