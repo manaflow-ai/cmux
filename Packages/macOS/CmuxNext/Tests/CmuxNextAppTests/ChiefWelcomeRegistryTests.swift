@@ -12,11 +12,11 @@ import Testing
         #expect(!unbound.contains(HomeStrings.chiefWelcomeShortcuts))
         #expect(unbound.contains(HomeStrings.chiefWelcomeExamples))
         registry.setShortcutOverride(Shortcut("g", modifiers: [.control]), for: ChiefWelcome.goToAction)
-        registry.setShortcutOverride(Shortcut("t", modifiers: [.control]), for: "newTab.default")
+        registry.setShortcutOverride(Shortcut("t", modifiers: [.control]), for: "newTab")
         let rebound = ChiefWelcome.text(registry)
         let goToKeys = try #require(registry.shortcutDisplay(for: ChiefWelcome.goToAction))
-        let tabKeys = try #require(registry.shortcutDisplay(for: "newTab.default"))
-        let tabTitle = try #require(registry.descriptor(for: "newTab.default")?.title)
+        let tabKeys = try #require(registry.shortcutDisplay(for: "newTab"))
+        let tabTitle = try #require(registry.descriptor(for: "newTab")?.title)
         #expect(rebound.contains(HomeStrings.chiefWelcomeGoTo(goToKeys)))
         #expect(rebound.contains("- `\(tabKeys)` \(tabTitle)"))
         #expect(!rebound.contains("⌘P"))
@@ -42,17 +42,21 @@ import Testing
         #expect(!ChiefWelcome.text(registry).contains(title))
     }
 
-    /// A leader chord (New Agent Chat's `⌘J` then `S`, since ⌘I went to Open Chief Dock) reads as two keys:
-    /// one code span `⌘J S` looked like a stray `S` after the shortcut.
-    @Test func aLeaderChordReadsAsTwoKeysNotOneSpan() throws {
+    /// A leader chord (`⌘J` then `S`) reads as two keys: one code span `⌘J S` looked like a stray `S`
+    /// after the shortcut.
+    @Test func aLeaderChordReadsAsTwoKeysNotOneSpan() {
+        let text = ChiefWelcome.text(goTo: nil, shortcuts: [.init(keys: "⌘J", then: "S", title: "New Agent Chat")])
+        #expect(!text.contains("`⌘J S`"))
+        #expect(text.contains("- " + HomeStrings.chiefWelcomeChord("⌘J", "S") + " New Agent Chat"))
+    }
+
+    /// The list leads with the daily workspace, split and browser shortcuts.
+    @Test func listsTheDailyShortcuts() throws {
         let registry = ActionRegistry.standard()
-        let id: ActionID = "palette.newAgentChat"
-        #expect(registry.effectiveShortcut(for: id) == nil)
-        let chord = try #require(registry.effectiveChord(for: id))
-        let title = try #require(registry.descriptor(for: id)?.title)
-        let first = chord.first.displayString, second = registry.shortcutDisplay(chord.second, for: id)
         let text = ChiefWelcome.text(registry)
-        #expect(!text.contains("`\(first) \(second)`"))
-        #expect(text.contains("- `\(first)` then `\(second)` \(title)"))
+        for id in ChiefWelcome.shortcutActions {
+            let keys = try #require(registry.shortcutDisplay(for: id))
+            #expect(text.contains("`\(keys)`"))
+        }
     }
 }
