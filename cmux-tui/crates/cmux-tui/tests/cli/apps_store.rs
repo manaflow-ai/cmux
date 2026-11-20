@@ -1382,7 +1382,14 @@ fn a_first_party_store_app_built_into_the_store_folder_is_listed_not_installed()
         (json!(false), Value::Null),
         "{row}"
     );
-    listing(&catalog, "manaflow-ai/standup");
+    // cmux's own store app is on Discover; a sample in the same folder is an example.
+    assert_eq!(row["shelf"], json!("store"), "{row}");
+    assert_eq!(listing(&catalog, "manaflow-ai/standup")["shelf"], json!("example"), "{catalog}");
+    let reply = agent.v2("apps.catalog.list", json!({ "shelf": "store" }), json!({}));
+    let discover: Vec<&Value> =
+        v2_ok(&reply)["listings"].as_array().unwrap().iter().map(|r| &r["app"]).collect();
+    assert!(discover.contains(&&json!("cmux/store-fixture")), "{reply}");
+    assert!(!discover.contains(&&json!("manaflow-ai/standup")), "{reply}");
     assert!(
         catalog["listings"].as_array().unwrap().iter().all(|r| r["app"] != "cmux/bundled-fixture"),
         "{catalog}"
