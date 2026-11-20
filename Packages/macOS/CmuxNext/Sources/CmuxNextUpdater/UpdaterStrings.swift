@@ -101,7 +101,6 @@ nonisolated enum UpdaterStrings {
     static var testFeedTitle: String { text("updater.testFeed.title", "Test Update Feed") }
     static var testFeedUseReal: String { text("updater.testFeed.useReal", "Use Real Feed") }
 
-
     /// The footer pill's tooltip and VoiceOver label (SIDEBAR-FOOTER-MINIMAL):
     /// the relaunch keeps terminals and agents (browser pages reload).
     static var restartKeepsSessions: String {
