@@ -595,7 +595,9 @@ fn pane_filter() -> EventFilter {
 /// acpmux --release -- --ignored --nocapture older_page_synthetic_perf`; `SYNTH_PAGE_MB` sets the
 /// log's size (default 1024). `SYNTH_TOOL_HEAVY=1` makes 60 of each 100 records snapshots of a
 /// running command (`tool_call_update`s of 6 KB that carry its output so far; three calls at a
-/// time, new ones every 5,000 records): a chat of long tool calls.
+/// time, new ones every 5,000 records): a chat of long tool calls. `SYNTH_REPS=n` reads each page
+/// through an index `n` times (warm: after one read to warm it; cold: each after the drop) and
+/// prints the median and the slowest (`SYNTHMED`).
 #[test]
 #[ignore = "a measurement, not a check"]
 fn older_page_synthetic_perf() {
@@ -679,18 +681,44 @@ fn older_page_synthetic_perf() {
         );
         page.events
     };
+    let reps: usize =
+        std::env::var("SYNTH_REPS").ok().and_then(|v| v.parse().ok()).unwrap_or(1).max(1);
+    // `reps` reads of one page (after one to warm it when warm): the median and the slowest.
+    let repeated = |hub: &Hub, sessions: &Path, label: &str, depth: f64, cold: bool| {
+        if !cold && reps > 1 {
+            read(hub, sessions, &format!("{label} (warm-up)"), depth, cold);
+        }
+        let mut runs = Vec::new();
+        let mut events = Vec::new();
+        for _ in 0..reps {
+            let r0 = read_bytes();
+            let t0 = std::time::Instant::now();
+            events = read(hub, sessions, label, depth, cold);
+            runs.push((t0.elapsed().as_secs_f64() * 1000.0, (read_bytes() - r0) as f64 / 1e6));
+        }
+        runs.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let (median, slowest) = (runs[runs.len() / 2], runs[runs.len() - 1]);
+        println!(
+            "SYNTHMED {mix} {label} {} depth {depth}: median {:.1} ms (slowest {:.1} ms of {reps}), read {:.1} MB",
+            if cold { "cold" } else { "warm" },
+            median.0,
+            slowest.0,
+            median.1,
+        );
+        events
+    };
     let depths = [0.02, 0.25, 0.5, 0.9];
     let hub = deferred_hub(&legacy, 8 << 20);
     let indexed_hub = deferred_hub(&written, 8 << 20);
     for cold in [false, true] {
         for depth in depths {
             super::READ_THE_OLD_WAY.with(|old| old.set(true));
-            let want = read(&hub, &legacy, "before", depth, cold);
+            let want = read(&hub, &legacy, "no index", depth, cold);
             super::READ_THE_OLD_WAY.with(|old| old.set(false));
             let _ = std::fs::remove_dir_all(index_dir(&legacy));
             assert_eq!(read(&hub, &legacy, "first read", depth, cold), want);
-            assert_eq!(read(&hub, &legacy, "next read", depth, cold), want);
-            let got = read(&indexed_hub, &written, "indexed as written", depth, cold);
+            assert_eq!(repeated(&hub, &legacy, "next read", depth, cold), want);
+            let got = repeated(&indexed_hub, &written, "indexed as written", depth, cold);
             assert_eq!(got, want);
         }
     }
