@@ -33,11 +33,11 @@ lower: a creep of a little under 10 % per run does not ratchet the baseline up),
 perf-budgets.json budget). A candidate regresses only when consecutive tip measurements show a shift
 (confirm_regressions).
 
-Subcommands: fetch-state, plan, fleet-check, run-part, part-cleanup, run-linux-part, report, dispatch-next (see each
---help). Tests: scripts/cmux-next/tests/test_perf_cron.py (decisions) and test_perf_cron_io.py (GitHub, git, the
+Subcommands: fetch-state, plan, fleet-check, run-part, part-cleanup, run-linux-part, report, dispatch-next,
+replay-results (see each --help). Tests: scripts/cmux-next/tests/test_perf_cron.py (decisions) and test_perf_cron_io.py (GitHub, git, the
 fleet client and multi-tick runs, faked) (run them yourself; no CI job runs them).
 """
-import argparse, collections, datetime, hashlib, importlib.util, io, json, os, random, re, subprocess, sys, time, urllib.error
+import argparse, collections, datetime, hashlib, importlib.util, io, json, os, random, re, subprocess, sys, tempfile, time, urllib.error
 import urllib.parse, urllib.request, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -200,6 +200,18 @@ PARTS = [
     {"name": "throughput", "args": [*MEASURE, "--config=bench", "--suite=terminal-throughput"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput",
      "run_seconds": 1800},  # a cold bench-configuration build alone took 800 s (2026-11-15)
+    # Quit and reopen with the chats restored (relaunch-wake-cron.py): the window and the shown chat drawn and live
+    # again, warm and after an in-place update. Budgets in that file, each with its source. Its rows
+    # (launch.relaunch.*) and the wake part's (launch.wake_proxy.*) are in the launch family, whose target is each
+    # row's own budget (target_of), and ROW_PARTS sends them to their parts before the plain launch rows.
+    # run_seconds: step ab0db3de ran 2202 s on aws-m4pro-7 with its build (2026-11-19), plus margin.
+    {"name": "relaunch", "args": [*MEASURE, "--suite=relaunch"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "relaunch", "run_seconds": 2400},
+    # The app after a wake, by proxy (wake-proxy-bench.py): every process of it frozen 30 s and resumed, to the main
+    # thread answering and a typed command's output drawn. A measure Mac can't sleep and wake itself in a step.
+    # run_seconds: step 343b7e82 ran 2768 s with a cold build of 2522 s and its three rounds (2026-11-19), plus margin.
+    {"name": "wake", "args": [*MEASURE, "--suite=wake"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "wake", "run_seconds": 3300},
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -229,10 +241,20 @@ PARTS = [
     {"name": "web-ui-flat", "where": "linux", "kind": "webui", "needs": "web-ui-flat"},
     # Its 20 chats grown live to 100k rows each, about 28 minutes on its own (chat_100k_flat.grown_many.*).
     {"name": "web-ui-flat-grown", "where": "linux", "kind": "webui", "needs": "web-ui-flat"},
+    # Composer typing under load (webviews/bench/composer-typing.bench.ts, CMUX-571): 500 keys in Chromium and WebKit
+    # under idle, a focused stream, ten streaming documents and a focused 100k-row stream; keydown to paint p95/p99
+    # (webui.composer_typing.*) against report-only 16/33 ms targets. Its own part, under the 30-minute run cap.
+    {"name": "web-ui-typing", "where": "linux", "kind": "webui", "needs": "web-ui-typing"},
     # One live chat's disk growth (scripts/measure/chat-disk-growth.py, the same goal): a release acpmux streams one
     # chat to 100k rows on simulated time against an empty chat; bytes per simulated hour and their ratio
     # (chat_disk.growth_ratio). About 30 s after the build, which runs first under its own cap.
     {"name": "chat-disk", "where": "linux", "kind": "webui", "needs": "chat-disk"},
+    # The daemon's restart to a non-empty chat attach (scripts/measure/daemon-restart-linux.sh, goal restart-to-chat's
+    # daemon half in cmuxterm-hq's NOW, row restart_chat_attach_daemon_ms, target 178 ms): god_daemon.rs's small and god
+    # homes, up to three runs in 15 minutes after the build (the job's 40-minute cap holds setup, a cold build of about
+    # 15 minutes and this), each home's median restartChatAttachMs (daemon_restart.<shape>_home.chat_attach_ms). No god
+    # home reading gives no metric, so the small home never stands in for the worst of both.
+    {"name": "daemon-restart", "where": "linux", "kind": "webui", "needs": "daemon-restart"},
 ]
 PART_BY_NAME = {p["name"]: p for p in PARTS}
 # Which part measures a row (bisect re-measures only the parts of the regressed rows).
@@ -240,7 +262,8 @@ ROW_PARTS = [
     (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"), (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^workspace_scaling\.", "workspace-scaling"),
-    (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"), (r"^launch\.", "launch"),
+    (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"),
+    (r"^launch\.relaunch\.", "relaunch"), (r"^launch\.wake_proxy\.", "wake"), (r"^launch\.", "launch"),
     (r"^terminal\.throughput\.", "throughput"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
@@ -248,16 +271,19 @@ ROW_PARTS = [
     (r"^webui\.million_event_chat\.", "web-ui-million"),
     (r"^webui\.chat_100k_flat\.grown_many\.", "web-ui-flat-grown"),
     (r"^webui\.chat_100k_flat\.", "web-ui-flat"),
+    (r"^webui\.composer_typing\.", "web-ui-typing"),
     (r"^webui\.chat_disk\.", "chat-disk"),
+    (r"^webui\.daemon_restart\.", "daemon-restart"),
     (r"^webui\.", "web-ui"),
 ]
 # Rows that are stored and shown but never judged: higher is better there (MB/s, a ratio to Ghostty), and every rule
 # here reads a higher p95 as worse. The memory-agents breakdown (memory-agents-cron.py) says where the judged totals'
 # memory is, per process kind; its kinds come and go with the app, so a row each is shown, not judged. The chat
 # composer's typing stages (acp.<engine>.typing.to_listener and .to_work, perf-budgets.py STAGE_ROW_RE) say where
-# the judged to_frame time goes: shown, not judged (measurement only, no new gate).
+# the judged to_frame time goes: shown, not judged (measurement only, no new gate). The wake part's awake echo is the
+# same echo with nothing frozen: the floor under the judged wake row, shown only.
 REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\."
-                                r"|acp\.[^.]+\.typing\.(to_listener|to_work)$)")
+                                r"|acp\.[^.]+\.typing\.(to_listener|to_work)$|launch\.wake_proxy\.awake_echo_ms$)")
 # The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
 DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_ms_per_gib": 1024 * 1000 / 500.0,
                 "diff.stream.p95": 250.0}
@@ -954,8 +980,13 @@ def linux_bench_runs(root, part="diff-viewer"):
     if part == "web-ui-flat-grown":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat-grown"],
                           os.path.join(root, "webviews"), {})}
+    if part == "web-ui-typing":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "composer-typing"], os.path.join(root, "webviews"), {})}
     if part == "chat-disk":
         script = os.path.join(root, CHAT_DISK)
+        return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
+    if part == "daemon-restart":
+        script = os.path.join(root, DAEMON_RESTART)
         return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
     if part == "infinite-items":
         # The release build first, in a run of its own: each run has its own 30-minute cap (LINUX_RUN_SECONDS) and the
@@ -1913,12 +1944,16 @@ def supported_parts_at(sha):
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{STATE_GROWTH_BENCH}"], capture_output=True).returncode == 0
         elif need == "web-ui-flat":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{FLAT_100K_BENCH}"], capture_output=True).returncode == 0
+        elif need == "web-ui-typing":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{COMPOSER_TYPING_ROWS}"], capture_output=True).returncode == 0
         elif need == "web-ui-million":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{MILLION_EVENT_BENCH}"], capture_output=True).returncode == 0
         elif need == "infinite-items":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{INFINITE_ITEMS}"], capture_output=True).returncode == 0
         elif need == "chat-disk":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{CHAT_DISK}"], capture_output=True).returncode == 0
+        elif need == "daemon-restart":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{DAEMON_RESTART}"], capture_output=True).returncode == 0
         elif need == "terminal-throughput":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
@@ -1929,7 +1964,7 @@ def supported_parts_at(sha):
             bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/bench-startup.py"],
                                    capture_output=True, text=True).stdout
             ok = "--suite=launch" in text and '"--activation"' in bench
-        elif need in ("perf-gate", "launch", "memory-agents"):
+        elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
             ok = f"--suite={need}" in text
@@ -1971,8 +2006,11 @@ UPDATE_ONE_BENCH = "webviews/bench/update-one.bench.ts"
 STATE_GROWTH_BENCH = "webviews/bench/state-growth.bench.ts"
 MILLION_EVENT_BENCH = "webviews/bench/million-event-chat.bench.ts"
 FLAT_100K_BENCH = "webviews/bench/chat-100k-flat.bench.ts"
+# The web-ui-typing part needs the load modes (composer-load.ts) and their rows (composerTypingRows.ts).
+COMPOSER_TYPING_ROWS = "webviews/bench/composerTypingRows.ts"
 INFINITE_ITEMS = "scripts/measure/infinite-items-linux.sh"
 CHAT_DISK = "scripts/measure/chat-disk-growth-linux.sh"
+DAEMON_RESTART = "scripts/measure/daemon-restart-linux.sh"
 # The web-ui-god part: the benches that take FIXTURE=god (web-ui-suite.ts lists each as NAME and NAME-god) and the
 # shared fixture a commit needs for the part. A god row is webui.<prefix>.god.<rest>; its ordinary twin drops `.god`.
 GOD_FIXTURE = "webviews/bench/godFixture.ts"
@@ -3655,8 +3693,8 @@ def stale_parts(state, now):
     return [n for _, n in sorted(old)]
 
 
-def report(o):
-    t = now_utc()
+def report(o, t=None):
+    t = t or now_utc()
     state = load_state(o.dir, t)
     changed = not state.get("persisted") or bool(state.pop("dirty", False))
     state["persisted"] = True
@@ -3894,20 +3932,29 @@ def controller_result(raw):
     return value
 
 
-def result_plan(o, state, t):
-    """A run the controller started with a part's result: plan nothing new; the report job stores the part. A
-    result for another measurement, or for a part not to do, is dropped (a late result after an abandon)."""
-    value = controller_result(o.perf_result)
+def result_refusal(state, value):
+    """Why the controller's result (controller_result) is not stored into state, or None (pure). A result for another
+    measurement, or for a part not to do, is dropped (a late result after an abandon); so is a step stored already
+    (the controller may send a result twice: a lost answer, a restart; replay-results reads it again)."""
     cur = state.get("current") or {}
-    out = {"action": "none", "sha": "", "part": "", "linux_part": "", "frame_pacing": "false", "stale_hours": round(stale_hours(state, t), 1)}
     if value is None:
-        out["reason"] = "the controller's perf_result is not a result"
-    elif value.get("step_id") and value["step_id"] in {(e or {}).get("step_id") for e in (cur.get("parts") or {}).values()}:
-        # The controller may send a result twice (a lost answer, a restart): the step was stored already.
-        out["reason"] = f"the controller's result of step {value['step_id']} was stored already; dropped"
-    elif value["sha"] != cur.get("sha") or value["part"] not in (cur.get("parts_todo") or []):
-        out["reason"] = (f"the controller's {value['part']} result for {value['sha'][:12]} is not for the measurement in "
-                         f"flight ({str(cur.get('sha') or 'none')[:12]}); dropped")
+        return "the controller's perf_result is not a result"
+    if value.get("step_id") and value["step_id"] in {(e or {}).get("step_id") for e in (cur.get("parts") or {}).values()}:
+        return f"the controller's result of step {value['step_id']} was stored already; dropped"
+    if value["sha"] != cur.get("sha") or value["part"] not in (cur.get("parts_todo") or []):
+        return (f"the controller's {value['part']} result for {value['sha'][:12]} is not for the measurement in "
+                f"flight ({str(cur.get('sha') or 'none')[:12]}); dropped")
+    return None
+
+
+def result_plan(o, state, t):
+    """A run the controller started with a part's result: plan nothing new; the report job stores the part
+    (result_refusal says which results it drops)."""
+    value = controller_result(o.perf_result)
+    out = {"action": "none", "sha": "", "part": "", "linux_part": "", "frame_pacing": "false", "stale_hours": round(stale_hours(state, t), 1)}
+    why = result_refusal(state, value)
+    if why:
+        out["reason"] = why
     else:
         out.update({"action": "result", "sha": value["sha"], "part": value["part"],
                     "reason": f"the controller's {value['state']} result of part {value['part']} at {value['sha'][:12]}"
@@ -3950,6 +3997,59 @@ def cmd_fetch_result(o):
     with open(os.path.join(o.out, "result.json"), "w") as f:
         json.dump(result, f)
     print(f"perf-cron fetch-result: part {value['part']} at {value['sha'][:12]}: {result['state']}")
+
+
+# The controller also serves its done results itself (cmuxterm-hq perf_cron.go servePerfCronResults: GET
+# /perf-cron/results.json, the last 24 h): a result run waits for a runner on the shared Linux queue (each tick took
+# ~16 h on 2026-11-19, and no Mac row was stored for 2 days), so a reader of the state replays them into its copy.
+CONTROLLER_RESULTS_URL = "https://gh-events.cmux.com/perf-cron/results.json"
+GO_TIME_RE = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?Z$")
+
+
+def controller_ended_at(value):
+    """When the controller's step ended (its ended_at, Go's RFC 3339 with nanoseconds), or None (pure)."""
+    m = GO_TIME_RE.match(str(value.get("ended_at") or ""))
+    try:
+        return parse_iso(m.group(1) + "Z") if m else None
+    except ValueError:
+        return None
+
+
+def cmd_replay_results(o):
+    """A reader's copy of the state (the probe's, after fetch-state): store the controller's done results whose result
+    run has not stored them yet, oldest first, each with this script's own report (no issue, no GitHub call) at the
+    time its step ended, so a row reads as old as its measurement. The cron's own state is not touched: its result
+    run stores the same part when it runs. Prints what it stored; never fails for a result it cannot read."""
+    try:
+        if o.file:
+            raw = json.load(open(o.file))
+        else:
+            with urllib.request.urlopen(urllib.request.Request(o.url, headers={"User-Agent": "cmux-perf-cron"}), timeout=60) as r:
+                raw = json.load(r)
+    except (OSError, ValueError, urllib.error.URLError) as error:
+        print(f"perf-cron replay-results: the controller's results were not read ({error!r}); the state is as fetched")
+        return
+    listed = raw.get("results") if isinstance(raw, dict) else None
+    values = [v for v in listed if isinstance(v, dict)] if isinstance(listed, list) else []
+    stored = 0
+    os.makedirs(os.path.join(o.dir, "replay"), exist_ok=True)
+    for value in sorted(values, key=lambda v: str(v.get("ended_at") or "")):
+        value = controller_result(json.dumps(value))
+        at = controller_ended_at(value) if value else None
+        if value is None or value["state"] != "done" or at is None:
+            continue
+        why = result_refusal(load_state(o.dir, at), value)
+        if why:
+            print(f"perf-cron replay-results: {why}")
+            continue
+        # A fresh directory per part, never named from the feed: a step_id of "../x" or "/abs" must not place
+        # result.json or report.json outside the copy (review of cmux#47673).
+        part_dir = tempfile.mkdtemp(prefix="part-", dir=os.path.join(o.dir, "replay"))
+        cmd_fetch_result(argparse.Namespace(result=json.dumps(value), out=part_dir))
+        report(argparse.Namespace(repo="", dir=o.dir, result=[f"{value['part']}={part_dir}"], run_url="", finish=False,
+                                  issues=False, output=os.path.join(o.dir, "replay", "report.out")), t=at)
+        stored += 1
+    print(f"perf-cron replay-results: {stored} of {len(values)} controller result(s) stored into this copy")
 
 
 def cmd_dispatch_next(o):
@@ -4017,12 +4117,17 @@ def main(argv=None):
     s = sub.add_parser("fetch-result", help="write a controller result's result.json and report.json (report job)")
     s.add_argument("--result", required=True, help="the perf_result JSON")
     s.add_argument("--out", required=True)
+    s = sub.add_parser("replay-results", help="store the controller's done results into a reader's copy of the state")
+    s.add_argument("--dir", required=True, help="fetch-state's directory")
+    s.add_argument("--url", default=CONTROLLER_RESULTS_URL)
+    s.add_argument("--file", help="read the results from this file instead of --url")
     s = sub.add_parser("dispatch-next", help="start the next tick now (report, when a measure host stayed idle)")
     s.add_argument("--repo", required=True)
     o = ap.parse_args(argv)
     {"fetch-state": cmd_fetch_state, "plan": cmd_plan, "fleet-check": cmd_fleet_check, "run-part": cmd_run_part,
      "part-cleanup": cmd_part_cleanup, "run-linux-part": cmd_run_linux_part,
-     "report": cmd_report, "dispatch-next": cmd_dispatch_next, "fetch-result": cmd_fetch_result}[o.cmd](o)
+     "report": cmd_report, "dispatch-next": cmd_dispatch_next, "fetch-result": cmd_fetch_result,
+     "replay-results": cmd_replay_results}[o.cmd](o)
 
 
 if __name__ == "__main__":
