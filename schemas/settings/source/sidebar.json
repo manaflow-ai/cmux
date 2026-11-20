@@ -316,6 +316,35 @@
           }
         },
         {
+          "key": "sidebar.foldNestedSessions",
+          "note": "With sidebar.sessionTree on, a session that another session started and that starts sessions of its own starts folded (SidebarSessionTree.foldsNested; its count and state chips show). Off by default: every parent starts open, as shipped. A fold or open the person made is kept per parent either way (Leo, via the coordinator: \"Claude Code (and the Claude desktop app's Code tab) shows subagents and sub-sessions nested under the parent chat ... children under the parent, foldable, with status\"; no default flip without Leo's words).",
+          "title": {
+            "key": "settings.sidebar.foldNestedSessions",
+            "text": "Fold Nested Sessions"
+          },
+          "help": {
+            "key": "settings.sidebar.foldNestedSessions.help",
+            "text": "Starts a session that has sessions of its own folded under its parent. Off keeps every one open."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sidebar",
+            "tree",
+            "nested",
+            "fold",
+            "collapse",
+            "parent",
+            "child",
+            "subagent",
+            "sessions"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.showProjects",
           "title": {
             "key": "settings.sidebar.showProjects",

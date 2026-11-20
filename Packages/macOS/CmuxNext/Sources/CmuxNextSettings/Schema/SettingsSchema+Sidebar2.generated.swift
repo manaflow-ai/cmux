@@ -107,6 +107,16 @@ extension SidebarSettingsSchema {
                 keywords: ["sidebar", "tree", "nested", "parent", "child", "pull request", "keycap", "sessions"]
             ),
             SettingDescriptor(
+                SidebarSectionsSetting.foldNestedSessionsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.foldNestedSessions", "Fold Nested Sessions"),
+                help: SettingsText.keyed("settings.sidebar.foldNestedSessions.help", "Starts a session that has sessions of its own folded under its parent. Off keeps every one open."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.foldNestedSessionsDefault),
+                keywords: ["sidebar", "tree", "nested", "fold", "collapse", "parent", "child", "subagent", "sessions"]
+            ),
+            SettingDescriptor(
                 SidebarSectionsSetting.showProjectsPath,
                 section: .appearance,
                 group: group,
@@ -365,24 +375,6 @@ extension SidebarSettingsSchema {
                 ]),
                 default: .string(SidebarSectionsSetting.groupHeaderBackgroundDefault.rawValue),
                 keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header", "sections", "section", "heading", "plain"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupPalettePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupPalette", "Group Colors"),
-                help: SettingsText.keyed("settings.sidebar.groupPalette.help", "Where group colors come from. A color you pick for a group stays."),
-                kind: .choice([
-                    SettingChoice(GroupPalette.glass.rawValue, SettingsText.keyed("settings.choice.groupPaletteGlass", "Glass")),
-                    SettingChoice(GroupPalette.theme.rawValue, SettingsText.keyed("settings.choice.groupPaletteTheme", "App Theme")),
-                    SettingChoice(GroupPalette.wallpaper.rawValue, SettingsText.keyed("settings.choice.groupPaletteWallpaper", "Wallpaper")),
-                    SettingChoice(GroupPalette.grayscale.rawValue, SettingsText.keyed("settings.choice.groupPaletteGrayscale", "Grayscale")),
-                    SettingChoice(GroupPalette.vibrant.rawValue, SettingsText.keyed("settings.choice.groupPaletteVibrant", "Vibrant")),
-                    SettingChoice(GroupPalette.gradient.rawValue, SettingsText.keyed("settings.choice.groupPaletteGradient", "Gradient")),
-                    SettingChoice(GroupPalette.pictorial.rawValue, SettingsText.keyed("settings.choice.groupPalettePictorial", "Pictorial")),
-                ]),
-                default: .string(SidebarSectionsSetting.groupPaletteDefault.rawValue),
-                keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "palette", "theme", "wallpaper", "grayscale", "vibrant", "glass", "automatic", "gradient", "pictorial", "picture"]
             ),
         ]
     }

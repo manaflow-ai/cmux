@@ -34445,6 +34445,268 @@
         }
       }
     },
+    "settings.sidebar.foldNestedSessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fold Nested Sessions"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "طي الجلسات المتداخلة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sažmi ugniježdene sesije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fold indlejrede sessioner sammen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verschachtelte Sitzungen einklappen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Contraer sesiones anidadas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Replier les sessions imbriquées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comprimi le sessioni annidate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "入れ子のセッションを折りたたむ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បត់វគ្គដែលនៅក្នុងគ្នា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "중첩된 세션 접기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjul nestede økter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zwijaj zagnieżdżone sesje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recolher sessões aninhadas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сворачивать вложенные сеансы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย่อเซสชันที่ซ้อนกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İç içe oturumları daralt"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Згортати вкладені сеанси"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thu gọn phiên lồng nhau"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "折叠嵌套会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "摺疊巢狀工作階段"
+          }
+        }
+      }
+    },
+    "settings.sidebar.foldNestedSessions.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starts a session that has sessions of its own folded under its parent. Off keeps every one open."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تبدأ الجلسة التي لها جلسات خاصة بها مطوية تحت الجلسة الأم. عند الإيقاف تبقى كلها مفتوحة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sesija koja ima vlastite sesije počinje sažeta pod svojim roditeljem. Isključeno drži sve otvorenima."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En session med egne sessioner starter foldet sammen under sin overordnede. Slået fra holder alle åbne."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine Sitzung mit eigenen Sitzungen beginnt eingeklappt unter ihrer übergeordneten. Aus lässt alle geöffnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una sesión con sesiones propias empieza contraída bajo su sesión madre. Desactivado mantiene todas abiertas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une session qui a ses propres sessions démarre repliée sous sa session parente. Désactivé les garde toutes ouvertes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una sessione con sessioni proprie parte compressa sotto la sessione madre. Disattivato le tiene tutte aperte."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自身のセッションを持つセッションを、親の下で折りたたんだ状態で開始します。オフにするとすべて開いたままになります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វគ្គដែលមានវគ្គផ្ទាល់ខ្លួនចាប់ផ្តើមដោយបត់នៅក្រោមវគ្គមេរបស់វា។ បិទ រក្សាទាំងអស់ឱ្យបើក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "자체 세션이 있는 세션을 부모 아래에 접은 상태로 시작합니다. 끄면 모두 열린 상태를 유지합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En økt med egne økter starter skjult under den overordnede. Av holder alle åpne."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sesja mająca własne sesje zaczyna zwinięta pod sesją nadrzędną. Wyłączone zostawia wszystkie otwarte."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma sessão que tem sessões próprias começa recolhida sob a sessão pai. Desativado mantém todas abertas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сеанс с собственными сеансами начинается свёрнутым под родительским. Если выключено, все остаются развёрнутыми."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เซสชันที่มีเซสชันของตัวเองจะเริ่มแบบย่อไว้ใต้เซสชันแม่ เมื่อปิดจะเปิดทั้งหมดไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kendi oturumları olan bir oturum, üst oturumunun altında daraltılmış başlar. Kapalıyken hepsi açık kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сеанс із власними сеансами починається згорнутим під батьківським. Якщо вимкнено, усі лишаються розгорнутими."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một phiên có các phiên riêng sẽ bắt đầu ở trạng thái thu gọn dưới phiên cha. Tắt thì giữ tất cả mở."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "有自己子会话的会话在其父会话下默认折叠。关闭则全部保持展开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "有自己子工作階段的工作階段預設摺疊在其父項之下。關閉則全部保持展開。"
+          }
+        }
+      }
+    },
     "settings.ui.animationSpeed": {
       "extractionState": "manual",
       "localizations": {

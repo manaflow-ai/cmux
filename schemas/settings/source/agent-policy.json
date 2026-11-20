@@ -354,6 +354,7 @@
         "sidebar.noFade",
         "sidebar.showChats",
         "sidebar.sessionTree",
+        "sidebar.foldNestedSessions",
         "sidebar.cards.tips",
         "sidebar.hoverCards.enabled",
         "sidebar.hoverCards.delay",

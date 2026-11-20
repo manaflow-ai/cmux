@@ -49,6 +49,8 @@ public final class SidebarSessionTreeFeed {
         /// The session tree is on (`sidebar.sessionTree`): the pass writes `SidebarSessionTree.state`.
         /// Off, the pass runs only for the pull request badges and the Priority view's Red CI.
         var showsTree = true
+        /// `sidebar.foldNestedSessions`: nested parents start folded (off by default).
+        var foldsNested = false
     }
 
     /// One workspace's agent chat tabs, in model order (its name only for the DEBUG pull request fixture).
@@ -113,6 +115,7 @@ public final class SidebarSessionTreeFeed {
                                      hostAliases: remote.hostAliases, recordedParents: storedParents.parents,
                                      localHost: localHost, pullRequests: pullRequests.answers)
                 pass.showsTree = sections.sessionTree
+                pass.foldsNested = sections.foldNestedSessions
                 // Captures: sample pull requests on every row, and no GitHub reads.
                 if fixture {
                     (pass.state.pullRequests, pass.asks) = (SidebarPullRequestFixture.badges(listed.map { (id: $0.id, name: $0.name ?? "") }), [])
@@ -153,14 +156,6 @@ public final class SidebarSessionTreeFeed {
             }
         }
         return found
-    }
-
-    /// `pass` into `tree`: the badges whenever the feed runs, the tree itself only while it shows.
-    static func publish(_ pass: Pass?, to tree: SidebarSessionTree) {
-        let state = pass?.showsTree == true ? pass?.state : nil
-        if tree.state != state { tree.state = state }
-        let badges = pass?.state.pullRequests ?? [:]
-        if tree.pullRequests != badges { tree.pullRequests = badges }
     }
 
     /// Each workspace's agent chat tabs, in model order.

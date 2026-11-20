@@ -124,6 +124,7 @@ export const ROW_LEVELS: {
     "sidebar.groupGradient": "hidden",
     "sidebar.groupByComputer": "more",
     "sidebar.sessionTree": "more",
+    "sidebar.foldNestedSessions": "more",
     "sidebar.detailedStatusIcons": "more",
     "sidebar.showTimestamps": "more",
     "sidebar.showColors": "more",

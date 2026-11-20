@@ -98,6 +98,80 @@ import Testing
         #expect(tree.drawn?.hidesInFold(Self.id("changelog")) == false)
     }
 
+    /// `sidebar.foldNestedSessions` (off by default): a top-level parent starts open and a nested one starts folded,
+    /// its count and state chips showing; with the setting off again, nothing is folded.
+    @Test func foldNestedSessionsFoldsOnlyTheNestedParent() {
+        let tree = SidebarSessionTree(defaults: Self.defaults())
+        #expect(!tree.foldsNested)
+        tree.state = SidebarSessionTreeState(parents: SidebarNestedFixture(scenario: .sessionTree).parents)
+        #expect(!tree.isFolded(Self.id("rollout")))
+        tree.foldsNested = true
+        #expect(tree.isFolded(Self.id("rollout")) && !tree.isFolded(Self.id("billing")))
+        #expect(tree.drawn?.collapsed == [Self.id("rollout")])
+        let content = Dictionary(uniqueKeysWithValues: Self.rows(tree))
+        #expect(content[Self.id("billing")]?.treeFold == .expanded)
+        #expect(content[Self.id("rollout")]?.treeFold == .collapsed)
+        #expect(content[Self.id("rollout")]?.rollUp == SidebarTreeRollUp(running: 1, hidden: 2))
+        tree.foldsNested = false
+        #expect(tree.drawn?.collapsed == [])
+    }
+
+    /// A person's open or fold of a nested parent survives turning the setting on and off, in either order.
+    @Test func foldNestedSessionsKeepsThePersonsChoices() {
+        let store = Self.defaults()
+        let parents = SidebarNestedFixture(scenario: .sessionTree).parents
+        let rollout = Self.id("rollout")
+        let tree = SidebarSessionTree(defaults: store)
+        tree.foldsNested = true
+        tree.state = SidebarSessionTreeState(parents: parents)
+        // Opened with the setting on: it persists, across a launch and across the setting going off and on.
+        tree.toggle(rollout)
+        #expect(!tree.isFolded(rollout))
+        #expect(store.stringArray(forKey: SidebarSessionTree.openedKey) == ["w-rollout"])
+        let launched = SidebarSessionTree(defaults: store)
+        launched.foldsNested = true
+        launched.state = SidebarSessionTreeState(parents: parents)
+        #expect(!launched.isFolded(rollout))
+        launched.foldsNested = false
+        #expect(!launched.isFolded(rollout))
+        launched.foldsNested = true
+        #expect(!launched.isFolded(rollout))
+        // Folded with the setting on: an explicit fold, kept with the setting off and on again.
+        launched.toggle(rollout)
+        #expect(launched.isFolded(rollout))
+        #expect(store.stringArray(forKey: SidebarSessionTree.collapsedKey) == ["w-rollout"])
+        #expect(store.stringArray(forKey: SidebarSessionTree.openedKey) == [])
+        launched.foldsNested = false
+        #expect(launched.isFolded(rollout))
+        launched.foldsNested = true
+        #expect(launched.isFolded(rollout))
+        // Opened again, then the setting off and on: still open.
+        launched.toggle(rollout)
+        launched.foldsNested = false
+        #expect(!launched.isFolded(rollout))
+        launched.foldsNested = true
+        #expect(!launched.isFolded(rollout))
+        // Folded and opened with the setting off, then on: an open stays open; a fold stays folded.
+        let off = SidebarSessionTree(defaults: Self.defaults())
+        off.state = SidebarSessionTreeState(parents: parents)
+        off.toggle(rollout)
+        off.toggle(rollout)
+        off.toggle(Self.id("billing"))
+        off.foldsNested = true
+        #expect(!off.isFolded(rollout) && off.isFolded(Self.id("billing")))
+    }
+
+    /// With the setting on, selecting a session a default fold hides opens that fold and remembers it.
+    @Test func revealingASessionUnderADefaultFoldOpensIt() {
+        let tree = SidebarSessionTree(defaults: Self.defaults())
+        tree.foldsNested = true
+        tree.state = SidebarSessionTreeState(parents: SidebarNestedFixture(scenario: .sessionTree).parents)
+        #expect(tree.drawn?.hidesInFold(Self.id("changelog")) == true)
+        tree.reveal(Self.id("changelog"))
+        #expect(tree.opened == [Self.id("rollout")])
+        #expect(tree.drawn?.hidesInFold(Self.id("changelog")) == false)
+    }
+
     /// The tree off draws nothing nested, whatever folds are saved; on again, the saved folds come back.
     @Test func turningTheTreeOffAndOnKeepsTheFolds() {
         let tree = SidebarSessionTree(defaults: Self.defaults())
