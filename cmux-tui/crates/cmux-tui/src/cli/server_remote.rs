@@ -299,8 +299,9 @@ fn shown(argv: &[String]) -> String {
 /// Runs `argv`; its stdout goes to our stderr under --json. `stdin`: bytes to
 /// send. Returns the exit code (`None`: killed or not started).
 fn run(argv: &[String], stdin: Option<&str>, json: bool) -> Option<i32> {
-    let mut cmd = Command::new(&argv[0]);
-    cmd.args(&argv[1..]);
+    let (program, args) = argv.split_first()?;
+    let mut cmd = Command::new(program);
+    cmd.args(args);
     if json {
         cmd.stdout(to_stderr()?);
     }
@@ -361,7 +362,7 @@ fn install(request: &Request, steps: &mut Steps) -> i32 {
         (false, None) => Build::Nightly,
     };
     let build = match target {
-        Build::Commit(commit) => format!("cmux {}", &commit[..12]),
+        Build::Commit(commit) => format!("cmux {}", commit.get(..12).unwrap_or(commit)),
         Build::Nightly => "the current cmux NIGHTLY build".to_owned(),
         Build::Stable => "the latest stable cmux build".to_owned(),
     };
@@ -439,9 +440,10 @@ fn install(request: &Request, steps: &mut Steps) -> i32 {
 
 /// Runs this binary as `cmux` (its surface comes from argv[0]).
 fn run_cmux_surface(argv: &[String], json: bool) -> Option<i32> {
-    let mut cmd = Command::new(&argv[0]);
+    let (program, args) = argv.split_first()?;
+    let mut cmd = Command::new(program);
     cmd.arg0("cmux");
-    cmd.args(&argv[1..]).stdin(Stdio::null());
+    cmd.args(args).stdin(Stdio::null());
     if json {
         cmd.stdout(to_stderr()?);
     }
