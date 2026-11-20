@@ -218,6 +218,33 @@ fn unresolved_ledger_entries_are_never_evicted_to_admit_a_new_intent() {
 }
 
 #[test]
+fn completed_replay_survives_capacity_pressure_without_reobserving_or_rebinding() {
+    for (op, initial) in [("vm.pause", "running"), ("vm.resume", "paused"), ("vm.delete", "failed")]
+    {
+        let mut server = Server::new(Host { status: initial.into(), ..Host::default() });
+        let original = request(op, "key-0");
+        let result = server.handle(&original).unwrap();
+        for index in 1..512 {
+            server.control_plane_mut().status = initial.into();
+            server.handle(&request(op, &format!("key-{index}"))).unwrap();
+        }
+        // A new key must not discard a completed response and later reinterpret
+        // that key against a different power state, revision or credential scope.
+        server.control_plane_mut().status = initial.into();
+        let before = server.control_plane().calls.len();
+        let error = server.handle(&request(op, "overflow")).unwrap_err();
+        assert_eq!(error.code, "cmux.cloud.relay_busy", "{op}");
+        server.control_plane_mut().status = "deleting".into();
+        assert_eq!(server.handle(&original).unwrap(), result, "{op}");
+        assert_eq!(server.control_plane().calls.len(), before, "no fresh read or mutation");
+        server.control_plane_mut().team = "team_b".into();
+        let error = server.handle(&original).unwrap_err();
+        assert_eq!(error.code, "cmux.cloud.idempotency_conflict", "{op}");
+        assert_eq!(server.control_plane().calls.len(), before);
+    }
+}
+
+#[test]
 fn restart_with_an_inflight_provider_state_refuses_a_new_live_capability() {
     // After a restart the ephemeral intent is gone. Reconciliation is
     // required; Pausing cannot be rebound into a fresh Running capability.
