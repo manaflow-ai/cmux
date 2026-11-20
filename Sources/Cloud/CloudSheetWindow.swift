@@ -26,6 +26,21 @@ final class CloudSheetWindow {
     private var isOpening = false
     private var pendingContentSize: NSSize?
     private var isResizeScheduled = false
+    // AppKit may expand an attached sheet from its bottom edge before the
+    // deferred geometry callback runs. Keep the first stable top edge so a
+    // content-driven resize cannot inherit that temporary shift.
+    private var topEdgeAnchor: CGFloat?
+    // Registration is main-actor-only; deinit only removes these opaque
+    // Foundation tokens through NotificationCenter's thread-safe cleanup API.
+    nonisolated(unsafe) private var windowMoveObserver: NSObjectProtocol?
+    nonisolated(unsafe) private var hostMoveObserver: NSObjectProtocol?
+    private weak var hostWindow: NSWindow?
+    private var lastHostOrigin: NSPoint?
+    private var isAttachedToHost = false
+    private var isHostMovePending = false
+    private var isHostAnchorRefreshScheduled = false
+    private var isAnchorCorrectionScheduled = false
+    private var isApplyingFrame = false
 
     init<Content: View>(rootView: Content) {
         // The presenter retains this wrapper while the window is presented;
@@ -45,11 +60,55 @@ final class CloudSheetWindow {
             window.setContentSize(initialContentSize)
         }
         reporter.owner = self
+        windowMoveObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if self.isAttachedToHost {
+                    let didRefreshHostAnchor = self.recordAttachedSheetMoveIfHostMoveIsPending()
+                    if didRefreshHostAnchor {
+                        // A host move can arrive while AppKit still exposes a
+                        // transient 1×0 sheet. The later sheet move completes
+                        // the handshake; apply any content size that arrived
+                        // while resizing was blocked.
+                        self.applyPendingContentSize()
+                    }
+                    self.scheduleAttachedSheetAnchorCorrection()
+                } else {
+                    self.recordFloatingWindowMoveIfStable()
+                }
+            }
+        }
+    }
+
+    deinit {
+        if let windowMoveObserver {
+            NotificationCenter.default.removeObserver(windowMoveObserver)
+        }
+        if let hostMoveObserver {
+            NotificationCenter.default.removeObserver(hostMoveObserver)
+        }
     }
 
     /// Attaches the sheet to `host`; the size is held until the open
     /// animation has finished.
     func beginSheet(on host: NSWindow, completionHandler: ((NSApplication.ModalResponse) -> Void)? = nil) {
+        hostWindow = host
+        lastHostOrigin = host.frame.origin
+        isAttachedToHost = true
+        isHostMovePending = false
+        hostMoveObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification,
+            object: host,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.recordHostMoveIfStable(host)
+            }
+        }
         isOpening = true
         host.beginSheet(window, completionHandler: completionHandler)
         isOpening = false
@@ -58,21 +117,27 @@ final class CloudSheetWindow {
         // before applying any later geometry report.
         restoreInitialContentSizeIfNeeded()
         applyPendingContentSize()
-        // The reset can happen on the next run-loop turn, after beginSheet
-        // returns. Reapply after AppKit has attached the sheet as well.
+        // AppKit may perform one more sheet-host layout on the next turn and
+        // reset the frame after beginSheet returns. Reapply after that pass so
+        // the first geometry report has a usable window to measure against.
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.restoreInitialContentSizeIfNeeded()
+            self.topEdgeAnchor = self.topEdgeAnchor ?? self.window.frame.maxY
             self.applyPendingContentSize()
         }
     }
 
     /// Shows the sheet as a centered floating window when no host is on screen.
     func orderFrontFloating() {
+        hostWindow = nil
+        lastHostOrigin = nil
+        isAttachedToHost = false
         isOpening = true
         window.center()
         window.makeKeyAndOrderFront(nil)
         isOpening = false
+        topEdgeAnchor = window.frame.maxY
         applyPendingContentSize()
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -95,7 +160,7 @@ final class CloudSheetWindow {
     }
 
     private func applyPendingContentSize() {
-        guard !isOpening, let size = pendingContentSize else { return }
+        guard !isOpening, !isHostMovePending, let size = pendingContentSize else { return }
         pendingContentSize = nil
         let current = window.contentRect(forFrameRect: window.frame).size
         guard size != current else { return }
@@ -103,15 +168,98 @@ final class CloudSheetWindow {
         let oldFrame = window.frame
         var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
         frame.origin.x = oldFrame.midX - frame.width / 2
-        frame.origin.y = oldFrame.maxY - frame.height
-        window.setFrame(frame, display: window.isVisible, animate: false)
+        frame.origin.y = (topEdgeAnchor ?? oldFrame.maxY) - frame.height
+        setFrameInternally(frame)
+        scheduleAttachedSheetAnchorCorrection()
     }
 
     private func restoreInitialContentSizeIfNeeded() {
         guard initialContentSize.width > 1, initialContentSize.height > 1 else { return }
         let current = window.contentRect(forFrameRect: window.frame).size
         guard current.width <= 1 || current.height <= 1 else { return }
-        window.setContentSize(initialContentSize)
+
+        // An attached sheet hangs from its top edge. setContentSize preserves
+        // the bottom-left origin, which detaches the sheet from its host when
+        // repairing AppKit's temporary 1×0 frame. Restore through a frame so
+        // the top edge remains anchored while the content gets its size back.
+        let oldFrame = window.frame
+        var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: initialContentSize))
+        frame.origin.x = oldFrame.midX - frame.width / 2
+        frame.origin.y = (topEdgeAnchor ?? oldFrame.maxY) - frame.height
+        setFrameInternally(frame)
+    }
+
+    private func setFrameInternally(_ frame: NSRect) {
+        isApplyingFrame = true
+        window.setFrame(frame, display: window.isVisible, animate: false)
+        isApplyingFrame = false
+    }
+
+    private func scheduleAttachedSheetAnchorCorrection() {
+        guard isAttachedToHost, !isHostMovePending, topEdgeAnchor != nil, !isAnchorCorrectionScheduled else { return }
+        isAnchorCorrectionScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.isAnchorCorrectionScheduled = false
+            guard self.isAttachedToHost, !self.isOpening, !self.isApplyingFrame,
+                  !self.isHostMovePending,
+                  let anchor = self.topEdgeAnchor else { return }
+            let delta = anchor - self.window.frame.maxY
+            guard abs(delta) > 0.5 else { return }
+            var frame = self.window.frame
+            frame.origin.y += delta
+            self.setFrameInternally(frame)
+        }
+    }
+
+    private func recordFloatingWindowMoveIfStable() {
+        // An attached sheet's frame can emit didMove after AppKit resizes it
+        // from the bottom edge. That is an internal layout move, not a new
+        // anchor; only floating windows can be moved directly by the user.
+        guard !isAttachedToHost else { return }
+        recordStableTopEdge()
+    }
+
+    private func recordHostMoveIfStable(_ host: NSWindow) {
+        guard isAttachedToHost, hostWindow === host else { return }
+        guard !isOpening, !isApplyingFrame else { return }
+        guard host.frame.origin != lastHostOrigin else { return }
+        lastHostOrigin = host.frame.origin
+        isHostMovePending = true
+        scheduleHostAnchorRefresh()
+    }
+
+    @discardableResult
+    private func recordAttachedSheetMoveIfHostMoveIsPending() -> Bool {
+        guard isHostMovePending else { return false }
+        guard !isOpening, !isApplyingFrame else { return false }
+        let contentSize = window.contentRect(forFrameRect: window.frame).size
+        guard contentSize.width > 1, contentSize.height > 1 else { return false }
+        topEdgeAnchor = window.frame.maxY
+        isHostMovePending = false
+        return true
+    }
+
+    private func scheduleHostAnchorRefresh() {
+        guard !isHostAnchorRefreshScheduled else { return }
+        isHostAnchorRefreshScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.isHostAnchorRefreshScheduled = false
+            guard self.isAttachedToHost, !self.isOpening, !self.isApplyingFrame else { return }
+            self.recordAttachedSheetMoveIfHostMoveIsPending()
+            self.applyPendingContentSize()
+        }
+    }
+
+    private func recordStableTopEdge() {
+        guard !isOpening, !isApplyingFrame else { return }
+        let contentSize = window.contentRect(forFrameRect: window.frame).size
+        // During attachment AppKit can briefly publish a 1×0 frame and move
+        // its bottom edge. It is not a user move and must not replace the
+        // stable anchor used to restore the initial content size.
+        guard contentSize.width > 1, contentSize.height > 1 else { return }
+        topEdgeAnchor = window.frame.maxY
     }
 
     private static func rounded(_ size: NSSize) -> NSSize {

@@ -107,6 +107,19 @@ struct NewMachineSheetLayoutTests {
         NewMachineSheetPresenter.shared.present(model: model, preferredWindow: host, loadPlanFromCache: false)
         defer { model.cancel() }
         let sheet = try #require(host.attachedSheet, "the sheet was not attached to its host window")
+        // AppKit may finish attaching and restore the initial sheet frame on
+        // the next main-loop turn. Capture the anchor after that deferred
+        // pass so later content-driven resizes are compared with the stable
+        // attached frame rather than the temporary 1×0 frame.
+        await Self.yieldMainLoopTurns()
+        let initialTopEdge = sheet.frame.maxY
+        // Moving the host moves an attached sheet. Its later content-driven
+        // resizes must follow that new position instead of snapping back to
+        // the top edge captured at presentation.
+        host.setFrameOrigin(NSPoint(x: host.frame.minX, y: host.frame.minY - 80))
+        await Self.yieldMainLoopTurns()
+        let movedTopEdge = sheet.frame.maxY
+        #expect(abs(movedTopEdge - initialTopEdge) > 1, "moving the host did not move the attached sheet")
 
         for tick in 0..<12 {
             let pool = CloudVMResourcePool(poolVcpus: 40, poolMemoryMb: 81920, usedVcpus: 32 + tick % 3, usedMemoryMb: 65536)
@@ -137,6 +150,7 @@ struct NewMachineSheetLayoutTests {
         }
         #expect(abs(content.height - ceil(ideal.height)) <= 1, "sheet content \(content) does not fit its content \(ideal)")
         #expect(abs(content.width - ceil(ideal.width)) <= 1, "sheet content \(content) does not fit its content \(ideal)")
+        #expect(abs(sheet.frame.maxY - movedTopEdge) <= 1, "sheet top edge moved from \(movedTopEdge) to \(sheet.frame.maxY) after the host moved (initially \(initialTopEdge))")
     }
 
     /// The grid's pop-ups read as one column: each starts at the column's
