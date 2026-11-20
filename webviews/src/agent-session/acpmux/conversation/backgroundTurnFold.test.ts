@@ -7,7 +7,7 @@
 import { afterEach, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
-import { backgroundWorkedId, toggleTurnFold, turnView, WORKED } from "./turns";
+import { backgroundWorkedId, hiddenRowFolds, toggleTurnFold, turnView, WORKED } from "./turns";
 
 afterEach(() => {
   delete globalThis.cmuxExperiments;
@@ -120,4 +120,14 @@ test("a wake still running draws its calls as before", () => {
   rows[4] = line("bg-1", { running: true, quiet: undefined });
   const view = turnView(rows, new Set(), { agentFamily: "claude", working: true });
   expect(view.some((shown) => shown.id === backgroundWorkedId("bg-1"))).toBe(false);
+});
+
+test("Find on a call a wake's closed fold hides opens that fold", () => {
+  const rows = chat();
+  const view = drawn(rows);
+  const index = rows.findIndex((entry) => entry.id === "ps");
+  expect(hiddenRowFolds(rows, view, index)).toContain(backgroundWorkedId("bg-2"));
+  // Once it is open, Find needs nothing more from it.
+  const opened = drawn(rows, new Set([backgroundWorkedId("bg-2")]));
+  expect(hiddenRowFolds(rows, opened, index)).not.toContain(backgroundWorkedId("bg-2"));
 });
