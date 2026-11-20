@@ -152,8 +152,10 @@ async fn busy_chat(c: &mut TestClient, queued: &[(&str, &str)]) -> String {
 /// A on one side, B on the other, B with `root` as its one webRoot and A behind the dialer
 /// that names `dialer` as B's key.
 async fn machines(root: &Scratch, dialer: &str) -> (Arc<Hub>, TestClient, Arc<Hub>, TestClient) {
-    let (a, src) = setup(PermissionPolicy::ApproveAll).await;
-    let (b, dst) = setup(PermissionPolicy::ApproveAll).await;
+    // A guarded receive takes only a plain agent session id (`transfer_guard.rs`).
+    let env = || BTreeMap::from([("FAKE_SESSION_PREFIX".to_owned(), "fake-session-".to_owned())]);
+    let (a, src) = setup_env(PermissionPolicy::ApproveAll, env()).await;
+    let (b, dst) = setup_env(PermissionPolicy::ApproveAll, env()).await;
     b.config.write().await.web_roots = vec![root.text()];
     b.set_transfer_dial(Arc::new(Direct { source: a.clone(), from: dialer.to_owned() }));
     (a, src, b, dst)
