@@ -1447,8 +1447,10 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                "'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}")
         self.assertEqual(runner_label_errors(jit), [])
         self.assertEqual(runner_label_errors("cmux-gcp-nightly-jit-x64"), [])
-        for owned in ("cmux-gcp-nightly-x64", "cmux-gcp-lane-build-x64", "cmux-fleet-linux-x64"):
+        for owned in ("cmux-gcp-nightly-x64", "cmux-gcp-lane-build-x64"):
             self.assertNotEqual(runner_label_errors(jit.replace("cmux-gcp-nightly-jit-x64", owned)), [], owned)
+        # cmux-fleet-linux-x64 is the janitors' one-job label (FLEET_EPHEMERAL_LABELS): an operand, never a literal.
+        for owned in ("cmux-gcp-nightly-x64", "cmux-gcp-lane-build-x64", "cmux-fleet-linux-x64"):
             self.assertNotEqual(runner_label_errors(owned), [], owned)
 
     def test_the_classic_nightly_app_key_pickers_start_on_the_jit_label(self) -> None:
