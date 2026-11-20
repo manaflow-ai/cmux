@@ -227,8 +227,9 @@ nonisolated extension SidebarLayoutOptions {
         if let chip = WorkspaceRowContent.rowChip(ws.agentChip) { content.chip = chip }
         // A capacity hold is visible even when a workspace has no optional detail line.
         if ws.capacityWaitCount > 0 {
+            let count = ws.capacityWaitCount.formatted()
             content.detail = String(localized: "sidebar.workspace.waitingForCapacity",
-                                    defaultValue: "Waiting for capacity (\(ws.capacityWaitCount))", bundle: .module)
+                                    defaultValue: "Waiting for capacity (\(count))", bundle: .module)
         } else if content.detail != nil, let step = ws.agentStep {
             // Ordinary agent activity uses a detail line only when the row already has one.
             (content.now, content.detail) = (step, step)

@@ -94,6 +94,7 @@ impl Route {
 
     async fn probe(&self) -> Result<(), u64> {
         let fallback = || now_ms().saturating_add(DEFAULT_RETRY_MS);
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(PROBE_TIMEOUT)
@@ -577,6 +578,7 @@ pub(super) fn priority(session: &Session, prompt: Option<&str>) -> bool {
         || name.starts_with("dep-")
         || name.starts_with("desktop-")
         || name.split(['-', '_']).any(|part| matches!(part, "coord" | "coordinator"))
+        || tag("cmux.chief.role") == Some("coordinator")
         || tag("priority") == Some("1")
         || tag("ask-trace").is_some_and(|value| !value.is_empty())
         || tag("Leo-Ask-Trace").is_some_and(|value| !value.is_empty())
@@ -616,6 +618,51 @@ mod capacity_gate_tests {
         assert_eq!(retry_at(error, 1000), Some(2_401_000));
         assert!(!exhausted("API Error: 503 service unavailable"));
         assert!(!exhausted("API Error: 400 no non-exhausted claude accounts"));
+    }
+
+    #[tokio::test]
+    async fn capacity_gate_probe_uses_gateway_auth_and_retry_after() {
+        use axum::extract::State;
+        use axum::http::{HeaderMap, StatusCode};
+        use axum::response::IntoResponse;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let exhausted = Arc::new(AtomicBool::new(true));
+        let app = axum::Router::new()
+            .route(
+                "/v1/messages",
+                axum::routing::post(
+                    async |State(exhausted): State<Arc<AtomicBool>>, headers: HeaderMap| {
+                        if headers.get("authorization").and_then(|value| value.to_str().ok())
+                            != Some("Bearer probe-token")
+                        {
+                            return StatusCode::UNAUTHORIZED.into_response();
+                        }
+                        if exhausted.load(Ordering::Relaxed) {
+                            (StatusCode::SERVICE_UNAVAILABLE, [("retry-after", "2400")])
+                                .into_response()
+                        } else {
+                            StatusCode::OK.into_response()
+                        }
+                    },
+                ),
+            )
+            .with_state(exhausted.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/v1/messages", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let route = Route {
+            url: reqwest::Url::parse(&url).unwrap(),
+            bearer: Some("probe-token".to_owned()),
+            api_key: None,
+        };
+
+        let earliest = now_ms() + 2_400_000;
+        let deadline = route.probe().await.unwrap_err();
+        assert!((earliest..=now_ms() + 2_400_000).contains(&deadline));
+        exhausted.store(false, Ordering::Relaxed);
+        assert_eq!(route.probe().await, Ok(()));
+        server.abort();
     }
 
     #[test]
