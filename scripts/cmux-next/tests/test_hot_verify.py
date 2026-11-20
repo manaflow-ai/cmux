@@ -639,7 +639,12 @@ class PlanTest(unittest.TestCase):
         for step, code, out, said in (("build", 1, "builder refused\n", "builder refused"),
                                       ("build", 0, "not json", "no job id: not json"),
                                       ("wait", 4, "job timed out\n", "job timed out"),
-                                      ("artifact", 2, "no artifact\n", "cmux-ci artifact job-9: no artifact")):
+                                      ("artifact", 2, "no artifact\n", "cmux-ci artifact job-9: no artifact"),
+                                      # A step that failed and said nothing: each of the 3 messages says so, and
+                                      # does not end at its colon.
+                                      ("build", 1, "", "app-try:%s: no output" % self.fx.base),
+                                      ("build", 0, "", "no job id: no output"),
+                                      ("artifact", 2, "", "cmux-ci artifact job-9: no output")):
             with self.subTest(step=step, code=code), \
                     unittest.mock.patch.object(hv, "_ci_client", return_value="/fake/cmux-ci"), \
                     unittest.mock.patch.object(hv.subprocess, "run", side_effect=fails_on(step, code, out)):
