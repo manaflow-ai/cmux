@@ -11,42 +11,46 @@ final class ChatJumpTopSettleUITests: XCTestCase {
 
     @MainActor
     func testRowsAfterJumpToTopSettle() {
-        XCUIDevice.shared.orientation = .portrait
-        let app = XCUIApplication()
-        app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
-        app.launchEnvironment["CMUX_MOBILE_LIST_SCREEN"] = "chat"
-        app.launchEnvironment["CMUX_MOBILE_LIST_COUNT"] = "200"
-        app.launchEnvironment["CMUX_MOBILE_LIST_PASSES"] = "0"
-        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-no-restore"]
-        let launched = Date()
-        app.launch()
-        defer { app.terminate() }
-
         var counts: [String] = []
-        for mark in [3.0, 8.0, 20.0, 45.0] {
-            let left = mark - Date().timeIntervalSince(launched)
-            if left > 0 { _ = XCTWaiter().wait(for: [XCTestExpectation(description: "t\(Int(mark))")], timeout: left) }
-            let frame = app.windows.firstMatch.frame
-            // Texts drawn inside the window's middle band (below the navigation bar, above the composer).
-            let band = frame.insetBy(dx: 0, dy: frame.height * 0.18)
-            // One snapshot of the tree: rows come and go while pages are read in, so live
-            // element queries can name a row that is gone by the time it is read.
-            var visible = -1
-            if let root = try? app.snapshot() {
-                var stack: [any XCUIElementSnapshot] = [root]
-                visible = 0
-                while let node = stack.popLast() {
-                    if node.elementType == .staticText, !node.frame.isEmpty, band.intersects(node.frame), !node.label.isEmpty {
-                        visible += 1
+        for turns in [40, 200] {
+            XCUIDevice.shared.orientation = .portrait
+            let app = XCUIApplication()
+            app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
+            app.launchEnvironment["CMUX_MOBILE_LIST_SCREEN"] = "chat"
+            app.launchEnvironment["CMUX_MOBILE_LIST_COUNT"] = String(turns)
+            app.launchEnvironment["CMUX_MOBILE_LIST_PASSES"] = "0"
+            app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-no-restore"]
+            let launched = Date()
+            app.launch()
+
+            for mark in [3.0, 8.0, 20.0, 45.0] {
+                let left = mark - Date().timeIntervalSince(launched)
+                if left > 0 { _ = XCTWaiter().wait(for: [XCTestExpectation(description: "t\(Int(mark))")], timeout: left) }
+                let frame = app.windows.firstMatch.frame
+                // Texts drawn inside the window's middle band (below the navigation bar, above the composer).
+                let band = frame.insetBy(dx: 0, dy: frame.height * 0.18)
+                // One snapshot of the tree: rows come and go while pages are read in, so live
+                // element queries can name a row that is gone by the time it is read.
+                var visible = -1
+                var top: (y: CGFloat, label: String)?
+                if let root = try? app.snapshot() {
+                    var stack: [any XCUIElementSnapshot] = [root]
+                    visible = 0
+                    while let node = stack.popLast() {
+                        if node.elementType == .staticText, !node.frame.isEmpty, band.intersects(node.frame), !node.label.isEmpty {
+                            visible += 1
+                            if top == nil || node.frame.minY < top!.y { top = (node.frame.minY, node.label) }
+                        }
+                        stack.append(contentsOf: node.children)
                     }
-                    stack.append(contentsOf: node.children)
                 }
+                counts.append("n\(turns)-t\(Int(mark))s=\(visible)[\(String((top?.label ?? "-").prefix(24)))]")
+                let shot = XCTAttachment(screenshot: app.screenshot())
+                shot.name = "f8-n\(turns)-t\(Int(mark))s"
+                shot.lifetime = .keepAlways
+                add(shot)
             }
-            counts.append("t\(Int(mark))s=\(visible)")
-            let shot = XCTAttachment(screenshot: app.screenshot())
-            shot.name = "f8-t\(Int(mark))s"
-            shot.lifetime = .keepAlways
-            add(shot)
+            app.terminate()
         }
         let summary = XCTAttachment(string: counts.joined(separator: " "))
         summary.name = "f8-visible-text-counts"
