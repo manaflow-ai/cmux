@@ -1998,6 +1998,11 @@ fn run_main() {
         let args = cli::acp_scope_args(&raw_args);
         client_log::exit(acp::run_scope(head, args));
     }
+    #[cfg(unix)]
+    if let Some(args) = cli::agent_acp_scope_args(&raw_args) {
+        discard_provider_secret_environment();
+        client_log::exit(acp::run_as(args, "cmux agent"));
+    }
     // `cmux host enable|serve|dial|…`: remote hosting, on every platform
     // (plans/cmux-next/remote-hosts.md). The other `host` verbs are the
     // machine supervisor's (`early_unix_scope`).

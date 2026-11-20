@@ -676,6 +676,23 @@ pub(crate) fn acp_scope_args(raw_args: &[String]) -> Vec<std::ffi::OsString> {
     raw_args.iter().skip(skip).map(std::ffi::OsString::from).collect()
 }
 
+/// The acpmux-owned aliases under `cmux agent`. Existing app actions keep their
+/// current parser and semantics, while these verbs share the acpmux implementation
+/// without duplicating its command logic in the app CLI.
+#[cfg(unix)]
+pub(crate) fn agent_acp_scope_args(raw_args: &[String]) -> Option<Vec<std::ffi::OsString>> {
+    let [head, verb, rest @ ..] = raw_args else { return None };
+    if head != "agent"
+        || !matches!(
+            verb.as_str(),
+            "ls" | "send" | "history" | "search" | "resolve" | "register" | "bg" | "notices"
+        )
+    {
+        return None;
+    }
+    Some(std::iter::once(verb).chain(rest.iter()).map(std::ffi::OsString::from).collect())
+}
+
 /// The agent-caller refusal of a plan that writes a Chief by the raw or
 /// typed protocol path (`cmux raw operation chief.profile.update`, a
 /// `cmux raw command` frame naming one): the same refusal as

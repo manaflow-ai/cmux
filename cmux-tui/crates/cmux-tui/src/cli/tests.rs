@@ -1324,6 +1324,11 @@ fn root_help_lists_every_scope_and_help_word_reaches_own_help_scopes() {
     assert_eq!(acp_scope_args(&strings(&["acp", "ls", "--json"])), os(&["ls", "--json"]));
     assert_eq!(acp_scope_args(&rewritten(&["help", "harness"])), os(&["harness", "--help"]));
     assert_eq!(acp_scope_args(&rewritten(&["help", "chats"])), os(&["chats", "--help"]));
+    assert_eq!(
+        agent_acp_scope_args(&strings(&["agent", "search", "nightly"])),
+        Some(os(&["search", "nightly"]))
+    );
+    assert_eq!(agent_acp_scope_args(&strings(&["agent", "list"])), None);
 }
 
 #[test]
