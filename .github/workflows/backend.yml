@@ -786,26 +786,23 @@ jobs:
           BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
+          # No --depth on these fetches: a depth fetch cuts this full clone's history to that depth,
+          # and the base configs below are read from it.
           if [ -z "$BEFORE" ] || [[ "$BEFORE" =~ ^0+$ ]]; then
-            git fetch --quiet --no-tags --depth=2 origin feat-cmux-next
+            git fetch --quiet --no-tags origin feat-cmux-next
             BASE="$(git rev-parse FETCH_HEAD^)"
           else
-            git cat-file -e "${BEFORE}^{commit}" 2>/dev/null || git fetch --quiet --no-tags --depth=1 origin "$BEFORE"
+            git cat-file -e "${BEFORE}^{commit}" 2>/dev/null || git fetch --quiet --no-tags origin "$BEFORE"
             BASE="$BEFORE"
           fi
-          # BEFORE's config, then its 99 first-parent ancestors': a cancelled or superseded deploy leaves
-          # an older commit's vars serving, which is not drift (a hand-set var matches none of them).
-          git fetch --quiet --no-tags --depth=100 origin "$BASE" 2>/dev/null || true
-          bases=()
-          i=0
-          for c in $(git rev-list --first-parent --max-count=100 "$BASE"); do
-            git show "${c}:backend/apps/api/wrangler.jsonc" > "$RUNNER_TEMP/wrangler.base.$i.jsonc" 2>/dev/null || break
-            bases+=(--base-config "$RUNNER_TEMP/wrangler.base.$i.jsonc")
-            i=$((i + 1))
-          done
-          echo "base configs: wrangler.jsonc at ${BASE} and its first-parent ancestors, $i in all"
+          # BEFORE's config, then each earlier version of the file on the first-parent line (100 at
+          # most): a cancelled or superseded deploy leaves an older version's vars serving, which is
+          # not drift (a hand-set var matches none of them). Versions, not commits: the last 100
+          # commits are a few hours here, and after deploys stayed skipped for two days (2026-11-19)
+          # the serving version was 239 commits back, so every later deploy would have been refused.
           bun ../../../scripts/cmux-next/release/worker-release.ts vars --worker cmux-api-development \
-            --config wrangler.jsonc "${bases[@]}" --env development --wrangler ./node_modules/.bin/wrangler
+            --config wrangler.jsonc --base-rev "$BASE" --base-path backend/apps/api/wrangler.jsonc --source-dir . \
+            --env development --wrangler ./node_modules/.bin/wrangler
       - name: Deploy API Worker (no secrets; records the rollback target)
         if: steps.source.outputs.deploy == 'true'
         id: deploy-api

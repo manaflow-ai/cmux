@@ -5,10 +5,11 @@
  * the job can only ship code. Fake wrangler: a script that prints STATUS_JSON / VERSION_JSON.
  */
 import { describe, expect, it } from "bun:test"
-import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { execFileSync } from "node:child_process"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { diffVars, envVars, main } from "../worker-release.ts"
+import { committedVersions, diffVars, envVars, main } from "../worker-release.ts"
 
 const dir = mkdtempSync(join(tmpdir(), "rails-vars-"))
 const calls = join(dir, "wrangler-calls.txt")
@@ -202,5 +203,80 @@ describe("vars --base-config: a var change made in the pushed commits deploys", 
     const r = await run(["vars", "--worker", "cmux-api-development", "--config", config, "--base-config", join(dir, "missing.jsonc"), "--env", "development", "--wrangler", wrangler], { STATUS_JSON: serving, VERSION_JSON: version(same) })
     expect(r.code).toBe(1)
     expect(r.errors.join()).toContain("deploy refused")
+  })
+})
+
+/**
+ * --base-rev / --base-path: the base configs come from git, as the versions of the config file, not as
+ * the last N commits. Development deploys stayed skipped for two days (2026-11-19): the version still
+ * serving was 239 commits behind the branch, outside the 100 commits the deploy job read, so every
+ * later deploy would have been refused as drift although no var was set by hand.
+ */
+describe("vars --base-rev: the serving version is found however many commits have landed since", () => {
+  const repo = mkdtempSync(join(tmpdir(), "rails-vars-git-"))
+  const path = "backend/apps/api/wrangler.jsonc"
+  const withSnapshot = (img: string) => readFileSync(config, "utf8").replace('"TEAM_VM_SNAPSHOT": "img-a"', `"TEAM_VM_SNAPSHOT": "${img}"`)
+  const git = (...a: Array<string>) =>
+    execFileSync("git", ["-C", repo, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", ...a], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim()
+  const commit = (text: string | undefined, message: string) => {
+    if (text !== undefined) {
+      writeFileSync(join(repo, path), text)
+      git("add", path)
+    }
+    git("commit", "--quiet", "--allow-empty", "-m", message)
+    return git("rev-parse", "HEAD")
+  }
+  git("init", "--quiet", "--initial-branch=main")
+  mkdirSync(join(repo, "backend/apps/api"), { recursive: true })
+  const first = commit(withSnapshot("img-0"), "config: img-0")
+  const served = commit(readFileSync(config, "utf8"), "config: img-a (the version still serving)")
+  const promoted = commit(withSnapshot("img-b"), "config: img-b (its deploy never ran)")
+  // More commits than the old window of 100, none touching the config.
+  for (let i = 0; i < 120; i++) commit(undefined, `unrelated ${i}`)
+  const before = git("rev-parse", "HEAD")
+  const want = join(dir, "wrangler.want.jsonc")
+  writeFileSync(want, withSnapshot("img-c"))
+  // The deploy job runs in the Worker's folder; the config path is from the repository root.
+  const argv = (rev: string, extra: Array<string> = []) => ["vars", "--worker", "cmux-api-development", "--config", want, "--base-rev", rev, "--base-path", path, "--source-dir", join(repo, "backend/apps/api"), ...extra, "--env", "development", "--wrangler", wrangler]
+
+  it("lists the file's versions newest first, by version and not by commit", () => {
+    const versions = [...committedVersions(join(repo, "backend/apps/api"), before, path)]
+    expect(versions.map((v) => v.rev)).toEqual([before, served, first])
+    expect(versions.map((v) => envVars(v.text, "development").TEAM_VM_SNAPSHOT)).toEqual(["img-b", "img-a", "img-0"])
+    expect(promoted).not.toBe(before)
+    expect([...committedVersions(repo, before, path, 2)].map((v) => v.rev)).toEqual([before, served])
+    expect(() => [...committedVersions(repo, "0000000000000000000000000000000000000001", path)]).toThrow()
+    expect(() => [...committedVersions(repo, before, "backend/apps/api/missing.jsonc")]).toThrow()
+  })
+
+  it("deployed equals a version 120 commits back: passes, and the repo is the source", async () => {
+    const r = await run(argv(before), { STATUS_JSON: serving, VERSION_JSON: version(same) })
+    expect(r.errors).toEqual([])
+    expect(r.code).toBe(0)
+    expect(r.logs.join("\n")).toContain("TEAM_VM_SNAPSHOT: img-a -> img-c")
+    // It stops at the version that is serving: the older img-0 version is not read.
+    expect(r.logs.join("\n")).toContain("2 read")
+  })
+
+  it("a hand-set var matches no version: still refused, without its value", async () => {
+    const drift = same.map((b) => (b.name === "TEAM_VM_SNAPSHOT" ? { ...b, text: "img-hand-set" } : b))
+    const r = await run(argv(before), { STATUS_JSON: serving, VERSION_JSON: version(drift) })
+    expect(r.code).toBe(1)
+    expect(r.errors.join("\n")).toContain("changed: TEAM_VM_SNAPSHOT")
+    expect(r.errors.join("\n")).not.toContain("img-hand-set")
+  })
+
+  it("the serving version is older than --base-max versions: refused, as a version outside the list is", async () => {
+    const r = await run(argv(before, ["--base-max", "1"]), { STATUS_JSON: serving, VERSION_JSON: version(same) })
+    expect(r.code).toBe(1)
+    expect(r.errors.join("\n")).toContain("deploy refused")
+  })
+
+  it("a base that git cannot read refuses; one flag without the other is a usage error", async () => {
+    const unknown = await run(argv("0000000000000000000000000000000000000001"), { STATUS_JSON: serving, VERSION_JSON: version(same) })
+    expect(unknown.code).toBe(1)
+    expect(unknown.errors.join()).toContain("deploy refused")
+    const half = await run(["vars", "--worker", "cmux-api-development", "--config", want, "--base-rev", before, "--env", "development", "--wrangler", wrangler], { STATUS_JSON: serving, VERSION_JSON: version(same) })
+    expect(half.code).toBe(2)
   })
 })

@@ -26,6 +26,11 @@
  *       is the source: a var the pushed commits change deploys, and each change is logged by name
  *       with its plain string value (json vars by name only). Vars are plain text by contract
  *       (secrets live in secrets, never in vars).
+ *   bun worker-release.ts vars ... --base-rev REV --base-path <config path from the repository root> [--source-dir DIR] [--base-max N]
+ *       The base configs read from git: the config at REV (the push's BEFORE commit), then each earlier
+ *       version of it on the branch's first-parent line, N in all at most (default 100). Versions of
+ *       the file, not commits: however long deploys stay skipped or cancelled, the version still
+ *       serving is among them.
  *
  * Routes file: {"routes":[{"name","method","path","expect":[status...],"body"?,
  * "bodyIncludes"?,"sources"?:[glob relative to --source-dir],"expectByWorker"?:{worker:[status...]},"why"?}]}.
@@ -239,6 +244,36 @@ const defaultIO: IO = {
   error: (l) => console.error(process.env.GITHUB_ACTIONS ? `::error title=Worker release::${l}` : `worker-release: ${l}`),
 }
 
+/**
+ * A committed file's versions on a branch, newest first: its text at `rev`, then at each earlier
+ * first-parent commit that changed it, `max` in all at most. A version that reads the same as the
+ * one before it is left out. Read one at a time, so a caller that finds its version stops there
+ * (in a blobless clone each older version is a fetch). Throws when `rev` or the file at `rev`
+ * cannot be read.
+ */
+export function* committedVersions(cwd: string, rev: string, path: string, max = 100): Generator<{ readonly rev: string; readonly text: string }> {
+  const git = (...args: Array<string>) => execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024 })
+  const head = git("rev-parse", "--verify", `${rev}^{commit}`).trim()
+  let last = git("show", `${head}:${path}`)
+  let count = 1
+  yield { rev: head, text: last }
+  // `:(top)` reads the path from the repository root whatever `cwd` is, as `rev:path` does.
+  const changed = git("rev-list", "--first-parent", `--max-count=${Math.max(1, max)}`, head, "--", `:(top)${path}`).split("\n").filter(Boolean)
+  for (const commit of changed) {
+    if (count >= max) return
+    let text: string
+    try {
+      text = git("show", `${commit}:${path}`)
+    } catch {
+      continue // the commit that removed the file
+    }
+    if (text === last) continue
+    last = text
+    count++
+    yield { rev: commit, text }
+  }
+}
+
 export const main = async (argv: ReadonlyArray<string>, io: IO = defaultIO): Promise<number> => {
   const [command, ...rest] = argv
   const value = (flag: string) => (rest.includes(flag) ? rest[rest.indexOf(flag) + 1] : undefined)
@@ -390,6 +425,39 @@ export const main = async (argv: ReadonlyArray<string>, io: IO = defaultIO): Pro
         io.error(`cannot read env.${env}.vars from the base config ${file}: ${(e as Error).message}; deploy refused`)
         return 1
       }
+    }
+    const baseRev = value("--base-rev")
+    const basePath = value("--base-path")
+    if (baseRev || basePath) {
+      if (!baseRev || !basePath) {
+        io.error("vars needs --base-rev and --base-path together")
+        return 2
+      }
+      const max = Number(value("--base-max") ?? 100)
+      let read = 0
+      try {
+        for (const v of committedVersions(value("--source-dir") ?? ".", baseRev, basePath, Number.isInteger(max) && max > 0 ? max : 100)) {
+          read++
+          const file = `${basePath} at ${v.rev.slice(0, 11)}`
+          let vars: Record<string, unknown>
+          try {
+            vars = envVars(v.text, env)
+          } catch (e) {
+            // The base itself must read. An older version from before env.<env> existed is no base.
+            if (read > 1) continue
+            io.error(`cannot read env.${env}.vars from the base config ${file}: ${(e as Error).message}; deploy refused`)
+            return 1
+          }
+          bases.push({ file, vars })
+          // The version that is serving: no older one is needed.
+          const d = diffVars(vars, bindings as Array<Binding>)
+          if (d.added.length + d.removed.length + d.changed.length === 0) break
+        }
+      } catch (e) {
+        io.error(`cannot read ${basePath} at ${baseRev} from git: ${(e as Error).message.trim().split("\n").pop()}; deploy refused`)
+        return 1
+      }
+      io.log(`base configs: ${basePath} at ${baseRev.slice(0, 11)} and its earlier versions on the first-parent line, ${read} read`)
     }
     const served = bases.find((b) => ((x) => x.added.length + x.removed.length + x.changed.length === 0)(diffVars(b.vars, bindings as Array<Binding>)))
     const base = served?.vars ?? bases[0]?.vars
