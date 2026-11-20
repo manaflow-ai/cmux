@@ -1602,6 +1602,16 @@ impl Hub {
             }),
             _ => None,
         };
+        // Every turn's end goes through the one hold, whatever started the turn: a notice's or a
+        // trigger's failed turn on the limit holds the chat too, with its strikes' backoff, and
+        // the pool's limit holds every chat of the pool (`rate_hold.rs`, `pool_hold.rs`).
+        if let (Err(e), false) = (&result, detached) {
+            let error = super::turn_errors::continuation_error(agent_error.as_deref(), &e.message);
+            let not_before =
+                super::auto_resume::reset_hint::error_reset_at(e.data.as_ref(), now_ms());
+            self.limit_failure(session, &turn_id, error, not_before, cut.is_some());
+        }
+        self.pool_turn_ended(session, result.as_ref().err().map(|e| e.message.as_str()));
         self.schedule_auto_resume(session, &turn_id, cut);
         // The agent a Stop ended starts again on the same conversation now, while this turn's
         // lock is still held: the next queued turn finds it running (`cancel.rs`).

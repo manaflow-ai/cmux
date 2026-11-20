@@ -232,6 +232,7 @@ mod protected_hold;
 mod queue;
 mod queue_admission;
 mod queue_edit;
+pub(crate) mod pool_hold;
 pub(crate) mod rate_hold;
 pub(crate) mod reply_fit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender, on_peer_host};
@@ -841,6 +842,11 @@ pub struct Hub {
     /// The forum log (`forum.rs`, `hub/forum.rs`).
     pub(super) forum: std::sync::OnceLock<crate::forum::Forum>,
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
+    /// The account pool's limit holds every chat of its harness at once (`pool_hold.rs`).
+    pub(super) pool_hold: pool_hold::PoolHold,
+    /// The shortest rate-limit hold when nothing else says (`rate_hold::MIN_HOLD_MS`; tests set
+    /// it shorter).
+    pub(super) rate_min_hold_ms: std::sync::atomic::AtomicU64,
     spoken_handle_renames: StdMutex<()>,
     /// Session ids whose metadata is still live. Closed records remain in `sessions` and on
     /// disk for history, search, export and restore, but list/peer hot paths never walk them.
@@ -1409,6 +1415,8 @@ impl Hub {
             mailbox,
             forum: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
+            pool_hold: Default::default(),
+            rate_min_hold_ms: std::sync::atomic::AtomicU64::new(rate_hold::MIN_HOLD_MS),
             spoken_handle_renames: StdMutex::new(()),
             live_session_ids: StdMutex::new(std::collections::HashSet::new()),
             closed_summary_cache: StdMutex::new(Default::default()),
