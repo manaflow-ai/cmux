@@ -145,7 +145,7 @@ impl Hub {
             }
             _ => (crate::pairing::machine_name(), key),
         };
-        let mut names = self
+        let mut names: Vec<String> = self
             .sessions
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
