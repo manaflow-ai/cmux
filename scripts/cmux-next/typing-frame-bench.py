@@ -31,9 +31,11 @@ a native typing number and a web typing number were taken under the same load:
   L1 the focused chat streams    L4 every core saturated by other processes (--cpu-burners spinning processes)
   L2 10 other chats streaming    L5 L1 to L4 together, in the STRESS session (60 workspaces, 20 printing terminals)
 
-Each mode is one launch of the app, and its knobs come from the registry, not from --busy/--chats. A knob these
-surfaces cannot express (the 100k-row chat transcript: none of them types into a chat) is in the mode's
-`nativeMissing` and goes in the report beside the row, so a number is never read as the full mode. The web side
+Each mode is one launch of the app, and its knobs come from the registry, not from --busy/--chats. The agentpane
+surface seeds the mode's `native.rows` (L3 and L5: 100,000) into the chat it types in (debug.agent_pane seed_rows)
+before the chat streams. A knob these surfaces cannot express is in the mode's `nativeMissing`, and a seed that came
+up short is added to the run's `mode_missing`; either goes in the report beside the row, so a number is never read
+as the full mode. The web side
 (L0-L3, its own load model in webviews/bench/composer-load.ts) is `scripts/bench/cmux-bench typing`; this harness's
 cmux-bench adapter is `typing-native`.
 
@@ -981,8 +983,27 @@ def surface_omnibar(phase, pid):
     return entry
 
 
+def seed_transcript(pane, rows):
+    """The mode's god chat: ROWS synthetic rows put into the focused chat's transcript (debug.agent_pane seed_rows,
+    the page's replaceRows), once per launch, before its stream starts; the real agent's stream then lands after
+    them. The rows are the page's (the daemon's log keeps the real turns): the page is where a long transcript
+    costs a key. What it did, or None when the mode wants no rows."""
+    if not rows:
+        return None
+    if LOAD.get("seed", {}).get("pane") == pane:
+        return LOAD["seed"]
+    started = time.time()
+    reply = rpc("debug.agent_pane", {"action": "seed_rows", "pane": pane, "count": rows}, timeout=120) or {}
+    seeded = reply.get("rows") if isinstance(reply.get("rows"), int) else 0
+    LOAD["seed"] = {"pane": pane, "requested": rows, "rows": seeded, "commit_ms": reply.get("commit_ms"),
+                    "seconds": round(time.time() - started, 1), "error": reply.get("error")}
+    note(f"seed {pane}: {json.dumps(LOAD['seed'])[:200]}")
+    return LOAD["seed"]
+
+
 def surface_agentpane(phase, pid):
     pane = ensure_agentpane()
+    seed = seed_transcript(pane, ((MODE or {}).get("native") or {}).get("rows") or 0)
     streams = []
     if phase == "load":
         make_load(None)
@@ -999,7 +1020,14 @@ def surface_agentpane(phase, pid):
         stream = chat_streams(source)
         if stream:
             streams.append(stream)
-    return measure_agentpane(phase, pid, pane, streams)
+    entry = measure_agentpane(phase, pid, pane, streams)
+    if seed is not None:
+        entry["transcript_seed"] = seed
+        if seed["rows"] < seed["requested"]:
+            # Fewer rows than the mode asks for is not that mode: say so beside the number.
+            entry["mode_missing"] = [*(entry.get("mode_missing") or []),
+                                     f"the {seed['requested']}-row chat transcript (seeded {seed['rows']})"]
+    return entry
 
 
 SURFACES = {"terminal": surface_terminal, "home": surface_home, "dock": surface_dock,
