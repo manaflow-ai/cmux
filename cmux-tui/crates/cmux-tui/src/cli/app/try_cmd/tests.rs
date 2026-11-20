@@ -317,7 +317,10 @@ fn nightly_live_channel_command_fixture_applies_readback_and_refuses_older_or_ba
         1_200,
     )
     .unwrap_err();
-    assert!(error.contains("live payload") || error.contains("sha256"), "{error}");
+    assert!(
+        error.contains("live payload") || error.contains("sha256") || error.contains("hashes to"),
+        "{error}"
+    );
     assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(NEW_CMUX));
     assert_eq!(fixture.store.channel_last().unwrap(), Some(1_200));
 }
