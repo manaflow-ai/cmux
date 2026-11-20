@@ -160,6 +160,7 @@ impl Brain {
             *thread_root = Some(root.clone());
         }
         self.sent_keys.insert(key);
+        self.wake_run_posted();
         let entry = self.reply_with_media(entry, files.clone());
         self.state.outbox.push(entry);
         self.save();
