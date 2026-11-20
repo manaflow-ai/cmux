@@ -35,7 +35,7 @@ env:
 jobs:
   workflow-guard-submodule-forward-only:
     name: workflow-guard-submodule-forward-only
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'schedule' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'schedule' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'cmux-gcp-pr-control-jit-x64' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -2260,7 +2260,7 @@ jobs:
     # The lockfile policy compares the candidate with the exact base parent of
     # GitHub's synthetic PR/merge-group commit. Depth 2 contains HEAD and that
     # parent; the policy does not need the rest of repository history.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'schedule' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'schedule' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'cmux-gcp-pr-control-jit-x64' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -2323,7 +2323,7 @@ jobs:
         group: [tui-resolution, profiling]
     # The two slow CLI contracts are independent; run them beside each other
     # and let the reusable-workflow job aggregate their result.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'schedule' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'schedule' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'cmux-gcp-pr-control-jit-x64' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -2358,7 +2358,7 @@ jobs:
         group: [dispatch-ownership]
     # These source-policy scans are independent and each dominates wall time;
     # run them concurrently and aggregate through the reusable-workflow job.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'schedule' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'schedule' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'cmux-gcp-pr-control-jit-x64' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -2395,7 +2395,7 @@ jobs:
       - workflow-guard-cli-scripts
       - workflow-guard-source-lints
     if: ${{ always() && !cancelled() && vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'schedule' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'schedule' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'cmux-gcp-pr-control-jit-x64' }}
     timeout-minutes: 4
     permissions:
       contents: read
@@ -2437,7 +2437,7 @@ jobs:
     # after GitHub has cancelled the run.
     if: ${{ always() && !cancelled() }}
     # Refresh portable capacity after the guard jobs finish, immediately before the rollup.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'schedule' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'schedule' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'cmux-gcp-pr-control-jit-x64' }}
     timeout-minutes: 5
     steps:
       - name: Check routed guard jobs

@@ -2269,7 +2269,7 @@ jobs:
       - swift-package-tests
       - macos-compile-admission
     if: ${{ !cancelled() && needs.swift-package-tests.result == 'success' && needs.macos-compile-admission.result == 'success' && inputs.release_build == 'true' && inputs.full_suite == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'schedule' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'schedule' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'cmux-gcp-pr-control-jit-x64' }}
     timeout-minutes: 20
     steps:
       - name: Wait for routed Linux preflight
@@ -2763,7 +2763,7 @@ jobs:
     # A cancelled run already has its terminal outcome; avoid spending a
     # Blacksmith runner on the status rollup.
     if: ${{ !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'schedule' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'schedule' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'cmux-gcp-pr-control-jit-x64' }}
     timeout-minutes: 5
     steps:
       # Compile-avoidance shadow (RFC #15391, Work 3). The package lane

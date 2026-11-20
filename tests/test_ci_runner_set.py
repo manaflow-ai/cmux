@@ -108,6 +108,20 @@ class RunnerSetTests(unittest.TestCase):
                         self.assertEqual(labels_at(runs_on, event), {"cmux-linux"})
                         self.assertNotIn("cmux-linux", labels_at(runs_on, "pull_request", "outside/fork"))
 
+    def test_dispatch_with_a_different_checkout_or_a_tag_uses_one_job(self) -> None:
+        job = next(job for job in workflow_jobs.jobs(WORKFLOWS / "cmux-mobile-ffi.yml").values()
+                   if "!inputs.ref" in str(job.get("runs-on")))
+        route = runs_on_text(job, "cmux-mobile-ffi")
+        context = {"github.event_name": "workflow_dispatch", "github.repository": "manaflow-ai/cmux",
+                   "github.sha": "abc", "github.event.pull_request.head.sha": "",
+                   "github.event.pull_request.head.repo.full_name": ""}
+        for ref, checkout, wanted in (("refs/heads/main", "abc", "cmux-linux"),
+                                      ("refs/heads/main", "other", "cmux-gcp-pr-control-jit-x64"),
+                                      ("refs/tags/v1", "abc", "cmux-gcp-pr-control-jit-x64")):
+            with self.subTest(ref=ref, checkout=checkout):
+                self.assertEqual(resolve_labels(route, context={**context, "github.ref": ref, "inputs.ref": checkout}),
+                                 {wanted})
+
     def test_gallery_health_uses_the_pool_for_owned_work(self) -> None:
         job = workflow_jobs.jobs(WORKFLOWS / "gallery-health.yml")["health"]
         route = runs_on_text(job, "gallery-health.yml#health")

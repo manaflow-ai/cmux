@@ -36,7 +36,7 @@ jobs:
       actions: write
       contents: read
       pull-requests: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_TRUSTED_RUNNER == 'ubuntu-24.04' && 'ubuntu-24.04' || 'cmux-gcp-pr-control-jit-x64' }} # ephemeral-required: trusted Actions control-plane token; CI_TRUSTED_RUNNER selects a one-job runner
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-pr-control-jit-x64' }} # ephemeral-required: trusted Actions control-plane token
     timeout-minutes: 15
     steps:
       - name: Check out trusted workflow code

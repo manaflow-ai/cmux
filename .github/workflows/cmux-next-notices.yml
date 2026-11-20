@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   notices:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'cmux-gcp-pr-control-jit-x64' }}
     timeout-minutes: 20
     steps:
       - name: Checkout

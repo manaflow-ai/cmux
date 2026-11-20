@@ -60,7 +60,7 @@ jobs:
   body:
     name: pr-capture-check, design spec, perf section, cloud backend
     if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["media-tour","media-tour-mac","perf","performance"]'), github.event.label.name)) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && 'cmux-linux' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && 'cmux-linux' || 'cmux-gcp-pr-control-jit-x64' }}
     timeout-minutes: 10
     permissions:
       contents: read

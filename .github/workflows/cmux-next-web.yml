@@ -44,7 +44,7 @@ jobs:
     name: coalesce
     # A sleep of at most 30 minutes, then a few seconds of work: the reconciled Linux pool's small member, as the
     # base tier kick does.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'cmux-gcp-pr-control-jit-x64' }}
     timeout-minutes: 35
     # One coalesce job waits at a time; a newer push's replaces a pending one (never a started one). One that slept
     # yields to a newer push when it wakes (#33872), so no push waits two windows. A dispatch (next_batch's web lane),
@@ -125,7 +125,7 @@ jobs:
     name: web bisect
     needs: [coalesce, web]
     if: ${{ always() && github.event_name == 'push' && needs.coalesce.result == 'success' && needs.web.result == 'failure' && needs.coalesce.outputs.base != '' && needs.coalesce.outputs.base != 'all' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'cmux-gcp-pr-control-jit-x64' }}
     timeout-minutes: 75
     # actions: read: the base's webview test history is an artifact of its newest push.
     permissions:

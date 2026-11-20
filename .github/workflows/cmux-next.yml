@@ -777,7 +777,7 @@ jobs:
     if: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 && !contains(github.event.pull_request.labels.*.name, 'leo-named-fix') && format('{0}', vars.CI_PR_QUIET_PERIOD_SECONDS) != '0' }}
     name: cmux-next PR quiet period
     # Why: docs/ci/cmux-next-workflow-notes.md#note-85
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'cmux-gcp-pr-control-jit-x64' }}
     timeout-minutes: 12
     permissions: {}
     steps:
@@ -855,7 +855,7 @@ jobs:
     if: ${{ always() && !cancelled() && inputs.same_tree_sha == '' }}
     name: cmux-next path routing
     # Why: docs/ci/cmux-next-workflow-notes.md#note-358
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'cmux-gcp-pr-control-jit-x64' }}
     # Why: docs/ci/cmux-next-workflow-notes.md#note-88
     timeout-minutes: 8
     permissions:
@@ -1287,7 +1287,7 @@ jobs:
     needs: path_route
     if: ${{ !cancelled() && inputs.dev_daily == true && inputs.same_tree_sha == '' && needs.path_route.outputs.tree_state == 'deferred' }}
     name: cmux NEXT DEV daily tree wait
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'cmux-gcp-pr-control-jit-x64' }}
     timeout-minutes: 60
     permissions:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-107
@@ -1595,7 +1595,7 @@ jobs:
     if: ${{ !cancelled() && inputs.dev_daily != true && inputs.base_tier != true && inputs.same_tree_sha == '' }}
     name: cmux-next checks (god files, concurrency, crash safety, l10n)
     # Why: docs/ci/cmux-next-workflow-notes.md#note-396
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'cmux-gcp-pr-control-jit-x64' }}
     # Why: docs/ci/cmux-next-workflow-notes.md#note-349
     timeout-minutes: ${{ github.repository_owner == 'manaflow-ai' && needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && !contains(needs.portable-placement.outputs.linux_jobs, ' checks ') && contains(needs.portable-placement.outputs.mini_jobs, ' checks ') && needs.portable-placement.outputs.mini_runner != '' && 35 || 15 }}
     permissions:
@@ -3687,7 +3687,7 @@ jobs:
       group: ${{ github.event_name == 'push' && format('cmux-next-push-{0}-fast-tier-cargo', github.ref) || format('cmux-next-run-{0}-fast-tier-cargo', github.run_id) }}
       cancel-in-progress: false
     # Why: docs/ci/cmux-next-workflow-notes.md#note-206
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'cmux-gcp-pr-control-jit-x64' }}
     permissions:
       # The reuse lookup lists artifacts.
       actions: read
@@ -5344,7 +5344,7 @@ jobs:
     needs: [path_route, swift-test, daemon-test]
     if: ${{ !cancelled() && (needs.path_route.outputs.generated_host == 'swift-test' && needs.swift-test.result != 'skipped' || needs.path_route.outputs.generated_host == 'daemon-test' && needs.daemon-test.result != 'skipped') }}
     name: cmux-next generated files (shared build)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'cmux-gcp-pr-control-jit-x64' }}
     timeout-minutes: 5
     permissions: {}
     steps:
@@ -5735,7 +5735,7 @@ jobs:
     # Why: docs/ci/cmux-next-workflow-notes.md#note-292
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.path_route.result == 'success' && needs.checks.result == 'success' && (needs.generated-files.result == 'success' || needs.generated-files.result == 'skipped' && needs.generated-verdict.result == 'success') && needs.swift-test.result == 'success' && needs.daemon-test.result == 'success' }}
     name: cmux-next Swift exports cache
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'cmux-gcp-pr-control-jit-x64' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -6417,7 +6417,7 @@ jobs:
     needs: [cmux-scheme-compile]
     if: ${{ !cancelled() && inputs.dev_daily != true && needs.cmux-scheme-compile.result != 'skipped' }}
     name: cmux-next crash ends the app
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'cmux-gcp-pr-control-jit-x64' }}
     timeout-minutes: 3
     permissions: {}
     steps:

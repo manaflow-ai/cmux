@@ -173,7 +173,7 @@ jobs:
 
   plan:
     if: github.event_name != 'schedule' && github.repository == 'manaflow-ai/cmux' && (github.ref == 'refs/heads/nightly-next' || github.event_name == 'push' || inputs.mode == 'dry-run')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'schedule' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'schedule' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && 'cmux-linux' || 'cmux-gcp-pr-control-jit-x64' }}
     timeout-minutes: 15
     permissions:
       actions: read
@@ -273,7 +273,7 @@ jobs:
   crash-class:
     needs: plan
     if: needs.plan.outputs.go == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'schedule' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && (needs.plan.outputs.commit == github.sha || needs.plan.outputs.commit == github.event.pull_request.head.sha && github.event_name == 'pull_request') && 'cmux-linux' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'schedule' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && (needs.plan.outputs.commit == github.sha || needs.plan.outputs.commit == github.event.pull_request.head.sha && github.event_name == 'pull_request') && 'cmux-linux' || 'cmux-gcp-pr-control-jit-x64' }}
     timeout-minutes: 20
     permissions:
       contents: read

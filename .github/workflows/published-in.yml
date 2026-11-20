@@ -28,7 +28,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_TRUSTED_RUNNER == 'ubuntu-24.04' && 'ubuntu-24.04' || 'cmux-gcp-pr-control-jit-x64' }} # ephemeral-required: pull-requests:write token; CI_TRUSTED_RUNNER selects a one-job runner
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-pr-control-jit-x64' }} # ephemeral-required: pull-requests:write token
     # Each write is paced at 7.5 s under GitHub's hourly content limit.
     # A shared edit plus a legacy deletion for all 1,000 allowed PRs takes
     # 250 min; leave room for reads. A refusal stops the run; reruns are safe.

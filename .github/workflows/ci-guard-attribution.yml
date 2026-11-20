@@ -130,7 +130,7 @@ jobs:
     name: ${{ needs.analyze.outputs.headline || 'report' }}
     needs: analyze
     if: ${{ needs.analyze.outputs.state == 'red' || needs.analyze.outputs.state == 'green' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_TRUSTED_RUNNER == 'ubuntu-24.04' && 'ubuntu-24.04' || 'cmux-gcp-pr-control-jit-x64' }} # ephemeral-required: trusted report writer; CI_TRUSTED_RUNNER selects a one-job runner
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-pr-control-jit-x64' }} # ephemeral-required: trusted report writer
     timeout-minutes: 10
     permissions:
       contents: read

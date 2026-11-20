@@ -189,7 +189,7 @@ LEGACY_TRUSTED_RUNNER_LINE = re.compile(
 # have their own trusted validator and keep its exact reviewed selector.
 JIT_SELECTOR = (
     "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-    "vars.CI_TRUSTED_RUNNER == 'ubuntu-24.04' && 'ubuntu-24.04' || 'cmux-gcp-pr-control-jit-x64' }}"
+    "'cmux-gcp-pr-control-jit-x64' }}"
 )
 JIT_RUNNER_LINE = re.compile(r"^\s*runs-on:\s*" + re.escape(JIT_SELECTOR) + r"\s*(?:#.*)?$")
 
@@ -1110,7 +1110,9 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                                 if "'cmux-linux'" in label:
                                     # The persistent fleet carries legacy provider labels as aliases.
                                     # Check the isolated destination positively, even for a missing head.
-                                    self.assertEqual(choices, {"ubuntu-24.04"})
+                                    expected = ("ubuntu-24.04" if event == "pull_request" and head
+                                                and head != context["github.repository"] else "cmux-gcp-pr-control-jit-x64")
+                                    self.assertEqual(choices, {expected})
                                 else:
                                     self.assertNotIn("cmux-linux", {str(v).lower() for v in choices})
         self.assertIn(("pull_request", "pr-checks.yml", "size"), checked)
