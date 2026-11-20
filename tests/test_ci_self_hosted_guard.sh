@@ -1471,6 +1471,10 @@ PY_LIGHT
     # (hq docs/handbook/repair-path-on-the-pool-it-repairs.md;
     # check_queue_janitor_runs_off_the_pools_it_judges).
     "ci-queue-janitor.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_JANITOR_ON_FLEET == '1' && 'cmux-fleet-linux-x64' || 'ubuntu-24.04' }}"
+    # Its watchdog runs off the label the sweep runs on, so it is hosted Ubuntu
+    # exactly when CI_QUEUE_JANITOR_ON_FLEET=1 puts the sweep on the fleet label
+    # (tests/test_ci_janitor_watchdog_route.py).
+    "ci-queue-janitor-watchdog.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_JANITOR_ON_FLEET != '1' && 'cmux-fleet-linux-x64' || 'ubuntu-24.04' }}"
   )
   # The declared hosted light jobs' exact runs-on lines (validated above).
   local light_line
