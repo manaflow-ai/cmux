@@ -13,7 +13,6 @@ use crate::{JournalCheckpoint, JournalContentRef, JournalReplayPolicy, Mux, Sess
 
 pub(crate) const JOURNAL_REDUCER_VERSION: u32 = 1;
 const MAX_CHECKPOINT_TERMINALS: usize = 4096;
-const MAX_CHECKPOINT_UNCOMPRESSED_BYTES: u64 = 256 * 1024 * 1024;
 const CHECKPOINT_REPLAY_RETRY_BUDGETS: [usize; 3] = [
     crate::surface::VT_REPLAY_MAX_BYTES,
     crate::surface::VT_REPLAY_MAX_BYTES * 2,
@@ -89,13 +88,13 @@ fn capture_attempt(mux: &Mux) -> anyhow::Result<Option<CapturedCheckpoint>> {
         "checkpoint contains more than {MAX_CHECKPOINT_TERMINALS} terminals"
     );
 
-    let (blobs, recovered) = capture_terminal_blobs(mux, &terminal_ids)?;
-    mux.flush_terminal_journal()?;
-    if recovered {
-        // CAN advances the journal. Start a complete new attempt so terminal
-        // IDs and extension manifests come from the new consistency cut too.
-        return Ok(None);
-    }
+    // Terminal screens stay out of the journal (output_store.rs): a
+    // checkpoint names its terminals but keeps no replay blob, and output
+    // never moves the journal head, so a terminal that prints without end
+    // no longer fails the cut below. The output store writes its changed
+    // snapshots now instead (none in memory mode).
+    mux.output_store.write_now(mux);
+    let blobs = Vec::new();
 
     // Verify against one cut as well, so a write landing between two separate
     // head and cursor reads cannot fail a capture that was in fact stable.
@@ -118,29 +117,6 @@ fn capture_attempt(mux: &Mux) -> anyhow::Result<Option<CapturedCheckpoint>> {
         }),
         blobs,
     }))
-}
-
-fn capture_terminal_blobs(
-    mux: &Mux,
-    terminal_ids: &[TerminalPublicId],
-) -> anyhow::Result<(Vec<JournalContentBlob>, bool)> {
-    let mut total_bytes = 0_u64;
-    let mut recovered = false;
-    let mut blobs = Vec::new();
-    for terminal_id in terminal_ids {
-        let Some(surface) = mux.terminal_resource_surface(terminal_id) else { continue };
-        let (blob, terminal_recovered) = terminal_replay_blob_with_recovery(&surface, terminal_id)?;
-        recovered |= terminal_recovered;
-        total_bytes = total_bytes
-            .checked_add(blob.reference.uncompressed_bytes)
-            .context("checkpoint content byte count overflow")?;
-        anyhow::ensure!(
-            total_bytes <= MAX_CHECKPOINT_UNCOMPRESSED_BYTES,
-            "checkpoint terminal content exceeds {MAX_CHECKPOINT_UNCOMPRESSED_BYTES} bytes"
-        );
-        blobs.push(blob);
-    }
-    Ok((blobs, recovered))
 }
 
 pub(crate) fn capture_error_is_retryable(error: &anyhow::Error) -> bool {
@@ -847,9 +823,6 @@ mod tests {
         JournalAuthority, JournalClass, JournalEventSchema, JournalProducer,
         JournalProducerManifest, JournalSensitivity, JournalSubject,
     };
-    use base64::Engine;
-    use flate2::read::GzDecoder;
-    use std::io::Read;
     use std::sync::Arc;
 
     thread_local! {
@@ -1517,123 +1490,6 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn checkpoint_capture_recovers_from_an_unreplayable_kitty_upload() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-journal-checkpoint-kitty-overflow-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        let mux = Mux::open_persistent(
-            "checkpoint-kitty-overflow",
-            crate::SurfaceOptions::default(),
-            &root,
-        )
-        .unwrap();
-        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
-        let surface_id = mux
-            .seed_running_terminal_for_test(
-                "00000000000040008000000000000070",
-                "10000000000040008000000000000070",
-                &workspace.key,
-            )
-            .unwrap();
-        let surface = mux.surface(surface_id).unwrap();
-        surface
-            .try_with_terminal(|terminal| terminal.set_kitty_inflight_storage_limit(64))
-            .unwrap();
-        let public_id = match &surface.resource_identity().unwrap().content_id {
-            crate::resource::ContentPublicId::Terminal(public_id) => public_id.clone(),
-            crate::resource::ContentPublicId::Browser(_) => unreachable!(),
-        };
-        let mut upload = b"\x1b_Ga=t,t=d,f=24,i=197,s=1,v=1,m=1,q=2;".to_vec();
-        upload.resize(1024, b'A');
-        surface.apply_local_pty_output_for_test(&upload).unwrap();
-        mux.journal_terminal_output(
-            Arc::new(public_id.clone()),
-            Arc::from("10000000000040008000000000000070"),
-            upload.clone(),
-        );
-
-        AFTER_RECOVERY_HOOK.with_borrow_mut(|slot| {
-            let mux = mux.clone();
-            *slot = Some(Box::new(move || {
-                mux.seed_running_terminal_for_test(
-                    "00000000000040008000000000000073",
-                    "10000000000040008000000000000073",
-                    &workspace.key,
-                )
-                .unwrap();
-                mux.put_journal_producer(
-                    &JournalProducerManifest {
-                        producer_id: "recovery_race".into(),
-                        namespace: "plugin.recovery_race".into(),
-                        manifest_version: 1,
-                        max_sensitivity: JournalSensitivity::Metadata,
-                        permissions: vec!["journal.append.plugin.recovery_race".into()],
-                        events: vec![JournalEventSchema {
-                            kind: "plugin.recovery_race.event".into(),
-                            schema_version: 1,
-                            class: JournalClass::Observation,
-                            replay: JournalReplayPolicy::Advisory,
-                            sensitivity: JournalSensitivity::Metadata,
-                            payload_schema: json!({"type":"object"}),
-                        }],
-                    },
-                    "client_test",
-                    "recovery_race_producer",
-                )
-                .unwrap();
-            }));
-        });
-
-        let captured =
-            capture(&mux).expect("checkpoint capture should recover the terminal parser");
-        assert_eq!(captured.state["session_snapshot"]["terminals"].as_array().unwrap().len(), 2);
-        assert_eq!(captured.blobs.len(), 2, "recovery must refresh the captured terminal list");
-        assert!(
-            captured.state["journal_extensions"]["producers"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|producer| producer["producer_id"] == "recovery_race"),
-            "recovery must refresh extension manifests with the consistency cut"
-        );
-
-        let mut decoded = Vec::new();
-        let blob = captured
-            .blobs
-            .iter()
-            .find(|blob| blob.reference.terminal_id == public_id.as_str())
-            .unwrap();
-        GzDecoder::new(blob.compressed.as_slice()).read_to_end(&mut decoded).unwrap();
-        let replay: Value = serde_json::from_slice(&decoded).unwrap();
-        let replay_bytes = base64::engine::general_purpose::STANDARD
-            .decode(replay["bytes_base64"].as_str().unwrap())
-            .unwrap();
-        assert!(
-            !replay_bytes.windows(3).any(|window| window == b"\x1b_G"),
-            "checkpoint replay must drop the unreplayable Kitty upload"
-        );
-
-        mux.journal_terminal_output(
-            Arc::new(public_id.clone()),
-            Arc::from("10000000000040008000000000000070"),
-            b"visible after recovery".to_vec(),
-        );
-        mux.flush_terminal_journal().unwrap();
-        let output = mux.terminal_output_read(&public_id, None, 1 << 20).unwrap();
-        assert!(
-            output["text"].as_str().unwrap().contains("visible after recovery"),
-            "checkpoint recovery must journal the synthetic CAN before later output"
-        );
-
-        drop(surface);
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[cfg(unix)]
-    #[test]
     fn checkpoint_capture_resolves_public_terminal_ids() {
         let root = std::env::temp_dir().join(format!(
             "cmux-journal-checkpoint-terminal-{}-{}",
@@ -1652,42 +1508,11 @@ mod tests {
         .unwrap();
 
         let captured = capture(&mux).unwrap();
-        assert_eq!(captured.blobs.len(), 1);
-        assert!(captured.blobs[0].reference.terminal_id.starts_with("term_"));
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn checkpoint_rejects_terminal_state_ahead_of_journal_ingress() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-journal-checkpoint-fence-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        let mux = Mux::open_persistent("checkpoint-fence", crate::SurfaceOptions::default(), &root)
-            .unwrap();
-        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
-        let surface_id = mux
-            .seed_running_terminal_for_test(
-                "00000000000040008000000000000072",
-                "10000000000040008000000000000072",
-                &workspace.key,
-            )
-            .unwrap();
-        let surface = mux.surface(surface_id).unwrap();
-        {
-            let mut pending_output = surface.begin_terminal_journal_update_for_test().unwrap();
-            assert!(pending_output.activate(), "terminal journal update must be active");
-            let error = match capture(&mux) {
-                Ok(_) => panic!("checkpoint accepted unsettled terminal output"),
-                Err(error) => error,
-            };
-            assert!(error.to_string().contains("terminal journal ingress is unsettled"));
-        }
-
-        drop(surface);
+        // Terminal screens stay out of the journal (output_store.rs).
+        assert!(captured.blobs.is_empty());
+        let terminals = captured.state["session_snapshot"]["terminals"].as_array().unwrap();
+        assert_eq!(terminals.len(), 1);
+        assert!(terminals[0]["id"].as_str().unwrap().starts_with("term_"));
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }

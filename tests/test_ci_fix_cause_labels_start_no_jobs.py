@@ -333,8 +333,6 @@ class FixCauseLabelsStartNoJobs(unittest.TestCase):
         self.assertEqual(jobs_started(workflows["risk-tier.yml"], context), ["evidence"])
         self.assertEqual(jobs_started(workflows["merge-freeze.yml"], context), ["check"])
         self.assertEqual(jobs_started(workflows["backend-migrations.yml"], context), ["plan", "gate"])
-        approved = event("labeled", "test-integrity-approved", state="open")
-        self.assertEqual(jobs_started(workflows["test-integrity.yml"], approved), ["deleted-or-weakened-tests"])
 
     def test_an_unguarded_labeled_workflow_fails(self):
         with tempfile.TemporaryDirectory() as directory:

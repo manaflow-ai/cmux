@@ -266634,25 +266634,25 @@
         }
       }
     },
-    "mobile.pairing.target.demo": {
+    "mobile.pairing.target.classic": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux DEMO"
+            "value": "cmux CLASSIC"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux DEMO"
+            "value": "cmux CLASSIC"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux DEMO"
+            "value": "cmux CLASSIC"
           }
         }
       }

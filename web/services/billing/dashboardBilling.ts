@@ -30,6 +30,7 @@ import {
   NEXT_PLAN_METADATA_KEY,
   higherNextPlanId,
   nextPlanCheckoutAvailability,
+  nextGrantPlanIdFromMetadata,
   nextPlanId,
   type NextPlanId,
 } from "./nextPlans";
@@ -159,7 +160,8 @@ export async function loadDashboardBilling(
 /**
  * The cmux NEXT plan from the account's metadata: a subscription mirror
  * (`cmuxNextPlan`, else a NEXT value in `cmuxPlan`) or an operator grant
- * (`cmuxVmPlan`); the higher one is the plan in force.
+ * (`cmuxNextVmPlan`, else a legacy NEXT id in `cmuxVmPlan`); the higher one
+ * is the plan in force.
  */
 export function nextCloudBilling(
   metadata: unknown,
@@ -169,7 +171,7 @@ export function nextCloudBilling(
     ? metadata as Record<string, unknown>
     : {};
   const subscribed = nextPlanId(record[NEXT_PLAN_METADATA_KEY]) ?? nextPlanId(record.cmuxPlan);
-  const granted = nextPlanId(record.cmuxVmPlan);
+  const granted = nextGrantPlanIdFromMetadata(record);
   const planId = higherNextPlanId(subscribed, granted);
   return {
     planId,

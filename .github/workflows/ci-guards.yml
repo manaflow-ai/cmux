@@ -286,6 +286,11 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_classify_failures.py
 
+      # scripts/ci/oops is cmuxterm-hq tools/ci-oops, vendored byte for byte (ci-oops.yml runs it on a red).
+      - name: Validate the vendored ci-oops classifier
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 scripts/ci/oops/test_ci_oops_vendored.py
+
       - name: Validate the workflow_run handlers' API budget
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_run_api_budget.py
@@ -488,6 +493,10 @@ jobs:
       - name: Test Computer Use drag regression harness
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_cmux_cua_drag_cursor_harness.py
+
+      - name: Test the Computer Use helper publish check
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_cmux_cua_helper_run_check.py
 
       - name: Validate Python test execution registry
         if: ${{ matrix.group == 'preflight' }}
@@ -995,6 +1004,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_are_bounded.py
 
+      - name: Validate superseded pull request runs are cancelled
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_runs_cancel_superseded.py
+
       - name: Validate required checks have no paths filters
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_have_no_path_filters.py
@@ -1321,17 +1334,9 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_testflight_notes.py
 
-      - name: Validate CMUX INTERNAL main-push path filter
-        if: ${{ matrix.group == 'release-ios' }}
-        run: python3 tests/test_ios_testflight_main_push_filter.py
-
       - name: Validate external TestFlight group assignment helper
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_testflight_external_distribution.py
-
-      - name: Validate Pro TestFlight distribution workflow
-        if: ${{ matrix.group == 'release-ios' }}
-        run: python3 tests/test_ios_testflight_pro_distribution.py
 
       - name: Validate iOS App Store lane identity
         if: ${{ matrix.group == 'release-ios' }}
@@ -1345,7 +1350,7 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 ios/tests/test_appstore_review_package.py
 
-      - name: Validate the cmux.app upload marker follows the receipt
+      - name: Validate the cmux CLASSIC upload marker follows the receipt
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_appstore_upload_marker.py
 
@@ -1356,18 +1361,6 @@ jobs:
       - name: Validate iOS screenshot capture fail-fast
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_screenshot_capture_guard.py
-
-      - name: Validate TestFlight assignment after a post-upload failure
-        if: ${{ matrix.group == 'release-ios' }}
-        run: python3 tests/test_ios_testflight_assignment_after_upload.py
-
-      - name: Validate the TestFlight archive log is kept on failure
-        if: ${{ matrix.group == 'release-ios' }}
-        run: python3 tests/test_ios_testflight_archive_log.py
-
-      - name: Validate TestFlight migration candidate preparation
-        if: ${{ matrix.group == 'release-ios' }}
-        run: python3 ios/tests/test_testflight_prepare_only.py
 
       - name: Validate iOS upload lean checkout
         if: ${{ matrix.group == 'release-ios' }}

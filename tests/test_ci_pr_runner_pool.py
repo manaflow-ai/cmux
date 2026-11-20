@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import datetime as dt
 import importlib.util
@@ -3144,7 +3145,7 @@ class Wiring(unittest.TestCase):
 
 
 IOS_SIM = "glaeda-ios-sim"
-SIGNING_WORKFLOWS = ("ios-testflight.yml", "ios-app-store.yml", "ios-appstore-upload.yml")
+SIGNING_WORKFLOWS = ("ios-app-store.yml", "ios-appstore-upload.yml")
 IOS_SLOTS = {MINI: 40, ROOT_MINI: 10, IOS_SIM: 2}
 
 
@@ -3155,7 +3156,8 @@ IOS_XCODE_PIN = ("${{ startsWith(needs.runner.outputs.label, 'glaeda-') && (gith
 
 def ios_route(snap=None, *, lane="test-ios", requested="auto", variable="", ios_owned="1", owned="1",
               slots=None, ios_version="", device_family="", upload="", called="", ios_since=0, measure=None,
-              swift_package="", seed_cache="", fork=False, queue_rounds=None, pull_requests_since=0, log=None):
+              swift_package="", seed_cache="", fork=False, queue_rounds=None, pull_requests_since=0, log=None,
+              blacksmith_on=True):
     calls = []
 
     def measured():
@@ -3170,7 +3172,7 @@ def ios_route(snap=None, *, lane="test-ios", requested="auto", variable="", ios_
         pr_xcode_app=PR_XCODE, order="", max_queued="",
         ios_version=ios_version, device_family=device_family, upload=upload, called=called,
         swift_package=swift_package, seed_cache=seed_cache, measure=measured, now=NOW, fork=fork,
-        queue_rounds=queue_rounds, log=log or (lambda message: None))
+        queue_rounds=queue_rounds, log=log or (lambda message: None), blacksmith_on=blacksmith_on)
     return route, len(calls)
 
 
@@ -4210,6 +4212,111 @@ class IOSRouting(unittest.TestCase):
         # In-flight runs are asked for by status, so completed ones never fill the page.
         self.assertIn(("test-ios.yml", "in_progress"), FakeGitHub.asked)
         self.assertIn(("ios-screenshots.yml", "queued"), FakeGitHub.asked)
+
+class IOSBlacksmithSwitch(unittest.TestCase):
+    """vars.CI_BLACKSMITH_MACOS off: a run the iOS minis can take waits on them, never on Blacksmith.
+
+    2026-11-17, #44963: with the switch off, test-ios.yml's ios-simulator (ipad), ios-simulator (iphone) and
+    mobile-core-package sat queued on blacksmith-6vcpu-macos-26, the default ios_runner_pool.py keeps when the
+    owned pool has no room.
+    """
+
+    @staticmethod
+    def blacksmith(route) -> list[str]:
+        labels = []
+        for value in (route.runs_on, route.sim_runs_on, route.package_runs_on, route.retry_runs_on):
+            value = json.loads(value)
+            labels.extend(value if isinstance(value, list) else [value])
+        labels.append(route.retry_label)
+        return [label for label in labels if label.startswith("blacksmith-")]
+
+    def test_only_on_allows_blacksmith(self):
+        self.assertTrue(ios_pool.blacksmith_allowed({}))
+        self.assertTrue(ios_pool.blacksmith_allowed({"CI_BLACKSMITH_MACOS": "on"}))
+        for value in ("", "off", "pr-rescue"):
+            self.assertFalse(ios_pool.blacksmith_allowed({"CI_BLACKSMITH_MACOS": value}), value)
+
+    @staticmethod
+    def live(pool=0, sim=0, online=4, sim_online=2):
+        return ios_pool.IOSLoad(None, live=ios_pool.LiveFree(pool=pool, sim=sim, online=online, sim_online=sim_online))
+
+    def assert_waits_on_the_minis(self, route):
+        self.assertTrue(route.persistent)
+        self.assertEqual(json.loads(route.runs_on), [MINI, IOS_SIM])
+        self.assertEqual(json.loads(route.package_runs_on), MINI)
+        # A re-run is the escape (owned_pool_rescue.PICKED_PERSISTENT_RETRY): the paid label, so the rescue's
+        # OWNED_WAIT_BOUND_SECONDS move from attempt 1 leaves the minis (bot_rerun_leaves_owned()).
+        self.assertEqual(json.loads(route.retry_runs_on), SMALL)
+        self.assertEqual(route.retry_label, SMALL)
+        self.assertEqual(self.blacksmith(route), [SMALL, SMALL])
+
+    def test_a_full_pool_with_runners_online_waits_on_the_minis_while_off(self):
+        self.assertFalse(ios_route(measure=self.live, variable=SMALL)[0].persistent)  # on: today's default
+        route, calls = ios_route(measure=self.live, variable=SMALL, blacksmith_on=False)
+        self.assert_waits_on_the_minis(route)
+        self.assertEqual(calls, 1)  # one runners read decides both
+
+    def test_no_owned_runner_online_keeps_the_paid_route_while_off(self):
+        # Every owned Mac offline: waiting there would sit out GitHub's queue limit (as simple_pool_picker's
+        # `pool.capacity > 0`).
+        route, _ = ios_route(measure=lambda: self.live(online=0, sim_online=0), blacksmith_on=False)
+        self.assertFalse(route.persistent)
+        self.assertEqual(json.loads(route.runs_on), SMALL)
+
+    def test_no_simulator_runner_online_keeps_the_paid_route_while_off(self):
+        route, _ = ios_route(measure=lambda: self.live(online=4, sim_online=0), blacksmith_on=False)
+        self.assertFalse(route.persistent)
+        # The package lane needs no simulator: an online pool runner is enough.
+        route, _ = ios_route(measure=lambda: self.live(online=4, sim_online=0), blacksmith_on=False,
+                             swift_package="CmuxMobileCore")
+        self.assertTrue(route.persistent)
+
+    def test_no_live_runner_read_keeps_the_paid_route_while_off(self):
+        # The snapshot counts jobs, not online runners; an unreadable queue proves nothing either.
+        self.assertFalse(ios_route(sim_fleet(busy=40, small=0, large=0), variable=SMALL,
+                                   blacksmith_on=False)[0].persistent)
+
+        def broken():
+            raise RuntimeError("no snapshot")
+        self.assertFalse(ios_route(measure=broken, blacksmith_on=False)[0].persistent)
+
+    def test_an_owned_pick_still_retries_on_the_paid_label_while_off(self):
+        route, _ = ios_route(sim_fleet(), blacksmith_on=False)
+        self.assertTrue(route.persistent)
+        self.assertEqual(json.loads(route.retry_runs_on), SMALL)
+
+    def test_live_free_counts_the_online_runners(self):
+        def runner(name, labels, status="online", busy=False):
+            return {"name": name, "status": status, "busy": busy, "labels": [{"name": label} for label in labels]}
+        runners = [runner("m1-a", [MINI, IOS_SIM], busy=True), runner("m2-a", [MINI]),
+                   runner("m3-a", [MINI, IOS_SIM], status="offline")]
+        live = ios_pool.live_free(runners, MINI, [], now=NOW, capacity=4)
+        self.assertEqual((live.online, live.sim_online), (2, 1))
+
+    def test_the_no_token_path_retries_on_the_paid_label_while_off(self):
+        lines = io.StringIO()
+        env = {"CI_BLACKSMITH_MACOS": "", "CI_PR_POOL_OWNED": "1"}
+        choice = ios_pool.simple_pool_picker.Choice(MINI, "owned", PR_XCODE, True)
+        with unittest.mock.patch.object(ios_pool.simple_pool_picker, "pick", return_value=choice), \
+                unittest.mock.patch.object(ios_pool.simple_pool_picker, "observe", return_value=None), \
+                contextlib.redirect_stdout(lines):
+            ios_pool.main(["--lane", "test-ios", "--owned", "1", "--ios-owned", "1"], env=env)
+        out = dict(line.split("=", 1) for line in lines.getvalue().splitlines() if "=" in line)
+        self.assertEqual(out["retry_label"], SMALL)
+        self.assertEqual(json.loads(out["retry_runs_on"]), SMALL)
+
+    def test_what_the_minis_cannot_run_still_takes_blacksmith(self):
+        for kwargs in ({"fork": True}, {"ios_version": "18.4"}, {"seed_cache": "true"}, {"called": "true"},
+                       {"ios_owned": ""}, {"owned": ""}, {"slots": {MINI: 40, ROOT_MINI: 10}}):
+            route, _ = ios_route(sim_fleet(busy=40), blacksmith_on=False, **kwargs)
+            self.assertFalse(route.persistent, kwargs)
+
+    def test_the_workflows_pass_the_switch_to_the_picker(self):
+        for name in ("test-ios.yml", "ios-screenshots.yml"):
+            steps = yaml.safe_load((WORKFLOWS / name).read_text())["jobs"]["runner"]["steps"]
+            pick = next(step for step in steps if "ios_runner_pool.py" in str(step.get("run", "")))
+            self.assertEqual(pick["env"].get("CI_BLACKSMITH_MACOS"), "${{ vars.CI_BLACKSMITH_MACOS }}", name)
+
 
 class E2EQueueRounds(unittest.TestCase):
     """e2e_runner_pool.py queues for an owned pool within CI_PR_POOL_QUEUE_ROUNDS, as pull requests do."""
