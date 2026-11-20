@@ -78,6 +78,8 @@ fn hold_creation_lease(folder: &std::path::Path) -> cmux_file_lock::FileLock {
         .read(true)
         .write(true)
         .create(true)
+        // A lease file is shared with other holders: never truncate it.
+        .truncate(false)
         .open(cmux_git::sync_barrier::creation_lock_path(folder))
         .unwrap();
     match cmux_file_lock::FileLock::try_take(file, cmux_file_lock::Kind::Exclusive) {
