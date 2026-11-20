@@ -1,4 +1,5 @@
 public import AppKit
+import CMUXAuthCore
 public import CmuxNextAgentPane
 public import CmuxNextCompat
 public import CmuxNextDesign
@@ -44,8 +45,19 @@ public final class IPhoneHostService {
         /// The mobile service.
         var baseURL: URL
         var stackProjectID: String
+        /// The build's cloud data space (``CloudConfiguration/buildSpace``): a tagged dev build's goes to hostd; a
+        /// misconfigured dev build starts no hostd and lists no phones (``CMUXBuildSpaceError``).
+        var buildSpace: CMUXBuildSpaceState
         /// Per-bundle state (device id, hostd log).
         var stateDirectory: URL
+        /// The name this Mac's identity key is kept under in the Keychain
+        /// (``MobileHostPairedStore/sealName(bundleID:storageNamespace:adHocCode:)`` without the code): the
+        /// bundle id, and a dev build's Cloud backend namespace with it. A re-signed build that may not read
+        /// it keeps its key in the state folder's file instead (``MobileHostMacIdentityStore``).
+        var keychainName: String?
+        /// The name the paired list is sealed under: ``keychainName``, and an ad hoc build's own code with
+        /// it, so each ad hoc build reads the seal it made (``MobileHostPairedStore/sealName(bundleID:storageNamespace:adHocCode:)``).
+        var pairingSealName: String?
         var accessToken: @Sendable (_ forceRefresh: Bool) async throws -> String
         /// The app's own cmux-tui daemon socket.
         var daemonSocket: @MainActor () async throws -> String
@@ -71,6 +83,12 @@ public final class IPhoneHostService {
         var cloudLinks: @Sendable () async -> MobileHostCloudLinks = { MobileHostCloudLinks() }
         /// Test-only (DEBUG): phones this tagged test instance trusts without the prompt.
         var pairingSeed: IPhonePairingSeed?
+        /// DEBUG tagged dev builds only: this tag's own iPhone app pairs without the prompt
+        /// (``IPhoneDevAutoApprove``); nil in Release, other builds and `--approve-first` launches.
+        var devAutoApprove: IPhoneDevAutoApprove?
+        /// This build's dev tag (any configuration; nil unless a tagged dev build): another tag's
+        /// dev iPhone app asks quietly (``IPhoneDevAutoApprove/asksQuietly(_:macDevTag:)``).
+        var macDevTag: String?
         /// This app's own Chief owner: its session (from the app's `ChiefHome`, always known)
         /// and its socket once connected. hostd's `chief` service dials it; without it hostd
         /// guesses `~/.cmux/chief/default`, which is not a DEV or tagged build's Chief.
@@ -106,6 +124,7 @@ public final class IPhoneHostService {
         launch.simulatorSurfaces = dependencies.surfaceHosts?.streamsSimulators ?? false
         launch.chiefSession = chief?.session
         launch.chiefSocket = chief?.socket
+        launch.buildSpace = dependencies.buildSpace.space
         return launch
     }
 
@@ -167,6 +186,8 @@ public final class IPhoneHostService {
     /// The pre-approval behind this Mac's pairing code (``pairInvite()``): a phone presenting the
     /// live one pairs without the prompt, once.
     @ObservationIgnored var pairTokens = MobileHostPairTokens()
+    /// Pair requests that came before the paired list was in, answered once it is (``MobileHostHeldPairRequests``).
+    @ObservationIgnored var heldPairRequests = MobileHostHeldPairRequests()
     /// This Mac's identity public key, as hostd proves it to phones (nil until hostd started).
     @ObservationIgnored private(set) var macPublicKey: Data?
     /// The open "Allow … to connect?" dialog: its dialog id and the request it shows.
@@ -237,6 +258,7 @@ public final class IPhoneHostService {
                 guard let self else { return }
                 paired = self.pairedStore.current
                 pushPaired()
+                answerHeldPairRequests()
             }
         }
         wakeObserver = MainActorObservation(NSWorkspace.didWakeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
@@ -310,7 +332,7 @@ public final class IPhoneHostService {
             phonesError = nil
             return pushListedPhones()
         }
-        let directory = MobileHostDeviceDirectory(baseURL: dependencies.baseURL)
+        let directory = MobileHostDeviceDirectory(baseURL: dependencies.baseURL, buildSpace: dependencies.buildSpace)
         // task-owner: stored in `listing`; a newer read cancels it
         listing = Task { [weak self] in
             do {
@@ -338,7 +360,7 @@ public final class IPhoneHostService {
         }
         guard let dependencies, let phone = knownPhones.first(where: { $0.id == id || $0.owns(id) }) else { return }
         do {
-            try await MobileHostDeviceDirectory(baseURL: dependencies.baseURL).remove(phone, token: dependencies.accessToken(false))
+            try await MobileHostDeviceDirectory(baseURL: dependencies.baseURL, buildSpace: dependencies.buildSpace).remove(phone, token: dependencies.accessToken(false))
             await supervisor.drop(phoneDeviceIDs: phone.deviceIDs)
             // Its pairing goes too: its links and Face ID approvals stop at once.
             for deviceID in phone.deviceIDs { revokePhone(id: deviceID) }
@@ -619,11 +641,17 @@ public final class IPhoneHostService {
                 return
             }
             do {
+                // A dev build with no usable tag would run hostd in nightly's space: it starts none.
+                try dependencies.buildSpace.check()
                 let deviceID = try MobileHostDeviceIdentity(directory: dependencies.stateDirectory).deviceID()
                 // The key phones pin for this Mac (Keychain; created on first use), read off the
                 // main actor: a Keychain call must never hold launch (a re-signed rig app's access
                 // prompt did, and the watchdog killed it).
-                let store = MobileHostMacIdentityStore(bundleID: dependencies.stateDirectory.deletingLastPathComponent().lastPathComponent,
+                // Named for this build (keychainName), never for the folder above the state folder: with a
+                // backend namespace that folder is the namespace, one login item every dev build on that
+                // backend shared, readable only by the build that made it (-25293 for the others).
+                let store = MobileHostMacIdentityStore(bundleID: dependencies.keychainName
+                                                       ?? dependencies.stateDirectory.deletingLastPathComponent().lastPathComponent,
                                                 stateDirectory: dependencies.stateDirectory, loginKeychain: loginKeychain)
                 // task-owner: one Keychain read per hostd start; awaited here
                 if self?.identityRefusalsKey != key { self?.identityRefusals = 0; self?.identityBackoff.reset() }
@@ -643,6 +671,14 @@ public final class IPhoneHostService {
                     log: dependencies.stateDirectory.appendingPathComponent("cmux-mobile-host.log", isDirectory: false),
                     browserHosts: dependencies.browserHosts, macIdentity: identity,
                     surfaceHosts: dependencies.surfaceHosts, cloudLinks: dependencies.cloudLinks))
+            } catch let refusal as CMUXBuildSpaceError {
+                // Does not pass by itself (a rebuild with a tag does): no retry, as for a blocked daemon socket.
+                guard !Task.isCancelled, self?.running == key else { return }
+                let reason = refusal.localizedDescription
+                logger.fault("iPhone host not started: \(reason, privacy: .public)")
+                await supervisor.stop(phase: .unavailable(reason))
+                guard !Task.isCancelled, self?.running == key, self?.reconcileGeneration == generation else { return }
+                self?.setKeepAwake(false)
             } catch MobileHostMacIdentityError.keychainRefused(let status) {
                 // The Keychain holds this Mac's identity but refused the read (locked at login or wake):
                 // try again shortly rather than prove a second key the phones would refuse. A stop() or a

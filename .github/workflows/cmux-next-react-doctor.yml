@@ -70,11 +70,48 @@ jobs:
           echo "projects=$projects" >> "$GITHUB_OUTPUT"
           echo "projects: ${projects:-none}"
 
+      # Content-addressed result, in shadow (scripts/ci/receipt_input_key.py; cmuxterm-hq RFD 0016 "Borg without
+      # Bazel"): the input key hashes what the scan reads for the selected projects. A green run records its
+      # unsigned ci-receipt/v1 under that key; a later run with the same key reports would_skip=true and still runs
+      # in full. Nothing is skipped until the controller signs receipts (RFD 0019). The cache entry is a shadow
+      # measurement, never skip evidence.
+      - name: Input key (shadow receipt)
+        id: key
+        if: steps.base.outputs.projects != ''
+        continue-on-error: true
+        env:
+          PROJECTS: ${{ steps.base.outputs.projects }}
+          BASE: ${{ steps.base.outputs.base }}
+        run: python3 scripts/ci/receipt_input_key.py key react-doctor --units "$PROJECTS" --base "$BASE" --output "$GITHUB_OUTPUT"
+
+      - name: Look up a receipt (shadow)
+        id: receipt
+        if: steps.key.outputs.input_key != ''
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/ci-receipt
+          key: ci-receipt-v1-react-doctor-${{ steps.key.outputs.input_key }}
+          lookup-only: true
+
+      - name: Would skip (shadow)
+        if: steps.key.outputs.input_key != ''
+        continue-on-error: true
+        env:
+          INPUT_KEY: ${{ steps.key.outputs.input_key }}
+          # A change to a pinned file (the gate's own scripts, tool or workflow; a check-paths.txt line) never skips.
+          HIT: ${{ steps.receipt.outputs.cache-hit == 'true' && steps.key.outputs.pinned != 'true' }}
+          PINNED: ${{ steps.key.outputs.pinned }}
+        run: |
+          echo "::notice title=ci-receipt shadow::react-doctor would_skip=$HIT pinned=$PINNED input_key=$INPUT_KEY"
+          echo "ci-receipt shadow: react-doctor would_skip=$HIT pinned=$PINNED input_key=$INPUT_KEY" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Setup Bun
         if: steps.base.outputs.projects != ''
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Setup Node
         if: steps.base.outputs.projects != ''
@@ -101,6 +138,24 @@ jobs:
           else
             python3 scripts/ci/react_doctor_gate.py --out-dir "$RUNNER_TEMP/react-doctor"
           fi
+
+      - name: Record the receipt (shadow)
+        if: success() && steps.key.outputs.input_key != '' && steps.receipt.outputs.cache-hit != 'true'
+        continue-on-error: true
+        env:
+          INPUT_KEY: ${{ steps.key.outputs.input_key }}
+          BASE: ${{ steps.base.outputs.base }}
+        run: python3 scripts/ci/receipt_input_key.py record react-doctor --input-key "$INPUT_KEY" --base "$BASE" --out "$RUNNER_TEMP/ci-receipt/receipt.json"
+
+      # Saved from feat-cmux-next pushes only: GitHub scopes a pull request's cache entries to that pull request,
+      # so a PR's save is read by nothing else (tests/test_ci_no_run_scoped_cache_keys.py). PRs restore it.
+      - name: Save the receipt (shadow)
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.key.outputs.input_key != '' && steps.receipt.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/ci-receipt
+          key: ci-receipt-v1-react-doctor-${{ steps.key.outputs.input_key }}
 
       - name: Upload reports
         if: always() && steps.base.outputs.projects != ''
