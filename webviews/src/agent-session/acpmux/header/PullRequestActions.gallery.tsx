@@ -30,7 +30,7 @@ export default componentEntry({
   title: "PR action states",
   area: "Agent pane",
   pane: true,
-  height: 240,
+  height: 320,
   widths: { narrow: 320, normal: 420 },
   covers: ["agent-session/acpmux/header/PullRequestActions.tsx"],
   load: async () => Actions,

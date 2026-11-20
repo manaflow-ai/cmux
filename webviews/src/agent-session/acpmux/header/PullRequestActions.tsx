@@ -23,7 +23,7 @@ export function PullRequestActions({ ops }: { ops: PullRequestOps }) {
         </div>
       )}
       {ops.actionMessages?.map((message, index) => (
-        <output key={index} role="alert">
+        <output key={index} className="acpmux-pr-action-error" role="alert">
           {message}
         </output>
       ))}
