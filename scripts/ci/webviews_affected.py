@@ -30,6 +30,7 @@ Docs (.md) no test imports and files no webviews source names select nothing.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import re
 import subprocess
 import sys
@@ -62,6 +63,14 @@ TEMPLATE_IMPORT = re.compile(r"import\(\s*`(\.{1,2}/[^`$?]+)")
 QUERY_IMPORT = re.compile(r"""(?:from\s+|import\(\s*)["'](\.{1,2}/[^"'?]+)\?[\w&=-]+["']""")
 PRELOAD = WEB + "test/preload.ts"
 NAME_MIN = 10
+# This reader loads only the generated bundle's site table. A standalone test
+# file cannot change that table. Pin the reviewed reader: any edit restores the
+# unresolved fallback until its inputs have been reviewed again. Production
+# changes still select every consumer, as do tests imported by production code.
+GENERATED_READERS = {
+    WEB + "src/agent-session/acpmux/frameOwners.ts":
+        "99c31528e5b7e676cb9aee8e069cd77f8cee5feb8af52119801287a48cd6c37e",
+}
 
 
 class Selector:
@@ -81,8 +90,30 @@ class Selector:
                 self.imports.setdefault(source, set()).add(target)
         untracked = {f for f, text in self.text.items() if UNTRACKED.search(text)
                      or (not f.startswith(WEB + "src/") or f in self.graph.tests) and UNTRACKED_OUTSIDE_SRC.search(text)}
-        self.always = {t for t in self.graph.tests if self.closure(t) & untracked}
+        generated = {f for f, digest in GENERATED_READERS.items() if f in self.text
+                     and hashlib.sha256((root / f).read_bytes()).hexdigest() == digest}
+        self.generated = set().union(*(self.reaching(f) for f in generated)) if generated else set()
+        self.always = {t for t in self.graph.tests if self.closure(t) & (untracked - generated)}
         self.preload = self.closure(PRELOAD)
+
+    def isolated_test(self, path: str) -> bool:
+        """A test cannot feed a bundle if every reverse edge stays in test files.
+
+        Helpers, fixtures, deleted files and unresolved inputs are not exempt.
+        Follow all reverse edges, including test -> helper -> production.
+        """
+        if path not in self.graph.tests:
+            return False
+        seen, frontier = set(), [path]
+        while frontier:
+            source = frontier.pop()
+            if source in seen:
+                continue
+            seen.add(source)
+            if source not in self.graph.tests:
+                return False
+            frontier.extend(self.graph.importers.get(source, ()))
+        return True
 
     def closure(self, path: str) -> set[str]:
         """`path` and every module it imports, transitively."""
@@ -135,7 +166,8 @@ class Selector:
             if f.startswith(WEB) and not named and not f.endswith(ft.EXTENSIONS):
                 return None, f"no rule maps {f}"
             out |= named
-        return out | self.always, ""
+        generated = self.generated if any(not self.isolated_test(f) for f in files) else set()
+        return out | self.always | generated, ""
 
 
 def changed(root: Path, base: str, head: str) -> list[str]:

@@ -162,6 +162,31 @@ class SelectTest(unittest.TestCase):
                 selected, _ = wa.Selector(self.root).select(["webviews/src/leaf.ts"])
                 self.assertIn("webviews/test/tools.test.ts", selected)
 
+    def test_generated_table_reader_is_not_an_input_of_an_isolated_test(self) -> None:
+        reader = "webviews/src/agent-session/acpmux/frameOwners.ts"
+        destination = self.root / reader
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes((ROOT / reader).read_bytes())
+        (self.root / "webviews/test/frames.test.ts").write_text(
+            'import { browserOwnersEnv } from "../src/agent-session/acpmux/frameOwners";\n')
+        git(self.root, "add", "-A")
+        selector = wa.Selector(self.root)
+        self.assertTrue(selector.generated, "review the generated reader after its content changes")
+        selected, _ = selector.select(["webviews/test/leaf.test.ts"])
+        self.assertNotIn("webviews/test/frames.test.ts", selected)
+        for changed in ("webviews/src/leaf.ts", "unrelated/tool.py", reader):
+            with self.subTest(changed=changed):
+                selected, _ = selector.select([changed])
+                self.assertIn("webviews/test/frames.test.ts", selected)
+        # A production import of the test makes it a possible bundle input.
+        (self.root / "webviews/src/leaf.ts").write_text('import "../test/leaf.test";\n')
+        selected, _ = wa.Selector(self.root).select(["webviews/test/leaf.test.ts"])
+        self.assertIn("webviews/test/frames.test.ts", selected)
+        # An unreviewed reader edit fails open, even for test-only changes.
+        destination.write_text(destination.read_text() + '\nimport(runtimePath);\n')
+        selected, _ = wa.Selector(self.root).select(["webviews/test/other.test.ts"])
+        self.assertIn("webviews/test/frames.test.ts", selected)
+
     def test_a_deleted_source_and_the_preloads_imports_run_everything(self) -> None:
         self.assertIsNone(self.change("webviews/src/dead.ts", delete=True))
         self.assertIsNone(self.change("webviews/src/preloaded.ts"))
