@@ -46,6 +46,10 @@ frames). Exit 1 with --gate-p95-ms when any measured surface's p95 is over it.
       [--phases idle,load | --modes L0,L1,L2,L4,L5|all] [--samples 80] [--busy 20] [--chats 2] [--cpu-burners N]
       [--sample] [--chat-agent mock|real] [--gate-p95-ms 8] [--backdrops opaque,opacity85,picture]
       [--ab browserPage.drawKeysAtOnce]
+Comparing a key's wait for its frame (`listener -> frame`) across phases needs --chat-agent real: each row
+carries `frame_timing.valid`, false for a mock-streamed load phase, because whether the mock keeps the
+renderer producing frames like the real transport is not established (hq#15723). Every other number in the
+row stands either way.
 
 Fleet (an owned mini with a console; the step builds the app):
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh --ref SHA \\
@@ -191,6 +195,28 @@ def reset_arm():
     """--ab's key back to the build's default, so a later launch or surface measures the build as it is."""
     if opts.ab:
         rpc("debug.tunables", {"action": "set", "key": opts.ab, "value": None}, timeout=10)
+
+
+def frame_timing_validity(phase, streams):
+    """Whether this row's frame-start timings (`listener -> frame`) may be compared across phases.
+
+    A key's wait for its frame depends on whether the renderer was already producing frames, so a load phase only
+    answers that question if its chat really streams. `--chat-agent real` streams through AgentPaneTransport and the
+    daemon; the default `mock` drives the page through an in-page debug RPC, and whether that keeps the renderer
+    ticking the same way is **not established** — on one host (cmux20, 120 Hz) the same L1 mode read `listener ->
+    frame` p50 1.3 ms under the real transport and 5.2 ms under the mock, which is the whole size of the effect being
+    measured (hq#15723). An idle phase needs no stream, so it is always comparable.
+
+    This marks the row rather than refusing to measure: every other number here (paint, presentation, hangs) is
+    unaffected, and a reader of the frame-start column needs to know which rows belong in it."""
+    if phase == "idle" or not streams:
+        return {"valid": True, "load_source": "none", "why": "an idle phase needs no stream to be comparable"}
+    if opts.chat_agent == "real":
+        return {"valid": True, "load_source": "real_acp_agent_transport",
+                "why": "the chat streams through AgentPaneTransport and the daemon"}
+    return {"valid": False, "load_source": "mock_stream",
+            "why": "mock_stream is not proven to keep the renderer producing frames like the real transport; "
+                   "use --chat-agent real for frame-start comparisons (hq#15723)"}
 
 
 def draw_on_input_frames():
@@ -634,6 +660,7 @@ def measure_agentpane(phase, pid, pane, streams=()):
                   "clear": {"select": clear_select, "delete": clear_delete, "delete_key": "delete",
                             "verified": bool(cleared), "reset": reset},
                   "typing": typing, "dispatch": dispatch, "key_rpc_ms": pct(trips), **verdict,
+                  "frame_timing": frame_timing_validity(phase, streams),
                   # `counter: false`: this engine has no draw-on-input counter, so the mode cannot be live here
                   # whatever a setting reads, and `drew: 0` with a counter means the mode was off or opted this page out.
                   "draw_on_input": {"counter": frames_after is not None,
