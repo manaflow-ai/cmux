@@ -519,36 +519,6 @@ where
     Ok(ChannelApply::Applied { changed })
 }
 
-/// Test-only injection point for the command's channel/apply boundary.  The
-/// real command supplies the signed bytes over `files.cmux.com` and the app's
-/// daemon; the fixture supplies those same bytes and a fake daemon, so the
-/// ordering, live-only refusal, apply, and state write are exercised together.
-#[cfg(test)]
-fn run_channel_once_for_test(
-    app: &Path,
-    store: &Store,
-    channel_body: &[u8],
-    live_body: &[u8],
-    base: &str,
-    keys: &[(String, [u8; 32])],
-    daemon: &dyn Daemon,
-    now: u64,
-) -> Result<bool, String> {
-    let channel = live::verify_channel(channel_body, keys, now)?;
-    match apply_channel(app, store, &channel, false, |app_commit| {
-        let payload = live::verify(live_body, keys, &channel.commit)?;
-        let plan = choose(&channel.commit, Some(app_commit), &Live::Found(payload), None, base);
-        let Plan::Live { files } = plan else {
-            return Err("the signed channel has no live payload this app can take".to_owned());
-        };
-        let applied = try_live(app, &files, store, daemon, &mut Phases::default())?;
-        Ok(applied.changed)
-    })? {
-        ChannelApply::SkippedOlder => Ok(false),
-        ChannelApply::Applied { changed } => Ok(changed),
-    }
-}
-
 fn run_try(
     global: &GlobalArgs,
     target: &str,

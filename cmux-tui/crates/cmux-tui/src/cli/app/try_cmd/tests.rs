@@ -10,7 +10,7 @@ use sha2::{Digest as _, Sha256};
 use super::copy::{self, Action as CopyAction};
 use super::live::{self, Daemon, Phases, Store};
 use super::resolve::{self, Spec, Unresolved};
-use super::{Command, Live, Plan, choose, parse, run_channel_once_for_test, try_live, undo_live};
+use super::{ChannelApply, Command, Live, Plan, apply_channel, choose, parse, try_live, undo_live};
 
 const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 const APP_COMMIT: &str = "89abcde";
@@ -67,6 +67,34 @@ struct Fixture {
     app: PathBuf,
     base: String,
     store: Store,
+}
+
+impl Fixture {
+    /// Exercise the command's shared channel/apply boundary with signed fixture
+    /// bytes and a fake daemon, including the forward-only state write.
+    fn run_channel_once(
+        &self,
+        channel_body: &[u8],
+        live_body: &[u8],
+        keys: &[(String, [u8; 32])],
+        daemon: &dyn Daemon,
+        now: u64,
+    ) -> Result<bool, String> {
+        let channel = live::verify_channel(channel_body, keys, now)?;
+        match apply_channel(&self.app, &self.store, &channel, false, |app_commit| {
+            let payload = live::verify(live_body, keys, &channel.commit)?;
+            let plan =
+                choose(&channel.commit, Some(app_commit), &Live::Found(payload), None, &self.base);
+            let Plan::Live { files } = plan else {
+                return Err("the signed channel has no live payload this app can take".to_owned());
+            };
+            let applied = try_live(&self.app, &files, &self.store, daemon, &mut Phases::default())?;
+            Ok(applied.changed)
+        })? {
+            ChannelApply::SkippedOlder => Ok(false),
+            ChannelApply::Applied { changed } => Ok(changed),
+        }
+    }
 }
 
 const OLD_CMUX: &[u8] = b"old cmux";
@@ -232,35 +260,11 @@ fn nightly_live_channel_command_fixture_applies_readback_and_refuses_older_or_ba
     let live_body = envelope(&payload(live::PURPOSE, COMMIT, good_targets()));
     let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
 
-    assert!(
-        run_channel_once_for_test(
-            &fixture.app,
-            &fixture.store,
-            &channel_body,
-            &live_body,
-            &fixture.base,
-            &keys(),
-            &daemon,
-            1_200,
-        )
-        .unwrap()
-    );
+    assert!(fixture.run_channel_once(&channel_body, &live_body, &keys(), &daemon, 1_200).unwrap());
     assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(NEW_CMUX));
     assert_eq!(fixture.store.channel_last().unwrap(), Some(1_000));
     // The same pointer is forward-only and does not re-run the daemon handoff.
-    assert!(
-        !run_channel_once_for_test(
-            &fixture.app,
-            &fixture.store,
-            &channel_body,
-            &live_body,
-            &fixture.base,
-            &keys(),
-            &daemon,
-            1_200,
-        )
-        .unwrap()
-    );
+    assert!(!fixture.run_channel_once(&channel_body, &live_body, &keys(), &daemon, 1_200).unwrap());
     assert_eq!(daemon.terminated.get(), 1);
 
     // A newer pointer whose files are already current still advances the
@@ -268,33 +272,15 @@ fn nightly_live_channel_command_fixture_applies_readback_and_refuses_older_or_ba
     let mut current = payload(live::PURPOSE, COMMIT, good_targets());
     current["committed_at"] = json!(1_200);
     assert!(
-        !run_channel_once_for_test(
-            &fixture.app,
-            &fixture.store,
-            &envelope(&current),
-            &live_body,
-            &fixture.base,
-            &keys(),
-            &daemon,
-            1_200,
-        )
-        .unwrap()
+        !fixture
+            .run_channel_once(&envelope(&current), &live_body, &keys(), &daemon, 1_200)
+            .unwrap()
     );
     assert_eq!(fixture.store.channel_last().unwrap(), Some(1_200));
     let mut older = payload(live::PURPOSE, COMMIT, good_targets());
     older["committed_at"] = json!(1_100);
     assert!(
-        !run_channel_once_for_test(
-            &fixture.app,
-            &fixture.store,
-            &envelope(&older),
-            &live_body,
-            &fixture.base,
-            &keys(),
-            &daemon,
-            1_200,
-        )
-        .unwrap()
+        !fixture.run_channel_once(&envelope(&older), &live_body, &keys(), &daemon, 1_200).unwrap()
     );
     assert_eq!(fixture.store.channel_last().unwrap(), Some(1_200));
     assert_eq!(daemon.terminated.get(), 1);
@@ -306,17 +292,9 @@ fn nightly_live_channel_command_fixture_applies_readback_and_refuses_older_or_ba
     let mut bad_targets = good_targets();
     bad_targets["cmux-tui-app-host"]["sha256"] = json!(sha(b"wrong"));
     let bad_live = envelope(&payload(live::PURPOSE, COMMIT, bad_targets));
-    let error = run_channel_once_for_test(
-        &fixture.app,
-        &fixture.store,
-        &envelope(&newer),
-        &bad_live,
-        &fixture.base,
-        &keys(),
-        &daemon,
-        1_200,
-    )
-    .unwrap_err();
+    let error = fixture
+        .run_channel_once(&envelope(&newer), &bad_live, &keys(), &daemon, 1_200)
+        .unwrap_err();
     assert!(
         error.contains("live payload") || error.contains("sha256") || error.contains("hashes to"),
         "{error}"
