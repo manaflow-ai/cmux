@@ -11,9 +11,10 @@ import {
 import { readingLook, readingLookValues } from "./readingLook.experiment";
 
 describe("reading layout experiment", () => {
-  const previousOverrides = globalThis.cmuxExperiments;
+  const previousOverrides = Object.getOwnPropertyDescriptor(globalThis, "cmuxExperiments");
   afterEach(() => {
-    globalThis.cmuxExperiments = previousOverrides;
+    if (previousOverrides) Object.defineProperty(globalThis, "cmuxExperiments", previousOverrides);
+    else Reflect.deleteProperty(globalThis, "cmuxExperiments");
     setChatDisplay({});
   });
   const saved = Object.freeze({
