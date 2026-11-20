@@ -48,6 +48,15 @@ struct RemoteKeyTextDecisionTests {
         #expect(recorder.events == [.key(usage: 0x0007_0004, down: true), .key(usage: 0x0007_0004, down: false)])
     }
 
+    /// A key code with no HID key (255) and text attached sent nothing.
+    @Test func unmappedKeyCodeWithTextSendsText() throws {
+        let recorder = Recorder()
+        let controller = controller(recorder)
+        #expect(controller.keyDown(try keyEvent(.keyDown, keyCode: 255, characters: "é")) == .handled)
+        controller.keyUp(try keyEvent(.keyUp, keyCode: 255, characters: "é"))
+        #expect(recorder.events == [.text("é")])
+    }
+
     @Test func policyKeepsChordsDeadKeysAndControlCharactersPhysical() {
         let policy = RemoteKeyboardPolicy()
         #expect(policy.sendsAsText(characters: "é", layoutCharacters: "a", modifiers: []))

@@ -55,8 +55,11 @@ final class RemoteInputController {
         case .physical:
             guard isActive else { return .local }
             let characters = event.characters
+            // A key code with no HID usage types nothing on the host (it was dropped).
+            let mapped = RemoteHIDKeyMap().usage(forKeyCode: event.keyCode) != nil
             if !(characters ?? "").isEmpty, RemoteKeyboardPolicy().sendsAsText(
-                characters: characters, layoutCharacters: layoutCharacters(event.keyCode, event.modifierFlags),
+                characters: characters,
+                layoutCharacters: mapped ? layoutCharacters(event.keyCode, event.modifierFlags) : "",
                 modifiers: event.modifierFlags) {
                 // Its key code would type something else on the host: send the text,
                 // and not the key's up.
