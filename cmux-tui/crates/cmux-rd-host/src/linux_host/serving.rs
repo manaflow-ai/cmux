@@ -323,9 +323,21 @@ fn sign_out(dir: &Path, previous: &Previous) -> bool {
     let (Some(account), Some(device)) = (&previous.account, &previous.device) else { return true };
     let hub = match &previous.joined {
         None => Hub::new(&account.hub, device.clone(), Some(account.user_id.clone())),
-        Some(joined) => match machine::load(&joined.acpmux_home) {
-            Ok(Some(credential)) if joined.is(&joined.acpmux_home, &credential) => {
-                Hub::with_renewal(&account.hub, device.clone(), None, machine_renewal(credential))
+        // The credential goes only to its own deployment's hub ([`machine::Join`]): a device
+        // recorded at another hub is not signed out with it.
+        Some(joined) => match machine::Join::read(&joined.acpmux_home) {
+            Ok(Some(join))
+                if joined.is(&joined.acpmux_home, &join.credential) && join.hub == account.hub =>
+            {
+                Hub::with_renewal(&join.hub, device.clone(), None, machine_renewal(join.credential))
+            }
+            Ok(Some(join)) if join.hub != account.hub => {
+                eprintln!(
+                    "cmux-rd linux-host: the earlier device ({}) signed in at {}, not at this join's hub, so its credential is not sent there",
+                    device.id,
+                    cmux_hub_host::printable(&account.hub)
+                );
+                return false;
             }
             _ => {
                 eprintln!(

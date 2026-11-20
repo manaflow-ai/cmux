@@ -435,7 +435,7 @@ fn set_up_for_join(args: &Args) -> Res<()> {
 /// the hub of the credential's own deployment ([`machine::Join`]). `expected_hub` is the hub the
 /// caller (the acpmux daemon's `--hub`) read for the join: when the credential read here is
 /// another deployment's (a leave and a join elsewhere came since), nothing is sent anywhere and
-/// the daemon sets the new join up from its own fresh read.
+/// the daemon sets the new join up at its next check, from its own read of it.
 fn join_device(
     dir: &std::path::Path,
     expected_hub: Option<&str>,

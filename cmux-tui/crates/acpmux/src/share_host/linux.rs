@@ -480,10 +480,19 @@ pub(crate) fn start(scope: &cmux_scope::Scope) {
     // The loop ends with the daemon's scope (a `while`, so the task's output is `()`).
     let stop = scope.token();
     scope.spawn_until_cancelled("share-host-linux", async move {
-        let mut attempted: Option<Identity> = None;
+        // The cmux-rd build tried, and the join it was tried for (None: there was no join).
+        let mut attempted: Option<(Identity, Option<Value>)> = None;
         let mut said: Option<String> = None;
         while !stop.is_cancelled() {
-            match next_step(attempted.as_ref(), identity_of(&rd)) {
+            // One read of the join per check: its credential's mark and its own deployment's
+            // hub come from the same record (review F2 of #45480), never from what the daemon
+            // read at its start. A leave or a new join since the last enable is set up again.
+            let join = super::joined();
+            let join_key = join.as_ref().ok().map(|(credential, _)| join_key_of(credential));
+            if attempted.as_ref().is_some_and(|(_, key)| *key != join_key) {
+                attempted = None;
+            }
+            match next_step(attempted.as_ref().map(|(id, _)| id), identity_of(&rd)) {
                 Step::Wait => {}
                 Step::NotInstalled => {
                     let detail = not_installed_detail(&rd, &folder);
@@ -495,23 +504,21 @@ pub(crate) fn start(scope: &cmux_scope::Scope) {
                 }
                 Step::Enable(id) => {
                     said = None;
-                    // One read of the join for this enable: its credential's mark and its own
-                    // deployment's hub come from the same record (review F2 of #45480), never
-                    // from what the daemon read at its start. A leave since then sets up nothing.
-                    let credential = match super::joined() {
+                    attempted = Some((id, join_key));
+                    let credential = match join {
                         Ok((credential, now)) => {
                             hub = now;
                             credential
                         }
                         Err(why) => {
+                            // Left (or revoked, or copied) since: nothing is set up, and the
+                            // status says so instead of the earlier join's.
                             tracing::info!("{}: not set up: {why}", super::LOG);
-                            super::state::not_running(why);
+                            super::state::linux(status_json(why.code, &why.detail, &rd, &hub));
                             tokio::time::sleep(CHECK_EVERY).await;
                             continue;
                         }
                     };
-                    // Tried once this build is set up for a join; with no join it is tried again.
-                    attempted = Some(id);
                     super::state::linux(status_json(
                         "setting_up",
                         "cmux-rd linux-host enable runs",
@@ -557,10 +564,16 @@ impl Drop for CancelOnDrop {
     }
 }
 
+/// Which join `credential` is (its machine id and credential generation), whichever cmux-rd
+/// build sets it up.
+fn join_key_of(credential: &crate::machine_record::MachineCredential) -> Value {
+    json!({"machineId": credential.machine_id, "credentialGeneration": credential.credential_generation})
+}
+
 /// Whether `mark` was made for the join `credential` (its machine id and credential
 /// generation), whichever cmux-rd build it names.
 fn same_join(mark: &Value, credential: &crate::machine_record::MachineCredential) -> bool {
-    let join = json!({"machineId": credential.machine_id, "credentialGeneration": credential.credential_generation});
+    let join = join_key_of(credential);
     mark.get("machineId") == join.get("machineId")
         && mark.get("credentialGeneration") == join.get("credentialGeneration")
 }

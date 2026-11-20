@@ -92,6 +92,12 @@ impl Join {
     /// The join `credential` from `home` is, at its deployment's device hub; an error when no
     /// deployment issued it (`hub_origin` names no platform this build knows).
     pub fn of(home: &Path, credential: MachineCredential) -> Res<Self> {
+        // The tests' stub hubs: a loopback origin is its own deployment's hub.
+        #[cfg(test)]
+        if credential.hub_origin.starts_with("http://127.0.0.1:") {
+            let hub = credential.hub_origin.clone();
+            return Ok(Self { home: home.to_owned(), credential, hub });
+        }
         let hub =
             cmux_hub_host::deployment::device_hub_of(&credential.hub_origin).ok_or_else(|| {
                 format!(
