@@ -125,3 +125,26 @@ test("a thread's own needYou mark decides need-you over its class, either way", 
     ["b", false],
   ]);
 });
+
+test("an archive page keeps whole hits and its cursor; appended pages draw a repeated seq once", async () => {
+  const { archivePage, appendArchive } = await import("./surgeHold");
+  const page = archivePage({
+    hits: [
+      { seq: 9, at: 5, promptId: "p", threadId: "t", text: "whole\n\ntext", from: "a", sender: { session: "s" } },
+      { seq: 8, threadId: "t", text: "", from: "a" },
+      { seq: "x", threadId: "t", text: "no seq" },
+      { seq: 7, threadId: "", text: "no thread" },
+    ],
+    next: "c1",
+  });
+  expect(page).toEqual({
+    hits: [{ seq: 9, at: 5, promptId: "p", threadId: "t", text: "whole\n\ntext", from: "a", sender: { session: "s" } }],
+    next: "c1",
+  });
+  expect(archivePage({ hits: [], next: null })).toEqual({ hits: [] });
+  expect(
+    appendArchive(page.hits, { hits: [page.hits[0]!, { seq: 2, threadId: "t", text: "b", from: "b" }] }).map(
+      (h) => h.seq,
+    ),
+  ).toEqual([9, 2]);
+});

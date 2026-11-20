@@ -1008,6 +1008,8 @@ async function saveLogNatively(text: string, suggestedName: string): Promise<Exp
 /// The held surge's listing and a thread's posts, through the pane's own actions (SurgeHoldRow.tsx).
 const listSurgeThreads = () => callNative<unknown>("chat.inbox.threads");
 const readInboxThread = (threadId: string) => callNative<InboxMessage[]>("chat.inbox.thread", { threadId });
+const searchSurgeArchive = (search: string, before?: string | number) =>
+  callNative<unknown>("chat.inbox.search", { search, ...(before !== undefined && { before }) });
 
 /** Saves a side panel document through the host's save panel (`pane.saveFile`); a host without one, or a failed write, is unavailable (the panel copies the document instead). */
 const saveDocumentNatively: SaveDocument = async (text, suggestedName, kind) => {
@@ -9848,6 +9850,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           "chat.inbox.thread": ({ threadId }) => client.inboxThread(String(threadId ?? "")),
           // The held surge's threads (SurgeHoldRow.tsx): the chat's inbox listing, read as its panel opens.
           "chat.inbox.threads": () => client.inboxThreads(),
+          // The held surge's archive search (SurgeArchiveResults.tsx): one page per search or More.
+          "chat.inbox.search": ({ search, before }) =>
+            client.searchInbox(
+              String(search ?? ""),
+              typeof before === "string" || typeof before === "number" ? before : undefined,
+            ),
           // An agent link or `HOST/NAME` in a reply (conversation/sessionRefs.ts): the session it names.
           "chat.session.resolve": ({ query }) => client.resolveSession(String(query ?? "")),
           // Open a started offer or a sub-session: the app shows its tab or opens it beside this
@@ -12830,6 +12838,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             listThreads={listSurgeThreads}
             readThread={readInboxThread}
             onOpenSender={openSenderChat}
+            searchArchive={searchSurgeArchive}
           />
         )}
         {!goalAtFoot && goalNode}

@@ -149,3 +149,62 @@ export const HELD_PAGE = 20;
 export function heldNotice(threads: readonly HeldThread[], shown: number): InboxNotice {
   return { threads: threads.slice(0, Math.max(0, shown)) };
 }
+
+/// One post the inbox's archive holds that matched a search (`_acpmux/inbox_threads` with
+/// `search`): whole, including posts evicted from the live inbox and older text in a live thread.
+export type ArchiveHit = {
+  seq: number;
+  at?: number;
+  promptId?: string;
+  threadId: string;
+  text: string;
+  from: string;
+  sender?: SenderRef;
+};
+
+/// A page of archive hits, and the cursor (`before`) that reads the page after it, if any.
+export type ArchivePage = { hits: ArchiveHit[]; next?: string | number };
+
+/// The archive's reply as a page: hits without text or a thread are dropped, never drawn empty.
+export function archivePage(reply: unknown): ArchivePage {
+  const record = (reply ?? {}) as { hits?: unknown; next?: unknown };
+  const hits: ArchiveHit[] = [];
+  for (const raw of Array.isArray(record.hits) ? record.hits : []) {
+    if (!raw || typeof raw !== "object") continue;
+    const hit = raw as Record<string, unknown>;
+    const threadId = text(hit.threadId);
+    const body = text(hit.text);
+    const seq = count(hit.seq);
+    if (!threadId || !body || seq === undefined) continue;
+    const sender = senderOf(hit.sender);
+    const at = count(hit.at);
+    const promptId = text(hit.promptId);
+    hits.push({
+      seq,
+      threadId,
+      text: body,
+      from: text(hit.from) || sender?.label || threadId,
+      ...(at !== undefined && { at }),
+      ...(promptId && { promptId }),
+      ...(sender && { sender }),
+    });
+  }
+  const next = record.next;
+  return {
+    hits,
+    ...((typeof next === "string" && next) || (typeof next === "number" && Number.isFinite(next)) ? { next } : {}),
+  };
+}
+
+/// Pages read one after another as one list: a hit a later page repeats (same seq) draws once.
+export function appendArchive(pages: readonly ArchiveHit[], page: ArchivePage): ArchiveHit[] {
+  const seen = new Set(pages.map((hit) => hit.seq));
+  return [...pages, ...page.hits.filter((hit) => !seen.has(hit.seq))];
+}
+
+/// How long the search field waits after the last keystroke before it asks the archive (Enter asks
+/// at once): one read per search the person settles on, never one per key.
+export const ARCHIVE_DEBOUNCE_MS = 400;
+
+/// The shortest search the archive is asked for: a single letter matches nearly every post.
+export const ARCHIVE_MIN_CHARS = 2;

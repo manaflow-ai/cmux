@@ -6,6 +6,8 @@ import { ExpandRow } from "./conversation/ExpandRow";
 import { InboxNoticeCard, type ReadInboxThread } from "./conversation/InboxNoticeCard";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import {
+  ARCHIVE_DEBOUNCE_MS,
+  ARCHIVE_MIN_CHARS,
   HELD_PAGE,
   heldThreads,
   searchThreads,
@@ -14,6 +16,7 @@ import {
   type HeldThread,
   type SurgeHold,
 } from "./conversation/surgeHold";
+import { SurgeArchiveResults, type SearchArchive } from "./SurgeArchiveResults";
 import "./SurgeHoldRow.css";
 
 /// How the line reads (the gallery's variants; the shipped look is `counts`).
@@ -35,6 +38,7 @@ export function SurgeHoldRow({
   listThreads,
   readThread,
   onOpenSender,
+  searchArchive,
   look = "counts",
   initiallyOpen = false,
 }: {
@@ -44,6 +48,9 @@ export function SurgeHoldRow({
   listThreads(): Promise<unknown>;
   readThread: ReadInboxThread;
   onOpenSender(sessionId: string): void;
+  /// The inbox's archive (`_acpmux/inbox_threads` with `search`): posts evicted from the live inbox
+  /// and older text in live threads. Without it the search filters the listed threads alone.
+  searchArchive?: SearchArchive;
   look?: SurgeRowLook;
   initiallyOpen?: boolean;
 }) {
@@ -51,6 +58,18 @@ export function SurgeHoldRow({
   const [open, setOpen] = useState(initiallyOpen);
   const [onlyNeed, setOnlyNeed] = useState(false);
   const [query, setQuery] = useState("");
+  // The search the archive is asked for: the field's text once it rests `ARCHIVE_DEBOUNCE_MS`, or at
+  // once on Enter; shorter than `ARCHIVE_MIN_CHARS`, none.
+  const [submitted, setSubmitted] = useState("");
+  const asked = query.trim().length >= ARCHIVE_MIN_CHARS ? query.trim() : "";
+  useEffect(() => {
+    if (!asked) {
+      setSubmitted("");
+      return;
+    }
+    const timer = setTimeout(() => setSubmitted(asked), ARCHIVE_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [asked]);
   const [shown, setShown] = useState(HELD_PAGE);
   const [listing, setListing] = useState<Listing>({ state: "loading" });
   // Each read asked for (a new number reads once): the chat opening, the panel opening on counts the
@@ -62,6 +81,12 @@ export function SurgeHoldRow({
   const needYou = surge?.needYou ?? 0;
   const counts = `${held}\u0000${needYou}`;
   const latest = useRef(counts);
+  // The listing reader by reference, for the same reason as the counts: a new function on a redraw
+  // reads nothing.
+  const listRef = useRef(listThreads);
+  useEffect(() => {
+    listRef.current = listThreads;
+  }, [listThreads]);
   useEffect(() => {
     latest.current = counts;
   }, [counts]);
@@ -72,7 +97,7 @@ export function SurgeHoldRow({
   useEffect(() => {
     let live = true;
     const at = latest.current;
-    listThreads().then(
+    listRef.current().then(
       (reply) => {
         if (!live) return;
         // The reply's own snapshot when it carries one (the row moves to it too), else the counts
@@ -86,7 +111,7 @@ export function SurgeHoldRow({
     return () => {
       live = false;
     };
-  }, [wanted, listThreads]);
+  }, [wanted]);
   // New messages came since the listing: the open panel offers Refresh rather than reading again.
   const stale = listing.state === "ready" && listing.at !== counts;
   useEffect(() => {
@@ -123,8 +148,15 @@ export function SurgeHoldRow({
       }}
     >
       {open && (
-        <div id={panelId} className="acpmux-surge-panel" role="region" aria-label={t("surge.title")}>
-          <label className="acpmux-surge-search">
+        <section id={panelId} className="acpmux-surge-panel" aria-label={t("surge.title")}>
+          <form
+            className="acpmux-surge-search"
+            onSubmit={(event) => {
+              // Enter asks the archive at once, without waiting for the field to rest.
+              event.preventDefault();
+              setSubmitted(asked);
+            }}
+          >
             <Magnifier size={14} />
             <input
               ref={field}
@@ -137,9 +169,9 @@ export function SurgeHoldRow({
                 setShown(HELD_PAGE);
               }}
             />
-          </label>
+          </form>
           {needYou > 0 && (
-            <div className="acpmux-surge-filters" role="group">
+            <div className="acpmux-surge-filters">
               <button type="button" aria-pressed={!onlyNeed} onClick={() => setOnlyNeed(false)}>
                 {heldText}
               </button>
@@ -188,8 +220,11 @@ export function SurgeHoldRow({
                 )}
               </PromptMarksSession.Provider>
             )}
+            {searchArchive && submitted && (
+              <SurgeArchiveResults key={submitted} query={submitted} search={searchArchive} />
+            )}
           </div>
-        </div>
+        </section>
       )}
       <div className="acpmux-surge-line">
         <button
