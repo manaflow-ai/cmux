@@ -112,7 +112,12 @@ await requireBrowserLane("agent-chat-stream-no-shift-browser.test.ts", async () 
         ),
       ),
     ],
-    ["tool 1 starts", async (pane) => void pane.record("tool_call", call(`${turn}-a`, "bun test retry"), "in")],
+    [
+      "tool 1 starts",
+      async (pane) => {
+        pane.record("tool_call", call(`${turn}-a`, "bun test retry"), "in");
+      },
+    ],
     [
       "tool 1 output",
       async (pane) => {
@@ -124,7 +129,9 @@ await requireBrowserLane("agent-chat-stream-no-shift-browser.test.ts", async () 
     ],
     [
       "tool 1 finishes",
-      async (pane) => void pane.record("tool_call_update", output(`${turn}-a`, LOG.join("\n"), "completed"), "in"),
+      async (pane) => {
+        pane.record("tool_call_update", output(`${turn}-a`, LOG.join("\n"), "completed"), "in");
+      },
     ],
     [
       "text 2",
@@ -134,16 +141,19 @@ await requireBrowserLane("agent-chat-stream-no-shift-browser.test.ts", async () 
     ],
     [
       "tool 2 starts",
-      async (pane) => void pane.record("tool_call", call(`${turn}-b`, "rg -n 'sleep' src/upload"), "in"),
+      async (pane) => {
+        pane.record("tool_call", call(`${turn}-b`, "rg -n 'sleep' src/upload"), "in");
+      },
     ],
     [
       "tool 2 finishes",
-      async (pane) =>
-        void pane.record(
+      async (pane) => {
+        pane.record(
           "tool_call_update",
           output(`${turn}-b`, "src/upload/queue.ts:41: await sleep(1000)", "completed"),
           "in",
-        ),
+        );
+      },
     ],
     [
       "final",
@@ -154,7 +164,12 @@ await requireBrowserLane("agent-chat-stream-no-shift-browser.test.ts", async () 
         ),
       ),
     ],
-    ["turn ends", async (pane) => void pane.record("turn_result", { status: "completed" })],
+    [
+      "turn ends",
+      async (pane) => {
+        pane.record("turn_result", { status: "completed" });
+      },
+    ],
   ];
 
   /// Every finite animation over, then the transcript's offset and height the same over 12 painted frames.
