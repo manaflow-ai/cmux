@@ -256,8 +256,8 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
     /// window's overlay host. The sidebar's resize band gets a catcher panel
     /// above pages, like a pane divider's hit area.
     func windowDidLayout() {
-        // Before the guard: the band's catcher needs no overlay host.
-        (window as? ShellWindow)?.overlayLayer.setSidebarResizeBand(sidebar.resizeBandInWindow)
+        (window as? ShellWindow)?.overlayLayer.setSidebarResizeBand(sidebar.resizeBandInWindow) // before the guard: needs no overlay host
+        if let window { TrafficLightsLine.apply(in: window) } // AppKit's own titlebar layout in this pass put them back at its place
         guard let window, let host = WindowOverlayHost.existingHost(for: window) else { return }
         host.repairAgentCursorOrder()
         host.setOccluder(id: "sidebar", rect: sidebar.occluderRectInWindow)
