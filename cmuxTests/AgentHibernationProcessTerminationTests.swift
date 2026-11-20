@@ -177,7 +177,8 @@ struct AgentHibernationProcessTerminationTests {
     }
 
     enum UnknownTerminalProcess: CaseIterable, Sendable {
-        /// A process the census never saw, with unreadable argv.
+        /// A process the census never saw, with unreadable argv, leading its
+        /// own group as a job the shell starts does.
         case unlisted
         /// `login`'s PID, reused by another process generation.
         case reusedSurvivorPID
@@ -218,6 +219,40 @@ struct AgentHibernationProcessTerminationTests {
         )
 
         #expect(epoch == nil)
+    }
+
+    enum ShellPromptChild: CaseIterable, Sendable {
+        case stillRunning
+        case goneBeforeTheProbe
+    }
+
+    /// Once the agent exits, the shell draws its next prompt. Its command
+    /// substitutions fork children in the shell's own process group, which
+    /// end with the shell when the terminal closes. They neither join the
+    /// epoch nor fail it, even when one exits before the probe reads it.
+    @Test(arguments: ShellPromptChild.allCases)
+    func theShellsOwnPromptWorkDoesNotJoinOrFailTheExitEpoch(
+        _ promptChild: ShellPromptChild
+    ) async throws {
+        let fixture = AgentHibernationShellAncestorsFixture.self
+        let child = AgentPIDProcessIdentity(pid: 80, startSeconds: 80, startMicroseconds: 1)
+
+        let epoch = try #require(
+            await fixture.coordinator(
+                listing: [fixture.login, fixture.shell, child],
+                processGroups: [child.pid: fixture.shell.pid],
+                goneAtProbe: promptChild == .goneBeforeTheProbe ? [child.pid] : [],
+                readableArguments: [child.pid]
+            ).refreshedExitEpoch(
+                processGroupLeaders: [fixture.agent.pid: fixture.agent],
+                processScopeKey: fixture.scopeKey,
+                ttyDevice: fixture.ttyDevice,
+                excluding: [fixture.agent],
+                knownSurvivors: fixture.knownSurvivors
+            )
+        )
+
+        #expect(epoch.terminations.isEmpty)
     }
 
     @MainActor
@@ -1149,11 +1184,15 @@ enum AgentHibernationShellAncestorsFixture {
         )
     }
 
-    /// A coordinator whose fresh snapshot lists `processes` on the terminal,
-    /// each leading its own group and still running. Only the shell's argv
-    /// can be read.
+    /// A coordinator whose fresh snapshot lists `processes` on the terminal.
+    /// Each leads its own group unless `processGroups` names another, and
+    /// runs until the probe unless `goneAtProbe` lists it. Only the argv of
+    /// the shell and of `readableArguments` can be read.
     static func coordinator(
-        listing processes: [AgentPIDProcessIdentity] = [login, shell]
+        listing processes: [AgentPIDProcessIdentity] = [login, shell],
+        processGroups: [pid_t: pid_t] = [:],
+        goneAtProbe: Set<pid_t> = [],
+        readableArguments: Set<pid_t> = []
     ) -> AgentHibernationProcessSnapshotCoordinator {
         let snapshot = CmuxTopProcessSnapshot(
             processes: processes.map { identity in
@@ -1167,7 +1206,7 @@ enum AgentHibernationShellAncestorsFixture {
                     cmuxWorkspaceID: nil,
                     cmuxSurfaceID: nil,
                     cmuxAttributionReason: nil,
-                    processGroupID: Int(identity.pid),
+                    processGroupID: Int(processGroups[identity.pid] ?? identity.pid),
                     terminalProcessGroupID: Int(shell.pid),
                     cpuPercent: 0,
                     residentBytes: 0,
@@ -1180,16 +1219,17 @@ enum AgentHibernationShellAncestorsFixture {
             includesCMUXScope: false
         )
         let identities = Dictionary(
-            processes.map { ($0.pid, $0) },
+            processes.filter { !goneAtProbe.contains($0.pid) }.map { ($0.pid, $0) },
             uniquingKeysWith: { _, last in last }
         )
+        let readable = readableArguments.union([shell.pid])
         return AgentHibernationProcessSnapshotCoordinator(
             captureSnapshot: { snapshot },
             processArgumentsProvider: { processID in
-                processID == Int(shell.pid) ? shellArguments : nil
+                readable.contains(pid_t(processID)) ? shellArguments : nil
             },
             processIdentityProvider: { identities[$0] },
-            processGroupProvider: { $0 }
+            processGroupProvider: { processGroups[$0] ?? $0 }
         )
     }
 }
