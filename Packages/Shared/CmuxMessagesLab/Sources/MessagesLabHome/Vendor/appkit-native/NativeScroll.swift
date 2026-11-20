@@ -36,6 +36,13 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
     private(set) var liveScrolling = false
     /// Counts for the bench (clip-to-model and model-to-clip syncs).
     static var clipSyncs = 0, modelSyncs = 0
+    /// cmux: clip moves AppKit made for a new geometry (a resize), which the model's offset overrode.
+    private(set) var geometryMoves = 0
+    /// cmux: the geometry the model last placed the clip view in (``placedGeometry``).
+    private var placed: PlacedGeometry?
+    /// cmux: what a clip origin means: the clip's size, the list's shift and the document's frame.
+    private struct PlacedGeometry: Equatable { var clip: NSSize; var shift: CGFloat; var document: NSRect }
+    private var placedGeometry: PlacedGeometry { PlacedGeometry(clip: clip.bounds.size, shift: shift, document: document.frame) }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -164,6 +171,16 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         guard applyingModel == 0, let demo, let cv = collection else { return }
         let y = clip.bounds.origin.y - shift
         guard y != cv.contentOffset.y else { return }
+        // cmux: a move with no live scroll in a geometry the model did not place the clip in is AppKit's, not the
+        // reader's: a window resize moved or clamped the clip (first-run audit row 8, cmux-shots/first-run at
+        // 4:49: in a window shrunk on screen it landed 13.5 pt above the bottom, userScrolled unpinned the chat, and
+        // no send or reply followed again). The model's offset wins, as in layout() and tile(): pinned stays
+        // pinned, a reader scrolled up keeps the row they read (MessagesWindowView.layoutSubviews).
+        if !liveScrolling, placed != placedGeometry {
+            geometryMoves += 1
+            syncFromModel()
+            return
+        }
         TranscriptScrollView.clipSyncs += 1
         applyingClip = true
         CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -308,6 +325,7 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         if document.frame != f { document.frame = f }
         applyingModel -= 1
         pushOffset()
+        placed = placedGeometry // cmux: clipMoved tells AppKit's moves for a new geometry from the reader's
     }
 
     private func pushOffset() {

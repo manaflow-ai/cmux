@@ -99,7 +99,8 @@ import Testing
         var log: [String] = []
         func note(_ step: String) {
             let s = demo.store.state.ui.scroll
-            log.append("\(step): pinned \(s.pinnedToBottom) back \(s.offset) offset \(demo.collection.contentOffset.y) bottom \(demo.pinnedOffset)")
+            log.append("\(step): pinned \(s.pinnedToBottom) back \(s.offset) offset \(demo.collection.contentOffset.y) bottom \(demo.pinnedOffset)"
+                + " clip syncs \(TranscriptScrollView.clipSyncs) geometry moves \(rig.view.controller.host.scrollView.geometryMoves)")
         }
         note("large")
         #expect(demo.store.state.ui.scroll.pinnedToBottom, "pinned before the shrink")
