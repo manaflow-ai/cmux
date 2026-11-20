@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import { componentEntry } from "../../gallery/format";
-import type { AutoResumeStatus } from "./autoResumeStatus";
+import { autoResumeStatus, type AutoResumeStatus } from "./autoResumeStatus";
 
 type Props = { state: AutoResumeStatus | undefined };
 
@@ -24,7 +24,15 @@ export default componentEntry<Props>({
   },
   styles: () => import("./styles.css"),
   variants: {
-    "capacity-wait": { props: { state: { retry: { attempt: 1, of: 4, reason: "capacity" } } } },
+    "capacity-wait": {
+      props: {
+        state: autoResumeStatus(
+          { attempt: 1, of: 4, reason: "capacity", nextAt: new Date(2026, 10, 20, 4, 35).getTime() },
+          undefined,
+          "503 no non-exhausted claude accounts available",
+        ),
+      },
+    },
     "connection-wait": {
       props: { state: { retry: { attempt: 2, of: 4, reason: "transport" }, attempt: 1 } },
     },

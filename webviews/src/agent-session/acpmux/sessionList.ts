@@ -373,7 +373,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     ...(session.lastTurn?.status === "cancelled" && { stoppedAt: time(session.lastTurn.endedAt) ?? 0 }),
     lifecycleReceipt: lifecycleReceipt(session.lifecycleReceipt),
     trustPending: trustPending(session.tags),
-    retry: readRetry(session.retry) ?? undefined,
+    retry: readRetry(session.retry, session.lastTurn?.errorText ?? session.lane?.error) ?? undefined,
     ...(session.retryDeciding === true && { retryDeciding: true as const }),
     laneError: text(session.lane?.error),
     usageStats: usageStatsOf(session.usageStats),

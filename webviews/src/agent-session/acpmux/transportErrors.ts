@@ -2,6 +2,7 @@
 // .cmux-scratch/pane-protocol/pane-native-transport-review.md). They arrive as a JSON-RPC error
 // whose data.code is `transport.*` (direct.ts copies it to `error.code`), or as a native reply's
 // code (NativeError). The text is chosen by that code, never by the message, in the pane's language.
+import { exhaustedPool } from "./failureCopy";
 import { translate, type StringKey } from "./i18n";
 
 const TRANSPORT_TEXT: Record<string, StringKey> = {
@@ -93,6 +94,9 @@ export function knownRefusalText(
   const reason = typeof error === "object" && error !== null ? (error as { reason?: unknown }).reason : undefined;
   const reasonKey = typeof reason === "string" ? DAEMON_REASON_TEXT[reason] : undefined;
   if (reasonKey) return translate(reasonKey);
+  const message = typeof error === "object" && error !== null ? (error as { message?: unknown }).message : error;
+  const pool = exhaustedPool(message);
+  if (pool) return translate("turn.failure.poolPaused", { pool });
   const code = refusalCode(error);
   const key =
     typeof code === "string"

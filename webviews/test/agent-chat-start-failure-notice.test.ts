@@ -65,7 +65,7 @@ test("a start that met an away acpmux says nothing more than the host line", () 
 test("a host-refused start without a named agent reads as a sentence", () => {
   const error = Object.assign(new Error("Refused by the cmux host"), { code: "transport.intent_invalid" });
   expect(startFailureNotice(translate, undefined, error)).toBe(
-    "Couldn't start the agent: cmux blocked starting this chat. That’s a bug in cmux, not something you did.",
+    "Couldn't start the agent: cmux blocked starting this chat.",
   );
 });
 
