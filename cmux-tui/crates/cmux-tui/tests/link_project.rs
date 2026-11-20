@@ -14,6 +14,7 @@
 #![cfg(target_os = "linux")]
 
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
+use std::os::unix::fs::FileExt as _;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -42,8 +43,33 @@ fn new_key() -> String {
     )
 }
 
-/// Copies `from` to `to`, each read arriving `RTT`/2 after it left.
-fn delayed(mut from: UnixStream, mut to: UnixStream) {
+/// What crossed the link both ways since the machine started, and its live connections, so a
+/// test can count an action's bytes (CMUX-674: "bytes per action ... and a projected folder")
+/// and cut the link to make the Mac dial again.
+#[derive(Default)]
+struct Wire {
+    up: std::sync::atomic::AtomicU64,
+    down: std::sync::atomic::AtomicU64,
+    live: std::sync::Mutex<Vec<UnixStream>>,
+}
+
+impl Wire {
+    /// Bytes Mac to machine, and machine to Mac.
+    fn read(&self) -> (u64, u64) {
+        use std::sync::atomic::Ordering::Relaxed;
+        (self.up.load(Relaxed), self.down.load(Relaxed))
+    }
+
+    /// Cuts every connection, as a dropped network does.
+    fn cut(&self) {
+        for connection in self.live.lock().unwrap().drain(..) {
+            let _ = connection.shutdown(std::net::Shutdown::Both);
+        }
+    }
+}
+
+/// Copies `from` to `to`, each read arriving `RTT`/2 after it left, counted in `count`.
+fn delayed(mut from: UnixStream, mut to: UnixStream, wire: std::sync::Arc<Wire>, up: bool) {
     let (due, arrivals) = std::sync::mpsc::channel::<(Instant, Vec<u8>)>();
     std::thread::spawn(move || {
         for (at, bytes) in arrivals {
@@ -60,6 +86,8 @@ fn delayed(mut from: UnixStream, mut to: UnixStream) {
             match from.read(&mut buffer) {
                 Ok(0) | Err(_) => return,
                 Ok(read) => {
+                    let counter = if up { &wire.up } else { &wire.down };
+                    counter.fetch_add(read as u64, std::sync::atomic::Ordering::Relaxed);
                     if due.send((Instant::now() + RTT / 2, buffer[..read].to_vec())).is_err() {
                         return;
                     }
@@ -72,21 +100,30 @@ fn delayed(mut from: UnixStream, mut to: UnixStream) {
 /// A Cloud machine on `socket` over `home`: every connection crosses the delayed link; a dial
 /// whose first line is `projection.serve` is served by the daemon's projection, any other by its
 /// `fs-v1` lines.
-fn machine(socket: &Path, home: &Path) {
+fn machine(socket: &Path, home: &Path) -> std::sync::Arc<Wire> {
     let listener = UnixListener::bind(socket).unwrap();
     let home = home.to_path_buf();
     let service: &'static FsService =
         Box::leak(Box::new(FsService::new(Roots::new([home.clone()]))));
+    let wire = std::sync::Arc::new(Wire::default());
+    let counted = wire.clone();
     std::thread::spawn(move || {
         for connection in listener.incoming() {
             let Ok(connection) = connection else { return };
+            counted.live.lock().unwrap().push(connection.try_clone().unwrap());
             let (near, far) = UnixStream::pair().unwrap();
-            delayed(connection.try_clone().unwrap(), near.try_clone().unwrap());
-            delayed(near, connection);
+            delayed(
+                connection.try_clone().unwrap(),
+                near.try_clone().unwrap(),
+                counted.clone(),
+                true,
+            );
+            delayed(near, connection, counted.clone(), false);
             let home = home.clone();
             std::thread::spawn(move || serve(far, service, &home));
         }
     });
+    wire
 }
 
 fn serve(connection: UnixStream, service: &FsService, home: &Path) {
@@ -286,6 +323,7 @@ struct World {
     local: PathBuf,
     home: PathBuf,
     socket: PathBuf,
+    wire: std::sync::Arc<Wire>,
 }
 
 fn world(files: usize) -> World {
@@ -297,8 +335,8 @@ fn world(files: usize) -> World {
     std::fs::create_dir_all(home.join("work")).unwrap();
     let sockets = tempfile::Builder::new().prefix("pj").tempdir_in("/tmp").unwrap();
     let socket = sockets.path().join("m.sock");
-    machine(&socket, &home);
-    World { _root: root, _sockets: sockets, local, home, socket }
+    let wire = machine(&socket, &home);
+    World { _root: root, _sockets: sockets, local, home, socket, wire }
 }
 
 #[test]
@@ -420,4 +458,187 @@ fn a_bench_of_the_first_turn() {
         "folder: {files} notes + 3 repositories + a 21 GiB sparse image; link {} ms RTT",
         RTT.as_millis()
     );
+}
+
+/// A 9 MiB file whose every 4 KiB block names itself: three chunks, the last one partial.
+fn big_bytes() -> Vec<u8> {
+    (0..9 * 1024 * 1024 / 16).flat_map(|n: u32| format!("block {n:09}\n").into_bytes()).collect()
+}
+
+/// The suite's own fixtures in the `cmux` repository, committed: a 9 MiB file, a folder to
+/// rename, a link inside the folder and one leaving it.
+fn suite_fixtures(local: &Path) {
+    let repo = local.join("cmux");
+    std::fs::write(repo.join("big.bin"), big_bytes()).unwrap();
+    write(&repo.join("docs/a.md"), "a\n");
+    write(&repo.join("docs/b.md"), "b\n");
+    std::os::unix::fs::symlink("README.md", repo.join("readme-link")).unwrap();
+    std::os::unix::fs::symlink("/etc/hostname", repo.join("leaves")).unwrap();
+    git(&repo, &["add", "big.bin", "docs", "readme-link"]);
+    git(&repo, &["commit", "-qm", "suite"]);
+}
+
+/// Waits up to `limit` for `check`, so a step that needs the Mac's next dial is not a race.
+fn within(limit: Duration, mut check: impl FnMut() -> bool) -> bool {
+    let started = Instant::now();
+    while started.elapsed() < limit {
+        if check() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    false
+}
+
+/// RFD 0007's hard cases as a person sees them on the machine (CMUX-674 item 5: "a correctness
+/// suite (renames, deletes, large files, symlinks, two-sided edits, git status)"), on a projected
+/// `~/Projects` through the real start: every step names what the Mac must still hold.
+#[test]
+fn a_projected_folder_behaves_like_the_folder_on_every_hard_case() {
+    if !fuse_here() {
+        eprintln!("skipping: no FUSE here");
+        return;
+    }
+    let w = world(50);
+    suite_fixtures(&w.local);
+    let state = w.home.parent().unwrap().join("state");
+    let start = start_chat(&state, &w.socket, &w.local, &w.home.join("work"), true, &[]);
+    if start.could_not_mount() {
+        eprintln!("skipping: this host may not mount FUSE: {}", start.stderr);
+        return;
+    }
+    assert_eq!(start.answer["mode"], "projected", "{}", start.answer);
+    let (folder, mac) = (start.folder.clone(), w.local.join("cmux"));
+    let repo = folder.join("cmux");
+
+    // git status: clean at the start, without reading the tree.
+    assert_eq!(git(&repo, &["status", "--short"]), "");
+
+    // A large file: whole, and a read inside its second chunk, byte for byte.
+    let big = big_bytes();
+    assert_eq!(std::fs::read(repo.join("big.bin")).unwrap(), big);
+    let mut part = vec![0u8; 64];
+    std::fs::File::open(repo.join("big.bin"))
+        .unwrap()
+        .read_exact_at(&mut part, 5 * 1024 * 1024 + 7)
+        .unwrap();
+    assert_eq!(part, big[5 * 1024 * 1024 + 7..][..64]);
+
+    // Symlinks: one inside the folder is a link with its text; one leaving it is not there.
+    assert_eq!(std::fs::read_link(repo.join("readme-link")).unwrap(), Path::new("README.md"));
+    assert_eq!(std::fs::read_to_string(repo.join("readme-link")).unwrap(), "# cmux\n");
+    assert!(std::fs::symlink_metadata(repo.join("leaves")).is_err(), "a link leaving the folder");
+
+    // Rename and delete of Mac files, and a folder rename: done on the machine, the Mac untouched.
+    std::fs::rename(repo.join("src/m01.rs"), repo.join("src/renamed.rs")).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(repo.join("src/renamed.rs")).unwrap(),
+        "// cmux\nfn f1() {}\n"
+    );
+    assert!(!repo.join("src/m01.rs").exists());
+    std::fs::remove_file(repo.join("src/m02.rs")).unwrap();
+    std::fs::rename(repo.join("docs"), repo.join("notes-moved")).unwrap();
+    assert_eq!(std::fs::read_to_string(repo.join("notes-moved/b.md")).unwrap(), "b\n");
+    for kept in ["src/m01.rs", "src/m02.rs", "docs/a.md"] {
+        assert!(mac.join(kept).exists(), "the Mac lost {kept}");
+    }
+    let status = git(&repo, &["status", "--short", "--untracked-files=all"]);
+    for line in [" D src/m01.rs", " D src/m02.rs", " D docs/a.md", "?? src/renamed.rs"] {
+        assert!(status.lines().any(|got| got == line), "missing {line:?} in:\n{status}");
+    }
+
+    // Two-sided edits. The machine edits one file; the Mac edits another after the listing (hard
+    // case 7) and the machine reads the Mac's new bytes; both edit a third: the machine keeps its
+    // own, the Mac keeps its own (bringing it back is a named conflict, not an overwrite).
+    std::fs::write(repo.join("src/m03.rs"), "// machine\n").unwrap();
+    std::fs::write(mac.join("src/m04.rs"), "// the mac, later and longer\n").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(repo.join("src/m04.rs")).unwrap(),
+        "// the mac, later and longer\n"
+    );
+    std::fs::write(repo.join("src/m05.rs"), "// machine side\n").unwrap();
+    std::fs::write(mac.join("src/m05.rs"), "// mac side\n").unwrap();
+    assert_eq!(std::fs::read_to_string(repo.join("src/m05.rs")).unwrap(), "// machine side\n");
+    assert_eq!(std::fs::read_to_string(mac.join("src/m03.rs")).unwrap(), "// cmux\nfn f3() {}\n");
+    let status = git(&repo, &["status", "--short"]);
+    assert!(status.lines().any(|line| line == " M src/m03.rs"), "{status}");
+
+    // A file deleted on the Mac after the listing: a read fails at once, never hangs.
+    std::fs::remove_file(mac.join("src/m06.rs")).unwrap();
+    let started = Instant::now();
+    assert!(std::fs::read(repo.join("src/m06.rs")).is_err());
+    assert!(started.elapsed() < Duration::from_secs(10), "took {:?}", started.elapsed());
+
+    // The link drops: what was read stays readable, and the Mac dials again with no manifest.
+    w.wire.cut();
+    assert_eq!(std::fs::read(repo.join("big.bin")).unwrap().len(), big.len());
+    assert!(
+        within(Duration::from_secs(30), || std::fs::read_to_string(repo.join("src/m07.rs"))
+            .is_ok_and(|text| text == "// cmux\nfn f7() {}\n")),
+        "an unread file after the Mac dialed again"
+    );
+    stop(&state, &folder);
+}
+
+/// CMUX-674 item 2, the projected folder: bytes on the link for the start (the manifest), the
+/// first turn, the same turn again (all cached), an idle minute's worth, and a dropped link,
+/// for folders of 100, 1,000 and 10,000 notes. Prints `PROJECTION-BYTES` lines; asserts that
+/// a repeat turn, idle and the re-dial cost no more as the folder grows.
+#[test]
+fn a_projected_folders_bytes_per_action_stay_flat_where_they_should() {
+    if !fuse_here() {
+        eprintln!("skipping: no FUSE here");
+        return;
+    }
+    let sizes: Vec<usize> = std::env::var("CMUX_PROJECT_BYTES_SIZES")
+        .ok()
+        .map(|text| text.split(',').filter_map(|n| n.trim().parse().ok()).collect())
+        .unwrap_or_else(|| vec![100, 1_000, 10_000]);
+    let mut flat = Vec::new();
+    for files in sizes {
+        let w = world(files);
+        let state = w.home.parent().unwrap().join("state");
+        let before = w.wire.read();
+        let start = start_chat(&state, &w.socket, &w.local, &w.home.join("work"), true, &[]);
+        if start.could_not_mount() {
+            eprintln!("skipping: this host may not mount FUSE: {}", start.stderr);
+            return;
+        }
+        assert_eq!(start.answer["mode"], "projected", "{}", start.answer);
+        let mut last = w.wire.read();
+        let mut row = |case: &str, took: Duration, last: &mut (u64, u64)| {
+            let now = w.wire.read();
+            let (up, down) = (now.0 - last.0, now.1 - last.1);
+            println!(
+                "PROJECTION-BYTES {}",
+                json!({"case": case, "files": files, "up": up, "down": down,
+                       "ms": took.as_millis(), "manifest_bytes": start.answer["projected"]["manifest_bytes"]})
+            );
+            *last = now;
+            up + down
+        };
+        let _ = row("start", start.took, &mut (before.0, before.1));
+        let (took, read, status) = first_turn(&start.folder);
+        assert!(status && read == 20, "first turn: {read} reads, git status {status}");
+        let first = row("first_turn", took, &mut last);
+        let (took, _, _) = first_turn(&start.folder);
+        let again = row("repeat_turn", took, &mut last);
+        std::thread::sleep(Duration::from_secs(10));
+        let idle = row("idle_10s", Duration::from_secs(10), &mut last);
+        let started = Instant::now();
+        w.wire.cut();
+        let back = within(Duration::from_secs(30), || {
+            std::fs::read_to_string(start.folder.join("cmux/src/m19.rs")).is_ok()
+                && std::fs::read_to_string(start.folder.join("work/api/src/m19.rs")).is_ok()
+        });
+        assert!(back, "no read after the link dropped");
+        let redial = row("redial_and_two_reads", started.elapsed(), &mut last);
+        flat.push((files, first, again, idle, redial));
+        stop(&state, &start.folder);
+    }
+    let (Some(small), Some(large)) = (flat.first(), flat.last()) else { return };
+    let grows = |a: u64, b: u64| b > a * 3 / 2 + 4096;
+    assert!(!grows(small.2, large.2), "a cached repeat turn grows with the folder: {flat:?}");
+    assert!(!grows(small.3, large.3), "idle grows with the folder: {flat:?}");
+    assert!(!grows(small.4, large.4), "a re-dial grows with the folder: {flat:?}");
 }
