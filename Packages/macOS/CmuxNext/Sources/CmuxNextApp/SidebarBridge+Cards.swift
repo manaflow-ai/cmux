@@ -147,10 +147,18 @@ enum SidebarCardFeed {
         case .closeUpdate:
             if let option { registry.perform("updates.snooze", invocation: ActionInvocation(arguments: ["option": .string(option.rawValue)], origin: .user)) }
         case .updateAction:
+            // Cancel, Details and Release Notes run their palette rows (``UpdateHandlers/noticeRows``); where the
+            // row does not run, the button acts itself, as before.
+            if let row = UpdateHandlers.noticeRows.first(where: { $0.1 == cardAction }),
+               registry.perform(row.0, invocation: ActionInvocation(origin: .user)) { return }
             if cardAction == .releaseNotes, let url = updater.cardReleaseNotesURL { open(url) } else if let cardAction { updater.performCardAction(cardAction) }
         case .useRealFeed: try? updater.useTestFeed(nil, pinned: false)
         case .announcementTry: updater.runAllowListedAction?(action)
-        case .tip(let tip): updater.tipCardAction(tip, action)
+        case .tip(let tip):
+            // Mute Tips for 1 Day or 1 Week run their palette rows (``UpdateHandlers/tipRows``), else act here.
+            if let row = UpdateHandlers.tipRows.first(where: { $0.1.rawValue == action }),
+               registry.perform(row.0, invocation: ActionInvocation(origin: .user)) { return }
+            updater.tipCardAction(tip, action)
         case .none: break
         }
     }

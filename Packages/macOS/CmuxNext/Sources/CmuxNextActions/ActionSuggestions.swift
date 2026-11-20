@@ -66,4 +66,10 @@ public nonisolated struct ActionSuggestions: Sendable, Hashable {
     public static let browserBackForwardEntries = "browserBackForwardEntries"
     /// The browser's downloads (the `browser.download.*` rows' `download`), by id, newest first.
     public static let browserDownloads = "browserDownloads"
+    /// The browser toolbar's pinnable buttons (Pin or Unpin Browser Toolbar Button…'s `button`), in toolbar order,
+    /// the pinned ones marked.
+    public static let browserToolbarButtons = "browserToolbarButtons"
+    /// The tab bar's pinnable actions (Pin or Unpin Tab Bar Button…'s `button`, `tabs.toolbarButtons`), the pinned
+    /// ones marked.
+    public static let tabBarButtons = "tabBarButtons"
 }

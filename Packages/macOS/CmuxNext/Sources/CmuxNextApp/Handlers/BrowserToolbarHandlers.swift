@@ -178,11 +178,15 @@ enum BrowserToolbarHandlers {
             .action("openSettings"), .action("help.documentation"),
         ]
         let menu = registry.makeContextMenu(for: .browserPage, target: tabTarget(entry), entries: entries)
-        return buttons?.addingShowInToolbar(to: menu, BrowserToolbarButtonsSetting.menuToggle(settings)) ?? menu
+        // Show in Toolbar's rows run the palette's Pin or Unpin Browser Toolbar Button… (one handler).
+        let pin = BrowserToolbarButtonsSetting.menuToggle(settings)
+        return buttons?.addingShowInToolbar(to: menu, (pin.enabled, { [weak registry] id in runToolbarPin(id, registry: registry, fallback: pin.toggle) })) ?? menu
     }
 }
 
-/// Palette rows of two hand-built browser menus, which run these actions themselves so the menu and
+/// Palette rows of hand-built browser and tab bar menus (also `browser.toolbar.togglePin`, the More menu's Show in
+/// Toolbar rows, and `tabs.toolbar.togglePin`, the tab bar "…" menu's Show in Tab Bar rows), which run these actions
+/// themselves so the menu and
 /// the palette run one handler:
 /// - `browser.goToHistoryEntry` (`entry`: the offset from the current page): a row of the Back and
 ///   Forward buttons' entry menus (`BrowserChromeView.goToBackForwardEntry`, through
@@ -199,6 +203,37 @@ extension BrowserToolbarHandlers {
     static func bindMenuRows(into registry: ActionRegistry, context: AppActionContext) {
         bindDownloads(into: registry, list: { context.services.cache.pageRequests.downloads })
         bindBackForward(into: registry, page: { BrowserHitHandlers.page($0, context) })
+        bindToolbarPin(into: registry, settings: { [weak services = context.services] in services?.settings })
+        PaneToolbar.bindTogglePin(into: registry, settings: { [weak services = context.services] in services?.settings })
+    }
+
+    /// Pin or Unpin Browser Toolbar Button… (`button`: a ``BrowserToolbarButton`` id): the More menu's Show in Toolbar
+    /// rows run it (``overflowMenu(for:registry:settings:)``). The palette lists the pinnable buttons, the pinned ones
+    /// marked (`browserToolbarButtons`), and offers it while the list is the person's (not managed), as the rows are enabled.
+    static func bindToolbarPin(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?) {
+        registry.bindEffect("browser.toolbar.togglePin", isEnabled: {
+            settings().map { !BrowserToolbarButtonsSetting.isManaged(in: $0) } ?? false
+        }, effect: { invocation in
+            guard let settings = settings(),
+                  let button = invocation["button"]?.stringValue.flatMap(BrowserToolbarButton.init(rawValue:)), button.isPinnable else { return .done }
+            BrowserToolbarButtonsSetting.toggle(button.rawValue, in: settings)
+            return .done
+        })
+        let other = registry.argumentSuggestions
+        registry.argumentSuggestions = { source in
+            guard source == ActionSuggestions.browserToolbarButtons else { return other?(source) ?? [] }
+            let pinned = settings().map { BrowserToolbarButtonsSetting.current($0).pinned } ?? []
+            return BrowserToolbarButton.pinnable.map { button in
+                ActionEnumCase(value: button.rawValue, title: button.pinTitle, symbol: pinned.contains(button.rawValue) ? "pin.fill" : "pin")
+            }
+        }
+    }
+
+    /// A Show in Toolbar row: the palette's Pin or Unpin Browser Toolbar Button… on `button`; where it does not run
+    /// (no registry, the list is managed), the row's own toggle, as before.
+    static func runToolbarPin(_ button: String, registry: ActionRegistry?, fallback: (String) -> Void) {
+        let invocation = ActionInvocation(arguments: ["button": .string(button)], origin: .user)
+        if registry?.perform("browser.toolbar.togglePin", invocation: invocation) != true { fallback(button) }
     }
 
     /// The downloads rows over `list` (the App's one downloads list). The palette offers them while it lists a download.
