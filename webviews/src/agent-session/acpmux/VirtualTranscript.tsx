@@ -2659,7 +2659,9 @@ function TranscriptView({
     rowHeights.current = { registry, heights: new WeakMap() };
     pendingDrawn.current.clear();
     const shown =
-      sessionId === undefined ? undefined : keptLayouts.show(sessionId, chatLook, attachmentView, registry, gridScale());
+      sessionId === undefined
+        ? undefined
+        : keptLayouts.show(sessionId, chatLook, attachmentView, registry, gridScale());
     // Its drawn heights name it (`DrawnHeight.sessionId`), so they place only its rows.
     if (shown && shown !== drawn) setDrawn(shown);
   }
@@ -4026,11 +4028,12 @@ function TranscriptView({
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
     // Keep the session in this memo's inputs: its cache is cleared synchronously above even
     // when a host reuses the same rows array for a newly selected chat.
-    const cache = measurementSession.current === sessionId ? measurementCache.current : new Map();
+    const sameSession = measurementSession.current === sessionId;
+    const cache = sameSession ? measurementCache.current : new Map();
     const lookChanged = measuredLook.current !== chatLook || measuredView.current !== attachmentView;
     measuredLook.current = chatLook;
     measuredView.current = attachmentView;
-    const fresh = rowHeights.current.registry !== registry || measurementSession.current !== sessionId || lookChanged;
+    const fresh = rowHeights.current.registry !== registry || !sameSession || lookChanged;
     if (rowHeights.current.registry !== registry || lookChanged) {
       rowHeights.current = { registry, heights: new WeakMap() };
       // A kept layout was measured with the look and registry before: none of it places a row now.
@@ -4057,9 +4060,7 @@ function TranscriptView({
       (row, measureWidth) => registry[rowKind(row)]?.measure?.(row, measureWidth),
       // A chat shown again takes its rows' heights from the layout it left, by id, version and text: its
       // estimate measures only the rows that changed since (conversation/keptLayouts.ts).
-      measurementSession.current === sessionId
-        ? keptLayouts.seed(sessionId, rows, rowHeights.current.heights, gridScale())
-        : undefined,
+      sameSession ? keptLayouts.seed(sessionId, rows, rowHeights.current.heights, gridScale()) : undefined,
       kept,
       sessionId,
       resizing,

@@ -544,7 +544,9 @@ try {
                 const moved = (entry.sources ?? []).map(({ node }) => {
                   const element = node instanceof Element ? node : node?.parentElement;
                   const row = element?.closest<HTMLElement>("[data-row-id]")?.dataset.rowId;
-                  return row ? `row ${row}` : (element?.className?.toString().split(" ")[0] ?? element?.nodeName ?? "?");
+                  return row
+                    ? `row ${row}`
+                    : (element?.className?.toString().split(" ")[0] ?? element?.nodeName ?? "?");
                 });
                 state.shifts.push({ at: entry.startTime - t0, value: entry.value, moved });
                 state.activity = Math.max(state.activity, entry.startTime);
