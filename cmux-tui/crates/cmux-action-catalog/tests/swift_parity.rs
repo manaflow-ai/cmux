@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 fn repo() -> PathBuf {
+    // affected-reads: plans/cmux-next/action-catalog.json plans/cmux-next/action-surfaces.json Packages/macOS/CmuxNext/Sources cmux-tui/crates/cmux-action-catalog
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 

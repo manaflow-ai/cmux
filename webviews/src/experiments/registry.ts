@@ -25,6 +25,7 @@ import { compactingLine } from "../agent-session/acpmux/conversation/compactingL
 import { liveLineTimes } from "../agent-session/acpmux/conversation/liveLineTimes.experiment";
 import { liveTurnClock } from "../agent-session/acpmux/conversation/liveTurnClock.experiment";
 import { runScroll } from "../agent-session/acpmux/conversation/runScroll.experiment";
+import { thumbMotion } from "../agent-session/acpmux/conversation/thumbMotion.experiment";
 import { oneRowPerCall } from "../agent-session/acpmux/conversation/oneRowPerCall.experiment";
 import { backgroundHintRoom } from "../agent-session/acpmux/conversation/backgroundHintRoom.experiment";
 import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
@@ -61,6 +62,7 @@ import { composerHatLook } from "../agent-session/acpmux/subagents/composerHat.e
 import { hatQuestionsLook } from "../agent-session/acpmux/question/hatQuestions.experiment";
 import { hatChevronLook, hatDoneCheckPlace, hatDoneLook } from "../agent-session/acpmux/subagents/hatParts.experiment";
 import { hatTuckLook } from "../agent-session/acpmux/subagents/hatTuck.experiment";
+import { hatOpenLook } from "../agent-session/acpmux/subagents/hatOpen.experiment";
 import { goalHatPlace } from "../agent-session/acpmux/goalHat.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
 import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
@@ -150,6 +152,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   liveLineTimes,
   liveTurnClock,
   runScroll,
+  thumbMotion,
   oneRowPerCall,
   backgroundHintRoom,
   trayPanelLook,
@@ -160,6 +163,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hatQuestionsLook,
   hatChevronLook,
   hatTuckLook,
+  hatOpenLook,
   goalHatPlace,
   hatDoneLook,
   hatDoneCheckPlace,
