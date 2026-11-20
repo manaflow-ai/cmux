@@ -361,7 +361,9 @@ fn every_usage_flag_is_a_catalog_argument_and_back() {
                 let flag = word.strip_prefix("--")?;
                 // `--yes` reaches the app as its `--confirm` (vm.rs `yes_as_confirm`).
                 let flag = if flag == "yes" { "confirm" } else { flag };
-                (!["target", "focus", "arg"].contains(&flag)).then(|| camel(flag))
+                // `--focus` and `--no-focus` set the request's `focus` (app.rs `run_action`), not an
+                // argument the app takes.
+                (!["target", "focus", "no-focus", "arg"].contains(&flag)).then(|| camel(flag))
             })
             .collect::<BTreeSet<_>>();
         assert_eq!(flags, args, "{}: usage {:?}", verb.name, verb.usage);
