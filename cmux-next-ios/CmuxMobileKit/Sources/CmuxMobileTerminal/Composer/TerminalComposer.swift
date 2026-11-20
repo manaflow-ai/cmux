@@ -160,7 +160,8 @@ struct TerminalComposer: View {
                 shouldInsert: { model.composerShouldInsert($0) },
                 onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil
             )
-            if let retry = retryInField {
+            let hasComposerWork = !(model.composerText.isEmpty && model.attachments.isEmpty)
+            if let retry = retryInField, !hasComposerWork {
                 // The connection's quiet line is the empty field's placeholder
                 // (`TerminalModel.composerPlaceholder`); its Retry sits where
                 // Send does, which an empty field can't use anyway.
@@ -171,6 +172,17 @@ struct TerminalComposer: View {
                     .padding(.trailing, 6)
                     .accessibilityIdentifier("terminal.retry")
             } else {
+                // Keep Send in its trailing slot when a draft or attachments
+                // are held, and put Retry beside it so either action is
+                // available without clearing the person's work.
+                if let retry = retryInField {
+                    RetryButton(style: .inline, action: retry)
+                        .font(.subheadline)
+                        .frame(minHeight: TerminalDockMetrics.sendDiameter)
+                        .padding(.vertical, TerminalDockMetrics.fieldPadding)
+                        .padding(.trailing, 6)
+                        .accessibilityIdentifier("terminal.retry")
+                }
                 sendButton
                     .padding(.vertical, TerminalDockMetrics.fieldPadding)
             }
@@ -186,9 +198,9 @@ struct TerminalComposer: View {
         .glassSurface(in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
     }
 
-    /// Retry in the send circle's place: the outage's line shows (as the
-    /// placeholder). Keep it available while a draft or attachments are held
-    /// so a failed attach can be retried without clearing the person's work.
+    /// Retry is available while the outage's line shows (as the placeholder).
+    /// An empty composer uses the send circle's frame; populated composers
+    /// render it alongside Send so reconnecting never clears their work.
     private var retryInField: (@MainActor () async -> Void)? {
         guard model.connectionLine != nil, !model.isUploading else { return nil }
         return model.reconnect
