@@ -156,7 +156,8 @@ import Testing
         for resumable in [true, false] {
             let exec = ExecScript([.failure(Self.notRunning), .failure(Self.notRunning), .failure(Self.notRunning)])
             let resumed = UpdateCount(), updated = UpdateCount()
-            let route = CloudMachineRoute(exec: { _, _ in try await exec.next() }, resume: resumable ? { await resumed.add() } : nil, machineID: "vm_test")
+            let resume: CloudMachineRoute.Resume = { @Sendable in await resumed.add() }
+            let route = CloudMachineRoute(exec: { _, _ in try await exec.next() }, resume: resumable ? resume : nil, machineID: "vm_test")
             do {
                 try await route.prepare(family: "claude") { await updated.add() }
                 Issue.record("the start went on with a machine that does not run")
