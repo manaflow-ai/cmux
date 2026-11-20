@@ -182,7 +182,7 @@ FLEET_EPHEMERAL_LABELS = frozenset({"cmux-fleet-linux-x64"})
 # schedule-or-dispatch event test, then the fleet literal. Placed after the fork branch of an otherwise accepted
 # expression (the trusted selector included), it can only ever add that one label.
 FLEET_FIRST_OPERAND = re.compile(
-    r"(?:\(github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'\) && )?"
+    r"(?:\(github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch' && !inputs\.run_id\) && )?"
     r"vars\.CI_REPAIR_SKIP_FLEET != '1' && '(" + "|".join(map(re.escape, sorted(FLEET_EPHEMERAL_LABELS))) + r")' \|\| "
 )
 FORK_BRANCH_PREFIX = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
@@ -1567,7 +1567,7 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         self.assertEqual(runner_label_errors(f"${{{{ {fork}{switch}'cmux-fleet-linux-x64' || {BOUNDED_LINUX_SELECTOR} }}}}"), [])
         self.assertEqual(runner_label_errors("cmux-fleet-linux-x64"), ["'cmux-fleet-linux-x64' is not an ephemeral label"])
         # Ahead of the exact trusted selector, on schedule and dispatch only (the owned-pool sweeper).
-        scheduled = "(github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && " + switch
+        scheduled = "(github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && " + switch
         self.assertEqual(runner_label_errors(TRUSTED_RUNNER_EXPRESSION.replace(
             fork, f"{fork}{scheduled}'cmux-fleet-linux-x64' || ", 1)), [])
         self.assertNotEqual(runner_label_errors(TRUSTED_RUNNER_EXPRESSION.replace(
