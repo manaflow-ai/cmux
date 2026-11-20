@@ -1,6 +1,7 @@
+import { envForObject } from "./build-space.ts"
 import type { Domain, OwnerFrame, Principal } from "@cmux/ownership"
 import { mux } from "@cmux/home-core"
-import type { Env } from "./env.ts"
+import type { Env, RawEnv } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { publicActor } from "./public-actor.ts"
 import { withAdmit } from "./home-admit.ts"
@@ -12,7 +13,8 @@ import { type BrainRoute, dueWakes, durableOn, nextDeliveryAt, nextWaiting, pend
  * host subscribes to `mux:<agent>` and acks with mux.ack; ConversationDO outboxes send mux.wake.
  */
 export class MuxDO extends OwnerDO<mux.MuxHead> {
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    const env = envForObject(ctx, raw)
     super(ctx, env, withAdmit("cloud:MuxDO", mux.muxDomain as Domain<mux.MuxHead>), "mux", publicActor, {
       rowMode: { snapshotTable: mux.TABLE_WAKE, snapshotTail: 200 }
     })

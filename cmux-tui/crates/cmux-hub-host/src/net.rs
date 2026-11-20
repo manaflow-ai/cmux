@@ -10,6 +10,12 @@ use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::Arc;
 use std::time::Duration;
 
+/// The User-Agent of this host's hub requests.
+#[cfg(not(windows))]
+const USER_AGENT: &str = "cmux-rd-linux-host";
+#[cfg(windows)]
+const USER_AGENT: &str = "cmux-rd-windows-host";
+
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const IO_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_HEADER: usize = 32 * 1024;
@@ -192,7 +198,7 @@ pub fn request(
 ) -> Res<Response> {
     let mut conn = Conn::open(url)?;
     let mut head = format!(
-        "{method} {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: cmux-rd-linux-host\r\nAccept: application/json\r\nAccept-Encoding: identity\r\nConnection: close\r\n",
+        "{method} {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: {USER_AGENT}\r\nAccept: application/json\r\nAccept-Encoding: identity\r\nConnection: close\r\n",
         url.target,
         host_header(url)
     );
@@ -311,7 +317,7 @@ impl WebSocket {
             .map_err(|_| "no randomness")?;
         let key = b64::encode(&nonce);
         let mut head = format!(
-            "GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: cmux-rd-linux-host\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n",
+            "GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: {USER_AGENT}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n",
             url.target,
             host_header(url)
         );
@@ -330,7 +336,11 @@ impl WebSocket {
             if buf.len() > MAX_HEADER {
                 return Err("WebSocket answer header too large".into());
             }
-            let n = conn.io.read(&mut chunk)?;
+            let n = match conn.io.read(&mut chunk) {
+                // A signal interrupts this timed read too (see `recv`); read again.
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                read => read?,
+            };
             if n == 0 {
                 return Err("the hub closed the WebSocket before answering".into());
             }
@@ -386,8 +396,15 @@ impl WebSocket {
             match self.conn.io.read(&mut chunk) {
                 Ok(0) => return Ok(Some(Message::Closed(1006, "connection closed".into()))),
                 Ok(n) => self.buf.extend_from_slice(&chunk[..n]),
+                // A signal to this process (a child's SIGCHLD, a SIGTERM) interrupts a read with
+                // a timeout even under SA_RESTART (signal(7)): nothing arrived, the socket is fine.
                 Err(e)
-                    if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) =>
+                    if matches!(
+                        e.kind(),
+                        io::ErrorKind::WouldBlock
+                            | io::ErrorKind::TimedOut
+                            | io::ErrorKind::Interrupted
+                    ) =>
                 {
                     return Ok(None)
                 }
@@ -564,5 +581,77 @@ mod tests {
         let tls = Url::parse("https://hub.example").unwrap();
         assert_eq!(addresses(&tls, vec![v6, remote]).unwrap(), vec![v6, remote]);
         assert!(addresses(&tls, vec![]).is_err());
+    }
+
+    /// A signal to the process (a helper's SIGCHLD when it exits) interrupts a timed socket
+    /// read even under SA_RESTART (signal(7)). That is nothing arriving, never the socket
+    /// closing: a share whose own helper crashed read it as "signaling closed before the
+    /// viewer connected", and the hub was never told the share failed.
+    #[cfg(unix)]
+    #[test]
+    fn a_signal_during_a_read_is_no_message_and_the_socket_stays_open() {
+        use std::io::BufRead;
+        use std::os::unix::thread::JoinHandleExt;
+        extern "C" fn ignore(_: libc::c_int) {}
+        // SAFETY: a zeroed sigaction is valid; the handler does nothing, which is
+        // async-signal-safe, and SIGUSR2 is used by nothing else in this crate's tests.
+        unsafe {
+            let mut action: libc::sigaction = std::mem::zeroed();
+            action.sa_sigaction = ignore as extern "C" fn(libc::c_int) as libc::sighandler_t;
+            action.sa_flags = libc::SA_RESTART;
+            libc::sigemptyset(&mut action.sa_mask);
+            assert_eq!(libc::sigaction(libc::SIGUSR2, &action, std::ptr::null_mut()), 0);
+        }
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (send_now, sent) = std::sync::mpsc::channel::<()>();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = io::BufReader::new(stream.try_clone().unwrap());
+            let mut key = String::new();
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line.trim_end().is_empty() {
+                    break;
+                }
+                if let Some(v) = line.trim_end().strip_prefix("Sec-WebSocket-Key: ") {
+                    key = v.to_owned();
+                }
+            }
+            let mut out = &stream;
+            write!(
+                out,
+                "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {}\r\n\r\n",
+                accept_key(&key)
+            )
+            .unwrap();
+            sent.recv().unwrap();
+            out.write_all(&[0x81, 2, b'h', b'i']).unwrap();
+            // Held open until the client is done.
+            let _ = io::copy(&mut reader, &mut io::sink());
+        });
+        let url = Url::parse(&format!("ws://127.0.0.1:{port}/")).unwrap();
+        let mut ws = WebSocket::connect(&url, &[]).unwrap();
+        let reader = std::thread::spawn(move || {
+            let first = ws.recv(Duration::from_secs(30)).map_err(|e| e.to_string());
+            (ws, first)
+        });
+        // Signal the reading thread until its read returns: it spends nearly all its time
+        // blocked in recv, so one of these lands there.
+        let thread = reader.as_pthread_t();
+        while !reader.is_finished() {
+            // SAFETY: the reading thread has not been joined, so its pthread_t is live.
+            unsafe { libc::pthread_kill(thread, libc::SIGUSR2) };
+            std::thread::yield_now();
+        }
+        let (mut ws, first) = reader.join().unwrap();
+        assert!(matches!(first, Ok(None)), "an interrupted read: {first:?}");
+        send_now.send(()).unwrap();
+        let next = ws.recv(Duration::from_secs(30)).unwrap();
+        assert!(matches!(next, Some(Message::Text(ref t)) if t == "hi"), "{next:?}");
+        ws.close();
+        drop(ws);
+        server.join().unwrap();
     }
 }

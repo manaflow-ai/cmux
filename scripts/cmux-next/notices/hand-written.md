@@ -245,11 +245,14 @@ This software is based in part on the work of the FreeType Team (FreeType 2.13.2
 
 ---
 
-## cmux-cua engine
+## Agent cursor (CmuxAgentCursor)
+
+The app's agent cursor package (`Packages/Shared/CmuxAgentCursor`) was taken from
+manaflow-ai/cmux-cua, a fork of trycua/cua, under the MIT License.
 
 - **License:** MIT License
 - **Copyright:** Copyright (c) 2025 Cua AI, Inc.
-- **Source:** https://github.com/manaflow-ai/cmux-cua
+- **Source:** https://github.com/manaflow-ai/cmux-cua (libs/cmux-cua/swift/CmuxAgentCursor)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -964,12 +967,14 @@ playwright-core 1.57.0, `LICENSE` from the npm package (Apache License 2.0; show
 The cmux-next app bundles the uBlock Origin 1.76.4 release build for
 Chromium (uBlock0_1.76.4.chromium.zip, sha256
 4b1b27ed82e734d508ae6d255933c334f62f256e8a8aece92724b826828e3d5f) in
-`Contents/Resources/Extensions/ublock-origin`, with two changes: the manifest's
+`Contents/Resources/Extensions/ublock-origin`, with three changes: the manifest's
 `key` field (the Chrome Web Store extension id; the manifest is rewritten with
-two-space indentation), and, since 2026-11-12, the `_locales` catalogs of the
+two-space indentation); since 2026-11-12, the `_locales` catalogs of the
 languages cmux does not ship are removed (scripts/cmux-next/bundle-ublock.sh;
-the browser falls back to the default locale for them). The folder carries the full
-GPL-3.0 text (`LICENSE.txt`) and `SOURCE.txt`, which records both changes. uBlock Origin is a separate
+the browser falls back to the default locale for them); and since 2026-11-18, the
+URLhaus list (`assets/thirdparties/urlhaus-filter/urlhaus-filter-online.txt`) keeps
+its header only, and uBlock Origin downloads the current list after launch. The folder
+carries the full GPL-3.0 text (`LICENSE.txt`) and `SOURCE.txt`, which records the changes. uBlock Origin is a separate
 program that cmux loads into Chromium; it is not linked into cmux.
 Its bundled libraries keep their own licenses (CodeMirror, csstree, hsluv and
 js-beautify: MIT; diff: BSD-3-Clause; lz4-wasm and other files under `lib/`: see

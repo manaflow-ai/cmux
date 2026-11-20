@@ -270,9 +270,9 @@ def test_paths_that_reach_the_app_still_build() -> None:
         "Resources/bin/open-app",
         "cmux.xcodeproj/project.pbxproj",
         "package.json",
-        # The app bundles skills/cmux-cua as a folder resource, so its
+        # The app bundles skills/cmux-computer-use as a folder resource, so its
         # Markdown ships while other skills' Markdown does not.
-        "skills/cmux-cua/SKILL.md",
+        "skills/cmux-computer-use/SKILL.md",
         # Nightly signs and publishes; those helpers run in no PR lane.
         "scripts/sign-cmux-bundle.sh",
         "scripts/sparkle_generate_appcast.sh",

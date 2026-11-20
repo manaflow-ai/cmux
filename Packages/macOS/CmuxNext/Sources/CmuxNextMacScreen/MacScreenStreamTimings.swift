@@ -1,3 +1,4 @@
+import CmuxNextRemoteView
 import Foundation
 
 /// The last `capacity` samples of one measure (milliseconds), oldest overwritten first: a
@@ -54,6 +55,11 @@ nonisolated struct MacScreenFrameTimings: Equatable, Sendable {
     private(set) var dropped = 0
     private(set) var intervals = MacScreenRollingSamples(capacity: window)
     private(set) var present = MacScreenRollingSamples(capacity: window)
+    /// The viewer's stages on the glass (screen-share design D8), from the drawable's presented
+    /// time: release to decoded (Decode), decoded to the glass (Present), and their sum.
+    private(set) var decode = MacScreenRollingSamples(capacity: window)
+    private(set) var glass = MacScreenRollingSamples(capacity: window)
+    private(set) var decodePresent = MacScreenRollingSamples(capacity: window)
     private var lastPresentedNanos: UInt64?
     private var lastFrame: UInt32?
 
@@ -69,6 +75,16 @@ nonisolated struct MacScreenFrameTimings: Equatable, Sendable {
         // started over) is a new baseline, not a drop.
         if let last = lastFrame, frame > last, frame - last > 1 { dropped += Int(frame - last - 1) }
         lastFrame = frame
+    }
+
+    /// A frame reached the glass: its Decode and Present stages. Out-of-order times (a clock
+    /// that is not the decoder's) are left out.
+    mutating func shown(_ times: RemoteViewerFrameTimes) {
+        guard times.releasedAtNanos > 0, times.releasedAtNanos <= times.decodedAtNanos,
+              times.decodedAtNanos <= times.presentedAtNanos else { return }
+        decode.add(Double(times.decodedAtNanos - times.releasedAtNanos) / 1e6)
+        glass.add(Double(times.presentedAtNanos - times.decodedAtNanos) / 1e6)
+        decodePresent.add(Double(times.presentedAtNanos - times.releasedAtNanos) / 1e6)
     }
 }
 

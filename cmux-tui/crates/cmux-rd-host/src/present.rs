@@ -8,13 +8,12 @@
 //! server has copied it, so the frame is on the display when `show` returns and the segment can be
 //! reused.
 
-use crate::shm::ShmSeg;
+use crate::shm::{ServerAccess, ShmSeg};
 use crate::Res;
 use openh264::formats::YUVSource;
 use x11rb::connection::Connection;
-use x11rb::protocol::shm::ConnectionExt as _;
 use x11rb::protocol::xproto::{
-    ConnectionExt as _, CreateGCAux, CreateWindowAux, ImageFormat, Window, WindowClass,
+    ConnectionExt as _, CreateGCAux, CreateWindowAux, Window, WindowClass,
 };
 use x11rb::rust_connection::RustConnection;
 use x11rb::wrapper::ConnectionExt as _;
@@ -76,7 +75,7 @@ impl Presenter {
         // Kept before the segment: a failed segment must not make every later frame make a new window.
         self.window = Some((win, gc));
         self.size = (w, h);
-        self.shm = Some(ShmSeg::new(&self.conn, w * h * 4)?);
+        self.shm = Some(ShmSeg::new(&self.conn, w * h * 4, ServerAccess::Read)?);
         self.conn.sync()?;
         Ok(())
     }
@@ -90,29 +89,9 @@ impl Presenter {
         let (Some((win, gc)), Some(shm)) = (self.window, self.shm.as_mut()) else {
             return Err("--present: no shared memory segment for the window".into());
         };
-        i420_to_bgrx(yuv, shm.as_mut_slice(), w, h);
-        self.conn
-            .shm_put_image(
-                win,
-                gc,
-                w as u16,
-                h as u16,
-                0,
-                0,
-                w as u16,
-                h as u16,
-                0,
-                0,
-                24,
-                ImageFormat::Z_PIXMAP.into(),
-                false,
-                shm.seg,
-                0,
-            )?
-            // A checked round trip: the server has copied the segment into the window when it
-            // answers, and an X error from the put comes back here instead of the event queue.
-            .check()?;
-        Ok(())
+        i420_to_bgrx(yuv, shm.pixels_mut(), w, h);
+        // Returns once the server has copied the segment into the window.
+        shm.put_image(&self.conn, win, gc, (w as u16, h as u16), 24)
     }
 }
 

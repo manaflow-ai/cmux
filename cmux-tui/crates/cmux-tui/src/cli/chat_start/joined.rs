@@ -310,8 +310,9 @@ pub(in crate::cli) fn account_rows(global: &GlobalArgs) -> Result<Vec<Value>, St
         .unwrap_or_else(|| Err("not signed in".to_owned()))
 }
 
-/// A short-lived token from the cmux app's sign-in (`auth.token`, as `cmux auth token`).
-fn app_token(global: &GlobalArgs) -> Result<String, String> {
+/// A short-lived token from the cmux app's sign-in (`auth.token`, as `cmux auth token`); also
+/// `automation create --webhook --on cloud`.
+pub(in crate::cli) fn app_token(global: &GlobalArgs) -> Result<String, String> {
     const TIMEOUT: Duration = Duration::from_secs(30);
     let mut stream = super::super::app::connect_command(global)
         .map_err(|_| "not signed in: no CMUX_CLOUD_ACCESS_TOKEN and no cmux app".to_owned())?;
@@ -362,6 +363,14 @@ pub(in crate::cli) fn start_words(
     name: &str,
 ) -> Result<Vec<String>, UsageError> {
     super::here_wait(start)?;
+    // Refused, never dropped: a joined machine's start takes a harness, model and folder only.
+    if start.effort.is_some() || start.mode.is_some() {
+        return Err(UsageError::new(format!(
+            "--effort and --mode pick a chat here or in Cloud; on {} start it, then set them with \
+             cmux acp session set SESSION effort=EFFORT",
+            machine.host
+        )));
+    }
     let mut words: Vec<String> = match machine.carrier {
         Carrier::Hub => {
             ["session", "start", name, "--machine", &machine.host].map(str::to_owned).to_vec()
