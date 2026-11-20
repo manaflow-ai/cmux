@@ -868,7 +868,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     )
                     .await;
                 }
-                let id = before_deadline(deadline, &session, resolve_id(&client, &session)).await?;
+                let resolved =
+                    before_deadline(deadline, &session, super::resolve_info(&client, &session))
+                        .await?;
+                // A session only the mesh hub reaches: its listed row says so at once, so the send
+                // goes through the hub (below) without first waiting on a read of its details.
+                if read_through_hub(&resolved) {
+                    return Err(errors::AppError::no_session(&session).into());
+                }
+                let id = crate::cli::resolve::routed_id(&resolved)?;
                 let on_permission = OnPermission::parse(&on_permission)?;
                 // Never refuse: report what the prompt queues behind.
                 // Read from a peer chat's mirrored row while its link's rows are current (`ROW_WILL_DO`).
@@ -1137,14 +1145,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::Info { session, fields } => {
             let client = connect(true).await?;
-            let v = match resolve_id(&client, &session).await {
-                Ok(id) => {
-                    crate::cli::slow_notice::noted(
-                        "the session's details",
-                        client.request(method::MUX_INFO, json!({"sessionId": id})),
-                    )
-                    .await?
-                }
+            // One read: the name's resolve is the session's info. A peer's or hub machine's
+            // session slow to answer its details answers with its listed row, marked `source`.
+            let read = crate::cli::slow_notice::noted(
+                "the session's details",
+                super::resolve_info(&client, &session),
+            )
+            .await;
+            let v = match read {
+                Ok(v) => v,
                 // A row only the send relay lists: its details are the relay's row, `via: relay`.
                 Err(e) => match crate::cli::send_relay::relayed_row(&e) {
                     Some(row) => row.clone(),
@@ -1178,6 +1187,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .map(|why| format!("  (respawn pending: {why})"))
                 .unwrap_or_default();
             println!("status:    {}{respawn}", g("status"));
+            if let Some(line) = listed_row_line(&v) {
+                println!("{line}");
+            }
             if let Some(line) = crate::hub::views::other_build_host_line(&v) {
                 println!("{line}");
             }
@@ -1422,6 +1434,22 @@ struct SendWait {
 /// classed one do unless the caller waits for the reply; the person's own send streams the
 /// reply as before. Leo, 2026-11-02: "sends shouldn't time out just bc of load".
 /// Whether `info` is a session this daemon read through the mesh hub (`server/mesh_read.rs`).
+/// The line `acpmux info` prints for a session answered with its listed row (`source`): whose
+/// list, and why its machine's own details are not there.
+fn listed_row_line(info: &Value) -> Option<String> {
+    let source = info.get("source").and_then(Value::as_str)?;
+    let host = info.get("peer").and_then(Value::as_str).unwrap_or("its machine");
+    let list = if source == "hub" { "the mesh hub's list" } else { "this machine's list" };
+    let why = match info.get("detailError").and_then(Value::as_str) {
+        Some(error) => format!("{host} could not answer its details: {error}"),
+        None => {
+            let ms = info.get("detailWaitMs").and_then(Value::as_u64).unwrap_or(0);
+            format!("{host} did not answer its details within {ms} ms")
+        }
+    };
+    Some(format!("source:    {source} (the row from {list}; {why})"))
+}
+
 fn read_through_hub(info: &Value) -> bool {
     info.get("via").and_then(Value::as_str) == Some("hub")
 }

@@ -969,6 +969,11 @@ pub mod method {
     pub const MUX_PROCESS_UPDATE: &str = "_acpmux/process_update";
 }
 
+/// Param of `_acpmux/info` for a peer's or hub machine's session: its details within a bound,
+/// else its listed row, marked `source` (`hub` or `row`) and `detail` (`server/peer_forward.rs`
+/// `row_fallback`, `server/mesh_read.rs` `info_or_row`).
+pub const INFO_ROW_FALLBACK: &str = "rowFallback";
+
 #[cfg(test)]
 mod bounded_tests {
     use super::*;

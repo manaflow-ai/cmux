@@ -225,6 +225,16 @@ pub(crate) async fn forward(
     if m == method::MUX_DETACH {
         return Some(Ok(json!({})));
     }
+    // An info read that takes the row (`peer_forward::ROW_FALLBACK`) of a session the hub lists:
+    // its details, or its row when the machine is slow to answer them or cannot (`info_or_row`).
+    // The read names the listed id: the hub matches a name only against the bare names it holds.
+    if m == method::MUX_INFO
+        && super::super::peer_forward::wants_row_fallback(params)
+        && let Some(row) = hub.mesh_book_named(host, rest)
+    {
+        let id = row.receipt.mux_session_id.clone();
+        return Some(info_or_row(mesh.as_ref(), host, &id, params, row.summary.value()).await);
+    }
     let mut reply = read(mesh.as_ref(), host, rest, m, params).await;
     // The opened chat reads as its listed row does (`HOST/name`, its `qualifiedSessionId`).
     if m == method::MUX_ATTACH
@@ -235,6 +245,62 @@ pub(crate) async fn forward(
         session["via"] = json!("hub");
     }
     Some(reply)
+}
+
+/// How long an info read of a listed session waits for the machine's own details before it
+/// answers with the row the list already holds. A read through the hub waits up to [`READ_WAIT`]
+/// for a machine that never answers, and a CLI that resolves a name first read twice: `acpmux
+/// info HOST/NAME` took 97 s on a lane VM while `acpmux ls`, which reads the same rows, took 3.6 s.
+pub(crate) const INFO_ROW_WAIT: Duration = Duration::from_millis(800);
+
+/// `HOST/ID`'s details through the hub within [`INFO_ROW_WAIT`], else `row`, its listed row,
+/// marked `source: "hub"` ([`listed_row`]). A failed read answers with the row too: a session the
+/// hub lists live is never `no session` here. A row the list shows closed keeps the read's error.
+async fn info_or_row(
+    mesh: &dyn crate::mesh::MeshHub,
+    host: &str,
+    id: &str,
+    params: &Value,
+    row: Value,
+) -> Result<Value, RpcError> {
+    let full = read(mesh, host, id, method::MUX_INFO, params);
+    let failed = match tokio::time::timeout(INFO_ROW_WAIT, full).await {
+        Ok(Ok(reply)) => return Ok(reply),
+        Ok(Err(e)) => Some(e),
+        Err(_) => None,
+    };
+    if row.get("status").and_then(Value::as_str) == Some("closed")
+        && let Some(e) = failed
+    {
+        return Err(e);
+    }
+    Ok(listed_row(row, "hub", host, failed.as_ref(), INFO_ROW_WAIT))
+}
+
+/// A session's listed row as an info answer: `source` says whose list (`hub`, or `row` for an ssh
+/// peer's), `detail` why its own details are not in it (`late`: not within `waited`; `failed`,
+/// with `detailError`). Only the list's fields are there: no pending permissions' text, queue or
+/// config options.
+pub(crate) fn listed_row(
+    mut row: Value,
+    source: &str,
+    host: &str,
+    failed: Option<&RpcError>,
+    waited: Duration,
+) -> Value {
+    if let Some(obj) = row.as_object_mut() {
+        obj.insert("peer".into(), json!(host));
+        obj.insert("source".into(), json!(source));
+        obj.insert("detail".into(), json!(if failed.is_some() { "failed" } else { "late" }));
+        obj.insert(
+            "detailWaitMs".into(),
+            json!(u64::try_from(waited.as_millis()).unwrap_or(u64::MAX)),
+        );
+        if let Some(e) = failed {
+            obj.insert("detailError".into(), json!(e.message));
+        }
+    }
+    row
 }
 
 /// A prompt from the app's pane to a chat the hub lists for this person's other machine

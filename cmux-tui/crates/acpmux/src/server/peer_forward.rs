@@ -644,9 +644,25 @@ async fn forward_inner(
         if m == method::MUX_INFO && row_will_do(params) && peer.rows_current() {
             return Ok(Some(from_row(&row, &peer.name)));
         }
+        // An info read that takes the row (`ROW_FALLBACK`) of a peer chat whose link is down: the
+        // row this daemon lists, at once and marked so, never `peer_unreachable` for a chat the
+        // list shows.
+        let row_fallback = row_fallback(m, params, conn.origin);
+        if row_fallback && !peer.ready() {
+            peer.want();
+            let down = peer.unreachable_error();
+            return Ok(Some(super::mesh_relay::read::listed_row(
+                row.clone(),
+                "row",
+                &peer.name,
+                Some(&down),
+                std::time::Duration::ZERO,
+            )));
+        }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
         if let Some(obj) = p.as_object_mut() {
             obj.remove(ROW_WILL_DO);
+            obj.remove(ROW_FALLBACK);
             obj.remove("session");
             obj.remove("name");
             obj.insert("sessionId".into(), Value::String(id.clone()));
@@ -900,7 +916,30 @@ async fn forward_inner(
             }
             on = Some(epoch);
         }
-        let result = if matches!(m, method::MUX_INFO | method::MUX_EVENTS | method::MUX_HISTORY) {
+        let result = if row_fallback {
+            // The peer's details within the bound a hub read has (`INFO_ROW_WAIT`), else the row
+            // this daemon lists; a peer that answers with its own error (a chat it closed) keeps it.
+            let wait = super::mesh_relay::read::INFO_ROW_WAIT;
+            match tokio::time::timeout(wait, peer.request_on(m, p, on)).await {
+                Ok(Err(e)) if unreachable_peer(hub, &e).is_some() => {
+                    Ok(super::mesh_relay::read::listed_row(
+                        row.clone(),
+                        "row",
+                        &peer.name,
+                        Some(&e),
+                        wait,
+                    ))
+                }
+                Ok(answer) => answer,
+                Err(_) => Ok(super::mesh_relay::read::listed_row(
+                    row.clone(),
+                    "row",
+                    &peer.name,
+                    None,
+                    wait,
+                )),
+            }
+        } else if matches!(m, method::MUX_INFO | method::MUX_EVENTS | method::MUX_HISTORY) {
             // History reads answer from the current snapshot, even during a running turn.
             // A connected link can still have a stuck handler; do not inherit its ten-minute
             // generic deadline. Dropping this future releases its pending reply entry. Attach
@@ -1136,6 +1175,25 @@ pub const ROW_WILL_DO: &str = "row";
 
 fn row_will_do(params: &Value) -> bool {
     params.get(ROW_WILL_DO).and_then(Value::as_bool) == Some(true)
+}
+
+/// Whether an info read of a peer chat answers with the row this daemon lists when the peer is
+/// down or slow to answer (`server/mesh_read.rs` `listed_row`): a read that asked so
+/// ([`ROW_FALLBACK`]: `acpmux info`, the MCP info tool, a name's resolve), never a peer daemon's
+/// forward (its own client decides). A read that needs what no row has (pending asks' text, the
+/// queue, modes) does not ask, and waits for the peer as before; so does a read that asked for
+/// the row only while current (`ROW_WILL_DO`, a send's).
+fn row_fallback(m: &str, params: &Value, origin: Origin) -> bool {
+    m == method::MUX_INFO && wants_row_fallback(params) && origin != Origin::Peer
+}
+
+/// Param of `_acpmux/info`: the peer's or hub machine's details within
+/// `mesh_read::INFO_ROW_WAIT`, else the session's listed row, marked `source` (`hub` or `row`).
+pub(crate) const ROW_FALLBACK: &str = crate::rpc::INFO_ROW_FALLBACK;
+
+/// Whether `params` ask for [`ROW_FALLBACK`].
+pub(crate) fn wants_row_fallback(params: &Value) -> bool {
+    params.get(ROW_FALLBACK).and_then(Value::as_bool) == Some(true) && !row_will_do(params)
 }
 
 /// A peer chat's mirrored row as a read's answer, marked so (`ROW_WILL_DO`).

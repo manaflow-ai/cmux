@@ -40,8 +40,18 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
 }
 
 pub(crate) async fn resolve_id(client: &Client, key: &str) -> Result<String> {
+    crate::cli::resolve::routed_id(&resolve_info(client, key).await?)
+}
+
+/// The info `key` names, as [`resolve_id`] reads it: a peer's or hub machine's session answers
+/// with its details within a bound, else with its listed row, marked `source`
+/// (`peer_forward::ROW_FALLBACK`). Enough for its id and the row's fields; a caller that needs
+/// what only the details hold (pending asks' text, the queue) reads info again by the id.
+pub(crate) async fn resolve_info(client: &Client, key: &str) -> Result<Value> {
     let key = orchestrate::expand_session_key(key)?;
-    let v = client.request(method::MUX_INFO, json!({"sessionId": key})).await.map_err(|e| {
+    let mut ask = json!({"sessionId": key});
+    ask[crate::rpc::INFO_ROW_FALLBACK] = json!(true);
+    let v = client.request(method::MUX_INFO, ask).await.map_err(|e| {
         if e.downcast_ref::<crate::client::DaemonError>()
             .is_some_and(|e| e.0.code == crate::rpc::RpcError::not_found("").code)
         {
@@ -50,8 +60,8 @@ pub(crate) async fn resolve_id(client: &Client, key: &str) -> Result<String> {
             e
         }
     });
-    let v = match v {
-        Ok(v) => v,
+    match v {
+        Ok(v) => Ok(v),
         // A row `ls` lists from the send relay (`send_relay.rs`) is no session here: the refusal
         // says what reaches it and carries its row.
         Err(e) if crate::cli::send_relay::no_such_session(&e) => {
@@ -60,9 +70,8 @@ pub(crate) async fn resolve_id(client: &Client, key: &str) -> Result<String> {
                 None => e,
             });
         }
-        Err(e) => return Err(e),
-    };
-    crate::cli::resolve::routed_id(&v)
+        Err(e) => Err(e),
+    }
 }
 
 #[cfg(all(test, unix))]
