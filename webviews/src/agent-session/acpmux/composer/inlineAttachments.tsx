@@ -12,7 +12,7 @@ import {
   orderedByMarks,
 } from "../attachments";
 import { ContextMenu } from "../../../ui/ContextMenu";
-import { FileDoc, ImageIcon, PlayTriangle } from "../conversation/icons";
+import { ImageIcon, PlayTriangle } from "../conversation/icons";
 import { usePaneLanguage, useT } from "../i18n";
 import { pasteName } from "../conversation/promptCollapse";
 import { imageLabel } from "../imageLabel";
@@ -418,7 +418,7 @@ const InlineChip = memo(function InlineChip({
 
   // A node whose attachment is not here (yet: a chat's kept chips still on their way) draws nothing.
   if (!attachment && !pending) return null;
-  if (!attachment && pending?.imageAsFile)
+  if (!attachment && pending && !pending.image && !pending.video)
     return (
       <span className="acpmux-md-inline-chip" data-chip="strip">
         <PendingChip chip={pending} onCancel={onCancel} onRetry={onRetry} />
@@ -458,10 +458,8 @@ const InlineChip = memo(function InlineChip({
           <>
             {pending!.image ? (
               <ImageIcon size={14} className="acpmux-attachment-failed-icon" />
-            ) : pending!.video ? (
-              <PlayTriangle size={14} className="acpmux-attachment-failed-icon" />
             ) : (
-              <FileDoc size={14} className="acpmux-attachment-failed-icon" />
+              <PlayTriangle size={14} className="acpmux-attachment-failed-icon" />
             )}
             {pending!.retryable && (
               <RetryButton

@@ -133,7 +133,7 @@ const PNG = Uint8Array.from([
 ]);
 
 /** A file still being read: its loading tile at its place in the prompt (inline, the default view). */
-const LOADING = '.acpmux-md-inline-chip[data-state="loading"]';
+const LOADING = '.acpmux-md-inline-chip[aria-busy="true"], .acpmux-md-inline-chip [aria-busy="true"]';
 
 /** Renders the composer over `snapshot`, types `typed` into it and returns its field and sends. */
 async function composer(
