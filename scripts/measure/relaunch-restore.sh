@@ -17,6 +17,8 @@
 # Prints L5-ROUND lines per relaunch and one L5 {json} verdict; keeps l5.json, report.json and app.log in report.tgz.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 3
+# shellcheck source=scripts/measure/build-heartbeat.sh
+source "$PWD/scripts/measure/build-heartbeat.sh" # a quiet build prints a line every 5 min, under the step's silent limit
 out="$PWD/.build/relaunch-restore"
 rm -rf "$out" && mkdir -p "$out"
 dmg=nightly config=bench extra=() build_sha=""
@@ -74,7 +76,9 @@ elif [[ "$dmg" == build ]]; then
     fi
     ./scripts/download-prebuilt-ghosttykit.sh || exit 3
   fi
+  measure_heartbeat_start "L5 build" "$out/reload.log"
   CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag l5relaunch --no-global-cli-links ${configuration[@]+"${configuration[@]}"} >"$out/reload.log" 2>&1
+  measure_heartbeat_stop
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
     echo "L5 build failed: the tagged build printed no app path" >&2

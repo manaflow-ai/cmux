@@ -10,6 +10,8 @@
 #     --ref <sha> --artifact sidebar-stress.json [--arg=--profiles=1x,scale] [--arg=--no-trace]
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
+# shellcheck source=scripts/measure/build-heartbeat.sh
+source "$PWD/scripts/measure/build-heartbeat.sh" # a quiet build prints a line every 5 min, under the step's silent limit
 tag="sbstress"
 out="$(mktemp -d)"
 # Remove the scratch folder on every exit (a failed build, a TERM), not only at the end: a leaked one holds a build.
@@ -25,8 +27,10 @@ for arg in "$@"; do
 done
 set -- ${bench_args[@]+"${bench_args[@]}"}
 git submodule update --init --depth 1 ghostty ghostty-next >/dev/null
+measure_heartbeat_start "sidebar-stress build" "$out/reload.log"
 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" "${reload_config[@]}" >"$out/reload.log" 2>&1 \
-  || { tail -n 40 "$out/reload.log" >&2; grep -E "error:|BUILD FAILED" "$out/reload.log" | head -n 60 >&2 || true; exit 1; }
+  || { measure_heartbeat_stop; tail -n 40 "$out/reload.log" >&2; grep -E "error:|BUILD FAILED" "$out/reload.log" | head -n 60 >&2 || true; exit 1; }
+measure_heartbeat_stop
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
 if [[ -z "$app" || ! -d "$app" ]]; then
   echo "sidebar-stress: the tagged reload printed no app path" >&2

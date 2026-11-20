@@ -18,6 +18,9 @@
 #   arms=adhoc   also a new copy re-signed ad hoc (ADHOC_ARMS): does a dmg=build app's first launch cost what the DMG's does
 # Prints NFL-FACT, NFL-LAUNCH, NFL-MARKS and NFL-MEDIAN lines; keeps report.json in report.tgz.
 set -uo pipefail
+# launch-ready.sh sources a copy of this file, so the path comes from $0 (both scripts sit in scripts/measure).
+# shellcheck source=scripts/measure/build-heartbeat.sh
+source "$(cd "$(dirname "$0")/../.." && pwd)/scripts/measure/build-heartbeat.sh" # a quiet build prints a line every 5 min, under the step's silent limit
 
 # One function, called on the last line: bash has read all of it before a base=SHA checkout changes this file.
 main() {
@@ -106,7 +109,9 @@ build_dmg() {
     cp "$NFL_SCREEN_HELPER_PHASE" "$phase" && overlaid=1 && echo "NFL $name builds with this checkout's $phase"
   fi
   local started=$SECONDS
+  measure_heartbeat_start "NFL build $name" "$out/build-$name.log"
   env ${acpmux[@]+"${acpmux[@]}"} CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag nflab --no-global-cli-links "${configuration[@]}" >>"$out/build-$name.log" 2>&1
+  measure_heartbeat_stop
   [[ "$overlaid" == 0 ]] || git checkout --quiet -- "$phase"
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/build-$name.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then

@@ -19,6 +19,8 @@
 #     [--arg=--arms=OFF,ON,OFF,ON] [--arg=--base-ref=<sha>] [--arg=--engine=chromium]
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
+# shellcheck source=scripts/measure/build-heartbeat.sh
+source "$PWD/scripts/measure/build-heartbeat.sh" # a quiet build prints a line every 5 min, under the step's silent limit
 # --arms=OFF,ON,OFF,ON (the default) runs the bench once per arm, in that order, on
 # this mini: OFF launches the base build (or this one) with the setting off, ON this checkout's with it on.
 tag="hoverpre"
@@ -48,8 +50,10 @@ set -- ${bench_args[@]+"${bench_args[@]}"}
 # needs Ghostty's headers and ghostty-next for the bundled cmux-tui.
 build() {
   git submodule update --init --depth 1 ghostty ghostty-next >/dev/null
+  measure_heartbeat_start "hover-preload build $1" "$out/reload-$1.log"
   CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$1" ${reload_config[@]+"${reload_config[@]}"} >"$out/reload-$1.log" 2>&1 \
-    || { tail -n 40 "$out/reload-$1.log" >&2; grep -E "error:|BUILD FAILED" "$out/reload-$1.log" | head -n 60 >&2 || true; return 1; }
+    || { measure_heartbeat_stop; tail -n 40 "$out/reload-$1.log" >&2; grep -E "error:|BUILD FAILED" "$out/reload-$1.log" | head -n 60 >&2 || true; return 1; }
+  measure_heartbeat_stop
   local app
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload-$1.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
