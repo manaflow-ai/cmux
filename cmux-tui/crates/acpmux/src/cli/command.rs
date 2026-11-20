@@ -581,8 +581,6 @@ pub enum Command {
     },
     #[command(hide = true, alias = "rename-session")]
     Rename { session: String, new_name: String },
-    #[command(hide = true)]
-    Handle { session: String, new_handle: String },
     /// Give the session this shell runs in a stable name every machine that peers this one sends
     /// to: a Claude Code session acpmux did not start (the Claude desktop app's Code tab, a
     /// terminal `claude`). Run it from that session's own Bash tool: it delivers a one-time code
@@ -1019,8 +1017,6 @@ pub enum SessionCmd {
     Restart { session: String },
     /// Rename a session.
     Rename { session: String, new_name: String },
-    /// Set the stable spoken handle people use to address a session.
-    Handle { session: String, new_handle: String },
     /// Detach a session from the session that started it: its turns stop showing in that
     /// session's chat, and its `lane.reportsTo` tag goes. The session keeps running.
     Detach { session: String },
@@ -1504,7 +1500,6 @@ pub fn flatten(c: Command) -> Command {
             }
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },
-            SessionCmd::Handle { session, new_handle } => Command::Handle { session, new_handle },
             SessionCmd::Detach { session } => Command::DetachParent { session },
             SessionCmd::Resume { session, open, mesh } if !mesh.mesh => {
                 Command::ResumeQueue { session, open }

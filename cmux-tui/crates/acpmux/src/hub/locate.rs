@@ -582,11 +582,7 @@ fn by_key_exact<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Val
         }
         let whole: Vec<&Value> = summaries
             .iter()
-            .filter(|s| {
-                s["name"].as_str() == Some(key)
-                    || bare_name(s) == key
-                    || s["spokenHandle"].as_str() == Some(key)
-            })
+            .filter(|s| s["name"].as_str() == Some(key) || bare_name(s) == key)
             .collect();
         if !whole.is_empty() {
             return whole;
@@ -594,11 +590,7 @@ fn by_key_exact<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Val
         return summaries
             .iter()
             .filter(|s| host_of(s, own).eq_ignore_ascii_case(host))
-            .filter(|s| {
-                bare_name(s) == rest
-                    || s["name"].as_str() == Some(key)
-                    || s["spokenHandle"].as_str() == Some(rest)
-            })
+            .filter(|s| bare_name(s) == rest || s["name"].as_str() == Some(key))
             .collect();
     }
     summaries
@@ -609,7 +601,6 @@ fn by_key_exact<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Val
                 .any(|field| s[*field].as_str() == Some(key))
                 || s["name"].as_str() == Some(key)
                 || bare_name(s) == key
-                || s["spokenHandle"].as_str() == Some(key)
         })
         .collect()
 }
@@ -657,7 +648,6 @@ impl<'q> Names<'q> {
         mux.starts_with(q)
             || bare.starts_with(q)
             || name == q
-            || s["spokenHandle"].as_str() == Some(q)
             || crate::session_name::ends_with_segments(bare, q)
             || self.host.is_some_and(|host| r.peer.eq_ignore_ascii_case(host))
             || q.strip_prefix(r.peer.as_str()).and_then(|q| q.strip_prefix('/')) == Some(mux)
@@ -699,7 +689,6 @@ fn card(s: &Value, own: Option<&str>) -> Value {
         "qualifiedSessionId": s["qualifiedSessionId"],
         "agentSessionId": s["agentSessionId"],
         "name": s["name"],
-        "spokenHandle": s["spokenHandle"],
         "harness": s["harness"],
         "family": s["family"],
         "model": s["model"],

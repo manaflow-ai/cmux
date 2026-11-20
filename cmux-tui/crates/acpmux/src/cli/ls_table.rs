@@ -174,19 +174,6 @@ fn pending(row: &Value) -> u64 {
     row.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0)
 }
 
-fn display_name(row: &Value) -> String {
-    let name = row.get_str("name").unwrap_or("");
-    let handle = row
-        .get_str("spokenHandle")
-        .or_else(|| row.get_str("sessionId").map(crate::spoken_handle::fallback));
-    match (handle, name.is_empty()) {
-        (Some(handle), false) => format!("{handle} · {name}"),
-        (Some(handle), true) => handle.to_owned(),
-        (None, false) => name.to_owned(),
-        (None, true) => String::new(),
-    }
-}
-
 /// The short reason a lane needs someone, or empty: a permission it waits on, the daemon's stuck
 /// reason (capacity, the harness down), a stalled, failed or lost turn, a question, or a harness
 /// whose sandbox refuses every command.
@@ -414,7 +401,7 @@ pub fn render_counted(
         let with_host = shown.iter().any(|r| host(r).is_some());
         let with_warn = shown.iter().any(|r| !warn(r, false).is_empty());
         let with_stuck = shown.iter().any(|r| !stuck(r, now, pauses).is_empty());
-        let mut header = vec!["HANDLE · NAME"];
+        let mut header = vec!["NAME"];
         if with_host {
             header.push("HOST");
         }
@@ -436,7 +423,8 @@ pub fn render_counted(
         }
         let mut rows = vec![header.into_iter().map(str::to_owned).collect::<Vec<_>>()];
         for row in &shown {
-            let mut cells = vec![short(&display_name(row), if view.wide { 24 } else { 32 })];
+            let mut cells =
+                vec![short(row.get_str("name").unwrap_or(""), if view.wide { 24 } else { 32 })];
             if with_host {
                 cells.push(host(row).unwrap_or("-").to_owned());
             }

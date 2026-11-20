@@ -6699,13 +6699,6 @@
             "null"
           ]
         },
-        "spokenHandle": {
-          "description": "The session's spoken handle, independent of its task name and ids. Older peers omit it.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "harness": {
           "type": "string"
         },

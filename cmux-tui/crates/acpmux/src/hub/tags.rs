@@ -28,35 +28,6 @@ impl Hub {
         remove: &[String],
         ttl_seconds: Option<u64>,
     ) -> Result<(), RpcError> {
-        if let Some(value) =
-            set.and_then(|tags| tags.get(crate::spoken_handle::TAG)).and_then(Value::as_str)
-        {
-            if !crate::spoken_handle::validate(value) {
-                return Err(RpcError::invalid_params(
-                    "spoken handle must be 2-32 ASCII letters, digits, or '-' and start with a letter",
-                ));
-            }
-            let duplicate = self
-                .sessions
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .values()
-                .filter(|other| other.id != session.id)
-                .any(|other| {
-                    other
-                        .meta
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .tags
-                        .get(crate::spoken_handle::TAG)
-                        .is_some_and(|tag| tag.value.eq_ignore_ascii_case(value))
-                });
-            if duplicate {
-                return Err(RpcError::invalid_params(format!(
-                    "spoken handle {value:?} is already assigned on this host"
-                )));
-            }
-        }
         {
             let mut m = session.meta.lock().unwrap();
             let expires_at = ttl_seconds.map(|t| now_ms().saturating_add(t.saturating_mul(1000)));

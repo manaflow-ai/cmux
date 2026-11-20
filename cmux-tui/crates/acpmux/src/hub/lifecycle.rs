@@ -395,27 +395,6 @@ impl Hub {
             };
             meta.wait_start = wait_start;
             meta.throwaway = throwaway;
-            if !meta.tags.contains_key(crate::spoken_handle::TAG) {
-                let existing = sessions
-                    .values()
-                    .filter_map(|session| {
-                        session
-                            .meta
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner)
-                            .tags
-                            .get(crate::spoken_handle::TAG)
-                            .map(|tag| tag.value.clone())
-                    })
-                    .collect::<Vec<_>>();
-                meta.tags.insert(
-                    crate::spoken_handle::TAG.to_owned(),
-                    crate::store::Tag {
-                        value: crate::spoken_handle::allocate(&meta.id, existing),
-                        expires_at: None,
-                    },
-                );
-            }
             let session = self.make_session(meta);
             *session.codex_answer_asked.lock().unwrap_or_else(|e| e.into_inner()) = asked;
             session.person.store(person, Ordering::SeqCst);

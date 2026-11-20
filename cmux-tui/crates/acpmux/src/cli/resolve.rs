@@ -147,7 +147,6 @@ fn card(s: &Value) -> String {
             out.push_str(&format!("  {label:<9} {value}\n"));
         }
     };
-    row("handle", text("spokenHandle"));
     row("session", format!("{}  ({})", text("qualifiedSessionId"), text("sessionId")));
     row("harness", format!("{} session {}", text("harness"), text("agentSessionId")));
     row("model", model(&s["model"]));

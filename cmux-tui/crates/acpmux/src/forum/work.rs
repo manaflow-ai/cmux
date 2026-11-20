@@ -277,13 +277,12 @@ impl State {
                     .recipients
                     .get_mut(&recipient)
                     .and_then(|r| r.threads.get_mut(&(channel, thread)))
+                    && let Some(post) = thread.posts.iter_mut().find(|p| p.id == id)
                 {
-                    if let Some(post) = thread.posts.iter_mut().find(|p| p.id == id) {
-                        if let Some(receipt) = thread.keys.get_mut(&post.key) {
-                            receipt.sources.insert(source.clone());
-                        }
-                        post.sources.insert(source, provenance);
+                    if let Some(receipt) = thread.keys.get_mut(&post.key) {
+                        receipt.sources.insert(source.clone());
                     }
+                    post.sources.insert(source, provenance);
                 }
             }
             Event::Delivered { recipient, ids, at } => {

@@ -1953,29 +1953,6 @@ impl Hub {
     }
 
     pub(super) fn make_session(&self, mut meta: SessionMeta) -> Arc<Session> {
-        if !meta.tags.contains_key(crate::spoken_handle::TAG) {
-            let existing = self.sessions.try_lock().ok().map(|sessions| {
-                sessions
-                    .values()
-                    .filter_map(|session| {
-                        session
-                            .meta
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner)
-                            .tags
-                            .get(crate::spoken_handle::TAG)
-                            .map(|tag| tag.value.clone())
-                    })
-                    .collect::<Vec<_>>()
-            });
-            let handle = existing
-                .map(|used| crate::spoken_handle::allocate(&meta.id, used))
-                .unwrap_or_else(|| crate::spoken_handle::fallback(&meta.id));
-            meta.tags.insert(
-                crate::spoken_handle::TAG.to_owned(),
-                crate::store::Tag { value: handle, expires_at: None },
-            );
-        }
         // Hibernated before a restart: marked again, so it draws no row; it wakes on its next
         // turn or typing, never on an open alone (`idle.rs` `wake_for`).
         let hibernated_at = if meta.hibernated_ms != 0 { self.clock_now().max(1) } else { 0 };
