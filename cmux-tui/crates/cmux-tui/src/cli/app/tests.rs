@@ -1761,6 +1761,35 @@ fn a_chief_turn_names_the_home_chat_as_its_caller() {
     assert_eq!(caller_from(env(&[("CMUX_CALLER_HOME_CHAT", "0")])), None);
 }
 
+/// An agent names the workspace its session runs in (`CMUX_WORKSPACE_ID`), so
+/// the app places it there when no tab shows its chat (a closed chat tab, a
+/// Chief subagent told again later), never in the focused workspace, Home
+/// (user, 2026-11-18).
+#[test]
+fn an_agent_names_its_own_workspace_in_its_caller() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |key: &str| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| (*v).to_owned())
+    };
+    assert_eq!(
+        caller_from(env(&[("CMUX_AGENT_SESSION", "a1"), ("CMUX_WORKSPACE_ID", "W-1")])),
+        Some(json!({ "agent_session": "a1", "workspace": "W-1" }))
+    );
+    // A terminal caller is found by its terminal; it names no workspace.
+    assert_eq!(
+        caller_from(env(&[("CMUX_TUI_TERMINAL_ID", "t1"), ("CMUX_WORKSPACE_ID", "W-1")])),
+        Some(json!({ "terminal_id": "t1" }))
+    );
+}
+
+/// `cmux open --link` (the `BROWSER` and `open` shims every agent runs) names
+/// its caller, so an agent's link opens beside its own chat, not beside the
+/// focused pane in Home (user, 2026-11-18).
+#[test]
+fn open_link_sends_the_caller() {
+    assert!(takes_caller("browser.open_link"));
+    assert!(takes_caller("file.open"), "an agent's `cmux open FILE` opens in its own workspace");
+}
+
 /// Every page verb sends its caller: the app runs a verb without a tab on the
 /// browser nearest the caller, not the person's focused tab in another window
 /// (#26648), and an input verb's agent cursor tag says who drives and where

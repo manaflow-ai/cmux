@@ -1400,14 +1400,26 @@ const NO_DAEMON_STATE: [&str; 5] =
 
 /// The app methods that place a new tab or report where the caller is: the
 /// app opens an agent's tabs in the column right of its chat
-/// (`beside_caller`) and marks the caller in `snapshot.get` and
-/// `system.identify`.
-const CALLER_METHODS: [&str; 4] =
-    ["action.run", "browser.open_split", "snapshot.get", "system.identify"];
+/// (`beside_caller`), or in its session's workspace when no tab shows the
+/// chat, and marks the caller in `snapshot.get` and `system.identify`.
+/// `browser.open_link` and `file.open` are ones: the `BROWSER` and `open`
+/// shims of an agent's shell and its `cmux open FILE` run them with no
+/// terminal, and with no caller they opened in the focused pane, Home
+/// (user, 2026-11-18).
+const CALLER_METHODS: [&str; 6] = [
+    "action.run",
+    "browser.open_link",
+    "browser.open_split",
+    "file.open",
+    "snapshot.get",
+    "system.identify",
+];
 
 /// Who calls, from the environment: the acpmux agent session
 /// (`CMUX_AGENT_SESSION`, set by acpmux for the agent and its cmux MCP
-/// server), else the caller's own terminal (`CMUX_TUI_TERMINAL_ID`).
+/// server) with the workspace it runs in (`CMUX_WORKSPACE_ID`, where the app
+/// places it when no tab shows its chat), else the caller's own terminal
+/// (`CMUX_TUI_TERMINAL_ID`).
 pub(super) fn caller_from(env: impl Fn(&str) -> Option<String>) -> Option<Value> {
     let set = |key: &str| env(key).filter(|value| !value.is_empty());
     // A Chief turn (`CMUX_CALLER_HOME_CHAT=1`, set by the Chief host): the
@@ -1415,11 +1427,13 @@ pub(super) fn caller_from(env: impl Fn(&str) -> Option<String>) -> Option<Value>
     // chat, where the app places the turn's tabs when the session is unknown.
     let home_chat = set("CMUX_CALLER_HOME_CHAT").as_deref() == Some("1");
     if let Some(session) = set("CMUX_AGENT_SESSION") {
-        return Some(if home_chat {
-            json!({ "agent_session": session, "home_chat": true })
-        } else {
-            json!({ "agent_session": session })
-        });
+        let mut caller = json!({ "agent_session": session });
+        if home_chat {
+            caller["home_chat"] = json!(true);
+        } else if let Some(workspace) = set("CMUX_WORKSPACE_ID") {
+            caller["workspace"] = json!(workspace);
+        }
+        return Some(caller);
     }
     if home_chat {
         return Some(json!({ "home_chat": true }));

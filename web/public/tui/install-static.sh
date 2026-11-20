@@ -12,6 +12,20 @@ set -eu
 # one) also needs `--advertise <wss://...>` or CMUX_JOIN_ADVERTISE: the address
 # the other machine reaches this one at. The ticket reaches `cmux host join`
 # on stdin only, and no child inherits CMUX_JOIN_TICKET.
+#
+# cmux server (https://cmux.com/docs/server): `--server` also runs
+# `cmux server install`, which keeps this machine's cmux session running as a
+# service (systemd user unit with linger on Linux, a LaunchAgent on macOS), so
+# your cmux reaches it over SSH after logouts and reboots:
+#   curl -fsSL https://cmux.com/tui/install.sh | sh -s -- --server
+# `--server` installs the current cmux NIGHTLY build unless `--commit <sha>` (a
+# published cmux build) or CMUX_DOWNLOAD_BASE_URL picks another. `--nightly`
+# picks that build without the service. `--dry-run` prints what would happen
+# and changes nothing.
+want_server=""
+want_nightly=""
+dry_run=""
+pinned_commit=""
 join_ticket="${CMUX_JOIN_TICKET:-}"
 unset CMUX_JOIN_TICKET
 join_ticket_in_argv=""
@@ -37,9 +51,21 @@ while [ "$#" -gt 0 ]; do
       shift 2
       ;;
     --join=*) join_ticket="${1#--join=}"; join_ticket_in_argv=1; shift ;;
+    --server) want_server=1; shift ;;
+    --nightly) want_nightly=1; shift ;;
+    --dry-run) dry_run=1; shift ;;
+    --commit)
+      if [ "$#" -lt 2 ]; then
+        echo "cmux: --commit needs a 40-character commit" >&2
+        exit 2
+      fi
+      pinned_commit="$2"
+      shift 2
+      ;;
+    --commit=*) pinned_commit="${1#--commit=}"; shift ;;
     cmxt1.*) join_ticket="$1"; join_ticket_in_argv=1; shift ;;
     *)
-      echo "cmux: unknown argument $1 (pass a pairing ticket, cmxt1.…)" >&2
+      echo "cmux: unknown argument $1 (pass --server, --nightly, --commit <sha>, --dry-run or a pairing ticket, cmxt1.…)" >&2
       exit 2
       ;;
   esac
@@ -48,7 +74,44 @@ if [ -n "$join_ticket_in_argv" ]; then
   echo "cmux: a ticket on the command line is readable by other users of this machine (ps); next time paste the line \`cmux host ticket new\` prints, which passes it on stdin" >&2
 fi
 
-base_url="${CMUX_DOWNLOAD_BASE_URL:-https://files.cmux.com/cmux-tui/latest}"
+case "$pinned_commit" in
+  "") ;;
+  *[!0-9a-f]*)
+    echo "cmux: --commit takes a 40-character lowercase hex commit" >&2
+    exit 2
+    ;;
+esac
+if [ -n "$pinned_commit" ] && [ "${#pinned_commit}" -ne 40 ]; then
+  echo "cmux: --commit takes a 40-character lowercase hex commit" >&2
+  exit 2
+fi
+
+if ! command -v curl >/dev/null 2>&1; then
+  echo "cmux: curl is required" >&2
+  exit 1
+fi
+
+files_base="https://files.cmux.com/cmux-tui"
+if [ -n "${CMUX_DOWNLOAD_BASE_URL:-}" ]; then
+  base_url="$CMUX_DOWNLOAD_BASE_URL"
+elif [ -n "$pinned_commit" ]; then
+  base_url="$files_base/$pinned_commit"
+elif [ -n "$want_server" ] || [ -n "$want_nightly" ]; then
+  # The cmux server verbs ship in cmux NIGHTLY builds: install the build the
+  # current NIGHTLY app runs (the first cmux:sourceCommit of its update feed).
+  feed_url="${CMUX_NIGHTLY_FEED_URL:-https://files-next.cmux.com/nightly-next/appcast-arm64.xml}"
+  nightly_commit="$(
+    curl --proto '=https' --tlsv1.2 -fsSL "$feed_url" |
+      sed -n 's/.*<cmux:sourceCommit[^>]*>\([0-9a-f]\{40\}\)<.*/\1/p' | head -n 1
+  )" || nightly_commit=""
+  if [ "${#nightly_commit}" -ne 40 ]; then
+    echo "cmux: could not read the current cmux NIGHTLY build from $feed_url; pass --commit <sha>" >&2
+    exit 1
+  fi
+  base_url="$files_base/$nightly_commit"
+else
+  base_url="https://files.cmux.com/cmux-tui/latest"
+fi
 base_url="${base_url%/}"
 install_root="${CMUX_INSTALL:-$HOME/.cmux}"
 bin_dir="$install_root/bin"
@@ -67,9 +130,12 @@ case "$os-$arch" in
     ;;
 esac
 
-if ! command -v curl >/dev/null 2>&1; then
-  echo "cmux: curl is required" >&2
-  exit 1
+if [ -n "$dry_run" ]; then
+  echo "Would download $base_url/manifest.json and $artifact, check its SHA-256, and install it to $bin_dir/cmux"
+  if [ -n "$want_server" ]; then
+    echo "Would run: $bin_dir/cmux server install"
+  fi
+  exit 0
 fi
 
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-install.XXXXXX")"
@@ -156,6 +222,14 @@ if [ "${CMUX_HOST:-}" = "1" ]; then
   fi
   if ! "$bin_dir/cmux" host enable "$@"; then
     echo "cmux: installed, but remote hosting is not on; fix the error above, then run: $bin_dir/cmux host enable $*" >&2
+    exit 1
+  fi
+fi
+
+# cmux server: keep this machine's cmux session running as a service.
+if [ -n "$want_server" ]; then
+  if ! "$bin_dir/cmux" server install; then
+    echo "cmux: installed, but the cmux server service is not set up; fix the error above, then run: $bin_dir/cmux server install" >&2
     exit 1
   fi
 fi

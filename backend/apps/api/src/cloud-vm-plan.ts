@@ -186,9 +186,9 @@ export const storedVmPlan = (sql: SqlStorage): string | null | undefined => {
 
 /**
  * Paid grants by their machine limits (domains/cloud-plan.ts PAID_PLAN_LIMITS): Plus, then Pro, Founders and Team, then
- * Max; a cmux NEXT grant ranks with its classic peer (next_pro with Pro, next_max with Max).
+ * Max; a cmux NEXT grant ranks with its classic peer (next_plus with Plus, next_pro with Pro, next_max with Max).
  */
-const RANK: Readonly<Record<string, number>> = { go: 1, pro: 2, founders: 2, team: 2, next_pro: 2, max: 3, next_max: 3 }
+const RANK: Readonly<Record<string, number>> = { go: 1, next_plus: 1, pro: 2, founders: 2, team: 2, next_pro: 2, max: 3, next_max: 3 }
 /** A grant's rank; 0 for anything that grants no paid limits (blank, "free", unknown: a restriction when set). */
 export const grantRank = (vmPlan: string): number => RANK[vmPlan.trim().toLowerCase()] ?? 0
 
