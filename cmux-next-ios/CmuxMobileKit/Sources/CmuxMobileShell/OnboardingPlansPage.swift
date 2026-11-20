@@ -8,8 +8,8 @@ private let theme = CmuxMobileTheme.standard
 
 /// First-run setup's plans page, before "Start your first agent", laid out the way
 /// the best AI apps' paywalls are (ChatGPT, Perplexity, Claude; Aziz 2026-11-19:
-/// "look at how other apps do billing onboarding"): one value headline with its
-/// picture, a tier switcher (Go, Pro, Max) with Pro picked, two period cards with
+/// "look at how other apps do billing onboarding"): one value headline, a tier
+/// switcher (Pro, Max) with Pro picked, two period cards with
 /// the yearly saving, one call to action with the price under it, and "Not now"
 /// in the navigation bar. No trial toggle (App Review 3.1.2). The real
 /// ``BillingModel``: StoreKit prices in the buyer's currency, the App Store
@@ -29,7 +29,7 @@ struct OnboardingPlansPage: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     hero
-                    plans.padding(.top, 22)
+                    plans.padding(.top, 28)
                     if let message = statusMessage {
                         Text(message)
                             .font(theme.type.rowSubtitle)
@@ -38,10 +38,10 @@ struct OnboardingPlansPage: View {
                             .padding(.top, 14)
                             .accessibilityIdentifier("setup.plans.status")
                     }
-                    legal.padding(.top, 22)
+                    legal.padding(.top, 32)
                 }
                 .padding(.horizontal, theme.metrics.sideMargin)
-                .padding(.top, 4)
+                .padding(.top, 8)
                 .padding(.bottom, 16)
                 .frame(maxWidth: 560)
                 .frame(maxWidth: .infinity)
@@ -83,20 +83,19 @@ struct OnboardingPlansPage: View {
 
     // MARK: Hero
 
-    /// The value first: what a plan changes, in one line, with its picture.
+    /// What a plan changes, in two lines: no picture, no list (Aziz 2026-11-20:
+    /// "too much going on").
     private var hero: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            PlansHeroArt()
-            Text("Close your laptop. Your agents keep going.")
-                .font(theme.type.sidebarTitle)
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Keep agents running with your Mac closed")
+                .font(theme.type.welcomeTitle)
                 .foregroundStyle(theme.colors.label)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
-            VStack(alignment: .leading, spacing: 10) {
-                Benefit(symbol: "cloud", text: "Agents run on Cloud VMs, not only on your Mac")
-                Benefit(symbol: "iphone", text: "Start and steer them from this phone, Mac asleep")
-                Benefit(symbol: "square.stack.3d.up", text: "Several tasks at once, each on its own machine")
-            }
+            Text("Your agents move to Cloud VMs, and you start and steer them from here.")
+                .font(theme.type.rowSubtitle)
+                .foregroundStyle(theme.colors.label2)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -124,15 +123,12 @@ struct OnboardingPlansPage: View {
                         .accessibilityIdentifier("setup.plans.tier")
                     }
                     if let tier {
-                        VStack(alignment: .leading, spacing: 6) {
-                            ForEach(BillingPlanCopy(planID: tier).features, id: \.self) { feature in
-                                Label(feature, systemImage: "checkmark")
-                                    .font(theme.type.rowSubtitle)
-                                    .foregroundStyle(theme.colors.label2)
-                            }
-                        }
-                        .accessibilityIdentifier("setup.plans.features")
                         periodCards(for: tier)
+                        Text(BillingPlanCopy(planID: tier).features.joined(separator: " · "))
+                            .font(theme.type.meta)
+                            .foregroundStyle(theme.colors.label2)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("setup.plans.features")
                     }
                 }
             }
@@ -213,41 +209,41 @@ struct OnboardingPlansPage: View {
         }
     }
 
-    /// Restore Purchases, Terms, Privacy and the renewal terms, as on Settings → Plans.
+    /// Restore Purchases, Terms, Privacy and the renewal terms, as on Settings → Plans:
+    /// one quiet row and the disclosure App Review asks for.
     private var legal: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Free keeps every agent your own Macs run. Change your plan any time in Settings.")
-                .font(theme.type.meta)
-                .foregroundStyle(theme.colors.label2)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 16) {
-                Button("Restore Purchases") { Task { await billing.restorePurchases() } }
+        VStack(spacing: 8) {
+            HStack(spacing: 14) {
+                Button("Restore") { Task { await billing.restorePurchases() } }
                     .buttonStyle(.cmuxPressFill)
                     .disabled(billing.restore == .restoring || billing.purchase.isPurchasing)
                     .accessibilityIdentifier("setup.plans.restore")
-                Link("Terms of Use", destination: MobilePlansView.termsURL)
-                Link("Privacy Policy", destination: MobilePlansView.privacyURL)
+                Link("Terms", destination: MobilePlansView.termsURL)
+                Link("Privacy", destination: MobilePlansView.privacyURL)
             }
-            .font(theme.type.meta.weight(.medium))
-            .foregroundStyle(theme.colors.label)
-            Text("Subscriptions renew automatically at the end of each month or year, as shown, at the price shown until cancelled. Payment is charged to your Apple Account when you confirm the purchase. Manage or cancel your subscription in your Apple Account settings.")
+            .font(theme.type.legal.weight(.medium))
+            .foregroundStyle(theme.colors.label2)
+            Text("Renews automatically at the price shown until cancelled. Charged to your Apple Account when you confirm. Cancel any time in your Apple Account settings.")
                 .font(theme.type.legal)
                 .foregroundStyle(theme.colors.label3)
+                .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: Offers
 
-    /// The plans sold, cheapest first.
+    /// The plans sold, cheapest first. Go is retired (Aziz 2026-11-20): never offered
+    /// here, even while the App Store still lists its products.
     private var tiers: [BillingPlanID] {
-        Array(Set(billing.offers.map(\.planID))).sorted()
+        Array(Set(billing.offers.map(\.planID)).subtracting([.go])).sorted()
     }
 
     /// The offer the button buys: the tier in the chosen period, else the one it is sold in.
     private var selectedOffer: BillingOffer? {
         guard let tier, !waitingForApproval else { return nil }
-        let sold = billing.offers.filter { $0.planID == tier }
+        let sold = billing.offers.filter { $0.planID == tier && tier != .go }
         return sold.first { $0.billingPeriod == period } ?? sold.first
     }
 
@@ -293,56 +289,6 @@ struct OnboardingPlansPage: View {
         guard !left else { return }
         left = true
         next()
-    }
-}
-
-/// The hero's picture: a closed laptop, and the agent it left running in the
-/// cloud, drawn with system symbols in the app's icon gradient.
-private struct PlansHeroArt: View {
-    var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: "laptopcomputer")
-                .font(theme.type.sidebarTitle)
-                .foregroundStyle(theme.colors.label3)
-            Image(systemName: "arrow.right")
-                .font(theme.type.meta.weight(.semibold))
-                .foregroundStyle(theme.colors.label3)
-            HStack(spacing: 8) {
-                Image(systemName: "cloud.fill")
-                    .foregroundStyle(LinearGradient(colors: [Color(hex: "#06CDFE"), Color(hex: "#2AA0F9"), Color(hex: "#5170F3")],
-                                                    startPoint: .top, endPoint: .bottom))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Codex · api-server")
-                        .font(theme.type.meta.weight(.semibold))
-                        .foregroundStyle(theme.colors.label)
-                    Text("Running on a Cloud VM")
-                        .font(theme.type.legal)
-                        .foregroundStyle(theme.colors.label2)
-                }
-            }
-            .font(theme.type.sidebarTitle)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(theme.colors.surfaceRaised.color, in: .rect(cornerRadius: 14, style: .continuous))
-        }
-        .accessibilityHidden(true)
-    }
-}
-
-private struct Benefit: View {
-    let symbol: String
-    let text: LocalizedStringKey
-
-    var body: some View {
-        Label {
-            Text(text)
-                .foregroundStyle(theme.colors.label)
-                .fixedSize(horizontal: false, vertical: true)
-        } icon: {
-            Image(systemName: symbol)
-                .foregroundStyle(theme.colors.label2)
-        }
-        .font(theme.type.rowSubtitle)
     }
 }
 

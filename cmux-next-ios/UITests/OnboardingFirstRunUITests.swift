@@ -264,12 +264,6 @@ final class OnboardingFirstRunUITests: UIStateCaptureCase {
                     { C.tap(C.any(app, "setup.plans.period.monthly"), "Monthly card") },
                 ])
             },
-            Scene(group: g, id: "plans-go", args: Self.at("plan"), env: free, signedIn: false, settle: 3) { app in
-                C.steps([
-                    { C.wait(C.any(app, "setup.plans.subscribe"), "Subscribe button") },
-                    { C.tap(app.segmentedControls.buttons["Go"], "Go tier") },
-                ])
-            },
             Scene(group: g, id: "plans-max", args: Self.at("plan"), env: free, signedIn: false, settle: 3) { app in
                 C.steps([
                     { C.wait(C.any(app, "setup.plans.subscribe"), "Subscribe button") },
