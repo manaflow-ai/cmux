@@ -413,7 +413,12 @@ pub(in crate::cli) fn settled(receipt: &Value) -> Settled {
 }
 
 /// Starts the chat on `machine` and sends its first prompt; prints the answer.
-pub(in crate::cli) fn run(global: &GlobalArgs, start: &Start, machine: &JoinedMachine) -> i32 {
+pub(in crate::cli) fn run(
+    global: &GlobalArgs,
+    start: &Start,
+    machine: &JoinedMachine,
+    deadline: Option<Instant>,
+) -> i32 {
     let name = chat_name(start, &letters());
     let words = match start_words(start, machine, &name) {
         Ok(words) => words,
@@ -430,19 +435,48 @@ pub(in crate::cli) fn run(global: &GlobalArgs, start: &Start, machine: &JoinedMa
     let target = format!("{}/{name}", machine.host);
     let prompt = prompt.filter(|prompt| !prompt.trim().is_empty());
     let receipt = machine.carrier == Carrier::Hub;
+    let budget =
+        deadline.map_or(START_DEADLINE, |end| end.saturating_duration_since(Instant::now()));
     let started = start_chat(
         &Steps { words: &words, target: &target, prompt: prompt.as_deref(), receipt },
-        START_DEADLINE,
+        budget,
         RECEIPT_POLL,
         acp_json,
     );
     let (started, sent) = match started {
         Ok(started) => started,
-        Err(error) => return fail(global, error),
+        Err(mut error) => {
+            if deadline.is_some() && error.get_str("code") == Some("chat_target.unavailable") {
+                if let Some(message) = error.get_str("message") {
+                    error["message"] = json!(format!(
+                        "{message}. Check `cmux acp session info {target}` before starting another chat."
+                    ));
+                }
+                error["retryable"] = json!(false);
+                error["details"]["session_id"] = json!(target);
+            }
+            return fail(global, error);
+        }
     };
     // `cmux chat send TEXT` (no SESSION) goes on with this chat, as after a start here.
     super::super::last_chat::remember(&target, None);
-    let answer = start_answer(machine, &target, started, sent);
+    let mut answer = start_answer(machine, &target, started, sent);
+    if let Some(end) = deadline
+        && answer["link"].is_null()
+        && let Some(expected) = answer.get_str("remote_session_id")
+    {
+        let left = end.saturating_duration_since(Instant::now()).min(Duration::from_secs(1));
+        if !left.is_zero()
+            && let Ok(record) = acp_json(&["session", "info", &target, "--json"], None, left)
+            && record.get_str("sessionId") == Some(expected)
+        {
+            answer["link"] = json!(acpmux::agent_link::AgentLink::from_start_record(
+                &record,
+                Some(&machine.host),
+                &name
+            ));
+        }
+    }
     // `--wait`: the turn the first prompt started, its reply printed as a chat here prints it.
     if let Ok(Some(timeout)) = super::here_wait(start)
         && answer.get("prompt").is_some_and(|sent| !sent.is_null())
@@ -454,6 +488,9 @@ pub(in crate::cli) fn run(global: &GlobalArgs, start: &Start, machine: &JoinedMa
         OutputMode::Human => {
             let mut out = std::io::stdout().lock();
             let _ = writeln!(out, "{target} started on {}", machine.name);
+            if let Some(link) = answer.get_str("link") {
+                let _ = writeln!(out, "{link}");
+            }
             let _ = writeln!(out, "send: cmux chat send {target} 'TEXT'");
             let _ = writeln!(out, "read: cmux acp last {target}");
             0
@@ -471,6 +508,9 @@ pub(in crate::cli) fn start_answer(
     started: Value,
     sent: Option<Value>,
 ) -> Value {
+    let name = target.rsplit('/').next().unwrap_or(target);
+    let link =
+        acpmux::agent_link::AgentLink::from_start_record(&started, Some(&machine.host), name);
     let (remote_session_id, started) = match machine.carrier {
         Carrier::Hub => (started.get_str("detail").map(str::to_owned), started),
         Carrier::Peer => {
@@ -484,6 +524,7 @@ pub(in crate::cli) fn start_answer(
         "machine": {"id": machine.id, "name": machine.name, "host": machine.host},
         "placement": machine.placement(),
         "remote_session_id": remote_session_id,
+        "link": link,
         "start": started,
         "prompt": sent,
         "next": {
@@ -810,7 +851,11 @@ pub(in crate::cli) fn fail(global: &GlobalArgs, error: Value) -> i32 {
 
 /// `cmux acp WORDS` (this binary's acpmux) for at most `limit`: its stdout's last JSON line, or
 /// the failure.
-fn acp_json(words: &[&str], stdin: Option<&str>, limit: Duration) -> Result<Value, Value> {
+pub(super) fn acp_json(
+    words: &[&str],
+    stdin: Option<&str>,
+    limit: Duration,
+) -> Result<Value, Value> {
     let exe = std::env::current_exe()
         .map_err(|e| error("acpmux.unreachable", &format!("cannot find cmux: {e}"), true))?;
     let mut command = Command::new(exe);

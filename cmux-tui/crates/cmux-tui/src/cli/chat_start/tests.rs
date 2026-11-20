@@ -51,6 +51,26 @@ fn named_launch_routes_the_prompt_file_to_the_requested_machine() {
     assert!(parse(&words(&["--prompt-file", path]), None).is_err());
 }
 
+#[test]
+fn named_launch_links_use_the_harness_id_on_the_selected_host() {
+    let machine = JoinedMachine {
+        id: None,
+        name: "build".into(),
+        host: "build".into(),
+        carrier: Carrier::Peer,
+    };
+    let record =
+        json!({"sessionId":"mux-1", "agentSessionId":"agent-2", "harness":"codex", "name":"demo"});
+    let answer = joined::start_answer(&machine, "build/demo", record, None);
+    assert_eq!(answer["remote_session_id"], "mux-1");
+    assert_eq!(
+        answer["link"],
+        "https://cmux.com/deeplink/agent?harness=codex&session=agent-2&host=build&name=demo"
+    );
+    let pending = joined::start_answer(&machine, "build/demo", json!({"sessionId":"mux-1"}), None);
+    assert!(pending["link"].is_null());
+}
+
 fn start(list: &[&str]) -> Start {
     match parse(&words(list), None).unwrap() {
         Parsed::Run(start) => start,

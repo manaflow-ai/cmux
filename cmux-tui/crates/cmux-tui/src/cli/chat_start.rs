@@ -52,6 +52,7 @@ use super::{GlobalArgs, OutputMode, UsageError};
 use cmux_cloud_start_core::machine_repo::Repo;
 
 mod local_repo;
+mod named_launch;
 mod prompt_file;
 
 /// This command's flags that take the next word as their value.
@@ -211,6 +212,7 @@ waits on a permission (chat.permission_waiting), 3 --timeout passed
 pub(super) struct Start {
     /// `--on`'s value, else `CMUX_ON`'s, else the `chat.on` setting's; None is here.
     pub on: Option<String>,
+    named_machine: bool,
     pub agent: Option<String>,
     pub model: Option<String>,
     /// `--effort`: the agent's thinking effort (the composer's effort picker), here and in Cloud.
@@ -324,6 +326,7 @@ pub(super) fn parse_with(
 ) -> Result<Parsed, UsageError> {
     let mut start = Start {
         on: None,
+        named_machine: false,
         agent: None,
         model: None,
         effort: None,
@@ -385,6 +388,7 @@ pub(super) fn parse_with(
                     ));
                 }
                 start.on = Some(on);
+                start.named_machine = flag == "--machine";
             }
             "--prompt" | "-p" => {
                 let text = value()?;
@@ -896,19 +900,13 @@ where
 }
 
 fn run(global: &GlobalArgs, start: Start) -> i32 {
-    let reads = Reads {
-        catalog: || read_catalog(global),
-        signed_in: || cloud_start_chat::app_signed_in(global),
-        cloud_machines: || cloud_start_chat::app_machines(global),
-        peers: || super::agents::chat::chat_peers(global),
-    };
     // Refused before any target is read, so a signed-out or ambiguous Cloud target says this.
     if start.repo.is_some() && start.on.as_deref().is_some_and(names_cloud) {
         return usage_failure(&UsageError::new(REPO_HERE_ONLY), global.output);
     }
-    let sources = joined::Sources { hub: joined::hub_peers, rows: || joined::account_rows(global) };
-    let route = match route_or_joined(start.on.as_deref(), || route_start(&start, reads), sources) {
-        Ok(route) => route,
+    let deadline = named_launch::deadline(&start);
+    let (route, start) = match named_launch::route(global, start, deadline) {
+        Ok(found) => found,
         Err(error) => return super::wire::print_local_error(&error, global.output, 1),
     };
     let route = match in_environment(&start, route) {
@@ -993,7 +991,7 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
             Ok(words) => super::agents::run_if_requested(&words).unwrap_or(2),
             Err(error) => usage_failure(&error, global.output),
         },
-        Route::Joined(machine) => joined::run(global, &start, &machine),
+        Route::Joined(machine) => joined::run(global, &start, &machine, deadline),
     }
 }
 
@@ -1267,13 +1265,11 @@ pub(super) fn cloud_words(start: &Start, machine: &Machine) -> Result<Vec<String
              nothing was started (put the files in the VM's folder, or start the chat here)",
         ));
     }
-    let Some(prompt) = &start.prompt else {
-        return Err(UsageError::new("a Cloud chat needs a first prompt: --prompt TEXT"));
-    };
-    let mut words = if start.prompt_from_file {
-        Vec::new()
-    } else {
-        vec!["--prompt".to_owned(), prompt.clone()]
+    let mut words = match &start.prompt {
+        Some(prompt) if !start.prompt_from_file => vec!["--prompt".to_owned(), prompt.clone()],
+        Some(_) => Vec::new(),
+        None if start.named_machine => Vec::new(),
+        None => return Err(UsageError::new("a Cloud chat needs a first prompt: --prompt TEXT")),
     };
     match machine {
         Machine::Named(name) => words.extend(["--name".to_owned(), name.clone()]),
@@ -1304,7 +1300,9 @@ pub(super) fn cloud_words(start: &Start, machine: &Machine) -> Result<Vec<String
     if start.no_folder {
         words.push("--no-folder".to_owned());
     }
-    if start.prompt_from_file {
+    if start.prompt_from_file
+        && let Some(prompt) = &start.prompt
+    {
         words.extend(["--".to_owned(), prompt.clone()]);
     }
     Ok(words)

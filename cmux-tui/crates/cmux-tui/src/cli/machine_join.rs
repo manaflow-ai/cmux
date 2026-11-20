@@ -169,7 +169,19 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         Err(error) => return Some(fail(Failure::usage(error.0))),
     };
     let env = |key: &str| std::env::var(key).ok();
-    let credential = match read_credential(&command.auth, &env, &mut std::io::stdin().lock()) {
+    let origin = match platform_origin(command.auth.platform.as_deref(), &env) {
+        Ok(origin) => origin,
+        Err(message) => return Some(fail(Failure::usage(message))),
+    };
+    let supplied = read_credential(&command.auth, &env, &mut std::io::stdin().lock());
+    let credential = match supplied.map(|token| {
+        join_credential(
+            token,
+            &origin,
+            matches!(&command.verb, Verb::Add(add) if add.plain()),
+            || super::chat_start::joined::app_token(&global).ok(),
+        )
+    }) {
         Ok(Some(credential)) => credential,
         Ok(None) => {
             // With no credential, `machine add` stays the app's Add Machine card wherever an
@@ -181,10 +193,6 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             }
             return Some(fail(Failure::usage(SIGN_IN)));
         }
-        Err(message) => return Some(fail(Failure::usage(message))),
-    };
-    let origin = match platform_origin(command.auth.platform.as_deref(), &env) {
-        Ok(origin) => origin,
         Err(message) => return Some(fail(Failure::usage(message))),
     };
     let platform = match Platform::new(origin, credential, REQUEST_TIMEOUT) {
@@ -395,6 +403,15 @@ fn parse_ttl(text: &str) -> Result<u64, UsageError> {
     let seconds =
         digits.parse::<u64>().map_err(|_| error())?.checked_mul(scale).ok_or_else(error)?;
     if (60..=max).contains(&seconds) { Ok(seconds) } else { Err(error()) }
+}
+
+fn join_credential(
+    supplied: Option<String>,
+    origin: &str,
+    plain_add: bool,
+    from_app: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    supplied.or_else(|| if plain_add && origin == DEFAULT_ORIGIN { from_app() } else { None })
 }
 
 /// The caller's cmux credential: stdin, then the file, then the environment.

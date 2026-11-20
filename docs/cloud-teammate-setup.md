@@ -4,7 +4,7 @@ You need an Apple Silicon Mac, membership in the team that owns the machine, and
 
 1. Open the [NEXT nightly release](https://github.com/manaflow-ai/cmux/releases/tag/nightly-next). Download the macOS arm64 DMG, open it, and drag the app to Applications. Open the app and start a terminal **inside it** so that `cmux` uses this build. Run `cmux login` and finish signing in to the intended team in your browser.
 2. Run `cmux chat new --help`. Check that it lists `--machine` and `--prompt-file`. If either is missing, check the app for updates before continuing. Run `cmux machine list`. If the team's lane is already online, skip to step 4.
-3. To join a machine you own, run `cmux auth token | cmux machine add --cloud-token-stdin --no-wait` in your private terminal. Paste the generated join line **on the machine that will run the agent**. The line expires and is used once; keep it out of chat and tickets. After the installer reports success, run `cmux machine list` on the Mac and look for the same machine in the sidebar. If you need a managed VM instead, `cmux vm new` creates one; record its ID and use `vm:ID` as the target.
+3. To join a machine you own, run `cmux machine add --no-wait` in your private terminal. Paste the generated join line **on the machine that will run the agent**. The line expires and is used once; keep it out of chat and tickets. After the installer reports success, run `cmux machine list` on the Mac and look for the same machine under **Machines** in the sidebar. If you need a managed VM instead, `cmux vm new` creates one; record its ID and use `vm:ID` as the target.
 4. In the app terminal, substitute the joined machine's name (or `vm:ID`) and start a chat:
 
    ```sh
