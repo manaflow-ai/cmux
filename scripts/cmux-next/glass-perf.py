@@ -242,8 +242,11 @@ class Run:
 
     def attach(self):
         """An app someone else runs: its socket and pid only; nothing launched, nothing ended."""
-        self.pid = self.opts.app_pid
         self.app = bm.App(self.bundle, self.opts.attach)
+        # The app on that socket says its own pid (`app identify`), unless --app-pid names it.
+        self.pid = self.opts.app_pid or self.app.identify().get("pid")
+        if not self.pid:
+            raise SystemExit(f"glass-perf: {self.opts.attach}: no app answers identify (pass --app-pid)")
         if self.opts.open and self.opts.session:
             opened = self.app.action("agent.openSessionTab", session=self.opts.session, focus=True)
             if opened.get("error") or opened.get("code"):
@@ -445,8 +448,8 @@ def main(argv=None) -> int:
     run = Run(opts)
     status = 0
     attached = bool(opts.attach)
-    if attached and not (opts.app_pid and opts.scenario == "composer"):
-        raise SystemExit("glass-perf: --attach needs --app-pid and --scenario composer")
+    if attached and opts.scenario != "composer":
+        raise SystemExit("glass-perf: --attach runs only --scenario composer")
     modes = [m for m in opts.modes.split(",") if m]
     found = None
 
