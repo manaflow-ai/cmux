@@ -206,7 +206,7 @@ fn a_hooks_edit_waits_for_a_settings_edit_of_the_same_file() {
     let id = by_command(&list(&fixture.paths), "guard-one").id.clone();
     // A settings edit holds the file's lock (crate::settings takes Store::lock the same way).
     let held = fixture.paths.edits.lock(&settings).unwrap();
-    let paths = fixture.paths.clone();
+    let paths = fixture.paths;
     let waiting = std::thread::spawn(move || set_enabled(&paths, &id, false, false));
     std::thread::sleep(std::time::Duration::from_millis(300));
     // The hooks edit has not written while the lock is held.
