@@ -56,7 +56,7 @@ fn paused<'a>(pauses: &'a BTreeMap<String, String>, peer: &str) -> Option<&'a st
 
 /// `acpmux ls --help` examples.
 pub const HELP: &str = "Examples:
-  acpmux ls                       live named lanes: NAME, HOST, STATE, TURNS, AGE, STUCK, WARN
+  acpmux ls                       live named lanes: handle · name, host, harness, state, turns, age
   acpmux ls --all                 also closed, reviewer, sub- and unnamed sessions
   acpmux ls --wide                every column (AGENT, STATUS, usage, LAST)
   acpmux ls --status stuck        only stuck sessions (a filter hides nothing else)
@@ -416,18 +416,20 @@ pub fn render_counted(
             "no live named sessions\n"
         });
     } else {
-        let with_host = shown.iter().any(|r| host(r).is_some());
+        let with_handles = shown.iter().any(|r| r.get_str("sessionId").is_some());
+        let with_host = with_handles || shown.iter().any(|r| host(r).is_some());
+        let with_harness = with_handles || view.wide;
+        let own = with_handles.then(crate::pairing::machine_name);
         let with_warn = shown.iter().any(|r| !warn(r, false).is_empty());
         let with_stuck = shown.iter().any(|r| !stuck(r, now, pauses).is_empty());
         let mut header = vec!["NAME"];
         if with_host {
             header.push("HOST");
         }
-        if view.wide {
-            header.extend(["AGENT", "STATUS"]);
-        } else {
-            header.push("STATE");
+        if with_harness {
+            header.push("AGENT");
         }
+        header.push(if view.wide { "STATUS" } else { "STATE" });
         header.extend(["TURNS", "AGE"]);
         if with_stuck || view.wide {
             header.push("STUCK");
@@ -441,12 +443,23 @@ pub fn render_counted(
         }
         let mut rows = vec![header.into_iter().map(str::to_owned).collect::<Vec<_>>()];
         for row in &shown {
-            let mut cells =
-                vec![short(row.get_str("name").unwrap_or(""), if view.wide { 24 } else { 32 })];
+            let name = row.get_str("name").unwrap_or("");
+            let handle = row
+                .get_str("sessionId")
+                .map(|id| crate::session_handle::display(row.get_str("handle"), id));
+            let bare = host(row)
+                .and_then(|peer| name.strip_prefix(peer))
+                .and_then(|rest| rest.strip_prefix('/'))
+                .unwrap_or(name);
+            let width = if view.wide { 24 } else { 32 };
+            let mut cells = vec![match handle {
+                Some(handle) => format!("{handle} · {}", short(bare, width)),
+                None => short(name, width),
+            }];
             if with_host {
-                cells.push(host(row).unwrap_or("-").to_owned());
+                cells.push(host(row).or(own.as_deref()).unwrap_or("-").to_owned());
             }
-            if view.wide {
+            if with_harness {
                 cells.push(short(row.get_str("harness").unwrap_or(""), 8));
             }
             cells.push(state(row, pauses));
