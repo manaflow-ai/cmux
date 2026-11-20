@@ -38,7 +38,6 @@ extension SidebarMapping.PageFace {
     /// its own icon; nil for a tab that is not a page. No name of the row and no settings read: a tab that is not the
     /// row's face asks only this.
     @MainActor init?(tab: TabModel, of workspace: WorkspaceModel, _ services: AppServices) {
-        guard tab.kind == .browser else { return nil }
         let live = services.cache.existingBrowser(tab.id)?.tab
         let incognito = services.windows.isIncognito(workspace: workspace)
         // For the row and band item; nil while loading or with none (the row then shows ``WorkspaceIcon/pagePlaceholder``).

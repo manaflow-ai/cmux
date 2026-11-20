@@ -110,7 +110,6 @@ public final class BrowserFaviconLoader: BrowserFaviconLoading {
     /// incognito session ended).
     public func forget(profile: BrowserProfileID) {
         caches[profile] = nil
-        cachedFaviconChanges += 1
     }
 
     /// Decodes an icon file (PNG, ICO, SVG, ...) and redraws its best
