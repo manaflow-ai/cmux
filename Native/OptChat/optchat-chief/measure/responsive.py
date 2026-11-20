@@ -308,6 +308,20 @@ def measure_probe(probe, sent, events, t_end, trace):
     }
 
 
+# How long a probe waits, from its first send, for every expected answer.
+ANSWER_WAIT_S = 150
+
+
+def _agent_messages(events, t0):
+    out = []
+    for r in events:
+        ch = r["e"].get("change") or {}
+        m = ch.get("message") or {}
+        if r["t"] >= t0 and ch.get("kind") == "message" and m.get("author") == AGENT:
+            out.append(m)
+    return out
+
+
 def run(ctx):
     """Drive every probe on the scratch brain. ctx: the driver's helpers."""
     log, send, conv, sock, work, out = ctx["log"], ctx["send"], ctx["conv"], ctx["sock"], ctx["work"], ctx["out"]
@@ -347,6 +361,20 @@ def run(ctx):
                     went_idle = True
                     break
                 time.sleep(0.5)
+            # Quiet is not done: an expected answer may still come from work
+            # the Chief moved to the background (a 40 s shell reports when it
+            # ends, in a turn Claude Code runs on its own). Wait for every
+            # expected answer, at most ANSWER_WAIT_S past the send, then for
+            # quiet again.
+            wants = [m[2] for m in probe["msgs"] if m[2]]
+            answer_by = min(deadline, t_first / 1000 + ANSWER_WAIT_S)
+            while time.time() < answer_by and not all(
+                    any(re.search(w, _text(m), re.I) for m in _agent_messages(rec.snapshot(), t_first))
+                    for w in wants):
+                time.sleep(1)
+            if wants:
+                while time.time() < deadline and not idle(t_first):
+                    time.sleep(0.5)
             t_end = int(time.time() * 1000)
             # Message ids for sends whose echo arrived after the lookup above.
             for s in sent:
