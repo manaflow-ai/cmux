@@ -334,24 +334,30 @@ def child_environment() -> dict[str, str]:
     return env
 
 
-def spawn(command: list[str], out: Output) -> tuple[subprocess.Popen, int]:
+def spawn(command: list[str], out: Output, use_pty: bool = True) -> tuple[subprocess.Popen, int]:
     """Start the command on a pseudo-terminal so its stdio is line-buffered.
 
     Through a pipe, the Swift Testing helper's stdout is block-buffered: a
     stalled run's log stops at a buffer boundary, several tests before the one
     that hung, and the last `started` line names a test that already passed.
     """
-    try:
-        primary, secondary = pty.openpty()
-    except OSError as error:
-        out.line(
-            f"::warning::No pseudo-terminal ({error}); test output is block-buffered, "
-            "so a hang report can name a test that already finished."
-        )
+    if not use_pty:
         primary, secondary = os.pipe()
+        attributes = None
     else:
+        try:
+            primary, secondary = pty.openpty()
+        except OSError as error:
+            out.line(
+                f"::warning::No pseudo-terminal ({error}); test output is block-buffered, "
+                "so a hang report can name a test that already finished."
+            )
+            primary, secondary = os.pipe()
+            attributes = None
+        else:
+            attributes = termios.tcgetattr(secondary)
+    if attributes is not None:
         # No output processing: keep "\n" from becoming "\r\n" in the log.
-        attributes = termios.tcgetattr(secondary)
         attributes[1] &= ~termios.OPOST
         termios.tcsetattr(secondary, termios.TCSANOW, attributes)
     try:
@@ -361,7 +367,7 @@ def spawn(command: list[str], out: Output) -> tuple[subprocess.Popen, int]:
             stdout=secondary,
             stderr=secondary,
             start_new_session=True,
-            env=child_environment(),
+            env=child_environment() if use_pty else os.environ.copy(),
         )
     except BaseException:
         os.close(primary)
@@ -390,6 +396,7 @@ def run(
     step: bool = False,
     tail_lines: int = 0,
     silence_exit: int = TIMEOUT_EXIT,
+    use_pty: bool = True,
 ) -> int:
     """step: the command is any CI step, not a test run (step_watchdog.py). Its report is the last
     `tail_lines` lines of output instead of the tests in flight, its annotation says "Silent step", and a
@@ -398,7 +405,7 @@ def run(
     progress = TestProgress()
     tail: collections.deque[str] = collections.deque(maxlen=max(tail_lines, 1))
     log = log_path.open("wb") if log_path else None
-    process, fd = spawn(command, out)
+    process, fd = spawn(command, out, use_pty)
     started = last_output = last_progress = time.monotonic()
     seen_events = 0
     exited_at: Optional[float] = None

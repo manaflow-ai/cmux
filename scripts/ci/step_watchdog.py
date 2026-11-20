@@ -12,9 +12,11 @@ exits SILENT_EXIT (97), a code no tool here uses, so a caller and a log reader
 tell a silent hang from a failure or from the whole-step `--timeout-seconds`
 (124). The command's own exit status passes through otherwise.
 
-The command runs on a pseudo-terminal (hung_test_watchdog.spawn), so a Python
-or Swift child's stdout is line-buffered and a step that is working is not
-mistaken for a quiet one because its prints sit in a pipe buffer.
+The command's stdout and stderr are a pipe, as the runner gives a step, so a
+tool that checks for a terminal (bun, vite, cargo) behaves as it does without
+the wrapper. `--pty` runs it on a pseudo-terminal instead (TERM=dumb,
+NO_COLOR=1), for a Python step whose prints would otherwise sit in a pipe
+buffer and read as silence.
 
 Pick N from the step's measured longest silent gap times two
 (step_silence_gaps.py reads it from past job logs); a step that is quiet on
@@ -52,6 +54,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--sample-seconds", type=int, default=3,
                         help="seconds of macOS `sample` per process in the group when it fires (0: none)")
     parser.add_argument("--log", type=Path, help="also write the command's output here")
+    parser.add_argument("--pty", action="store_true",
+                        help="run it on a pseudo-terminal (line-buffered Python output) instead of a pipe")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
@@ -73,6 +77,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         step=True,
         tail_lines=args.tail_lines,
         silence_exit=SILENT_EXIT,
+        use_pty=args.pty,
     )
 
 

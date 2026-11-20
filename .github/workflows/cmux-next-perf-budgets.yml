@@ -378,7 +378,7 @@ jobs:
           [ -z "$PERF_RESULT" ] || wait=(--wait-limit 3600)
           # No output for SILENT_SECONDS ends the step (exit 97), not the job's 75-minute cap: run 44731310755's plan
           # printed nothing for 74 minutes. The rate-limit wait prints a line every minute.
-          watch=(python3 -I scripts/ci/step_watchdog.py --silent-seconds "$SILENT_SECONDS" --label "perf cron plan" --)
+          watch=(python3 -I scripts/ci/step_watchdog.py --pty --silent-seconds "$SILENT_SECONDS" --label "perf cron plan" --)
           "${watch[@]}" python3 -I scripts/cmux-next/perf-cron.py fetch-state --repo "$GITHUB_REPOSITORY" --dir "$dir" ${wait[@]+"${wait[@]}"}
           "${watch[@]}" python3 -I scripts/cmux-next/perf-cron.py plan --repo "$GITHUB_REPOSITORY" --dir "$dir" \
             --yield-mode "$YIELD_MODE" ${no_mac[@]+"${no_mac[@]}"} ${route[@]+"${route[@]}"} --perf-result "$PERF_RESULT" \

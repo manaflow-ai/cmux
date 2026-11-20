@@ -3813,7 +3813,11 @@ jobs:
         if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
         env:
           CMUX_FAST_CARGO_CACHE_HIT: ${{ steps.cargo-cache.outputs.cache-hit }}
-        run: python3 -I scripts/cmux-next/fast-tier.py --kind cargo --kind script --receipt "$RUNNER_TEMP/cmux-next-fast-tier-cargo.json"
+        # 600 s with no output ends it (exit 97) instead of the job's 20 minutes: the longest healthy silence in 6 runs
+        # was 280 s, a cargo test build (step_silence_gaps.py; step_watchdog.py).
+        run: >-
+          python3 -I scripts/ci/step_watchdog.py --silent-seconds 600 --label "fast tier (cargo)" --
+          python3 -I scripts/cmux-next/fast-tier.py --kind cargo --kind script --receipt "$RUNNER_TEMP/cmux-next-fast-tier-cargo.json"
 
       - name: Upload fast-tier timing receipt
         if: ${{ (always()) && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}

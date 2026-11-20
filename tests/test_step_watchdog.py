@@ -70,7 +70,7 @@ class StepWatchdogTests(unittest.TestCase):
         # The child prints, then starts a grandchild (as the perf cron plan's python3 -> python3 -> git) and both
         # go quiet. No flush: through a pipe this would sit in a buffer; the pty makes it reach the log at once.
         completed, took = self.run_watchdog(
-            "--silent-seconds", "2", "--label", "perf cron plan", "--sample-seconds", "0",
+            "--silent-seconds", "2", "--label", "perf cron plan", "--sample-seconds", "0", "--pty",
             command=python(f"""
                 import os, subprocess, sys, time
                 print("perf-cron: state from artifact 1")
@@ -157,13 +157,37 @@ class StepWatchdogTests(unittest.TestCase):
             command=python("""
                 import time
                 for index in range(50):
-                    print(f"line {index}")
+                    print(f"line {index}", flush=True)
                 time.sleep(600)
             """),
         )
         self.assertEqual(completed.returncode, 97, completed.stdout)
         self.assertIn("Last 3 line(s) of output before it went quiet:\n  line 47\n  line 48\n  line 49\n",
                       completed.stdout)
+
+    def test_through_the_default_pipe_unflushed_output_reads_as_silence(self) -> None:
+        # Why --pty exists: a Python child's prints sit in its pipe buffer, so the step looks quiet.
+        completed, _ = self.run_watchdog(
+            "--silent-seconds", "1", "--sample-seconds", "0",
+            command=python("""
+                import time
+                print("buffered")
+                time.sleep(600)
+            """),
+        )
+        self.assertEqual(completed.returncode, 97, completed.stdout)
+        self.assertIn("No output at all.", completed.stdout)
+
+    def test_a_pipe_by_default_and_a_terminal_with_pty(self) -> None:
+        probe = python("""
+            import os, sys
+            print("tty" if os.isatty(1) else "pipe", os.environ.get("TERM", "-"), flush=True)
+        """)
+        plain, _ = self.run_watchdog("--silent-seconds", "5", command=probe)
+        self.assertEqual(plain.returncode, 0, plain.stdout)
+        self.assertTrue(plain.stdout.startswith("pipe "), plain.stdout)
+        tty, _ = self.run_watchdog("--silent-seconds", "5", "--pty", command=probe)
+        self.assertEqual(tty.stdout, "tty dumb\n")
 
     def test_a_missing_limit_is_refused(self) -> None:
         completed, _ = self.run_watchdog(command=["true"])
