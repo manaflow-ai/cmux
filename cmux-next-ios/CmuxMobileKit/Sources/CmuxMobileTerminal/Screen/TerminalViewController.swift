@@ -2335,7 +2335,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // and a still of the whole page cost 10-15 ms on the frame the
         // keyboard stopped (the held replay's reset, step f97802b9).
         let areaStill = model.isTUI && !pageWide && !output.leavesAlternateScreen
-        let source: UIView = areaStill ? tuiHost : view
         // The grid's host, whose height is the grid's (not the clip's, which
         // animates with the keyboard: a still of it mid-animation is drawn at
         // the clip's end size, its grid a few points off the moving composer),
@@ -2343,10 +2342,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let wide = CGRect(x: -Self.sidePadding, y: 0, width: tuiHost.bounds.width + 2 * Self.sidePadding, height: tuiHost.bounds.height)
         guard let snapshot = measured("hold-frame-snapshot", {
             areaStill ? tuiHost.resizableSnapshotView(from: wide, afterScreenUpdates: false, withCapInsets: .zero)
-                : view.snapshotView(afterScreenUpdates: false)
+                : snapshotTerminalPage()
         }) else { return }
         snapshot.isUserInteractionEnabled = false
-        if source === view {
+        if !areaStill {
             snapshot.frame = view.bounds
             view.insertSubview(snapshot, belowSubview: bottomFade)
         } else {
@@ -2452,6 +2451,20 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         holdAwaitsReset = false
     }
 
+    /// Hold only the presented terminal content. A full view snapshot also
+    /// contains the old composer and key row, which would show through the
+    /// live glass after the keyboard moves it. Use the visible host rather
+    /// than model.isTUI: an alternate-screen exit can still be showing TUI.
+    private func snapshotTerminalPage() -> UIView? {
+        let source: UIView = tuiClip.isHidden ? scrollView : tuiClip
+        guard let still = source.snapshotView(afterScreenUpdates: false) else { return nil }
+        let page = UIView(frame: view.bounds)
+        page.backgroundColor = terminalBackground
+        still.frame = source.convert(source.bounds, to: view)
+        page.addSubview(still)
+        return page
+    }
+
     /// The app left (false) or is coming back to (true) the foreground.
     ///
     /// Leo, 2026-11-12: "when i load in it show me uncompact then squish". The
@@ -2463,7 +2476,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     func appActiveChanged(_ active: Bool) {
         guard active else {
             backgroundStill = view.window != nil && !hostLayout.differsFromPhone
-                ? view.snapshotView(afterScreenUpdates: false) : nil
+                ? snapshotTerminalPage() : nil
             return
         }
         // Back in the foreground: UIKit posted no hide for a keyboard that

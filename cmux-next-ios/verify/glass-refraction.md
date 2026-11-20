@@ -14,7 +14,9 @@ scroll edge retain contrast; the 24-point fade above the dock stays in place.
 Full-screen terminal apps keep their separate clipping and below-grid cover.
 
 Replay and foreground stills must remain above the content and below the dock.
-Their insertion anchor is now `bottomFade`, not the relocated backing. No
+Their insertion anchor is now `bottomFade`, not the relocated backing. Capture
+only the visible terminal host, so an old composer or key row is not refracted
+through the live glass after the keyboard moves. No
 setting, glass style, gesture, layout constraint or motion behavior changes.
 
 This follows [SPEC §2.4](../design/SPEC.md) and Apple's
@@ -29,6 +31,9 @@ over their full-height content; they need no extra glass layer.
 Use `AllUIStatesSurfacesCaptureUITests/testTerminal` with video on the same
 simulator harness before and after the change. Inspect `scrolled-back-jump`,
 `composer-open`, `keyboard-up-armed-draft`, and the `terminal-tour` TUI frames.
+Also run `TerminalComposerDockUITests`, `TerminalKeyboardToggleFlickerUITests`
+and `TerminalResizeDemoUITests`; inspect the foreground 150 ms and 2 s frames
+for stale chrome under the live composer.
 The scrolled rows must reach the glass edge and visibly refract, the composer
 must remain legible, and keyboard/TUI transitions must retain their clipping.
 Also inspect `AgentChatJumpCaptureUITests` and
