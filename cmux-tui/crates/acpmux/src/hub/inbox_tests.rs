@@ -405,7 +405,8 @@ fn trim_lets_go_only_of_answered_read_messages_and_remembers_them() {
     assert_eq!(inbox.items.len(), KEEP + 1, "only the answered or read surge items go");
     assert!(inbox.trimmed.contains("m-0") && inbox.trimmed.contains("m-1"));
     assert!(inbox.items.iter().any(|i| i.prompt_id == "m-2"));
-    assert!(inbox.trimmed.contains("m-3"));
+    assert!(!inbox.trimmed.contains("m-3"));
+    assert!(!inbox.items.iter().any(|i| i.prompt_id == "m-3"));
 }
 
 #[test]
@@ -545,8 +546,11 @@ async fn surge_receipt_restores_the_same_held_message_and_searches_its_original_
         crate::cli::output::sent_lines(&receipt, false),
         ["held in the receiver's surge inbox"]
     );
+    assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":1,"needYou":0}));
+    hub.persist_surge_triage(&session, json!({"batchId":"batch-1"}), 1).unwrap();
     *session.inbox() = Default::default();
     hub.restore_inbox(&session);
+    assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":1,"needYou":1}));
     let thread = hub.inbox_thread(&session, thread, false);
     assert_eq!(thread["messages"][0]["text"], body[0]["text"]);
     assert_eq!(thread["messages"][0]["surgeHeld"], true);

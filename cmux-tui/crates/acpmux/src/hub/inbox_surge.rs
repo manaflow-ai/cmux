@@ -2,6 +2,35 @@
 //! measured reply period. Keep one arrival timestamp regardless of how many senders it has.
 use super::*;
 
+/// The last journaled snapshot powers the single chat row even when older posts leave memory.
+#[derive(Clone, Copy, Default)]
+pub(super) struct Counts {
+    pub(super) seq: u64,
+    held: u64,
+    need_you: u64,
+}
+
+impl Counts {
+    pub(super) fn json(&self) -> Value {
+        json!({"held": self.held, "needYou": self.need_you})
+    }
+
+    pub(super) fn restore(&mut self, event: &EventRecord) {
+        if event.seq <= self.seq {
+            return;
+        }
+        if let (Some(held), Some(need_you)) = (
+            event.msg.pointer("/surge/held").and_then(Value::as_u64),
+            event.msg.pointer("/surge/needYou").and_then(Value::as_u64),
+        ) {
+            *self = Self { seq: event.seq, held, need_you };
+        } else if event.kind == "inbox" && event.msg["surgeHeld"] == true {
+            self.held = self.held.saturating_add(1);
+            self.seq = event.seq;
+        }
+    }
+}
+
 #[derive(Default)]
 pub(super) struct SurgeRate {
     last_arrival: Option<u64>,
@@ -42,7 +71,92 @@ fn eligible(opts: &PromptOptions, blocks: &[Value]) -> Option<String> {
     super::super::digest::agent_sender(provenance, opts.agent.as_deref())
 }
 
+/// Give notices from different hosts one subject when they carry the same PR or title. Ordinary
+/// agent messages retain the existing sender-scoped thread semantics.
+fn surge_topic(explicit: Option<&str>, text: &str, notice: Option<&Value>, sender: &str) -> String {
+    if let Some(topic) = explicit.filter(|topic| !topic.is_empty()) {
+        return super::thread_key(Some(topic), sender, text);
+    }
+    let Some(notice) = notice else {
+        return super::thread_key(None, sender, text);
+    };
+    let mut pr = None;
+    if let Some(links) = notice.get("links").and_then(Value::as_array) {
+        for link in links {
+            let url = link.get("url").and_then(Value::as_str).unwrap_or_default();
+            pr = pr.or_else(|| pull_request_number(url));
+        }
+    }
+    if let Some(pr) = pr {
+        return format!("pr:{pr}");
+    }
+    let sender = notice.get("sender").and_then(Value::as_str).unwrap_or(sender);
+    let title = notice.get("title").and_then(Value::as_str).unwrap_or_default();
+    let normalized: String = title
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { ' ' })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if !normalized.is_empty() {
+        return format!("notice:{}:{}", sender.trim(), normalized);
+    }
+    super::thread_key(None, sender, text)
+}
+
+fn pull_request_number(url: &str) -> Option<u64> {
+    for marker in ["/pull/", "/pulls/", "#"] {
+        let Some(rest) = url.split_once(marker).map(|(_, rest)| rest) else { continue };
+        let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        if let Ok(number) = digits.parse::<u64>() {
+            if number > 0 {
+                return Some(number);
+            }
+        }
+    }
+    None
+}
+
 impl Hub {
+    /// Store a triage pass together with its current number of actionable topics.
+    pub(crate) fn persist_surge_triage(
+        &self,
+        session: &Session,
+        batch: Value,
+        actionable_topics: u64,
+    ) -> Result<(), RpcError> {
+        self.persist_surge_event(session, "inbox_triaged", batch, Some(actionable_topics))
+    }
+
+    fn persist_surge_event(
+        &self,
+        session: &Session,
+        kind: &str,
+        mut msg: Value,
+        actionable_topics: Option<u64>,
+    ) -> Result<(), RpcError> {
+        let state = session.inbox().surge_counts.clone();
+        let mut counts = state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut next = *counts;
+        match actionable_topics {
+            Some(n) => next.need_you = n,
+            None => next.held = next.held.saturating_add(1),
+        }
+        msg["surge"] = next.json();
+        // The caller retries a failed append. A parked copy must not be replayed behind it.
+        let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
+        self.catch_up_locked(session);
+        let (event, stored) =
+            self.append_at_locked(session, "mux", kind, msg, None, None, true, true);
+        if !stored {
+            return Err(RpcError::internal("could not persist the surge inbox event"));
+        }
+        next.seq = event.seq;
+        *counts = next;
+        Ok(())
+    }
+
     /// Page the original records, including ones older than the live inbox projection.
     pub(crate) fn search_held_inbox(
         &self,
@@ -101,7 +215,13 @@ impl Hub {
 
         let provenance = opts.provenance.as_ref();
         let text = prompt_text(blocks);
-        let thread = thread_key(opts.thread.as_deref(), &thread_sender(provenance, &from), &text);
+        let notice = tool_notice_of(provenance);
+        let thread = surge_topic(
+            opts.thread.as_deref(),
+            &text,
+            notice.as_ref(),
+            &thread_sender(provenance, &from),
+        );
         let from_session = sender_session(provenance);
         let sender_meta =
             from_session.as_deref().and_then(|id| self.resolve(id).ok()).map(|s| s.meta());
@@ -110,7 +230,6 @@ impl Hub {
             from_session.as_deref(),
             sender_meta.as_ref(),
         );
-        let notice = tool_notice_of(provenance);
         let class = opts.class.unwrap_or(if notice.is_some() {
             PromptClass::Fyi
         } else {
@@ -151,7 +270,9 @@ impl Hub {
             answer: None,
             reader: None,
         };
-        session.inbox().items.push(item);
+        let mut inbox = session.inbox();
+        inbox.items.push(item);
+        trim(&mut inbox);
         Ok(Some(
             json!({"sessionId":session.id,"promptId":prompt_id,"threadId":thread,"inbox":true,"surgeHeld":true,"queued":false}),
         ))
