@@ -1,3 +1,4 @@
+import { pullRequestActionPrompt } from "./header/pullRequestActionPrompt";
 import { composerHealthHarness } from "./composerPickerEntries";
 import { forkMenuRows } from "./header/forkMenu";
 import { openFork, openInOwnTab } from "./conversation/openFork";
@@ -551,7 +552,7 @@ import { HEADER_ACTIONS, guardedChatMenu, menuGroups, type ChatMenuItem } from "
 import { ThreadTitle } from "./header/ThreadTitle";
 import { deleteChatRow, moveMachineRow } from "./header/chatRows";
 import { moveToTerminal, terminalMoveRow } from "./header/terminalMoveRow";
-import { headerState, setHeaderState, useHeaderState, pullRequestOf } from "./header/headerState";
+import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowRoot, useTabRowTools } from "./header/tabRow";
 import { SubagentComposer } from "./subagents/SubagentComposer";
 import {
@@ -14174,34 +14175,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                           ? async (pr, action, signal) => {
                               const client = directClient.current;
                               const sessionId = snapshot.sessionId;
-                              const generation = client?.selectionToken;
-                              const current = () =>
-                                !signal.aborted && client === directClient.current &&
-                                client?.selectionToken === generation && client?.selectedSession === sessionId;
-                              if (!client || !sessionId || !current()) throw new Error(translate("error.notOpen"));
-                              const value = await client.pullRequestAction({
-                                url: pr.url,
-                                headSha: pr.headSha,
-                                action,
+                              if (!client || !sessionId) throw new Error(translate("error.notOpen"));
+                              return pullRequestActionPrompt(client, sessionId, pr, action, signal, {
+                                currentClient: () => directClient.current,
+                                send: (params) => callNative("chat.send", { ...params }),
+                                error: () => new Error(translate("header.prActionFailed")),
                               });
-                              if (!value || typeof value !== "object" || !current())
-                                throw new Error(translate("error.notOpen"));
-                              const reply = value as Record<string, unknown>;
-                              const header = pullRequestOf(reply.header);
-                              if (reply.sessionId !== sessionId || !header?.headSha || header.url !== pr.url)
-                                throw new Error(translate("header.prActionFailed"));
-                              if (action === "fixChecks" || action === "addressComments") {
-                                if (typeof reply.prompt !== "string" || !reply.prompt.trim())
-                                  throw new Error(translate("header.prActionFailed"));
-                                await new Promise<void>((resolve, reject) => {
-                                  callNative("chat.send", {
-                                    text: reply.prompt,
-                                    expectedSessionId: sessionId,
-                                    accepted: () => resolve(),
-                                  }).then(() => resolve(), reject);
-                                });
-                              }
-                              return header;
                             }
                           : undefined
                       }
