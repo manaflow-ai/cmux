@@ -36,13 +36,18 @@ public nonisolated struct RemoteAccessUnit: Sendable, Hashable {
     /// Annex-B H.264 or HEVC.
     public var data: Data
     public var codec: RemoteVideoCodec
+    /// `DispatchTime` uptime (ns) when the transport's reassembler released the frame, 0 when
+    /// unknown: where the viewer's Decode stage starts (screen-share design D8).
+    public var releasedAtNanos: UInt64
 
-    public init(frame: UInt32, flags: RemoteFrameFlags, tCaptureMicros: UInt64, data: Data, codec: RemoteVideoCodec) {
+    public init(frame: UInt32, flags: RemoteFrameFlags, tCaptureMicros: UInt64, data: Data, codec: RemoteVideoCodec,
+                releasedAtNanos: UInt64 = 0) {
         self.frame = frame
         self.flags = flags
         self.tCaptureMicros = tCaptureMicros
         self.data = data
         self.codec = codec
+        self.releasedAtNanos = releasedAtNanos
     }
 
     public var isKeyframe: Bool { flags.contains(.keyframe) }
