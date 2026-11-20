@@ -5064,7 +5064,7 @@ def test_web_status_checks_react_when_real_daemon_tests_are_unselected() -> None
         "typecheck", "unit_tests",
     )}
     subareas["agent_pane"] = "false"
-    for react_result, expected in (("success", 0), ("skipped", 1), ("failure", 1)):
+    for react_result, expected in (("success", 0), ("skipped", 3), ("failure", 1)):
         result = run_web_status(
             results={"agent-pane-real-acpmux": "skipped", "react-apps-check": react_result},
             subareas=subareas,
