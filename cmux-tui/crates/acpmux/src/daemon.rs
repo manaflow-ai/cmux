@@ -84,6 +84,8 @@ use stop_causes::next_signal;
 use stop_causes::{AbortOnDrop, store_asks_to_stop};
 pub use stop_causes::{EXIT_REPAIR, exit_status};
 pub(crate) mod unused_exit;
+#[cfg(target_os = "linux")]
+mod watchdog;
 #[cfg(windows)]
 mod windows;
 
@@ -398,6 +400,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // before this boundary. Requests still wait for the hub and this launch's auth tokens.
     let _socket_cleanup = BoundSocketCleanup(bound_socket.clone());
     gauges.mark("socket ready");
+    // Under systemd's watchdog: pings only while this socket answers hello (`daemon/watchdog.rs`).
+    #[cfg(target_os = "linux")]
+    watchdog::start(socket_path());
     // The local CodeRouter relay (crate cmux-coderouter): `cmux-router` and `local-coderouter`
     // routes read its port and mint keys from it. Opt-in (the cmux app sets ACPMUX_LOCAL_ROUTER=1).
     // Its owner ties the router's life to this daemon (daemon/router_owner.rs: the owner FIFO,
