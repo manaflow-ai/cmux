@@ -22,6 +22,7 @@ beforeAll(() => {
       "node_modules/@pierre/diffs/dist/worker/worker.js",
       "src/agent-session/acpmux/shiki",
       output,
+      "--no-shiki-langs",
       "--metafile",
       meta,
     ],
@@ -81,7 +82,11 @@ test("the bundled worker highlights every supported language sent by the page", 
         await request({
           type: "initialize",
           preferredHighlighter: "shiki-js",
-          renderOptions: { theme: theme.name, tokenizeMaxLineLength: 1000, useTokenTransformer: false },
+          renderOptions: {
+            theme: theme.name,
+            tokenizeMaxLineLength: 1000,
+            useTokenTransformer: false,
+          },
           resolvedThemes: [theme],
           resolvedLanguages: [],
         })
