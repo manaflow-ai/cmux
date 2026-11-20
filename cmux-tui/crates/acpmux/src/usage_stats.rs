@@ -31,7 +31,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 const MINUTE_MS: u64 = 60_000;
-const HOUR_MS: u64 = 60 * MINUTE_MS;
+pub(crate) const HOUR_MS: u64 = 60 * MINUTE_MS;
 pub const DAY_MS: u64 = 24 * HOUR_MS;
 /// The most of a file a first read takes: its newest bytes.
 pub const FIRST_READ_BYTES: u64 = 256 << 20;
@@ -278,6 +278,9 @@ impl Tracker {
         let known = |n: u64| self.complete.then_some(n);
         let (mut day, mut hour_spawns, mut priced) = (Bucket::default(), 0_u64, false);
         let mut hourly = BTreeMap::<String, u64>::new();
+        let mut previous_hour = BTreeMap::<String, u64>::new();
+        let hour_start = now - now % HOUR_MS;
+        let previous = hour_start.saturating_sub(HOUR_MS)..hour_start;
         for (minute, b) in &self.minutes {
             day.tokens = day.tokens.saturating_add(b.tokens);
             day.cost_usd += b.cost_usd;
@@ -288,11 +291,18 @@ impl Tracker {
             day.prompt_read = day.prompt_read.saturating_add(b.prompt_read);
             day.prompt_rest = day.prompt_rest.saturating_add(b.prompt_rest);
             priced |= b.priced;
-            if minute.saturating_add(MINUTE_MS) > now.saturating_sub(HOUR_MS) {
+            let rolling = minute.saturating_add(MINUTE_MS) > now.saturating_sub(HOUR_MS);
+            if rolling {
                 hour_spawns = hour_spawns.saturating_add(b.spawns);
-                for (model, tokens) in &b.by_model {
-                    let total = hourly.entry(model.clone()).or_default();
-                    *total = total.saturating_add(*tokens);
+            }
+            for (included, totals) in
+                [(rolling, &mut hourly), (previous.contains(minute), &mut previous_hour)]
+            {
+                if included {
+                    for (model, tokens) in &b.by_model {
+                        let total = totals.entry(model.clone()).or_default();
+                        *total = total.saturating_add(*tokens);
+                    }
                 }
             }
         }
@@ -312,6 +322,7 @@ impl Tracker {
             subagents24h: known(day.spawns),
             tokens24h: known(day.tokens),
             tokens_by_model1h: self.complete.then_some(hourly),
+            tokens_by_model_previous_utc_hour: self.complete.then_some(previous_hour),
             // Rounded to the cent's hundredth: a sum of list prices, not a bill.
             cost_usd24h: (self.complete && priced)
                 .then(|| (day.cost_usd * 10_000.0).round() / 10_000.0),

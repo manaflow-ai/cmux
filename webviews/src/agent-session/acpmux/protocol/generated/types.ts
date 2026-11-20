@@ -2312,6 +2312,9 @@ export type UsageStats = {
    * read and cache write.
    */
   tokens24h: (number | null);
+  tokensByModel1h: (Record<string, number> | null);
+  /** Tokens per call model in the completed UTC hour preceding the hour of updatedAt. */
+  tokensByModelPreviousUtcHour: (Record<string, number> | null);
   /** Unix ms of the read these come from. */
   updatedAt: number;
 } & Record<string, unknown>;
