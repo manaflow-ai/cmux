@@ -1389,6 +1389,9 @@ PY_LIGHT
     exit 1
   fi
   local -a exceptions=(
+    # Fork pull request code (contributor-controlled installs) never reaches the persistent Linux pool,
+    # which also advertises blacksmith-* labels (Leo, 2026-11-20 11:11Z): the fork branch takes hosted Ubuntu.
+    "web-complexity.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}"
     # npm trusted publishing and --provenance accept only GitHub-hosted runners.
     "sdk-bootstrap-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance publishing"
     "sdk-release-cut.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"

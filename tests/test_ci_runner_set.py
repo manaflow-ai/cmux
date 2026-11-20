@@ -87,6 +87,8 @@ PINNED: dict[str, tuple[str, set[str]]] = {
      {'drive'}),
     'nightly-next-verdict.yml': ('not yet on a pool; moves in its own PR',
      {'write'}),
+    'nightly-sign.yml': ('nightly signing admission: an ephemeral label the signing rule checks literally',
+     {'admit'}),
     'nightly-tag-permission-probe.yml': ('not yet on a pool; moves in its own PR',
      {'probe'}),
     'nightly.yml': ('NEXT nightly: never moved mid-train here; its runner change is its own PR',
