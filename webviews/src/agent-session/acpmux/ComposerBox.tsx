@@ -1,4 +1,4 @@
-import React, { useCallback, useImperativeHandle, useRef, useState, type RefObject, useInsertionEffect } from "react";
+import React, { useCallback, useImperativeHandle, useInsertionEffect, useRef, useState, type RefObject } from "react";
 import { type ComposerAttachment, type DroppedKind, inlineCopyId } from "./attachments";
 import { composerCopy, forgetCopy, pastePlan, pastesPlaced, writeComposerCopy } from "./composer/composerCopy";
 import { useInlineAttachments } from "./composer/inlineAttachments";
