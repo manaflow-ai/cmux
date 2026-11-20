@@ -32,7 +32,8 @@ import UIKit
         }
         try await TerminalPredictionInputTests.waitUntil(5) { terminal.view.window === firstWindow }
         try #require(terminal.view.window === firstWindow)
-        secondWindow.rootViewController = UIHostingController(rootView: TerminalTabPage(host: host, insets: insets, isInteractive: true))
+        let incoming = UIHostingController(rootView: AnyView(TerminalTabPage(host: host, insets: insets, isInteractive: true)))
+        secondWindow.rootViewController = incoming
         secondWindow.makeKeyAndVisible()
         try await TerminalPredictionInputTests.waitUntil(5) { terminal.view.window === secondWindow }
         try #require(terminal.view.window === secondWindow)
@@ -46,7 +47,7 @@ import UIKit
         firstWindow.isHidden = true
         firstWindow.rootViewController = nil
         secondWindow.layoutIfNeeded()
-        #expect(!session.claims.contains(false), "the visible page keeps the terminal's size claim: \(session.claims)")
+        #expect(session.claims.isEmpty, "the visible page keeps the terminal's size claim; none was released: \(session.claims)")
         #expect(terminal.view.window === secondWindow)
         #expect(terminal.view.isDescendant(of: secondWindow))
         #expect(terminal.view.bounds.height > 0)
@@ -56,6 +57,12 @@ import UIKit
         #expect(frame.height > 0)
         #expect(frame.minY > secondWindow.bounds.midY, "the pending composer rests above the bottom toolbar: \(frame)")
         #expect(frame.maxY <= secondWindow.bounds.maxY - insets.bottom + 8)
+
+        // The final owner leaving still releases the claim once the debounce runs out, so the
+        // recording above saw a working session, not a silent one.
+        incoming.rootView = AnyView(EmptyView())
+        try await Task.sleep(for: .milliseconds(1500)) // test: the release debounce (1 s) runs out
+        #expect(session.claims == [false], "the last page's departure releases the claim: \(session.claims)")
     }
 
     /// A session that keeps what the size claimer told it, in order.
