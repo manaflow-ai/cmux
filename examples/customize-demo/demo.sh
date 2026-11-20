@@ -4,7 +4,7 @@
 #   examples/customize-demo/demo.sh            # step through every setup, Enter for the next
 #   examples/customize-demo/demo.sh --auto 12  # 12 s per setup, no keys (for a recording)
 #   examples/customize-demo/demo.sh --list     # the order, nothing changes
-#   examples/customize-demo/demo.sh --only glass/clear.json
+#   examples/customize-demo/demo.sh --only glass/liquid.json
 #   examples/customize-demo/demo.sh reset      # put your setup back (cmux customize discard)
 #
 # Nothing is kept: every step is a `cmux customize use` preview, and the end (or Ctrl-C) runs
