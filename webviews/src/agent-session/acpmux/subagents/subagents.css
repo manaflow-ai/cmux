@@ -736,6 +736,42 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__stack-mark svg {
   display: block;
 }
+/* The marks as a Rolodex (hatRolodex.experiment.ts; Leo, 2026-11-20: "thumb through them like a
+   Rolodex ... there's a slight pop"): each mark is its own hover and click target, so the pointer runs
+   along them and the header's words name the one under it. Its box reaches 2px past the glyph on each
+   side (taken back by the margins, so the row's columns never move) and the glyph takes no hits, so a
+   click always lands on the box. The `pop` arm lifts the hovered glyph a little on the motion spring;
+   the `swap` arm only names it. */
+.acpmux-running-tray__thumb {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  margin: -2px;
+  border-radius: var(--ds-radius-xs, 3px);
+  cursor: pointer;
+}
+.acpmux-running-tray__thumb > * {
+  pointer-events: none;
+}
+.acpmux-running-tray__stack[data-rolodex] {
+  /* The lifted mark draws over the header's top edge, never clipped by the stack. */
+  overflow: visible;
+}
+.acpmux-running-tray__stack[data-rolodex="pop"] .acpmux-running-tray__stack-mark {
+  transition: transform var(--agent-motion-hover, 120ms) var(--agent-ease-out);
+}
+.acpmux-running-tray__stack[data-rolodex="pop"] .acpmux-running-tray__thumb[data-peeked] .acpmux-running-tray__stack-mark {
+  transform: translateY(-1.5px) scale(1.2);
+}
+.acpmux-running-tray__thumb[data-peeked] .acpmux-running-tray__stack-mark {
+  color: var(--agent-text);
+}
+:root:is([data-cmux-motion="reduced"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-agent-motion="off"])
+  .acpmux-running-tray__stack[data-rolodex="pop"]
+  .acpmux-running-tray__stack-mark {
+  transition: none;
+}
 /* The header (Leo's collapsed strip, 2026-10-31: the time floated in a column of its own far from
    the words it belongs to): the counts take only their width, the elapsed time follows them as quiet
    meta one gap later, and the chevron ends the row in the trailing column the lines' chevrons

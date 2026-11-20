@@ -131,6 +131,7 @@ import { hatTuckLook } from "./hatTuck.experiment";
 import { hatOpenLook } from "./hatOpen.experiment";
 import { SubagentCardBody, SubagentPreviewCard } from "./SubagentPreview";
 import "./hatOpen.css";
+import { hatRolodexLook } from "./hatRolodex.experiment";
 import { DoneCheck, DoneMark } from "./DoneMark";
 import { Tick, useGlide } from "./trayMotion";
 import { useCountedRender } from "../perfRender";
@@ -311,6 +312,9 @@ export const SubagentTray = memo(function SubagentTray({
   // How a line opens what it stands for (hatOpen.experiment.ts; Lawrence, 2026-11-20: "ui for opening
   // subagents is very confusing").
   const [openLook] = useState(() => experimentArm(hatOpenLook));
+  const [rolodex] = useState(() => experimentArm(hatRolodexLook));
+  // The header mark the pointer is on (hatRolodex.experiment.ts): the header names that line.
+  const [peekKey, setPeekKey] = useState<string | undefined>(undefined);
   const showLatest = latestAt !== "tooltip";
   const latestPlacement = latestAt === "tooltip" ? undefined : latestAt;
   const agentsById = useMemo(
@@ -557,6 +561,12 @@ export const SubagentTray = memo(function SubagentTray({
   const drawnMarks = headMarks.slice(0, oneName ? 1 : STACK_MARKS);
   const stacked = new Set(drawnMarks.flatMap((mark) => (mark.harness ? [harnessFamily(mark.harness)] : [])));
   const trailingMarks = counts.marks.filter((harness) => !stacked.has(harnessFamily(harness)));
+  // The marks are a Rolodex (Leo, 2026-11-20: "thumb through them like a Rolodex ... you can click into
+  // them and be able to open up that sub-agent"): the mark under the pointer names its line in the
+  // header's words, and a click on it opens that line. A lone item's header already names it.
+  const thumbs = rolodex !== "off" && !lone && head === "stack" && drawnMarks.length > 0;
+  const peeked =
+    thumbs && peekKey !== undefined ? peekOf(t, language, peekKey, [...items, ...finished], waiting) : undefined;
   const title = counts.text;
   // Its subagents and the chats it started run, or a command does: the header's mark is lit.
   const commands = items.filter((item) => item.kind === "command").length;
@@ -577,13 +587,13 @@ export const SubagentTray = memo(function SubagentTray({
   // the shared fold.
   const loneEnd = lone ? loneHeadOf(t, language, lone, waiting, showLatest) : undefined;
   const loneHead = loneEnd && !open ? loneEnd : undefined;
-  const named = !open && !loneHead && foldHead !== "counts" && newest.length > 0;
+  const named = !open && !loneHead && !peeked && foldHead !== "counts" && newest.length > 0;
   const shownNames = named ? newest.slice(0, foldHead === "one" || oneName ? 1 : 2) : [];
   // The plan leads: its progress and the step at work, then what runs (Leo's hat, 2026-11-03).
   const planText = planned ? (planEarlier ? earlierPlanHead(t, plan) : planHead(t, plan)) : "";
   const workText =
     items.length + finished.length === 0 ? "" : loneHead ? loneHead.title : named ? shownNames.join(" · ") : title;
-  const headText = [planText, workText].filter(Boolean).join(" · ");
+  const headText = peeked ?? [planText, workText].filter(Boolean).join(" · ");
   // A tray with only a plan draws the Plan mode mark in its head's icon slot; with work beside the
   // plan the head keeps the work's ring.
   const planOnly = Boolean(planText) && !workText;
@@ -616,6 +626,28 @@ export const SubagentTray = memo(function SubagentTray({
       </TrayRow>
     );
   });
+  // A click on one of the header's marks opens what it stands for, never the hat's fold: a subagent's
+  // view, a chat the agent started, a lone command's terminal. The commands' shared mark (and a chat
+  // with nowhere to open) opens the hat on its lines instead.
+  const openMark = (key: string) => {
+    const all = [...items, ...finished];
+    const item = all.find((candidate) => itemKey(candidate) === key);
+    if (item?.kind === "agent") {
+      onOpen(item.agent.id);
+      return;
+    }
+    if (item?.kind === "session" && onOpenSession) {
+      onOpenSession(item.session.sessionId);
+      return;
+    }
+    const commands = all.flatMap((candidate) => (candidate.kind === "command" ? [candidate.command] : []));
+    if (key === COMMANDS_MARK && commands.length === 1 && onOpenCommand) {
+      onOpenCommand(commands[0]);
+      return;
+    }
+    if (!open && opensPanel !== "header") toggle();
+    else if (opensPanel === "header") onOpenPanel?.();
+  };
   // The header's click: it opens the panel (the `header` arm) or expands and folds the hat in place.
   const toggle = () => {
     if (opensPanel === "header") {
@@ -768,17 +800,49 @@ export const SubagentTray = memo(function SubagentTray({
           ) : (head === "stack" || lone) && drawnMarks.length > 0 ? (
             // The lines' own marks side by side, each subagent's in its tone (trayHead.experiment.ts),
             // as the sidebar's status row stacks them before "8 done".
-            <span className="acpmux-running-tray__stack" data-tray-stack aria-hidden="true">
-              {drawnMarks.map((mark) => (
-                <AgentIdentity
-                  key={mark.key}
-                  className="acpmux-running-tray__stack-mark"
-                  harness={mark.harness}
-                  tone={mark.tone}
-                  size={ROW_ICON}
-                  fallback={mark.icon}
-                />
-              ))}
+            <span
+              className="acpmux-running-tray__stack"
+              data-tray-stack
+              data-rolodex={thumbs ? rolodex : undefined}
+              aria-hidden="true"
+              onPointerLeave={thumbs ? () => setPeekKey(undefined) : undefined}
+            >
+              {drawnMarks.map((mark) =>
+                thumbs ? (
+                  // The pointer twin of its line in the list: hovering names it, a click opens it. The
+                  // header stays the keyboard's one control (a button holds no button); the list's
+                  // lines are the keyboard's way to each item.
+                  <span
+                    key={mark.key}
+                    className="acpmux-running-tray__thumb"
+                    data-rolodex-key={mark.key}
+                    data-peeked={peekKey === mark.key || undefined}
+                    onPointerEnter={() => setPeekKey(mark.key)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      event.preventDefault();
+                      openMark(mark.key);
+                    }}
+                  >
+                    <AgentIdentity
+                      className="acpmux-running-tray__stack-mark"
+                      harness={mark.harness}
+                      tone={mark.tone}
+                      size={ROW_ICON}
+                      fallback={mark.icon}
+                    />
+                  </span>
+                ) : (
+                  <AgentIdentity
+                    key={mark.key}
+                    className="acpmux-running-tray__stack-mark"
+                    harness={mark.harness}
+                    tone={mark.tone}
+                    size={ROW_ICON}
+                    fallback={mark.icon}
+                  />
+                ),
+              )}
             </span>
           ) : (
             // The `bare` arm: the slot stays, blank, so the counts keep the lines' text column
@@ -814,14 +878,14 @@ export const SubagentTray = memo(function SubagentTray({
           {loneHead?.agent && <LoneProgress agent={loneHead.agent} fallback={loneHead.progress} />}
           {/* Open (or in the counts arm), what ended failed, in the danger colour, and a subagent of
               another model family by its harness's mark, as its line draws it. */}
-          {!named && !loneEnd && counts.failed > 0 && (
+          {!named && !loneEnd && !peeked && counts.failed > 0 && (
             <span className="acpmux-running-tray__failed">
               {title && <span aria-hidden="true">· </span>}
               {t("summary.subagents.failed", { n: counts.failed })}
             </span>
           )}
           {/* A family the stacked marks already draw is not drawn again here. */}
-          {!named && !loneEnd && trailingMarks.length > 0 && (
+          {!named && !loneEnd && !peeked && trailingMarks.length > 0 && (
             <span className="acpmux-running-tray__marks" data-tray-marks>
               {trailingMarks.map((harness) => (
                 <AgentMark key={harness} agent={harness} size={ROW_ICON} label={harness} />
@@ -1357,9 +1421,9 @@ function loneHeadOf(
 /// At most the newest two are named (the default arm names one), so a long list costs a sort of its
 /// start times, never a label per item.
 /// The first two names of `leading` (longest-running first, trayHeadOrder.ts).
-function leadNames(t: Translate, leading: readonly TrayItem[]): readonly string[] {
+function leadNames(t: Translate, leading: readonly TrayItem[], limit = 2): readonly string[] {
   return leading
-    .slice(0, 2)
+    .slice(0, limit)
     .map((item) =>
       item.kind === "agent"
         ? subagentTaskLabel(t, item.agent)
@@ -1370,6 +1434,26 @@ function leadNames(t: Translate, leading: readonly TrayItem[]): readonly string[
 }
 
 type HeadMark = { key: string; harness?: string; tone?: number; icon: string };
+/// The one mark every command shares in the header's stack.
+const COMMANDS_MARK = "commands";
+
+/// What the header says while the pointer is on one of its marks (hatRolodex.experiment.ts): that
+/// line's name and what it does now, as a lone item's header reads it; the commands' shared mark names
+/// its commands. Undefined once the mark's line is gone, so the header goes back to its counts.
+function peekOf(
+  t: Translate,
+  language: PaneLanguage,
+  key: string,
+  all: readonly TrayItem[],
+  waiting: ReadonlySet<string>,
+): string | undefined {
+  const commands = key === COMMANDS_MARK ? all.filter((one) => one.kind === "command") : undefined;
+  if (commands && commands.length > 1) return leadNames(t, commands, commands.length).join(" · ");
+  const item = commands ? commands[0] : all.find((one) => itemKey(one) === key);
+  if (!item) return undefined;
+  const head = loneHeadOf(t, language, item, waiting, true);
+  return [head.title, head.latest].filter(Boolean).join(" · ");
+}
 const NO_MARKS: readonly HeadMark[] = [];
 /// How many lines' marks the header stacks; the counts after them say the rest.
 const STACK_MARKS = 4;
@@ -1405,7 +1489,7 @@ function stackMarks(
             icon: SUBAGENT_FALLBACK,
           }
         : item.kind === "command"
-          ? { key: "commands", icon: "terminal" }
+          ? { key: COMMANDS_MARK, icon: "terminal" }
           : {
               key: itemKey(item),
               harness: item.session.harness,
