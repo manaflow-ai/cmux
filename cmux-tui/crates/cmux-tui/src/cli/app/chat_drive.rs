@@ -280,8 +280,10 @@ pub(super) fn timing(wheel: &Value) -> Option<Value> {
 
 /// The report `--json` prints: the app's, with the wheel's `timing` summary beside its per-tick record.
 pub(super) fn with_timing(mut report: Value) -> Value {
-    if let Some(summary) = timing(&report["wheel"]) {
-        report["wheel"]["timing"] = summary;
+    if let Some(summary) = timing(&report["wheel"])
+        && let Some(wheel) = report.get_mut("wheel").and_then(Value::as_object_mut)
+    {
+        wheel.insert("timing".into(), summary);
     }
     report
 }
