@@ -607,6 +607,7 @@ impl ClientRegistry {
 
     pub(super) fn remove(&self, client: u64) -> Option<ClientRecord> {
         self.url_opens.disconnect(client);
+        self.last_inputs.disconnect(client);
         self.clipboard_reads.disconnect(client);
         self.loopback.disconnect(client);
         #[cfg(unix)]

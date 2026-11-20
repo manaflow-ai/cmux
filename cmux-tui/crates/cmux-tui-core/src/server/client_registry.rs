@@ -348,6 +348,8 @@ pub(crate) struct ClientRegistry {
     /// owner (owner_keepers.rs).
     pub(super) frontend_seen: AtomicBool,
     pub(super) url_opens: url_open::URLRequests,
+    /// Who typed into each terminal last (`offer-link-to-phone`, phone_link.rs).
+    pub(super) last_inputs: super::phone_link::LastInputs,
     pub(crate) clipboard_reads: clipboard_read::ClipboardReads,
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
     pub(super) loopback: loopback_forward::LoopbackForwarder,
@@ -435,6 +437,7 @@ impl ClientRegistry {
             frontend_seen: AtomicBool::new(false),
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),
+            last_inputs: Default::default(),
             clipboard_reads: Default::default(),
             loopback: loopback_forward::LoopbackForwarder::default(),
             #[cfg(unix)]
