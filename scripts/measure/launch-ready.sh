@@ -204,7 +204,7 @@ main() {
     local head="${headsha:-$here}" want
     for want in $base $head; do
       git cat-file -e "$want^{commit}" 2>/dev/null \
-        || git fetch --quiet https://github.com/manaflow-ai/cmux.git "$want" || { echo "LR cannot fetch $want"; exit 3; }
+        || git fetch --quiet --recurse-submodules=no https://github.com/manaflow-ai/cmux.git "$want" || { echo "LR cannot fetch $want"; exit 3; }
     done
     if [[ -n "$base" && "$LR_CASE" != update && "$(git rev-parse "$base^{commit}")" == "$(git rev-parse "$head^{commit}")" ]]; then
       echo "LR one build: base is head ($head), so the head runs alone"
