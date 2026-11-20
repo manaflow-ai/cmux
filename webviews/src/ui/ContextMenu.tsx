@@ -133,8 +133,7 @@ export function ContextMenu({
   const returnFocus = useRef<HTMLElement | null>(null);
   // The right-clicked thing stays lit while its menu is open, and its row keeps its actions shown
   // (ui/popupWithin.ts); every close path and unmount clears both.
-  const popupTarget = useRef<ReturnType<typeof popupOpener> | null>(null);
-  popupTarget.current ??= popupOpener();
+  const [popupTarget] = useState(popupOpener);
   const openMark = useRef<HTMLSpanElement | null>(null);
   const nativeRequest = useRef(0);
   // Follows the press a right-click opened the menu on, to its release (pressRelease.ts).
@@ -180,9 +179,9 @@ export function ContextMenu({
     () => () => {
       heldPress.current?.();
       nativeRequest.current += 1;
-      popupTarget.current?.close();
+      popupTarget.close();
     },
-    [],
+    [popupTarget],
   );
   // No room above or below the pointer in the page: past the window's edge, as a Mac context menu
   // (popupHost.ts). The backdrop stays, so a click on the page still closes it.
@@ -225,7 +224,7 @@ export function ContextMenu({
     nativeRequest.current += 1;
     setPoint(null);
     setNativeOpen(false);
-    popupTarget.current?.close();
+    popupTarget.close();
     const target = returnFocus.current;
     returnFocus.current = null;
     if (restoreFocus && target?.isConnected) target.focus({ preventScroll: true });
@@ -300,14 +299,14 @@ export function ContextMenu({
     if (native && nativePopup.available && !nativeTarget) return;
     event.preventDefault();
     onOpen?.();
-    popupTarget.current?.close();
+    popupTarget.close();
     setPoint(null);
     const requestId = nativeRequest.current + 1;
     nativeRequest.current = requestId;
     setNativeOpen(true);
     setActive(0);
     const opener = target?.closest<HTMLElement>(RETURN_FOCUS) ?? null;
-    if (opener) popupTarget.current?.open(opener);
+    if (opener) popupTarget.open(opener);
     returnFocus.current = opener;
     const at = { x: event.clientX, y: event.clientY };
     // A Mac sends contextmenu on the press: while it is held, dragging onto a row of the page-drawn
