@@ -148,7 +148,8 @@ async fn park_retry_never_acknowledges_failed_persistence_or_readback() {
 async fn park_retry_fences_timer_preserves_failure_and_survives_recovery() {
     let (hub, session) = retry_chat();
     let last = waiting_for_park(&hub, &session);
-    hub.set_status(&session, SessionStatus::Idle);
+    assert!(hub.test_reopen(&session.id));
+    assert_eq!(session.status(), SessionStatus::Idle);
     let revision = Hub::revision(&session);
     let cancels = session.cancels.load(std::sync::atomic::Ordering::SeqCst);
     let result = hub.park_retry(&session, revision).unwrap();
@@ -302,7 +303,8 @@ async fn park_retry_keeps_rate_limit_queue_held_after_reset_and_restore() {
 async fn park_retry_refuses_held_prompts_that_can_retry_independently() {
     let (hub, session) = retry_chat();
     waiting_for_park(&hub, &session);
-    hub.set_status(&session, SessionStatus::Idle);
+    assert!(hub.test_reopen(&session.id));
+    assert_eq!(session.status(), SessionStatus::Idle);
     hub.append(
         &session,
         "mux",
