@@ -4,14 +4,18 @@
 What these rows hold: each key-down of the 3 keys is 30 ms after the key-down before it, and the letter goes down
 with no Command; the notes of a case are the notes after the read before it, also when the log's ring lost its
 oldest notes; a case is a `chord` case only when the hold ended at the second New Tab key with keys and no report
-of the page before it; the rule (`dropped 0` and the letter in the field; `dropped 1` and no letter for from-chat); a
-form with too few chord cases is NOT PROVED; a case's steps against a model app, and a case whose setup fails is
-`not_run` and closes its workspace.
+of the page before it; the rule (`dropped 0` and the field is the letter; `dropped 1` and an empty field for
+from-chat); a form with too few chord cases is NOT PROVED; a case's steps against a model app, and a case whose setup
+fails is `not_run` and closes its workspace; a close-move case keeps the app's notes of the close, a case whose close
+did not move is counted apart, and the form with too few cases in a move is NOT PROVED; a case with no note of a
+hold's start is `not_run`; a switch case whose setup letters did not get to their fields is `not_run`; each printed
+line is JSON after its name; the words for a run in which no case ran.
 
 No app: the app is a small model of the calls that a case makes. So this proves the tool's own logic, NOT that the
-app drops or keeps a letter, and NOT that a key of a sequence reaches a page.
+app drops or keeps a letter, NOT that a key of a sequence reaches a page, and NOT that the app writes the notes of a
+close in the words of the model (they are copied from the app's source).
 Run: python3 -I scripts/measure/tests/new-tab-letters.test.py"""
-import importlib.util, os, unittest
+import importlib.util, json, os, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SPEC = importlib.util.spec_from_file_location("new_tab_letters_under_test", os.path.join(HERE, "..", "new-tab-letters.py"))
@@ -22,6 +26,11 @@ CHORD = ["begin page opened=a +0ms", "hold key #1 +30ms", "release: chord, keys 
          "ready match +90ms", "drained to field +91ms"]
 READY = ["begin page opened=a +0ms", "ready match +12ms", "drained to field +13ms", "begin page opened=b +61ms"]
 DROP = CHORD[:3] + ["dropped 1 keys (chord): what had the keyboard at the opening still has it +60ms"] + CHORD[3:]
+# What `debug.motion` says at its stop for a close, in the words of the app's source (PaneCommitMotion.swift).
+MOVE = {"pane_animations": True, "reduce_motion": False, "spans": [{"name": "pane.close", "ms": 250.0}],
+        "notes": [{"t_ms": 2.0, "text": "a note of another part"}, {"t_ms": 3.0, "text": "layout.commit: close moves 1 panes for 0.25 s"}]}
+ONE_FRAME = {"pane_animations": True, "reduce_motion": False, "spans": [],
+             "notes": [{"t_ms": 3.0, "text": "layout.commit: close in one frame (the panes move at a commit: false)"}]}
 
 
 def downs(steps):
@@ -96,10 +105,34 @@ class Judge(unittest.TestCase):
         found = M.judge("three-key", CHORD, None)
         self.assertEqual((found["letter_in_field"], found["pass"]), (None, False))
 
+    def test_the_field_is_the_letter_and_no_more(self):
+        # A letter that came 2 times, or with another character, is in the field and is no pass.
+        for text in ("xx", "xt", " x"):
+            found = M.judge("three-key", CHORD, text)
+            self.assertEqual((found["letter_in_field"], found["pass"]), (True, False), text)
+        self.assertFalse(M.judge("from-chat", DROP, "t")["pass"])  # the drop wants an empty field, not a field with no x
+
 
 class Verdict(unittest.TestCase):
     def cases(self, chords, readies, form="three-key"):
         return [M.judge(form, CHORD, "x") for _ in range(chords)] + [M.judge(form, READY, "x") for _ in range(readies)]
+
+    def closes(self, moves, plain):
+        """Cases of close-move that each pass with a chord: `moves` in a move of the close, `plain` with no move."""
+        return [{**M.judge("close-move", CHORD, "x"), "moved": index < moves} for index in range(moves + plain)]
+
+    def test_a_close_with_no_move_is_counted_apart_and_too_few_moves_is_not_proved(self):
+        found = M.verdict("close-move", self.closes(0, 12))  # each close in one frame: the form is the plain close of a pane
+        self.assertEqual((found["verdict"], found["chord_pass"]), ("NOT PROVED: too few cases in a close's move", 12))
+        self.assertEqual((found.get("move"), found.get("no_move")), (0, 12))
+        self.assertEqual(M.verdict("close-move", self.closes(5, 7))["verdict"], M.NO_MOVE)
+        found = M.verdict("close-move", self.closes(6, 6))
+        self.assertEqual((found["verdict"], found.get("move"), found.get("no_move")), ("PASS", 6, 6))
+        self.assertTrue(M.NO_MOVE.startswith("NOT PROVED") and M.NO_MOVE != M.NOT_PROVED)
+
+    def test_a_failed_close_case_fails_with_no_move_too_and_no_other_form_counts_moves(self):
+        self.assertEqual(M.verdict("close-move", self.closes(0, 11) + [{**M.judge("close-move", DROP, ""), "moved": False}])["verdict"], "FAIL")
+        self.assertNotIn("move", M.verdict("three-key", self.cases(6, 6)))
 
     def test_a_form_with_enough_chord_cases_passes(self):
         found = M.verdict("three-key", self.cases(6, 6))
@@ -124,10 +157,16 @@ class Order(unittest.TestCase):
 
 
 class Builder:
-    """A model of the session helper: one pane, tabs with ids, the script's actions that a case sends."""
+    """A model of the session helper: panes (one at the start) with tabs that have ids, the script's actions that a
+    case sends. `selected` is the tab that the pane with the keyboard shows."""
 
     def __init__(self):
-        self.tabs_of, self.selected, self.actions, self.chat_fallbacks, self.count = {"p": ["first"]}, "first", [], 0, 0
+        self.tabs_of, self.shown, self.focused = {"p": ["first"]}, {"p": "first"}, "p"
+        self.actions, self.chat_fallbacks, self.count = [], 0, 0
+
+    @property
+    def selected(self):
+        return self.shown.get(self.focused)
 
     def new_workspace(self):
         return "w"
@@ -139,45 +178,73 @@ class Builder:
         return {"id": workspace}
 
     def panes(self, workspace):
-        return [{"id": "p"}]
+        return [{"id": pane} for pane in self.tabs_of]
 
     def focus_pane(self, pane):
-        pass
+        self.focused = pane
 
     def tabs(self, workspace, pane):
-        return [{"id": tab, "selected": tab == self.selected} for tab in self.tabs_of[pane]]
+        return [{"id": tab, "selected": tab == self.shown.get(pane)} for tab in self.tabs_of.get(pane, [])]
 
     def settled_tabs(self, workspace, pane, seconds=20):
         return self.tabs(workspace, pane)
 
-    def add(self):
+    def add(self, pane=None):
+        """A new tab in `pane` (None: the pane with the keyboard), which then shows it."""
+        pane = pane or self.focused
         self.count += 1
-        self.tabs_of["p"].append(f"t{self.count}")
-        self.selected = f"t{self.count}"
+        self.tabs_of[pane].append(f"t{self.count}")
+        self.shown[pane] = f"t{self.count}"
+
+    def add_tab(self, workspace, pane, kind):
+        self.actions.append((f"add_tab {kind}", f"pane:{pane}"))
+        self.add(pane)
+
+    def split(self, workspace, pane, how):
+        self.tabs_of["q"], self.shown["q"] = ["came"], "came"
+        return "q"
+
+    def close(self, tab):
+        """The tab goes; a pane with no tab goes too, and the first pane then has the keyboard."""
+        pane = next(pane for pane, tabs in self.tabs_of.items() if tab in tabs)
+        self.tabs_of[pane].remove(tab)
+        self.shown[pane] = self.tabs_of[pane][-1] if self.tabs_of[pane] else None
+        if not self.tabs_of[pane]:
+            del self.tabs_of[pane], self.shown[pane]
+            self.focused = "p"
 
     def action(self, name, args=None, target=None, focus=True):
         self.actions.append((name, target))
         if name == "newTab.page":
-            self.add()
+            self.add(target.split(":", 1)[1])
         if name == "tab.focus":
-            self.selected = target.split(":", 1)[1]
+            tab = target.split(":", 1)[1]
+            self.shown[next(pane for pane, tabs in self.tabs_of.items() if tab in tabs)] = tab
+        if name == "closeTab":
+            self.close(target.split(":", 1)[1])
 
 
 class App:
-    """A model of the app's calls: a sequence makes a tab for each New Tab key and writes the hold's notes."""
+    """A model of the app's calls: a sequence makes a tab for each New Tab key, closes the shown tab at a Close Tab
+    key, and writes the hold's notes. `motion`: what `debug.motion` says at its stop. `deaf`: a letter of a setup
+    does not get to its field."""
 
-    def __init__(self, builder, notes, texts, refuse=None):
+    def __init__(self, builder, notes, texts, refuse=None, motion=None, deaf=False):
         self.builder, self.notes, self.texts, self.refuse, self.log, self.sequences = builder, notes, texts, refuse, ["old +0ms"], []
+        self.motion, self.deaf, self.calls = motion, deaf, []
 
     def __call__(self, method, params=None):
         params = params or {}
+        self.calls.append((method, params.get("action")))
         if method == "debug.key":
             if self.refuse:
                 return {"error": self.refuse}
             self.sequences.append(params)
-            if [step["key_code"] for step in params["sequence"] if step["down"]] == [M.X]:
+            if [step["key_code"] for step in params["sequence"] if step["down"]] == [M.X] and not self.deaf:
                 self.texts[self.builder.selected] = "x"  # a letter alone goes to the field of the shown tab
             for step in params["sequence"]:
+                if step["key_code"] == M.W and step["down"]:
+                    self.builder.close(self.builder.selected)
                 if step["key_code"] == M.T and step["down"]:
                     self.builder.add()
             self.log = self.log + self.notes
@@ -186,8 +253,13 @@ class App:
             return {"new_tab_key_log": list(self.log)}
         if method == "debug.new_tab" and params.get("action") == "field":
             return {"text": self.texts.get(self.builder.selected, "")}
-        if method == "debug.new_tab":
-            return {"openings": [{"spare": False, "idle": True, "ms": 1.0}, {"spare": True, "idle": False, "ms": 1.0}]}
+        if method == "debug.new_tab":  # an opening as the app gives it (DebugNewTab.swift): no key `idle`
+            return {"openings": [{"spare": False, "cross_window": False, "refit": False, "ms": 1.0},
+                                 {"spare": True, "cross_window": False, "refit": True, "ms": 1.0}]}
+        if method == "debug.agent_pane":
+            return {"focused": True}
+        if method == "debug.motion" and params.get("action") == "stop":
+            return self.motion
         return {}
 
 
@@ -196,9 +268,9 @@ def wait(predicate, seconds, step=0.25):
 
 
 class Case(unittest.TestCase):
-    def letters(self, notes, texts, refuse=None):
+    def letters(self, notes, texts, refuse=None, **model):
         builder = Builder()
-        app = App(builder, notes, texts, refuse)
+        app = App(builder, notes, texts, refuse, **model)
         return M.Letters(builder, app, wait, pause=lambda seconds: None), builder, app
 
     def test_the_3_keys_in_the_page_window_and_the_first_new_tabs_field(self):
@@ -208,7 +280,11 @@ class Case(unittest.TestCase):
                          (None, True, True, 2, "x"))
         self.assertEqual(record["notes"], CHORD)
         self.assertEqual((app.sequences[0]["key_window"], app.sequences[0]["pane"]), ("page", "p"))
-        self.assertEqual(record["openings"], [{"spare": False, "idle": True}, {"spare": True, "idle": False}])
+        # The keys of an opening that the app gave, and no key that it did not give (its time is not in the record).
+        self.assertEqual(record["openings"], [{"spare": False, "cross_window": False, "refit": False},
+                                              {"spare": True, "cross_window": False, "refit": True}])
+        self.assertNotIn("moved", record)
+        self.assertNotIn(("debug.motion", "start"), app.calls)
         self.assertIn(("tab.focus", "tab:t2"), builder.actions)
         self.assertEqual(builder.actions[-1], ("closeWorkspace", "workspace:w"))
 
@@ -225,7 +301,74 @@ class Case(unittest.TestCase):
         self.assertEqual((record.get("not_run"), record["setup_fields"], record["tabs_made"]), (None, ["x", "x"], 2))
         last = [step["key_code"] for step in app.sequences[-1]["sequence"] if step["down"]]
         self.assertEqual(last[:3], [M.CMD, M.SHIFT, M.PREVIOUS_TAB])
-        self.assertEqual(M.judge("switch-previous", record["notes"], record["field"])["pass"], record["pass"])
+        self.assertEqual((record["pass"], record["chord"], record["field"]), (True, True, "x"))
+        self.assertEqual(len(app.sequences), 3)  # a letter for each of the 2 tabs, then the switch key with the 3 keys
+
+    def test_a_switch_form_whose_setup_letters_did_not_get_to_their_fields_is_not_run(self):
+        # The first new tab has the letter, so the case would pass: but its 2 tabs are untouched, and that is the
+        # form three-key, not a switch between 2 tabs that each have a letter.
+        for form in ("switch-next", "switch-previous"):
+            letters, builder, app = self.letters(CHORD, {"t3": "x"}, deaf=True)
+            record = letters.case(form, 0)
+            self.assertIn("did not get to its field", record.get("not_run", ""), record)
+            self.assertEqual((record["setup_fields"], "pass" in record, len(app.sequences)), (["", ""], False, 2))
+            self.assertEqual(builder.actions[-1], ("closeWorkspace", "workspace:w"))
+
+    def test_a_case_with_no_note_of_a_holds_start_is_not_run(self):
+        # The log gave no note for the case's keys (the app wrote none, or the read failed): `dropped 0` of an empty
+        # log is no read of what the hold did, and the letter in the field does not make it a pass.
+        letters, builder, app = self.letters([], {"t2": "x"})
+        record = letters.case("three-key", 0)
+        self.assertIn("no note of a hold's start", record.get("not_run", ""), record)
+        self.assertEqual((record["notes"], record["tabs_made"], "pass" in record), ([], 2, False))
+        self.assertEqual(M.verdict("three-key", [record])["verdict"], "NOT RUN")
+        # Notes of another kind only (a release with no start of a hold) are no read too.
+        letters, _, _ = self.letters(["release: limit, no keys to page +250ms"], {"t2": "x"})
+        self.assertIn("not_run", letters.case("three-key", 0))
+
+    def test_the_form_from_a_chat_opens_a_chat_gives_its_field_the_keyboard_and_wants_the_drop(self):
+        letters, builder, app = self.letters(DROP, {})
+        record = letters.case("from-chat", 0)
+        self.assertEqual((record.get("not_run"), record["pass"], record["chord"], record["dropped"], record["field"]), (None, True, True, 1, ""))
+        self.assertIn(("add_tab chat", "pane:p"), builder.actions)
+        self.assertIn(("tab.focus", "tab:t2"), builder.actions)  # the chat is the tab that the pane shows at the keys
+        self.assertLess(app.calls.index(("debug.agent_pane", "focus_composer")), app.calls.index(("debug.key", None)))
+
+    def close_move(self, motion):
+        letters, builder, app = self.letters(CHORD, {"t3": "x"}, motion=motion)
+        return letters.case("close-move", 0), builder, app
+
+    def test_a_close_that_moves_its_panes_keeps_the_apps_note_of_the_move(self):
+        record, builder, app = self.close_move(MOVE)
+        self.assertEqual((record.get("not_run"), record["pass"], record["chord"], record["moved"], record["panes_after"]), (None, True, True, True, 1))
+        # The record has the app's notes of the close, and no note of another part.
+        self.assertEqual(record["motion"]["notes"], [{"t_ms": 3.0, "text": "layout.commit: close moves 1 panes for 0.25 s"}])
+        self.assertEqual((record["motion"]["pane_animations"], record["motion"]["reduce_motion"]), (True, False))
+        # The sequence goes to the second pane (the Close Tab key closes it), the new tabs come in the first pane,
+        # and the trace runs from before the keys to after them.
+        self.assertEqual((app.sequences[-1]["pane"], [step["key_code"] for step in app.sequences[-1]["sequence"] if step["down"]][:2]), ("q", [M.CMD, M.W]))
+        self.assertEqual(builder.tabs_of, {"p": ["first", "t1", "t3", "t4"]})
+        calls = [call for call in app.calls if call[0] in ("debug.motion", "debug.key")]
+        self.assertEqual(calls[-3:], [("debug.motion", "start"), ("debug.key", None), ("debug.motion", "stop")])
+
+    def test_a_close_in_one_frame_is_a_case_with_no_move_and_the_form_is_not_proved(self):
+        # The case itself passes (no key dropped, the letter in the field): the form's word must not be PASS, for the
+        # close did not move a pane. The same with Reduce Motion (the app then gives no note of a move), and with
+        # no reply of the trace.
+        still = {"pane_animations": True, "reduce_motion": True, "spans": [], "notes": []}
+        for motion in (ONE_FRAME, still, None):
+            letters, _, _ = self.letters(CHORD, {"t3": "x", "t7": "x"}, motion=motion)
+            found = letters.run(2, forms=("close-move",), say=lambda line: None)["forms"][0]
+            self.assertEqual((found["verdict"], found["chord_pass"]), ("NOT PROVED: too few cases in a close's move", 2), motion)
+            self.assertEqual((found.get("move"), found.get("no_move")), (0, 2), motion)
+            record, _, _ = self.close_move(motion)
+            self.assertEqual((record.get("not_run"), record["pass"], record["chord"], record.get("moved")), (None, True, True, False), motion)
+            self.assertEqual(record["motion"]["notes"], (motion or {}).get("notes", []))
+
+    def test_two_closes_that_move_make_the_form_pass(self):
+        letters, _, _ = self.letters(CHORD, {"t3": "x", "t7": "x"}, motion=MOVE)
+        found = letters.run(2, forms=("close-move",), say=lambda line: None)["forms"][0]
+        self.assertEqual((found["verdict"], found.get("move"), found.get("no_move")), ("PASS", 2, 0))
 
     def test_a_refused_sequence_is_a_case_not_run_and_the_workspace_is_closed(self):
         letters, builder, _ = self.letters(CHORD, {}, refuse="no Chromium page window for pane p")
@@ -240,6 +383,20 @@ class Case(unittest.TestCase):
         report = letters.run(1, forms=("three-key",), say=said.append)
         self.assertEqual((report["forms"][0]["verdict"], report["forms"][0]["chord"], len(report["cases"])), ("PASS", 1, 1))
         self.assertEqual(len(said), 2)
+        # Each line is JSON after its name, as each other line of the measure: a reader parses it with no eval.
+        for line, name, record in zip(said, ("HELD-NEW-TAB-LETTER-CASE ", "HELD-NEW-TAB-LETTER-FORM "), (report["cases"][0], report["forms"][0])):
+            self.assertTrue(line.startswith(name), line)
+            self.assertEqual(json.loads(line[len(name):]), record)
+
+    def test_the_words_for_a_run_in_which_no_case_ran(self):
+        self.assertEqual(M.ran_none({"not_run": "the run ended before the letter cases"}), "the run ended before the letter cases")
+        self.assertTrue(M.ran_none({"forms": []}))
+        self.assertTrue(M.ran_none(None))
+        late = [M.verdict(form, [{"form": form, "case": 0, "not_run": "why"}]) for form in ("three-key", "two-key")]
+        self.assertEqual(M.ran_none({"forms": late}), "each form is NOT RUN")
+        # One form with a case that ran: the run has a word of its own (PASS, FAIL or NOT PROVED), and that is a read.
+        for case in (M.judge("three-key", CHORD, "x"), M.judge("three-key", DROP, ""), M.judge("three-key", READY, "x")):
+            self.assertIsNone(M.ran_none({"forms": late + [M.verdict("three-key", [case])]}))
 
     def test_a_case_after_the_budget_is_not_run(self):
         letters, builder, _ = self.letters(CHORD, {"t2": "x"})

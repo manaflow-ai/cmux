@@ -1864,11 +1864,53 @@ class Launch(unittest.TestCase):
                          ["PREFLIGHT page engine: engine=chromium default_engine=chromium chromium_state=ready unavailable=none webkit_fallbacks=0"])
         self.assertEqual(code, 0)
 
-    def test_the_letter_options_get_to_the_run_and_a_run_with_no_case_says_so(self):
+    def test_the_letter_options_get_to_the_run_and_letter_only_with_no_case_run_is_a_failure_and_exit_1(self):
         code, report, lines, launches = self.main({"launch-activates"}, "--letter-cases", "3", "--letter-only", "--letter-budget-s", "7")
         self.assertEqual((self.opts.letter_cases, self.opts.letter_only, self.opts.letter_budget_s), (3, True, 7.0))
-        # The stub of `run()` made no case: the report says that, and does not leave the key out.
-        self.assertEqual((code, report.get("letter_cases")), (0, {"not_run": "the run ended before the letter cases"}))
+        # The stub of `run()` made no case: the report says that, and does not leave the key out. The cases were the
+        # run's only work, so the run proved nothing: a failure, and an exit that is not 0.
+        self.assertEqual(report.get("letter_cases"), {"not_run": "the run ended before the letter cases"})
+        self.assertEqual(report["failures"], ["--letter-only: no letter case ran: the run ended before the letter cases"])
+        self.assertEqual(code, 1)
+
+    def cases(self, *words):
+        """A stub of `run()` that makes no row and the report of the letter cases with a form for each of `words`."""
+        return lambda report: report.update({"letter_cases": {"forms": [{"form": f"form {index}", "verdict": word} for index, word in enumerate(words)]}})
+
+    def test_letter_only_with_each_form_not_run_is_a_failure_and_exit_1(self):
+        code, report, lines, launches = self.main({"launch-activates"}, "--letter-cases", "2", "--letter-only", run=self.cases("NOT RUN", "NOT RUN"))
+        self.assertEqual((code, report["failures"]), (1, ["--letter-only: no letter case ran: each form is NOT RUN"]))
+
+    def test_letter_only_with_a_form_that_ran_is_exit_0_and_a_case_changes_no_exit_code(self):
+        for words in (("PASS", "NOT RUN"), ("FAIL", "NOT RUN"), ("NOT PROVED: too few chord cases",)):
+            code, report, lines, launches = self.main({"launch-activates"}, "--letter-cases", "2", "--letter-only", run=self.cases(*words))
+            self.assertEqual((code, report["failures"], report["rows"]), (0, [], []), words)
+
+    def test_with_rows_a_run_with_no_case_keeps_the_exit_of_its_rows(self):
+        # The rows are the run's work: its exit is theirs, and the report says that no case ran.
+        code, report, lines, launches = self.main({"launch-activates"}, "--letter-cases", "3")
+        self.assertEqual((code, report["failures"], report.get("letter_cases")), (0, [], {"not_run": "the run ended before the letter cases"}))
+
+    def test_letter_only_with_no_case_asked_and_a_count_below_0_are_not_run_before_a_launch(self):
+        class WentOn(Exception):
+            """The tool went on after its check of the option."""
+
+        def refused(*args):
+            said = io.StringIO()
+            with contextlib.ExitStack() as stack:
+                for target, name, fake in ((M, "hid_grant", lambda: True), (sys, "argv", ["held-new-tab.py", "--app", BUNDLE, *args])):
+                    stack.enter_context(mock.patch.object(target, name, fake))
+                stack.enter_context(mock.patch.object(M.os, "makedirs", side_effect=WentOn))
+                stack.enter_context(contextlib.redirect_stdout(said))
+                return M.main(), said.getvalue().splitlines()
+
+        for args in (("--letter-only",), ("--letter-only", "--letter-cases", "0"), ("--letter-cases", "-2"), ("--letter-cases", "-2", "--letter-only")):
+            code, lines = refused(*args)
+            self.assertEqual(code, 3, (args, lines))
+            self.assertTrue([line for line in lines if line.startswith("held-new-tab: NOT RUN: --letter-cases")], (args, lines))
+        for args in (("--letter-only", "--letter-cases", "1"), ("--letter-cases", "1"), ()):  # the check lets these go on
+            with self.assertRaises(WentOn):
+                refused(*args)
 
     def test_a_run_with_no_letter_option_has_no_letter_cases(self):
         code, report, lines, launches = self.main({"launch-activates"})
@@ -1882,8 +1924,11 @@ class Launch(unittest.TestCase):
 
     def test_letter_only_with_a_failure_is_not_the_exit_of_a_round_with_no_row(self):
         # A run with no row and one failure: with rows asked that is exit 1 (the round has no valid row). With
-        # --letter-only no round is asked, so the same report is exit 2.
-        failed = lambda report: report["failures"].append("a fake failure")
+        # --letter-only no round is asked, so the same report is exit 2 when a case ran.
+        def failed(report):
+            report["failures"].append("a fake failure")
+            self.cases("PASS")(report)
+
         self.assertEqual(self.main({"launch-activates"}, "--letter-cases", "1", run=failed)[0], 1)
         self.assertEqual(self.main({"launch-activates"}, "--letter-cases", "1", "--letter-only", run=failed)[0], 2)
 

@@ -231,7 +231,9 @@ valid row; 1 when the preflight failed or a round has no valid row (the run ends
 cannot run as asked (no report file then). See `exit_code`.
 With --letter-cases N the tool runs, after the rows, N cases of each form of new-tab-letters.py (a letter after a
 New Tab key, as key sequences in a page's window): the report's `letter_cases`. A case changes no exit code. With
---letter-only the session is made and the cases run with no row.
+--letter-only the session is made and the cases run with no row: the cases are then the run's only work, so a run
+in which no case ran (the run ended before them, or each form is NOT RUN) has a failure for it and exit 1.
+--letter-only with no --letter-cases, or a count below 0: NOT RUN (exit 3) before a launch.
 Run on a fleet GUI host (held-new-tab.sh), never on a Mac that someone works on.
 """
 import argparse, ctypes, importlib.util, json, os, re, select, signal, socket, subprocess, sys, tarfile, threading, time, traceback
@@ -1829,6 +1831,10 @@ def main():
               f"1 site or more, {RECENT.MOST_SITES} sites at most (the app's list has {RECENT.MOST_SITES} pages at most) and a page "
               "or more for each site (0 and 0: no recent pages)", flush=True)
         return 3
+    if opts.letter_cases < 0 or (opts.letter_only and not opts.letter_cases):
+        print(f"held-new-tab: NOT RUN: --letter-cases {opts.letter_cases}{' with --letter-only' if opts.letter_only else ''}: "
+              "the count is 0 (no case) or more, and --letter-only needs 1 case or more (it runs no row)", flush=True)
+        return 3
     os.makedirs(opts.out, exist_ok=True)
     report = {"host": BENCH.load("action_signposts_bench", "action-signposts-bench.py").host_facts(), "hid_grant": grant,
               "hold_ms": opts.hold_ms, "every_ms": opts.every_ms, "mixed_repeat_rule": REPEAT_RULE,
@@ -1870,6 +1876,10 @@ def main():
             app.stop()
     if opts.letter_cases:
         report.setdefault("letter_cases", {"not_run": "the run ended before the letter cases"})
+    # With --letter-only the cases are the run's only work: a run in which none ran proved nothing.
+    none = LETTERS.ran_none(report.get("letter_cases")) if opts.letter_only else None
+    if none:
+        report["failures"].append(f"--letter-only: no letter case ran: {none}")
     with open(os.path.join(opts.out, "report.json"), "w") as f:
         json.dump(report, f, indent=1)
     print("HELD-NEW-TAB " + json.dumps(report), flush=True)
@@ -1878,7 +1888,7 @@ def main():
             print(f"held-new-tab: artifact {opts.artifact}: {len(pack(opts.out, opts.film, opts.artifact, opts.build))} files", flush=True)
         except (OSError, tarfile.TarError) as error:
             print(f"held-new-tab: no artifact {opts.artifact}: {error!r}", flush=True)
-    return exit_code(report, 0 if opts.letter_only else opts.rounds)
+    return 1 if none else exit_code(report, 0 if opts.letter_only else opts.rounds)
 
 
 if __name__ == "__main__":
