@@ -678,9 +678,13 @@ fn the_ids_of_a_range_after_the_mark_come_from_the_rows_and_a_read_skips_what_th
     let reads = || {
         let registry = store.registry();
         let ids = registry.journal_subject_ids_in_range("terminal", head - 59, head).unwrap();
-        let sequences =
-            subject_rows::sequences_after(&registry.connection.get(), 0, 8, &[named.clone()])
-                .unwrap();
+        let sequences = subject_rows::sequences_after(
+            &registry.connection.get(),
+            0,
+            8,
+            std::slice::from_ref(&named),
+        )
+        .unwrap();
         (ids, sequences)
     };
     let skipped = subject_rows::skipped_subjects();

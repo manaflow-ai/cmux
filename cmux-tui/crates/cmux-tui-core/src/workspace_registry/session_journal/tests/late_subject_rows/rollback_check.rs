@@ -603,7 +603,7 @@ impl Checked {
             "the walk of the folders and the rest".to_string(),
             self.time.saturating_sub(read + guard),
         ));
-        lines.sort_by(|one, other| other.1.cmp(&one.1));
+        lines.sort_by_key(|line| std::cmp::Reverse(line.1));
         let each = u32::try_from(sessions).unwrap();
         let lines: Vec<String> = lines
             .iter()
