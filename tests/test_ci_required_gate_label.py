@@ -53,7 +53,6 @@ GATE_JOBS = {
 # Jobs whose move waits on a validator that runs from base (see the module docstring), with the step that moves
 # them. Each still uses the exact selector the validator admits today.
 STAGED = {
-    ("cla.yml", "CLAAssistant"): "a policy PR to the cla.yml bytes CLA_ACTION_RUNNER_SUCCESSOR_PINS pins",
 }
 # The persistent pool (runner group 31 cmux-fleet-linux, runners named cmux-runner-pool-*) reuses its VMs across
 # jobs. Since 2026-11-20 it also registers the overflow provider's Ubuntu size labels (Leo, 11:32Z: "4V CPU, 8, 16,
