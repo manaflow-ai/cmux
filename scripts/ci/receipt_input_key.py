@@ -15,9 +15,11 @@ scripts/ci/cmux_tui_tree_key.py.
 The record is RFD 0019's ci-receipt/v1 (scripts/ci/ci_receipt.py is its producer for local receipts) with one
 added field, `input_key`; `tree` stays, so a whole-tree match still counts. No second format.
 
-Shadow only. Until the controller signs receipts and posts them as the check run from the manaflow-checks App
-(RFD 0019), nothing is skipped: the workflow looks the key up, reports `would_skip`, runs in full, and records its
-own green result. A record here is unsigned and is never skip evidence.
+Live on pushes to feat-cmux-next, shadow on pull requests. A push run skips the scan when an earlier green push
+recorded the same key: it reads only feat-cmux-next's and the default branch's caches, which pull requests cannot
+write. A pull request run looks the key up, reports `would_skip`, runs in full and records its own green result: a
+record in a pull request's cache was written by that pull request's workflow, so it is never skip evidence until
+the controller signs receipts and posts them as the check run from the manaflow-checks App (RFD 0019).
 
   key CHECK [--units "a b"] [--base SHA] [--output FILE]   print input_key (empty when no unit is selected: nothing
         to key) and pinned=true|false: with --base, whether the change touches a pinned file, the check's own

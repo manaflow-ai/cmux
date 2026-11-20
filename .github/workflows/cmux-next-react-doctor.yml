@@ -70,11 +70,17 @@ jobs:
           echo "projects=$projects" >> "$GITHUB_OUTPUT"
           echo "projects: ${projects:-none}"
 
-      # Content-addressed result, in shadow (scripts/ci/receipt_input_key.py; cmuxterm-hq RFD 0016 "Borg without
-      # Bazel"): the input key hashes what the scan reads for the selected projects. A green run records its
-      # unsigned ci-receipt/v1 under that key; a later run with the same key reports would_skip=true and still runs
-      # in full. Nothing is skipped until the controller signs receipts (RFD 0019). The cache entry is a shadow
-      # measurement, never skip evidence.
+      # Content-addressed result (scripts/ci/receipt_input_key.py; cmuxterm-hq RFD 0016 "Borg without Bazel"): the
+      # input key hashes what the scan reads for the selected projects. A green run records its ci-receipt/v1 under
+      # that key; a later run with the same key has the same verdict.
+      #
+      # Live on pushes to feat-cmux-next only. A push run restores from feat-cmux-next's caches and the default
+      # branch's, which only push runs on those protected branches write: a pull request run's saves stay in its own
+      # ref (tests/test_ci_pull_request_caches_are_read_only.py), so no pull request can plant the green a push skips
+      # on. A push whose every-project key matches an earlier green push scanned exactly these inputs already and
+      # skips the scan; a red push saves nothing, so base stays red until a push fixes it. Pull request runs stay in
+      # shadow (would_skip, full run): their saves are written by the pull request's own workflow, so they wait for
+      # controller-signed receipts (RFD 0019). A dispatch always scans.
       - name: Input key (shadow receipt)
         id: key
         if: steps.base.outputs.projects != ''
@@ -94,7 +100,8 @@ jobs:
           key: ci-receipt-v1-react-doctor-${{ steps.key.outputs.input_key }}
           lookup-only: true
 
-      - name: Would skip (shadow)
+      - name: Skip or scan
+        id: skip
         if: steps.key.outputs.input_key != ''
         continue-on-error: true
         env:
@@ -102,25 +109,29 @@ jobs:
           # A change to a pinned file (the gate's own scripts, tool or workflow; a check-paths.txt line) never skips.
           HIT: ${{ steps.receipt.outputs.cache-hit == 'true' && steps.key.outputs.pinned != 'true' }}
           PINNED: ${{ steps.key.outputs.pinned }}
+          LIVE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
         run: |
-          echo "::notice title=ci-receipt shadow::react-doctor would_skip=$HIT pinned=$PINNED input_key=$INPUT_KEY"
-          echo "ci-receipt shadow: react-doctor would_skip=$HIT pinned=$PINNED input_key=$INPUT_KEY" >> "$GITHUB_STEP_SUMMARY"
+          skip=false
+          if [ "$HIT" = true ] && [ "$LIVE" = true ]; then skip=true; fi
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+          echo "::notice title=ci-receipt shadow::react-doctor would_skip=$HIT skipped=$skip pinned=$PINNED input_key=$INPUT_KEY"
+          echo "ci-receipt shadow: react-doctor would_skip=$HIT skipped=$skip pinned=$PINNED input_key=$INPUT_KEY" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup Bun
-        if: steps.base.outputs.projects != ''
+        if: steps.base.outputs.projects != '' && steps.skip.outputs.skip != 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Setup Node
-        if: steps.base.outputs.projects != ''
+        if: steps.base.outputs.projects != '' && steps.skip.outputs.skip != 'true'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
 
       - name: Cache Bun package cache
-        if: steps.base.outputs.projects != ''
+        if: steps.base.outputs.projects != '' && steps.skip.outputs.skip != 'true'
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -128,6 +139,7 @@ jobs:
           restore-keys: bun-react-doctor-${{ runner.os }}-${{ runner.arch }}-
 
       - name: React Doctor gate
+        if: steps.skip.outputs.skip != 'true'
         env:
           BASE: ${{ steps.base.outputs.base }}
         run: |
@@ -156,7 +168,7 @@ jobs:
           key: ci-receipt-v1-react-doctor-${{ steps.key.outputs.input_key }}
 
       - name: Upload reports
-        if: always() && steps.base.outputs.projects != ''
+        if: always() && steps.base.outputs.projects != '' && steps.skip.outputs.skip != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: react-doctor-reports
