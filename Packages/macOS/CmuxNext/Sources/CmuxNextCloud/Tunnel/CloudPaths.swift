@@ -1,4 +1,4 @@
-import CmuxNextCompat
+public import CmuxNextCompat
 import CryptoKit
 public import Foundation
 
