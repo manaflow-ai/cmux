@@ -197,6 +197,96 @@ extension PaneCommitMotionTests {
         #expect(faults.isEmpty, "\(faults.count) reads after the zoom of \(next.pane) in the unzoom's move show another pane inside it; the first: \(faults.prefix(3))")
     }
 
+    /// How far an edge of the layer of `host` is from its place at rest, in points, at `part`: the largest of its 4 edges.
+    static func edgesFromRest(_ host: PaneHostView, at part: (Int) -> CGFloat) -> CGFloat {
+        guard let layer = host.layer else { return 0 }
+        let cell = rect(of: layer, at: part), end = move(of: layer, only: []).end
+        return max(abs(cell.minX - end.minX), abs(cell.minY - end.minY), abs(cell.maxX - end.maxX), abs(cell.maxY - end.maxY))
+    }
+
+    /// A close in a glass window, and in its move the close of a pane that the first close made grow. The move keeps
+    /// that pane under the panes that take its room, and it still had its own move: that move ends in the pass that
+    /// shows the second close, so the pane is at its place in one frame. In each frame from the one that shows the
+    /// second close, no part of another pane that shows is inside the rect of a pane that grows, and each pane that
+    /// the move keeps under and that had its own move is at its place. The row prints how far each such pane was from
+    /// its place in the frame before, and how much of one pane that left shows inside another pane that left.
+    @Test(arguments: movingSpeeds)
+    func aSecondCloseInAClosesMoveShowsNoOtherPaneInsideAPaneThatGrows(_ speed: MotionSpeed) throws {
+        let over = try Self.overPicture("close", panes: 7, gap: "glass", speed: speed)
+        defer { over.harness.window.closeAfterTest() }
+        try Self.requireKind("glass", of: over)
+        let screen = over.screen, harness = over.harness, motion = screen.zoomDim.motion
+        let grown = Self.movers(of: "close", on: screen).sorted { "\($0.pane)" < "\($1.pane)" }
+        let second = try #require(grown.first, "SETUP: the first close makes no pane grow")
+        for _ in 0..<Self.framesBeforeTheKey { _ = harness.root.advanceFrame(Self.dt) }
+        try #require(Self.inFlight(screen), "SETUP: no pane moves \(Self.framesBeforeTheKey) frames after the frame that showed the first close")
+        let first = motion.serial
+        // A pane with a window of the first close has no move of its own: its layer's rect is its window.
+        var jumps: [ObjectIdentifier: CGFloat] = [:]
+        for host in Self.paneHosts(screen) where !host.isHidden && motion.covers[ObjectIdentifier(host)] == nil {
+            jumps[ObjectIdentifier(host)] = Self.edgesFromRest(host, at: { _ in Self.way(of: "close", at: speed, tick: Self.framesBeforeTheKey) })
+        }
+        try #require((jumps[ObjectIdentifier(second)] ?? 0) > 0.5, "SETUP: \(second.pane) is at its place \(Self.framesBeforeTheKey) frames into the first close's move")
+
+        _ = try #require(harness.model.showPaneClose(second.pane), "SETUP: the model does not show the close of \(second.pane)")
+        harness.root.syncWithModel()
+        _ = harness.root.advanceFrame(Self.dt)
+        try #require(motion.serial == first + 1, "SETUP: the close of \(second.pane) in the first close's move shows in one frame: no second act moves")
+        try #require(second.isLeaving && !second.isHidden, "SETUP: the move does not keep \(second.pane) under the panes that take its room")
+        let left = Self.paneHosts(screen).filter { $0.isLeaving && !$0.isHidden }
+        let grows = Self.movers(of: "close", on: screen)
+        try #require(!grows.isEmpty, "SETUP: the second close makes no pane grow")
+        try #require(!grows.contains { Self.hasFullGround($0) }, "SETUP: a pane that grows has a ground in a glass window")
+        let others = Self.paneHosts(screen).filter { host in !grows.contains { $0 === host } }
+        var faults: [String] = [], away: [String] = [], under = 0, tick = 0, mixed = 0, most: CGFloat = 0
+        while Self.inFlight(screen), tick < 2 * Commit.frames {
+            let now = tick
+            let part: (Int) -> CGFloat = { act in
+                Self.way(of: "close", at: speed, tick: act == first ? Self.framesBeforeTheKey + 1 + now : now)
+            }
+            for pane in grows {
+                guard let layer = pane.layer else { continue }
+                let rect = Self.rect(of: layer, at: part)
+                var shows: [String] = []
+                for other in others {
+                    if !other.isHidden, Self.area(other.frame.intersection(rect)) >= 1 { under += 1 }
+                    let inside = Self.showing(other, on: screen, at: part).reduce(CGFloat(0)) { $0 + Self.area($1.intersection(rect)) }
+                    if inside >= 1 { shows.append("\(other.pane) in \(Int(inside)) pt2") }
+                }
+                if !shows.isEmpty { faults.append("tick \(tick), inside \(pane.pane) at \(rect): \(shows.joined(separator: ", "))") }
+            }
+            for host in left where (jumps[ObjectIdentifier(host)] ?? 0) > 0.5 {
+                let far = Self.awayFromRest(host, on: screen, at: part)
+                if far > 0.5 { away.append("tick \(tick), \(host.pane): \((far * 10).rounded() / 10) pt") }
+            }
+            var both: CGFloat = 0
+            for (index, one) in left.enumerated() {
+                let pieces = Self.showing(one, on: screen, at: part)
+                for other in left.dropFirst(index + 1) {
+                    for piece in Self.showing(other, on: screen, at: part) {
+                        both += pieces.reduce(CGFloat(0)) { $0 + Self.area($1.intersection(piece)) }
+                    }
+                }
+            }
+            if both >= 1 { mixed += 1 }
+            most = max(most, both)
+            _ = harness.root.advanceFrame(Self.dt)
+            tick += 1
+        }
+        try #require(!Self.inFlight(screen), "SETUP: a pane still moves \(tick) frames after the frame that showed the close of \(second.pane)")
+        try #require(under > 0, "SETUP: in no frame after the second close is the place of another pane under a pane that grows")
+        let said = left.compactMap { host -> String? in
+            guard let jump = jumps[ObjectIdentifier(host)], jump > 0.5 else { return nil }
+            return "\(host.pane) \((jump * 10).rounded() / 10) pt"
+        }
+        print("ROW (2 CLOSES): \(speed), the close of \(second.pane) in the first close's move: in the frame before, each pane that the move",
+              "keeps under and that had its own move is this far from its place: \(said); panes that grow: \(grows.count); frames read: \(tick);",
+              "frames with such a pane not at its place: \(away.count); frames in which a pane that left shows inside another pane that left:",
+              "\(mixed), the most \(Int(most)) pt2")
+        #expect(away.isEmpty, "in \(away.count) reads from the frame that shows the second close, a pane that the move keeps under is not at its place; the first: \(away.prefix(3))")
+        #expect(faults.isEmpty, "\(faults.count) reads after the close of \(second.pane) in the first close's move show another pane inside a pane that grows; the first: \(faults.prefix(3))")
+    }
+
     /// What a read of opacities over the frames of 2 acts keeps: each animation of `opacity` that a layer had, with
     /// the frame in which the layer first had it and the opacity that the layer showed before; for each layer, the
     /// opacity of its last read. `unstable`: a layer gave 2 objects for one animation, so the frames of an
