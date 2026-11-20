@@ -790,6 +790,31 @@
             "keyboard",
             "accessibility"
           ]
+        },
+        {
+          "key": "macScreen.shareWithoutAsking",
+          "title": {
+            "key": "settings.macScreen.shareWithoutAsking",
+            "text": "Share This Mac Without Asking"
+          },
+          "help": {
+            "key": "settings.macScreen.shareWithoutAsking.help",
+            "text": "Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies."
+          },
+          "summary": {
+            "key": "settings.macScreen.shareWithoutAsking.summary",
+            "text": "Sharing turns on without asking"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "mac screen",
+            "remote",
+            "screen sharing",
+            "share this mac",
+            "confirm",
+            "ask"
+          ]
         }
       ]
     },

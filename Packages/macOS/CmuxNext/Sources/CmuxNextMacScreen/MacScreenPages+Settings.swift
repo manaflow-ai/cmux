@@ -39,6 +39,12 @@ extension MacScreenPages {
                 self?.defaultScope = SessionScope(rawValue: macScreen.defaultAccess.rawValue) ?? .full
             }
         }
+        // task-owner: app-lifetime settings observation, made once at launch (AppDelegate); event-driven, holds nothing
+        Task {
+            for await on in ObservationStream({ settings.snapshot.macScreen.shareWithoutAsking }) {
+                CmuxRemoteShareConsent.forgetUnlessOn(settingOn: on)
+            }
+        }
         #if DEBUG
         // task-owner: app-lifetime settings observation, made once at launch (AppDelegate); event-driven, holds the pages weakly
         Task { [weak self] in

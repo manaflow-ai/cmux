@@ -257,8 +257,8 @@ final class MacScreenCardView: MacScreenThemedView {
             buttons([closeTab(), primary(L.t("macScreen.hub.viewInstead", "View Instead"), id: "macScreen.hub.viewInstead") { $0.requestScope(.view) }])
         case .hostOffline, .notShared, .notFound, .notSignedIn, .other:
             glyph(refusal == .hostOffline ? "wifi.slash" : "exclamationmark.triangle", ink: \.attention)
-            title(refusedTitle(refusal))
-            detail(refusedBody(refusal))
+            title(Self.refusedTitle(refusal, host: name))
+            detail(Self.refusedBody(refusal, host: name, platform: model.platform))
             var row: [NSView] = [closeTab()]
             if refusal == .notSignedIn {
                 // Not signed in: Sign In, the shared button every "sign in" place shows (msg 3790); Try Again
@@ -281,7 +281,8 @@ final class MacScreenCardView: MacScreenThemedView {
         return button
     }
 
-    private func refusedTitle(_ refusal: MacScreenHubRefusal) -> String {
+    /// The refused card's title for `refusal` from `host`.
+    static func refusedTitle(_ refusal: MacScreenHubRefusal, host name: String) -> String {
         switch refusal {
         case .hostOffline: String(format: L.t("macScreen.hub.offlineTitle", "%@ Is Offline"), name)
         case .notShared: L.t("macScreen.hub.notSharedTitle", "Not Shared")
@@ -291,12 +292,21 @@ final class MacScreenCardView: MacScreenThemedView {
         }
     }
 
-    private func refusedBody(_ refusal: MacScreenHubRefusal) -> String {
+    /// The refused card's text: a known code's own step, else the hub's words when it gave any.
+    /// `platform` is the host's, when the hub lists it: a Linux desktop has no cmux app to open or Settings to change,
+    /// so its offline and not-shared steps name its screen host instead.
+    static func refusedBody(_ refusal: MacScreenHubRefusal, host name: String, platform: DevicePlatform? = nil) -> String {
         switch refusal {
+        case .hostOffline where platform == .linux:
+            L.t("macScreen.hub.offlineBodyLinux", "Make sure that Linux machine is on and its cmux screen host is running.")
         case .hostOffline: L.t("macScreen.hub.offlineBody", "Open cmux on that Mac and make sure it is signed in.")
+        case .notShared where platform == .linux:
+            String(format: L.t("macScreen.hub.notSharedBodyLinux", "%@ does not share its screen. To share it, run cmux-rd linux-host share on there."), name)
         case .notShared: String(format: L.t("macScreen.hub.notSharedBodyNamed", "%@ does not share its screen. To share it, turn on Allow Mac Screen in Settings › Devices on that Mac."), name)
         case .notFound: L.t("macScreen.hub.notFoundBody", "This device was removed from your devices.")
         case .notSignedIn: L.t("macScreen.hub.signedOutBody", "Sign in to cmux to see your devices.")
+        case let .other(reason?):
+            String(format: L.t("macScreen.hub.otherBodyReason", "The device hub could not start the session: %@"), reason)
         case .permissionNone, .scopeExceeds, .other: L.t("macScreen.hub.otherBody", "The device hub could not start the session. Try again.")
         }
     }
