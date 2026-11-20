@@ -417,6 +417,7 @@ impl Hub {
                     let free = |_: &_| {
                         session.turn().is_none()
                             && !queue_waits(session)
+                            && !Self::rate_holds(session, p.provenance)
                             && (!self.restore_holds(session) || self.at_4dcb())
                     };
                     match guard.filter(free) {
@@ -446,7 +447,8 @@ impl Hub {
                     // resumed one) since then waits in the queue ahead of this one and keeps its
                     // place (`queue_approve.rs`). This one queues behind it, never claiming the
                     // turn.
-                    if queue_waits(session) {
+                    // A chat the rate limit holds starts nothing now (`rate_hold.rs`): it queues.
+                    if queue_waits(session) || Self::rate_holds(session, p.provenance) {
                         drop(guard);
                         // Its `queued` reservation is still counted.
                         let (waits, position) =
@@ -954,16 +956,22 @@ impl Hub {
             // Prompts a failed turn holds, or that wait for the owner, wait wherever they are; the
             // first other one is next. Read with the lock held: the turn that just ended may have
             // held this one.
+            // A chat the rate limit holds starts no queued turn until its reset but acpmux's own
+            // continuation, which goes ahead of what the hold keeps (`rate_hold.rs`).
             let (head, held, provenance) = {
                 let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 let mine = queue.iter().find(|q| q.turn_id == turn_id);
                 let held = mine.is_some_and(QueuedPrompt::aside);
                 let provenance = mine.and_then(|q| q.run.provenance.clone());
-                let head = queue.iter().find(|q| !q.aside()).is_none_or(|q| q.turn_id == turn_id);
+                let waits = |q: &&QueuedPrompt| {
+                    q.aside() || Self::rate_holds(session, q.run.provenance.as_ref())
+                };
+                let head = queue.iter().find(|q| !waits(q)).is_none_or(|q| q.turn_id == turn_id);
                 (head, held, provenance)
             };
             let moving = session.moving().is_some();
-            if head && !held && !moving && session.turn().is_none() {
+            let rate_held = Self::rate_holds(session, provenance.as_ref());
+            if head && !held && !moving && !rate_held && session.turn().is_none() {
                 if !self.shutting_down() {
                     match self.take_run_slot(session, provenance.as_ref()) {
                         // Claimed before `take_queued` takes it out of the count.
