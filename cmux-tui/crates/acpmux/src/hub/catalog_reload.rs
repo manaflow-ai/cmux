@@ -92,6 +92,8 @@ impl Hub {
                 usage_warnings,
                 default_permission_mode,
                 remote_daemon,
+                exposed_services,
+                machine_forwards,
                 notify_command,
                 disk_low_bytes,
                 agent_inbox,
@@ -173,6 +175,10 @@ impl Hub {
             // The next circuit asking for the cmux-tui remote daemon reads it
             // (`cmux_tui_service.rs`): `acpmux config --set remote_daemon=...` serves it at once.
             current.remote_daemon = remote_daemon;
+            // The next circuit naming a service reads the list (`named_service.rs`).
+            current.exposed_services = exposed_services;
+            // Bound below, once the lock is released (`machine_forward.rs`).
+            current.machine_forwards = machine_forwards;
             // Each of these is read where it is used, so the next use follows the file.
             current.notify_command = notify_command;
             current.disk_low_bytes = disk_low_bytes;
@@ -216,6 +222,9 @@ impl Hub {
         // Nor do live agents keep running a profile's old launch: each restarts on the new
         // one between turns (`profile_respawn.rs`).
         self.spawn_profile_respawns();
+        // Each forward added, changed or removed in the file is bound or dropped now.
+        #[cfg(all(feature = "hub-carrier", unix))]
+        self.reconcile_machine_forwards().await;
         self.probe_models_with(true, false, None).await;
         Ok(json!({"reloaded": true, "harnesses": harnesses, "defaultHarness": default_harness,
             "retainedProfiles": retained, "modelProbePending": true}))

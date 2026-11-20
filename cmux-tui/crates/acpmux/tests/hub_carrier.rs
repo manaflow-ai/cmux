@@ -1901,3 +1901,267 @@ async fn hub_carrier_a_black_holed_direct_path_costs_no_more_than_the_relay_open
     );
     drop(hole);
 }
+
+/// B's named-service gate as the daemon's (`named_service.rs`): the owner's `exposedServices`
+/// list, resolved under B's home, and the peer line when the entry asks for it.
+struct TestNamedGate {
+    services: std::sync::Mutex<BTreeMap<String, acpmux::config::ExposedService>>,
+    home: std::path::PathBuf,
+}
+
+#[async_trait::async_trait]
+impl acpmux::hub_carrier::NamedServiceGate for TestNamedGate {
+    async fn admit(
+        &self,
+        name: &str,
+        from: &str,
+    ) -> Result<acpmux::hub_carrier::NamedAdmit, acpmux::hub_carrier::ServiceRefusal> {
+        let services = self.services.lock().unwrap().clone();
+        let target = acpmux::named_service::resolve(&services, name, Some(&self.home))?;
+        let header = services[name]
+            .peer_header
+            .then(|| acpmux::named_service::peer_line(from, Some("vm-a")));
+        Ok(acpmux::hub_carrier::NamedAdmit { target, header })
+    }
+}
+
+/// A forward on A's side, dialing through A's carrier as the daemon's `HubDialer` does.
+struct CarrierDialer {
+    carrier: Arc<HubCarrier>,
+    daemon: String,
+}
+
+#[async_trait::async_trait]
+impl acpmux::machine_forward::ForwardDialer for CarrierDialer {
+    async fn dial(
+        &self,
+        _from: &str,
+        name: &str,
+    ) -> Result<Box<dyn acpmux::machine_forward::Circuit>, Value> {
+        let service = CircuitService::Named { name: name.to_owned() };
+        match self.carrier.dial_service(&self.daemon, service).await {
+            Ok(circuit) => Ok(Box::new(circuit)),
+            Err(e) => Err(acpmux::machine_routes::refusal_of(&e)),
+        }
+    }
+}
+
+/// The lane GitHub broker and the model gateway from a machine joined only through the hub: B
+/// (the broker host) exposes a unix socket and a loopback TCP port by name; A reaches each
+/// through the carrier, the unix one through a forward's local socket, and the broker reads
+/// which machine called from its peer line. A name B's owner did not list is refused, and so is
+/// every name on a machine that serves none.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_named_service_reaches_only_what_the_owner_exposed() {
+    let _ = HERMETIC;
+    let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_address = relay_listener.local_addr().unwrap();
+    let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
+        allow_open: true,
+        ..cmux_relay::RelayConfig::default()
+    })
+    .unwrap();
+    let (relay_listener, router) = relay.server_parts(relay_listener);
+    tokio::spawn(async move {
+        let _ = axum::serve(relay_listener, router).await;
+    });
+    let route = format!("relay+ws://{relay_address}");
+
+    // B's home, with the broker's socket under it: it answers each line with "broker: LINE".
+    let home = tempfile::Builder::new().prefix("nsh").tempdir_in("/tmp").unwrap();
+    std::fs::create_dir_all(home.path().join("b")).unwrap();
+    let broker = home.path().join("b/broker.sock");
+    let listener = tokio::net::UnixListener::bind(&broker).unwrap();
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let (read, mut write) = stream.into_split();
+                let mut lines = tokio::io::BufReader::new(read).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    if write.write_all(format!("broker: {line}\n").as_bytes()).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    // B's gateway on loopback TCP: an echo.
+    let gateway = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let gateway_address = gateway.local_addr().unwrap();
+    tokio::spawn(async move {
+        while let Ok((mut conn, _)) = gateway.accept().await {
+            tokio::spawn(async move {
+                let (mut r, mut w) = conn.split();
+                let _ = tokio::io::copy(&mut r, &mut w).await;
+            });
+        }
+    });
+
+    let (key_a, key_b) = (random_key(), random_key());
+    let fast = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        ..Timings::default()
+    };
+    let carrier_b = HubCarrier::new(
+        Arc::new(FixedTickets {
+            relay: route.clone(),
+            peers: vec![public(&key_a)],
+            asked: AtomicU64::new(0),
+        }),
+        key_b,
+        fast,
+    );
+    let services: BTreeMap<String, acpmux::config::ExposedService> =
+        serde_json::from_value(json!({
+            "lane-gh-broker": {"unix": "~/b/broker.sock", "peerHeader": true},
+            "sr2-gateway": {"tcp": gateway_address.to_string()},
+        }))
+        .unwrap();
+    let gate = Arc::new(TestNamedGate {
+        services: std::sync::Mutex::new(services),
+        home: home.path().to_path_buf(),
+    });
+    carrier_b.set_named_gate(gate.clone());
+    let nothing = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let _serving = carrier_b.serve(nothing);
+    let carrier_a = HubCarrier::new(
+        Arc::new(FixedTickets {
+            relay: route.clone(),
+            peers: vec![public(&key_b)],
+            asked: AtomicU64::new(0),
+        }),
+        key_a,
+        fast,
+    );
+    let b = public(&key_b);
+    let named = |name: &str| CircuitService::Named { name: name.to_owned() };
+
+    // A name B's owner did not list: refused by name. B's registration may still be on its way,
+    // so the first dial goes again until B answers.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        match carrier_a.dial_service(&b, named("ssh")).await {
+            Ok(_) => panic!("a name the owner did not list reached something"),
+            Err(e) if e.contains("service.not_exposed") => break,
+            Err(e) => {
+                assert!(tokio::time::Instant::now() < deadline, "B never answered: {e}");
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+    }
+
+    // The gateway's port, over a bare circuit.
+    let mut circuit = carrier_a.dial_service(&b, named("sr2-gateway")).await.unwrap();
+    circuit.write_all(b"POST /v1/messages\r\n").await.unwrap();
+    let mut answer = vec![0u8; "POST /v1/messages\r\n".len()];
+    tokio::time::timeout(Duration::from_secs(10), circuit.read_exact(&mut answer))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(answer, b"POST /v1/messages\r\n");
+    drop(circuit);
+
+    // The broker, through a forward's local socket on A: the broker reads A's peer line first.
+    let a_dir = tempfile::Builder::new().prefix("nsa").tempdir_in("/tmp").unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(a_dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let local = a_dir.path().join("broker.sock");
+    let forwards = acpmux::machine_forward::Forwards::default();
+    let wanted = BTreeMap::from([(
+        "lane-gh-broker".to_owned(),
+        acpmux::config::MachineForward {
+            from: "broker-host".into(),
+            listen_unix: Some(local.to_string_lossy().into_owned()),
+            listen_tcp: None,
+        },
+    )]);
+    forwards
+        .reconcile(
+            &wanted,
+            None,
+            Arc::new(CarrierDialer { carrier: carrier_a.clone(), daemon: b.clone() }),
+        )
+        .await;
+    let client = tokio::net::UnixStream::connect(&local).await.unwrap();
+    let (read, mut write) = client.into_split();
+    let mut lines = tokio::io::BufReader::new(read).lines();
+    write.write_all(b"{\"tool\":\"get\"}\n").await.unwrap();
+    let first = tokio::time::timeout(Duration::from_secs(10), lines.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        first,
+        format!("broker: acpmux-peer: {} vm-a", public(&key_a)),
+        "the peer line names A"
+    );
+    let second = tokio::time::timeout(Duration::from_secs(10), lines.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(second, "broker: {\"tool\":\"get\"}");
+    assert_eq!(forwards.list()[0]["state"], "listening");
+
+    // The owner takes the broker off the list: the next connection is refused and closes, and the
+    // forward says why.
+    gate.services.lock().unwrap().remove("lane-gh-broker");
+    let mut refused = tokio::net::UnixStream::connect(&local).await.unwrap();
+    let mut got = Vec::new();
+    tokio::time::timeout(Duration::from_secs(10), refused.read_to_end(&mut got))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(got.is_empty());
+    assert_eq!(forwards.list()[0]["refusal"]["reason"], "service.not_exposed");
+
+    // A machine that serves no named services refuses every name. Its own relay: the fixed
+    // tickets name one slot.
+    let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_address = relay_listener.local_addr().unwrap();
+    let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
+        allow_open: true,
+        ..cmux_relay::RelayConfig::default()
+    })
+    .unwrap();
+    let (relay_listener, router) = relay.server_parts(relay_listener);
+    tokio::spawn(async move {
+        let _ = axum::serve(relay_listener, router).await;
+    });
+    let route = format!("relay+ws://{relay_address}");
+    let (key_c, key_d) = (random_key(), random_key());
+    let carrier_c = HubCarrier::new(
+        Arc::new(FixedTickets {
+            relay: route.clone(),
+            peers: vec![public(&key_d)],
+            asked: AtomicU64::new(0),
+        }),
+        key_c,
+        fast,
+    );
+    let _serving_c = carrier_c.serve(nothing);
+    let carrier_d = HubCarrier::new(
+        Arc::new(FixedTickets {
+            relay: route,
+            peers: vec![public(&key_c)],
+            asked: AtomicU64::new(0),
+        }),
+        key_d,
+        fast,
+    );
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        match carrier_d.dial_service(&public(&key_c), named("sr2-gateway")).await {
+            Ok(_) => panic!("a machine with no named gate served a name"),
+            Err(e) if e.contains("service.off") => break,
+            Err(e) => {
+                assert!(tokio::time::Instant::now() < deadline, "C never answered: {e}");
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+    }
+}

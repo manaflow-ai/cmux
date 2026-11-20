@@ -406,6 +406,40 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "machine forward",
+        &[
+            (
+                "Reach the lane GitHub broker on another machine at a local socket",
+                "acpmux machine forward add --name lane-gh-broker --from broker-host --listen-unix ~/.cache/lane-gh/broker.sock",
+            ),
+            ("List forwards and their state", "acpmux machine forward ls"),
+        ],
+    ),
+    (
+        "machine forward add",
+        &[
+            (
+                "Reach the lane GitHub broker on another machine at a local socket",
+                "acpmux machine forward add --name lane-gh-broker --from broker-host --listen-unix ~/.cache/lane-gh/broker.sock",
+            ),
+            (
+                "Reach the model gateway on another machine at a loopback port",
+                "acpmux machine forward add --name sr2-gateway --from broker-host --listen-tcp 127.0.0.1:4016",
+            ),
+        ],
+    ),
+    (
+        "machine forward ls",
+        &[
+            ("List forwards and their state", "acpmux machine forward ls"),
+            ("List forwards as JSON for a script", "acpmux machine forward ls --json"),
+        ],
+    ),
+    (
+        "machine forward rm",
+        &[("Stop a forward and remove it", "acpmux machine forward rm --name sr2-gateway")],
+    ),
+    (
         "machine deps",
         &[
             ("Restore this project's dependencies from the cache", "acpmux machine deps warm"),

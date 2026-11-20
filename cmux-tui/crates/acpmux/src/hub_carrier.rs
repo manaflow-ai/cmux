@@ -34,6 +34,10 @@
 //!   app's, a unix socket), so another of the person's machines opens a workspace there; only
 //!   while the person on that machine granted "control for my other machines signed in to this
 //!   account" ([`SessionGate`], `session_service.rs`), refused by default.
+//!   [`CircuitService::Named`] reaches a service the machine's owner listed by name in
+//!   `exposedServices` (a unix socket under their home, or a loopback TCP port), and nothing
+//!   else ([`NamedServiceGate`], `named_service.rs`); another machine reaches it through a local
+//!   listener its daemon keeps (`acpmux machine forward add`, `machine_forward.rs`).
 //!
 //! The node key in two protocols. `node.wg.key` is WireGuard's static key and this carrier's
 //! Noise XX static key. The acpmux owner allows that reuse on these conditions, and they bind
@@ -125,7 +129,7 @@ impl std::fmt::Debug for CarrierAnswer {
 }
 
 /// What a circuit reaches on the machine it was dialed to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CircuitService {
     /// The acpmux daemon's loopback WebSocket listener. A circuit whose first record names no
     /// service is this one's, as every circuit was before services had names.
@@ -138,6 +142,11 @@ pub enum CircuitService {
     /// "control for my other machines signed in to this account" on that machine
     /// ([`SessionGate`], `cmux_tui_service.rs`); refused by default.
     CmuxTuiSession,
+    /// A service this machine's owner exposed by name (`exposedServices` in config.json,
+    /// `named_service.rs`): a unix socket or a TCP address on this machine. Hello
+    /// `{"service":"named","name":NAME}`. The name is only a key into the owner's list; a name
+    /// not on it is refused, and nothing is exposed by default ([`NamedServiceGate`]).
+    Named { name: String },
 }
 
 /// The `target` a hello gives [`CircuitService::CmuxTuiSession`].
@@ -187,6 +196,35 @@ pub trait SessionGate: Send + Sync + 'static {
     async fn admit(&self, from: &str) -> Result<std::path::PathBuf, ServiceRefusal>;
 }
 
+/// The service name a hello gives [`CircuitService::Named`].
+pub const NAMED_SERVICE: &str = "named";
+
+/// Where a named service is reached on this machine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NamedTarget {
+    /// A unix socket (under the owner's home).
+    Unix(std::path::PathBuf),
+    /// A TCP address, tried in order (loopback unless the owner allowed another host).
+    Tcp(Vec<SocketAddr>),
+}
+
+/// What [`NamedServiceGate::admit`] lets a circuit reach: the target, and the line the service
+/// reads first when its owner asked for it (`peerHeader`), naming the calling machine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NamedAdmit {
+    pub target: NamedTarget,
+    pub header: Option<String>,
+}
+
+/// Whether this machine lets a circuit reach the service its owner exposed as `name`
+/// ([`CircuitService::Named`]), and where it is.
+#[async_trait]
+pub trait NamedServiceGate: Send + Sync + 'static {
+    /// The target a circuit from the machine whose hub `daemonId` is `from` reaches for `name`,
+    /// or why it may not. `from` is the dialer's key as the Noise handshake proved it.
+    async fn admit(&self, name: &str, from: &str) -> Result<NamedAdmit, ServiceRefusal>;
+}
+
 /// The hello record of `service`; None for the acpmux listener, whose circuits send none.
 fn service_hello(service: CircuitService) -> Option<Bytes> {
     let body = match service {
@@ -196,6 +234,9 @@ fn service_hello(service: CircuitService) -> Option<Bytes> {
         }
         CircuitService::CmuxTuiSession => {
             serde_json::json!({"service": CMUX_TUI_SERVICE, "target": SESSION_TARGET})
+        }
+        CircuitService::Named { name } => {
+            serde_json::json!({"service": NAMED_SERVICE, "name": name})
         }
     };
     let mut record = SERVICE_HELLO.to_vec();
@@ -225,6 +266,14 @@ fn named_service(first: &[u8]) -> Option<Result<CircuitService, ServiceRefusal>>
         }
         (Some(CMUX_TUI_SERVICE), None, Some(SESSION_TARGET)) if hello.get("port").is_none() => {
             Ok(CircuitService::CmuxTuiSession)
+        }
+        (Some(NAMED_SERVICE), None, None) if hello.get("port").is_none() => {
+            match hello.get("name").and_then(serde_json::Value::as_str) {
+                Some(name) if crate::config::named_services::valid_service_name(name) => {
+                    Ok(CircuitService::Named { name: name.to_owned() })
+                }
+                _ => Err(unknown()),
+            }
         }
         _ => Err(unknown()),
     })
@@ -336,6 +385,8 @@ pub struct HubCarrier {
     cmux_tui: RwLock<Option<Arc<dyn CmuxTuiGate>>>,
     /// Whether a circuit may reach this machine's own cmux-tui session daemon; none refuses it.
     session: RwLock<Option<Arc<dyn SessionGate>>>,
+    /// Which named services a circuit may reach (`exposedServices`); none refuses every name.
+    named: RwLock<Option<Arc<dyn NamedServiceGate>>>,
 }
 
 impl std::fmt::Debug for HubCarrier {
@@ -362,6 +413,7 @@ impl HubCarrier {
             key_check: None,
             cmux_tui: RwLock::new(None),
             session: RwLock::new(None),
+            named: RwLock::new(None),
         })
     }
 
@@ -386,6 +438,7 @@ impl HubCarrier {
             key_check: Some(check),
             cmux_tui: RwLock::new(None),
             session: RwLock::new(None),
+            named: RwLock::new(None),
         })
     }
 
@@ -465,6 +518,15 @@ impl HubCarrier {
 
     fn session_gate(&self) -> Option<Arc<dyn SessionGate>> {
         self.session.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Let circuits reach the services this machine's owner exposed by name as `gate` decides.
+    pub fn set_named_gate(&self, gate: Arc<dyn NamedServiceGate>) {
+        *self.named.write().unwrap_or_else(|e| e.into_inner()) = Some(gate);
+    }
+
+    fn named_gate(&self) -> Option<Arc<dyn NamedServiceGate>> {
+        self.named.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// One live path to `daemon`: a relay circuit with the Noise handshake done, its key pinned
@@ -843,6 +905,85 @@ impl Incoming {
         let _ = daemon.set_nodelay(true);
         Ok(daemon)
     }
+
+    /// Serve a circuit that named the service `name`: admitted by the owner's list for the
+    /// machine `from` (the key the handshake proved), connected, the peer line written first
+    /// when the owner asked for it, answered, then carried both ways. Any refusal is answered by
+    /// name and the circuit closed.
+    async fn serve_named(&self, name: &str, from: Option<String>, link: Box<dyn FrameLink>) {
+        let admitted = match (self.carrier.named_gate(), from) {
+            (Some(gate), Some(from)) => gate.admit(name, &from).await,
+            (None, _) => Err(ServiceRefusal::new(
+                "service.off",
+                "this machine exposes no named services to its other machines",
+            )),
+            (Some(_), None) => Err(ServiceRefusal::new(
+                "service.unknown_machine",
+                "the circuit's machine key is not one this machine admitted",
+            )),
+        };
+        let reached = match admitted {
+            Ok(admit) => {
+                connect_named(name, &admit.target).await.map(|local| (local, admit.header))
+            }
+            Err(refusal) => Err(refusal),
+        };
+        let (mut local, header) = match reached {
+            Ok(reached) => reached,
+            Err(refusal) => {
+                tracing::info!("hub carrier: a circuit for service {name} was refused: {refusal}");
+                let _ = link.send(service_answer(&Err(refusal))).await;
+                let _ = link.close().await;
+                return;
+            }
+        };
+        if let Some(header) = header
+            && let Err(e) = local.write_all(header.as_bytes()).await
+        {
+            let refusal = ServiceRefusal::new(
+                "service.unreachable",
+                format!("service {name} closed before it took the peer line: {e}"),
+            );
+            let _ = link.send(service_answer(&Err(refusal))).await;
+            let _ = link.close().await;
+            return;
+        }
+        if link.send(service_answer(&Ok(()))).await.is_err() {
+            let _ = link.close().await;
+            return;
+        }
+        self.carrier.stats.accepted.fetch_add(1, Ordering::Relaxed);
+        pump(link, local, &self.carrier.stats).await;
+    }
+}
+
+/// A local connection to a named service: a unix socket or a TCP stream.
+type NamedStream = Box<dyn NamedIo>;
+
+/// What a named service's connection is: bytes both ways.
+trait NamedIo: AsyncRead + AsyncWrite + Send + Unpin {}
+impl<T: AsyncRead + AsyncWrite + Send + Unpin> NamedIo for T {}
+
+/// Connect to the target the owner's list gave the service `name`.
+async fn connect_named(name: &str, target: &NamedTarget) -> Result<NamedStream, ServiceRefusal> {
+    let unreachable = |e: std::io::Error| {
+        ServiceRefusal::new(
+            "service.unreachable",
+            format!("service {name} is not listening on this machine: {e}"),
+        )
+    };
+    match target {
+        NamedTarget::Unix(path) => {
+            let stream = connect_session(path).await.map_err(unreachable)?;
+            Ok(Box::new(stream))
+        }
+        NamedTarget::Tcp(addresses) => {
+            let stream =
+                tokio::net::TcpStream::connect(addresses.as_slice()).await.map_err(unreachable)?;
+            let _ = stream.set_nodelay(true);
+            Ok(Box::new(stream))
+        }
+    }
 }
 
 #[async_trait]
@@ -932,6 +1073,13 @@ impl RelayIncoming for Incoming {
             pump(Box::new(link), local, &self.carrier.stats).await;
             return;
         }
+        if let Some(Ok(CircuitService::Named { name })) = named_service(&first) {
+            // A named circuit reaches only what the owner's list names; the acpmux listener's
+            // connection closes unused.
+            drop(listener);
+            self.serve_named(&name, from, Box::new(link)).await;
+            return;
+        }
         let Some(mut local) = listener else {
             let _ = link.close().await;
             return;
@@ -943,7 +1091,7 @@ impl RelayIncoming for Incoming {
                     Ok(CircuitService::Acpmux) => Ok(local),
                     Ok(CircuitService::CmuxTui { port }) => self.cmux_tui(port).await,
                     // Served above; never reaches a TCP target.
-                    Ok(CircuitService::CmuxTuiSession) => {
+                    Ok(CircuitService::CmuxTuiSession | CircuitService::Named { .. }) => {
                         Err(ServiceRefusal::new("service.unknown", "no such service"))
                     }
                     Err(refusal) => Err(refusal),
@@ -1266,6 +1414,8 @@ pub async fn start_configured(
     carrier.set_cmux_tui_gate(Arc::new(crate::cmux_tui_service::ConfiguredGate::new(hub)));
     // Off unless the person on this machine allowed its other signed-in machines in.
     carrier.set_session_gate(Arc::new(crate::session_service::ConfiguredSessionGate::new(hub)));
+    // Off unless the owner listed a service by name (`exposedServices`).
+    carrier.set_named_gate(Arc::new(crate::named_service::ConfiguredNamedGate::new(hub)));
     hub.hub_carrier.set(carrier.clone());
     // The start's answer, whether or not the relay takes the registration yet (it retries).
     tracing::info!(

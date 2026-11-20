@@ -674,6 +674,12 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         .then(|| ws_listener.as_ref().and_then(|(l, _)| l.local_addr().ok()))
         .flatten();
     crate::server::machine_enroll::start_joined_at_start(&hub, carrier).await;
+    // The forwards `acpmux machine forward add` wrote (`machine_forward.rs`): bound now, whether
+    // or not the carrier came up; each connection dials through whichever carrier then runs.
+    #[cfg(all(feature = "hub-carrier", unix))]
+    if !clone_unsettled {
+        hub.reconcile_machine_forwards().await;
+    }
     // A machine joined before the hub recorded capabilities states them with its own credential,
     // in the background (`cli/cloud_join/self_capabilities.rs`); the start never waits for it.
     crate::cli::cloud_join::state_capabilities_at_start(&hub.scope);

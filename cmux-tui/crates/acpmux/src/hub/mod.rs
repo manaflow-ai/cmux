@@ -822,6 +822,9 @@ pub struct Hub {
     /// A local route to each of the person's other machines' cmux-tui session (`machine_routes.rs`).
     #[cfg(feature = "hub-carrier")]
     pub(crate) machine_routes: crate::machine_routes::Routes,
+    /// The local listeners that reach another machine's named services (`machine_forward.rs`).
+    #[cfg(all(feature = "hub-carrier", unix))]
+    pub(crate) forwards: crate::machine_forward::Forwards,
     /// Each peer's last-known-good path (`peer_last_good.rs`), beside the peer caches.
     pub(crate) peer_paths: Arc<crate::peer_last_good::LastGood>,
     /// The daemon's store, read through each fork's referenced history (`store/fork_view.rs`).
@@ -1388,6 +1391,8 @@ impl Hub {
             hub_carrier_websocket: std::sync::OnceLock::new(),
             #[cfg(feature = "hub-carrier")]
             machine_routes: Default::default(),
+            #[cfg(all(feature = "hub-carrier", unix))]
+            forwards: Default::default(),
             peer_paths,
             store: Box::new(crate::store::ForkView::new(store)),
             mailbox,
