@@ -344,7 +344,7 @@ mod tests {
     #[test]
     fn the_app_actions_for_share_off_and_stop_are_cataloged() {
         let catalog: serde_json::Value =
-            serde_json::from_str(crate::cli::app_action_help::ACTIONS_JSON)
+            serde_json::from_str(&cmux_tui_core::packed_catalogs::ACTION_SURFACES.inflate())
                 .expect("the action catalog is valid JSON");
         for change in [LowerChange::ShareOff, LowerChange::StopSession] {
             let id = change.app_action();

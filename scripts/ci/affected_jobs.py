@@ -402,6 +402,17 @@ def job_if(block: str) -> str:
     return head
 
 
+def uncovered_by_push(pulled: list[str], pushed: list[str]) -> set[str]:
+    """The pull_request patterns the push list does not start on. An exclude (`!x`) only narrows the pull request,
+    so it is never a gap, and a pattern under a pushed `dir/**` is covered by it (a plan doc the docs-only block puts
+    back by name, under a push that keeps plans/cmux-next/** whole)."""
+    pushed_set = set(pushed)
+    prefixes = [p[:-2] for p in pushed if p.endswith("/**") and not p.startswith("!")]
+    return {p for p in pulled
+            if p not in pushed_set and not p.startswith("!")
+            and not any(p.startswith(prefix) for prefix in prefixes)}
+
+
 def check_pr_skip(root: Path, skipped: list[tuple[str, str]], routed: set[tuple[str, str]] = frozenset()) -> list[str]:
     """Each pull_request_skip job: its `if:` carries PR_SKIP_IF; its workflow starts on a feat-cmux-next push, on every
     path its pull_request trigger starts on (the push is the safety net that runs it), or, for a job the crate graph
@@ -430,7 +441,7 @@ def check_pr_skip(root: Path, skipped: list[tuple[str, str]], routed: set[tuple[
                             f"a pull request skips it ({MAP} pull_request_skip)")
         else:
             pushed, pulled = workflow_paths(text, "push"), workflow_paths(text, "pull_request")
-            narrower = pushed is not None and (pulled is None or bool(set(pulled) - set(pushed)))
+            narrower = pushed is not None and (pulled is None or bool(uncovered_by_push(pulled, pushed)))
             gated = PUSH_PATHS_GATE in if_line and "needs: changes" in block and PUSH_PATHS_ROUTER in text
             if narrower and (workflow, job_id) not in routed and not gated:
                 problems.append(f"{workflow}: its push paths start on fewer paths than its pull_request paths, so a "
