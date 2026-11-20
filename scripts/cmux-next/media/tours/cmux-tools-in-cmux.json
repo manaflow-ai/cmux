@@ -1,0 +1,15 @@
+{
+  "title": "cmux Tools for agents started in cmux, light and dark: the onboarding step's question, then Settings > Agents (the choice row and Agents on This Mac, with the manual lines). Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/tours/cmux-tools-in-cmux.json",
+  "settings": {},
+  "steps": [
+    {"title": "Launch", "wait": 3, "shot": false},
+    {"title": "Onboarding, cmux Tools: the question, light", "rpc": {"method": "debug.onboarding", "params": {"action": "open", "step": "agentTools"}}, "wait": 6},
+    {"title": "Onboarding, cmux Tools, dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2,
+     "optional": "debug.appearance is DEBUG only"},
+    {"title": "Back to light", "rpc": {"method": "debug.appearance", "params": {"mode": "light"}}, "wait": 1, "shot": false,
+     "optional": "debug.appearance is DEBUG only"},
+    {"title": "Settings > Agents: cmux Tools for Agents in cmux and Agents on This Mac, light", "cmux": ["action", "run", "openSettings", "--setting", "agents.cmuxMcp"], "wait": 6},
+    {"title": "Settings > Agents, dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2,
+     "optional": "debug.appearance is DEBUG only"}
+  ]
+}
