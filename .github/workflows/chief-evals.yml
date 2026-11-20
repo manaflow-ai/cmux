@@ -27,6 +27,9 @@ on:
       - "cmux-tui/crates/cmux-chief/**"
       - "cmux-tui/crates/cmux-conversation/**"
       - ".github/workflows/chief-evals.yml"
+      # A README or notes file alone starts nothing here (tests/test_ci_docs_only_prs.py); no build reads them.
+      - "!**/README.md"
+      - "!**/COORDINATION.md"
   workflow_dispatch:
     inputs:
       repeat:

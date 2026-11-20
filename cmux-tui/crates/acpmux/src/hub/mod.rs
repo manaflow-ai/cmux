@@ -324,7 +324,9 @@ mod watch;
 pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
 };
-pub use paging::{EventFilter, EventPage, MAX_PAGE_BYTES, fit_reply, page_bytes};
+pub use paging::{
+    DEFAULT_PAGE_BYTES, EventFilter, EventPage, MAX_PAGE_BYTES, fit_reply, page_bytes,
+};
 pub use spawn::expand_env_value;
 pub mod approvers;
 pub(crate) mod key_route;
@@ -342,6 +344,7 @@ mod peer_grace;
 mod peer_grace_tests;
 mod peer_lease;
 pub(crate) mod peer_snapshot;
+mod spoken_handles;
 pub use peer_lease::PeerLease;
 /// Debug builds only: the next `n` reads of whether a copy of `peer` is ahead fail, as a timed
 /// out or dead store would (`peer_snapshot/restore.rs`).
@@ -838,6 +841,7 @@ pub struct Hub {
     /// The forum log (`forum.rs`, `hub/forum.rs`).
     pub(super) forum: std::sync::OnceLock<crate::forum::Forum>,
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
+    spoken_handle_renames: StdMutex<()>,
     /// Session ids whose metadata is still live. Closed records remain in `sessions` and on
     /// disk for history, search, export and restore, but list/peer hot paths never walk them.
     pub(super) live_session_ids: StdMutex<std::collections::HashSet<String>>,
@@ -1405,6 +1409,7 @@ impl Hub {
             mailbox,
             forum: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
+            spoken_handle_renames: StdMutex::new(()),
             live_session_ids: StdMutex::new(std::collections::HashSet::new()),
             closed_summary_cache: StdMutex::new(Default::default()),
             chat_activity_cache: Default::default(),
@@ -1835,7 +1840,7 @@ impl Hub {
         }
         let session = self.make_session(meta);
         if let Some(meta) = saved_meta {
-            session.meta_writer.note_saved(meta);
+            session.meta_writer.note_saved(&meta);
         }
         session.caught_up.store(false, Ordering::SeqCst);
         *session.transfer_authority.lock().unwrap_or_else(|e| e.into_inner()) = None;
