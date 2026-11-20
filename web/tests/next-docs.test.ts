@@ -125,7 +125,7 @@ describe("cmux-next docs", () => {
       "cmux settings set", "cmux version", "cmux harness add", "cmux harness secret", "cmux harness doctor",
       "cmux acp ledger", "cmux acp machine", "cmux cloud secret", "cmux machine vault",
       "cmux server install", "cmux server uninstall", "cmux server status", "cmux server up",
-      "cmux server down",
+      "cmux server down", "cmux server logs",
     ]);
     const unknown: string[] = [];
     for (const page of nextDocPages) {

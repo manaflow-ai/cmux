@@ -87,6 +87,7 @@ pub mod task;
 pub(crate) mod tools_mcp;
 pub mod trigger_chat;
 pub mod uniichat_agent;
+pub mod uniichat_login;
 pub(crate) mod unknown_command;
 pub(crate) mod unknown_flag;
 pub mod watch;

@@ -146,6 +146,7 @@ acpmux history NAME                                # one line per turn: prompt, 
 acpmux ls [--all] [--wide]                         # live named lanes + STUCK reason; --all: closed/reviewer/sub/unnamed too; --wide: + context, subagents, 24h cost
 acpmux ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=v] [--live] [--machine MACHINE]   # a filter hides nothing
 acpmux --json ls --live --fields name,status,peer  # scripts; bare `ls --json` is every record, thousands on a busy host
+acpmux --json ls --machine local --live            # this machine's sessions only: `ls` lists every machine's, so a script after its own passes this
 acpmux session info NAME                           # model, mode, policy, pending permissions, usage
 acpmux session info NAME --fields status,turn.activity   # just those fields (one field: its bare value), no `--json | python3`
 acpmux ls 'review-*' --fields name,status          # name globs (`machine/glob` for one machine); --fields takes dotted paths
