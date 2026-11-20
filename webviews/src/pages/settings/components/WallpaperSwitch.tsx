@@ -409,12 +409,16 @@ export function WallpaperSwitch({
   const mode = modeOf(values, choices);
   // The last picture that stayed: Off puts it back after a mode that has none of its own. The last
   // shuffle: Rotate goes back to its folder. Both outlive this card (wallpaperSwitch.ts's memory).
-  const lastFixed = useRef<string | null>(isFixed(values.background) ? values.background : rememberedFixed());
+  // Nothing is recorded until the settings have loaded: before that, the background is a fallback.
+  const lastFixed = useRef<string | null>(
+    !disabled && isFixed(values.background) ? values.background : rememberedFixed(),
+  );
   useEffect(() => {
+    if (disabled) return;
     rememberBackground(values.background);
     if (isFixed(values.background)) lastFixed.current = values.background;
-  }, [values.background]);
-  const lastShuffle = isShuffle(values.background) ? values.background : rememberedShuffle();
+  }, [values.background, disabled]);
+  const lastShuffle = !disabled && isShuffle(values.background) ? values.background : rememberedShuffle();
   // Which slot's picture list is open: "light", "dark", "sun" or a schedule row's key.
   // Kept with the mode it opened in, so a mode change closes it.
   const [opened, setOpened] = useState<{ mode: WallpaperMode; id: string } | null>(null);
