@@ -268,6 +268,13 @@
   --glass-rim: 0;
   --glass-backdrop: none;
 }
+/* Default-off Codex-look experiment. The values are supplied by a look stylesheet when present;
+   the baseline arm does not add this class, so existing prompt bubbles are unchanged. */
+.cv-user__bubble--codex {
+  --glass-tint: var(--cv-user-bubble-tint, var(--glass-tint));
+  --glass-opaque: color-mix(in srgb, var(--cv-fg) 8%, var(--glass-surface));
+  border-radius: var(--cv-user-bubble-radius, calc(3 * var(--grid-base) * var(--cv-bubble-scale)));
+}
 .acpmux-shell .cv-user__bubble {
   --glass-tint: color-mix(in srgb, var(--agent-text) 14%, transparent);
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
