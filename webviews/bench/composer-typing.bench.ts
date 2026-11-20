@@ -109,6 +109,10 @@ const ARM_METRICS = [
   "to_frame_p95",
   "to_frame_max",
   "to_listener_p95",
+  "to_work_p50",
+  "to_work_p95",
+  "script_ms",
+  "task_ms",
   "longest_task_ms",
   "long_tasks",
 ] as const;
@@ -427,6 +431,7 @@ async function measure(
       style_ms: per(delta("RecalcStyleDuration") * 1000),
       task_ms: per(delta("TaskDuration") * 1000),
       to_listener_p95: typing.to_listener?.p95_ms,
+      to_work_p50: typing.to_work?.p50_ms,
       to_work_p95: typing.to_work?.p95_ms,
       to_frame_p50: typing.to_frame?.p50_ms,
       to_frame_p95: typing.to_frame?.p95_ms,
