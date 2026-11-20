@@ -14,8 +14,9 @@ import Testing
     }
 
     @Test func nextDownloadsAreTheNextNightlyDMGAndTheDevZip() {
+        // The feed's newest build, never a rolling asset that can trail it.
         #expect(AppChannelSwitchTarget.nightlyNext.downloadURL(architecture: .arm64)?.absoluteString
-            == UpdateManualDownloadRecovery.nightlyNextDownloadURLString(for: .arm64))
+            == "https://cmux.com/api/download/next")
         #expect(AppChannelSwitchTarget.nightlyNext.archive == .diskImage)
         #expect(AppChannelSwitchTarget.dev.downloadURL(architecture: .arm64)?.absoluteString
             == "https://github.com/manaflow-ai/cmux/releases/download/cmux-next-dev/cmux-NEXT-DEV.zip")

@@ -157,8 +157,11 @@ public struct WindowTitlebar {
         // Floating panes keep the one even gap at the top too.
         guard !Metrics.floatingPanes else { return gutter }
         // The top row's shared line (`TopRowLine`): the lights' center unless Debug picks another variant.
-        // Concentric (the default line): the gutter on top as at the sides, with or without a top-row strip.
-        if TopRowLineLook.tunable.value == .concentric { return Metrics.windowEdgeInset(gutter, in: window) }
+        // Concentric (the default line): a top-row strip starts under the window's rim, with its one strip padding inside
+        // (``topRowStripCardTop(in:)``); with the tab bars at the bottom the card keeps the gutter on top as at the sides.
+        if TopRowLineLook.tunable.value == .concentric {
+            return targetTopRowLine(in: window) != nil ? topRowStripCardTop(in: window) : Metrics.windowEdgeInset(gutter, in: window)
+        }
         guard let target = targetTopRowLine(in: window) else {
             // No top-row strip (tab bars at the bottom): the card keeps its place from before #38054.
             let card = PaneChromeMetrics.current.cardTopKeepingStripCentering(centeringPillOn: root.bounds.maxY - local.midY,
