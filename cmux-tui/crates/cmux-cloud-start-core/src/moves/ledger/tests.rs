@@ -183,3 +183,32 @@ fn grants_are_stored_unique_in_a_stable_order() {
         json!({"userID": "a", "teamID": "t", "cloudOrigin": "o", "folder": "/y"})
     );
 }
+
+#[test]
+fn a_send_pushes_only_for_a_chat_whose_folder_came_from_this_mac() {
+    let mut ledgers = MovedChats::default();
+    let moved = Moved { session: "chat".into(), ..copy() };
+    let write = ledgers.record(moved.clone());
+    apply(&mut ledgers, write);
+    let hosts = |names: &[&str]| names.iter().map(|name| (*name).to_owned()).collect::<Vec<_>>();
+    let target = PushTarget { local: "/local/project".into(), remote: "/work/copy/project".into() };
+    // The tab record's own host may differ: the daemon's `registry:` host finds it next.
+    assert_eq!(ledgers.push_target(&hosts(&["install:m", "registry:start"]), "chat"), Some(target));
+    assert_eq!(ledgers.push_target(&hosts(&["install:m"]), "chat"), None, "another host's chat");
+    assert_eq!(ledgers.push_target(&hosts(&["registry:start"]), "other"), None, "another chat");
+    assert_eq!(ledgers.push_target(&hosts(&["registry:start"]), ""), None, "no session yet");
+    assert_eq!(ledgers.push_target(&[], "chat"), None, "no hosts");
+
+    let back = Moved {
+        brought_back: Some(BroughtBack { session: "local".into(), key: "k".into() }),
+        ..moved.clone()
+    };
+    let write = ledgers.record(back);
+    apply(&mut ledgers, write);
+    assert_eq!(ledgers.push_target(&hosts(&["registry:start"]), "chat"), None, "went back home");
+
+    let no_folder = Moved { local_root: String::new(), ..moved };
+    let write = ledgers.record(no_folder);
+    apply(&mut ledgers, write);
+    assert_eq!(ledgers.push_target(&hosts(&["registry:start"]), "chat"), None, "no folder here");
+}

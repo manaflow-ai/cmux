@@ -49,8 +49,9 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// more: a fresh Cloud machine boots its image's cmux-tui, and the automatic update runs in the background, so a
     /// first chat right after it came up would otherwise reach the old daemon (Leo: "whenever i start a chat it should be able to send me to cloud automatically").
     var updateMachine: (@Sendable () async -> Bool)?
-    /// The chat runs on the person's own Cloud VM (``RemoteAcpmuxWire/ownerCloud(_:served:)``).
+    /// The chat runs on the person's own Cloud VM (``RemoteAcpmuxWire/ownerCloud(_:served:)``); `beforeSend`: a Cloud chat whose folder came from this Mac pushes the files changed here before each send (`CloudMovedChats.pushOnSend`), never on an observation.
     var ownerCloud: RemoteAcpmuxWire.OwnerCloud?
+    var beforeSend: RemoteAcpmuxWire.BeforeSend?
     /// A new Cloud chat's steps to its first token on the composer send's timeline (``CloudSendTimelines``, cmux#45953):
     /// its first prompt out, its start answered (with the machine's own phases) and its agent's first text.
     var cloudSendMark: (@Sendable (_ step: String, _ phases: [String: Int]?) -> Void)?
@@ -97,7 +98,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                 let client = AgentSessionAttachClient(surface: surface, mode: mode, reconnect: reconnect, personName: personName, endpoint: endpoint)
                 let cloudRepository = AgentSessionAttachClient.forwardingCloudRepository(surface: surface, reconnect: reconnect, endpoint: endpoint)
                 return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil, ownerCloud: mode == .attach ? ownerCloud : nil, cloudRepository: cloudRepository,
-                                        machineSignIn: machineSignIn)
+                                        machineSignIn: machineSignIn, beforeSend: mode == .attach ? beforeSend : nil)
             }
         } else if let start, mode == .attach {
             // A new chat: nothing runs on that machine until the page's first send (cx-k21v). The
@@ -118,7 +119,8 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                 }, host: hostID, linksAlias: linksHost, trust: servesTrust ? ask : nil, ownerCloud: ownerCloud,
                 cloudRepositoryStart: AgentSessionAttachClient.forwardingStartedCloudRepository(reconnect: reconnect, endpoint: endpoint),
                 servesLogin: servesLogin, servesSide: servesSide, machineSignIn: cloudMachineID == nil,
-                machineLogin: servesMachineLogin ? machineLogin : nil, milestone: cloudSendMark.map { mark -> RemoteAcpmuxWire.Milestone in { step in mark(step, nil) } })
+                machineLogin: servesMachineLogin ? machineLogin : nil, beforeSend: beforeSend,
+                milestone: cloudSendMark.map { mark -> RemoteAcpmuxWire.Milestone in { step in mark(step, nil) } })
             }
         } else {
             throw AgentRemoteStartRefusal.startUnsupported(machine: machine)

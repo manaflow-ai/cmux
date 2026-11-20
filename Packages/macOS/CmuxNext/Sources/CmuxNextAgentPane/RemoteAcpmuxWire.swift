@@ -61,6 +61,12 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// A one-shot Cloud repository request on the tab's owning daemon connection.
     public typealias CloudRepository = @Sendable (String, [String: any Sendable], Duration?) async throws -> Data
     public typealias CloudRepositoryStart = @Sendable (UInt64, String, [String: any Sendable], Duration?) async throws -> Data
+    /// Runs right before each prompt of `session` goes (the person's send): a Cloud chat whose folder
+    /// came from this Mac pushes the files changed here since the last push (`cmux link sync
+    /// on-send`, bounded). Answers hidden context for the agent (acpmux's prompt context) when the
+    /// files are still arriving, else nil. It never throws and is bounded by its caller: the prompt
+    /// goes whatever it answers.
+    public typealias BeforeSend = @Sendable (_ session: String) async -> String?
 
     /// `agent-session-start-owner-cloud-v1`: on a Cloud VM, `vm_kind: "owner"` starts any agent (the
     /// person's own disposable VM is the boundary). Only a Cloud VM's daemon serves it, so it is no
@@ -91,6 +97,10 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         /// The latest model, mode or option pick: the next one waits for it, so picks reach the
         /// daemon in the order the person made them (a model switch can reset its options).
         var lastPick: Task<Void, Never>?
+        /// The latest send of a wire with a ``BeforeSend``: the next one waits for it, so a send whose
+        /// files take a moment to push is never overtaken by the person's next message (waited on at most
+        /// ``RemoteAcpmuxWire/earlierSendBound``, so a hung send never holds the next for good).
+        var lastSend: Task<Void, Never>?
         /// The ``Milestone``s already told, each once.
         var told: Set<String> = []
     }
@@ -119,6 +129,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     private let servesSide: Bool
     private let cloudRepositoryRequest: CloudRepository?
     private let cloudRepositoryStart: CloudRepositoryStart?
+    private let beforeSend: BeforeSend?
     private let host: String?
     private let milestone: Milestone?
     /// The daemon's own store host (`registry:<id>`) when the tab's `host` names another (an
@@ -129,8 +140,9 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// The wire of the chat `session` (its store record), through `client`.
     public init(client: any AgentSessionRemoteClient, session: String, host: String? = nil, linksAlias: String? = nil,
                 trust: Trust? = nil, ownerCloud: OwnerCloud? = nil, cloudRepository: CloudRepository? = nil,
-                cloudRepositoryStart: CloudRepositoryStart? = nil, machineSignIn: Bool = true) {
+                cloudRepositoryStart: CloudRepositoryStart? = nil, machineSignIn: Bool = true, beforeSend: BeforeSend? = nil) {
         start = nil
+        self.beforeSend = beforeSend
         milestone = nil
         servesLogin = false
         self.machineSignIn = machineSignIn
@@ -149,8 +161,10 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     public init(start: @escaping Start, host: String? = nil, linksAlias: String? = nil, trust: Trust? = nil,
                 ownerCloud: OwnerCloud? = nil, cloudRepository: CloudRepository? = nil,
                 cloudRepositoryStart: CloudRepositoryStart? = nil, servesLogin: Bool = false, servesSide: Bool = false,
-                machineSignIn: Bool = true, machineLogin: MachineLogin? = nil, milestone: Milestone? = nil) {
+                machineSignIn: Bool = true, machineLogin: MachineLogin? = nil, beforeSend: BeforeSend? = nil,
+                milestone: Milestone? = nil) {
         self.start = start
+        self.beforeSend = beforeSend
         self.milestone = milestone
         self.servesLogin = servesLogin && machineSignIn
         self.machineSignIn = machineSignIn
@@ -272,9 +286,11 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             // machine's daemon holds a link guest's for the owner whatever this says).
             let steer = meta?["steer"] as? Bool == true
             let session = state.withLock { $0.session } ?? ""
-            run(id) { [weak self] client in
-                let accepted = if let text { try await client.prompt(id: prompt, text: text, steer: steer) }
-                    else { try await client.prompt(id: prompt, content: content, steer: steer) }
+            run(id, afterEarlierSends: beforeSend != nil) { [weak self, beforeSend] client in
+                // The files changed on this Mac reach the chat's machine first (bounded; never blocks the send).
+                let context = await beforeSend?(session)
+                let accepted = if let text { try await client.prompt(id: prompt, text: text, steer: steer, context: context) }
+                    else { try await client.prompt(id: prompt, content: content, steer: steer, context: context) }
                 let object = (try? JSONSerialization.jsonObject(with: accepted)) as? [String: Any] ?? [:]
                 let turn = object["turn_id"] ?? NSNull()
                 var notice: [String: Any] = ["sessionId": session, "promptId": prompt, "turnId": turn, "queued": object["queued"] ?? false]
@@ -464,7 +480,11 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         // acpmux's id of the chat, as the page and the host name it (`tabSessionId`).
         let parent = state.withLock { $0.resolved ?? $0.session } ?? ""
         let linksHost = host, alias = linksAlias.flatMap { $0 != host ? $0 : nil }
-        run(id) { client in
+        let session = state.withLock { $0.session } ?? ""
+        run(id, afterEarlierSends: beforeSend != nil && request.prompt != nil) { [beforeSend] client in
+            // A side chat's first prompt runs in the chat's folder there: the files changed on this Mac go first
+            // (bounded). The side verb carries no hidden note, so files still arriving are not named to its agent.
+            if request.prompt != nil { _ = await beforeSend?(session) }
             let answer = try await client.side(throughSeq: request.throughSeq, prompt: request.prompt,
                                                promptID: UUID().uuidString.lowercased())
             guard let object = (try? JSONSerialization.jsonObject(with: answer)) as? [String: Any],
@@ -743,12 +763,23 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         return parts.joined(separator: "\n\n")
     }
 
-    /// With `afterEarlierPicks`, the call starts once the pick sent before it has answered.
-    private func run(_ id: String?, afterEarlierPicks: Bool = false,
+    /// With `afterEarlierPicks`, the call starts once the pick sent before it has answered; with
+    /// `afterEarlierSends`, once the send before it has.
+    private func run(_ id: String?, afterEarlierPicks: Bool = false, afterEarlierSends: Bool = false,
                      _ work: @escaping @Sendable (any AgentSessionRemoteClient) async throws -> Data) {
         // A new chat before its first send has no attachment: nothing to page, cancel or detach.
         guard let client = state.withLock({ $0.client }) else {
             return reply(id, [:])
+        }
+        if afterEarlierSends {
+            return state.withLock { state in
+                let earlier = state.lastSend
+                // task-owner: one send (its files' push, then the prompt), after the one before it; its reply ends it
+                state.lastSend = Task { [weak self] in
+                    await Self.settled(earlier, within: Self.earlierSendBound)
+                    await self?.answer(id, client, work)
+                }
+            }
         }
         guard afterEarlierPicks else {
             // task-owner: one daemon call per page request; its reply ends it
@@ -761,6 +792,30 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             state.lastPick = Task { [weak self] in
                 await earlier?.value
                 await self?.answer(id, client, work)
+            }
+        }
+    }
+
+    /// How long a send waits for the one before it: past its push's own bound (3 s, killed at 5 s)
+    /// and its prompt's acceptance, so a hung earlier send never holds the person's next message.
+    static let earlierSendBound: Duration = .seconds(10)
+
+    /// Returns once `earlier` ends or `bound` passes, whichever comes first (`earlier` goes on).
+    static func settled(_ earlier: Task<Void, Never>?, within bound: Duration) async {
+        guard let earlier else { return }
+        let once = AgentPaneResumeOnce()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            // task-owner: the bound; cancelled when the earlier send ends first
+            let timer = Task {
+                // wakeup-allow: one one-shot bound per send that follows another; never ends a send
+                guard (try? await Task.sleep(for: bound)) != nil else { return }
+                once.run { continuation.resume() }
+            }
+            // task-owner: reads the earlier send's end; ends when it ends
+            Task {
+                await earlier.value
+                timer.cancel()
+                once.run { continuation.resume() }
             }
         }
     }

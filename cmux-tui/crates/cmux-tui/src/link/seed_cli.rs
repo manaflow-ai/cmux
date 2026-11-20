@@ -619,6 +619,46 @@ fn refusal(local: &Path, fallback: SeedError) -> SeedError {
 /// [`push`] with `--since-last` (module docs), for `cmux link agent move
 /// --sync seed` too. Its errors' codes are [`failure_code`]'s.
 pub(super) fn push_since_last(socket: &Path, local: &Path, remote: &str) -> anyhow::Result<Pushed> {
+    since_last(socket, local, remote, None)
+}
+
+/// [`push_since_last`] for push-on-send (`cmux link sync on-send`): a copy
+/// sends only the paths `only` names ([`sync_cli::push_changed`]), a seed its
+/// delta as ever.
+pub(in crate::link) fn push_since_last_changed(
+    socket: &Path,
+    local: &Path,
+    remote: &str,
+    only: &sync_cli::Only,
+) -> anyhow::Result<sync_cli::OnSendPushed> {
+    let pushed = since_last(socket, local, remote, Some(only))?;
+    let copy = pushed.copy.as_ref();
+    let count = |key: &str| copy.and_then(|line| line.get(key)).and_then(Value::as_u64);
+    let conflicts = copy
+        .and_then(|line| line.get("conflicts"))
+        .and_then(Value::as_array)
+        .map(|paths| paths.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        .unwrap_or_default();
+    Ok(sync_cli::OnSendPushed {
+        mode: pushed.mode,
+        unchanged: pushed.unchanged,
+        written: count("written").unwrap_or(0),
+        deleted: count("deleted").unwrap_or(0),
+        conflicts,
+    })
+}
+
+/// Whether this Mac keeps a seed or copy record of `local` (canonical) at `remote`.
+pub(in crate::link) fn has_record(local: &Path, remote: &str) -> bool {
+    record::load(local, remote).is_ok_and(|record| record.is_some())
+}
+
+fn since_last(
+    socket: &Path,
+    local: &Path,
+    remote: &str,
+    only: Option<&sync_cli::Only>,
+) -> anyhow::Result<Pushed> {
     let machine = Machine::read(socket)?;
     let local = std::fs::canonicalize(local).map_err(|error| {
         SeedError::new("sync_failed", format!("cannot open {}: {error}", local.display()))
@@ -638,6 +678,10 @@ pub(super) fn push_since_last(socket: &Path, local: &Path, remote: &str) -> anyh
         if record.filling.is_some() {
             settle(&machine, remote, &mut record)?;
             let _ = record::save(&local, remote, &record);
+        }
+        if let Some(only) = only {
+            let summary = sync_cli::push_changed(machine.socket, &local, remote, only)?;
+            return Ok(copied(&machine, &local, remote, &summary, None, None));
         }
         return copy(&machine, &local, remote, None);
     }

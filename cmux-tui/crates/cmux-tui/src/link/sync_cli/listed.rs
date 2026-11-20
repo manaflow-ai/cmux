@@ -21,12 +21,21 @@ impl LocalFile {
     }
 }
 
+/// Every file [`open_listed`] opened, for tests that count what a push reads.
+#[cfg(test)]
+pub(super) static OPENED: std::sync::Mutex<Vec<std::path::PathBuf>> =
+    std::sync::Mutex::new(Vec::new());
+
 /// Opens the file at `path` without following a symlink or blocking on a FIFO
 /// swapped in since it was listed; anything but a regular file is refused, and
 /// so is a file other than the one listed as `id` (a folder above it swapped for
 /// a symlink that leads out of the folder copied).
 pub(super) fn open_listed(path: &Path, id: Option<(u64, u64)>) -> anyhow::Result<std::fs::File> {
     use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _};
+    #[cfg(test)]
+    if let Ok(mut opened) = OPENED.lock() {
+        opened.push(path.to_path_buf());
+    }
     let opened = std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)

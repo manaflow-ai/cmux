@@ -124,7 +124,7 @@ impl Snapshot {
 }
 
 fn link_sync_dir() -> anyhow::Result<PathBuf> {
-    let Some(state) = cmux_tui_core::platform::workspace_state_dir() else {
+    let Some(state) = super::state_dir() else {
         bail!("this Mac has no state folder to keep sync snapshots in");
     };
     Ok(state.join("link-sync"))

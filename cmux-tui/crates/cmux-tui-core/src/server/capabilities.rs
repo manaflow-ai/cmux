@@ -64,6 +64,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_MACHINE_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_PROMPT_CONTEXT_CAPABILITY);
         capabilities.push(agent_session_attach::member::AGENT_SESSION_STEER_CAPABILITY);
         capabilities.push(agent_session_attach::member::AGENT_SESSION_QUEUE_DECISION_CAPABILITY);
         capabilities.push(agent_session_attach::member::AGENT_SESSION_MEMBER_CAPABILITY);

@@ -20,6 +20,8 @@ pub(in crate::link) struct Summary {
     /// Head links ([`super::push_head`]) the machine did not make, for nothing at their target
     /// yet: a head without them is not the folder's head.
     pub(in crate::link) head_links_short: u64,
+    /// Paths changed on the machine since the last push, left untouched.
+    pub(in crate::link) conflicts: Vec<String>,
 }
 
 impl Summary {
@@ -35,6 +37,9 @@ impl Summary {
         });
         if let Some(store) = &self.store {
             line.set("store", store.clone());
+        }
+        if !self.conflicts.is_empty() {
+            line.set("conflicts", json!(self.conflicts));
         }
         line
     }

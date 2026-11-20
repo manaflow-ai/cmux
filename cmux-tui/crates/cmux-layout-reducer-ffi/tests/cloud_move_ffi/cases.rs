@@ -130,6 +130,15 @@ fn the_ledgers_round_trip_through_the_defaults_text() {
         )["entry"]["session"],
         "s"
     );
+    let push = |hosts: Value, session: &str| {
+        ok(
+            c"cloud_move_moved_chats",
+            json!({"action": "push_target", "moved": moved, "hosts": hosts, "session": session}),
+        )["push"]
+            .clone()
+    };
+    assert_eq!(push(json!(["x", "h"]), "s"), json!({"local": "/l", "remote": "/r"}));
+    assert_eq!(push(json!(["x"]), "s"), Value::Null);
 
     let scope =
         json!({"userID": "u", "teamID": "t", "cloudOrigin": "https://cmux.com", "folder": "/w"});
