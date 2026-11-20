@@ -146,6 +146,25 @@ pub fn declared_sender(params: &Value) -> Result<Option<String>, RpcError> {
     }
 }
 
+/// `declared` as `HOST/NAME` for a prompt a peer daemon forwarded: `host` is the machine that
+/// daemon stamped on its own proven caller (`messageSender.host`, `peer_forward.rs`
+/// `name_sender`), which no client of it can set. A name that already starts with that host keeps
+/// it once; any other `HOST/` a sender wrote into its label stays part of the name, under the
+/// stamped host. No host (a peer from before it sent one) leaves the name as it was.
+pub fn on_peer_host(declared: String, host: Option<&str>) -> String {
+    let Some(host) = host
+        .map(str::trim)
+        .filter(|h| !h.is_empty() && !h.contains('/') && !h.chars().any(char::is_control))
+    else {
+        return declared;
+    };
+    if declared.strip_prefix(host).is_some_and(|rest| rest.starts_with('/')) {
+        return declared;
+    }
+    let named = format!("{host}/{declared}");
+    named.chars().take(MAX_FROM_AGENT_CHARS).collect::<String>().trim().to_owned()
+}
+
 /// The blocks of one turn of agent messages, `parts` oldest first: a line saying what follows,
 /// then each message under a line naming its sender, its blocks as sent.
 pub(super) fn digest_blocks(parts: &[Part]) -> Vec<Value> {
@@ -652,6 +671,25 @@ mod tests {
         assert!(named(json!("x".repeat(65))).is_err());
         assert!(named(json!(7)).is_err());
         assert_eq!(declared_sender(&json!({})).unwrap(), None);
+    }
+
+    /// A peer-forwarded prompt names `HOST/SESSION` from the forwarding daemon's stamp; an old
+    /// peer that stamps no host keeps the bare name, and a label that writes another host stays
+    /// under the stamped one.
+    #[test]
+    fn a_peer_forwarded_sender_names_its_machine() {
+        assert_eq!(on_peer_host("lane-a".into(), Some("swarm-07")), "swarm-07/lane-a");
+        assert_eq!(on_peer_host("swarm-07/lane-a".into(), Some("swarm-07")), "swarm-07/lane-a");
+        assert_eq!(on_peer_host("lane-a".into(), None), "lane-a");
+        assert_eq!(on_peer_host("lane-a".into(), Some(" ")), "lane-a");
+        assert_eq!(on_peer_host("lane-a".into(), Some("a/b")), "lane-a", "no host smuggles a '/'");
+        assert_eq!(
+            on_peer_host("huge-blue/coord".into(), Some("swarm-07")),
+            "swarm-07/huge-blue/coord",
+            "a label can't claim another machine"
+        );
+        let long = on_peer_host("x".repeat(MAX_FROM_AGENT_CHARS), Some("swarm-07"));
+        assert_eq!(long.chars().count(), MAX_FROM_AGENT_CHARS);
     }
 
     #[test]

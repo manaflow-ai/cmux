@@ -1971,6 +1971,14 @@ async fn dispatch_request_with_identity(
                 .and_then(|sender| sender.relay)
                 .map(|relay| relay.name());
             let declared = crate::hub::declared_sender(&params)?.or(relayed);
+            // A prompt a peer daemon forwarded names the machine it came from too
+            // (`HOST/NAME`): the host that daemon stamped on its proven caller, read only from
+            // a peer daemon's own link, as `messageSender` is below.
+            let peer_host = (conn.origin == super::Origin::Peer && conn.auth.peer_daemon() && !web)
+                .then(|| mux_meta(&params).and_then(|m| m.pointer("/messageSender/host")))
+                .flatten()
+                .and_then(Value::as_str);
+            let declared = declared.map(|name| crate::hub::on_peer_host(name, peer_host));
             // Keep a caller's `--from` label beside authenticated caller provenance. The label
             // is display-only; `fromSessionId` is still stamped below from the caller token.
             let provenance = provenance.map(|provenance| {
