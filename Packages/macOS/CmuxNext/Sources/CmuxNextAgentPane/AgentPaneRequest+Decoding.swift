@@ -534,7 +534,7 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "pane.tabState": self = .tabState(refresh: params?["refresh"] as? Bool == true)
+        case "pane.tabState": self = .tabState(refresh: params?["refresh"] as? Bool == true, terminalSwitch: params?["terminalSwitch"] as? Bool == true)
         case "pane.tabRowTools":
             if let width = (params?["width"] as? NSNumber)?.doubleValue, width.isFinite, (0...2000).contains(width) {
                 self = .tabRowTools(width: width)
