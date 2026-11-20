@@ -263,13 +263,18 @@ def frame_timing_validity(phase, streams):
 
 
 def draw_on_input_frames():
-    """`debug.cef.draw_on_input`: frames the engine drew for keys, per browser. Absent (None here) when the engine has
-    no such counter, which is not the same as zero frames: an engine below fork API 35 takes no draw-on-input call at
-    all, so an arm that reads on measures the off path (cmux#45709 shipped against a pin at API 33)."""
+    """Frames the engine drew for keys, per browser, from `debug.cef`'s `tracker` counters.
+
+    The engine reports them flat inside `tracker` (`CEFTrackerStats.reportFields`): `draw_on_input_counter` is 1 when
+    the shim answers the per-key count at all, and `draw_on_input.<browser>` is one page's frames. Returns None when
+    `draw_on_input_counter` is absent or 0, which is not the same as zero frames: an engine below fork API 35 takes no
+    draw-on-input call at all, so an arm that reads on measures the off path (cmux#45709 shipped against a pin at
+    API 33)."""
     report = rpc("debug.cef", timeout=20)
-    if not isinstance(report, dict) or "draw_on_input" not in report:
+    tracker = report.get("tracker") if isinstance(report, dict) else None
+    if not isinstance(tracker, dict) or not tracker.get("draw_on_input_counter"):
         return None
-    return {str(k): v for k, v in (report.get("draw_on_input") or {}).items()}
+    return {k[len("draw_on_input."):]: v for k, v in tracker.items() if k.startswith("draw_on_input.")}
 
 
 def start_burners():
@@ -1239,9 +1244,24 @@ def main():
                         run_session(native["session"], [phase], backdrop)
             MODE = None
         else:
-            for session in sessions:
+            global LAUNCH_ARM
+            for index, session in enumerate(sessions):
                 for backdrop in opts.backdrops.split(","):
-                    run_session(session, backdrop=backdrop)
+                    # As in the --modes path: a launch-time --ab key cannot be set in a running app, so each arm
+                    # gets its own launch, the order alternating per session. Without this the sessions path ran one
+                    # launch at the build's default and labelled its rows off and on, which is the inert-toggle trap
+                    # this harness exists to catch (cmux#45709; review F3 on cmux#48152).
+                    if launch_arm_key():
+                        order = [False, True] if index % 2 == 0 else [True, False]
+                        for arm in order:
+                            LAUNCH_ARM = arm
+                            path = write_launch_tunable(TAG, opts.ab, arm)
+                            note(f"session {session} arm {opts.ab}={arm}: wrote {path} for the next launch")
+                            run_session(session, backdrop=backdrop)
+                        LAUNCH_ARM = None
+                        write_launch_tunable(TAG, opts.ab, None)
+                    else:
+                        run_session(session, backdrop=backdrop)
     finally:
         summary = {}
         for r in results["runs"]:
