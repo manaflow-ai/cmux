@@ -1125,8 +1125,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             crate::cli::resume_here::run(connect(true).await?, &session, print, json_out).await
         }
         Command::Tail { session, last, follow, since } => {
-            orchestrate::tail(connect(true).await?, &session, last, since, follow, suppress_reads)
-                .await
+            crate::cli::session_tail::tail(
+                connect(true).await?,
+                &session,
+                last,
+                since,
+                follow,
+                suppress_reads,
+            )
+            .await
         }
         Command::Info { session, fields } => {
             let client = connect(true).await?;
