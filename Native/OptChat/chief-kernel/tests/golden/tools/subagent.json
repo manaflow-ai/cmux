@@ -44,32 +44,32 @@
     "name": "date"
   },
   {
-    "name": "recall",
     "description": "Search your whole memory, every message word for word since the first day, for any of the words in query (names, numbers and rare words work best; a question works too). Answers the best matches, each with its message id, local day and time, kind and the matching part. The view summarizes older days to a few lines and drops details: call recall before you say you do not know or do not remember, before you ask the person something they may have told you (a fact, a choice, a rule), and whenever they ask about an earlier day. Then zoom(id, 1) the hit you need. all: true also searches tool calls and their results.",
     "inputSchema": {
-      "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "query": {
-          "type": "string",
-          "minLength": 1,
-          "description": "The words to find: names, numbers, rare words, or a question."
+        "all": {
+          "description": "Also search tool calls and their results.",
+          "type": "boolean"
         },
         "limit": {
-          "type": "integer",
-          "minimum": 1,
+          "description": "How many matches (default 8).",
           "maximum": 30,
-          "description": "How many matches (default 8)."
+          "minimum": 1,
+          "type": "integer"
         },
-        "all": {
-          "type": "boolean",
-          "description": "Also search tool calls and their results."
+        "query": {
+          "description": "The words to find: names, numbers, rare words, or a question.",
+          "minLength": 1,
+          "type": "string"
         }
       },
       "required": [
         "query"
       ],
-      "additionalProperties": false
-    }
+      "type": "object"
+    },
+    "name": "recall"
   },
   {
     "description": "Ask Chief to sign you in when a page needs a password, passkey, 2FA code or security key, or an OAuth sign-in you cannot pass. Chief opens the page in Home's right pane, fills what it may, starts the passkey or security-key step so macOS shows Touch ID, and asks the user to touch the sensor; it tells you when the site is signed in. Never wait on a login tab and never read or type a password or code. Call it once per site.",

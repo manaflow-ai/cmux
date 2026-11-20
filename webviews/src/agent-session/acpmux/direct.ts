@@ -231,7 +231,7 @@ import { markOneRowChange } from "./rowChanges";
 import { noteKeptPrefix } from "./conversation/prefixFlatMap";
 import { RowUpdates } from "./rowUpdates";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
-import { permissionModes, reportsNoModes } from "./permissionModes";
+import { permissionModes, reportsModes, reportsNoModes } from "./permissionModes";
 import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
 import { STALL_CHECK_MS, type StallCause, quietDelay, stallLine, stallTiming } from "./stallLog";
 import { hostTurn, hostTurnState } from "./hostTurnState";
@@ -16781,6 +16781,8 @@ function catalogEntry(harness: any): AcpmuxSnapshot["catalog"][number] {
     ...(harnessStart(harness.start) ? { start: harnessStart(harness.start) } : {}),
     // Its chats report no permission modes (`reported`): a new chat on it draws no Mode chip.
     ...(reportsNoModes(harness.reported) ? { modeless: true as const } : {}),
+    // Its chats (or its startup probe) report permission modes: a new chat holds its Mode chip.
+    ...(reportsModes(harness.reported) ? { reportsModes: true as const } : {}),
     ...(typeof harness.auth?.login === "string" && harness.auth.login.trim()
       ? { auth: { login: harness.auth.login.trim() } }
       : {}),
