@@ -303,12 +303,12 @@ impl Hub {
     /// Return the canonical outbox target for a remote owner binding. Display names are never
     /// accepted here: only a host-qualified UUID can have reached the grant journal.
     fn remote_owner_target(&self, owner: &str) -> Option<String> {
-        let (_, id) = owner.split_once('/')?;
-        if uuid::Uuid::try_parse(id).is_err() {
+        let (host, id) = owner.split_once('/')?;
+        if host.is_empty() || uuid::Uuid::try_parse(id).is_err() {
             return None;
         }
         let (peer, mux, _) = self.resolve_remote(owner)?;
-        Some(format!("{}/{mux}", peer.name))
+        (peer.name == host && mux == id).then(|| format!("{host}/{id}"))
     }
 
     /// Every session's own thread subscriptions, read once per daemon run under `subs`.
