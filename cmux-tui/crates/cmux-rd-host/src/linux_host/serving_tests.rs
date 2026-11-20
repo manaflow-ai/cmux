@@ -102,7 +102,7 @@ fn hold(dir: &Path, origin: &str, before: Before) -> Option<Device> {
     device.save(dir).unwrap();
     account.save(dir).unwrap();
     if let Some(credential) = joined {
-        machine::Joined::of(&home(dir), &credential).save(dir).unwrap();
+        machine::Joined::of(&home(dir, origin), &credential).save(dir).unwrap();
     }
     Some(device)
 }
