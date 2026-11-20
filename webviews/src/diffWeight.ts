@@ -71,3 +71,7 @@ export const DIFF_WEIGHT_CSS = /* css */ `
 [data-diff-span] {
   font-weight: ${DIFF_WORD_WEIGHT};
 }`;
+
+// ci-self-heal 0c proof (closed after, never merged): a deliberate type error. The bundles, the gallery and the
+// tests still build and run on it; only webviews-typecheck goes red.
+export const CI_OOPS_0C_TYPE_ERROR_PROOF: number = "not a number";
