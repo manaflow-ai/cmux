@@ -11,9 +11,18 @@ and one command puts your own setup back.
 ```sh
 examples/customize-demo/demo.sh            # every setup in order, Enter for the next
 examples/customize-demo/demo.sh --auto 12  # 12 s each, no keys (for a recording)
+examples/customize-demo/demo.sh --nightly --auto 8  # all 13 looks in installed NIGHTLY, then revert
 examples/customize-demo/demo.sh --list     # the order
 examples/customize-demo/demo.sh reset      # your setup back
 ```
+
+`--nightly` selects `/Applications/cmux NIGHTLY.app` explicitly and clears inherited app socket
+and customization-root overrides. It does not restart the app. `--only` and `--auto` can be combined.
+The script checks for an existing preview or try-on before changing anything; keep or discard that
+preview first. Each look starts from your applied setup, so settings from the previous look cannot
+leak into the next one. Normal completion, Ctrl-C, and command failures restore the applied setup;
+a failed restore returns an error with the recovery command. This demo needs Python 3 for its
+status check.
 
 Or one at a time: `cmux customize use examples/customize-demo/looks/claude.json`, then
 `cmux customize discard` (off) or `cmux customize apply` (keep it; `rollback` takes it off later).
@@ -50,26 +59,35 @@ An examples-only PR has no web or daemon layer, so `hot-verify --look` can skip 
 Use the NIGHTLY capture route for these profiles:
 
 ```sh
-python3 examples/customize-demo/record-steps.py --ref "$(git rev-parse HEAD)" > /tmp/demo-steps.json
-cmux-ci capture --nightly latest --state /tmp/demo-steps.json
+python3 examples/customize-demo/record-steps.py --ref "$(git rev-parse HEAD)" \
+  --output-dir /tmp/demo-states
+cmux-ci capture --nightly latest --state /tmp/demo-states/looks-hosts.json
 ```
 
-Every profile opens a fresh New Tab so its own start page appears. The result includes all 13
-looks and a reset shot. The library status before and after is recorded too; `discard` resets
+Every profile opens a fresh New Tab so its own start page appears. The directory contains one
+state per look, each with a reset shot. Run each state once and retain its capture receipt.
+The library status before and after is recorded too; `discard` resets
 the profile, but does not turn off library overlays. Inspect those answers and every step's
 `ok` result, as the runner continues after a failed step.
 The default route queues on a fleet display worker through the controller from a lane VM;
 it does not require a direct SSH route from the lane to the Mac.
 
-For a short video, choose a few profiles (repeat `--only`); the runner limits each clip to
+For a short video **per look**, generate a state directory with `--video`. Each state records a
+separately named clip. Use a new directory for each published head, so a receipt cannot be
+mistaken for a capture of newer code. The runner limits each clip to
 120 seconds and each state to 60 steps. A video records the whole display on an isolated fleet
 lease, so inspect it for private content before posting it:
 
 ```sh
-python3 examples/customize-demo/record-steps.py --ref "$(git rev-parse HEAD)" --video \
-  --only looks/claude.json --only looks/codex.json --only looks/studio.json > /tmp/demo-video.json
-cmux-ci capture --nightly latest --state /tmp/demo-video.json --on fleet
+python3 examples/customize-demo/record-steps.py --ref "$(git rev-parse HEAD)" --video --hold 8 \
+  --output-dir /tmp/demo-videos
+cmux-ci capture --nightly latest --state /tmp/demo-videos/looks-claude.json --on fleet
 ```
+
+Without `--output-dir`, stdout is one state; select a subset with repeated `--only` options.
+Resets between profiles count against the 60-step limit, so all 13 need separate states.
+Generating states does not record videos: each fleet capture must complete successfully before
+its clip can be reviewed and linked in a PR.
 
 `--root /absolute/path` uses profiles already staged on the capture Mac instead of downloading
 them. Set `CMUX_AGENT_ID` to your session identity when the fleet capture asks for a lease owner.

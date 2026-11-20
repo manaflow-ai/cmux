@@ -3,6 +3,7 @@
 #
 #   examples/customize-demo/demo.sh            # step through every setup, Enter for the next
 #   examples/customize-demo/demo.sh --auto 12  # 12 s per setup, no keys (for a recording)
+#   examples/customize-demo/demo.sh --nightly --auto 8  # installed NIGHTLY, all looks, then revert
 #   examples/customize-demo/demo.sh --list     # the order, nothing changes
 #   examples/customize-demo/demo.sh --only glass/liquid.json
 #   examples/customize-demo/demo.sh reset      # put your setup back (cmux customize discard)
@@ -44,7 +45,7 @@ title() {
 }
 
 reset() {
-  "$cli" customize discard && "$cli" action run newTab.default
+  "$cli" customize discard && "$cli" action run newTab.default && "$cli" customize library status
 }
 
 finish() {
@@ -53,7 +54,7 @@ finish() {
   if reset; then
     printf '\nYour setup is back.\n'
   else
-    printf '\ndemo.sh: reset failed; run cmux customize discard to restore your setup.\n' >&2
+    printf '\ndemo.sh: reset failed; run %q customize discard to restore your setup.\n' "$cli" >&2
     [[ $status -ne 0 ]] || status=1
   fi
   exit "$status"
@@ -61,22 +62,41 @@ finish() {
 
 auto=""
 only=""
-case "${1:-}" in
-  reset) reset; echo "Your setup is back."; exit 0 ;;
-  --list) steps; exit 0 ;;
-  --auto) auto="${2:?--auto takes seconds}" ;;
-  --only) only="${2:?--only takes a file under examples/customize-demo}" ;;
-  "") ;;
-  *) sed -n '2,12p' "${BASH_SOURCE[0]}"; exit 2 ;;
-esac
-
-trap finish EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
+nightly=false
+mode=demo
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --nightly) nightly=true; shift ;;
+    reset) mode=reset; shift ;;
+    --list) mode=list; shift ;;
+    --auto) auto="${2:?--auto takes seconds}"; shift 2 ;;
+    --only) only="${2:?--only takes a file under examples/customize-demo}"; shift 2 ;;
+    *) sed -n '2,13p' "${BASH_SOURCE[0]}"; exit 2 ;;
+  esac
+done
+[[ "$mode" != list ]] || { steps; exit 0; }
+if [[ -n "$auto" && ! "$auto" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+  echo 'demo.sh: --auto takes a nonnegative number of seconds' >&2
+  exit 2
+fi
+if $nightly; then
+  cli='/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux'
+  # Match app_identity.rs's app routing isolation, including customize's test roots.
+  # Do not let a terminal in DEV redirect the installed NIGHTLY command.
+  unset CMUX_SOCKET_PATH CMUX_TAG CMUX_TUI_SOCKET CMUX_MUX_SOCKET \
+    CMUX_APP_DAEMON_SOCKET CMUX_CHIEF_OWNER_SOCKET CMUX_CHIEF_HOME \
+    CMUX_NEXT_CHIEF_HOME CMUX_NEXT_CHIEF_ROOT CMUX_NEXT_CHIEF_BUILD_ID \
+    CMUX_NEXT_CHIEF_ACCOUNT CMUX_NEXT_MUX_HOME CMUX_NEXT_ACPMUX_ROOT \
+    CMUX_NEXT_SOCKET_PATH CMUX_NEXT_CONFIG_FILE ACPMUX_HOME ACPMUX_SOCKET \
+    CMUX_CUSTOMIZE_DIR CMUX_CUSTOMIZE_STATE_DIR
+  export CMUX_BUNDLE_ID=com.cmuxterm.app.nightly
+fi
+[[ "$mode" != reset ]] || { reset; echo "Your setup is back."; exit 0; }
 
 # A while-read loop, not mapfile: macOS's /bin/bash is 3.2.
 list=()
 if [[ -n "$only" ]]; then
+  steps | grep -Fx -- "$only" >/dev/null || { echo "demo.sh: unknown profile: $only" >&2; exit 2; }
   list=("$only")
 else
   while IFS= read -r file; do
@@ -85,9 +105,26 @@ else
 fi
 [[ ${#list[@]} -gt 0 ]] || { echo "demo.sh: no setups found under $here" >&2; exit 1; }
 
+# Before installing the cleanup trap: an existing draft belongs to the user.
+# The CLI snapshots hand edits when the first profile starts, preserving those too.
+"$cli" customize status --json | python3 -c '
+import json, sys
+status = json.load(sys.stdin)
+if "draft" not in status or "try_on" not in status:
+    sys.exit("demo.sh: unrecognized customization status; nothing changed")
+if status["draft"] is not None or status["try_on"] is not None:
+    sys.exit("demo.sh: an existing preview or try-on is active; keep or discard it before starting the demo")
+'
+"$cli" customize library status
+trap finish EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 n=0
 for file in "${list[@]}"; do
   n=$((n + 1))
+  # Profile settings compose with live settings. Reset so looks cannot leak into each other.
+  if [[ $n -gt 1 ]]; then "$cli" customize discard; fi
   printf '\n[%d/%d] %s  (%s)\n' "$n" "${#list[@]}" "$(title "$file")" "$file"
   "$cli" customize use "$here/$file"
   # An already open page belongs to the previous profile. Show this one's page.

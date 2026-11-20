@@ -60,6 +60,8 @@ def main() -> int:
     parser.add_argument("--only", action="append", help="profile path from demo.sh --list; repeatable")
     parser.add_argument("--hold", type=float, default=3.0)
     parser.add_argument("--video", action="store_true", help="record a clip; requires a fleet display lease")
+    parser.add_argument("--output-dir", type=Path,
+                        help="write one capture state per look (one named video each with --video)")
     args = parser.parse_args()
     if not math.isfinite(args.hold) or not 0 <= args.hold <= 30:
         parser.error("--hold must be from 0 to 30 seconds")
@@ -74,6 +76,31 @@ def main() -> int:
         if unknown:
             parser.error(f"unknown profiles: {', '.join(sorted(unknown))}")
         ordered = [file for file in ordered if file in args.only]
+    if args.output_dir:
+        # Exclusive creation prevents overwriting states tied to an earlier receipt.
+        args.output_dir.mkdir(parents=True, exist_ok=False)
+        for file in ordered:
+            name = clip_name(file)
+            state = capture_steps(args, [file], name)
+            path = args.output_dir / f"{name}.json"
+            path.write_text(json.dumps({"steps": state}, indent=2) + "\n")
+            print(path)
+        return 0
+    steps = capture_steps(args, ordered, "customization-demo")
+    if len(steps) > MAX_STEPS:
+        parser.error(f"{len(steps)} steps, capture takes {MAX_STEPS}; use --output-dir or split with --only")
+    if args.video and len(ordered) * args.hold > 90:
+        parser.error("leave time for transitions within the 120-second clip: use --output-dir")
+    json.dump({"steps": steps}, sys.stdout, indent=2)
+    print()
+    return 0
+
+
+def clip_name(file: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", Path(file).with_suffix("").as_posix().lower()).strip("-")
+
+
+def capture_steps(args, ordered: list[str], clip: str) -> list[dict]:
     root = args.root or f"/tmp/customization-demo-{uuid.uuid4().hex[:12]}"
     # Status is evidence only: discard resets the profile, not library overlays.
     # This capture uses an isolated fresh home; inspect both answers before reuse.
@@ -81,9 +108,11 @@ def main() -> int:
     if args.ref:
         steps += stage_profiles(args.ref, root, ordered)
     if args.video:
-        steps.append({"recording": "start", "clip": "customization-demo"})
+        steps.append({"recording": "start", "clip": clip})
     for index, file in enumerate(ordered, start=1):
-        name = re.sub(r"[^a-z0-9]+", "-", Path(file).with_suffix("").as_posix().lower()).strip("-")
+        if index > 1:
+            steps.append({"cmux": ["customize", "discard"], "record": True})
+        name = clip_name(file)
         steps += [
             {"cmux": ["customize", "use", f"{root}/{file}"], "record": True},
             {"action": "newTab.default", "name": f"New Tab: {file}"},
@@ -99,12 +128,7 @@ def main() -> int:
         {"wait": 2},
         {"shot": "99-after-reset"},
     ]
-    if len(steps) > MAX_STEPS:
-        print(f"record-steps: {len(steps)} steps, capture takes {MAX_STEPS}; split with --only", file=sys.stderr)
-        return 1
-    json.dump({"steps": steps}, sys.stdout, indent=2)
-    print()
-    return 0
+    return steps
 
 
 if __name__ == "__main__":
