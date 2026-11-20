@@ -193,20 +193,24 @@ Example: `3 noise`. Answer only those lines.\n";
 
 /// The model prompt for `batch`, at most [`MAX_PROMPT_BYTES`]. Each message is fenced and
 /// numbered from 1; its excerpt shrinks with the batch so the whole fits.
-pub fn prompt(batch: &Batch) -> String {
+pub fn prompt(batch: &Batch, recipient_name: &str, owners: &Owners) -> String {
+    let label = |s: &str, limit| cut(s, limit).replace(['<', '>', '\n'], " ");
     let n = batch.messages.len().max(1);
-    let room = MAX_PROMPT_BYTES.saturating_sub(PROMPT_HEAD.len() + 16);
-    // Frame per message: "<<<NN from NAME>>>\n" (NAME at most 40) and "\n<<<end>>>\n".
-    let each = (room / n).saturating_sub(80).min(MAX_EXCERPT_BYTES);
     let mut out = String::from(PROMPT_HEAD);
+    out.push_str(&format!("Receiving session: {}\n", label(recipient_name, 80)));
+    let per_message = MAX_PROMPT_BYTES.saturating_sub(out.len()) / n;
     for (i, m) in batch.messages.iter().enumerate() {
-        // The fence words are the prompt's, so a message cannot close its own fence.
-        let text = cut(&m.text.replace("<<<", "‹‹‹"), each);
-        let from = cut(&m.from.replace("<<<", "‹‹‹"), 40).replace('\n', " ");
-        out.push_str(&format!("<<<{} from {from}>>>\n{text}\n<<<end>>>\n", i + 1));
-    }
-    if out.len() > MAX_PROMPT_BYTES {
-        out = cut(&out, MAX_PROMPT_BYTES);
+        let from = label(&m.from, 32);
+        let topic = label(&m.thread_id, 64);
+        let owner = if owners.0.contains_key(&m.thread_id) { "yes" } else { "no" };
+        let frame =
+            format!("<<<{} from {from}, thread {topic}, has separate owner: {owner}>>>\n", i + 1);
+        let end = "\n<<<end>>>\n";
+        let available = per_message.saturating_sub(frame.len() + end.len());
+        let text = cut(&m.text, available.min(MAX_EXCERPT_BYTES)).replace("<<<", "[[[");
+        out.push_str(&frame);
+        out.push_str(&text);
+        out.push_str(end);
     }
     out
 }

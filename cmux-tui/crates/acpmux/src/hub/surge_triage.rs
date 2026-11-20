@@ -610,7 +610,11 @@ impl Hub {
         if batch.messages.is_empty() {
             return Vec::new();
         }
-        let prompt = triage::prompt(batch);
+        let recipient_name = self
+            .resolve(&batch.recipient)
+            .map(|session| session.read_meta(|meta| meta.name.clone()))
+            .unwrap_or_else(|_| batch.recipient.clone());
+        let prompt = triage::prompt(batch, &recipient_name, owners);
         let triager = self.surge_triager.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let answer = match triager {
             Some(triage_with) => triage_with(prompt),
