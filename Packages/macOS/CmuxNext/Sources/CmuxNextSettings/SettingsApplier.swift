@@ -36,6 +36,10 @@ public final class SettingsApplier {
         }
 
         if design.showModifierHoldHints != snapshot.showModifierHoldHints { design.showModifierHoldHints = snapshot.showModifierHoldHints }
+        let qwertyPositions = snapshot.keyboardStyle.shortcutLayout == .qwertyPositions
+        if registry.matchesQwertyPositions != qwertyPositions {
+            registry.matchesQwertyPositions = qwertyPositions
+        }
         if design.customDensities != snapshot.customDensities { design.customDensities = snapshot.customDensities }
         let density = snapshot.selectedDensity
         if design.densityTokens != density { design.densityTokens = density }

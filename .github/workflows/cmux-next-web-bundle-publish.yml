@@ -58,6 +58,8 @@ on:
       - "config/vite-plus/**"
       - "schemas/sync-motion/**"
       - "schemas/agent-pane/**"
+      # The key style table the web lists read (webviews/src/ui/keyStyle.ts).
+      - "schemas/keymap/**"
       # The layout grid the transcript imports (src/agent-session/acpmux/transcriptGrid.ts).
       - "schemas/layout-grid/layout-grid.json"
       - "schemas/type-scale/type-scale.json"
