@@ -1132,6 +1132,9 @@ pub struct Hub {
     pub(super) surge_triage_journals: StdMutex<HashMap<String, surge_triage::Journal>>,
     /// The thread owners every chat subscribed itself to (`surge_triage.rs`).
     pub(super) surge_subscribers: StdMutex<surge_triage::Subscribers>,
+    /// Each digest recipient's digest turn under way and its measured reply period
+    /// (`surge_triage.rs` `DigestPace`): one entry per session a digest reached.
+    pub(super) surge_digest_pace: StdMutex<HashMap<String, surge_triage::DigestPace>>,
     /// The forced start mode and the setting's change count (`start_mode_state.rs`).
     pub(super) start_mode_state: start_mode_state::StartModeCell,
     /// The caller tokens earlier daemon runs gave out, by session (`caller_registry.rs`).
@@ -1554,6 +1557,7 @@ impl Hub {
             surge_triager: StdMutex::new(None),
             surge_triage_journals: StdMutex::new(HashMap::new()),
             surge_subscribers: StdMutex::new(None),
+            surge_digest_pace: StdMutex::new(HashMap::new()),
             start_mode_state,
             caller_registry,
             full_access_pushes: tokio::sync::Mutex::new(()),
