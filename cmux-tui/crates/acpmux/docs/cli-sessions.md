@@ -64,7 +64,7 @@ boundary); `--no-steer` queues it instead.
 `session park-retry` runs on the machine that owns the session. Pass its observed `lastSeq`
 as `--expect-revision`. It returns `{sessionId, revision, parked: true}` only after the retry's
 stop boundary is durable; a rate-limit hold stays parked too. A moved revision, running turn,
-retry already firing, or runnable queued prompt is refused. The failed turn, transcript and
+retry already firing, or any queued prompt (including held prompts) is refused. The failed turn, transcript and
 agent process stay intact. A later explicit retry or new prompt can resume the source; keep
 the handoff receipt so an automated recovery worker does not create another successor.
 Older daemons refuse the distinct `_acpmux/park_retry` operation; do not substitute Cancel or Stop.

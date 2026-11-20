@@ -41,7 +41,9 @@ impl Hub {
         }
         if session.turn().is_some()
             || session.harness_turn.load(Ordering::SeqCst)
-            || queue.iter().any(|q| !q.aside())
+            // Held prompts can retry themselves too (`digest.rs`), independently of
+            // auto_resume. A handoff must not overlook that second source of work.
+            || !queue.is_empty()
         {
             return Err(refused(session, "retry.busy"));
         }

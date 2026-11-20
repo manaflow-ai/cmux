@@ -234,6 +234,37 @@ async fn park_retry_keeps_rate_limit_queue_held_after_reset_and_restore() {
 }
 
 #[tokio::test]
+async fn park_retry_refuses_held_prompts_that_can_retry_independently() {
+    let (hub, session) = retry_chat();
+    waiting_for_park(&hub, &session);
+    hub.set_status(&session, SessionStatus::Idle);
+    hub.append(
+        &session,
+        "mux",
+        "queued",
+        json!({
+            "promptId":"held", "turnId":"held-turn", "text":"queued work", "control":"local"
+        }),
+    );
+    hub.append(
+        &session,
+        "mux",
+        "queue_paused",
+        json!({
+            "turnId":"workflow-turn", "held":["held"], "retrying":["held"]
+        }),
+    );
+    hub.restore_queue(&session);
+    assert_eq!(session.queue().len(), 1);
+    assert!(session.queue()[0].held);
+    let revision = Hub::revision(&session);
+    let error = hub.park_retry(&session, revision).unwrap_err();
+    assert_eq!(error.data.unwrap()["reason"], "retry.busy");
+    assert_eq!(Hub::revision(&session), revision);
+    assert!(matches!(session.auto_resume.lock().as_ref(), Some(Mark::Waiting { .. })));
+}
+
+#[tokio::test]
 async fn exact_prompt_stop_fences_waiting_and_late_retry_without_touching_person() {
     let (hub, session) = retry_chat();
     hub.append(&session,"mux","turn_result",json!({"promptId":"workflow","turnId":"workflow-turn","status":"failed","errorText":"HTTP 503"}));
