@@ -39,8 +39,8 @@ import Testing
         var current = true
         var revealed: [String] = []
         let source = FilePageSourceContext(file: file, read: { _ in
-            ["uses": [["turnId": "turn-1", "replyId": "turn-1.boot.2"]]]
-        }, current: { current }, reveal: { revealed.append($0); return true })
+            ["uses": [["turnId": "turn-1", "replyId": "turn-1.boot.2", "seq": 42]]]
+        }, current: { current }, reveal: { reply, seq in #expect(seq == 42); revealed.append(reply); return true })
         #expect(!source.reveal(reply: "turn-1.boot.2", turn: "turn-1"))
         _ = try await source.read(cursor: nil)
         #expect(!source.reveal(reply: "turn-1.boot.2", turn: "other-turn"))
@@ -56,8 +56,8 @@ import Testing
         var current = true
         let source = FilePageSourceContext(file: URL(fileURLWithPath: "/tmp/source-use.md"), read: { _ in
             current = false
-            return ["uses": [["turnId": "turn-1", "replyId": "turn-1.boot.2"]]]
-        }, current: { current }, reveal: { _ in Issue.record("stale reply opened"); return true })
+            return ["uses": [["turnId": "turn-1", "replyId": "turn-1.boot.2", "seq": 42]]]
+        }, current: { current }, reveal: { _, _ in Issue.record("stale reply opened"); return true })
         await #expect(throws: PageError.self) { _ = try await source.read(cursor: nil) }
         #expect(!source.reveal(reply: "turn-1.boot.2", turn: "turn-1"))
     }
@@ -69,8 +69,8 @@ import Testing
         var reveals = 0
         host.sourceUses = FilePageSourceContext(file: file, read: { _ in
             calls += 1
-            return ["uses": [["turnId": "turn-1", "replyId": "turn-1.boot.2"]]]
-        }, current: { true }, reveal: { _ in reveals += 1; return true })
+            return ["uses": [["turnId": "turn-1", "replyId": "turn-1.boot.2", "seq": 42]]]
+        }, current: { true }, reveal: { _, _ in reveals += 1; return true })
         let provider = FilePageProvider(kind: .markdown, file: file, host: host, libraries: nil, images: GuardedRemoteImages())
         defer { provider.close() }
         let page = PageCallContext(page: FilePageKind.markdown.namespace)
