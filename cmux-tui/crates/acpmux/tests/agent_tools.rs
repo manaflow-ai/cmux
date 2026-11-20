@@ -441,6 +441,19 @@ async fn local_sessions_get_the_browser_and_computer_use_tools_and_skills() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+#[test]
+fn background_start_without_a_session_explicitly_allows_shell_fallback() {
+    let home = tempfile::tempdir().unwrap();
+    let output = daemon_env::acpmux(home.path())
+        .args(["__bg-start", "", "echo should-not-run", ""])
+        .env_remove(acpmux::acpmux_mcp_names::SESSION_ENV)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(75), "{output:?}");
+    assert!(output.stdout.is_empty(), "the command must remain for the shell to run");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("start was not submitted"));
+}
+
 /// The hook process itself (`bg_hook.rs`), as Claude Code runs it: a lead's background Bash call
 /// in a chat whose MCP config has the `acpmux` server is rewritten to start the same command as a
 /// daemon task (every time, never turned away); a subagent's is denied with the exact `bg_start`

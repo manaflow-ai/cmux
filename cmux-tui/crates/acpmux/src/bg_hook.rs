@@ -13,7 +13,7 @@
 //! beside the config (`<config>.bg-denied`, one hash a line, the newest [`PENDING`], under a
 //! lock so parallel calls never lose one), one file per chat, removed with the config.
 //! The lead's own background shell is no longer turned away: [`rewrite`] makes it start the same
-//! command as the daemon task (`acpmux __bg-start`), and run it as asked when that fails; only a
+//! command as the daemon task (`acpmux __bg-start`), and run it as asked if no start was submitted; only a
 //! subagent's still gets the deny.
 //!
 //! It also turns away a known-slow command run in the foreground ([`SLOW`]: builds and test
@@ -513,12 +513,21 @@ pub fn subagent_call_ends(home: &std::path::Path, session: &str, input: &Value) 
 /// COMMAND [DESCRIPTION]` starts COMMAND as the chat's daemon-owned task, as `bg_start` does.
 pub const START_ARG: &str = "__bg-start";
 
+/// Only this exit confirms the start request was never submitted, so shell fallback is safe.
+const NOT_SUBMITTED_EXIT: i32 = 75;
+
+#[derive(Debug)]
+enum StartFailure {
+    NotSubmitted(anyhow::Error),
+    Uncertain(anyhow::Error),
+}
+
 /// A lead's `run_in_background` shell, rewritten to start the same command as a daemon task
 /// ([`START_ARG`]), or None. Before, the hook turned the call away and named `bg_start`; in 24 h on
 /// one lane host (2026-11-20) that was 1,771 refusals, 1,029 of them answered by sending the same
 /// call again, each a wasted turn that re-read the whole context. Now the call runs at once: its
 /// shell starts the task, prints the task's id and ends, and the daemon sends the chat one message
-/// when the task ends. When the daemon cannot start it, the shell runs the command as asked. A
+/// when the task ends. If no start request was submitted, the shell runs the command as asked. A
 /// subagent's call still gets the deny: its task's end message must reach the subagent, which only
 /// the MCP server's `bg_start` arranges (`acpmux_mcp_bg.rs`).
 pub fn rewrite(input: &Value, route: Option<Route>, exe: &str) -> Option<Value> {
@@ -535,9 +544,14 @@ pub fn rewrite(input: &Value, route: Option<Route>, exe: &str) -> Option<Value> 
         input.pointer("/tool_input/description").and_then(Value::as_str).unwrap_or_default();
     let q = crate::run_elsewhere::shell_quote;
     // The fallback runs the command on lines of its own, so a trailing comment or heredoc in it
-    // closes before the brace does.
+    // closes before the conditional does. A missing reply or helper crash does not prove the
+    // daemon failed to launch: only the explicit pre-submission exit permits a second attempt.
     let started = format!(
-        "if ! {} {START_ARG} {} {} {}; then\n{command}\nfi",
+        "if {} {START_ARG} {} {} {}; then\n:\nelse\n\
+__acpmux_bg_start_status=$?\n\
+if [ \"$__acpmux_bg_start_status\" -ne {NOT_SUBMITTED_EXIT} ]; then\n\
+exit \"$__acpmux_bg_start_status\"\nfi\n\
+unset __acpmux_bg_start_status\n{command}\nfi",
         q(exe),
         q(cwd),
         q(command),
@@ -552,16 +566,16 @@ pub fn rewrite(input: &Value, route: Option<Route>, exe: &str) -> Option<Value> 
 }
 
 /// [`START_ARG`]: starts the task through the daemon with the chat's caller token (the shell's
-/// environment has it), prints its id and how its end is reported, and exits 0; or prints why not
-/// and fails, and the shell then runs the command itself, as Claude Code would have. Once the
-/// daemon answered the start it never fails, so a started task never runs twice.
+/// environment has it), prints its id and how its end is reported, and exits 0. Only a failure
+/// before submitting the request exits [`NOT_SUBMITTED_EXIT`] to allow shell fallback. Once
+/// submitted, even an error reply may follow a launch, so an uncertain result never retries.
 pub fn start_main(args: &[String]) -> anyhow::Result<()> {
     let arg = |i: usize| args.get(i).map(String::as_str).unwrap_or_default();
     let (cwd, command, description) = (arg(0), arg(1), arg(2));
     let started = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(anyhow::Error::from)
+        .map_err(|e| StartFailure::NotSubmitted(e.into()))
         .and_then(|rt| rt.block_on(start(cwd, command, description)));
     match started {
         Ok(id) => {
@@ -572,16 +586,28 @@ bg_output {{\"id\":\"{id}\"}}. This shell only started it."
             );
             Ok(())
         }
-        Err(e) => {
-            eprintln!("acpmux: could not start it as a daemon task; running it in this shell");
-            Err(e)
+        Err(StartFailure::NotSubmitted(e)) => {
+            // The runtime has been dropped above. The hidden CLI dispatch otherwise turns all
+            // anyhow errors into exit 1, which cannot distinguish a safe fallback from a lost reply.
+            let error = crate::cli::errors::AppError::new(
+                crate::cli::errors::Code::Runtime,
+                "background_start_not_submitted",
+                format!("start was not submitted ({e:#}); running it in this shell"),
+            )
+            .with_exit(NOT_SUBMITTED_EXIT)
+            .into();
+            crate::cli::errors::exit_with(&error, false);
+        }
+        Err(StartFailure::Uncertain(e)) => {
+            Err(e.context("background start result is uncertain; the task may already be running; check bg_list before retrying"))
         }
     }
 }
 
-async fn start(cwd: &str, command: &str, description: &str) -> anyhow::Result<String> {
-    let session = std::env::var(crate::acpmux_mcp_names::SESSION_ENV)?;
-    let client = crate::daemon::connect(false).await?;
+async fn start(cwd: &str, command: &str, description: &str) -> Result<String, StartFailure> {
+    let session = std::env::var(crate::acpmux_mcp_names::SESSION_ENV)
+        .map_err(|e| StartFailure::NotSubmitted(e.into()))?;
+    let client = crate::daemon::connect(false).await.map_err(StartFailure::NotSubmitted)?;
     let mut params = json!({"sessionId": session, "command": command, "notify": true});
     if !cwd.is_empty() {
         params.set("cwd", json!(cwd));
@@ -589,7 +615,10 @@ async fn start(cwd: &str, command: &str, description: &str) -> anyhow::Result<St
     if !description.is_empty() {
         params.set("description", json!(description));
     }
-    let reply = client.request(crate::rpc::method::MUX_BG_START, params).await?;
+    let reply = client
+        .request(crate::rpc::method::MUX_BG_START, params)
+        .await
+        .map_err(StartFailure::Uncertain)?;
     // Started: never an error from here on, or the shell would run it a second time.
     Ok(reply.get("id").and_then(Value::as_str).unwrap_or("(unnamed)").to_owned())
 }
@@ -955,10 +984,11 @@ mod tests {
         assert!(out.get("permissionDecision").is_none(), "{out}");
         assert_eq!(out["updatedInput"]["run_in_background"], true);
         assert_eq!(out["updatedInput"]["description"], "dev server");
-        assert_eq!(
-            out["updatedInput"]["command"],
-            "if ! '/opt/acpmux' __bg-start '/work/app' 'npm run dev' 'dev server'; then\n\
-npm run dev\nfi"
+        assert!(
+            out["updatedInput"]["command"]
+                .as_str()
+                .unwrap()
+                .contains("'/opt/acpmux' __bg-start '/work/app' 'npm run dev' 'dev server'")
         );
         // A subagent's, a foreground one, a chat with no acpmux server: as before.
         let mut sub = call(true);
@@ -969,7 +999,7 @@ npm run dev\nfi"
         assert_eq!(rewrite(&call(true), None, "/opt/acpmux"), None);
     }
 
-    /// The rewritten shell, run: the original command runs only when the start fails, and quotes, comments and heredocs in it survive both ways.
+    /// Only a proven pre-submission failure permits fallback. Quotes, comments and heredocs survive.
     #[cfg(unix)]
     #[test]
     fn the_rewritten_shell_runs_the_command_only_when_the_daemon_did_not_start_it() {
@@ -985,13 +1015,45 @@ npm run dev\nfi"
             let out = rewrite(&input, Some(Route::Direct), exe.to_str().unwrap()).unwrap();
             let script =
                 out["hookSpecificOutput"]["updatedInput"]["command"].as_str().unwrap().to_owned();
-            let out = std::process::Command::new("bash").args(["-c", &script]).output().unwrap();
-            String::from_utf8_lossy(&out.stdout).into_owned()
+            std::process::Command::new("sh").args(["-c", &script]).output().unwrap()
         };
         let started = run(0);
-        assert_eq!(started, format!("__bg-start|/work/app|{command}||"), "{started}");
-        let fallback = run(1);
-        assert!(fallback.ends_with("|it's here\nran\n"), "{fallback}");
+        let requested = format!("__bg-start|/work/app|{command}||");
+        assert!(started.status.success(), "{started:?}");
+        assert_eq!(String::from_utf8_lossy(&started.stdout), requested);
+        let fallback = run(NOT_SUBMITTED_EXIT);
+        assert!(fallback.status.success(), "{fallback:?}");
+        assert!(String::from_utf8_lossy(&fallback.stdout).ends_with("|it's here\nran\n"));
+        for code in [1, 127, 143] {
+            let uncertain = run(code);
+            assert_eq!(uncertain.status.code(), Some(code));
+            assert_eq!(String::from_utf8_lossy(&uncertain.stdout), requested);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_rewritten_shell_never_repeats_a_start_whose_reply_was_lost() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("started-without-reply");
+        // The daemon accepted the start and ran the command, but the helper lost its reply.
+        std::fs::write(&exe, "#!/bin/sh\nsh -c \"$3\"\nexit 1\n").unwrap();
+        std::fs::set_permissions(&exe, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .unwrap();
+        for shell in ["sh", "bash"] {
+            let counter = dir.path().join(shell);
+            let command = format!(
+                "printf 'ran\\n' >> {}",
+                crate::run_elsewhere::shell_quote(counter.to_str().unwrap())
+            );
+            let mut input = call(true);
+            input["tool_input"]["command"] = json!(command);
+            let out = rewrite(&input, Some(Route::Direct), exe.to_str().unwrap()).unwrap();
+            let script = out["hookSpecificOutput"]["updatedInput"]["command"].as_str().unwrap();
+            let result = std::process::Command::new(shell).args(["-c", script]).output().unwrap();
+            assert_eq!(result.status.code(), Some(1), "{result:?}");
+            assert_eq!(std::fs::read_to_string(counter).unwrap(), "ran\n");
+        }
     }
 
     #[test]
