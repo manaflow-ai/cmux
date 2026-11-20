@@ -54,6 +54,20 @@ fn process_read() -> u64 {
     io_field(&text, "rchar").unwrap()
 }
 
+/// Resident anonymous and file-backed bytes of this process (`/proc/self/status` `RssAnon`,
+/// `RssFile`): what a loaded chat holds in memory, apart from the log pages it maps.
+fn rss_split() -> (f64, f64) {
+    let text = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    let kb = |key: &str| {
+        text.lines()
+            .find_map(|l| l.strip_prefix(key))
+            .and_then(|v| v.trim().trim_end_matches("kB").trim().parse::<f64>().ok())
+            .unwrap_or(0.0)
+            * 1024.0
+    };
+    (kb("RssAnon:"), kb("RssFile:"))
+}
+
 fn process_written() -> u64 {
     let text = std::fs::read_to_string("/proc/self/io").unwrap();
     io_field(&text, "wchar").unwrap()
@@ -243,6 +257,10 @@ struct Costs {
     delta_written: f64,
     delta_us: f64,
     rss_per_delta: f64,
+    /// Resident bytes the restarted daemon holds once the chat is open, over the process before
+    /// the restart: anonymous (heap) and file-backed (mapped log pages).
+    loaded_anon: f64,
+    loaded_file: f64,
     /// Readers (all but the stalled watcher) that missed a delta, and the fewest one got.
     short_readers: usize,
     least_seen: u64,
@@ -258,6 +276,7 @@ fn costs(bytes: u64) -> Costs {
         tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
     let costs = runtime.block_on(async {
         // Restart: the store opened again and the daemon's hub over it, its restore included.
+        let (anon_before, file_before) = rss_split();
         let (read, wall) = (process_read(), Instant::now());
         let cfg = config();
         let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, home.path()).unwrap());
@@ -278,6 +297,9 @@ fn costs(bytes: u64) -> Costs {
         let open_read = (process_read() - read) as f64;
         let open_ms = wall.elapsed().as_secs_f64() * 1e3;
         assert!(page["events"].as_array().is_some_and(|e| !e.is_empty()), "the open shows a page");
+        let (anon_open, file_open) = rss_split();
+        let loaded_anon = (anon_open - anon_before).max(0.0);
+        let loaded_file = (file_open - file_before).max(0.0);
         watchers.push((tx, rx));
         for _ in 1..WATCHERS {
             let (tx, mut rx) = connect(&hub).await;
@@ -372,6 +394,8 @@ fn costs(bytes: u64) -> Costs {
             delta_written,
             delta_us,
             rss_per_delta,
+            loaded_anon,
+            loaded_file,
             short_readers,
             least_seen,
             stalled_held,
@@ -386,7 +410,7 @@ fn costs(bytes: u64) -> Costs {
 fn print(size: &str, c: &Costs) {
     eprintln!(
         "STRESS god chat {size}: log={:.1} MB; restart read={:.0} B in {:.1} ms, then {:.0} B \
-         in the background; open read={:.0} B reply={:.0} B in {:.1} ms; per delta to \
+         in the background; open read={:.0} B reply={:.0} B in {:.1} ms; loaded rss anon={:.0} B file={:.0} B; per delta to \
          {WATCHERS} watchers (1 stalled) read={:.0} B written={:.0} B in {:.1} us, rss {:.0} B; \
          {} readers short (fewest {} of {DELTAS}); the stalled one held {} lines, told it lagged: {}",
         c.log_mb,
@@ -396,6 +420,8 @@ fn print(size: &str, c: &Costs) {
         c.open_read,
         c.open_reply,
         c.open_ms,
+        c.loaded_anon,
+        c.loaded_file,
         c.delta_read,
         c.delta_written,
         c.delta_us,
