@@ -1,6 +1,6 @@
 import CmuxNextSettings
 import CmuxNextWakeups
-import Foundation
+public import Foundation
 
 /// The app's setting starts one bundled Rust worker. It checks the setting again
 /// after staging the signed binaries and before touching the running daemon.
