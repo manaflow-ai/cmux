@@ -1,3 +1,4 @@
+public import AppKit
 import CmuxNextSettings
 import Foundation
 
@@ -33,8 +34,12 @@ extension AgentPaneView {
     public func showModelPicker() { showWithKeyboard("openModelPicker") }
     public func showFileSearch() { showWithKeyboard("searchFiles") }
     /// One of the composer bar's controls from its shortcut: the page takes the keyboard, then
-    /// opens the control as a click does.
-    public func showComposerControl(_ control: AgentComposerControl) { showWithKeyboard(control.pageCommand) }
+    /// opens the control as a click does. `byPerson` and `event`: whether the run is the person's
+    /// own, and the event in dispatch (not used yet).
+    public func showComposerControl(_ control: AgentComposerControl, byPerson: Bool = false,
+                                    event: NSEvent? = NSApp.currentEvent) {
+        showWithKeyboard(control.pageCommand)
+    }
     /// Ask a Side Question… focuses this chat's composer and prefills `/btw `.
     /// The session id travels with the event so a palette run cannot land in a replacement chat.
     public func askSideQuestion() {
