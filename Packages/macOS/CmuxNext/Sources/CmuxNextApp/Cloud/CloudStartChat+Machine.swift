@@ -106,7 +106,7 @@ extension CloudStartChat {
             }
             invocation.arguments["machine"] = .string(created.machineID)
         }
-        let id = invocation.arguments["machine"]?.stringValue, text = CloudStartCore().accountText(account)
+        let id = invocation.arguments["machine"]?.stringValue, text = CloudStartCore().accountText(account); if let id { gateHold?.hold(id) } // held before the connect, whose handshake offers it to the automatic update (cmux#47678)
         return try await cli.releasing(made: plan.madeForStart ? id : nil, key: start.key, account: text, sameAccount: { account == cloud.account }, delete: { try await cloud.deleteMachine($0) }) { // a failed pin, attach or route deletes a machine made for this start
             // The pin (unpinned, a retry could open the chat elsewhere) is this Mac's own record: it runs beside the link's connect, which
             // runs nothing on the machine, and both end before anything does (cmux#45953). A failed pin still ends the start here.
