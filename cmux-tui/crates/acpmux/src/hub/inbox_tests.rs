@@ -539,8 +539,11 @@ async fn surge_receipt_restores_the_same_held_message_and_searches_its_original_
     let receipt = hub.hold_surge_message(&session, "second", "cli", &body, &opts).unwrap().unwrap();
     assert_eq!(receipt["surgeHeld"], true);
     let thread = receipt["threadId"].as_str().unwrap();
+    assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":1,"needYou":0}));
+    hub.persist_surge_triage(&session, json!({"batchId":"batch-1"}), 1).unwrap();
     *session.inbox() = Default::default();
     hub.restore_inbox(&session);
+    assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":1,"needYou":1}));
     let thread = hub.inbox_thread(&session, thread, false);
     assert_eq!(thread["messages"][0]["text"], body[0]["text"]);
     assert_eq!(thread["messages"][0]["surgeHeld"], true);

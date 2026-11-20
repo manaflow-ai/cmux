@@ -121,10 +121,10 @@
 //! the session weakly.
 
 use super::*;
-#[path = "inbox_topic.rs"]
-mod topics;
 #[path = "inbox_surge.rs"]
 mod surge;
+#[path = "inbox_topic.rs"]
+mod topics;
 use crate::prompt_class::PromptClass;
 use std::sync::Weak;
 use std::sync::atomic::Ordering;
@@ -242,6 +242,7 @@ type Waiter = tokio::sync::watch::Sender<Option<super::queue::Answer>>;
 #[derive(Default)]
 pub struct Inbox {
     surge_rate: surge::SurgeRate,
+    surge_counts: Arc<StdMutex<surge::Counts>>,
     pub(super) items: Vec<Item>,
     /// Replies to questions no caller waits for: due under the prompt that carries them until
     /// its turn is known, then sent to their askers when that turn ends (`question_replies.rs`).
@@ -2076,6 +2077,7 @@ impl Hub {
     /// The record kinds `restore_inbox` reads (a log load's, so `store/kind_index.rs` copies them).
     pub(crate) const INBOX_KINDS: &[&str] = &[
         "inbox",
+        "inbox_triaged",
         "inbox_noticed",
         "inbox_returned",
         "inbox_answered",
@@ -2086,6 +2088,8 @@ impl Hub {
     /// The inbox from the session's log (`restore_queue`): every message, read and noticed as
     /// the log says. Run again, it adds only what it does not hold.
     pub(super) fn restore_inbox(&self, session: &Session) {
+        let mut counts = surge::Counts::default();
+        let mut recent_held = std::collections::VecDeque::new();
         let mut items: Vec<Item> = Vec::new();
         let mut noticed: std::collections::HashMap<String, String> = Default::default();
         let mut read: std::collections::HashSet<String> = Default::default();
@@ -2095,6 +2099,7 @@ impl Hub {
         let kinds = Self::INBOX_KINDS;
         // And what was changed here but is not in the journal yet (`scan_for_rebuild`).
         let scanned = self.scan_for_rebuild(session, kinds, &mut |e: EventRecord| {
+            counts.restore(&e);
             let ids = || {
                 let ids = e.msg.get("promptIds").and_then(Value::as_array).cloned();
                 ids.unwrap_or_default().into_iter().filter_map(|v| v.as_str().map(str::to_owned))
@@ -2121,7 +2126,7 @@ impl Hub {
                     } else {
                         thread
                     };
-                    items.push(Item {
+                    let item = Item {
                         surge_held: e.msg.get("surgeHeld") == Some(&Value::Bool(true)),
                         prompt_id: field("promptId").to_owned(),
                         notice: None,
@@ -2141,7 +2146,15 @@ impl Hub {
                         read: e.msg.get("deliveredRead") == Some(&Value::Bool(true)),
                         answer: None,
                         reader: None,
-                    });
+                    };
+                    if item.surge_held {
+                        if recent_held.len() == KEEP {
+                            recent_held.pop_front();
+                        }
+                        recent_held.push_back(item);
+                    } else {
+                        items.push(item);
+                    }
                 }
                 "inbox_noticed" => {
                     let notice = e.msg.get("noticePromptId").and_then(Value::as_str);
@@ -2168,11 +2181,18 @@ impl Hub {
             }
             true
         });
-        if scanned.is_err() || items.is_empty() {
+        items.extend(recent_held);
+        if scanned.is_err() || (items.is_empty() && counts.seq == 0) {
             return;
         }
         // The state itself: `Session::inbox` calls this to fill it.
         let mut inbox = session.inbox_state.lock().unwrap_or_else(|e| e.into_inner());
+        {
+            let mut live = inbox.surge_counts.lock().unwrap_or_else(|e| e.into_inner());
+            if counts.seq > live.seq {
+                *live = counts;
+            }
+        }
         for mut item in items {
             if removed.contains(&item.prompt_id) {
                 inbox.removed.insert(item.prompt_id.clone());
@@ -2359,12 +2379,14 @@ impl Hub {
                     "threadId": key, "key": key, "label": label(key), "from": from,
                     "unread": unread.len(), "new": list.iter().filter(|i| !i.noticed).count(),
                     "count": list.len(), "newestAt": newest(list),
+                    "surgeHeld": list.iter().any(|i| i.surge_held),
                     "newestPreview": last.map(|i| preview(&i.text)), "class": class,
                     "sender": last.map(|i| i.sender.clone()),
                 })
             })
             .collect();
-        json!({"sessionId": session.id, "threads": rows})
+        let counts = inbox.surge_counts.lock().unwrap_or_else(|e| e.into_inner()).json();
+        json!({"sessionId": session.id, "threads": rows, "surge": counts})
     }
 
     /// `_acpmux/inbox_thread`: a thread's messages, newest first; `mark_read` marks them read.
@@ -2486,6 +2508,9 @@ fn answered_record(msg: &Value) -> Option<(String, super::queue::Answer)> {
 
 /// Keeps at most [`KEEP`] messages: the oldest read and noticed ones go first.
 fn trim(inbox: &mut Inbox) {
+    if inbox.items.len() <= KEEP {
+        return;
+    }
     // A message a notice carries that has not gone in yet may be new again: never trimmed.
     let carried: std::collections::HashSet<String> = inbox
         .in_flight
@@ -2496,12 +2521,16 @@ fn trim(inbox: &mut Inbox) {
         .collect();
     while inbox.items.len() > KEEP {
         let gone = |i: &Item| {
-            i.read && i.noticed && i.answered.is_some() && !carried.contains(&i.prompt_id)
+            i.surge_held
+                || (i.read && i.noticed && i.answered.is_some() && !carried.contains(&i.prompt_id))
         };
         match inbox.items.iter().position(gone) {
             Some(i) => {
                 let item = inbox.items.remove(i);
-                inbox.trimmed.insert(item.prompt_id);
+                // The archive reader and resend ledger still resolve an evicted held post.
+                if !item.surge_held {
+                    inbox.trimmed.insert(item.prompt_id);
+                }
             }
             None => break,
         }
