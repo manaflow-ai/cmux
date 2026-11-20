@@ -811,7 +811,7 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertEqual(workflow["jobs"]["sweep"]["if"], "${{ !(" + no_sweep + ") }}")
         self.assertEqual(workflow["concurrency"], {
             "group": "${{ (" + no_sweep + ") && format('ci-queue-janitor-noop-{0}', github.run_id) "
-                     "|| 'ci-queue-janitor' }}",
+                     "|| 'ci-queue-janitor-v2' }}",
             "cancel-in-progress": False,
         })
 
