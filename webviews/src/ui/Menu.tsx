@@ -239,6 +239,8 @@ export interface MenuButtonProps {
   "aria-labelledby"?: string;
   /** The name automation finds the menu by (`button[data-menu]`), whatever the UI language. */
   "data-menu"?: string;
+  /** The keycaps of the shortcut that opens it, drawn after the tooltip (ui/titleTooltips.ts). */
+  "data-tooltip-shortcut"?: string | undefined;
   /** Also holds the button, for a caller that anchors other UI to it. */
   buttonRef?: RefObject<HTMLButtonElement | null>;
   /** A field-like trigger (a select, a host field): its menu opens as wide as it (`matchTrigger`). */
@@ -258,6 +260,7 @@ export function MenuButton({
   "aria-haspopup": ariaHasPopup,
   "aria-labelledby": ariaLabelledBy,
   "data-menu": dataMenu,
+  "data-tooltip-shortcut": tooltipShortcut,
   buttonRef,
   fieldTrigger,
   variant,
@@ -279,6 +282,7 @@ export function MenuButton({
       aria-labelledby={ariaLabelledBy}
       aria-haspopup={ariaHasPopup}
       data-menu={dataMenu}
+      data-tooltip-shortcut={tooltipShortcut || undefined}
       data-field-trigger={fieldTrigger ? "" : undefined}
       data-variant={variant}
       data-size={size}

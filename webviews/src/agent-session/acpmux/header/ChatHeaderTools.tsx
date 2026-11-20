@@ -30,7 +30,7 @@ import { useHeaderFold } from "./headerOverflow";
 import { nativeChatMenu, nativeCustomizeMenu } from "./nativeMenuBindings";
 import { HEADER_SYMBOLS } from "./headerSymbols";
 import { useNativeRowTools, type NativeRowToolsHost } from "./useNativeRowTools";
-import type { NativeRowNeedsYou } from "./nativeRowTools";
+import type { NativeRowNeedsYou, RowToolBinding } from "./nativeRowTools";
 import type { NeedsYouItem } from "../needsYou/model";
 import { newKinds, type HeaderControls, type NewKind } from "./headerTrio";
 import { HeaderNewButton } from "./HeaderNewButton";
@@ -219,8 +219,9 @@ function ChatHeaderToolsView({
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
   const changesKey = useShortcut(HEADER_ACTIONS.changes);
   const searchKey = useShortcut(SEARCH_CHATS_ACTION);
-  // The glass toolbar (glassToolbar.experiment.ts): only with its switch on, or a gallery's pick. It
-  // draws on the web row, so the native row's tools stay off while it shows.
+  // The glass toolbar (glassToolbar.experiment.ts): only with its switch on, or a gallery's pick.
+  // Its visual treatment belongs to the host row too; keep publishing the native tools so the
+  // header never moves its controls from Swift into the web page when the experiment is enabled.
   const glassSwitch = useExperimentSwitch(GLASS_TOOLBAR_SWITCH);
   const glassLook = glass ?? (glassSwitch ? experimentArm(glassToolbarLook) : "off");
   const { lit, pullRequest, headerControls, headerMotion } = useHeaderState();
@@ -389,25 +390,46 @@ function ChatHeaderToolsView({
     : undefined;
   const chatRows = rows();
   const chatMenu = nativeChatMenu(chatRows);
-  const native = useNativeRowTools(glassLook === "off" ? nativeRowTools : undefined, tools, {
-    customize,
-    extra: chatMenu
+  const nativeSearch: RowToolBinding[] =
+    glassLook !== "off" && onSearch
       ? [
           {
             tool: {
-              id: "chat-menu",
-              symbol: HEADER_SYMBOLS["action.more"]!,
-              label: t("chatMenu.open"),
-              enabled: chatMenu.items.length > 0,
+              id: SEARCH_CHATS_ACTION,
+              symbol: HEADER_SYMBOLS.search,
+              label: t("header.searchChats"),
+              enabled: true,
               toggled: false,
-              menu: chatMenu.items,
+              glass: true,
             },
-            runMenu: chatMenu.invoke,
-            // The chat menu is reserved before the variable check and ask lists spend the budget.
-            menuPriority: "fixed" as const,
+            run: onSearch,
           },
         ]
-      : [],
+      : [];
+  const native = useNativeRowTools(nativeRowTools, tools, {
+    customize,
+    glass: glassLook !== "off",
+    extra: [
+      ...nativeSearch,
+      ...(chatMenu
+        ? [
+            {
+              tool: {
+                id: "chat-menu",
+                symbol: HEADER_SYMBOLS["action.more"]!,
+                label: t("chatMenu.open"),
+                enabled: chatMenu.items.length > 0,
+                toggled: false,
+                menu: chatMenu.items,
+                glass: glassLook !== "off",
+              },
+              runMenu: chatMenu.invoke,
+              // The chat menu is reserved before the variable check and ask lists spend the budget.
+              menuPriority: "fixed" as const,
+            },
+          ]
+        : []),
+    ],
     extras: {
       worktree: worktree ? { value: worktree, ops: worktreeOps } : undefined,
       pullRequest: pullRequest && pullRequestChip !== false ? { value: pullRequest, ops: pullRequestOps } : undefined,
@@ -458,7 +480,9 @@ function ChatHeaderToolsView({
         key={tool.id}
         data-quick-action={tool.id}
         type="button"
-        className="acpmux-header-tool"
+        // A single round button and the capsule are `.ui-glass` surfaces, so the lens draws them; the
+        // capsule's own buttons are glyphs on its glass.
+        className={glassLook !== "off" && !inCapsule ? "acpmux-header-tool ui-glass" : "acpmux-header-tool"}
         aria-label={tool.label}
         aria-pressed={tool.pressed}
         // The morph's hover preview stands in for the tooltip, so the two never stack.
@@ -505,24 +529,26 @@ function ChatHeaderToolsView({
     );
   };
   const buttons = webButtons && shown.length > 0 && shown.map(renderTool);
-  const chatMenuButton = (
-    <ChatMenu
-      items={rows}
-      disabled={chatRows.length === 0}
-      onOpen={onMenuOpen}
-      nativeOpen={
-        native && chatMenu
-          ? (row) =>
-              nativeRowTools!.callNative("pane.tabRowTools.openMenu", {
-                id: "chat-menu",
-                ...(row ? { menuItemId: row } : {}),
-              })
-          : undefined
-      }
-      expand={expand}
-      onExpanded={onExpanded}
-    />
-  );
+  const chatMenuButton =
+    native && glassLook !== "off" ? null : (
+      <ChatMenu
+        items={rows}
+        disabled={chatRows.length === 0}
+        onOpen={onMenuOpen}
+        nativeOpen={
+          native && chatMenu
+            ? (row) =>
+                nativeRowTools!.callNative("pane.tabRowTools.openMenu", {
+                  id: "chat-menu",
+                  ...(row ? { menuItemId: row } : {}),
+                })
+            : undefined
+        }
+        expand={expand}
+        onExpanded={onExpanded}
+        triggerClassName={glassLook !== "off" ? "acpmux-header-tool acpmux-header-more ui-glass" : undefined}
+      />
+    );
   // The glass toolbar: the leading singles (the panel toggle, the summary, Needs You, Changes, Files,
   // Preview) as round glass buttons, the split actions in one glass capsule, "..." round, and the
   // search chip last, as a window toolbar's search sits at its end. The fold above still applies:
@@ -537,26 +563,26 @@ function ChatHeaderToolsView({
         data-glass-toolbar={glassLook}
         onPointerEnter={onPointerEnter}
       >
-        {worktree && (
+        {!native && worktree && (
           <WorktreePill ops={worktreeOps} worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />
         )}
-        {pullRequest && pullRequestChip !== false && (
+        {!native && pullRequest && pullRequestChip !== false && (
           <PullRequestChip ops={pullRequestOps} pullRequest={pullRequest} onMerge={onMergePullRequest} />
         )}
-        {sessionInfo}
-        {typeof summary === "function" ? summary(false) : summary}
-        {inbox}
+        {!native && sessionInfo}
+        {typeof summary === "function" ? summary(native) : !native && summary}
+        {(!native || !nativeNeedsYouMenu) && inbox}
         {webButtons && singles.map(renderTool)}
         {webButtons && grouped.length > 0 && (
-          <div className="acpmux-header-tool-group acpmux-glass-capsule" role="group">
+          <div className="acpmux-header-tool-group acpmux-glass-capsule ui-glass" role="group">
             {grouped.map(renderTool)}
           </div>
         )}
         {chatMenuButton}
-        {onSearch && (
+        {!native && onSearch && (
           <button
             type="button"
-            className="acpmux-header-tool acpmux-glass-search"
+            className="acpmux-header-tool acpmux-glass-search ui-glass"
             aria-label={t("header.searchChats")}
             {...tooltipProps(t("header.searchChats"), searchKey)}
             onClick={onSearch}
