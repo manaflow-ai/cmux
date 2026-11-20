@@ -226,6 +226,9 @@ pub struct Capture {
     wake_read: Fd,
     size: (u32, u32),
     bounds: Bounds,
+    /// When ScreenCaptureKit answered the shareable-content request (clock ns), for the open's
+    /// step timings.
+    content_ns: u64,
 }
 
 // SAFETY: the stream, output and queue are Objective-C objects used through thread-safe
@@ -635,12 +638,16 @@ impl Capture {
         #[cfg(not(feature = "bench"))] marker: Option<()>,
     ) -> Res<Self> {
         let (content, displays) = shareable_displays()?;
+        let content_ns = crate::clock::now_ns();
         let picked = pick(&displays, which);
         let result = picked.and_then(|(display, id)| {
             Self::stream(display, id, fps, max_width, shows_cursor, marker)
         });
         release_all(content, &displays);
-        result
+        result.map(|mut capture| {
+            capture.content_ns = content_ns;
+            capture
+        })
     }
 
     fn stream(
@@ -763,7 +770,17 @@ impl Capture {
                 queue,
                 &raw mut error,
             );
-            let capture = Self { stream, output, queue, shared, wake_read, size, bounds, added };
+            let capture = Self {
+                stream,
+                output,
+                queue,
+                shared,
+                wake_read,
+                size,
+                bounds,
+                added,
+                content_ns: 0,
+            };
             if !added {
                 return Err(format!("capture output handler: {}", sys::error_text(error)).into());
             }
@@ -787,6 +804,11 @@ impl Capture {
 
     pub fn size(&self) -> (u32, u32) {
         self.size
+    }
+
+    /// When ScreenCaptureKit answered the shareable-content request (clock ns).
+    pub fn content_ns(&self) -> u64 {
+        self.content_ns
     }
 
     pub fn bounds(&self) -> Bounds {

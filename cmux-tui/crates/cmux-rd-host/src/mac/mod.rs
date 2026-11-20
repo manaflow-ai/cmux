@@ -71,6 +71,24 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
 
 /// [`open`]'s halves as their own types, which are `Send`: `desktop::open_ahead` opens them
 /// on another thread.
+/// One `open_steps` line in CMUX_RD_TIMING_LOG (when set): how long each step of opening the
+/// desktop took, in µs. `content` is the shareable-content request, `stream` the stream's
+/// start up to its answer, `encoder` the encoder session, `first_frame` the wait after it.
+fn log_open_steps(begin_ns: u64, content_ns: u64, started_ns: u64, encoder_ns: u64, ready_ns: u64) {
+    use std::io::Write;
+    let Some(path) = std::env::var_os("CMUX_RD_TIMING_LOG") else { return };
+    let us = |from: u64, to: u64| to.saturating_sub(from) / 1000;
+    let line = serde_json::json!({ "open_steps": {
+        "content_us": us(begin_ns, content_ns),
+        "stream_us": us(content_ns, started_ns),
+        "encoder_us": us(started_ns, encoder_ns),
+        "first_frame_us": us(encoder_ns, ready_ns),
+    }});
+    if let Ok(mut out) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(out, "{line}");
+    }
+}
+
 pub fn open_halves(cfg: &SessionCfg, cursor_metadata: bool) -> Res<(MacDesktop, MacFrames)> {
     if cfg.codec != "videotoolbox" {
         return Err(format!(
@@ -80,8 +98,10 @@ pub fn open_halves(cfg: &SessionCfg, cursor_metadata: bool) -> Res<(MacDesktop, 
         .into());
     }
     let cursor_metadata = cursor_metadata && cursor::available();
+    let begin_ns = crate::clock::now_ns();
     let capture =
         Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, !cursor_metadata)?;
+    let started_ns = crate::clock::now_ns();
     // The size is set when the stream starts: the encoder session (about 100 ms) is made
     // while ScreenCaptureKit delivers its first frame, not after it.
     let (width, height) = capture.size();
@@ -92,7 +112,9 @@ pub fn open_halves(cfg: &SessionCfg, cursor_metadata: bool) -> Res<(MacDesktop, 
         cfg.start_kbps,
         cfg.profile == "baseline",
     )?;
+    let encoder_ns = crate::clock::now_ns();
     capture.wait_first_frame(FIRST_FRAME_TIMEOUT_NS)?;
+    log_open_steps(begin_ns, capture.content_ns(), started_ns, encoder_ns, crate::clock::now_ns());
     let name =
         format!("{} from screencapturekit iosurface", cmux_encode::H264Encoder::name(&encoder));
     let injector = Injector::new(capture.bounds(), (width, height))?;
