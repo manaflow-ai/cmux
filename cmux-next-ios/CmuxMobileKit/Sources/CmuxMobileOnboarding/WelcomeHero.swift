@@ -165,10 +165,11 @@ struct WelcomeHeroPrompt<Slot: View>: View {
     @ViewBuilder var slot: () -> Slot
 
     static var markSize: CGFloat { 38 }
-    private static let word = Array("cmux")
-    private static let typeStart = 0.45
-    private static let typeStep = 0.075
-    private static let cursor = Color(red: 0.18, green: 0.56, blue: 1.0)
+    // Computed: a generic type cannot hold static stored properties.
+    private static var word: [Character] { Array("cmux") }
+    private static var typeStart: Double { 0.45 }
+    private static var typeStep: Double { 0.075 }
+    private static var cursor: Color { Color(red: 0.18, green: 0.56, blue: 1.0) }
 
     var body: some View {
         let typed = Self.word.indices.filter { t >= Self.typeStart + Double($0) * Self.typeStep }.count
@@ -252,7 +253,7 @@ struct WelcomeHeroCells: View {
                     guard let column else { continue }
                     let lit = IntroEase.out(IntroEase.seg(t, 0.1 + Double(x) * 0.016, 0.24 + Double(x) * 0.016))
                     guard lit > 0 else { continue }
-                    let shading = column.glyph == ">" ? .color(ChevronGradient.color(at: Double(x) / 2)) : label
+                    let shading: GraphicsContext.Shading = column.glyph == ">" ? .color(ChevronGradient.color(at: Double(x) / 2)) : label
                     for (y, on) in column.bits.enumerated() where on {
                         let rect = CGRect(x: CGFloat(x) * pitch, y: CGFloat(y) * pitch, width: cell, height: cell)
                         context.opacity = lit
