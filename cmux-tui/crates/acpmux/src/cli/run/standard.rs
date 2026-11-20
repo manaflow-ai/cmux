@@ -514,8 +514,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 } else {
                     println!(
                         "reused {name} ({}): it already runs, so the prompt was not sent again; \
-                         use `acpmux send {name}` to give it more",
-                        session_id.get(..8).unwrap_or(session_id)
+                         use `{} send {name}` to give it more",
+                        session_id.get(..8).unwrap_or(session_id),
+                        crate::cli::entry::program()
                     );
                 }
                 return Ok(());
@@ -1611,16 +1612,15 @@ fn held_messages(sessions: &[Value]) -> Vec<Value> {
             let mut row = h.clone();
             row.set("session", name.clone());
             row.set("sessionId", id.clone());
-            row.set("answer", json!(HELD_ANSWER));
+            row.set("answer", json!(format!(
+                "Claude Code holds it for approval (it expires); acpmux cannot release it. Have the sender send it again with {} send",
+                crate::cli::entry::program()
+            )));
             out.push(row);
         }
     }
     out
 }
-
-/// What the person can do about a message Claude Code holds: Claude Code gives a host no way to
-/// release it, so it waits for that chat's approval or expires.
-const HELD_ANSWER: &str = "Claude Code holds it for approval (it expires); acpmux cannot release it. Have the sender send it again with acpmux send";
 
 /// One `pending` line for a held message.
 fn held_message_line(h: &Value) -> String {
@@ -1680,7 +1680,10 @@ fn team_receipt_line(receipt: &Value) -> String {
     let decision = receipt.get("startWork").and_then(Value::as_str).unwrap_or("information");
     let state = receipt.get("state").and_then(Value::as_str).unwrap_or("queued");
     let id = receipt.get("messageId").and_then(Value::as_str).unwrap_or("?");
-    format!("{state} to {canonical}; startWork={decision} (acpmux send --status mesh:{id})")
+    format!(
+        "{state} to {canonical}; startWork={decision} ({} send --status mesh:{id})",
+        crate::cli::entry::program()
+    )
 }
 
 /// The id of a `new`'s first prompt: it names the Claude Code subagent that sends it

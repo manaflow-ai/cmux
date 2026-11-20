@@ -2000,6 +2000,26 @@ fn run_main() {
         let args = cli::acp_scope_args(&raw_args);
         client_log::exit(acp::run_scope(head, args));
     }
+    // Windows machine join installs the session engine as its own executable.
+    // Launch that binary so its daemon and agent hosts use the Windows install.
+    #[cfg(windows)]
+    if cli::agent_engine_requested(&raw_args) {
+        discard_provider_secret_environment();
+        let result = std::env::home_dir()
+            .ok_or_else(|| io::Error::other("cannot locate the Windows user profile"))
+            .and_then(|home| {
+                cmux_process::Command::new(home.join(".local/bin/acpmux.exe"))
+                    .args(cli::acp_scope_args(&raw_args))
+                    .status()
+            });
+        match result {
+            Ok(status) => client_log::exit(status.code().unwrap_or(1)),
+            Err(error) => {
+                eprintln!("cmux agent: cannot run the Windows session engine: {error}");
+                client_log::exit(1);
+            }
+        }
+    }
     // `cmux host enable|serve|dial|…`: remote hosting, on every platform
     // (plans/cmux-next/remote-hosts.md). The other `host` verbs are the
     // machine supervisor's (`early_unix_scope`).

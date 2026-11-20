@@ -12,7 +12,6 @@ fn strings(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).to_string()).collect()
 }
 
-#[cfg(unix)]
 #[test]
 fn agent_session_commands_share_engine_arguments_and_preserve_app_commands() {
     for verb in [
@@ -1529,7 +1528,6 @@ fn a_leading_json_lands_where_each_first_word_scope_reads_it() {
     );
     assert_eq!(hoisted(&["--json", "chats", "list"]), strings(&["chats", "--json", "list"]));
     assert_eq!(hoisted(&["--json", "agent", "list"]), strings(&["--json", "agent", "list"]));
-    #[cfg(unix)]
     assert_eq!(hoisted(&["--json", "agent", "ls"]), strings(&["agent", "--json", "ls"]));
     // `acp gh`'s trailing words are gh's: `--json` stays acpmux's.
     assert_eq!(

@@ -1,5 +1,5 @@
 //! The program behind the `acpmux` binary, callable from another binary.
-//! The cmux multicall binary runs it as `cmux acp …`; `display_name` names
+//! The cmux multicall binary runs it as `cmux agent …` or `cmux acp …`; `display_name` names
 //! the command in help and errors, and `daemon_prefix` is what the detached
 //! daemon is started with (`<current exe> <prefix…> daemon run`).
 
@@ -12,14 +12,20 @@ use clap::{CommandFactory, FromArgMatches};
 use std::ffi::OsString;
 
 static ORIGINAL_ARGS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+static PROGRAM: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
-/// The acpmux arguments passed by its executable (also stripped of `cmux acp`).
+/// The command the caller used, for follow-up commands printed by the CLI.
+pub(crate) fn program() -> &'static str {
+    PROGRAM.get().map_or("acpmux", String::as_str)
+}
+
+/// The engine arguments, with the executable or cmux scope removed.
 pub(crate) fn original_args() -> Option<&'static [String]> {
     ORIGINAL_ARGS.get().map(Vec::as_slice)
 }
 
 pub struct Invocation {
-    /// `acpmux`, or `cmux acp` inside cmux.
+    /// The standalone binary or the invoking cmux scope.
     pub display_name: String,
     /// Arguments before `daemon run` when this program starts its daemon.
     pub daemon_prefix: Vec<OsString>,
@@ -205,8 +211,16 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     let run_alias = argv.get(at).map(|a| a == "run" || a == "exec").unwrap_or(false);
     let exec_alias = argv.get(at).map(|a| a == "exec").unwrap_or(false);
     // clap keeps command names as `&'static str`; one per process.
-    let name: &'static str = Box::leak(invocation.display_name.clone().into_boxed_str());
-    let mut grammar = crate::cli::help_examples::attach(Cli::command()).name(name).bin_name(name);
+    let name = PROGRAM.get_or_init(|| invocation.display_name.clone()).as_str();
+    let show_front_door = name == "cmux agent"
+        && argv
+            .iter()
+            .skip(1)
+            .take_while(|arg| *arg != "--")
+            .any(|arg| arg == "--help" || arg == "-h" || arg == "help");
+    let mut grammar = crate::cli::help_examples::attach(Cli::command(), show_front_door)
+        .name(name)
+        .bin_name(name);
     let json_out = argv.iter().take_while(|a| *a != "--").any(|a| a == "--json");
     let matches = match grammar.try_get_matches_from_mut(argv.clone()) {
         Ok(matches) => matches,

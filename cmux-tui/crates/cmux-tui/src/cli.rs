@@ -672,7 +672,6 @@ fn harness_tab_run(words: &[String]) -> bool {
 
 /// Existing terminal agent commands and app actions keep their own dispatch.
 /// Other session commands, including aliases, come from the engine's grammar.
-#[cfg(unix)]
 pub(crate) fn agent_engine_requested(args: &[String]) -> bool {
     let [scope, rest @ ..] = args else { return false };
     if scope != "agent" {
@@ -702,11 +701,6 @@ pub(crate) fn agent_engine_requested(args: &[String]) -> bool {
     }
     let action = format!("agent {verb}");
     !action_hint::offered_app_action(&action) && action_hint::non_verb_action(&action).is_none()
-}
-
-#[cfg(not(unix))]
-fn agent_engine_requested(_: &[String]) -> bool {
-    false
 }
 
 /// The acpmux argv of `cmux agent …` and `cmux acp …` (the words after the scope) and of its

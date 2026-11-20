@@ -82,6 +82,8 @@ fn shell_quote(word: &str) -> String {
 
 pub async fn run(client: &Client, cmd: BgCmd, json_out: bool) -> Result<()> {
     let session = current_session()?;
+    let caller_subagent =
+        crate::cli::sender::sending_as_on(client, None).await.subagent.map(|s| s.to_value());
     let (method, params) = match cmd {
         BgCmd::Start { command, argv, cwd, description, notify } => {
             if command.is_empty() {
@@ -104,10 +106,18 @@ pub async fn run(client: &Client, cmd: BgCmd, json_out: bool) -> Result<()> {
                     "cwd": cwd,
                     "description": description,
                     "notify": notify,
+                    "callerSubagent": caller_subagent,
                 }),
             )
         }
-        BgCmd::List { all } => (method::MUX_BG_LIST, json!({"sessionId": session, "all": all})),
+        BgCmd::List { all } => (
+            method::MUX_BG_LIST,
+            json!({
+                "sessionId": session,
+                "all": all,
+                "callerSubagent": caller_subagent,
+            }),
+        ),
     };
     let reply = client.request(method, params).await?;
     if json_out {
