@@ -59,16 +59,15 @@ import Testing
         #expect(DesignSettings().densityTokens == DensityPreset.compact.tokens)
     }
 
-    /// Every built-in but Compact, which is the user's tuned density (`CompactDensityDefaultsTests`, 2026-11-19); Compact's
-    /// Default-times-0.9 sizes are still the ones Default's omnibar borrows (`DensityPreset.scaledTokens`).
-    @Test(arguments: DensityPreset.allCases.filter { $0 != .compact })
+    @Test(arguments: DensityPreset.allCases)
     func everySizeKeepsDefaultsProportions(preset: DensityPreset) throws {
         let reference = DensityPreset.cozy.tokens
         let tokens = preset.tokens
         let t = preset.scaleFactor
         func half(_ value: Double) -> Double { (value * 2).rounded() / 2 }
         // Default alone sets its toolbar buttons' and star plate's sides (Compact's padding on its 34 pt bar).
-        let defaultOnly: Set = ["omnibarButtonSize", "omnibarStarPlateSize"]
+        // Compact alone sets its gap from the tabs to the omnibar (`tabToOmnibarGap`, its strip padding and 1 pt).
+        let defaultOnly: Set = ["omnibarButtonSize", "omnibarStarPlateSize", "tabToOmnibarGap"]
         #expect(Set(tokens.tokens.keys).subtracting(defaultOnly) == Set(reference.tokens.keys).subtracting(defaultOnly))
         let rows: [DensityPreset: Double] = [.ultraCompact: 24, .compact: 28, .cozy: 30, .comfortable: 32, .spacious: 36]
         let row = try #require(rows[preset])
