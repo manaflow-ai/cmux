@@ -164,3 +164,34 @@ fn ultra_never_cuts_on_loss_at_or_under_five_percent() {
         assert_eq!(cc.wire_budget_bps(), 150_000_000, "5% loss for 5 s only raises FEC");
     }
 }
+
+/// Until a train measures the path (a jittery path's trains never do), ultra's rate moves
+/// by standard's measured rules within its own ceiling instead of sitting at the start
+/// rate (netem, 15 ms jitter and 1% loss: standard held 49 Mbit/s, ultra delivered no frame).
+#[test]
+fn unmeasured_ultra_moves_like_standard_until_a_train_counts() {
+    let mut standard = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
+    let mut unmeasured = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
+    unmeasured.set_profile(EncodeProfile::Ultra);
+    let mut seq = 0u16;
+    for batch in 0..400u64 {
+        let mut arrivals = Vec::new();
+        for i in 0..10u64 {
+            let sent = (batch * 10 + i) * 1_000;
+            for cc in [&mut standard, &mut unmeasured] {
+                cc.on_sent_bytes(seq, sent, 1_200);
+            }
+            arrivals.push(Arrival { transport_seq: seq, arrival_us: (sent + 20_000) as u32 });
+            seq = seq.wrapping_add(1);
+        }
+        let now = (batch * 10 + 10) * 1_000 + 20_000;
+        standard.on_feedback(&arrivals, 0.0, now);
+        unmeasured.on_feedback(&arrivals, 0.0, now);
+        assert_eq!(unmeasured.wire_budget_bps(), standard.target_bps(), "batch {batch}");
+    }
+    assert!(standard.target_bps() > CcConfig::default().start_bps, "it grew on evidence");
+
+    // A train that counts takes over: held at 0.8 x capacity from then on.
+    assert!(unmeasured.on_probe_capacity(unmeasured.probe_generation(), 100_000_000));
+    assert_eq!(unmeasured.wire_budget_bps(), 80_000_000);
+}

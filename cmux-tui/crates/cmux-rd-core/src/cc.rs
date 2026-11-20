@@ -454,8 +454,9 @@ impl CongestionController {
         self.profile
     }
 
-    /// Selection alone is not a capacity measurement. Until probes arrive the
-    /// ultra profile keeps the configured startup rate, including its FEC.
+    /// Selection alone is not a capacity measurement. Ultra starts at the configured
+    /// startup rate, including its FEC, and moves by standard's rules until a probe
+    /// train measures the path.
     pub fn set_profile(&mut self, profile: EncodeProfile) {
         if self.profile == profile {
             return;
@@ -722,16 +723,21 @@ impl CongestionController {
             }
         }
         if self.profile == EncodeProfile::Ultra {
-            // Ultra holds its probe-measured rate: only a standing queue, or loss over
-            // what FEC covers lasting over a second, cuts it (loss at or under 5% never
-            // does), and there is no growth on media feedback. `loss` is after the
-            // outage screen: a radio outage's loss is not a cut signal.
             self.ultra.observe_loss(loss, now_us);
-            if has_samples || self.ultra.sustained_loss {
-                self.update_ultra(now_us);
+            if self.ultra.capacity_bps.is_some() {
+                // Ultra holds its probe-measured rate: only a standing queue, or loss over
+                // what FEC covers lasting over a second, cuts it (loss at or under 5% never
+                // does), and there is no growth on media feedback. `loss` is after the
+                // outage screen: a radio outage's loss is not a cut signal.
+                if has_samples || self.ultra.sustained_loss {
+                    self.update_ultra(now_us);
+                }
+                self.clamp();
+                return;
             }
-            self.clamp();
-            return;
+            // No train has measured this path yet (a lossy or jittery path's trains yield
+            // none): until one does, ultra's rate moves by standard's measured rules
+            // below, within ultra's ceiling, rather than sitting at the start rate.
         }
         if evidence {
             match self.usage {
@@ -754,6 +760,10 @@ impl CongestionController {
             }
             self.target_bps = target as u64;
             self.last_increase_us = Some(now_us);
+        }
+        if self.profile == EncodeProfile::Ultra {
+            // Unmeasured ultra (above): the standard rules set the wire rate.
+            self.ultra.wire_bps = self.target_bps;
         }
         self.clamp();
         self.after_feedback(before_bps, now_us);
@@ -986,6 +996,10 @@ impl CongestionController {
         let floor = (anchor as f64 * CUT_FLOOR) as u64;
         if self.target_bps < floor {
             self.target_bps = floor;
+            if self.profile == EncodeProfile::Ultra {
+                // Unmeasured ultra (`on_feedback`): the wire rate is standard's target.
+                self.ultra.wire_bps = floor;
+            }
             self.clamp();
         }
     }

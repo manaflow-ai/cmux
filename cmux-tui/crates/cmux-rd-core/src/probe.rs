@@ -19,7 +19,8 @@
 //! delivered at under 2% loss ([`MAX_PROBE_LOSS_PPM`]). A train is judged once
 //! all of it has left and all but under 2% of it has arrived; a lossier train
 //! never yields a capacity and expires, so ultra keeps its rate and the next
-//! idle probe tries again.
+//! idle probe tries again. Neither does a train that arrived out of the order it
+//! left: its spread is the path's jitter, not its capacity.
 
 use cmux_rd_proto::{Arrival, DatagramHeader, DatagramKind, HEADER_LEN, MAX_DATAGRAM_DEFAULT};
 
@@ -402,6 +403,24 @@ fn estimate(train: &ActiveTrain, config: &NormalizedConfig) -> Option<ProbeEstim
             sample.arrival_us.wrapping_sub(train.received[earliest].arrival_us) > CLOCK_HALF_RANGE
         })
     {
+        return None;
+    }
+    // A bottleneck is first in, first out. A train that arrived out of the order it left
+    // crossed a path whose per-packet delay varies, and its spread measures that jitter,
+    // not a capacity (netem, 15 ms of jitter: 16 x 1.2 KB spread over about 35 ms read as
+    // 5 Mbit/s on a link that carried 80). Like a lossy train, it yields none.
+    let earliest_us = train.received.get(earliest)?.arrival_us;
+    let mut by_departure: Vec<(usize, u32)> = train
+        .received
+        .iter()
+        .filter_map(|sample| {
+            let index =
+                train.sent.iter().position(|sent| sent.transport_seq == sample.transport_seq)?;
+            Some((index, sample.arrival_us.wrapping_sub(earliest_us)))
+        })
+        .collect();
+    by_departure.sort_unstable_by_key(|&(index, _)| index);
+    if by_departure.windows(2).any(|pair| matches!(pair, [a, b] if b.1 < a.1)) {
         return None;
     }
 
