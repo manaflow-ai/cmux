@@ -81,6 +81,9 @@ pub struct BrainTurns {
     pub root: Option<PathBuf>,
     /// By acpmux harness name.
     pub by_harness: BTreeMap<String, BrainTurn>,
+    /// The model the brains' homes name (their turns' model when engine.json names none):
+    /// what prices a brain turn (turn_price.rs).
+    pub model: Option<String>,
 }
 
 /// One brain harness: its turn preset, and whether it can run a turn (Err: why not).
