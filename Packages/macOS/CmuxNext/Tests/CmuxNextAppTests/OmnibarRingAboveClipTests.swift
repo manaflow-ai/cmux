@@ -155,15 +155,18 @@ import Testing
         let top = topRow ? size.height - WindowTitlebar.topRowRim(in: window) : strip.convert(strip.bounds, to: nil).maxY
         let above = top - pill.maxY, between = pill.minY - bar.maxY, under = bar.minY - page.maxY
         let at = "\(preset.rawValue) top row \(topRow)"
-        #expect(abs(between - under) <= 0.5, "\(at): \(between) pt from the tab to the omnibar, \(under) pt from the omnibar to the page")
+        // Compact's tabs sit 1 pt further from the bar than its strip padding (`tabToOmnibarGap`, Lucas 2026-11-20).
+        let tokens = preset.tokens.tokens
+        let extra = CGFloat(tokens["tabToOmnibarGap"].map { max(0, $0 - (tokens["browserRowGap"] ?? $0)) } ?? 0)
+        #expect(abs(between - extra - under) <= 0.5, "\(at): \(between) pt from the tab to the omnibar, \(under) pt from the omnibar to the page")
         // Default is Chrome's: 5 pt above the tab, 6 pt from it to the omnibar and from the omnibar to the page; Comfortable
         // and Spacious are that times 1.1 and 1.2 on the half-point grid (Lucas 2026-11-20).
-        let chrome: [DensityPreset: (above: CGFloat, between: CGFloat)] = [.cozy: (5, 6), .comfortable: (5.5, 6.5), .spacious: (6, 7)]
-        if let want = chrome[preset] {
+        let chromeGaps: [DensityPreset: (above: CGFloat, between: CGFloat)] = [.cozy: (5, 6), .comfortable: (5.5, 6.5), .spacious: (6, 7)]
+        if let want = chromeGaps[preset] {
             #expect(abs(above - want.above) <= 0.5, "\(at): \(above) pt above the tab, want \(want.above)")
             #expect(abs(between - want.between) <= 0.5, "\(at): \(between) pt from the tab to the omnibar, want \(want.between)")
         } else {
-            #expect(abs(above - between) <= 0.5, "\(at): \(above) pt above the tab, \(between) pt from the tab to the omnibar")
+            #expect(abs(above + extra - between) <= 0.5, "\(at): \(above) pt above the tab, \(between) pt from the tab to the omnibar")
         }
     }
 }

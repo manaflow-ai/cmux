@@ -223,7 +223,9 @@ import Testing
         let chromeRow: [String: CGFloat] = [DensityPreset.cozy.rawValue: 6, DensityPreset.comfortable.rawValue: 6.5, DensityPreset.spacious.rawValue: 7]
         let want: CGFloat = chromeRow[density.id] ?? row.gap
         #expect(gap == want, "\(density.id): the omnibar row's gap is \(gap), want \(want)")
-        #expect(abs(above - (gap + inset)) <= 0.501, "\(density.id): \(above) pt between the tab and the omnibar, the row's gap is \(gap) (+ \(inset))")
+        // Compact's tabs sit 1 pt further from the bar than its strip padding (`tabToOmnibarGap`, Lucas 2026-11-20).
+        let extra = CGFloat(density.tokens["tabToOmnibarGap"].map { max(0, $0 - Double(gap)) } ?? 0)
+        #expect(abs(above - (gap + extra + inset)) <= 0.501, "\(density.id): \(above) pt between the tab and the omnibar, the row's gap is \(gap) (+ \(extra) + \(inset))")
         #expect(abs(below - (gap + inset)) <= 0.501, "\(density.id): \(below) pt between the omnibar and the page, the row's gap is \(gap) (+ \(inset))")
     }
 
