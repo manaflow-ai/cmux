@@ -120,7 +120,7 @@ pub struct FitPolicy {
     /// The person unfitted the current foreground: typing does not fit it again.
     declined: bool,
     page_present: bool,
-    /// In an escape sequence of the bytes of one `typed` call (`ESC`, CSI, SS3, OSC).
+    /// In an escape sequence of typed bytes (`ESC`, CSI, SS3, OSC), across sends.
     escape: Escape,
     claims: bool,
 }
@@ -243,9 +243,13 @@ impl FitPolicy {
     /// Escape sequences (arrows, function keys, mouse reports) and control
     /// characters are not text and never count.
     pub fn typed(&mut self, bytes: &[u8]) -> FitDecision {
-        // Each call is one whole input (a key, a key bar tap, a send): a lone Esc is the Escape
-        // key, never the start of a sequence the next key finishes (vim's Esc then `O`).
-        self.escape = Escape::None;
+        // A send that was a lone Esc is the Escape key unless this send goes on with a CSI or
+        // string introducer (a sequence split across sends, `an_escape_sequence_split_...`):
+        // vim's Esc then `O`, `a`, `b` is three characters typed, not an SS3 eating the `a`.
+        let continues = matches!(bytes.first(), Some(b'[' | b']' | b'P' | b'_' | b'^'));
+        if self.escape == Escape::Esc && !continues {
+            self.escape = Escape::None;
+        }
         let printable = self.count_printable(bytes);
         if !self.foreground.is_tui() || self.fitted.is_some() || self.declined || printable == 0 {
             return self.decision(false);
