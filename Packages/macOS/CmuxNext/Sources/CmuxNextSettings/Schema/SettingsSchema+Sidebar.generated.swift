@@ -172,6 +172,15 @@ extension SidebarNavigationSetting {
     public nonisolated static let steppingWrapsDefault = true
 }
 
+extension SidebarSectionIDsSetting {
+    /// `sidebar.sections.hidden`: Sidebar sections to leave out, by section id or stable key (cmux-layout-reducer sidebar_section_customization.rs plans the projection; SidebarProjectionCustomizationResolver reads it; docs/cmux-next/sidebar-customization.md).
+    public nonisolated static let sectionsHiddenPath = ["sidebar", "sections", "hidden"]
+    public nonisolated static let sectionsHiddenDefault: [String] = []
+    /// `sidebar.sections.order`: Sidebar sections first in their region (top, middle, bottom), by section id or stable key; never across regions (sidebar_section_customization.rs).
+    public nonisolated static let sectionsOrderPath = ["sidebar", "sections", "order"]
+    public nonisolated static let sectionsOrderDefault: [String] = []
+}
+
 extension WorkspaceRowSetting {
     /// `sidebar.workspaceRow.icon`.
     public nonisolated static let iconPath = ["sidebar", "workspaceRow", "icon"]

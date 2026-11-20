@@ -2062,6 +2062,17 @@
       "title" : "Theme File",
       "type" : "string"
     },
+    "appearance.themeFileExceptions" : {
+      "default" : [
+
+      ],
+      "description" : "Settings you changed while a theme file sets them. Your value applies over the file's; resetting the row returns to the file's. Choosing another theme file clears the list.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Changed Over Theme File",
+      "type" : "array"
+    },
     "appearance.titleAreaContrast" : {
       "default" : 1,
       "description" : "How much darker the title bar, tab bar and sidebar are. 1 is the default.",
@@ -5037,6 +5048,28 @@
       ],
       "title" : "Section Look",
       "type" : "string"
+    },
+    "sidebar.sections.hidden" : {
+      "default" : [
+
+      ],
+      "description" : "Sidebar sections to hide, by id. The section of the selected workspace always shows.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Hidden Sections",
+      "type" : "array"
+    },
+    "sidebar.sections.order" : {
+      "default" : [
+
+      ],
+      "description" : "Sidebar sections to show first in their part of the sidebar, in this order, by id.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Section Order",
+      "type" : "array"
     },
     "sidebar.sessionTree" : {
       "default" : false,

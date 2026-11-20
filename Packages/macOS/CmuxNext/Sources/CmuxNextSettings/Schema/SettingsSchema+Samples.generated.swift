@@ -278,6 +278,15 @@ extension SettingsSchemaSamples {
                 .string("a/"), .string("-a/b"), .string("a b/c"), .string(""), .number(1), .bool(true),
             ]
         ),
+        "domain:sidebar_section_ids": SampleSet(
+            accept: [
+                .array([]), .array([.string("recents")]), .array([.string("projects"), .string("pinned")]),
+            ],
+            refuse: [
+                .string("recents"), .array([.string("")]), .array([.string("pinned"), .string("pinned")]),
+                .array([.number(1)]), .object(["hidden": .array([.string("recents")])]),
+            ]
+        ),
         "domain:search_template": SampleSet(
             accept: [
                 .string(""), .string("https://search.example/?q=%s"),

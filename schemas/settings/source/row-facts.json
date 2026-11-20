@@ -23,7 +23,9 @@
       "agentPane.display.commandLabels": "domain:command_labels",
       "browser.customSearchEngine.search": "domain:search_template",
       "browser.customSearchEngine.suggest": "domain:search_template",
-      "tabs.newTabApp": "domain:app_id"
+      "tabs.newTabApp": "domain:app_id",
+      "sidebar.sections.hidden": "domain:sidebar_section_ids",
+      "sidebar.sections.order": "domain:sidebar_section_ids"
     },
     "kinds": {
       "theme": "domain:theme",
