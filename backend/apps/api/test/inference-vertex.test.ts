@@ -151,6 +151,12 @@ describe("thought signatures and Gemini usage", () => {
     expect(chat.messages[2]).toMatchObject({ role: "tool", tool_call_id: "c1" })
   })
 
+  it("toChat keeps a system message inside the thread (Claude Code 2.1.3xx)", () => {
+    const chat = toChat({ model: NEON, max_tokens: 8, system: [{ type: "text", text: "top" }], messages: [{ role: "user", content: [{ type: "text", text: "q" }] }, { role: "system", content: [{ type: "text", text: "reminder" }] }] }) as any
+    expect(chat.messages).toEqual([{ role: "system", content: "top" }, { role: "user", content: "q" }, { role: "system", content: "reminder" }])
+    expect(toChat({ model: NEON, max_tokens: 8, messages: [{ role: "tool", content: "x" }] })).toBe("each message needs role user, assistant or system")
+  })
+
   it("Vertex gets the placeholder when a turn's calls have no signature; other providers never see extra_content", () => {
     const messages = [{ role: "assistant", content: null, tool_calls: [{ id: "a", type: "function", function: { name: "f", arguments: "{}" } }, { id: "b", type: "function", function: { name: "g", arguments: "{}" } }] }]
     const vertex = withThoughtSignatures("vertex", messages) as Array<any>

@@ -1,7 +1,9 @@
 import { isMachineInstallKind } from "./machine-installs.ts"
 import { authenticate } from "./auth.ts"
 import type { Principal } from "@cmux/ownership"
-import type { Env } from "./env.ts"
+import type { Env, RawEnv } from "./env.ts"
+import { BASE_SPACE, spaceOf, spacedEnv } from "./build-space.ts"
+import { withRequestEnv } from "./request-env.ts"
 import { apiHandler } from "./http.ts"
 import { handleAutomationHook } from "./ingress/automation-hook.ts"
 import { handleProviderHook } from "./ingress/provider-hook.ts"
@@ -78,6 +80,7 @@ export { TeamDO } from "./team-do.ts"
 export { UserDO } from "./user-do.ts"
 export { UsageMeterDO } from "./usage-meter-do.ts"
 export { SpendGuardDO } from "./inference/spend-guard-do.ts"
+export { ModelCatalogDO } from "./models-catalog/catalog-do.ts"
 export { FreeDeviceDO } from "./inference/free-device-do.ts"
 
 /** The SSO gate could not reach a TeamDO or UserDO: retryable, never a 500 (cx-44j.51). */
@@ -201,7 +204,11 @@ const PROJECTION_COMPARE_CRON = "*/15 * * * *"
 const PROJECTION_COMPARE_FULL_CRON = "7 * * * *"
 
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, raw: RawEnv, ctx: ExecutionContext): Promise<Response> {
+    // The request's build space (build-space.ts): every object it reaches is that space's. Production ignores it.
+    const space = spaceOf(request, raw)
+    if (!space.ok) return space.response
+    const env = spacedEnv(raw, space.space)
     const url = new URL(request.url)
     // A wire ticket is spent by the first request that carries it, on any path (wire-ticket.ts).
     const spent = await spendTicketAtEntry(request, env)
@@ -257,6 +264,8 @@ export default {
     if (handoff) return handleHandoffs(request, env, handoff)
     if (url.pathname === "/v1/presence-key" && request.method === "POST") return handlePresenceKey(request, env)
     if (url.pathname.startsWith("/v1/inference/")) return inference(url.pathname, request, env, ctx)
+    // The live model catalog (models-catalog/route.ts): public reads, internal publish and kill switch.
+    if (url.pathname.startsWith("/v1/models/") || url.pathname.startsWith("/internal/v1/models/")) return (await import("./models-catalog/route.ts")).handleModelsCatalog(env, request, url.pathname)
     // Home attachments (home-attachments.ts): intent, commit and URL mint need a bearer; the slot and the signed URL are the credential.
     if (url.pathname === "/v1/home/attachments/intent" && request.method === "POST") return handleAttachmentIntent(request, env)
     if (url.pathname === "/v1/home/attachments/commit" && request.method === "POST") return handleAttachmentCommit(request, env)
@@ -321,13 +330,15 @@ export default {
     if (ghToken) return handleGithubToken(request, env, ghToken[1]!)
     const providerHook = url.pathname.match(/^\/v1\/hooks\/(github|slack|linear)$/)
     if (providerHook) return handleProviderHook(request, env, providerHook[1] as "github" | "slack" | "linear")
-    return apiHandler(request)
+    return withRequestEnv(env, () => apiHandler(request))
   },
   // Cron (wrangler triggers): every 5 minutes the Cloud Home health probe (home-health.ts), the feed text sweep (feed-sweep.ts), and every 15 minutes the
   // Postgres/MySQL projection compare while the MySQL shadow runs (projection-compare-cron.ts) and the shadow-read probe (shadow-read-probe.ts),
   // and hourly where configured the full read-only verify of every projected row (projection-compare-full-cron.ts).
   // Awaited, not waitUntil: the run gets the cron limit, and a throw shows as a failed run.
-  async scheduled(controller: ScheduledController, env: Env): Promise<void> {
+  async scheduled(controller: ScheduledController, raw: RawEnv): Promise<void> {
+    // Crons carry no build space: they sweep and compare nightly and stable's objects and rows only.
+    const env = spacedEnv(raw, BASE_SPACE)
     // Cloud Home health (home-health.ts): a probe round trip and a Sentry Cron check-in; it never throws.
     if (controller.cron === HOME_HEALTH_CRON) {
       await runHomeHealth(env, { fetcher: sentryFetch })
@@ -360,4 +371,4 @@ export default {
     if (report.status === "rejected") throw report.reason
     console.log(JSON.stringify({ msg: "feed.sweep", ...report.value }))
   }
-} satisfies ExportedHandler<Env>
+} satisfies ExportedHandler<RawEnv>
