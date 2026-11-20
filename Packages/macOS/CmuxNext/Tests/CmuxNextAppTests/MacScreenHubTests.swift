@@ -205,6 +205,14 @@ struct MacScreenHubCardTests {
         #expect(MacScreenCardView.refusedBody(.notFound, host: "Studio")
             == L.t("macScreen.hub.notFoundBody", "This device was removed from your devices."))
         #expect(MacScreenCardView.refusedTitle(rateLimited, host: "Studio") == L.t("macScreen.card.failedTitle", "Couldn’t connect"))
+        // A Linux desktop has no cmux app or Settings: its offline and not-shared steps name its screen host.
+        #expect(MacScreenCardView.refusedBody(.hostOffline, host: "lane", platform: .linux)
+            == L.t("macScreen.hub.offlineBodyLinux", "Make sure that Linux machine is on and its cmux screen host is running."))
+        #expect(MacScreenCardView.refusedBody(.notShared, host: "lane", platform: .linux).contains("linux-host share on"))
+        #expect(MacScreenCardView.refusedBody(.hostOffline, host: "Studio", platform: .macos)
+            == L.t("macScreen.hub.offlineBody", "Open cmux on that Mac and make sure it is signed in."))
+        #expect(MacScreenCardView.refusedBody(.hostOffline, host: "Studio")
+            == L.t("macScreen.hub.offlineBody", "Open cmux on that Mac and make sure it is signed in."))
     }
 
     @Test func endReasonsReadTheProtocolsAuthoritativeReasons() {

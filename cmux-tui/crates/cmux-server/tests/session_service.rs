@@ -342,6 +342,7 @@ fn install_user_leaves_linger_alone() {
     let lines = env.runner.lines().join("\n");
     assert!(!lines.contains("enable-linger"), "{lines}");
     assert_eq!(env.run("install --user --system").unwrap_err().kind.code(), 2);
+    assert_eq!(env.run("install --label studio").unwrap_err().kind.code(), 2);
 }
 
 #[test]
