@@ -56,6 +56,8 @@ pub(crate) fn status() -> Value {
     json!({
         "connections": live.len(),
         "bytes": total,
+        "heldBytes": outbound::TOTAL_HELD.load(Ordering::Relaxed),
+        "totalBound": outbound::TOTAL_BYTE_BOUND,
         "overruns": outbound::OVERRUNS.load(Ordering::Relaxed),
         "controlsResyncs": super::controls::RESYNCS.load(Ordering::Relaxed),
         "largest": top,
