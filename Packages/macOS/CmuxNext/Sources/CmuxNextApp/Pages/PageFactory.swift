@@ -201,11 +201,6 @@ struct PageFactory {
                                               policy: services.accounts.modelsPolicy)
         models.onConnections = { [weak services] in services?.cloud.setup.connectionsChanged() } // a chat waiting on Set up Cloud checks again
         provider.models = models
-        provider.cloudEnvironment = { [weak services] method, params in
-            guard let request = AgentPaneCloudEnvironmentRequest(method: method, params: params) else { return nil }
-            guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
-            return await services.runCloudEnvironment(request)
-        }
         let devices = services.deviceHub.settingsModel
         devices.openScreen = { [weak services] id in services?.openMacScreen(for: id, in: nil) }
         devices.shareThisMac = { [weak services] in _ = services?.registry.perform("macScreen.shareThisMac", invocation: ActionInvocation(origin: .page)) }
@@ -227,7 +222,9 @@ struct PageFactory {
         provider.devicesWatching = { on in if on { devices.beginWatching() } else { devices.endWatching() } }
         let cli: @MainActor () async -> URL? = { [bundled = services.bundledCLI] in await bundled.resolve() }
         let integrations = SettingsAgentIntegrations(cli: cli, agentTools: services.onboarding.agentTools), mcpServers = SettingsMcpServers(cli: cli, home: { [weak services] in await services?.catalogAcpmux()?.home }, openPage: { [weak services] url in _ = services?.linkOpener.openWeb(url, from: services?.windows.active?.focusedPane, background: false) })
-        provider.parts = ["cmux.settings.integrations.state": integrations, "cmux.settings.integrations.run": integrations, "cmux.settings.agentTools.state": integrations, "cmux.settings.agentTools.run": integrations, SettingsMcpServers.stateOp: mcpServers, SettingsMcpServers.runOp: mcpServers, CustomizeTryOnPage.op: CustomizeTryOnPage(cli: cli), SettingsCustomizeLibrary.op: SettingsCustomizeLibrary(cli: cli, settingsFile: { settings.file.url })]
+        provider.parts = ["cmux.settings.integrations.state": integrations, "cmux.settings.integrations.run": integrations, "cmux.settings.agentTools.state": integrations, "cmux.settings.agentTools.run": integrations, SettingsMcpServers.stateOp: mcpServers, SettingsMcpServers.runOp: mcpServers, CustomizeTryOnPage.op: CustomizeTryOnPage(cli: cli), SettingsCustomizeLibrary.op: SettingsCustomizeLibrary(cli: cli, settingsFile: { settings.file.url }),
+                          AgentPaneCloudEnvironmentSettingsPart.op: AgentPaneCloudEnvironmentSettingsPart { [weak services] request in
+                              await services?.runCloudEnvironment(request) ?? AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }]
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
         provider.themeColors = { [weak services] in (services?.themes.catalog).map { c in c.names.compactMap { c.colors[$0] } } ?? [] }
