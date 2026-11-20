@@ -212,15 +212,17 @@ fn at(value: Option<&Value>, path: &str, previous: Option<f64>) -> Result<f64, C
 
 /// `[x, y, scale]` (or `[x, y]` for a site).
 fn point(value: &Value, path: &str, with_scale: bool) -> Checked {
-    let parts = array(value, path)?;
-    let want = if with_scale { 3 } else { 2 };
-    if parts.len() != want {
-        return fail(path, if with_scale { "must be [x, y, scale]" } else { "must be [x, y]" });
-    }
-    number(&parts[0], &format!("{path}[0]"), -MAX_OFFSET, MAX_OFFSET)?;
-    number(&parts[1], &format!("{path}[1]"), -MAX_OFFSET, MAX_OFFSET)?;
-    if with_scale {
-        number(&parts[2], &format!("{path}[2]"), 0.0, MAX_SCALE)?;
+    let (x, y, scale) = match (array(value, path)?.as_slice(), with_scale) {
+        ([x, y, scale], true) => (x, y, Some(scale)),
+        ([x, y], false) => (x, y, None),
+        _ => {
+            return fail(path, if with_scale { "must be [x, y, scale]" } else { "must be [x, y]" });
+        }
+    };
+    number(x, &format!("{path}[0]"), -MAX_OFFSET, MAX_OFFSET)?;
+    number(y, &format!("{path}[1]"), -MAX_OFFSET, MAX_OFFSET)?;
+    if let Some(scale) = scale {
+        number(scale, &format!("{path}[2]"), 0.0, MAX_SCALE)?;
     }
     Ok(())
 }
