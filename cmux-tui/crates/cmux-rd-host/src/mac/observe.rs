@@ -128,6 +128,96 @@ fn target_geometry(window: u32, pid: i32, points: &[(f64, f64)]) -> Res<[f64; 4]
         .ok_or_else(|| "selected viewer window disappeared".into())
 }
 
+/// `--marker-origin auto`: observe finds the marker itself instead of taking hand-measured
+/// capture pixels.
+fn auto_geometry(opts: &Opts) -> bool {
+    opts.get("marker-origin").is_some_and(|v| v == "auto")
+}
+
+/// Finds the marker inside the selected viewer window in this capture's pixels, waiting up to
+/// `timeout_ms` for a frame that shows it (the viewer may still be connecting). Fails closed,
+/// naming the window and the reason, when it never shows.
+fn calibrate(
+    capture: &Capture,
+    window: u32,
+    pid: i32,
+    rows: usize,
+    timeout_ms: u64,
+) -> Res<observe::Calibration> {
+    let (width, height) = capture.size();
+    let bounds = capture.bounds();
+    let deadline = now_ns() + timeout_ms * 1_000_000;
+    let mut last = "no captured frame";
+    loop {
+        let rect = windows()?
+            .into_iter()
+            .find(|w| w.id == window && w.pid == pid)
+            .map(|w| w.rect)
+            .ok_or_else(|| {
+                format!("window {window} of pid {pid} is not on screen; nothing to calibrate")
+            })?;
+        let to_px = |v: f64, origin: f64, span: f64, pixels: u32| -> usize {
+            (((v - origin) * f64::from(pixels) / span).round().max(0.0) as usize)
+                .min(pixels as usize)
+        };
+        let x0 = to_px(rect[0], bounds.x, bounds.width, width);
+        let y0 = to_px(rect[1], bounds.y, bounds.height, height);
+        let x1 = to_px(rect[0] + rect[2], bounds.x, bounds.width, width);
+        let y1 = to_px(rect[1] + rect[3], bounds.y, bounds.height, height);
+        if let Some((frame, _)) = capture.newest() {
+            match frame.locate_marker(width as usize, (x0, y0, x1 - x0, y1 - y0), rows) {
+                Some(Ok(found)) => return Ok(found),
+                Some(Err(why)) => last = why,
+                None => last = "captured frame unreadable",
+            }
+        }
+        let left = deadline.saturating_sub(now_ns());
+        if left == 0 {
+            return Err(format!(
+                "marker calibration failed in window {window} of pid {pid} ({x0},{y0} to {x1},{y1} capture px) after {timeout_ms} ms: {last}; next: check that the viewer shows the host's marker, uncovered"
+            )
+            .into());
+        }
+        wait_readable(&[capture.fd()], Some(left.min(200_000_000)))?;
+        capture.drain(&mut Vec::new());
+    }
+}
+
+fn calibration_json(found: &observe::Calibration, auto: bool) -> serde_json::Value {
+    serde_json::json!({
+        "method": if auto { "auto: observe located the marker in the selected window's capture" } else { "given" },
+        "marker_origin_pixels": [found.origin.0, found.origin.1],
+        "cell_size_pixels": found.cell,
+        "input_point_pixels": [found.at.0, found.at.1],
+    })
+}
+
+/// `--mode locate`: print where the selected window shows the marker, and exit.
+fn run_locate(opts: &Opts) -> Res<()> {
+    let pid = opts.num_or::<i32>("pid", 0)?;
+    let window = opts.num_or::<u32>("window", 0)?;
+    let rows = opts.num_or::<usize>("rows", 1)?;
+    let timeout = opts.num_or::<u64>("locate-timeout-ms", 10_000)?;
+    if pid <= 0 || window == 0 || ![1, 9].contains(&rows) || !(1..=120_000).contains(&timeout) {
+        return Err(
+            "locate needs --pid >0, --window >0, --rows 1|9, --locate-timeout-ms 1..120000".into(),
+        );
+    }
+    sys::load()?;
+    window_api::available()?;
+    let display = opts.str_or("display", "main");
+    let capture = Capture::start(&display, super::capture::refresh_fps(&display), None)?;
+    let found = calibrate(&capture, window, pid, rows, timeout)?;
+    let (width, height) = capture.size();
+    let mut out = calibration_json(&found, true);
+    out["schema"] = "cmux.presented-marker-calibration/1".into();
+    out["pid"] = pid.into();
+    out["window"] = window.into();
+    out["capture_pixels"] = serde_json::json!([width, height]);
+    println!("{out}");
+    Ok(())
+}
+
 struct Event(CGEventRef);
 impl Drop for Event {
     fn drop(&mut self) {
@@ -264,8 +354,12 @@ fn wait_start_file(
 fn run_passive(opts: &Opts) -> Res<()> {
     let pid = opts.num_or::<i32>("pid", 0)?;
     let window = opts.num_or::<u32>("window", 0)?;
-    let cell = opts.num_or::<usize>("cell-size", 0)?;
-    let origin = pair(opts, "marker-origin")?;
+    let auto = auto_geometry(opts);
+    let (mut cell, mut origin) = if auto {
+        (0, (0, 0))
+    } else {
+        (opts.num_or::<usize>("cell-size", 0)?, pair(opts, "marker-origin")?)
+    };
     let duration_s = opts.num_or::<u64>("duration-s", 10)?;
     let interval_ms = opts.num_or::<u64>("interval-ms", 1000)?;
     let start_timeout_ms = opts.num_or::<u64>("start-timeout-ms", 30_000)?;
@@ -273,7 +367,7 @@ fn run_passive(opts: &Opts) -> Res<()> {
     let expected_nonce = nonce(opts)?;
     if pid <= 0
         || window == 0
-        || !(2..=1024).contains(&cell)
+        || (!auto && !(2..=1024).contains(&cell))
         || !(1..=600).contains(&duration_s)
         || !(10..=60_000).contains(&interval_ms)
         || !(1..=60_000).contains(&start_timeout_ms)
@@ -284,6 +378,17 @@ fn run_passive(opts: &Opts) -> Res<()> {
     window_api::available()?;
     let display = opts.str_or("display", "main");
     let fps = super::capture::refresh_fps(&display);
+    let mut calibration = serde_json::Value::Null;
+    if auto {
+        // The observing capture is configured with the marker, so locate on a plain one first.
+        let probe = Capture::start(&display, fps, None)?;
+        let rows = if expected_nonce.is_some() { 9 } else { 1 };
+        let timeout = opts.num_or::<u64>("locate-timeout-ms", 10_000)?;
+        let found = calibrate(&probe, window, pid, rows, timeout)?;
+        drop(probe);
+        (origin, cell) = (found.origin, found.cell);
+        calibration = calibration_json(&found, true);
+    }
     let capture = Capture::start_observing(
         &display,
         fps,
@@ -421,6 +526,7 @@ fn run_passive(opts: &Opts) -> Res<()> {
             "capture_fps_requested": fps,
             "marker_origin_pixels": [origin.0, origin.1],
             "cell_size_pixels": cell,
+            "calibration": calibration,
             "start_signal_file": start_file,
             "start_us": start_us,
             "start_signal_observed_us": start_us,
@@ -443,23 +549,28 @@ fn run_passive(opts: &Opts) -> Res<()> {
 }
 
 pub fn run(opts: &Opts) -> Res<()> {
-    if opts.str_or("mode", "active") == "passive" {
-        return run_passive(opts);
+    match opts.str_or("mode", "active").as_str() {
+        "passive" => return run_passive(opts),
+        "locate" => return run_locate(opts),
+        _ => {}
     }
     let pid = opts.num_or::<i32>("pid", 0)?;
     let window = opts.num_or::<u32>("window", 0)?;
     let samples = opts.num_or::<usize>("samples", 200)?;
     let timeout = opts.num_or::<u64>("timeout-ms", 1000)?;
-    let cell = opts.num_or::<usize>("cell-size", 0)?;
-    let origin = pair(opts, "marker-origin")?;
-    let at = pair(opts, "at")?;
+    let auto = auto_geometry(opts);
+    let (mut cell, mut origin, mut at) = if auto {
+        (0, (0, 0), (0, 0))
+    } else {
+        (opts.num_or::<usize>("cell-size", 0)?, pair(opts, "marker-origin")?, pair(opts, "at")?)
+    };
     let kind = opts.str_or("input", "key");
     let seed = opts.num_or::<u64>("seed", 1)?;
     if pid <= 0
         || window == 0
         || !(1..=10000).contains(&samples)
         || !(1..=10000).contains(&timeout)
-        || !(2..=1024).contains(&cell)
+        || (!auto && !(2..=1024).contains(&cell))
         || !["key", "click"].contains(&kind.as_str())
     {
         return Err("need --pid >0, --window >0, --samples 1..10000, --timeout-ms 1..10000, --cell-size 2..1024, --input key|click".into());
@@ -473,6 +584,14 @@ pub fn run(opts: &Opts) -> Res<()> {
     let display = opts.str_or("display", "main");
     let fps = super::capture::refresh_fps(&display);
     let capture = Capture::start(&display, fps, None)?;
+    let calibration = if auto {
+        let timeout = opts.num_or::<u64>("locate-timeout-ms", 10_000)?;
+        let found = calibrate(&capture, window, pid, 1, timeout)?;
+        (origin, cell, at) = (found.origin, found.cell, found.at);
+        calibration_json(&found, true)
+    } else {
+        calibration_json(&observe::Calibration { origin, cell, at }, false)
+    };
     let (width, height) = capture.size();
     let fits = origin.0.checked_add(cell * 20).is_some_and(|x| x <= width as usize)
         && origin.1.checked_add(cell).is_some_and(|y| y <= height as usize)
@@ -528,7 +647,7 @@ pub fn run(opts: &Opts) -> Res<()> {
             "display_bounds_points": [bounds.x, bounds.y, bounds.width, bounds.height],
             "marker_origin_pixels": [origin.0, origin.1], "cell_size_pixels": cell,
             "input_point_pixels": [at.0, at.1], "stimulus_seed": seed,
-            "timeout_ms": timeout
+            "timeout_ms": timeout, "calibration": calibration
         })
     );
     Ok(())

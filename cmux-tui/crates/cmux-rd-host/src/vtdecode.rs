@@ -218,6 +218,23 @@ impl Picture {
     }
 }
 
+impl Clone for Picture {
+    /// Another reference to the same pixel buffer (a presenter keeps the frame it shows).
+    fn clone(&self) -> Self {
+        // SAFETY: a live pixel buffer; the new value releases the reference it takes.
+        unsafe { CFRetain(self.0 as CFTypeRef) };
+        Self(self.0)
+    }
+}
+
+impl Picture {
+    /// The retained CVPixelBuffer, for a presenter that shows its IOSurface.
+    #[cfg_attr(not(feature = "bench"), allow(dead_code))]
+    pub fn pixel_buffer(&self) -> *mut c_void {
+        self.0
+    }
+}
+
 impl Drop for Picture {
     fn drop(&mut self) {
         // SAFETY: releasing the reference this value holds.

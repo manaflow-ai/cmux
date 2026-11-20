@@ -192,6 +192,123 @@ pub fn read_marker_nonce(
     Some((counter, nonce))
 }
 
+/// Where a viewer window draws the marker, in capture pixels: what `--marker-origin`,
+/// `--cell-size` and `--at` otherwise give by hand.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Calibration {
+    pub origin: (usize, usize),
+    pub cell: usize,
+    /// The input point: the marker's gray pad (cells 20..23) when it lies in the region,
+    /// else a cell below the marker's rows. Never inside the marker.
+    pub at: (usize, usize),
+}
+
+/// Smallest and largest cell `locate_marker` tries: a 32 px host cell shown at an eighth, and
+/// at four times.
+const LOCATE_CELLS: std::ops::RangeInclusive<usize> = 4..=128;
+
+/// Finds the marker inside `region` (x, y, width, height in capture pixels) of a luma plane
+/// `width` x `height` with `stride` bytes a row, so `observe` needs no hand-measured geometry.
+/// `rows` is 1 for the counter alone, 9 when eight nonce rows follow it (the scene's layout);
+/// every row must read.
+///
+/// For each cell size it takes the first position (top to bottom, left to right) from which all
+/// 20 cell centres read with the guard 1,0,1,0, then measures how far that position can move
+/// and still read: the run is about one cell long for the true size, and shorter by about 19
+/// pixels for each pixel a size is off, since the error adds up across the 20 cells. The size
+/// with the largest runs wins, and the origin is the middle of its runs, which is the marker's
+/// top-left (the centres then sit mid-cell). A region with no such marker is an error, never a
+/// guess.
+pub fn locate_marker(
+    y: &[u8],
+    stride: usize,
+    width: usize,
+    height: usize,
+    region: (usize, usize, usize, usize),
+    rows: usize,
+) -> Result<Calibration, &'static str> {
+    let rows = rows.max(1);
+    let width = width.min(stride);
+    if y.len() < stride.saturating_mul(height) {
+        return Err("capture plane is shorter than its size");
+    }
+    let left = region.0.min(width);
+    let top = region.1.min(height);
+    let right = region.0.saturating_add(region.2).min(width);
+    let bottom = region.1.saturating_add(region.3).min(height);
+    let reads = |x: usize, yy: usize, cell: usize| -> bool {
+        if rows == 9 {
+            read_marker_nonce(y, stride, (x, yy), cell).is_some()
+        } else {
+            read_marker(y, stride, (x, yy), cell).is_some()
+        }
+    };
+    // The run of positions along one axis from `start` that still read.
+    let run = |x: usize, yy: usize, cell: usize, horizontal: bool| -> (usize, usize) {
+        let ok = |v: usize| if horizontal { reads(v, yy, cell) } else { reads(x, v, cell) };
+        let start = if horizontal { x } else { yy };
+        let (low_limit, high_limit) = if horizontal { (left, right) } else { (top, bottom) };
+        let mut low = start;
+        while low > low_limit && ok(low - 1) {
+            low -= 1;
+        }
+        let mut high = start;
+        while high + 1 < high_limit && ok(high + 1) {
+            high += 1;
+        }
+        (low, high)
+    };
+    let mut best: Option<(usize, Calibration)> = None;
+    for cell in LOCATE_CELLS {
+        let span_x = cell * 20;
+        let span_y = cell * rows;
+        if right < left + span_x || bottom < top + span_y {
+            break;
+        }
+        // A step under a third of a cell cannot step over the true size's run.
+        let step = (cell / 3).max(1);
+        // The first position (top to bottom, left to right) that reads and leaves room to move
+        // a quarter cell each way; a chance hit in text or noise reads at one spot only.
+        let need = (cell / 4).max(2);
+        let mut hit = None;
+        let mut yy = top;
+        'scan: while yy + span_y <= bottom {
+            let mut x = left;
+            while x + span_x <= right {
+                if reads(x, yy, cell) {
+                    let (x0, x1) = run(x, yy, cell, true);
+                    let mid_x = (x0 + x1) / 2;
+                    let (y0, y1) = run(mid_x, yy, cell, false);
+                    let mid_y = (y0 + y1) / 2;
+                    if x1 - x0 + 1 >= need && y1 - y0 + 1 >= need && reads(mid_x, mid_y, cell) {
+                        hit = Some((x0, x1, y0, y1, mid_x, mid_y));
+                        break 'scan;
+                    }
+                }
+                x += step;
+            }
+            yy += step;
+        }
+        let Some((x0, x1, y0, y1, mid_x, mid_y)) = hit else { continue };
+        let score = (x1 - x0 + 1) * (y1 - y0 + 1);
+        if best.as_ref().is_none_or(|(s, _)| score > *s) {
+            let pad = (mid_x + 22 * cell, mid_y + cell / 2);
+            let below = (mid_x + 10 * cell, mid_y + rows * cell + cell / 2);
+            let inside =
+                |p: (usize, usize)| p.0 >= left && p.0 < right && p.1 >= top && p.1 < bottom;
+            let at = if inside(pad) {
+                pad
+            } else if inside(below) {
+                below
+            } else {
+                continue;
+            };
+            best = Some((score, Calibration { origin: (mid_x, mid_y), cell, at }));
+        }
+    }
+    best.map(|(_, c)| c).ok_or("no marker visible in the viewer window")
+}
+
 /// Exactly one input is outstanding. Frames timestamped before the input and
 /// unchanged counters are not responses; skipped counters invalidate the run.
 pub fn response(
@@ -258,6 +375,95 @@ mod tests {
         assert_eq!(read_marker(&plane, stride, (3, 2), 4), None);
         assert_eq!(read_marker(&plane, stride, (usize::MAX, 2), 4), None);
         assert_eq!(read_marker(&plane, stride, (90, 2), 4), None);
+    }
+
+    /// A viewer capture: background `bg`, the marker (counter, then `nonce_rows` rows of word
+    /// 0x5aa5) at a fractional origin and cell, as a scaled viewer draws it, its edges softened by
+    /// a one-pixel blend, then four gray pad cells.
+    fn viewer_plane(
+        width: usize,
+        height: usize,
+        origin: (f64, f64),
+        cell: f64,
+        counter: u32,
+        nonce_rows: usize,
+        bg: u8,
+    ) -> Vec<u8> {
+        let mut plane = vec![bg; width * height];
+        let value = |px: f64, py: f64| -> Option<u8> {
+            let col = ((px - origin.0) / cell).floor();
+            let row = ((py - origin.1) / cell).floor();
+            if col < 0.0 || row < 0.0 || col >= 24.0 || row as usize > nonce_rows {
+                return None;
+            }
+            let (col, row) = (col as usize, row as usize);
+            if col >= 20 {
+                return (row == 0).then_some(128);
+            }
+            let word = if row == 0 { counter } else { 0x5aa5 };
+            Some(if crate::marker::cells(word)[col] { 235 } else { 16 })
+        };
+        for py in 0..height {
+            for px in 0..width {
+                // Average of the pixel's four quarter points: a scaled edge blends.
+                let mut sum = 0u32;
+                for (dx, dy) in [(0.25, 0.25), (0.75, 0.25), (0.25, 0.75), (0.75, 0.75)] {
+                    sum += u32::from(value(px as f64 + dx, py as f64 + dy).unwrap_or(bg));
+                }
+                plane[py * width + px] = (sum / 4) as u8;
+            }
+        }
+        plane
+    }
+
+    #[test]
+    fn locate_finds_a_native_marker_and_its_pad() {
+        let (w, h) = (1200, 300);
+        let plane = viewer_plane(w, h, (100.0, 40.0), 32.0, 0xa5c3, 0, 128);
+        let found = locate_marker(&plane, w, w, h, (0, 0, w, h), 1).expect("marker");
+        assert_eq!(found.cell, 32);
+        assert!(found.origin.0.abs_diff(100) <= 1 && found.origin.1.abs_diff(40) <= 1, "{found:?}");
+        assert_eq!(read_marker(&plane, w, found.origin, found.cell), Some(0xa5c3));
+        assert_eq!(found.at, (found.origin.0 + 22 * 32, found.origin.1 + 16));
+    }
+
+    #[test]
+    fn locate_handles_a_scaled_fractional_cell() {
+        let (w, h) = (900, 400);
+        let plane = viewer_plane(w, h, (37.3, 61.6), 13.6, 0x00ff, 0, 40);
+        let found = locate_marker(&plane, w, w, h, (0, 0, w, h), 1).expect("marker");
+        assert!(found.cell.abs_diff(14) <= 1, "{found:?}");
+        assert_eq!(read_marker(&plane, w, found.origin, found.cell), Some(0x00ff));
+        // The counter must still read one step later: every centre stays inside its cell.
+        let next = viewer_plane(w, h, (37.3, 61.6), 13.6, 0x0100, 0, 40);
+        assert_eq!(read_marker(&next, w, found.origin, found.cell), Some(0x0100));
+    }
+
+    #[test]
+    fn locate_reads_the_nonce_rows_when_asked() {
+        let (w, h) = (1000, 400);
+        let plane = viewer_plane(w, h, (12.0, 30.0), 20.0, 7, 8, 200);
+        let found = locate_marker(&plane, w, w, h, (0, 0, w, h), 9).expect("marker");
+        assert_eq!(found.cell, 20);
+        let (counter, nonce) =
+            read_marker_nonce(&plane, w, found.origin, found.cell).expect("nonce");
+        assert_eq!(counter, 7);
+        assert_eq!(nonce, [0xa5, 0x5a].repeat(8)[..]);
+    }
+
+    #[test]
+    fn locate_stays_inside_the_region_and_fails_closed() {
+        let (w, h) = (1200, 300);
+        let plane = viewer_plane(w, h, (100.0, 40.0), 32.0, 3, 0, 128);
+        // A window that does not contain the marker: no guess.
+        assert!(locate_marker(&plane, w, w, h, (0, 120, w, 180), 1).is_err());
+        let blank = vec![128u8; w * h];
+        assert!(locate_marker(&blank, w, w, h, (0, 0, w, h), 1).is_err());
+        // Black and white noise (text on a page) is not a marker.
+        let mut rng = crate::clock::Rng::new(7);
+        let noise: Vec<u8> =
+            (0..w * h).map(|_| if rng.range(0, 1) == 0 { 0 } else { 255 }).collect();
+        assert!(locate_marker(&noise, w, w, h, (0, 0, w, h), 1).is_err());
     }
 
     #[test]
