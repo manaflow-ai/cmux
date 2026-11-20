@@ -19,13 +19,15 @@ import { QueueScreen } from "../queue/QueueScreen";
 import { createQueueCache } from "../queue/useQueue";
 import { createLedgerCache } from "../ledger/LedgerScreen";
 import { teamAudit } from "../teamAudit/teamAudit.experiment";
+import { unitCost as unitCostExperiment } from "../unitCost/unitCost.experiment";
+import { UnitCostScreen } from "../unitCost/UnitCostScreen";
 import { TeamAuditScreen } from "../teamAudit/TeamAuditScreen";
 import { AllChatsList } from "./AllChatsList";
 import { type LoadChatsPage } from "./allChatsListModel";
 import { useNoEntryMotion } from "./noEntryMotion";
 import { useNt } from "./strings";
 
-export type HistoryTab = "history" | "queue" | "ledger" | "team";
+export type HistoryTab = "history" | "queue" | "ledger" | "team" | "unitCost";
 
 export function HistoryScreen({
   load,
@@ -36,6 +38,7 @@ export function HistoryScreen({
   queue,
   ledger,
   team: teamProps,
+  unitCost: unitCostProps,
   initialTab = "history",
 }: {
   load: LoadChatsPage;
@@ -49,6 +52,7 @@ export function HistoryScreen({
   ledger?: ComponentProps<typeof LedgerScreen>;
   /// Team's read; no tab without it, or while the `team-audit` experiment is off.
   team?: ComponentProps<typeof TeamAuditScreen>;
+  unitCost?: ComponentProps<typeof UnitCostScreen>;
   initialTab?: HistoryTab;
 }) {
   const nt = useNt();
@@ -66,9 +70,15 @@ export function HistoryScreen({
     if (queueKey !== undefined) queueCache.note(queueKey);
   }, [queueCache, queueKey]);
   const team = experimentArm(teamAudit) === "on" ? teamProps : undefined;
-  const tabbed = Boolean(queue || ledger || team);
+  const unitCost = experimentArm(unitCostExperiment) === "on" ? unitCostProps : undefined;
+  const tabbed = Boolean(queue || ledger || team || unitCost);
   const shown: HistoryTab =
-    (tab === "queue" && !queue) || (tab === "ledger" && !ledger) || (tab === "team" && !team) ? "history" : tab;
+    (tab === "queue" && !queue) ||
+    (tab === "ledger" && !ledger) ||
+    (tab === "team" && !team) ||
+    (tab === "unitCost" && !unitCost)
+      ? "history"
+      : tab;
   return (
     <div className="nt-history" data-tab={shown}>
       {/* The page's title stays on every tab, with the tabs under it, so switching moves nothing above. */}
@@ -84,11 +94,14 @@ export function HistoryScreen({
             <TabsTrigger value="history">{nt("history")}</TabsTrigger>
             {queue && <TabsTrigger value="queue">{t("waiting.title")}</TabsTrigger>}
             {ledger && <TabsTrigger value="ledger">{t("ledger.title")}</TabsTrigger>}
+            {unitCost && <TabsTrigger value="unitCost">{t("unitCost.title")}</TabsTrigger>}
             {team && <TabsTrigger value="team">{t("teamAudit.title")}</TabsTrigger>}
           </TabsList>
         </Tabs>
       )}
-      {shown === "queue" && queue ? (
+      {shown === "unitCost" && unitCost ? (
+        <UnitCostScreen {...unitCost} />
+      ) : shown === "queue" && queue ? (
         <QueueScreen {...queue} cache={queueCache} {...(now !== undefined ? { now } : {})} />
       ) : shown === "ledger" && ledger ? (
         <LedgerScreen {...ledger} cache={ledgerCache} {...(now !== undefined ? { now } : {})} />

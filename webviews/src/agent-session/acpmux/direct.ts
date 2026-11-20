@@ -15169,6 +15169,10 @@ export class AcpmuxDirectClient {
   async ledger(params: Record<string, unknown>): Promise<unknown> {
     return this.request("_acpmux/ledger", params, 15_000);
   }
+  /// A stateless planning estimate for History's default-off Unit cost experiment.
+  async unitCost(params: Record<string, unknown>): Promise<unknown> {
+    return this.request("_acpmux/unit_cost", params, 15_000);
+  }
   /// The team's agent spend for History > Team (`_acpmux/team_audit`, teamAudit/teamAuditModel.ts):
   /// acpmux reads cmux-platform with its sign-in. An older acpmux answers method not found.
   async teamAudit(params: Record<string, unknown>): Promise<unknown> {

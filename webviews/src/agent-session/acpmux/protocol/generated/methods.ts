@@ -79,6 +79,7 @@ export interface AcpmuxRequests {
   "_acpmux/stats": { params: unknown; result: unknown };
   "_acpmux/ledger": { params: unknown; result: unknown };
   "_acpmux/team_audit": { params: unknown; result: unknown };
+  "_acpmux/unit_cost": { params: unknown; result: unknown };
   "_acpmux/workspace_purge": { params: unknown; result: unknown };
   "_acpmux/review_queue": { params: unknown; result: unknown };
   "_acpmux/review_brief": { params: unknown; result: unknown };
@@ -461,6 +462,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/stats", kind: "request", acp: false, typed: false },
   { name: "_acpmux/ledger", kind: "request", acp: false, typed: false },
   { name: "_acpmux/team_audit", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/unit_cost", kind: "request", acp: false, typed: false },
   { name: "_acpmux/workspace_purge", kind: "request", acp: false, typed: false },
   { name: "_acpmux/review_queue", kind: "request", acp: false, typed: false },
   { name: "_acpmux/review_brief", kind: "request", acp: false, typed: false },
