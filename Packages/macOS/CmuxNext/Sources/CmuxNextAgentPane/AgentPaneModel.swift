@@ -117,9 +117,40 @@ public final class AgentPaneModel {
     /// The one speculative Cloud lease this pane may own before its first chat. The page may
     /// retry the same compose key, but a second key must release the first one first.
     @ObservationIgnored private var cloudReservationComposeKey: String?
+    /// The empty local chat that reservation was made for (``AgentPaneCloudReservationRequest/replacesChat``); nil: none.
+    @ObservationIgnored private var cloudReservationReplaces: String?
+    /// Reservations this pane stopped owning when its chat changed (``adoptSession(_:)``): no Send binds them,
+    /// but the page's release of each still reaches Rust, so none waits out the platform's hold.
+    @ObservationIgnored private var cloudReservationsLeft: Set<String> = []
+
+    /// A Send named the pane's reservation: it is that start's from here on, whether or not its answer arrives.
+    @ObservationIgnored private var cloudReservationSent = false
 
     /// Whether a Cloud start may bind the pane's currently live reservation.
     func ownsCloudReservation(_ key: String) -> Bool { cloudReservationComposeKey == key }
+
+    /// A Send names the pane's reservation `key`: a chat change after this never leaves it to a cold Send
+    /// (``releaseLeftCloudReservation(_:)``), since a retry of a Send whose answer was lost must not make a second machine.
+    func markCloudReservationSent(_ key: String) { if cloudReservationComposeKey == key { cloudReservationSent = true } }
+
+    /// The start that named `key` began its chat on that machine: the reservation is spent, and no longer this pane's.
+    func cloudReservationBound(_ key: String) {
+        guard cloudReservationComposeKey == key else { return }
+        cloudReservationComposeKey = nil
+        cloudReservationReplaces = nil
+    }
+
+    /// A Send that names a reservation this pane left when its chat changed (the page sent before it reset its
+    /// compose): that machine is released here, as the page no longer will (it handed the key off), and true:
+    /// the Send goes without it. False: not such a reservation.
+    func releaseLeftCloudReservation(_ key: String) async -> Bool {
+        guard cloudReservationsLeft.remove(key) != nil else { return false }
+        if let onCloudReservation,
+           let release = AgentPaneCloudReservationRequest(method: "cloud.releaseReservation", params: ["composeKey": key]) {
+            _ = await onCloudReservation(release)
+        }
+        return true
+    }
     /// The reserve still out, and whether a Send went without it meanwhile (``dropCloudReservation()``).
     @ObservationIgnored private var cloudReserveOut: (key: String, dropped: Bool)?
 
@@ -315,6 +346,11 @@ public final class AgentPaneModel {
     @ObservationIgnored public var workspaceAgentHome: (@MainActor () -> AgentHomeFill?)?
     /// Where this pane's new chat starts: the store's answer and its rules (cx-9aps).
     @ObservationIgnored public let startFolders = AgentPaneStartFolders()
+    /// Makes and keeps the JSON text of the New Tab context's shared part (``AgentPaneNewTabText``): the app gives
+    /// each page's model its one, so the pages share the text.
+    @ObservationIgnored public var newTabText = AgentPaneNewTabText() { didSet { newTabSharedGeneration = nil } }
+    /// The generation of the shared text that this page's document has; nil for none (a new document).
+    @ObservationIgnored var newTabSharedGeneration: Int?
     /// Shows the native folder sheet for "Choose Folder…" and saves the pick as the workspace's
     /// agent folder; a refusal carries its localized text (an older background service, a save
     /// that failed).
@@ -604,8 +640,8 @@ public final class AgentPaneModel {
         case .newTabContext:
             // Only a page with no chat yet is a New Tab page, and marks so; the handshake still sends the same context.
             if sessionId == nil { AgentPaneLaunchTimings.shared.mark("agent_pane.newtab_context") }
-            guard sessionId == nil, let newTab = newTabForPage, let data = try? JSONEncoder().encode(newTab),
-                  let object = try? JSONSerialization.jsonObject(with: data) else { return AgentPaneReply.success() }
+            // The page asked: it gets the shared text too, whatever its document's mark says (a document that lost it).
+            guard sessionId == nil, let newTab = newTabForPage, let object = newTabReply(newTab, always: true) else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["newTab": object])
         // Another machine's chats are not this Mac's: only a local page's list warms the next page.
         case .newTabWarm(let warm): if !remoteChat { AgentPaneNewTab.warmed = warm }; return AgentPaneReply.success()
@@ -746,12 +782,18 @@ public final class AgentPaneModel {
                                        },
                                        localRequest: onCloudRepositoryLocal)
         case .cloudReservation(let request):
-            guard !remoteChat, request.release || sessionId == nil else {
+            // A pane with no chat, or one whose empty local chat the reserve names (``reserveReplaces(_:)``).
+            guard !remoteChat, request.release || sessionId == nil || reserveReplaces(request.replacesChat) else {
                 return Self.unsupported(request.release ? "cloud.releaseReservation" : "cloud.reserve")
             }
             guard let composeKey = request.composeKey, !composeKey.isEmpty,
                   let onCloudReservation else {
                 return Self.unsupported(request.release ? "cloud.releaseReservation" : "cloud.reserve")
+            }
+            if request.release, cloudReservationsLeft.contains(composeKey) {
+                let reply = await onCloudReservation(request)
+                if reply["ok"] as? Bool == true { cloudReservationsLeft.remove(composeKey) }
+                return reply
             }
             if request.release {
                 // Release is idempotent: a late page cleanup for an already-cleared key is harmless.
@@ -768,6 +810,8 @@ public final class AgentPaneModel {
             if cloudReservationComposeKey != composeKey {
                 guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
                 cloudReservationComposeKey = composeKey
+                cloudReservationReplaces = request.replacesChat
+                cloudReservationSent = false
             }
             cloudReserveOut = (composeKey, false)
             let reply = await onCloudReservation(request)
@@ -777,6 +821,7 @@ public final class AgentPaneModel {
                let late = AgentPaneCloudReservationRequest(method: "cloud.releaseReservation", params: ["composeKey": composeKey]) {
                 _ = await onCloudReservation(late)
                 if cloudReservationComposeKey == composeKey { cloudReservationComposeKey = nil }
+                cloudReservationsLeft.remove(composeKey)
                 return AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
             }
             if reply["ok"] as? Bool != true, cloudReservationComposeKey == composeKey { cloudReservationComposeKey = nil }
@@ -917,6 +962,8 @@ public final class AgentPaneModel {
             return await stager(stage, sessionId)
         case .uploadStageForSend(let stage, let ticket):
             return await beginSendUpload(stage, ticket: ticket)
+        case .gitHub(.checkout(let repo, let candidates, let key)):
+            return await AgentPaneGitWriteReply.gitHubCheckout(repo: repo, candidates: candidates, key: key, userGesture: userGesture, in: self)
         case .gitHub(let request): return await request.reply(gitHub) { userGesture || transport.gestures.consume() }
         case .unsupported(let method): return Self.unsupported(method)
         }
@@ -927,7 +974,12 @@ public final class AgentPaneModel {
         guard id != sessionId else { return }
         if sessionId != nil { droppedPaths.clearForSessionChange() }
         sessionId = id
-        cloudReservationComposeKey = nil
+        // The reservation stays this pane's only for the empty chat it was made for (a reserve that went before
+        // the host adopted that chat); another chat leaves it to the page's release.
+        if let key = cloudReservationComposeKey, cloudReservationReplaces != id {
+            if !cloudReservationSent { cloudReservationsLeft.insert(key) } // one a Send named is that start's, never released or sent cold here
+            cloudReservationComposeKey = nil
+        }
         newTab = nil
         onQuestionKeySessionChange?()
         onSessionChange?(id)

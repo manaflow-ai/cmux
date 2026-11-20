@@ -17,8 +17,9 @@ import { platformCloud } from "../platform-cloud.ts"
  * connection carries `configure_url`, the installation's GitHub page for adding repositories, or null. Callers:
  * a `vm` install for its own live machine (vmGate's checks, through CloudDO's cloud.vm.self.get), a
  * `daemon`, `cli` or `mac` install, or a member's session; chief tokens (`agent`), team VMs, phone
- * and web installs are refused. Errors are `{error: {code, message, configure_url?}}` (configure_url only on a
- * policy.denied GitHub answered for the repository) and never carry a token.
+ * and web installs are refused. Errors are `{error: {code, message, configure_url?, reason?}}` (configure_url only on a
+ * policy.denied for a repository the owner's installation lacks; reason, github-tokens.ts DenyReason, on a
+ * policy.denied about the repository or its access) and never carry a token.
  */
 export const GITHUB_TOKEN_PATH = /^\/v1\/integrations\/github\/(token|machine-token|token\/revoke|status|repos)$/
 
@@ -28,9 +29,10 @@ const NO_STORE = { "cache-control": "no-store" }
 const REPO_PAGES_PER_ANSWER = 10
 const REPOS_PER_ANSWER = 100
 
-type Fail = { status: number; code: string; message: string; retry_after?: number; configure_url?: string }
-// `configure_url` rides in `error`, where the machine's git and gh read it (cmux-host github.rs reply_for).
-const failed = (f: Fail) => Response.json({ error: { code: f.code, message: f.message, ...(f.configure_url === undefined ? {} : { configure_url: f.configure_url }) }, ...(f.retry_after === undefined ? {} : { retry_after: f.retry_after }) }, { status: f.status, headers: NO_STORE })
+type Fail = { status: number; code: string; message: string; retry_after?: number; configure_url?: string; reason?: string }
+// `configure_url` and a policy.denied's `reason` (github-tokens.ts DenyReason) ride in `error`, where the machine's
+// git and gh read them (cmux-host github.rs reply_for).
+const failed = (f: Fail) => Response.json({ error: { code: f.code, message: f.message, ...(f.configure_url === undefined ? {} : { configure_url: f.configure_url }), ...(f.reason === undefined ? {} : { reason: f.reason }) }, ...(f.retry_after === undefined ? {} : { retry_after: f.retry_after }) }, { status: f.status, headers: NO_STORE })
 const no = (status: number, code: string, message: string): Fail => ({ status, code, message })
 const unreachable = (what: string) => no(503, "integration.unavailable", `${what} could not be checked; retry`)
 

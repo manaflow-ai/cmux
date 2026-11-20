@@ -129,18 +129,37 @@ async fn never_more_than_three_in_flight_and_a_new_one_once_one_times_out() {
     assert_eq!(took, 3010);
 }
 
+/// On a saturated uplink every connect takes longer than the 3 s an early attempt gets: the last
+/// attempt is not cut at 3 s, so a 5 s connect still succeeds inside the caller's budget.
 #[tokio::test(start_paused = true)]
-async fn every_attempt_black_holed_ends_bounded_with_a_timeout() {
-    let (result, starts, took) = run(&["a", "b"], vec![], HedgePolicy::INTERNET).await;
-    let error = result.unwrap_err();
-    assert_eq!(error.kind(), io::ErrorKind::TimedOut);
-    assert_eq!(starts.len(), 6, "at most max_attempts sockets");
-    // Attempts at 0, 400, 800, then 3000, 3400, 3800 as each slot frees; the last ends at 6800.
+async fn the_last_attempt_may_connect_slowly_past_the_attempt_timeout() {
+    let mut plans = vec![Plan::Never; 5];
+    plans.push(Plan::After(ms(5000)));
+    let (result, starts, took) = run(&["a", "b"], plans, HedgePolicy::INTERNET).await;
+    assert_eq!(result.unwrap(), (5, "b"));
+    // Attempts at 0, 400, 800, then 3000, 3400, 3800 as each slot frees; the last connects 5 s later.
     assert_eq!(
         starts.iter().map(|(ms, _)| *ms).collect::<Vec<_>>(),
         vec![0, 400, 800, 3000, 3400, 3800]
     );
-    assert_eq!(took, 6800);
+    assert_eq!(took, 8800);
+}
+
+/// Every attempt black-holed: six sockets at most, and the last waits until the caller's own
+/// budget (the relay's 10 s connect) ends the connect.
+#[tokio::test(start_paused = true)]
+async fn every_attempt_black_holed_ends_at_the_caller_s_budget() {
+    let began = Instant::now();
+    let starts: Starts = Arc::default();
+    let counted = starts.clone();
+    let hedged = connect(&["a", "b"], HedgePolicy::INTERNET, move |target| {
+        counted.lock().unwrap().push((0, target));
+        std::future::pending::<io::Result<()>>()
+    });
+    let outcome = tokio::time::timeout(Duration::from_secs(10), hedged).await;
+    assert!(outcome.is_err(), "the last attempt is ended by the caller's budget only");
+    assert_eq!(began.elapsed(), Duration::from_secs(10));
+    assert_eq!(starts.lock().unwrap().len(), 6, "at most max_attempts sockets");
 }
 
 #[tokio::test(start_paused = true)]

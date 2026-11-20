@@ -139,6 +139,8 @@ const actions = () => (dom.window as unknown as { cmuxAcpmuxActions?: Record<str
 async function mount(ready: Record<string, unknown> = {}, holdCheck = false) {
   if (!restoreAnswer) await trustFolder();
   const starts: Record<string, unknown>[] = [];
+  /// The compose reservation calls the page made (`cloud.reserve`, `cloud.releaseReservation`), in order.
+  const reservations: [string, Record<string, unknown>][] = [];
   let answerCheck: (() => void) | undefined;
   let settle: ((reply: unknown) => void) | undefined;
   Object.assign(dom.window, {
@@ -146,6 +148,8 @@ async function mount(ready: Record<string, unknown> = {}, holdCheck = false) {
       messageHandlers: {
         agentSession: {
           postMessage: (message: { method: string; params?: Record<string, unknown> }) => {
+            if (message.method === "cloud.reserve" || message.method === "cloud.releaseReservation")
+              reservations.push([message.method, { ...message.params }]);
             if (message.method === "cloud.startChat") {
               starts.push({ ...message.params });
               return new Promise((done) => (settle = done));
@@ -183,6 +187,7 @@ async function mount(ready: Record<string, unknown> = {}, holdCheck = false) {
   await until(() => actions() !== undefined && promptField() !== undefined, "the new chat connects");
   return {
     starts,
+    reservations,
     check: () => act(async () => answerCheck?.()),
     fail: () =>
       act(async () =>
@@ -246,6 +251,71 @@ test("an empty chat whose local session opened first picks Cloud in place, and i
   expect(pane.starts[1]!.task).toBe(PROMPT);
   expect(pane.starts[1]!.replacesChat).toBe(session);
   await until(() => startCard()?.dataset.state === "starting", "the card shows the retried start");
+}, 60_000);
+
+// New Cloud Chat beside a chat lands here: a pick of Cloud reserves the machine ahead of Send, as a page with
+// no session does, naming the empty chat the start replaces, and the Send starts on that reserved machine.
+test("Cloud picked in an empty local chat reserves a machine ahead, and its Send starts on it", async () => {
+  const pane = await mount();
+  const session = await openEmptyLocalChat();
+  await until(() => debug().runMode("cloud").runMode === "cloud", "Cloud is picked in the empty chat");
+  await until(() => pane.reservations.length > 0, "picking Cloud reserves a machine");
+  const [method, reserved] = pane.reservations[0]!;
+  expect(method).toBe("cloud.reserve");
+  expect(reserved.replacesChat).toBe(session);
+  await act(async () => void promptField()!.type(PROMPT));
+  await until(() => promptField()?.value() === PROMPT, "the composer takes the prompt");
+  await pressSend();
+  await until(() => pane.starts.length === 1, "the send starts the chat in Cloud");
+  expect(pane.starts[0]!.reservationKey).toBe(reserved.composeKey);
+  expect(pane.starts[0]!.replacesChat).toBe(session);
+  expect(pane.reservations.some(([call]) => call === "cloud.releaseReservation")).toBe(false);
+}, 60_000);
+
+test("leaving Cloud in an empty local chat gives its reserved machine back", async () => {
+  const pane = await mount();
+  await openEmptyLocalChat();
+  await until(() => debug().runMode("cloud").runMode === "cloud", "Cloud is picked in the empty chat");
+  await until(() => pane.reservations.length > 0, "picking Cloud reserves a machine");
+  const key = pane.reservations[0]![1].composeKey;
+  expect(debug().runMode("persistent").runMode).toBe("persistent");
+  await until(
+    () => pane.reservations.some(([call, params]) => call === "cloud.releaseReservation" && params.composeKey === key),
+    "leaving Cloud releases the compose's machine",
+  );
+}, 60_000);
+
+test("another chat in the pane after the reserve releases it, and the new chat's Send reserves and starts afresh", async () => {
+  const pane = await mount();
+  const first = await openEmptyLocalChat();
+  await until(() => debug().runMode("cloud").runMode === "cloud", "Cloud is picked in the empty chat");
+  await until(() => pane.reservations.length > 0, "picking Cloud reserves a machine");
+  const firstKey = pane.reservations[0]![1].composeKey;
+  // The harness switch: the inherited agent's empty chat is replaced by another agent's.
+  await act(async () => void (await debug().newChat("codex", FOLDER)));
+  await until(
+    () => Boolean(debug().chatState().sessionId) && debug().chatState().sessionId !== first,
+    "the chat changed",
+  );
+  for (let step = 0; step < 10; step += 1) await tick();
+  const second = debug().chatState().sessionId!;
+  await until(
+    () =>
+      pane.reservations.some(([call, params]) => call === "cloud.releaseReservation" && params.composeKey === firstKey),
+    "the first chat's machine is released",
+  );
+  if (debug().runMode().runMode !== "cloud")
+    await until(() => debug().runMode("cloud").runMode === "cloud", "Cloud is picked again");
+  await act(async () => void promptField()!.type(PROMPT));
+  await until(() => promptField()?.value() === PROMPT, "the composer takes the prompt");
+  await pressSend();
+  await until(() => pane.starts.length === 1, "the send starts the chat in Cloud");
+  expect(pane.starts[0]!.replacesChat).toBe(second);
+  // Never the released machine: a new reservation for the new chat, or the ordinary create.
+  expect(pane.starts[0]!.reservationKey).not.toBe(firstKey);
+  const named = pane.starts[0]!.reservationKey;
+  if (named !== undefined)
+    expect(pane.reservations).toContainEqual(["cloud.reserve", { composeKey: named, replacesChat: second }]);
 }, 60_000);
 
 test("New Cloud Chat's pick is taken once Cloud is offered, also after the empty local chat opened", async () => {

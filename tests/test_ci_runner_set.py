@@ -45,24 +45,24 @@ def runs_on_text(job: dict, where: str) -> str:
 
 
 class RunnerSetTests(unittest.TestCase):
-    def test_secret_bearing_changes_takes_ephemeral_hosted_then_measured_retry(self) -> None:
-        # The router runs before any picker can, so it is a declared hosted light job
-        # (.github/runners.json hosted_light_jobs). Its credentialed body takes a live
-        # verified fleet Linux placement when available, then hosted/paid overflow.
+    def test_secret_bearing_changes_takes_live_placement_then_ephemeral_blacksmith(self) -> None:
+        # Its credentialed body takes a live verified fleet Linux placement when available, then
+        # ephemeral Blacksmith on every attempt: GitHub-hosted Ubuntu left it queued for hours on
+        # 2026-11-18 (cmux#45735), so no attempt takes hosted Ubuntu.
         job = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]["changes"]
         runs_on = runs_on_text(job, "ci.yml#changes")
         self.assertIn("needs.portable-placement.outputs.linux_runner", runs_on)
         self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)", runs_on)
-        self.assertIn("github.run_attempt == 1 && 'ubuntu-24.04'", runs_on)
+        self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", runs_on)
         self.assertTrue(runs_on.rstrip().endswith(
             "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"), runs_on)
         self.assertEqual(job["needs"], ["portable-placement"])
         self.assertEqual(yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]["portable-placement"]["steps"][-1]["env"]["LINUX_ONLY"], "changes")
 
-    def test_light_report_jobs_take_hosted_ubuntu_first(self) -> None:
-        # Declared light jobs (.github/runners.json hosted_light_jobs): a few seconds of report or
-        # routing work each, which on 2026-11-02 waited up to a minute behind the saturated
-        # blacksmith-4vcpu-ubuntu-2404 queue. Hosted Ubuntu on attempt 1, then a declared retry.
+    def test_light_report_jobs_run_on_blacksmith_every_attempt(self) -> None:
+        # A few seconds of report or routing work each. They took hosted Ubuntu on attempt 1 until
+        # 2026-11-18, when GitHub-hosted runners left them queued for hours (cmux#45735); Blacksmith
+        # is the rule for all CI, so every attempt reads the declared pool.
         import json
 
         declared = json.loads((ROOT / ".github" / "runners.json").read_text())["hosted_light_jobs"]
@@ -71,22 +71,36 @@ class RunnerSetTests(unittest.TestCase):
         # scripts, retries only on ephemeral Blacksmith; the rest may take the reconciled pool.
         ephemeral = "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"
         cases = {
-            ("pr-red-checks-comment.yml", "comment"): ephemeral,
+            ("pr-red-checks-comment.yml", "comment"): "|| 'cmux-linux' }}",
             ("cmux-next.yml", "path_route"): ephemeral,
             ("ci-guards.yml", "guard-status"): f"|| {POOL} }}}}",
-            ("pr-checks.yml", "size"): f"|| {POOL} }}}}",
-            ("pr-checks.yml", "ui-review"): f"|| {POOL} }}}}",
+            ("pr-checks.yml", "size"): "|| 'cmux-linux' }}",
+            ("pr-checks.yml", "ui-review"): "|| 'cmux-linux' }}",
         }
         for (workflow, name), tail in cases.items():
             with self.subTest(job=f"{workflow}#{name}"):
-                self.assertIn(f"{workflow}#{name}", declared)
+                self.assertNotIn(f"{workflow}#{name}", declared)
                 runs_on = runs_on_text(yaml.safe_load((WORKFLOWS / workflow).read_text())["jobs"][name], f"{workflow}#{name}")
                 # A fork's run keeps the label it had; every other run reads the pool.
                 runs_on = re.sub(r"\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name"
                                  r" != github\.repository && 'blacksmith-\d+vcpu-ubuntu-2404' \|\| (fromJSON\(vars\.RUNNER_POOLS\)\.[a-z0-9_]+)\)", r"\1", runs_on)
-                self.assertIn(hosted, runs_on)
+                self.assertNotIn(hosted, runs_on)
                 self.assertTrue(runs_on.rstrip().endswith(tail), runs_on)
                 self.assertNotIn("cmux-fleet-linux-x64", runs_on)
+
+    def test_no_light_job_takes_hosted_ubuntu_on_attempt_one(self) -> None:
+        # On 2026-11-18 jobs that finished on GitHub-hosted had waited a median 10,768 s, so every pull request's
+        # `changes` router sat there and its required checks never started. #45861 first added a release valve
+        # (hosted_saturated in RUNNER_POOLS); the hosted attempt-1 branch is now gone from every non-nightly
+        # workflow (Blacksmith for all CI, cmux#45898) and the valve is gone. Nightlies keep their own routes.
+        hosted = re.compile(r"github\.run_attempt == 1 && [^|]*'ubuntu-24\.04'")
+        for path in sorted(WORKFLOWS.glob("*.y*ml")):
+            if path.name == "nightly.yml":  # nightlies never run on Blacksmith; their hosted routes stay
+                continue
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                with self.subTest(site=f"{path.name}:{number}"):
+                    self.assertIsNone(hosted.search(line), line)
+                    self.assertNotIn("hosted_saturated", line)
 
     def test_stalled_paths_use_the_live_linux_pool(self) -> None:
         for workflow, names in TARGETS.items():
@@ -95,7 +109,14 @@ class RunnerSetTests(unittest.TestCase):
             for name in names:
                 with self.subTest(workflow=workflow, job=name):
                     runs_on = runs_on_text(jobs[name], f"{workflow}#{name}")
-                    self.assertIn(POOL, runs_on)
+                    direct = ((workflow == "web-validation.yml" and name == "web-validation") or
+                              (workflow == "pr-checks.yml" and name in {"size", "ui-review", "split"}))
+                    if direct:
+                        self.assertTrue(runs_on.endswith("|| 'cmux-linux' }}"), runs_on)
+                        self.assertIn("github.event.pull_request.head.repo.full_name != github.repository", runs_on)
+                        self.assertNotIn("needs.", runs_on)
+                    else:
+                        self.assertIn(POOL, runs_on)
                     self.assertNotIn("vars.LINUX_RUNNER || 'blacksmith-", runs_on)
                     self.assertNotIn("CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-", runs_on)
                     self.assertNotIn("outputs.map", runs_on)

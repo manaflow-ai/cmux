@@ -316,10 +316,10 @@ if [[ "$result" == 0 && "$(warnings)" == 1 && "$output" == *"$not_embedded"* && 
   ! -e "$scratch/cache/$sha/$asset" ]] && gone; then pass "$name"; else fail "$name"; fi
 
 # 7. The embed script reads its variables from the environment of the Xcode phase that runs it
-# ("Embed Computer Use helper (dev)"). Each one is an input of that phase in the project file, so a
+# ("Embed cmux Remote (dev)"). Each one is an input of that phase in the project file, so a
 # build after a change of one of them runs the phase again. This reads the project file; no Xcode.
 inputs="$(awk '
-  /\/\* Embed Computer Use helper \(dev\) \*\/ = \{/ { phase = 1 }
+  /\/\* Embed cmux Remote \(dev\) \*\/ = \{/ { phase = 1 }
   phase && /inputPaths = \(/ { list = 1; next }
   phase && list && /^[[:space:]]*\);/ { exit }
   phase && list { print }

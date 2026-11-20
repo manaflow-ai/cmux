@@ -53,6 +53,8 @@ mod host_ops;
 #[cfg(unix)]
 mod hosts;
 #[cfg(unix)]
+mod http_cache;
+#[cfg(unix)]
 mod load_trial;
 #[cfg(unix)]
 mod local_reload;
@@ -113,6 +115,8 @@ mod terminal_links;
 mod terminal_ops;
 #[cfg(unix)]
 pub(crate) mod timer;
+#[cfg(unix)]
+mod widgets;
 
 use std::sync::{Arc, Mutex, OnceLock};
 
