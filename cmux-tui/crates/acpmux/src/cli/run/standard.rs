@@ -174,7 +174,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::Schema => {
             use std::io::Write;
-            let _ = std::io::stdout().write_all(crate::schema::SCHEMA.as_bytes());
+            let _ = std::io::stdout().write_all(crate::schema::SCHEMA.inflate().as_bytes());
             Ok(())
         }
         Command::Defaults { family, pairs, clear } => {
@@ -961,6 +961,30 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         && crate::cli::send_relay::no_such_session(&e)
                         && crate::mesh_http::configured() =>
                 {
+                    let client = before_deadline(deadline, &relay_session, connect(true)).await?;
+                    super::send_async::queue(
+                        &client,
+                        &relay_session,
+                        &relay_text,
+                        mesh_steer,
+                        &mesh_prompt,
+                        superseding,
+                        json_out,
+                        deadline,
+                    )
+                    .await
+                }
+                // The target's machine is down: the message goes to this daemon's outbox, which
+                // tries it again and, for an `ssh://` machine, carries it over ssh
+                // (`server/ssh_carry.rs`). Said, so the sender knows no reply is streamed.
+                (Err(e), _)
+                    if !no_wait
+                        && !attaching
+                        && crate::cli::errors::classify(&e).detail == "peer_unreachable" =>
+                {
+                    eprintln!(
+                        "acpmux: {relay_session}'s machine is unreachable; queued here instead of waiting for the reply (an ssh machine gets it over ssh)"
+                    );
                     let client = before_deadline(deadline, &relay_session, connect(true)).await?;
                     super::send_async::queue(
                         &client,
