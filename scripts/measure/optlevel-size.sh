@@ -44,7 +44,8 @@ command -v clang >/dev/null || { sudo apt-get update -qq && sudo apt-get install
 zig version; cargo --version
 
 scratch="$(mktemp -d)"
-export CARGO_TARGET_DIR="$scratch/target"
+# Per variant, under the pool cache when the job names one (warm on a rerun; parallel variants never share a lock).
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$scratch/target}-optlevel-$variant"
 target=aarch64-apple-darwin
 cross_ok=1
 bash "$root/scripts/ci/apt-ensure.sh" clang-19 lld-19 llvm-19 || cross_ok=0
