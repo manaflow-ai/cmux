@@ -345,3 +345,46 @@ async fn a_held_tunnel_does_not_reassert_to_its_parked_peer_across_a_rebind() {
     pair.phone.shutdown().await;
     pair.mac.shutdown().await;
 }
+
+/// A connection the Mac accepts after the park (a link's input lane opened
+/// late, its SYN behind the park) is held like the ones before it: through
+/// five silent minutes it sends the phone nothing and is not aborted on its
+/// 60 s user timeout, and it works after the release.
+#[tokio::test(start_paused = true)]
+async fn a_connection_accepted_after_the_hold_is_held_too() {
+    let mut pair = pair().await;
+    pair.mac.hold(Some(Duration::from_secs(10 * 60))).await.unwrap();
+    pair.phone.hold(Some(Duration::from_secs(10 * 60))).await.unwrap();
+    let server = SocketAddr::new(pair.accepted.local_addr().ip(), PORT + 1);
+    let mut lane_listener = pair.mac.listen(PORT + 1).await.unwrap();
+    let mut lane = pair.phone.connect(server).await.unwrap();
+    let mut lane_accepted = lane_listener.accept().await.unwrap();
+    lane.write_all(b"hi").await.unwrap();
+    let mut hi = [0u8; 2];
+    lane_accepted.read_exact(&mut hi).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    pair.sim.set_link(addr(PHONE), addr(MAC), link(true));
+    let sent = |sim: &SimNet| (sim.sent_from(addr(MAC)), sim.sent_bytes_from(addr(MAC)));
+    let before = sent(&pair.sim);
+    tokio::time::sleep(Duration::from_secs(5 * 60)).await;
+    let after = sent(&pair.sim);
+    let (held, held_bytes) = (after.0 - before.0, after.1 - before.1);
+    println!("late accept: held 5 min: {held} datagrams, {held_bytes} bytes");
+    assert_eq!(
+        held, 0,
+        "a held Mac sent its suspended phone {held} datagrams for a late connection"
+    );
+
+    pair.sim.set_link(addr(PHONE), addr(MAC), link(false));
+    pair.phone.refresh().await.unwrap();
+    assert!(alive(&mut pair.dialed, &mut pair.accepted).await, "the main connection ended");
+    pair.mac.hold(None).await.unwrap();
+    pair.phone.hold(None).await.unwrap();
+    assert!(
+        alive(&mut lane, &mut lane_accepted).await,
+        "the late connection ended during the hold"
+    );
+    pair.phone.shutdown().await;
+    pair.mac.shutdown().await;
+}
