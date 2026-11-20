@@ -2271,6 +2271,64 @@ mod tests {
         assert!(!mac.is_closed());
     }
 
+    /// A parked phone that runs a request in the background (a notification
+    /// action's permission lookup on a channel it has, or a new channel) is
+    /// awake: the Mac answers it with no ping first, and stays unparked.
+    #[tokio::test(start_paused = true)]
+    async fn a_parked_mac_answers_an_app_request_without_a_ping() {
+        let (a, b) = tokio::io::duplex(1024 * 1024);
+        let mac = Link::new(a, Role::Mac, quick_keepalive(), None);
+        let (read, write) = tokio::io::split(b);
+        let mut from_mac = FramedRead::new(read, FrameCodec);
+        let mut to_mac = FramedWrite::new(write, FrameCodec);
+        to_mac.send(Frame::new(1, FrameType::Open, br#"{"service":"acpmux"}"#.to_vec())).await.unwrap();
+        let mut served = mac.accept().await.expect("the acpmux channel").channel;
+        to_mac
+            .send(Frame::new(
+                3,
+                FrameType::Open,
+                br#"{"service":"_link.park","args":{"hold_ms":600000}}"#.to_vec(),
+            ))
+            .await
+            .unwrap();
+        let answer = next_from_mac(&mut from_mac).await.expect("the Mac answers the park");
+        assert_eq!((answer.channel, answer.kind), (3, FrameType::Close));
+        assert!(mac.is_parked());
+
+        // The request on the channel the phone has: the Mac's answer comes back.
+        to_mac.send(Frame::new(1, FrameType::Data, b"info?".to_vec())).await.unwrap();
+        assert_eq!(served.recv().await, Some(ChannelEvent::Data(Bytes::from_static(b"info?"))));
+        served.send(Bytes::from_static(b"info")).await.unwrap();
+        let reply = next_from_mac(&mut from_mac).await.expect("the parked Mac answers the request");
+        assert_eq!(
+            (reply.channel, reply.kind, reply.payload),
+            (1, FrameType::Data, Bytes::from_static(b"info"))
+        );
+        assert!(!mac.is_parked(), "the Mac still holds a link its phone is using");
+
+        // A new channel on a parked link is answered the same way.
+        to_mac
+            .send(Frame::new(
+                5,
+                FrameType::Open,
+                br#"{"service":"_link.park","args":{"hold_ms":600000}}"#.to_vec(),
+            ))
+            .await
+            .unwrap();
+        let answer = next_from_mac(&mut from_mac).await.expect("the Mac answers the second park");
+        assert_eq!((answer.channel, answer.kind), (5, FrameType::Close));
+        to_mac.send(Frame::new(7, FrameType::Open, br#"{"service":"echo"}"#.to_vec())).await.unwrap();
+        let lookup = mac.accept().await.expect("the new channel").channel;
+        lookup.send(Bytes::from_static(b"answer")).await.unwrap();
+        let reply = next_from_mac(&mut from_mac).await.expect("the parked Mac answers on a new channel");
+        assert_eq!(
+            (reply.channel, reply.kind, reply.payload),
+            (7, FrameType::Data, Bytes::from_static(b"answer"))
+        );
+        assert!(!mac.is_parked());
+        assert!(!mac.is_closed());
+    }
+
     /// A park is bounded: once its hold passes with nothing heard, the Mac
     /// closes the link as a dead one closes.
     #[tokio::test(start_paused = true)]
