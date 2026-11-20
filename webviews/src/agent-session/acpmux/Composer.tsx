@@ -1021,6 +1021,12 @@ function ComposerFrame({
   const applyDraftReadFromEffect = useEffectEvent((session: string | undefined, saved: string | undefined) =>
     applyDraftRead(session, saved),
   );
+  /// The newest `setDraft` and `applyDraftRead` for the handle, written as the render commits (the handle is called
+  /// after it): the handle keeps its identity instead of being made again each render.
+  const draftOps = useRef({ setDraft, applyDraftRead });
+  useInsertionEffect(() => {
+    draftOps.current = { setDraft, applyDraftRead };
+  });
   useImperativeHandle(
     handle,
     () => ({
@@ -1039,7 +1045,7 @@ function ComposerFrame({
         notTyped();
         attachmentsRef.current = attachmentsRef.current.filter((attachment) => attachment.shellRun);
         setAttachments((current) => current.filter((attachment) => attachment.shellRun));
-        if (!field.current?.type("")) setDraft("", 0);
+        if (!field.current?.type("")) draftOps.current.setDraft("", 0);
         return taken;
       },
       draftText: () =>
@@ -1082,7 +1088,7 @@ function ComposerFrame({
             : `${restoredText}\n\n${typed}`;
         // A field whose editor is still starting (the chat composer that mounts as a New Tab page
         // leaves) takes it as its value, which becomes the editor's first content.
-        if (!field.current?.type(next)) setDraft(next, next.length);
+        if (!field.current?.type(next)) draftOps.current.setDraft(next, next.length);
         if (restoredAttachments.length)
           setAttachments((current) => {
             const others = current.filter(
@@ -1121,7 +1127,7 @@ function ComposerFrame({
         if (!typed.startsWith(prefix.trimEnd())) {
           const next = prefix + typed;
           pendingCaret.current = next.length;
-          setDraft(next, next.length);
+          draftOps.current.setDraft(next, next.length);
         }
         field.current?.focus();
       },
@@ -1131,7 +1137,7 @@ function ComposerFrame({
           const typed = draftStore.now().text;
           const next = typed ? typed + "\n\n" + markdown : markdown;
           pendingCaret.current = next.length;
-          setDraft(next, next.length);
+          draftOps.current.setDraft(next, next.length);
           field.current?.focus();
         }
       },
@@ -1171,7 +1177,7 @@ function ComposerFrame({
           // Re-read after the async call: the person may have typed while acpmux was answering. The
           // read on open's own step (applyDraftRead): the merge goes into the editor and is written
           // before the draft counts as read, so the load's read, answering later, keeps it.
-          typed = applyDraftRead(session, saved.draft);
+          typed = draftOps.current.applyDraftRead(session, saved.draft);
           // Unread still when the merge did not fit (applyDraftRead): the typing is not written.
           readAnswered = draftWasRead(session);
         }
@@ -1204,7 +1210,7 @@ function ComposerFrame({
         }
       },
     }),
-    [setAttachments, attachLater, attachRefused, attach, applyDraftRead, setDraft, draftStore],
+    [setAttachments, attachLater, attachRefused, attach, draftStore],
   );
   useEffect(() => {
     if (!draft) return;
