@@ -87,6 +87,18 @@ on:
       - .xcode-version
       - schemas/**
       - plans/cmux-next/**
+      # A plan doc no Swift target names reaches no tier (cmux_next_route.py unread_doc), so a pull request of
+      # only those starts no run. The ones a target names, or a generated one, are put back by name;
+      # tests/test_ci_docs_only_prs.py routes every plan doc this leaves out and fails on one that reaches a tier.
+      - "!plans/cmux-next/**/*.md"
+      - plans/cmux-next/actions.md
+      - plans/cmux-next/browser-repl/README.md
+      - plans/cmux-next/feed/prototypes/webkit-duplicate/README.md
+      - plans/cmux-next/formal/README.md
+      - plans/cmux-next/helium-density/README.md
+      - plans/cmux-next/home-messaging-invites/REPORT.md
+      - plans/cmux-next/markdown-omnibar-DESIGN.md
+      - plans/cmux-next/spec-proposals/visuals/README.md
       - docs/mdm/**
       - docs/configuration.md
       # Why: docs/ci/cmux-next-workflow-notes.md#note-353
@@ -1839,6 +1851,7 @@ jobs:
             bash scripts/ci/tests/cmux-tui-base-red.test.sh
             bash scripts/ci/tests/package-test-lane-suite-args.test.sh
             bash scripts/ci/tests/package-test-lane-sdkroot.test.sh
+            bash scripts/ci/tests/swiftpm-resolve-seeds-artifacts.test.sh
             bash scripts/ci/tests/ios-sim-fetch-commit.test.sh
             bash scripts/ci/tests/first-turn-cost-count-fallback.test.sh
             bash scripts/ci/tests/first-turn-cost-route-probe.test.sh
@@ -2668,6 +2681,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-174
       - name: Give this job its own bun
@@ -4077,6 +4091,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-226
       - name: Give this job its own bun
@@ -4611,6 +4626,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-253
       - name: Give this job its own bun
@@ -5056,6 +5072,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-273
       - name: Give this job its own bun
@@ -6085,6 +6102,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-316
       - name: Give this job its own bun
@@ -6703,6 +6721,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Give this job its own bun
         if: steps.dev-product.outputs.hit != 'true'
         run: scripts/cmux-next/private-bun.sh
