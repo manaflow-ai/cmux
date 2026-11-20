@@ -64,7 +64,10 @@ class SetupBunNoCacheTest(unittest.TestCase):
             for line in (GITHUB / "classic-frozen.txt").read_text(encoding="utf-8").splitlines()
             if line.startswith(".github/")
         }
-        missing = {k: v for k, v in missing.items() if k.rsplit(":", 1)[0] not in frozen}
+        # A workflow whose schedule runs main's copy changes on main first (prepush-gate "Production journey workflow
+        # matches main's").
+        main_copy = {".github/workflows/cloud-journey-prod.yml"}
+        missing = {k: v for k, v in missing.items() if k.rsplit(":", 1)[0] not in frozen | main_copy}
         self.assertEqual(missing, {}, "add `no-cache: true` to the step's `with:` (this file's docstring says why)")
 
     def test_the_reader_sees_a_step_with_and_without_it(self):
