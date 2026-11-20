@@ -25,10 +25,7 @@ export function withCloudStartFolder(snapshot: AcpmuxSnapshot, startCwd: string 
 
 /// The agent and model a Cloud start runs, on the composer while the start shows in place of a chat that has none
 /// (a page with no session, or the empty local chat it replaces): the model chip names what was sent (cmux#45774).
-export function withCloudStartPick(
-  snapshot: AcpmuxSnapshot,
-  pick: { harness: string; model?: string } | undefined,
-): AcpmuxSnapshot {
+export function withCloudStartPick(snapshot: AcpmuxSnapshot, pick: CloudStartPick | undefined): AcpmuxSnapshot {
   if (!pick) return snapshot;
   return {
     ...snapshot,
@@ -36,13 +33,23 @@ export function withCloudStartPick(
   } as AcpmuxSnapshot;
 }
 
-/// The pick a Cloud start shows on the composer: only while that start runs. A failed start's card stays for its
-/// Retry, and a model picked after it must show and go with the next send, not the failed start's (#46874 review).
+/// The agent and model a Cloud start sent, and what the chat under it named then (`over`: its own summary, before
+/// the start's pick covered it).
+export type CloudStartPick = { harness: string; model?: string; over?: { harness?: string; model?: string } };
+
+/// The pick a Cloud start shows on the composer, so the chip names it and a Retry sends it again. While the start
+/// runs, always. Once it failed, until the person picks again: a New Tab's pick lives only in the start (the chat
+/// under it names no agent), so dropping it on failure retried as the first installed agent, and a pick made since
+/// (the chat's own harness or model no longer what it was) goes with the next send instead (#46874 review).
 export function shownCloudStartPick(
   shown: boolean,
-  start: { state: "starting" | "failed"; pick?: { harness: string; model?: string } } | undefined,
-): { harness: string; model?: string } | undefined {
-  return shown && start?.state === "starting" ? start.pick : undefined;
+  start: { state: "starting" | "failed"; pick?: CloudStartPick } | undefined,
+  current: { harness?: string; model?: string },
+): CloudStartPick | undefined {
+  const pick = shown ? start?.pick : undefined;
+  if (!pick || start?.state === "starting") return pick;
+  const over = pick.over ?? {};
+  return over.harness === current.harness && over.model === current.model ? pick : undefined;
 }
 
 /// The harness and model a pick on this sessionless page holds (a switch that has not failed), for

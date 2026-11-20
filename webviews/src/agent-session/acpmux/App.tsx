@@ -5074,7 +5074,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cloudStartShown = cloudStart !== undefined && (!snapshot.sessionId || emptyLocalChat);
   /// The folder the shown start copies (none for a folderless one): the composer's folder chip names it (cmux#46023).
   const cloudStartFolderShown = cloudStartShown ? cloudStart?.cwd : undefined;
-  const cloudStartPickShown = shownCloudStartPick(cloudStartShown, cloudStart);
+  const cloudStartPickShown = shownCloudStartPick(cloudStartShown, cloudStart, {
+    harness: snapshot.summary?.harness,
+    model: snapshot.summary?.model,
+  });
   const cloudStarting = cloudStart?.state === "starting";
   /// Nothing that starts a chat goes from this tab while a Cloud start is out, stalled or not: if it
   /// still opens its chat, the host closes this tab, with a chat started here in it.
@@ -5453,7 +5456,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         start.home,
         signingIn,
         setUpNeed,
-        start.harness ? { harness: start.harness, ...(start.model ? { model: start.model } : {}) } : undefined,
+        start.harness
+          ? {
+              harness: start.harness,
+              ...(start.model ? { model: start.model } : {}),
+              over: { harness: snapshot.summary?.harness, model: snapshot.summary?.model },
+            }
+          : undefined,
       ),
     );
     void started.then((answer) => {
