@@ -35,6 +35,11 @@ fn owners(pairs: &[(&str, &str)]) -> Owners {
     o
 }
 
+/// Every decision of `batch`, each message decided.
+fn known(batch: &Batch, answer: Option<&str>, owners: &Owners) -> Vec<Decision> {
+    decide(batch, answer, owners).into_iter().map(|d| d.expect("decided")).collect()
+}
+
 fn lines_of(batch: &Batch, decided: &[Decision]) -> Vec<Line> {
     record_lines(&triaged_record(batch, decided, None))
 }
@@ -95,28 +100,32 @@ fn the_model_cannot_hide_blockers_questions_or_unanswered_messages() {
     ]);
     let answer = "1 noise\n2 handled\n3 noise\n`4 handled`\n5 noise\n5 this\n";
     let d = decide(&b, Some(answer), &Owners::default());
-    let cats: Vec<Category> = d.iter().map(|d| d.category).collect();
+    let cats: Vec<Option<Category>> = d.iter().map(|d| d.as_ref().map(|d| d.category)).collect();
     use Category::*;
     assert_eq!(
         cats,
         [
-            NeedsThisSession,
-            NeedsThisSession,
-            Noise,
-            AlreadyHandled,
-            NeedsThisSession,
-            NeedsThisSession
-        ]
+            Some(NeedsThisSession),
+            Some(NeedsThisSession),
+            Some(Noise),
+            Some(AlreadyHandled),
+            None,
+            None
+        ],
+        "answered twice and not answered stay undecided"
     );
-    assert_eq!(d[0].decided_by, DecidedBy::Rule);
-    assert_eq!(d[2].decided_by, DecidedBy::Model);
-    assert_eq!(d[4].decided_by, DecidedBy::Fallback, "answered twice");
-    assert_eq!(d[5].decided_by, DecidedBy::Fallback, "not answered");
-    let failed = decide(&b, None, &Owners::default());
-    assert!(
-        failed.iter().all(|d| d.category == NeedsThisSession),
-        "a failed call reaches the chat"
+    assert_eq!(d[0].as_ref().unwrap().decided_by, DecidedBy::Rule);
+    assert_eq!(d[2].as_ref().unwrap().decided_by, DecidedBy::Model);
+    let failed: Vec<bool> =
+        decide(&b, None, &Owners::default()).iter().map(Option::is_some).collect();
+    assert_eq!(
+        failed,
+        [true, true, false, false, false, false],
+        "a failed call decides only by rule"
     );
+    let (urgent, rest) = split_urgent(&b.messages);
+    assert_eq!(urgent.iter().map(|h| h.prompt_id.as_str()).collect::<Vec<_>>(), ["p1", "p2"]);
+    assert_eq!(rest.len(), 4);
 }
 
 #[test]
@@ -124,14 +133,10 @@ fn garbled_or_out_of_range_lines_are_ignored() {
     let b = batch_of(vec![held("p1", "t", "fyi", "x")]);
     for bad in ["0 noise", "2 noise", "1 noise extra", "1 maybe", "one noise", "1 needs-its-owner"]
     {
-        let d = decide(&b, Some(bad), &Owners::default());
-        assert_eq!(
-            (d[0].category, d[0].decided_by),
-            (Category::NeedsThisSession, DecidedBy::Fallback),
-            "{bad}"
-        );
+        assert!(decide(&b, Some(bad), &Owners::default())[0].is_none(), "{bad}");
     }
-    assert_eq!(decide(&b, Some("1: noise"), &Owners::default())[0].category, Category::Noise);
+    let d = decide(&b, Some("1: noise"), &Owners::default());
+    assert_eq!(d[0].as_ref().unwrap().category, Category::Noise);
 }
 
 #[test]
@@ -142,7 +147,7 @@ fn owners_come_only_from_subscriptions() {
         held("p3", "mine", "fyi", "x"),
     ]);
     let subs = owners(&[("runners", "ci-owner"), ("mine", "coord")]);
-    let d = decide(&b, Some("1 owner\n2 owner\n3 owner"), &subs);
+    let d = known(&b, Some("1 owner\n2 owner\n3 owner"), &subs);
     assert_eq!((d[0].category, d[0].owner.as_deref()), (Category::NeedsItsOwner, Some("ci-owner")));
     assert_eq!(
         (d[1].category, d[1].decided_by),
@@ -152,7 +157,8 @@ fn owners_come_only_from_subscriptions() {
     assert_eq!(d[2].category, Category::NeedsThisSession, "this chat owns it");
     let mut gone = subs.clone();
     gone.apply(&json!({"threadId":"runners","ownerSessionId":"ci-owner","active":false}));
-    assert_eq!(decide(&b, Some("1 owner"), &gone)[0].category, Category::NeedsThisSession);
+    let d = decide(&b, Some("1 owner"), &gone);
+    assert_eq!(d[0].as_ref().unwrap().category, Category::NeedsThisSession);
 }
 
 #[test]
@@ -164,7 +170,7 @@ fn digest_shows_only_what_needs_this_session_with_links() {
         held("p4", "ci", "fyi", "owner stuff"),
     ]);
     let subs = owners(&[("ci", "ci-owner")]);
-    let d = decide(&b, Some("1 noise\n2 handled\n4 owner"), &subs);
+    let d = known(&b, Some("1 noise\n2 handled\n4 owner"), &subs);
     let lines = lines_of(&b, &d);
     let text = digest("coord", &lines).unwrap();
     assert!(text.contains("1 message(s) in 1 thread(s) need you"), "{text}");
@@ -177,7 +183,7 @@ fn digest_shows_only_what_needs_this_session_with_links() {
     assert!(owner_digest("coord", "someone", &lines).is_none());
     assert_eq!(actionable_topics(&lines), 1);
 
-    let quiet = decide(&b, Some("1 noise\n2 noise\n4 noise"), &subs);
+    let quiet = known(&b, Some("1 noise\n2 noise\n4 noise"), &subs);
     let quiet: Vec<Line> =
         lines_of(&b, &quiet).into_iter().filter(|l| l.prompt_id != "p3").collect();
     assert!(digest("coord", &quiet).is_none(), "nothing actionable, no digest");
@@ -186,7 +192,7 @@ fn digest_shows_only_what_needs_this_session_with_links() {
 #[test]
 fn digest_links_quote_thread_ids() {
     let b = batch_of(vec![held("p1", "it's a thread", "block", "help")]);
-    let lines = lines_of(&b, &decide(&b, None, &Owners::default()));
+    let lines = lines_of(&b, &known(&b, None, &Owners::default()));
     let text = digest("coord", &lines).unwrap();
     assert!(text.contains(r"--thread 'it'\''s a thread'"), "{text}");
 }
@@ -194,7 +200,7 @@ fn digest_links_quote_thread_ids() {
 #[test]
 fn digest_ids_are_stable_and_records_round_trip() {
     let b = batch_of(vec![held("p1", "t", "block", "a"), held("p2", "t", "fyi", "b")]);
-    let d = decide(&b, Some("2 noise"), &Owners::default());
+    let d = known(&b, Some("2 noise"), &Owners::default());
     let lines = lines_of(&b, &d);
     let mut rev = lines.clone();
     rev.reverse();
@@ -230,7 +236,7 @@ fn digest_is_bounded() {
             })
             .collect();
         let b = batch_of(renamed);
-        lines.extend(lines_of(&b, &decide(&b, None, &Owners::default())));
+        lines.extend(lines_of(&b, &known(&b, None, &Owners::default())));
     }
     let text = digest("coord", &lines).unwrap();
     assert!(text.len() <= MAX_DIGEST_BYTES, "{}", text.len());

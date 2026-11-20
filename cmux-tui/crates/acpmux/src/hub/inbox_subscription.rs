@@ -84,6 +84,7 @@ impl Hub {
         if !stored {
             return Err(RpcError::internal("could not persist inbox subscription"));
         }
+        self.note_inbox_subscription(owner, thread, true);
         Ok(json!({
             "sessionId": owner,
             "threadId": thread,
@@ -110,6 +111,7 @@ impl Hub {
         if !stored {
             return Err(RpcError::internal("could not persist inbox subscription removal"));
         }
+        self.note_inbox_subscription(owner, thread, false);
         Ok(json!({
             "sessionId": owner,
             "threadId": thread,

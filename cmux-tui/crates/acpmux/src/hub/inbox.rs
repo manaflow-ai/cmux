@@ -2186,6 +2186,7 @@ impl Hub {
             return;
         }
         // The state itself: `Session::inbox` calls this to fill it.
+        let mut surge_held = false;
         let mut inbox = session.inbox_state.lock().unwrap_or_else(|e| e.into_inner());
         {
             let mut live = inbox.surge_counts.lock().unwrap_or_else(|e| e.into_inner());
@@ -2213,11 +2214,17 @@ impl Hub {
             if item.surge_held {
                 item.noticed = true;
                 inbox.surge_rate.restore(item.at);
+                surge_held = true;
             }
             item.read |= read.contains(&item.prompt_id);
             inbox.items.push(item);
         }
         trim(&mut inbox);
+        drop(inbox);
+        // A restart resumes the held backlog's triage with no new arrival (`surge_triage.rs`).
+        if surge_held {
+            super::surge_triage::resume_after_restore(session);
+        }
     }
 
     /// `_acpmux/prompt_withdraw` of an inbox item (`withdraw.rs`): one no notice carried yet

@@ -18,11 +18,14 @@
 //! The model is a filter, never an authority:
 //! - it only picks one word per message index; none of its text is kept, shown or routed.
 //!   Digest lines come from the original messages;
-//! - a blocker or a question (`class` block or question) is always `needs_this_session`; so is
-//!   any message it skips, garbles or answers twice, and every message of a failed call;
-//! - an owner comes only from the chat's own subscriptions ([`Owners`]), never from message or
-//!   model text; a message the model gives its owner when its thread has none (or the owner is
-//!   this chat) stays `needs_this_session`.
+//! - a blocker or a question (`class` block or question) is `needs_this_session` with no model
+//!   ([`split_urgent`]);
+//! - a message the model skips, garbles or answers twice, and every message of a call that
+//!   failed or timed out, is undecided: it stays held and pending, so a model outage wakes no
+//!   one and only messages a model actually called actionable reach a digest;
+//! - an owner comes only from sessions that subscribed themselves to a thread ([`Owners`]),
+//!   never from message or model text; a message the model gives its owner when its thread has
+//!   none (or the owner is this chat) is `needs_this_session`.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -49,6 +52,10 @@ pub const PREVIEW_BYTES: usize = 160;
 pub const RECORD_KIND: &str = "inbox_triaged";
 /// The subscription record kind (surge-archive-search: `_acpmux/inbox_subscription_set`).
 pub const SUBSCRIPTION_KIND: &str = "inbox_subscription";
+/// A recipient's own grant of a thread to an owner session, in the recipient's journal:
+/// `{threadId, ownerSessionId, active}`. A subscription routes only with a grant (or a parent or
+/// delegator relation).
+pub const GRANT_KIND: &str = "inbox_owner_grant";
 
 /// One held message, read from an `inbox` record's `msg`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -232,8 +239,8 @@ pub enum DecidedBy {
     /// Its class: a blocker or a question.
     Rule,
     Model,
-    /// The model skipped, garbled or doubled it, or failed, or named an owner the thread does
-    /// not have: it reaches this chat.
+    /// The model gave it to its owner, but no session subscribed to its thread (or this chat
+    /// did): it reaches this chat.
     Fallback,
 }
 
@@ -269,9 +276,11 @@ pub struct Decision {
     pub owner: Option<String>,
 }
 
-/// Every message of `batch` decided from the model's `answer` (None: the call failed), one
-/// per message in batch order. See the module doc for what the model cannot do.
-pub fn decide(batch: &Batch, answer: Option<&str>, owners: &Owners) -> Vec<Decision> {
+/// Each message of `batch` decided from the model's `answer` (None: the call failed or timed
+/// out), in batch order: None for one the model skipped, garbled or answered twice. An
+/// undecided message stays held and pending for a later pass; only a blocker or a question is
+/// decided with no model. See the module doc for what the model cannot do.
+pub fn decide(batch: &Batch, answer: Option<&str>, owners: &Owners) -> Vec<Option<Decision>> {
     let n = batch.messages.len();
     let mut picked: BTreeMap<usize, Option<Category>> = BTreeMap::new();
     for line in answer.unwrap_or_default().lines().take(4 * MAX_BATCH) {
@@ -298,22 +307,28 @@ pub fn decide(batch: &Batch, answer: Option<&str>, owners: &Owners) -> Vec<Decis
                 _ if m.must_reach_this_session() => {
                     (Category::NeedsThisSession, DecidedBy::Rule, None)
                 }
-                None => (Category::NeedsThisSession, DecidedBy::Fallback, None),
+                None => return None,
                 Some(Category::NeedsItsOwner) => match owner {
                     Some(o) => (Category::NeedsItsOwner, DecidedBy::Model, Some(o.clone())),
                     None => (Category::NeedsThisSession, DecidedBy::Fallback, None),
                 },
                 Some(c) => (c, DecidedBy::Model, None),
             };
-            Decision {
+            Some(Decision {
                 prompt_id: m.prompt_id.clone(),
                 thread_id: m.thread_id.clone(),
                 category,
                 decided_by,
                 owner,
-            }
+            })
         })
         .collect()
+}
+
+/// `held` split into the messages that reach the chat with no model (blockers and questions)
+/// and the rest, each in arrival order.
+pub fn split_urgent(held: &[Held]) -> (Vec<Held>, Vec<Held>) {
+    held.iter().cloned().partition(Held::must_reach_this_session)
 }
 
 /// The `inbox_triaged` record for `batch`, for `Hub::persist_surge_triage`. Each item keeps

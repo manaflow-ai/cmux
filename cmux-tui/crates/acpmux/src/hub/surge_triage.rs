@@ -2,15 +2,22 @@
 //! (`crate::surge_triage`, which says what the model may and may not decide).
 //!
 //! [`Hub::schedule_surge_triage`] runs one pass per chat at most [`DEBOUNCE`] after it is
-//! called; a call while a pass runs asks for one more after it. The surge holder calls it after
-//! each held message and after a restored inbox, so a pass resumes after a restart with no new
-//! arrival. A pass:
+//! called; a call while a pass runs asks for one more after it, so a slow pass coalesces the
+//! arrivals behind it into the next one. The surge holder calls it after each held message, and
+//! a restored inbox that holds held messages calls it ([`resume_after_restore`]), so a restart
+//! resumes the backlog with no new arrival. A pass that fails (a journal write, a delivery) is
+//! tried again [`RETRIES`] times, backing off from [`RETRY_AFTER`], with no new arrival either.
+//! A pass:
 //!
-//! 1. reads the chat's `inbox`, `inbox_triaged` and `inbox_subscription` records past its
-//!    cursor into its cached [`Journal`] (all of them once after a restart);
+//! 1. reads the chat's `inbox` and `inbox_triaged` records past its cursor into its cached
+//!    [`Journal`] (all of them once after a restart), and the thread owners: the sessions that
+//!    subscribed to a thread themselves (`inbox_subscription.rs`), each record read from the
+//!    subscriber's own journal, once per daemon run, then kept by the subscription RPC
+//!    ([`Hub::note_inbox_subscription`]);
 //! 2. triages at most `MAX_BATCHES_PER_PASS` batches of the held messages no record decided,
 //!    each through one `complete_own` call on the harness's small model (Claude: Haiku; Codex:
-//!    its small model). A failed call decides every message of its batch `needs_this_session`;
+//!    its small model); blockers and questions skip the model. What the model leaves undecided
+//!    (a failed or timed-out call, a garbled line) stays held for a later pass;
 //! 3. names the pass's digest before sending it (`digest_id`: a hash of its items) and journals
 //!    each batch with that name (`persist_surge_triage`), so a crash after it leaves a record
 //!    of a digest owed;
@@ -30,6 +37,60 @@ use std::time::Duration;
 /// How long a pass waits after its first call, so one pass takes a burst.
 pub(crate) const DEBOUNCE: Duration = Duration::from_secs(30);
 pub(crate) const PROVENANCE_KIND: &str = "surge_digest";
+/// How a pass ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PassEnd {
+    Done,
+    /// Held messages are left past the pass's bound: another pass runs at once.
+    More,
+    /// The model left messages undecided (an outage, a timeout, a garbled answer): they stay
+    /// held, and the pass is tried again as a failed one is.
+    Undecided,
+}
+
+/// A failed pass is tried again this many times, then waits for the next call.
+pub(crate) const RETRIES: u32 = 5;
+/// The first retry's wait; each next one doubles it.
+pub(crate) const RETRY_AFTER: Duration = Duration::from_secs(30);
+
+/// A restored inbox holds held messages: triage them with no new arrival (module doc). Outside
+/// a runtime, or for a chat the hub no longer holds, nothing runs.
+pub(super) fn resume_after_restore(session: &Session) {
+    if tokio::runtime::Handle::try_current().is_err() {
+        return;
+    }
+    let Some(hub) = session.hub_ref.get().and_then(std::sync::Weak::upgrade) else { return };
+    let held = hub.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&session.id).cloned();
+    if let Some(session) = held {
+        hub.schedule_surge_triage(&session);
+    }
+}
+
+/// The thread owners the hub knows: thread to `(at, owner session)`, the newest subscription
+/// of a thread winning. None until the first pass reads every chat's subscriptions.
+pub(crate) type Subscribers = Option<BTreeMap<String, (u64, String)>>;
+
+fn apply_subscription(
+    map: &mut BTreeMap<String, (u64, String)>,
+    owner: &str,
+    msg: &Value,
+    at: u64,
+) {
+    let Some(thread) = msg.get("threadId").and_then(Value::as_str).filter(|t| !t.is_empty()) else {
+        return;
+    };
+    // A record names its own journal's session or nothing (`inbox_subscription.rs` `replay`).
+    if msg.get("ownerSessionId").and_then(Value::as_str) != Some(owner) {
+        return;
+    }
+    if msg.get("active").and_then(Value::as_bool).unwrap_or(true) {
+        if map.get(thread).is_none_or(|(when, _)| *when <= at) {
+            map.insert(thread.to_owned(), (at, owner.to_owned()));
+        }
+    } else if map.get(thread).is_some_and(|(_, o)| o == owner) {
+        map.remove(thread);
+    }
+}
 /// What answers instead of the small model (tests).
 pub type SurgeTriager = Arc<dyn Fn(String) -> Option<String> + Send + Sync>;
 
@@ -43,7 +104,8 @@ pub(crate) struct Journal {
     pub(super) cursor: u64,
     /// Held messages no record decided yet, oldest first.
     pub(super) held: Vec<triage::Held>,
-    pub(super) owners: Owners,
+    /// The recipient's own grants of its threads to owner sessions.
+    pub(super) grants: Owners,
     /// Undelivered digests: their items by prompt id.
     pub(super) owed: BTreeMap<String, BTreeMap<String, Line>>,
     pub(super) delivered: BTreeSet<String>,
@@ -61,7 +123,7 @@ impl Journal {
                     self.held.push(h);
                 }
             }
-            triage::SUBSCRIPTION_KIND => self.owners.apply(msg),
+            triage::GRANT_KIND => self.grants.apply(msg),
             triage::RECORD_KIND => {
                 let done: BTreeSet<String> = triage::triaged_ids(msg).collect();
                 if !done.is_empty() {
@@ -87,6 +149,11 @@ impl Journal {
     }
 }
 
+/// Tests: passes of a chat that fail after their journal writes, before any delivery.
+#[cfg(test)]
+pub(super) static FAIL_BEFORE_DELIVERY: std::sync::Mutex<BTreeMap<String, u32>> =
+    std::sync::Mutex::new(BTreeMap::new());
+
 /// The owner digest's prompt id under the chat's digest `id`.
 fn owner_digest_id(id: &str, owner: &str) -> String {
     let h = sha2::Sha256::digest(owner.as_bytes());
@@ -108,32 +175,103 @@ impl Hub {
         }
         let (hub, session) = (self.clone(), session.clone());
         self.scope.spawn_until_cancelled("surge-triage", async move {
+            let mut wait = hub.surge_triage_wait(DEBOUNCE);
+            let mut failures = 0u32;
             loop {
-                tokio::time::sleep(hub.surge_triage_debounce()).await;
+                tokio::time::sleep(wait).await;
                 let more = match hub.surge_triage_pass(&session).await {
-                    Ok(more) => more,
+                    Ok(PassEnd::Done) => {
+                        failures = 0;
+                        false
+                    }
+                    Ok(PassEnd::More) => {
+                        failures = 0;
+                        true
+                    }
+                    // The model left messages undecided: back off, as after a failure.
+                    Ok(PassEnd::Undecided) => {
+                        failures += 1;
+                        false
+                    }
                     Err(e) => {
-                        tracing::warn!(session = %session.id, "surge triage: {}", e.message);
+                        failures += 1;
+                        tracing::warn!(session = %session.id, failures, "surge triage: {}", e.message);
                         false
                     }
                 };
                 let mut due = hub.surge_triage_due.lock().unwrap_or_else(|e| e.into_inner());
                 let again = due.get(&session.id).copied().unwrap_or(false);
-                if !(more || again) || super::queue::closing(&session) {
+                let retry = failures > 0 && failures <= RETRIES;
+                if !(more || again || retry) || super::queue::closing(&session) {
                     due.remove(&session.id);
                     return;
                 }
                 due.insert(session.id.clone(), false);
+                wait = if retry {
+                    hub.surge_triage_wait(RETRY_AFTER * 2u32.pow(failures - 1))
+                } else {
+                    hub.surge_triage_wait(DEBOUNCE)
+                };
             }
         });
     }
 
-    fn surge_triage_debounce(&self) -> Duration {
+    /// `full`, or a thousandth of it while a test answers for the model.
+    fn surge_triage_wait(&self, full: Duration) -> Duration {
         if self.surge_triager.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
-            Duration::from_millis(1)
+            full / 1000
         } else {
-            DEBOUNCE
+            full
         }
+    }
+
+    /// The subscription RPC's change (`inbox_subscription.rs`): kept in the owners the hub
+    /// knows, once it read them. Before that, the first read finds the record in the journal.
+    pub(crate) fn note_inbox_subscription(&self, owner: &str, thread: &str, active: bool) {
+        let mut subs = self.surge_subscribers.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(map) = subs.as_mut() {
+            let msg = json!({"threadId": thread, "ownerSessionId": owner, "active": active});
+            apply_subscription(map, owner, &msg, now_ms());
+        }
+    }
+
+    /// The thread owners: every chat's own subscriptions, read once per daemon run. The lock
+    /// is held while reading, so no subscription change is lost between the read and its note.
+    ///
+    /// A subscription alone grants nothing (RFD 0018: a thread name is no access): an owner
+    /// is one the recipient authorized, by a grant in its own journal ([`triage::GRANT_KIND`])
+    /// or as its parent or delegator. An unrelated session that subscribed itself to a matching
+    /// thread gets nothing of the recipient's.
+    fn surge_owners(&self, recipient: &Session, grants: &Owners) -> Owners {
+        let meta = recipient.meta();
+        let parent = meta.lineage.as_ref().map(|l| l.parent.as_str());
+        let delegator = meta.delegator.as_deref();
+        let authorized = |thread: &str, owner: &str| {
+            grants.0.get(thread).is_some_and(|g| g == owner)
+                || Some(owner) == parent
+                || Some(owner) == delegator
+        };
+        let subscribed = self.surge_subscribed();
+        Owners(subscribed.0.into_iter().filter(|(t, o)| authorized(t, o)).collect())
+    }
+
+    /// Every session's own thread subscriptions.
+    fn surge_subscribed(&self) -> Owners {
+        let mut subs = self.surge_subscribers.lock().unwrap_or_else(|e| e.into_inner());
+        let map = subs.get_or_insert_with(|| {
+            let mut map = BTreeMap::new();
+            for s in self.session_handles() {
+                let read = self.scan_for_rebuild(&s, &[triage::SUBSCRIPTION_KIND], &mut |e| {
+                    apply_subscription(&mut map, &s.id, &e.msg, e.at);
+                    true
+                });
+                if let Err(e) = read {
+                    tracing::warn!(session = %s.id, "surge triage: subscriptions unread: {e}");
+                }
+            }
+            map
+        });
+        Owners(map.iter().map(|(t, (_, o))| (t.clone(), o.clone())).collect())
     }
 
     pub(crate) fn set_surge_triager(&self, triager: Option<SurgeTriager>) {
@@ -148,7 +286,7 @@ impl Hub {
             all.remove(&session.id)
         };
         let mut journal = cached.unwrap_or_default();
-        let kinds = ["inbox", triage::RECORD_KIND, triage::SUBSCRIPTION_KIND];
+        let kinds = ["inbox", triage::RECORD_KIND, triage::GRANT_KIND];
         let mut newest = journal.cursor;
         self.scan_kinds_after_and_kept(session, journal.cursor, &kinds, &mut |e: EventRecord| {
             newest = newest.max(e.seq);
@@ -160,11 +298,11 @@ impl Hub {
         Ok(journal)
     }
 
-    /// One pass (module doc). True when held messages are left for another pass.
+    /// One pass (module doc).
     pub(super) async fn surge_triage_pass(
         self: &Arc<Self>,
         session: &Arc<Session>,
-    ) -> Result<bool, RpcError> {
+    ) -> Result<PassEnd, RpcError> {
         let mut journal = self.surge_journal(session)?;
         let result = self.surge_triage_pass_on(session, &mut journal).await;
         // A failed write leaves the cached state ahead of the disk: the next pass reads it again.
@@ -180,15 +318,32 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
         journal: &mut Journal,
-    ) -> Result<bool, RpcError> {
-        let batches = triage::batches(&session.id, journal.held.clone());
-        let taken: usize = batches.iter().map(|b| b.messages.len()).sum();
+    ) -> Result<PassEnd, RpcError> {
+        // Blockers and questions first, with no model; then the rest through it.
+        let (urgent, rest) = triage::split_urgent(&journal.held);
+        let urgent = triage::batches(&session.id, urgent);
+        let batches = triage::batches(&session.id, rest);
+        let taken: usize = urgent.iter().chain(&batches).map(|b| b.messages.len()).sum();
         let left = journal.held.len() > taken;
         let harness = session.meta().harness;
-        let mut decided: Vec<(Batch, Vec<Decision>)> = Vec::with_capacity(batches.len());
-        for batch in batches {
-            let d = self.surge_triage_batch(Some(harness.as_str()), &batch, &journal.owners).await;
+        let owners = if batches.is_empty() {
+            Owners::default()
+        } else {
+            self.surge_owners(session, &journal.grants)
+        };
+        let mut decided: Vec<(Batch, Vec<Decision>)> = Vec::new();
+        let mut undecided = 0usize;
+        for batch in urgent {
+            let d = triage::decide(&batch, None, &owners).into_iter().flatten().collect();
             decided.push((batch, d));
+        }
+        for batch in batches {
+            let all = self.surge_triage_batch(Some(harness.as_str()), &batch, &owners).await;
+            undecided += all.iter().filter(|d| d.is_none()).count();
+            let d: Vec<Decision> = all.into_iter().flatten().collect();
+            if !d.is_empty() {
+                decided.push((batch, d));
+            }
         }
         // The pass's one digest is named by every item it carries, before any is journaled.
         let lines: Vec<Line> = decided
@@ -204,6 +359,14 @@ impl Hub {
                 self.persist_surge_triage(session, record, open)?;
             }
         }
+        #[cfg(test)]
+        if let Some(n) =
+            FAIL_BEFORE_DELIVERY.lock().unwrap_or_else(|e| e.into_inner()).get_mut(&session.id)
+            && *n > 0
+        {
+            *n -= 1;
+            return Err(RpcError::internal("test: a failure after the journal write"));
+        }
         let owed: Vec<(String, Vec<Line>)> = journal
             .owed
             .iter()
@@ -216,7 +379,13 @@ impl Hub {
             let open = self.surge_open_topics(session, journal);
             self.persist_surge_triage(session, marker, open)?;
         }
-        Ok(left)
+        Ok(if undecided > 0 {
+            PassEnd::Undecided
+        } else if left {
+            PassEnd::More
+        } else {
+            PassEnd::Done
+        })
     }
 
     /// Distinct threads with a `needs_this_session` item the chat has not read; read ones
@@ -295,7 +464,7 @@ impl Hub {
         harness: Option<&str>,
         batch: &Batch,
         owners: &Owners,
-    ) -> Vec<Decision> {
+    ) -> Vec<Option<Decision>> {
         if batch.messages.is_empty() {
             return Vec::new();
         }
@@ -312,7 +481,7 @@ impl Hub {
                             recipient = %batch.recipient,
                             batch = %batch.batch_id,
                             reason = e.reason(),
-                            "surge triage: no model answer; every message reaches the chat"
+                            "surge triage: no model answer; its messages stay held for a later pass"
                         );
                         None
                     }
