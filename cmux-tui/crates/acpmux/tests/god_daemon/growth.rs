@@ -203,11 +203,15 @@ async fn growth_under_mesh_churn_and_short_clients() {
                 {
                     // `acpmux ls`, or an agent's `acpmux send` to a churning peer's chat (a
                     // delivery the daemon keeps and retries while the peer is down).
+                    // Every other send goes to a chat on a down ssh peer, as an agent does to a
+                    // machine that is off.
                     let text = format!("note {c} {round}");
-                    let args: Vec<&str> = if round % 2 == 0 {
-                        vec!["ls", "--json"]
-                    } else {
-                        vec!["send", "--no-wait", &target, &text]
+                    let down = format!("sshdown{}/lane-{c}", c % ssh_down.max(1));
+                    let args: Vec<&str> = match round % 4 {
+                        0 | 2 => vec!["ls", "--json"],
+                        1 => vec!["send", "--no-wait", &target, &text],
+                        _ if ssh_down > 0 => vec!["send", "--no-wait", &down, &text],
+                        _ => vec!["send", "--no-wait", &target, &text],
                     };
                     let out = daemon_env::command(&scratch, daemon_env::Agents::StandIn, &[])
                         .args(&args)
@@ -301,9 +305,12 @@ async fn growth_under_mesh_churn_and_short_clients() {
             let (rss, _) = daemon.rss();
             let at = started.elapsed().as_secs();
             samples.push((at, rss));
+            let status = rpc.call("_acpmux/status", json!({})).unwrap_or_default();
+            rpc.notes.clear();
             println!(
-                "GROWTH-RSS {at} {} cuts={} clients={} cli={} refused={} prompts={}",
+                "GROWTH-RSS {at} {} outbox={} cuts={} clients={} cli={} refused={} prompts={}",
                 rss >> 20,
+                status["outboxPending"],
                 counts.cuts.load(Ordering::Relaxed),
                 counts.clients.load(Ordering::Relaxed),
                 counts.cli.load(Ordering::Relaxed),
@@ -348,7 +355,8 @@ async fn growth_under_mesh_churn_and_short_clients() {
         "slopeMiBPerMin": slope,
         "heapEndBytes": heap.as_ref().map(|h| h["endBytes"].clone()),
         "heapPeakBytes": heap.as_ref().map(|h| h["peakBytes"].clone()),
-        "gauges": status["gauges"],
+        "queueBytes": status["gauges"]["queues"]["bytes"],
+        "outboxPending": status["outboxPending"],
     });
     println!("GROWTH {result}");
     for (list, rows) in heap.iter().flat_map(|h| [("END", &h["byEnd"]), ("PEAK", &h["byPeak"])]) {
