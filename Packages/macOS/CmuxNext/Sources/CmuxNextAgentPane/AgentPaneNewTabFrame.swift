@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextPages
 import CmuxNextWakeups
 
 /// The app's last New Tab page frames (cx-ec99), one per pane size: a New Tab page that has not
@@ -128,20 +129,23 @@ public final class AgentPaneNewTabFrame {
 
 extension AgentPageRedraw {
     /// From the pane view's ``AgentPaneView/layout()``: a New Tab page that has not painted asks its pane for its
-    /// picture (``AgentPaneView/drawsLastPage``) at each size its pane gives it. A pane can show its page before the
+    /// picture (``AgentPaneView/drawsLastPage``) at each size it gets in a pane. A pane can show its page before the
     /// pane's own first layout (a new workspace's pane made with its page's view: a spare still loading), when it has
-    /// no size to pick a frame by (``AgentPaneNewTabFrame/image(size:appearance:)``). This layout is in the pane's
-    /// layout pass, so the frame at the pane's size is in its first frame on screen. A pane that already shows a
-    /// picture keeps it (the closure draws none over one).
+    /// no size to pick a frame by (``AgentPaneNewTabFrame/image(size:appearance:)``). A view laid out in its pane is
+    /// in the pane's layout pass, so the frame at the pane's size is in the pane's first frame with this view. A view
+    /// still parked (``PageOffscreenParking``: a spare its pane has not taken yet) asks nothing: its size there is not
+    /// its pane's, and an ask there would spend the ask at the size it next has in the pane. A pane that already shows
+    /// a picture keeps it (the closure draws none over one).
     func askPictureAtNewSize(of pane: NSView) {
         guard let view = pane as? AgentPaneView, view.model.newTab != nil, !view.model.hasPainted, view.bounds.size != pictureAskedAt,
-              !view.bounds.isEmpty, let draw = view.drawsLastPage else { return }
+              !view.bounds.isEmpty, !(view.superview is PageOffscreenParking), let draw = view.drawsLastPage else { return }
         pictureAskedAt = view.bounds.size
         _ = draw()
     }
 
-    /// A pane set `view`'s ``AgentPaneView/drawsLastPage`` (each show): the page asks that pane again, also at a
-    /// size it asked its last pane at (a spare closed before it painted, taken again by the next Cmd-N).
+    /// A pane set `view`'s ``AgentPaneView/drawsLastPage`` (each show), or `view` has another superview (a parked
+    /// spare its pane took): the page asks that pane again at its next layout, also at a size it asked its last pane
+    /// at (a spare closed before it painted, taken again by the next Cmd-N) or at the size it was parked at.
     func paneWired(_ view: AgentPaneView) {
         pictureAskedAt = .zero
         if view.model.newTab != nil, !view.model.hasPainted { view.needsLayout = true }

@@ -112,8 +112,8 @@ public final class AgentPageRedraw {
         }
     }
 
-    /// A capture for the app's New Tab frame is on the way (one per page at a time).
     var pictureAskedAt = CGSize.zero // the size the page's pane was last asked for its picture at (``askPictureAtNewSize(of:)``)
+    /// A capture for the app's New Tab frame is on the way (one per page at a time).
     public var givesNewTabFrame = false {
         didSet {
             if givesNewTabFrame != oldValue { newTabFrameCaptureChanged?(givesNewTabFrame) }
