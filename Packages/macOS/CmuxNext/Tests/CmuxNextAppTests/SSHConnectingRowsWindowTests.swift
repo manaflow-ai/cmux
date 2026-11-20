@@ -65,6 +65,20 @@ import Testing
         #expect(Self.rowTitles(rows).count == 1)
     }
 
+    /// A saved machine cmux reconnects on its own (at launch, after a wake or a network change) lists no
+    /// "Connecting to <host>…" row in any window: only a connect a person asked for does.
+    @Test func aReconnectCmuxStartsOnItsOwnListsNoRow() throws {
+        let host = try SSHHost(destination: SSHDestination(parsing: "100.127.99.33"), session: RemoteSessionName.defaultName)
+        let saved = SSHMachineSession(host: host, binary: URL(fileURLWithPath: "/usr/bin/false"),
+                                      paths: SSHPaths(root: URL(fileURLWithPath: "/private/tmp/ssh-connecting-rows-tests")),
+                                      environment: { [:] }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        saved.linkStatus = .connecting
+        let machines = Self.machines([saved])
+        let rows = SSHConnectingRows.adding(machines, to: [], window: "window-1", windows: ConnectingRowWindows(open: ["window-1"], incognito: { _ in false }, making: "window-1"))
+        #expect(rows.isEmpty, "an automatic reconnect drew \(Self.rowTitles(rows))")
+        #expect(SSHConnectingRows.adding(machines, to: [], window: nil, windows: ConnectingRowWindows(open: ["window-1"], incognito: { _ in false }, making: nil)).isEmpty)
+    }
+
     @Test func theOwnerIsTheAskingWindowWhileOpenElseTheOldest() {
         let windows = ConnectingRowWindows(open: ["a", "b"], incognito: { _ in false }, making: nil)
         #expect(windows.owner(requestedBy: "b") == "b")
