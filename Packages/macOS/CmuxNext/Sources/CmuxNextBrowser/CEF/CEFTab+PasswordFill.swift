@@ -11,6 +11,7 @@ extension CEFTab {
         guard !isAgentDriven else { return }
         isAgentDriven = true
         applyPasswordFill()
+        applyWebAuthnRefusal()
         CEFAgentURLGuard.applyShimGuard(self)
         CEFAgentURLGuard.leave(self, committedURL ?? state.url)
     }

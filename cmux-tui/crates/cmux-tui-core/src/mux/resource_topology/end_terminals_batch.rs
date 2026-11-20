@@ -258,7 +258,7 @@ mod tests {
     /// The full stop (`shutdown-daemon end_terminals`) of a restored session
     /// of `terminals` workspaces, each with one terminal that ended before
     /// this daemon started: its tab is dead and it has no runtime here. That
-    /// is every terminal of the person's session after an app update (826
+    /// is every terminal of a large session after an app update (826
     /// workspaces, 798 terminals: 628 parked, 170 dead, 0 live). Eight of
     /// them hold a kept tab (parked); the others lost their host.
     ///

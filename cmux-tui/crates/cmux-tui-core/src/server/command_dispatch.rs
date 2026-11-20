@@ -120,14 +120,19 @@ fn dispatch_command(
             remote_host_command::call(mux, client, &method, params)
         }
         Command::RemoteHostConfig { computer_use, screen_sharing, headless, app_permissions } => {
-            remote_host_command::config(
-                mux,
-                client,
-                json!({"computer_use": computer_use, "screen_sharing": screen_sharing, "headless": headless}),
-                app_permissions,
-            )
+            let update = json!({"computer_use": computer_use, "screen_sharing": screen_sharing, "headless": headless});
+            remote_host_command::config(mux, client, update, app_permissions)
         }
         Command::RemoteHostApp => remote_host_command::app(mux, client),
+        Command::ComputerUseEndpoint => computer_use_command::endpoint(mux, client),
+        Command::ComputerUseConfig { config } => computer_use_command::config(mux, client, config),
+        Command::ComputerUseApprovals { action, app_id, id, answer } => {
+            computer_use_command::approvals(
+                mux,
+                client,
+                json!({"action": action, "app_id": app_id, "id": id, "answer": answer}),
+            )
+        }
         Command::DeviceSetup { device, verb, allow_agents, dry_run } => {
             device_setup_command::handle(mux, client, writer, device, &verb, allow_agents, dry_run)
         }
@@ -565,6 +570,9 @@ fn dispatch_command(
         Command::SetRowHeights(params) => cmd_panes::set_row_heights(mux, client, params),
         Command::MoveColumn(params) => column_move::move_column(mux, client, params),
         Command::FloatPane(params) => floating_panes::float_pane(mux, client, actor, params),
+        Command::QuickTerminal(params) => {
+            floating_panes::quick_terminal(mux, client, actor, params)
+        }
         Command::MoveTabToNewWorkspace { surface, group, index, name, transaction } => {
             cmd_tabs::move_tab_to_new_workspace(
                 mux,
