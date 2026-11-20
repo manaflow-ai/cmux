@@ -3930,7 +3930,11 @@ export function hiddenRowFolds(rows: readonly AcpmuxRow[], drawn: readonly Acpmu
   }
   const turn = turnFoldFor(rows, index);
   const run = messageRunRevealKey(drawn, row);
-  return [...(turn ? [turn] : []), ...(run ? [run] : [])];
+  // A row of a finished background turn whose calls fold under its own closed "Worked for"
+  // (`foldEndedBackground`): that line opens too.
+  const worked = row.inBackground === undefined ? undefined : backgroundWorkedId(row.inBackground);
+  const closedWorked = worked !== undefined && drawn[findRowIndex(drawn, worked)]?.foldOpen === false;
+  return [...(closedWorked ? [worked] : []), ...(turn ? [turn] : []), ...(run ? [run] : [])];
 }
 
 /// Where to bring one message of the chat into view (a link's `message=<id>`, links.ts): the first
