@@ -42,12 +42,15 @@
 //! fails every waiter at the end of the stream. A drop while replies it
 //! resolves are still owed keeps the stream open until they arrive or time
 //! out, so a mint sent just before a reconnect replaced the connection is
-//! not lost to the drop's own shutdown.
+//! not lost to the drop's own shutdown. A drain thread shuts the read side
+//! down at that deadline: the reader's read is usually already blocked, and
+//! on an idle terminal nothing else would end it.
 
 use std::collections::VecDeque;
 use std::io::Read;
 use std::sync::{Arc, Condvar, Mutex};
 
+use crate::panic_free::RecoverPoison;
 use crate::terminal_host_protocol::{Frame, MAX_FRAME_PAYLOAD, MessageKind, read_frame};
 use crate::terminal_host_runtime::HostStream as UnixStream;
 use crate::terminal_host_runtime::{CONTROL_RESPONSE_TIMEOUT, ControlResponses};
@@ -101,6 +104,9 @@ struct QueueState {
     /// The demultiplexer was dropped with replies still owed: the thread
     /// ends once no waiter it resolves is left, or at this deadline.
     draining: Option<std::time::Instant>,
+    /// Tests: how many reads the reader thread started.
+    #[cfg(test)]
+    reads_started: usize,
     /// Tests: how many times the reader thread waited for room in the queue.
     #[cfg(test)]
     budget_waits: usize,
@@ -256,27 +262,55 @@ impl Drop for HostFrames {
     /// A reply the host owes on this connection (a renderer mint sent just
     /// before a resync reconnect replaced it) still reaches its waiter: the
     /// thread keeps reading until no waiter it resolves is left or the drain
-    /// deadline passes. A waiter that times out shuts the connection down
-    /// itself (Kitty limits excepted), which also ends a read already in
-    /// progress; the read timeout bounds reads that start later.
+    /// deadline passes. The deadline is enforced from outside the thread
+    /// (`shut_read_at`): its read is usually already blocked, and neither the
+    /// deadline nor a read timeout set now reaches a read in progress
+    /// (SO_RCVTIMEO is read when a read starts), so on an idle terminal (a
+    /// Kitty limits waiter does not shut the connection down when it times
+    /// out) the thread and the socket stayed until the host wrote or exited.
     fn drop(&mut self) {
         self.abandon();
         let early = self.early;
-        let owed = {
-            let mut state = self.queue.state.lock().unwrap();
+        let deadline = {
+            let mut state = self.queue.state.lock().recover_poison();
             let owed = !state.ended
                 && self
                     .control_responses
                     .has_waiter_where(|kind| early.resolves_after_abandon(kind));
-            if owed {
-                state.draining = Some(std::time::Instant::now() + CONTROL_RESPONSE_TIMEOUT);
-            }
-            owed
+            owed.then(|| {
+                let deadline = std::time::Instant::now() + CONTROL_RESPONSE_TIMEOUT;
+                state.draining = Some(deadline);
+                deadline
+            })
         };
-        if owed && self.shutdown.set_read_timeout(Some(CONTROL_RESPONSE_TIMEOUT)).is_ok() {
+        if let Some(deadline) = deadline
+            && self.shut_read_at(deadline).is_ok()
+        {
             return;
         }
         let _ = self.shutdown.shutdown(std::net::Shutdown::Read);
+    }
+}
+
+impl HostFrames {
+    /// Shut the read side down once the reader thread ended or at
+    /// `deadline`, whichever comes first, on a short-lived thread of its own.
+    fn shut_read_at(&self, deadline: std::time::Instant) -> std::io::Result<()> {
+        let shutdown = self.shutdown.try_clone()?;
+        let queue = self.queue.clone();
+        std::thread::Builder::new().name("host-frames-drain".into()).spawn(move || {
+            let mut state = queue.state.lock().recover_poison();
+            while !state.ended {
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                if remaining.is_zero() {
+                    break;
+                }
+                state = queue.changed.wait_timeout(state, remaining).recover_poison().0;
+            }
+            drop(state);
+            let _ = shutdown.shutdown(std::net::Shutdown::Read);
+        })?;
+        Ok(())
     }
 }
 
@@ -416,7 +450,16 @@ fn read_stream(
 ) {
     let mut stream = LinkReader::new(stream);
     loop {
-        let draining = queue.state.lock().unwrap().draining;
+        let draining = {
+            #[cfg_attr(not(test), allow(unused_mut))]
+            let mut state = queue.state.lock().unwrap();
+            #[cfg(test)]
+            {
+                state.reads_started += 1;
+                queue.changed.notify_all();
+            }
+            state.draining
+        };
         if draining.is_some_and(|deadline| {
             std::time::Instant::now() >= deadline
                 || !control_responses.has_waiter_where(|kind| early.resolves_after_abandon(kind))
@@ -481,6 +524,9 @@ fn read_stream(
     control_responses.end_clipboard_reads();
     let mut state = queue.state.lock().unwrap();
     if state.abandoned {
+        // Ends a drop's drain thread (`HostFrames::shut_read_at`) at once.
+        state.ended = true;
+        queue.changed.notify_all();
         drop(state);
         control_responses.fail_all();
         return;
@@ -998,5 +1044,55 @@ mod tests {
             let state = queue.state.lock().unwrap();
             assert!(state.ended && state.frames.is_empty(), "the connection must end there");
         }
+    }
+
+    /// A drop while a Kitty limits acknowledgement is owed keeps the stream
+    /// open for it, but only until the drain deadline: on an idle terminal
+    /// (the host sends nothing) the reader thread's read is already blocked
+    /// and sees neither the deadline nor a read timeout set at the drop, so
+    /// the thread and the socket stayed until the host wrote or exited.
+    #[cfg(unix)]
+    #[test]
+    fn a_drop_owing_a_kitty_ack_ends_the_read_on_an_idle_host() {
+        let version = version();
+        let (client, mut host) = UnixStream::pair().unwrap();
+        let responses = Arc::new(ControlResponses::new_for_test());
+        let frames = HostFrames::spawn(
+            "host-frames-drain-test".into(),
+            client,
+            responses.clone(),
+            version,
+            true,
+        )
+        .unwrap();
+        // One frame through the thread, so its next read is the blocked one.
+        let mut output = Frame::new(MessageKind::Output, b"before".to_vec());
+        output.version = version;
+        crate::terminal_host_protocol::write_frame(&mut host, &output).unwrap();
+        assert!(
+            matches!(frames.recv(), HostFrame::Frame(frame) if frame.kind == MessageKind::Output)
+        );
+        // Wait, asleep on the queue's condvar, until the thread starts its
+        // next read: it goes straight into the blocking read while this
+        // thread wakes, so the drop does not race the read's start (a read
+        // that starts after the drop would see the drop's read timeout).
+        drop(
+            frames
+                .queue
+                .changed
+                .wait_while(frames.queue.state.lock().unwrap(), |state| state.reads_started < 2)
+                .unwrap(),
+        );
+        let _kitty = responses.wait_for_test(9, MessageKind::KittyGraphicsLimitsAck);
+        drop(frames);
+        // The client end closes once the thread ends; the host then reads EOF.
+        host.set_read_timeout(Some(CONTROL_RESPONSE_TIMEOUT * 2)).unwrap();
+        let started = std::time::Instant::now();
+        let read = host.read(&mut [0; 1]);
+        assert!(
+            matches!(read, Ok(0)),
+            "the dropped connection was still open {:?} after the drop: {read:?}",
+            started.elapsed()
+        );
     }
 }
