@@ -4,28 +4,32 @@ import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
 
-/// "Here's how cmux works", setup's first page after sign-in (Claude's
-/// post-sign-in explainer): the welcome's art, settled, one title and three
-/// rows, then Continue. It is the only page that explains the product; the
-/// welcome before sign-in stays free of feature copy (SPEC 5.2).
+/// "Your Mac, live on your phone", setup's first page after sign-in (Claude's
+/// post-sign-in explainer). It skips what the person already knows (agents,
+/// Chief, a phone that watches) and names what the phone can do on the Mac
+/// itself (Aziz 2026-11-19): type in its terminals, run its agent sessions,
+/// hand Chief work, and use its browser streamed. The welcome before sign-in
+/// stays free of feature copy (SPEC 5.2).
 struct IntroStep: View {
     let next: () -> Void
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        IntroPage(title: "Here's how cmux works") {
+        IntroPage(title: "Your Mac, live on your phone") {
             if !dynamicTypeSize.isAccessibilitySize {
                 // The welcome's illustration at rest: the Mac, the phone and the chevron.
                 WelcomeArt(t: .infinity, idle: nil, width: 180)
             }
         } content: {
             VStack(alignment: .leading, spacing: 6) {
-                FirstRunRow(symbol: "desktopcomputer", title: "Agents run on your Mac",
-                            detail: "In your projects, with your tools and your keys.")
-                FirstRunRow(symbol: "person.crop.circle.badge.checkmark", title: "Chief keeps track",
-                            detail: "Tell Chief what you want; it starts agents and follows each one.")
-                FirstRunRow(symbol: "iphone", title: "You steer from here",
-                            detail: "Answer questions, approve changes and read diffs from your phone.")
+                FirstRunRow(symbol: "apple.terminal", title: "Type in your Mac's terminals",
+                            detail: "Run commands, stop a process, scroll back. Esc, Ctrl and arrows included.")
+                FirstRunRow(symbol: "bubble.left.and.text.bubble.right", title: "Run agent sessions",
+                            detail: "Start Claude Code or Codex in any project, approve its commands, review the diff.")
+                FirstRunRow(symbol: "person.crop.circle.badge.checkmark", title: "Hand work to Chief",
+                            detail: "Say what you want. Chief splits it up, starts the agents and reports back.")
+                FirstRunRow(symbol: "safari", title: "Use your Mac's browser",
+                            detail: "Its tabs stream here: your sign-ins, your localhost, your dev server.")
             }
             .frame(maxWidth: 360, alignment: .leading)
         } actions: {

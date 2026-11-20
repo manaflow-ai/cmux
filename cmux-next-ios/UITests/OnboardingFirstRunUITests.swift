@@ -249,37 +249,43 @@ final class OnboardingFirstRunUITests: UIStateCaptureCase {
         let g = "E Plans"
         let free = Self.mock.merging(["CMUX_MOBILE_BILLING_DEMO": "free"]) { $1 }
         capture([
-            Scene(group: g, id: "plans-free-yearly", args: Self.at("plan"), env: free, signedIn: false, settle: 3) { app in
-                C.wait(C.any(app, "setup.plans.card.pro"), "Pro card")
+            // Pro, yearly: what the page opens on.
+            Scene(group: g, id: "plans-pro-yearly", args: Self.at("plan"), env: free, signedIn: false, settle: 3) { app in
+                C.wait(C.any(app, "setup.plans.subscribe"), "Subscribe button")
             },
-            Scene(group: g, id: "plans-pro-selected", args: Self.at("plan"), env: free, signedIn: false, settle: 3) { app in
+            Scene(group: g, id: "plans-pro-monthly", args: Self.at("plan"), env: free, signedIn: false, settle: 3) { app in
                 C.steps([
-                    { C.tap(C.any(app, "setup.plans.card.pro"), "Pro card") },
                     { C.wait(C.any(app, "setup.plans.subscribe"), "Subscribe button") },
+                    { C.tap(C.any(app, "setup.plans.period.monthly"), "Monthly card") },
                 ])
             },
-            Scene(group: g, id: "plans-monthly", args: Self.at("plan"), env: free, signedIn: false, settle: 3) { app in
+            Scene(group: g, id: "plans-go", args: Self.at("plan"), env: free, signedIn: false, settle: 3) { app in
                 C.steps([
-                    { C.wait(C.any(app, "setup.plans.card.pro"), "Pro card") },
-                    { C.tap(app.buttons["Monthly"], "Monthly") },
+                    { C.wait(C.any(app, "setup.plans.subscribe"), "Subscribe button") },
+                    { C.tap(app.segmentedControls.buttons["Go"], "Go tier") },
+                ])
+            },
+            Scene(group: g, id: "plans-max", args: Self.at("plan"), env: free, signedIn: false, settle: 3) { app in
+                C.steps([
+                    { C.wait(C.any(app, "setup.plans.subscribe"), "Subscribe button") },
+                    { C.tap(app.segmentedControls.buttons["Max"], "Max tier") },
                 ])
             },
             Scene(group: g, id: "plans-large-text", args: Self.at("plan", Self.largeText), env: free, signedIn: false, settle: 3) { app in
-                C.wait(C.any(app, "setup.plans.card.free"), "Free card")
+                C.wait(C.any(app, "setup.plans.subscribe"), "Subscribe button")
             },
             Scene(group: g, id: "plans-ax-text", args: Self.at("plan", Self.axText), env: free, signedIn: false, settle: 3) { app in
-                C.wait(C.any(app, "setup.plans.card.free"), "Free card")
+                C.wait(C.any(app, "setup.plans.subscribe"), "Subscribe button")
             },
             Scene(group: g, id: "after-subscribe-first-agent", args: Self.at("plan"), env: free, signedIn: false, settle: 3) { app in
                 C.steps([
-                    { C.tap(C.any(app, "setup.plans.card.pro"), "Pro card") },
                     { C.tap(C.any(app, "setup.plans.subscribe"), "Subscribe") },
                     { C.wait(C.any(app, "setup.first-chat.skip"), "first agent page after the purchase") },
                 ])
             },
-            Scene(group: g, id: "after-free-first-agent", args: Self.at("plan"), env: free, signedIn: false, settle: 3) { app in
+            Scene(group: g, id: "after-not-now-first-agent", args: Self.at("plan"), env: free, signedIn: false, settle: 3) { app in
                 C.steps([
-                    { C.tap(C.any(app, "setup.plans.free"), "Continue with Free") },
+                    { C.tap(C.any(app, "setup.plans.free"), "Not now") },
                     { C.wait(C.any(app, "setup.first-chat.skip"), "first agent page") },
                 ])
             },
