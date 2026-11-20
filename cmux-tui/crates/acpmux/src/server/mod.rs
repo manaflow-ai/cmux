@@ -1817,7 +1817,10 @@ async fn serve_connection_from(
                                 "reason": "connection.busy",
                                 "retryable": true,
                             }));
-                        conn.send(&Message::err(id, error));
+                        // In the lane of its method's answer: a busy refusal of a cheap read (the
+                        // pane's liveness probe) proves the daemon alive only if it arrives.
+                        let reply_to = outbound::is_cheap_read(&m).then_some(m.as_str());
+                        conn.send_replying(&Message::err(id, error), reply_to);
                         continue;
                     }
                 };
@@ -2449,6 +2452,8 @@ pub(crate) mod remote_guard;
 mod requests;
 pub use requests::{DURABLE_DISPATCH_FEATURE, SESSION_RESUME_FEATURE};
 mod accounts;
+#[cfg(test)]
+mod attach_latency_bench;
 mod connections;
 mod mcp_connect;
 mod routes;
