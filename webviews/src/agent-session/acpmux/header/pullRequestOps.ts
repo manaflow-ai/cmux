@@ -3,7 +3,7 @@ import { translate, useT, type StringKey, type Translate } from "../i18n";
 import type { HeaderCheck, HeaderPullRequest } from "./headerState";
 import { readyToMerge } from "./pullRequestMergeModel";
 import type { Merging, MergeResult } from "./PullRequestMerge";
-import { usePullRequestActions, type PullRequestAction } from "./pullRequestActions";
+import { usePullRequestActions, type PullRequestAction } from "./usePullRequestActions";
 
 export function checkPresentation(check: HeaderCheck, t: Translate = translate): string {
   const marker = check.state === "failed" ? "✕" : check.state === "pending" ? "…" : "✓";

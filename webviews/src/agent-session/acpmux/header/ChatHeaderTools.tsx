@@ -54,7 +54,7 @@ import { WorktreePill } from "./WorktreePill";
 import { useWorktree } from "./worktreePillModel";
 import { useWorktreeOps } from "./worktreeOps";
 import { usePullRequestOps } from "./pullRequestOps";
-import type { PullRequestAction } from "./pullRequestActions";
+import type { PullRequestAction } from "./usePullRequestActions";
 import type { MergeResult } from "./PullRequestMerge";
 import {
   QUICK_ACTION_DEFAULTS,

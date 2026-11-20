@@ -124,7 +124,7 @@ test("unrelated header updates retain the pending action and authoritative head"
   const { JSDOM } = await import("jsdom");
   const { act, createElement } = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const { usePullRequestActions } = await import("./pullRequestActions");
+  const { usePullRequestActions } = await import("./usePullRequestActions");
   const dom = new JSDOM("<div id='root'></div>", { url: "http://localhost/" });
   const globals = globalThis as Record<string, unknown>;
   const previous = new Map(["window", "document", "navigator", "IS_REACT_ACT_ENVIRONMENT"].map((k) => [k, globals[k]]));

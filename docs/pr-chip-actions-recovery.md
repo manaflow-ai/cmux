@@ -1,49 +1,58 @@
-# PR chip action recovery checkpoint
+# PR chip actions and authority boundaries
 
-This is unfinished recovery of PR #38507, now owned by `gcp-agent-lane-1/pr-chip-rust-recovery`.
-Broker transfer `bg-cbb818fa69f1` succeeded with status 200 at 02:08Z on 2026-11-20;
-the parent supplied the receipt after the initial local checkpoint. Issue
-https://github.com/manaflow-ai/cmuxterm-hq/issues/14903 owns the remaining execution work.
+The chip uses Rust to read the chat branch's pull request, failed GitHub Actions log tails,
+and unresolved review threads. DOM and native headers share the action view and send adapter.
+This implementation is incomplete: `arm` returns `pr.watch_unavailable`; there is no merge watch.
+The existing immediate Merge action remains available.
 
-The checkpoint reconciles the original branch at b10625de45ea115f8ea9c5d8a50fd95ec7e3d5cd
-with NEXT at 0e6e7019af7cbc6d8d0d39c18bca2d8b327b0430. Review the feature against that
-second parent, not the old original branch.
+## Bind delayed context to its initiating chat
 
-Implemented locally: bounded Rust PR state/log-tail/review reads, verification of the chat's
-own branch and displayed full head, shared DOM/native actions, and same-chat prompt submission.
-No watch is armed. `arm` returns `pr.watch_unavailable`; this is not delivery of the requested flow.
-The normal existing immediate Merge action is preserved.
+A context read must not outlive the click's target. Both transport submission and response
+handling compare the selected session and selection generation, so leaving and returning to
+the same chat does not revive an old request. The native prompt ticket is reserved before the
+read; the response cannot manufacture fresh person authorization. Rust verifies the branch's
+canonical PR URL and full displayed head before and after reading context. Incomplete review
+pages, unsupported log sources, oversized context, and changed heads return errors.
 
-## Remaining dependency
+Native action IDs include the controller generation and semantic action name. Removing Fix
+checks from a refreshed menu must never turn its old index into Address comments or Arm.
+Reconstructing an otherwise identical header must not reset its authoritative read state.
 
-The platform worktree at 26dce32f5a4107946a30dc4843fdb55703c74bd0 documents an inert GitHub
-feed adapter in `docs/github-feed-recovery.md`: no authenticated event endpoint, Worker route,
-binding, webhook secret, or activation. An event-driven watch needs that service plus an atomic
-head-bound merge authority. `gh pr merge --auto --match-head-commit` checks the head when enabling
-ordinary auto-merge, but does not pin a future automatic merge. Cancelling it upon a push event
-leaves a race. Do not claim that this meets the requested disarm-on-push guarantee, add polling,
-bypass protection, or silently change repository policy.
+Detectors: `pullRequestActionView.test.ts` exercises disposal, reactivation, duplicate clicks,
+A→B→A selection changes, stale native actions, and header reconstruction.
+`pullRequestActionPrompt.test.ts` checks click-ticket ordering, same-chat submission, late
+responses, mismatched heads, and empty context. Rust `server::pull_request_actions` tests cover
+head/repository checks, review completeness, bounded output, and process-group lifetime.
 
-## Verification and next owner action
+The hook is named `usePullRequestActions.ts` rather than sharing an extensionless basename
+with `PullRequestActions.tsx`. Case-folded extensionless resolution can otherwise choose a
+nonexistent mixed-case path during bundling. The shipped agent-pane bundle is the detector.
 
-The targeted React compiler check passes for the new hook/component. Rust source has been
-formatted. Tests and gallery fixtures are authored, not executed or captured. A direct TypeScript
-check found an untyped empty action array (fixed) and a ReadableStream async-iterator error in
-`test/support/realAcpmux.ts`; the latter has not been attributed to base by a separate check.
-No final whole-web, Rust build, UI, or full-flow success is claimed. Translations inherited from
-original feature keys remain needs_review and require completion before landing.
+## A displayed SHA is not a future merge authorization
 
-Publish a WIP head, run protocol generation through `cmux-ci` on that
-exact head, and retrieve generated files as artifacts. The source-prescribed generation is
-`ACPMUX_PROTOCOL_BLESS=1 cargo test -p acpmux protocol_ir_is_current` in `cmux-tui`, followed by
-`bun run acpmux-protocol:codegen` in `webviews`. The committed protocol JSON is currently stale;
-do not hand-edit the generated artifact. Push generated results and run focused Rust
-`server::pull_request_actions` tests, web `pullRequestActionView.test.ts`, the full required
-path checks, and three gallery captures. Use the existing cmux live procedure to prove the
-person's flow only after the missing watcher and backend are implemented.
+The requested watch must disarm on **any push**, including A→B→A. Its merge authority therefore
+needs an atomic check of both the armed SHA and the ref's mutation generation at the merge.
+An authoritative read of the current SHA cannot detect a change that returned to the same SHA.
 
-The class of UI failure is a delayed result outliving its initiating selection, plus native menu
-IDs changing meaning when conditional entries disappear. The detectors are the view tests for
-A→B→A invalidation, duplicate clicks, stale native menu invocation, reactivation, and unrelated
-header reconstruction. Both menu surfaces consume one operation state. The wider durable-authority
-and event-activation gap remains with issue #14903; enable-time verification is not a future pin.
+Ordinary GitHub auto-merge checks an expected head when it is enabled, but can subsequently
+merge another head. Cancelling it after a webhook arrives leaves a race. A direct merge with
+`sha` / `expectedHeadOid` prevents merging a different current SHA, but cannot reject A→B→A
+while the push events are delayed. An event journal is useful for invalidation after delivery;
+it does not turn asynchronous delivery into a merge-time guard. Queue entry also requires
+immediate eligibility and does not itself enable auto-merge.
+
+Do not claim a delivered-event watcher enforces this invariant, introduce polling, bypass
+protection, or silently change branch protection to manufacture it. The missing merge authority
+and event activation are tracked in
+[manaflow-ai/cmuxterm-hq#14903](https://github.com/manaflow-ai/cmuxterm-hq/issues/14903).
+
+## Verification
+
+Run the focused Rust tests through `cmux-ci` from `cmux-tui`, and run each named web test in its
+own process from `webviews`. The gallery entry `agent-pane.pr-actions` has ready, reading, and
+error states for both themes and narrow/normal widths. Fixtures and unit tests do not prove the
+full failing-check → same-chat prompts → push → arm → merge flow in an installed app.
+
+Protocol source changes must regenerate `cmux-tui/crates/acpmux/spec/acpmux-protocol.json`
+through `ACPMUX_PROTOCOL_BLESS=1 cargo test -p acpmux protocol_ir_is_current`, followed by
+`bun run acpmux-protocol:codegen` in `webviews`; do not edit generated protocol output by hand.
