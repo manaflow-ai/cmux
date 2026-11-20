@@ -105,10 +105,12 @@ pub(super) fn run(args: &[String], global: &GlobalArgs, out: &Out, cloud_source:
 /// Every Cloud trigger of a local schedule, or why it has none.
 fn cloud_triggers(t: &Trigger) -> Result<Value, Failure> {
     let cron = |expr: String, tz: &str| {
-        let tz = if cmux_automations::Zone::parse(tz) == Ok(cmux_automations::Zone::Local) {
-            cloud::local_zone_name()
-        } else {
-            "UTC".to_string()
+        // `local` is this machine's zone by name; UTC as UTC; any other name (a spec read from
+        // elsewhere) goes as it is, never as UTC, which would move its hour.
+        let tz = match cmux_automations::Zone::parse(tz) {
+            Ok(cmux_automations::Zone::Local) => cloud::local_zone_name(),
+            Ok(cmux_automations::Zone::Utc) => "UTC".to_string(),
+            Err(_) => tz.to_string(),
         };
         json!([{"type": "cron", "expr": expr, "tz": tz}, {"type": "manual"}])
     };
@@ -574,5 +576,17 @@ mod tests {
         assert_eq!(every_as_cron(7 * 60, anchor), None);
         assert_eq!(every_as_cron(5 * 3_600, anchor), None);
         assert_eq!(every_as_cron(1_800, anchor + 30), None);
+    }
+
+    #[test]
+    fn teleport_cron_keeps_its_zone_and_never_turns_a_named_one_into_utc() {
+        let tz = |zone: &str| {
+            let t = Trigger::Cron { expr: "0 9 * * 1-5".into(), tz: zone.into() };
+            let Ok(triggers) = cloud_triggers(&t) else { panic!("{zone}: no Cloud trigger") };
+            triggers[0]["tz"].as_str().unwrap_or_default().to_string()
+        };
+        assert_eq!(tz("Europe/Berlin"), "Europe/Berlin", "a named zone goes as it is");
+        assert_eq!(tz("utc"), "UTC");
+        assert_eq!(tz("local"), cloud::local_zone_name());
     }
 }
