@@ -142,16 +142,21 @@ export function authBlocksSend(auth: SessionAuth | undefined): boolean {
 export type AuthParty =
   | { kind: "cmux" }
   | { kind: "apiKey"; provider: string }
-  | { kind: "route"; route: string }
-  | { kind: "login"; agent: string };
+  | { kind: "route"; route?: string }
+  | { kind: "login"; agent?: string };
 
+/// An answer that names no harness (or no route) keeps the plain words it always had: a name
+/// there would be a guess.
 export function authParty(auth: SessionAuth, t: Translate = translate): AuthParty {
-  const agent = auth.harness ? agentDisplayName(auth.harness) : t("picker.model");
+  const agent = auth.harness ? agentDisplayName(auth.harness) : undefined;
   if (auth.credential === "cmux") return { kind: "cmux" };
   if (auth.credential === "apiKey")
-    return { kind: "apiKey", provider: auth.provider ? providerName(auth.provider) : agent };
-  if (auth.state === "routeAuthNeeded") return { kind: "route", route: auth.login?.routeId ?? auth.routeId ?? agent };
-  return { kind: "login", agent };
+    return { kind: "apiKey", provider: auth.provider ? providerName(auth.provider) : (agent ?? t("picker.model")) };
+  if (auth.state === "routeAuthNeeded") {
+    const route = auth.login?.routeId ?? auth.routeId ?? undefined;
+    return route ? { kind: "route", route } : { kind: "route" };
+  }
+  return agent ? { kind: "login", agent } : { kind: "login" };
 }
 
 /// The button (and the model chip's word) that fixes the refusal: "Replace key", "Sign in to cmux",
@@ -165,9 +170,10 @@ export function authLoginText(auth: SessionAuth | undefined, t: Translate = tran
     case "apiKey":
       return t("auth.fix.replaceKey");
     case "route":
-      return t("auth.fix.signInTo", { name: party.route });
+      return party.route ? t("auth.fix.signInTo", { name: party.route }) : t("turn.signInAgain");
     case "login":
-      return t("auth.fix.signInTo", { name: party.agent });
+      if (party.agent) return t("auth.fix.signInTo", { name: party.agent });
+      return auth.state === "expired" || auth.source === "turn" ? t("turn.signInAgain") : t("harness.logIn");
   }
 }
 
@@ -189,8 +195,14 @@ export function authText(auth: SessionAuth | undefined, t: Translate = translate
       : party.kind === "apiKey"
         ? t(expired ? "auth.key.expired" : "auth.key.refused", { provider: party.provider })
         : party.kind === "route"
-          ? t("auth.route.signedOut", { name: party.route })
-          : t(expired ? "auth.login.expired" : "auth.login.signedOut", { agent: party.agent });
+          ? party.route
+            ? t("auth.route.signedOut", { name: party.route })
+            : t("turn.authExpired")
+          : party.agent
+            ? t(expired ? "auth.login.expired" : "auth.login.signedOut", { agent: party.agent })
+            : expired
+              ? t("turn.authExpired")
+              : t("harness.signedOut", { agent: harness });
   // A chat on another machine signs in there: say where and what to run, as its own sentence.
   const host = auth.login?.host ?? auth.host;
   if (auth.login?.kind === "terminal" && host && auth.login.command && party.kind !== "cmux")

@@ -158,3 +158,11 @@ test("Replace key runs the agent's own key entry; Sign in to cmux runs the app's
   expect(cmux).toBe(1);
   expect(opened).toHaveLength(1);
 });
+
+test("an answer that names no harness or route keeps the plain words: a name would be a guess", () => {
+  const expired: SessionAuth = { state: "expired", source: "turn", evidenceAt: 1 };
+  expect(authText(expired, translate)).toBe(translate("turn.authExpired"));
+  expect(authLoginText(expired, translate)).toBe(translate("turn.signInAgain"));
+  const route: SessionAuth = { state: "routeAuthNeeded", source: "routeProbe", evidenceAt: 1 };
+  expect(authLoginText(route, translate)).toBe(translate("turn.signInAgain"));
+});

@@ -988,7 +988,11 @@ mod tests {
             None,
         )
         .decide();
-        assert_eq!((out.credential, out.provider), (Some(Credential::Login), None), "{out:?}");
+        assert_eq!(
+            (out.credential, out.provider.as_deref()),
+            (Some(Credential::Login), None),
+            "{out:?}"
+        );
 
         let mut cmux = facts(Some("auth_needed"), None, None);
         cmux.route_kind = Some(routes::RouteKind::CmuxRouter);
@@ -996,7 +1000,11 @@ mod tests {
         let mut cmux = facts(None, Some(turn("failed", Some("auth.expired"), opencode, 7)), None);
         cmux.route_kind = Some(routes::RouteKind::CmuxRouter);
         let out = cmux.decide();
-        assert_eq!((out.credential, out.provider), (Some(Credential::Cmux), None), "{out:?}");
+        assert_eq!(
+            (out.credential, out.provider.as_deref()),
+            (Some(Credential::Cmux), None),
+            "{out:?}"
+        );
         // Another route's refusal is that route's, by its id.
         let out = facts(Some("auth_needed"), None, None).decide();
         assert_eq!((out.credential, out.route_id.as_deref()), (None, Some("proxy")));
