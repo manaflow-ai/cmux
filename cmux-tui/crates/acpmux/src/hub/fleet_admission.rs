@@ -99,37 +99,43 @@ impl Hub {
         Ok(())
     }
 
-    pub(super) async fn admit_background<'a>(
+    pub(super) fn admit_background<'a>(
         &'a self,
-        session: &Session,
+        session: &'a Session,
         opts: &PromptOptions,
-    ) -> Result<Option<ResumePermit<'a>>, RpcError> {
-        self.check_finished(session)?;
+    ) -> impl std::future::Future<Output = Result<Option<ResumePermit<'a>>, RpcError>> + Send + 'a
+    {
+        // PromptOptions owns Send-only callbacks. Snapshot only admission data before
+        // constructing the future, rather than retaining a shared borrow across await.
         let retry = super::resume_admission::automatic(opts);
         let background =
             !super::resume_admission::person(opts.agent.as_deref(), opts.provenance.as_ref());
-        if !retry && !background {
-            return Ok(None);
-        }
-        self.check_background_session(session)?;
-        if !retry
-            && self.resume_admission.binding().is_none()
-            && !self.resume_admission.recovering()
-        {
-            return Ok(None);
-        }
-        let permit = self.admit_resume(super::resume_admission::priority(opts, session)).await?;
-        if let Err(error) = self.check_background_session(session) {
-            permit.complete().await;
-            return Err(error);
-        }
-        if retry {
-            Ok(Some(permit))
-        } else {
-            // Messages can await reciprocal replies, so their grant staggers entry but
-            // does not retain retry occupancy while they wait for another session.
-            permit.complete().await;
-            Ok(None)
+        let priority = super::resume_admission::priority(opts, session);
+        async move {
+            self.check_finished(session)?;
+            if !retry && !background {
+                return Ok(None);
+            }
+            self.check_background_session(session)?;
+            if !retry
+                && self.resume_admission.binding().is_none()
+                && !self.resume_admission.recovering()
+            {
+                return Ok(None);
+            }
+            let permit = self.admit_resume(priority).await?;
+            if let Err(error) = self.check_background_session(session) {
+                permit.complete().await;
+                return Err(error);
+            }
+            if retry {
+                Ok(Some(permit))
+            } else {
+                // Messages can await reciprocal replies, so their grant staggers entry but
+                // does not retain retry occupancy while they wait for another session.
+                permit.complete().await;
+                Ok(None)
+            }
         }
     }
 
