@@ -46,6 +46,11 @@ extension PageWebView {
         // The spare's document is parked until a claim binds routes (PageWebView+Claim.swift).
         host.configuration.userContentController.addUserScript(
             WKUserScript(source: parkedScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
+        if PageSpareVariant.current == .unmounted {
+            host.configuration.userContentController.addUserScript(
+                WKUserScript(source: PageSpareVariant.deferMountScript, injectionTime: .atDocumentStart,
+                             forMainFrameOnly: true, in: .page))
+        }
         return PooledHostRecipe(served: served, configuration: host.configuration,
                                 inputReadiness: host.inputReadiness, options: options, owner: owner)
     }
@@ -71,8 +76,14 @@ extension PageWebView {
     }
 
     /// Starts the served bundle document after the pooled view has been parked.
-    func startLoading() {
+    func startLoading(_ variant: PageSpareVariant = .painted) {
         guard !loaded, webView.url == nil else { return }
+        // A blank spare runs its WebContent process on an empty document; the claim loads the page
+        // (another URL, so retarget loads it instead of claiming the document).
+        if variant == .blank {
+            webView.loadHTMLString("<!doctype html>", baseURL: nil)
+            return
+        }
         webView.load(URLRequest(url: descriptor.url()))
     }
 

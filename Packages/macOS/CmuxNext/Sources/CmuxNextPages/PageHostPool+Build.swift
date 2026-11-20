@@ -73,14 +73,17 @@ extension PageHostPool {
             if spare === host { dropSpare() }
             return
         }
-        measure("pool.makeSpare.load") { host.startLoading() }
+        let variant = PageSpareVariant.current
+        // A hidden or blank spare is hidden from its park: it does not paint until a claim shows it.
+        if variant == .hidden || variant == .blank { host.isHidden = true }
+        measure("pool.makeSpare.load") { host.startLoading(variant) }
         await host.waitUntilLoaded()
         guard spare === host, latestClaimOptions == buildOptions, host.loaded, canUseSpare(for: buildOptions),
               !projectionIsOpen() else {
             if spare === host { dropSpare() }
             return
         }
-        suspendAfterPaint(host)
+        if !host.isHidden { suspendAfterPaint(host) }
         spareReady = true
         onSpareReady?(host)
     }
