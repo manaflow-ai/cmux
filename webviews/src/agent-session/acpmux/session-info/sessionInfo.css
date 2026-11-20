@@ -1426,7 +1426,7 @@ button.acpmux-session-info-port:focus-visible {
 }
 .acpmux-session-info-task--command > .acpmux-session-info-stop:hover:not(:disabled) {
   color: var(--agent-status-failure);
-  background: var(--ds-color-hover);
+  background: var(--ds-surface-hover);
 }
 .acpmux-session-info-task--command:has(> .acpmux-session-info-stop:hover) > .acpmux-session-info-task__open {
   background: none;
@@ -1720,7 +1720,7 @@ button.acpmux-session-info-scope__parent:focus-visible {
 }
 .acpmux-cloud-repository-option:hover,
 .acpmux-cloud-repository-option:focus-visible {
-  background: var(--ds-color-hover);
+  background: var(--ds-surface-hover);
 }
 .acpmux-cloud-repository-option:disabled {
   cursor: wait;
