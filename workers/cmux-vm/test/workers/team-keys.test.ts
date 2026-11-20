@@ -7,7 +7,7 @@ import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { generateApiKey, hashApiKey } from "../../src/auth/credentials.ts";
 import { parseTeamKeys } from "../../src/auth/team-keys.ts";
-import { teamKeysOf } from "../../src/auth/service-keys.ts";
+import { teamKeysOf, type ServiceKey } from "../../src/auth/service-keys.ts";
 import { bearer } from "../support/endpoints.ts";
 import { makeHarness, type HarnessOptions } from "../support/harness.ts";
 
@@ -73,7 +73,7 @@ describe("CMUX_VM_TEAM_KEYS", () => {
   });
 
   it("disables every team key when one reuses a service key's id or hash", () => {
-    const service = { id: "tk-lanes", sha256: "b".repeat(64), scopes: new Set(), labels: { role: "chief" }, teams: null } as const;
+    const service: ServiceKey = { id: "tk-lanes", sha256: "b".repeat(64), scopes: new Set(), labels: { role: "chief" }, teams: null };
     expect(teamKeysOf([service], JSON.stringify([{ ...ROW, sha256: [HASH] }]))).toEqual([]);
     expect(teamKeysOf([{ ...service, id: "chief" }], JSON.stringify([{ ...ROW, sha256: ["b".repeat(64)] }]))).toEqual([]);
     expect(teamKeysOf([{ ...service, id: "chief" }], JSON.stringify([{ ...ROW, sha256: [HASH] }]))).toHaveLength(1);
