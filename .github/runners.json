@@ -92,11 +92,12 @@
       ]
     },
     "linux_8": {
-      "why": "Jobs measured at 8 vCPU (tooling tests, mid-size compiles). A stalled 8 vCPU size moves them down to 4 vCPU first (Blacksmith caps the org on vCPUs at once, so a bigger size is the one that starves; runner_pools.py grows_before_shrinking()), else to 16 vCPU",
+      "why": "Jobs measured at 8 vCPU (tooling tests, mid-size compiles). A stalled 8 vCPU size moves them down to 4 vCPU first (Blacksmith caps the org on vCPUs at once, so a bigger size is the one that starves; runner_pools.py grows_before_shrinking()), else to 16, then 32 vCPU. 32 vCPU is last: on 2026-11-20 11:31Z 8 vCPU ran 0 of 101 queued jobs, 4 vCPU 12 of 161 and 16 vCPU 0 of 79, while 32 vCPU had no job waiting, so the writer kept linux_8 on a size that started nothing for 4 h and the required cmux-tui clippy check never ran",
       "members": [
         "blacksmith-8vcpu-ubuntu-2404",
         "blacksmith-4vcpu-ubuntu-2404",
-        "blacksmith-16vcpu-ubuntu-2404"
+        "blacksmith-16vcpu-ubuntu-2404",
+        "blacksmith-32vcpu-ubuntu-2404"
       ]
     },
     "linux_16": {
