@@ -14,12 +14,22 @@ test("a Cloud start's agent and model show on the composer while it runs", () =>
   expect(withCloudStartPick(page, undefined)).toBe(page);
 });
 
-// Review of #46874: a failed start's card stays, and the person picks again. Its pick must not keep covering
-// the chip or go with the next send; only a start that is running names its pick.
-test("only a running Cloud start's pick shows on the composer", () => {
-  const pick = { harness: "codex", model: "gpt-6.1-sol" };
-  expect(shownCloudStartPick(true, { state: "starting", pick })).toEqual(pick);
-  expect(shownCloudStartPick(true, { state: "failed", pick })).toBeUndefined();
-  expect(shownCloudStartPick(false, { state: "starting", pick })).toBeUndefined();
-  expect(shownCloudStartPick(true, undefined)).toBeUndefined();
+// Review of #46874: a failed start's card stays for its Retry. Until the person picks again, the chip and the Retry
+// keep the agent and model that start sent: a New Tab's Codex pick lives only in the start (the chat under it names
+// no agent), so dropping it retried as the first installed agent. A pick made since replaces it.
+test("a Cloud start's pick shows while it runs, and after it fails until the person picks again", () => {
+  const pick = { harness: "codex", model: "gpt-6.1-sol", over: {} };
+  const unchanged = { harness: undefined, model: undefined };
+  expect(shownCloudStartPick(true, { state: "starting", pick }, unchanged)).toEqual(pick);
+  expect(shownCloudStartPick(true, { state: "failed", pick }, unchanged)).toEqual(pick);
+  expect(shownCloudStartPick(true, { state: "failed", pick }, { harness: "claude", model: "opus" })).toBeUndefined();
+  const overChat = { ...pick, over: { harness: "claude", model: "opus" } };
+  expect(shownCloudStartPick(true, { state: "failed", pick: overChat }, { harness: "claude", model: "opus" })).toEqual(
+    overChat,
+  );
+  expect(
+    shownCloudStartPick(true, { state: "failed", pick: overChat }, { harness: "claude", model: "sonnet" }),
+  ).toBeUndefined();
+  expect(shownCloudStartPick(false, { state: "starting", pick }, unchanged)).toBeUndefined();
+  expect(shownCloudStartPick(true, undefined, unchanged)).toBeUndefined();
 });
