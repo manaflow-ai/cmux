@@ -115,6 +115,8 @@ extension SettingsSchema {
         "updates.web": .network,
         // How long a nightly waits before it restarts into an update: the person's call.
         "updates.idleInstallMaxWaitSeconds": .userOnly, "updates.idleInstallQuietSeconds": .userOnly,
+        // On, cmux restarts into a downloaded update by itself once idle: the person's call.
+        "updates.installWhenIdle": .userOnly, "updates.installWhenIdleMinutes": .userOnly,
         "announcements.fetch": .network,
         // Whether this Mac sends hang reports (stacks and timings) to cmux: the person's choice only.
         "diagnostics.hangReports": .privacy,
@@ -173,6 +175,8 @@ extension SettingsSchema {
         "mobile.terminalSizing": .userOnly, "mobile.terminalSizingOrder": .userOnly,
         // On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on. cmux Remote: the person's call.
         "macScreen.systemShortcuts": .userOnly,
+        // It is the person's standing yes to Share This Mac; an agent that could set it would approve its own share request. cmux Remote: the person's call.
+        "macScreen.shareWithoutAsking": .userOnly,
         // cmux Remote: the person's call.
         "remote.endSharingOnQuit": .userOnly,
         // Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.
