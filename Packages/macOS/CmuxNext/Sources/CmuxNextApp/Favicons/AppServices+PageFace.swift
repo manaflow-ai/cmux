@@ -31,15 +31,6 @@ extension AppServices {
         face.startsInCloud = cloudStartTitles.startsInCloud(tab) || cloudStartTitles.startsInCloud(workspace: workspace.id)
         return face
     }
-
-    /// The favicon `tab` shows in `workspace`'s sidebar row and band item; nil for a tab that is not a page, and while
-    /// a page's favicon loads or without one (the row then shows ``WorkspaceIcon/pagePlaceholder``).
-    func sidebarPageFavicon(_ workspace: WorkspaceModel, tab: TabModel) -> SidebarFavicon? {
-        guard tab.kind == .browser else { return nil }
-        let incognito = windows.isIncognito(workspace: workspace)
-        return browserFavicon(key: tab.id, recordFavicon: incognito ? nil : SidebarMapping.favicon(tab.faviconURL, page: tab.url),
-                              known: (tab, incognito)).map { SidebarFavicon($0.cgImage) }
-    }
 }
 
 extension SidebarMapping.PageFace {
@@ -49,16 +40,22 @@ extension SidebarMapping.PageFace {
     @MainActor init?(tab: TabModel, of workspace: WorkspaceModel, _ services: AppServices) {
         guard tab.kind == .browser else { return nil }
         let live = services.cache.existingBrowser(tab.id)?.tab
-        self.init(favicon: services.sidebarPageFavicon(workspace, tab: tab), audio: BrowserTabAudio.rowAudio(live?.state),
+        let incognito = services.windows.isIncognito(workspace: workspace)
+        // For the row and band item; nil while loading or with none (the row then shows ``WorkspaceIcon/pagePlaceholder``).
+        let favicon = services.browserFavicon(key: tab.id, recordFavicon: incognito ? nil : SidebarMapping.favicon(tab.faviconURL, page: tab.url),
+                                              known: (tab, incognito))
+        self.init(favicon: favicon.map { SidebarFavicon($0.cgImage) }, audio: BrowserTabAudio.rowAudio(live?.state),
                   icon: BrowserTabIconState.pageIcon(tab.url.flatMap { URL(string: $0) }))
     }
 }
 
 extension SidebarTabParts.Unobserved {
-    /// What no observation covers of `tab`'s title and favicon in the tab list of a workspace whose incognito answer
-    /// is `incognito`, from the app's sources. `titles`: the strip's title rule. `newTabPage`: the row's page answer for `tab`, if it has one.
+    /// What no observation covers of `tab`'s title and favicon in the tab list of a workspace whose incognito answer is
+    /// `incognito`, from the app's sources. `titles`: the strip's title rule. `newTabPage`: its row's page answer, if any.
     @MainActor init(_ tab: TabModel, newTabPage: Bool? = nil, incognito: Bool, titles: TabTitleResolver, _ services: AppServices) {
-        let pages = services.cache, page = tab.kind == .browser, icons = page ? services.favicons.loaderCacheChanges : 0
+        let pages = services.cache
+        let page = tab.kind == .browser
+        let icons = page ? services.favicons.loaderCacheChanges : 0
         let remote = page && pages.pageRequests.proxiedTabs.faviconIsRemote(key: tab.id, page: pages.existingBrowser(tab.id)?.tab)
         self.init(incognito: incognito, title: titles.unobservedTitle(tab, incognito: incognito, newTabPage: newTabPage), remoteFavicon: remote, loadedIcons: icons)
     }
@@ -70,9 +67,13 @@ extension SidebarTabParts {
     /// is one read for a map), so the part is made again for another answer.
     convenience init(_ services: AppServices) {
         let titles = TabTitleResolver(services: services)
-        self.init(page: { [weak services] workspace, tab in services.flatMap { SidebarMapping.PageFace(tab: tab, of: workspace, $0) } }, given: { [weak services] workspace in
+        self.init(page: { [weak services] workspace, tab in
+            services.flatMap { SidebarMapping.PageFace(tab: tab, of: workspace, $0) }
+        }, given: { [weak services] workspace in
             let incognito = services?.windows.isIncognito(workspace: workspace) ?? false
-            return { tab, newTabPage in services.map { Unobserved(tab, newTabPage: newTabPage, incognito: incognito, titles: titles, $0) } ?? Unobserved(incognito: incognito) }
+            return { tab, newTabPage in
+                services.map { Unobserved(tab, newTabPage: newTabPage, incognito: incognito, titles: titles, $0) } ?? Unobserved(incognito: incognito)
+            }
         })
     }
 }

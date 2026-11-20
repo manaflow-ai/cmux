@@ -319,6 +319,49 @@ struct SidebarTabPartsUnobservedTests {
         try #require(shown.count == 2 && shown[0] != shown[1], "setup: the second store's icon is the first store's image: the row proves nothing of a second icon")
     }
 
+    /// The app's own page function, asked directly (`SidebarMapping.PageFace.init(tab:of:_:)`): a page's face has the
+    /// icon that the loader has for the page's address as its favicon, and a tab that is no page (a terminal, a
+    /// chat) has no face, also when its record has that page's addresses. With no check of the tab's kind in the
+    /// function the last part is red: each such tab gets a face.
+    @Test func onlyAPageHasAFaceAndThatFaceHasThePagesFavicon() async throws {
+        let fixture = try await Self.failedIcons(tabs: 6)
+        let (session, services) = (fixture.session, fixture.session.services)
+        let workspace = try #require(session.storm, "setup: the session has no storm workspace")
+        let waits = try #require(SidebarMapping.PageFace(tab: fixture.tab, of: workspace, services), "a page has no face while its favicon is not loaded")
+        try #require(waits.favicon == nil, "setup: the page's face has a favicon before the loader has the icon of its address")
+        let file = try Self.png()
+        try #require(BrowserFaviconLoader.shared.store(file, at: fixture.url, profile: fixture.profile) != nil, "setup: the loader did not keep the icon")
+        let face = try #require(SidebarMapping.PageFace(tab: fixture.tab, of: workspace, services), "a page has no face")
+        #expect(face.favicon != nil, "a page's face has no favicon after the loader kept the icon of the page's address")
+
+        let others = session.tabs.filter { $0.kind != .browser }
+        try #require(!others.isEmpty, "setup: the storm workspace has no tab that is no page")
+        for other in others {
+            let (url, favicon) = (other.url, other.faviconURL)
+            other.url = fixture.tab.url
+            other.faviconURL = fixture.tab.faviconURL
+            let none = SidebarMapping.PageFace(tab: other, of: workspace, services) == nil
+            other.url = url
+            other.faviconURL = favicon
+            #expect(none, "a tab that is no page (\(SidebarTabPartsTests.kind(other))) has a page face")
+        }
+    }
+
+    /// The loader drops a profile's icons (a profile deleted, an incognito session ended): its count of changes
+    /// rises, and a page's part has that count in its input, so the next map does not keep a part with a dropped
+    /// icon. A loader of the test's own: the app's shared loader is not asked to drop a profile under other suites.
+    @Test func theLoadersCountRisesWhenItDropsAProfilesIcons() throws {
+        let loader = BrowserFaviconLoader()
+        let url = try #require(URL(string: "http://dropped-\(UUID().uuidString.lowercased()).example/favicon.ico"), "setup: no address")
+        let file = try Self.png()
+        try #require(loader.store(file, at: url, profile: .default) != nil, "setup: the loader did not keep the icon")
+        try #require(loader.cachedFavicon(at: url, profile: .default) != nil, "setup: the loader does not have the icon that it kept")
+        let kept = loader.cachedFaviconChanges
+        loader.forget(profile: .default)
+        #expect(loader.cachedFavicon(at: url, profile: .default) == nil, "the loader has an icon of a profile that it dropped")
+        #expect(loader.cachedFaviconChanges == kept + 1, "the loader's count went from \(kept) to \(loader.cachedFaviconChanges) for one drop of a profile's icons, want \(kept + 1)")
+    }
+
     /// THE PRICE, with its count and a time report (no condition on a time): the loader's count is one for its whole
     /// cache. One icon that the loader keeps, of an address that no tab shows, makes the part of EACH page of the
     /// mapped rows again (28 of the 84 tabs of the storm workspace and the 1 page of the other workspace), and no

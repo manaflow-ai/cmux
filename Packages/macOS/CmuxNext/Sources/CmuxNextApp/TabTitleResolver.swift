@@ -90,7 +90,7 @@ struct TabTitleResolver {
     /// The name `tab` shows.
     func title(_ tab: TabModel) -> String { title(tab, incognito: nil) }
 
-    /// `incognito`, `newTabPage`: the tab's answers when the caller knows them (a sidebar row's workspace: no tab list read, F6).
+    /// `incognito`, `newTabPage`: the tab's answers if known (a sidebar row's workspace: no tab list read, F6).
     func title(_ tab: TabModel, incognito: Bool?, newTabPage: Bool? = nil) -> String {
         if let page = page(tab) { return page.title }
         if let incognito = incognitoTitle(tab, incognito) { return incognito ?? Strings.untitledBrowser }
