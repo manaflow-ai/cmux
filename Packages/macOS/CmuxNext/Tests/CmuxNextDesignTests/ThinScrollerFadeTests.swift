@@ -121,7 +121,10 @@ struct ThinScrollerFadeTests {
         let (scrollView, scroller) = Self.scrollView()
         let knob = scroller.knobRect(for: scroller.rect(for: .knob), expanded: true)
         let onKnob = scroller.convert(CGPoint(x: knob.midX, y: knob.midY), to: scrollView)
-        let onTrack = scroller.convert(CGPoint(x: knob.midX, y: knob.maxY + 40), to: scrollView)
+        // The middle of the slot's longer empty part, beside the knob.
+        let slot = scroller.rect(for: .knobSlot)
+        let trackY = knob.minY - slot.minY > slot.maxY - knob.maxY ? (slot.minY + knob.minY) / 2 : (knob.maxY + slot.maxY) / 2
+        let onTrack = scroller.convert(CGPoint(x: knob.midX, y: trackY), to: scrollView)
         let content = CGPoint(x: scroller.grabZone.minX - 1, y: onKnob.y)
         #expect(scroller.hitTest(onKnob) === scroller) // the pointer there reveals the knob, wide
         #expect(scroller.hitTest(onTrack) === scroller)
