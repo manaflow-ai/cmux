@@ -98,14 +98,23 @@ impl Hub {
         json!({"held": counts.held, "needYou": counts.need_you, "seq": counts.seq})
     }
 
-    /// Store a triage pass together with its current number of actionable topics.
+    /// Store a triage record together with its current number of actionable topics. The held
+    /// messages it decides (its `items`: digested, owner-bound or dropped as noise or a repeat)
+    /// are held no longer, so the row's held count goes down by them.
     pub(crate) fn persist_surge_triage(
         &self,
         session: &Session,
         batch: Value,
         actionable_topics: u64,
     ) -> Result<(), RpcError> {
-        self.persist_surge_event(session, "inbox_triaged", batch, Some(actionable_topics))
+        let released =
+            u64::try_from(crate::surge_triage::triaged_ids(&batch).count()).unwrap_or(u64::MAX);
+        self.persist_surge_event(
+            session,
+            "inbox_triaged",
+            batch,
+            Some((actionable_topics, released)),
+        )
     }
 
     fn persist_surge_event(
@@ -113,13 +122,16 @@ impl Hub {
         session: &Session,
         kind: &str,
         mut msg: Value,
-        actionable_topics: Option<u64>,
+        triaged: Option<(u64, u64)>,
     ) -> Result<(), RpcError> {
         let state = session.inbox().surge_counts.clone();
         let mut counts = state.lock().unwrap_or_else(|e| e.into_inner());
         let mut next = *counts;
-        match actionable_topics {
-            Some(n) => next.need_you = n,
+        match triaged {
+            Some((topics, released)) => {
+                next.need_you = topics;
+                next.held = next.held.saturating_sub(released);
+            }
             None => next.held = next.held.saturating_add(1),
         }
         let Some(fields) = msg.as_object_mut() else {

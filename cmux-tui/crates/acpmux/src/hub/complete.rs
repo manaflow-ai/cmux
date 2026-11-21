@@ -24,12 +24,18 @@ pub(super) enum ModelFallback {
 }
 
 impl ModelFallback {
-    fn permits(self, recipe: Recipe, model: Option<&String>) -> bool {
+    /// `small_fast`: Claude's `ANTHROPIC_SMALL_FAST_MODEL`, the small model the user names.
+    fn permits(self, recipe: Recipe, model: Option<&String>, small_fast: Option<&str>) -> bool {
         self == Self::HarnessDefault
-            || model.is_some_and(|id| {
-                // Claude's small-model selector also honors the provider's configured Haiku alias.
-                recipe == Recipe::Claude
-                    || model_pick::pick(recipe, std::slice::from_ref(id)).is_some()
+            || model.is_some_and(|id| match recipe {
+                // The Haiku alias (the provider's configured Haiku resolves it), a Haiku id, or
+                // the small model the user named: never a large model.
+                Recipe::Claude => {
+                    id.eq_ignore_ascii_case(model_pick::CLAUDE_FALLBACK)
+                        || id.to_ascii_lowercase().contains("haiku")
+                        || small_fast.is_some_and(|m| m.trim() == id)
+                }
+                _ => model_pick::pick(recipe, std::slice::from_ref(id)).is_some(),
             })
     }
 }
@@ -41,10 +47,27 @@ static RUNNING: std::sync::LazyLock<tokio::sync::Semaphore> =
 fn surge_triage_never_uses_the_default_large_codex_model() {
     let configured = "gpt-6.2-astra".to_owned();
     let small = "gpt-5.4-mini".to_owned();
-    assert!(!ModelFallback::SmallOnly.permits(Recipe::Codex, None));
-    assert!(!ModelFallback::SmallOnly.permits(Recipe::Codex, Some(&configured)));
-    assert!(ModelFallback::SmallOnly.permits(Recipe::Codex, Some(&small)));
-    assert!(ModelFallback::HarnessDefault.permits(Recipe::Codex, Some(&configured)));
+    assert!(!ModelFallback::SmallOnly.permits(Recipe::Codex, None, None));
+    assert!(!ModelFallback::SmallOnly.permits(Recipe::Codex, Some(&configured), None));
+    assert!(ModelFallback::SmallOnly.permits(Recipe::Codex, Some(&small), None));
+    assert!(ModelFallback::HarnessDefault.permits(Recipe::Codex, Some(&configured), None));
+}
+
+#[test]
+fn surge_triage_on_claude_takes_only_a_small_model() {
+    let only = |id: &str, small_fast| {
+        ModelFallback::SmallOnly.permits(Recipe::Claude, Some(&id.to_owned()), small_fast)
+    };
+    assert!(only("haiku", None), "the alias");
+    assert!(only("claude-haiku-5-5", None));
+    assert!(only("us.anthropic.claude-haiku-5-5-v1:0", None), "a provider's Haiku id");
+    assert!(!only("claude-opus-5-5", None));
+    assert!(!only("claude-sonnet-5-5", None));
+    assert!(!only("opus", None));
+    assert!(!ModelFallback::SmallOnly.permits(Recipe::Claude, None, None));
+    assert!(only("my-gateway-small", Some("my-gateway-small")), "the small model the user names");
+    assert!(!only("claude-opus-5-5", Some("my-gateway-small")));
+    assert!(ModelFallback::HarnessDefault.permits(Recipe::Claude, Some(&"opus".to_owned()), None));
 }
 
 /// The model ids `_acpmux/models` offers harness `name` (with aliases);
@@ -253,7 +276,8 @@ impl Hub {
             Some(model) => Some(model.clone()),
             None => self.small_model(name, recipe, &env, &codex).await,
         };
-        if !fallback.permits(recipe, model.as_ref()) {
+        let small_fast = env_value(&env, model_pick::SMALL_FAST_ENV);
+        if !fallback.permits(recipe, model.as_ref(), small_fast.as_deref()) {
             return Err(CompleteError::Unsupported {
                 harness: name.to_owned(),
                 why: "no small model is available for inbox triage".into(),
