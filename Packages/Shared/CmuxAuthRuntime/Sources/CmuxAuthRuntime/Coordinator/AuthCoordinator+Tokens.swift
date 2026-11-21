@@ -16,7 +16,7 @@ extension AuthCoordinator {
     /// locked, the failure was transient and this throws
     /// ``AuthError/networkError`` so the caller retries without signing out.
     /// When neither token survives from available storage, the session is
-    /// genuinely gone, so this calls ``clearAuthState(reason:preservePendingCode:sessionTransitionAlreadyAnnounced:)`` (flipping
+    /// genuinely gone, so this calls ``clearAuthState(reason:preservePendingCode:)`` (flipping
     /// ``isAuthenticated`` to `false`, which routes the root scene to the
     /// sign-in page) and throws
     /// ``AuthError/unauthorized``.
@@ -35,14 +35,7 @@ extension AuthCoordinator {
             // method is a reader, so it cannot publish a signed-out verdict or
             // bump sessionGeneration out from under that writer. Callers retry
             // after restore/sign-in reaches its terminal state.
-            if sessionTokenTransitionIsActive {
-                throw AuthError.networkError
-            }
-            if let devToken = await devAuthAccessTokenFallback() {
-                return devToken
-            }
-            clearAuthState(reason: "access token unavailable and no refresh token survives", preservePendingCode: true)
-            throw AuthError.unauthorized
+            return try await unauthorizedTokenRead("accessToken")
         }
     }
 
@@ -70,6 +63,23 @@ extension AuthCoordinator {
             throw AuthError.networkError
         }
         throw await emptyTokenReadError(since: readBaseline)
+    }
+
+    /// Hands an unauthorized token read to the reducer: while a transition
+    /// owns the store it stays retryable; otherwise the session is gone (the
+    /// reducer clears it) unless the DEBUG dev account can sign in again.
+    private func unauthorizedTokenRead(_ kind: AuthWire) async throws -> String {
+        tokenReadFailure = nil
+        tokenReadTriesDevAuth = false
+        feed(["tokenReadUnauthorized": kind])
+        if tokenReadTriesDevAuth {
+            tokenReadTriesDevAuth = false
+            let token = await devAuthAccessTokenFallback()
+            tokenReadFailure = nil
+            feed(["devAuthAccessTokenFinished": ["gotToken": .bool(token != nil)]])
+            if let token { return token }
+        }
+        throw tokenReadFailure ?? AuthError.unauthorized
     }
 
     private func devAuthAccessTokenFallback() async -> String? {
@@ -269,7 +279,7 @@ extension AuthCoordinator {
     ///   window) or the session generation/identity moved.
     private func storedSessionSnapshot() async -> AuthenticatedSessionSnapshot? {
         guard !launch.shouldClearStoredSessionBeforePriming else { return nil }
-        guard activeSignInFlows.isEmpty, !isCapturingSignOutCredentials else { return nil }
+        guard !hasActiveSignInFlows, !isCapturingSignOutCredentials else { return nil }
         guard isAuthenticated,
               let accountID = currentUser?.id,
               !accountID.isEmpty else { return nil }
@@ -283,7 +293,7 @@ extension AuthCoordinator {
         // sign-out, sign-in, or account switch landing mid-read must win.
         guard sessionGeneration == generation,
               currentUser?.id == accountID,
-              activeSignInFlows.isEmpty,
+              !hasActiveSignInFlows,
               !isCapturingSignOutCredentials else { return nil }
         return AuthenticatedSessionSnapshot(
             generation: generation,
@@ -339,7 +349,7 @@ extension AuthCoordinator {
     ///   caller should retry rather than sign out; ``AuthError/unauthorized``
     ///   only when the session is genuinely gone from available storage (the
     ///   refresh token was definitively rejected and cleared). The definitive
-    ///   case also calls ``clearAuthState(reason:preservePendingCode:sessionTransitionAlreadyAnnounced:)`` so ``isAuthenticated`` flips to
+    ///   case also calls ``clearAuthState(reason:preservePendingCode:)`` so ``isAuthenticated`` flips to
     ///   `false` and the root scene routes to the sign-in page instead of
     ///   showing a stale shell.
     public func forceRefreshAccessToken() async throws -> String {
@@ -348,11 +358,7 @@ extension AuthCoordinator {
                 try await self.forceRefreshAccessTokenWithoutStateClear()
             }
         } catch AuthError.unauthorized {
-            if sessionTokenTransitionIsActive {
-                throw AuthError.networkError
-            }
-            clearAuthState(reason: "forced token refresh failed and no refresh token survives", preservePendingCode: true)
-            throw AuthError.unauthorized
+            return try await unauthorizedTokenRead("forceRefreshAccessToken")
         }
     }
 
@@ -504,24 +510,8 @@ public extension AuthCoordinator {
 }
 
 extension AuthCoordinator {
-    var publishedAuthenticatedSessionIdentity:
-        AuthenticatedSessionIdentity? {
-        guard isAuthenticated,
-              !isCapturingSignOutCredentials,
-              let accountID = currentUser?.id,
-              !accountID.isEmpty else { return nil }
-        return AuthenticatedSessionIdentity(
-            generation: authSessionGeneration,
-            accountID: accountID
-        )
-    }
-
-    func publishAuthenticatedSessionIdentity() {
-        let identity = publishedAuthenticatedSessionIdentity
-        for continuation in authenticatedSessionIdentityContinuations.values {
-            continuation.yield(identity)
-        }
-        publishAuthenticatedTeamScope()
+    var publishedAuthenticatedSessionIdentity: AuthenticatedSessionIdentity? {
+        isCapturingSignOutCredentials ? nil : snapshot.publishedSessionIdentity?.identity
     }
 }
 
