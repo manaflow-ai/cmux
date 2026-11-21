@@ -288,7 +288,8 @@ class PullRequestSkip(unittest.TestCase):
         text = json.dumps({**json.loads(MAP), "pull_request_skip": skip})
         key = (".github/workflows/s.yml", "heavy")
         for kwargs, runs in (({}, False), ({"event": "push"}, True), ({"labels": ["full-ci"]}, True),
-                             ({"labels": ["other"]}, False)):
+                             ({"labels": ["other"]}, False), ({"base_ref": "main"}, True),
+                             ({"base_ref": "main", "labels": ["other"]}, True)):
             with self.subTest(kwargs=kwargs), fake_tree(FILES) as tree:
                 result = jobs.route(tree, ["scripts/run-app.sh"], map_text=text, **kwargs)
                 self.assertEqual(result.pr_skip, {key: runs}, result.lines())
@@ -388,6 +389,11 @@ class PullRequestSkip(unittest.TestCase):
         context = pr_test_lanes.event_context("feat-cmux-next")
         self.assertIs(pr_test_lanes.evaluate("${{ !cancelled() && " + SKIP_IF + " }}", context), True)
         self.assertIs(pr_test_lanes.evaluate("${{ github.event_name != 'pull_request' }}", context), False)
+        # A pull request into main runs every skipped job: no push of main would (SKIP_BASE).
+        self.assertIn("github.event.pull_request.base.ref != '" + jobs.SKIP_BASE + "'", jobs.PR_SKIP_IF)
+        clause = "${{ github.event.pull_request.base.ref != 'feat-cmux-next' }}"
+        self.assertIs(pr_test_lanes.evaluate(clause, pr_test_lanes.event_context("main")), True)
+        self.assertIs(pr_test_lanes.evaluate(clause, context), False)
 
     def test_every_listed_job_is_named_in_the_map_with_its_replay(self):
         data = json.loads((ROOT / jobs.MAP).read_text())
