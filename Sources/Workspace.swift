@@ -5850,6 +5850,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         bonsplitController.updateTab(tabId, showsNotificationBadge: shouldShowUnread)
     }
 
+    /// Mirrors each panel's agent lifecycle onto its pane tab's status glyph.
+    func syncAgentStatusIndicatorsForAllPanels() {
+        for panelId in panels.keys {
+            guard let tabId = surfaceIdFromPanelId(panelId) else { continue }
+            let states = Array((agentLifecycleStatesByPanelId[panelId] ?? [:]).values)
+            bonsplitController.updateTab(tabId, statusIndicator: .some(TabAgentStatusIndicator.resolve(states)))
+        }
+    }
+
     private func syncUnreadBadgeStateForAllPanels() {
         for panelId in panels.keys {
             syncUnreadBadgeStateForPanel(panelId)
