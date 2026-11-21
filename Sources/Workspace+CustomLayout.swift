@@ -177,7 +177,7 @@ extension Workspace {
                 startupEnvironment: surface.env ?? [:]
             ) {
                 _ = closePanel(panelId, force: true)
-                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name, publishesRenameEvent: false) }
                 if surface.focus == true { focusPanelId = panel.id }
                 if let input = Self.dequeueInitialTerminalInput(pendingSetup: &pendingSetup, command: surface.command) {
                     sendInputWhenReady(input, to: panel)
@@ -185,7 +185,7 @@ extension Workspace {
             }
 
         case .terminal:
-            if let name = surface.name { setPanelCustomTitle(panelId: panelId, title: name) }
+            if let name = surface.name { setPanelCustomTitle(panelId: panelId, title: name, publishesRenameEvent: false) }
             if surface.focus == true { focusPanelId = panelId }
             if let input = Self.dequeueInitialTerminalInput(pendingSetup: &pendingSetup, command: surface.command),
                let terminal = terminalPanel(for: panelId) {
@@ -205,7 +205,7 @@ extension Workspace {
                 allowsExternalBrowserFallback: false
             ) {
                 _ = closePanel(panelId, force: true)
-                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name, publishesRenameEvent: false) }
                 if surface.focus == true { focusPanelId = panel.id }
             }
 
@@ -216,7 +216,7 @@ extension Workspace {
                 focus: false
             ) {
                 _ = closePanel(panelId, force: true)
-                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name, publishesRenameEvent: false) }
                 if surface.focus == true { focusPanelId = panel.id }
             }
         }
@@ -238,7 +238,7 @@ extension Workspace {
                 workingDirectory: resolvedCwd,
                 startupEnvironment: surface.env ?? [:]
             ) {
-                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name, publishesRenameEvent: false) }
                 if surface.focus == true { focusPanelId = panel.id }
                 if let input = Self.dequeueInitialTerminalInput(pendingSetup: &pendingSetup, command: surface.command) {
                     sendInputWhenReady(input, to: panel)
@@ -257,7 +257,7 @@ extension Workspace {
                 // the surfaces are simply skipped.
                 allowsExternalBrowserFallback: false
             ) {
-                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name, publishesRenameEvent: false) }
                 if surface.focus == true { focusPanelId = panel.id }
             }
 
@@ -267,7 +267,7 @@ extension Workspace {
                 projectPath: CmuxConfigStore.resolveCwd(surface.url ?? surface.cwd, relativeTo: baseCwd),
                 focus: false
             ) {
-                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name, publishesRenameEvent: false) }
                 if surface.focus == true { focusPanelId = panel.id }
             }
         }

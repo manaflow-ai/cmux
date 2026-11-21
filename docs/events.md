@@ -133,7 +133,7 @@ Event fields:
 | `id` | Stable event id for the current cmux process. Use it for dedupe. |
 | `name` | Specific event name, such as `feed.item.received`. |
 | `category` | Coarse subscription group. |
-| `source` | Producer, such as `socket.v2`, `notification.store`, or `codex`. |
+| `source` | Producer, such as `socket.v2`, `notification.store`, `workspace.title`, or `codex`. |
 | `occurred_at` | ISO-8601 timestamp with fractional seconds. |
 | `workspace_id` | Workspace UUID when known. |
 | `surface_id` | Surface UUID when known. |
@@ -307,6 +307,7 @@ Surface and pane:
 | `surface.closed` | Surface closed. |
 | `surface.moved` | Surface moved to another pane, workspace, or window. |
 | `surface.reordered` | Surface order changed inside a pane. |
+| `surface.renamed` | Tab custom title set, replaced or cleared, from the tab strip, the socket, an agent hook or a daemon mirror. See [surface.renamed](#surfacerenamed). |
 | `surface.action` | Surface or tab action command completed. |
 | `surface.input_sent` | Text was sent through the socket API. Text is redacted. |
 | `surface.key_sent` | Key was sent through the socket API. |
@@ -319,6 +320,26 @@ Surface and pane:
 | `pane.swapped` | Two panes swapped. |
 | `pane.broken` | Pane broken into a new workspace. |
 | `pane.joined` | Pane joined into another pane. |
+
+### surface.renamed
+
+`source` is `workspace.title`. The envelope carries `workspace_id`,
+`surface_id` and `pane_id` as usual (a tab in a window Dock has `window_id`
+instead of `workspace_id`). The payload repeats `surface_id` and `pane_id`,
+like `surface.focused`, and adds:
+
+| Field | Meaning |
+| --- | --- |
+| `previous_title` | The custom title before the change, or null. |
+| `title` | The new custom title, or null when it was cleared. |
+| `title_source` | Who owns the new title: `user`, `auto` (agent auto-naming) or `remote` (a cmux-tui daemon). |
+| `origin` | The entry point that asked, when known: `ui` (tab strip, palette, context menu), `socket`, `agent`, `mobile`; null otherwise. |
+
+A tab projecting a Cloud terminal reports `title_source: remote` even for a
+name typed into it, because the daemon owns that name and the local edit lands
+through reconciliation. Titles applied while a session is restored or a layout
+is created are part of that creation and do not publish. A socket rename still
+produces `surface.action` as well.
 
 Workspace selection payloads include `previous_workspace_id`, `index`, and
 `tab_count`. Surface selection payloads include `previous_surface_id`, `pane_id`,

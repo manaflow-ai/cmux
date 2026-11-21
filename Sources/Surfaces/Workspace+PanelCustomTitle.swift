@@ -9,6 +9,8 @@ extension Workspace {
         source: CustomTitleSource = .user,
         propagateToRemoteTmux: Bool = true,
         propagateToCloud: Bool = true,
+        publishesRenameEvent: Bool = true,
+        renameOrigin: String? = nil,
         catalog: SurfaceCatalog? = nil
     ) -> Bool {
         let catalog = catalog ?? SurfaceCatalog.shared
@@ -54,6 +56,9 @@ extension Workspace {
         }
 
         applyFocusedPanelTitle(panelId: panelId)
+        if publishesRenameEvent {
+            publishPanelCustomTitleChange(panelId: panelId, previous: previous, source: source, origin: renameOrigin)
+        }
 
         // A repeated remote observation only changes provenance.
         // A repeated user or agent edit remains an idempotent intent and must still reach
@@ -90,4 +95,24 @@ extension Workspace {
         return true
     }
 
+    /// Reports a custom title that actually changed on the events stream.
+    /// Every rename entry point ends in `setPanelCustomTitle`, so this is the
+    /// one place a UI, socket, hook or daemon rename becomes `surface.renamed`.
+    /// Session restore and layout creation pass `publishesRenameEvent: false`:
+    /// a name a tab is created with is part of `surface.created`, not a rename.
+    /// `origin` is the entry point (`ui`, `socket`, `agent`, `mobile`) when the
+    /// caller knows it; the title's owner is reported separately as the source.
+    func publishPanelCustomTitleChange(panelId: UUID, previous: String?, source: CustomTitleSource, origin: String?) {
+        let current = panelCustomTitles[panelId]
+        guard current != previous else { return }
+        CmuxEventBus.shared.publishSurfaceRenamed(
+            workspaceId: id,
+            surfaceId: panelId,
+            paneId: paneId(forPanelId: panelId)?.id,
+            previousTitle: previous,
+            title: current,
+            titleSource: source.rawValue,
+            origin: origin
+        )
+    }
 }
