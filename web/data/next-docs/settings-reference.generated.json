@@ -6006,7 +6006,7 @@
     },
     {
       "id": "home",
-      "title": "Home",
+      "title": "Chief",
       "rows": [
         {
           "key": "chief.autoRouteSubagents",
