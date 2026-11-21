@@ -88,9 +88,9 @@ const LOOK_PREFIXES: [&str; 7] = [
 /// Look keys outside those prefixes: the terminal font; the sidebar's shape,
 /// edges, text, group headers and buttons; the tab strip's and titlebar's
 /// buttons and inactive tabs; pane corners; and the agent chat's text sizes,
-/// sender marks and Session Info. Keep in step with Swift
-/// `ThemeFileOverlay.lookKeys`.
-const LOOK_KEYS: [&str; 35] = [
+/// sender marks and Session Info; and Markdown's reading face. Keep in step
+/// with Swift `ThemeFileOverlay.lookKeys`.
+const LOOK_KEYS: [&str; 36] = [
     "terminal.fontFamily",
     "terminal.fontSize",
     "sidebar.style",
@@ -126,6 +126,7 @@ const LOOK_KEYS: [&str; 35] = [
     "agentPane.display.senderIcon.badge",
     "agentPane.display.senderIcon.corner",
     "agentPane.display.trayHandle",
+    "markdown.font.preset",
 ];
 
 /// Whether a theme file may set `row`: a look setting an agent may set too.
@@ -177,12 +178,24 @@ pub fn readable_path(config_dir: &Path, name: &str, bundled: Option<&Path>) -> O
 /// The theme files cmux ships (`Resources/theme-files`, the app's
 /// `Contents/Resources/theme-files`), so the daemon and the CLI read them
 /// with no app bundle. A user's file of the same name wins.
-const SHIPPED: [(&str, &str); 5] = [
+const SHIPPED: [(&str, &str); 11] = [
     ("charcoal", include_str!("../../../../../Resources/theme-files/charcoal.json")),
     ("classic-desktop", include_str!("../../../../../Resources/theme-files/classic-desktop.json")),
     ("claude-desktop", include_str!("../../../../../Resources/theme-files/claude-desktop.json")),
+    (
+        "earthly-delights",
+        include_str!("../../../../../Resources/theme-files/earthly-delights.json"),
+    ),
+    (
+        "frutiger-aero-2027",
+        include_str!("../../../../../Resources/theme-files/frutiger-aero-2027.json"),
+    ),
     ("harbor", include_str!("../../../../../Resources/theme-files/harbor.json")),
+    ("one-bit", include_str!("../../../../../Resources/theme-files/one-bit.json")),
     ("phosphor", include_str!("../../../../../Resources/theme-files/phosphor.json")),
+    ("sakura", include_str!("../../../../../Resources/theme-files/sakura.json")),
+    ("sakura-yoru", include_str!("../../../../../Resources/theme-files/sakura-yoru.json")),
+    ("sumi", include_str!("../../../../../Resources/theme-files/sumi.json")),
 ];
 
 /// The text of the shipped theme file `name`.

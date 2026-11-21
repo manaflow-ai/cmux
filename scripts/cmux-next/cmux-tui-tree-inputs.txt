@@ -72,8 +72,14 @@ blob schemas/theme/theme-ink-vectors.json
 blob Resources/theme-files/charcoal.json
 blob Resources/theme-files/classic-desktop.json
 blob Resources/theme-files/claude-desktop.json
+blob Resources/theme-files/earthly-delights.json
+blob Resources/theme-files/frutiger-aero-2027.json
 blob Resources/theme-files/harbor.json
+blob Resources/theme-files/one-bit.json
 blob Resources/theme-files/phosphor.json
+blob Resources/theme-files/sakura.json
+blob Resources/theme-files/sakura-yoru.json
+blob Resources/theme-files/sumi.json
 blob schemas/chief-home/vectors.json
 blob schemas/agent-url-policy/vectors.json
 blob schemas/chief-cmux-target/vectors.json
