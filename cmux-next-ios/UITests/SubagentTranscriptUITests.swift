@@ -97,6 +97,15 @@ final class SubagentTranscriptUITests: XCTestCase {
         attach(app, "empty")
     }
 
+    /// The element is wholly on screen, by its frame: off screen, a lazy row can have no
+    /// activation point, and `isHittable` fails the test there instead of answering.
+    @MainActor
+    private func onScreen(_ app: XCUIApplication, _ element: XCUIElement) -> Bool {
+        guard element.exists else { return false }
+        let frame = element.frame
+        return !frame.isEmpty && app.windows.firstMatch.frame.contains(frame)
+    }
+
     /// Lets `seconds` of the live stream go by.
     @MainActor
     private func pass(_ seconds: TimeInterval) {
@@ -115,14 +124,14 @@ final class SubagentTranscriptUITests: XCTestCase {
         defer { app.terminate() }
         XCTAssertTrue(app.navigationBars["WireGuard dialer"].waitForExistence(timeout: 40), "the transcript opens\n\(app.debugDescription)")
         let footer = app.staticTexts["chat.subagent.footer"].firstMatch
-        for _ in 0..<20 where !(footer.exists && footer.isHittable) { app.swipeUp(velocity: .fast) }
-        XCTAssertTrue(footer.isHittable, "the reader reaches the end\n\(app.debugDescription)")
+        for _ in 0..<20 where !onScreen(app, footer) { app.swipeUp(velocity: .fast) }
+        XCTAssertTrue(onScreen(app, footer), "the reader reaches the end\n\(app.debugDescription)")
         attach(app, "1-at-end")
         // The stream starts and runs: the end stays in view.
         let streaming = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "token")).firstMatch
         XCTAssertTrue(streaming.waitForExistence(timeout: 45), "the stream starts\n\(app.debugDescription)")
         pass(5)
-        XCTAssertTrue(footer.isHittable, "at the end, the transcript follows 5 s of new rows\n\(app.debugDescription)")
+        XCTAssertTrue(onScreen(app, footer), "at the end, the transcript follows 5 s of new rows\n\(app.debugDescription)")
         attach(app, "2-followed")
 
         app.swipeDown()
@@ -137,15 +146,13 @@ final class SubagentTranscriptUITests: XCTestCase {
         pass(4)
         let after = app.staticTexts.matching(NSPredicate(format: "label == %@", label)).firstMatch.frame
         XCTAssertEqual(after.minY, before.minY, accuracy: 1, "the row being read stays put while rows arrive below")
-        // Off screen, a lazy row may have no activation point (isHittable fails there): its frame decides.
-        let window = app.windows.firstMatch.frame
-        XCTAssertFalse(footer.exists && !footer.frame.isEmpty && window.contains(footer.frame),
+        XCTAssertFalse(onScreen(app, footer),
                        "scrolled away, the transcript does not follow")
         attach(app, "4-held")
 
-        for _ in 0..<30 where !(footer.exists && footer.isHittable) { app.swipeUp(velocity: .fast) }
+        for _ in 0..<30 where !onScreen(app, footer) { app.swipeUp(velocity: .fast) }
         pass(4)
-        XCTAssertTrue(footer.isHittable, "back at the end, it follows again\n\(app.debugDescription)")
+        XCTAssertTrue(onScreen(app, footer), "back at the end, it follows again\n\(app.debugDescription)")
         attach(app, "5-follows-again")
     }
 
@@ -168,7 +175,7 @@ final class SubagentTranscriptUITests: XCTestCase {
         defer { app.terminate() }
         XCTAssertTrue(app.navigationBars["WireGuard dialer"].waitForExistence(timeout: 40), "the transcript opens\n\(app.debugDescription)")
         let footer = app.staticTexts["chat.subagent.footer"].firstMatch
-        for _ in 0..<20 where !(footer.exists && footer.isHittable) { app.swipeUp() }
+        for _ in 0..<20 where !onScreen(app, footer) { app.swipeUp() }
         attach(app, "1-running")
         let offline = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "Mac offline"), object: footer)
         XCTAssertEqual(XCTWaiter().wait(for: [offline], timeout: 20), .completed, "the footer says the Mac is offline, has '\(footer.label)'")
@@ -208,6 +215,6 @@ final class SubagentTranscriptUITests: XCTestCase {
         XCTAssertGreaterThan(growths, 100, "the transcript grew while measured: \(label)")
         XCTAssertGreaterThanOrEqual(passes, growths, label)
         XCTAssertLessThanOrEqual(gap, 60, "the end stayed within 60 pt of the screen: \(label)")
-        XCTAssertTrue(app.staticTexts["chat.subagent.footer"].firstMatch.isHittable, "the end (the footer) is on screen\n\(app.debugDescription)")
+        XCTAssertTrue(onScreen(app, app.staticTexts["chat.subagent.footer"].firstMatch), "the end (the footer) is on screen\n\(app.debugDescription)")
     }
 }
