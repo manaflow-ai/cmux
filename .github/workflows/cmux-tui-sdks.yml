@@ -244,14 +244,18 @@ jobs:
         if: matrix.language == 'java'
         uses: ./.github/actions/setup-jdk17
 
-      # The persistent cmux-linux pool does not ship CMake; hosted images do.
+      # Hosted images ship CMake and Clang; a persistent cmux-linux host may
+      # have neither.
       - name: Select Clang C++20
         if: matrix.language == 'cpp'
         run: |
           set -euo pipefail
-          if ! command -v cmake >/dev/null 2>&1; then
+          missing=()
+          command -v cmake >/dev/null 2>&1 || missing+=(cmake)
+          command -v clang++ >/dev/null 2>&1 || missing+=(clang)
+          if (( ${#missing[@]} )); then
             sudo apt-get -o DPkg::Lock::Timeout=120 update
-            sudo DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 install -y --no-install-recommends cmake
+            sudo DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 install -y --no-install-recommends "${missing[@]}"
           fi
           clang++ --version
           cmake --version
@@ -437,14 +441,18 @@ jobs:
         if: matrix.language == 'java'
         uses: ./.github/actions/setup-jdk17
 
-      # The persistent cmux-linux pool does not ship CMake; hosted images do.
+      # Hosted images ship CMake and Clang; a persistent cmux-linux host may
+      # have neither.
       - name: Select Clang C++20
         if: matrix.language == 'cpp'
         run: |
           set -euo pipefail
-          if ! command -v cmake >/dev/null 2>&1; then
+          missing=()
+          command -v cmake >/dev/null 2>&1 || missing+=(cmake)
+          command -v clang++ >/dev/null 2>&1 || missing+=(clang)
+          if (( ${#missing[@]} )); then
             sudo apt-get -o DPkg::Lock::Timeout=120 update
-            sudo DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 install -y --no-install-recommends cmake
+            sudo DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 install -y --no-install-recommends "${missing[@]}"
           fi
           clang++ --version
           cmake --version
