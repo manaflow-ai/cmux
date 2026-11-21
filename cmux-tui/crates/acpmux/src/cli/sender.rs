@@ -47,7 +47,7 @@ impl Subagent {
 
 /// The subagent this process runs in, when it runs in an acpmux session and the hook marked it.
 pub fn subagent_of_this_process() -> Option<Subagent> {
-    subagent_in(|key| std::env::var(key).ok())
+    subagent_in(crate::tool_env::var)
 }
 
 fn subagent_in(env: impl Fn(&str) -> Option<String>) -> Option<Subagent> {
@@ -183,20 +183,21 @@ fn sending_as(
 /// (`hub/lane_report_subagents.rs`); a Codex one has no hook to take them, so only a reply its
 /// send waits for reaches it.
 fn subagent_line(name: &str, sub: &Subagent, hooked: bool, japanese: bool) -> String {
+    let program = crate::cli::entry::program();
     let (label, kind) = (sub.label(), &sub.kind);
     let id = sub.id.chars().take(8).collect::<String>();
     match (hooked, japanese) {
         (true, false) => format!(
-            "{name}'s {label} (replies to its sends come back to it after its next Bash command or acpmux MCP call; once it ends they go to {name}; `acpmux send {name}` reaches {name})"
+            "{name}'s {label} (replies to its sends come back to it after its next Bash command or acpmux MCP call; once it ends they go to {name}; `{program} send {name}` reaches {name})"
         ),
         (true, true) => format!(
-            "{name} の {kind} サブエージェント {id}（送信への返信は次の Bash コマンドまたは acpmux MCP 呼び出しの後にこのサブエージェントに届きます。終了後は {name} に届きます。`acpmux send {name}` は {name} に届きます）"
+            "{name} の {kind} サブエージェント {id}（送信への返信は次の Bash コマンドまたは acpmux MCP 呼び出しの後にこのサブエージェントに届きます。終了後は {name} に届きます。`{program} send {name}` は {name} に届きます）"
         ),
         (false, false) => format!(
-            "{name}'s {label} (only a reply this send waits for reaches it; other replies go to {name}; `acpmux send {name}` reaches {name})"
+            "{name}'s {label} (only a reply this send waits for reaches it; other replies go to {name}; `{program} send {name}` reaches {name})"
         ),
         (false, true) => format!(
-            "{name} の {kind} サブエージェント {id}（この送信が待つ返信だけがこのサブエージェントに届きます。他の返信は {name} に届きます。`acpmux send {name}` は {name} に届きます）"
+            "{name} の {kind} サブエージェント {id}（この送信が待つ返信だけがこのサブエージェントに届きます。他の返信は {name} に届きます。`{program} send {name}` は {name} に届きます）"
         ),
     }
 }
