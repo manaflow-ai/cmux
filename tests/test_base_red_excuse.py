@@ -16288,7 +16288,10 @@ class SameNamedChecksTellApartByWorkflow(unittest.TestCase):
         runs = {self.BROKER: "lane-gh-broker tests", self.RECONCILERS: "lane-gh-broker tests"}
         jobs, audit, _ = self.found("tests", runs=runs)
         self.assertEqual(jobs, [max(self.JOBS[run] for run in runs)])
-        self.assertTrue(any("newest check run at the head" in line for line in audit), audit)
+        # Nothing is disclosed here, and that is right: this name named a check run as written, so nothing was read
+        # as another name. The audit line above belongs to spelled_check's path, where the name given and the check
+        # name differ. Asserting it here would demand a disclosure for a name that needed no interpreting.
+        self.assertEqual(audit, [])
 
     def test_a_workflow_no_run_list_names_degrades_to_the_newest_rather_than_refusing(self):
         """When the run list cannot name the workflows, every candidate of one check name groups as one: the answer is
