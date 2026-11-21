@@ -382,7 +382,7 @@ extension TerminalController: ControlPaneContext {
                 )
             case .noSpace:
                 return .noSpace
-            case .failed:
+            case .failed, .moshTmuxSplitUnsupported:
                 newPanelId = nil
             }
         }
