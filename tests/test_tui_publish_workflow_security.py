@@ -230,10 +230,11 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     # default branch's workflow file, so a trigger here never ran.
     assert "pull_request_target" not in triggers
     push_trigger = triggers["push"]
-    # Every branch of this repository (forks never push here). Docs-only
-    # commits cannot publish a distinct runtime tree, so GitHub filters those
-    # pushes before tree-preflight; mixed commits still enter the workflow.
-    assert push_trigger.get("branches") == ["**"]
+    # Every branch of this repository but lane/** (forks never push here;
+    # lane trees have no nightly or release consumer). Docs-only commits
+    # cannot publish a distinct runtime tree, so GitHub filters those pushes
+    # before tree-preflight; mixed commits still enter the workflow.
+    assert push_trigger.get("branches") == ["**", "!lane/**"]
     assert push_trigger.get("paths-ignore") == ["cmux-tui/docs/**"]
     retry = workflow_triggers(workflow("cmux-tui-artifacts-retry.yml"))
     assert set(retry) == {"workflow_run"}
@@ -2805,6 +2806,8 @@ def test_sweep_runs_after_the_markers_on_every_feat_push_without_waiting():
     assert "fetch-depth: 41" in job
     script = (ROOT / "scripts/ci/cmux_tui_manifest_sweep.py").read_text()
     assert "sleep" not in script and "time.sleep" not in script
+    # One job, not the whole run (2026-11-21: a whole-run re-run of a feat push re-ran this sweep too).
+    assert "handoff.rerun_manifest(" in script and '"run", "rerun", str(run_id)' not in script
     # The re-run's own workflow must carry the adopt job the sweep looks for.
     assert "\n  adopt-commit-manifest:\n" in artifacts
 

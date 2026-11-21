@@ -67,20 +67,23 @@ on:
   # gitlink. Trusted pushes to the cmux-next branches publish
   # cmux-tui/tree/<key>/ after the build and the cmux_next_ daemon tests pass.
   #
-  # Every other branch of this repository publishes its pushed head too
+  # Every non-lane branch of this repository publishes its pushed head too
   # (cx-r2is), so a same-repository branch can repair its own tree without a
   # hand-pushed cmux-tui-pin-* ref, but only a head an open pull request has
   # (or a cmux-next dispatch, or the Cmux-Daemon-Tests: run trailer, asks
   # for): tree-preflight's superseded step skips the rest before any build
-  # (scripts/ci/cmux_tui_superseded_push.py). Those lane-branch pushes publish without
-  # the daemon tests (tree-preflight's daemon-policy step). Forks never push
-  # here. Pull requests do not publish synthetic merge trees: path routing
-  # skips a cold own tree with a named reason until a trusted feat-cmux-next
-  # publication exists. A push trigger cannot filter paths per branch, so
-  # tree-preflight is the filter: a branch push whose tree key is already
-  # published spends no macOS time (run_macos=false) and publishes nothing.
+  # (scripts/ci/cmux_tui_superseded_push.py). Lane branches are excluded from
+  # this push trigger entirely because their trees have no nightly or release
+  # consumer. The feat-cmux-next tree-request workflow remains the repair path
+  # for a missing tree. Forks never push here. Pull requests do not publish
+  # synthetic merge trees: path routing skips a cold own tree with a named
+  # reason until a trusted feat-cmux-next publication exists. A branch push
+  # whose tree key is already published spends no macOS time (run_macos=false)
+  # and publishes nothing.
   push:
-    branches: ["**"]
+    branches:
+      - "**"
+      - "!lane/**"
     # The published binaries do not contain the prose under cmux-tui/docs.
     # Keep the publisher asleep for docs-only commits; v2 tree-key computation
     # excludes the same non-runtime subtree. A push that also changes code
@@ -824,6 +827,19 @@ jobs:
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
+      # The janitor's pool snapshot as a feat-cmux-next push job last read it (this ref's newest entry, else the
+      # base or default branch's): the placement step reuses a copy read under 5 minutes ago instead of two
+      # GITHUB_TOKEN artifact calls, from the hour the promote gates share (scripts/ci/pr_runner_pool.py
+      # kept_snapshot_path). The key below is never saved, so the newest `cmux-pool-snapshot-` entry restores.
+      # The Actions cache is not the REST API.
+      - name: Restore the shared pool snapshot
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/cmux-pool-snapshot
+          key: cmux-pool-snapshot-newest
+          restore-keys: |
+            cmux-pool-snapshot-
       - name: Look for a free mini for the macOS targets
         id: darwin-mac
         if: steps.darwin-builder.outputs.builder == 'linux' && steps.inspect.outputs.place_macos == 'true'
@@ -931,6 +947,20 @@ jobs:
           ROUTE_TOKEN_FALLBACK: ${{ github.token }}
           SNAPSHOT_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/portable_job_placement.py
+      # Only a feat-cmux-next push job that read the API saves a new entry, keyed by when it read (pr_runner_pool
+      # writes the marker then); pull requests and lane branches restore the base branch's newest one.
+      - name: Check whether this job read the pool snapshot
+        id: pool-snapshot-fetched
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: if [ -f "$RUNNER_TEMP/cmux-pool-snapshot.fetched" ]; then echo "fetched=$(cat "$RUNNER_TEMP/cmux-pool-snapshot.fetched")" >> "$GITHUB_OUTPUT"; fi
+      - name: Save the shared pool snapshot
+        if: ${{ !cancelled() && steps.pool-snapshot-fetched.outputs.fetched != '' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/cmux-pool-snapshot
+          key: cmux-pool-snapshot-${{ steps.pool-snapshot-fetched.outputs.fetched }}
 
       # Observation only: an unavailable marker must never hold up a build.
       - name: Record tree owner observation
