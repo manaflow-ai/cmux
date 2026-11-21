@@ -2229,6 +2229,101 @@ test("Return runs a typed shell command in a terminal; Cmd-Return still asks the
   expect(asks.map((ask) => ask[1])).toEqual(["git status"]);
 });
 
+// David Beyer 2026-11-20 (first-run call): "the Ask Claude code thing is confusing 'cause it's not clear that I'm ...
+// already set on Claude Code". The prompt for the chip's own agent is what Return does with plain text, which the
+// chip and Send already say: the suggestions draw it as no row, nothing is highlighted, and Return asks.
+test("a prompt for the chip's agent is no suggestion row: nothing is highlighted and Return asks", async () => {
+  const asks: unknown[][] = [];
+  const searches: string[] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        template="minimal"
+        snapshot={noChat([])}
+        onAsk={(...args) => void asks.push(args)}
+        onSearch={(text) => void searches.push(text)}
+      />,
+    );
+  });
+  const field = await typePrompt("fix the failing test");
+  expect(document.querySelector('.nt-row[data-type="ask"]'), "no Ask row for the chip's own agent").toBeNull();
+  expect(document.querySelector(".nt-row.is-selected"), "no row is Return's").toBeNull();
+  expect(document.querySelector(".nt-row-return"), "no row shows Return's keycap").toBeNull();
+  expect(document.querySelector(".nt-send")?.getAttribute("data-returns"), "Send is the prompt's arrow").toBeNull();
+  await press(field, "Enter");
+  expect(asks.map((ask) => ask[1])).toEqual(["fix the failing test"]);
+  expect(searches).toEqual([]);
+});
+
+test("Down from the prompt highlights the first drawn row, Up goes back to the prompt", async () => {
+  const asks: unknown[][] = [];
+  const searches: string[] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        template="minimal"
+        snapshot={noChat([])}
+        onAsk={(...args) => void asks.push(args)}
+        onSearch={(text) => void searches.push(text)}
+      />,
+    );
+  });
+  const field = await typePrompt("fix the failing test");
+  const rows = () => [...document.querySelectorAll<HTMLElement>(".nt-popover .nt-row")];
+  expect(rows().length).toBeGreaterThan(0);
+  await press(field, "ArrowDown");
+  expect(rows()[0]!.classList.contains("is-selected"), "the first drawn row").toBe(true);
+  expect(rows()[0]!.querySelector(".nt-row-return"), "Return's keycap on it").toBeTruthy();
+  await press(field, "ArrowUp");
+  expect(document.querySelector(".nt-row.is-selected"), "back on the prompt").toBeNull();
+  await press(field, "Enter");
+  expect(asks.map((ask) => ask[1])).toEqual(["fix the failing test"]);
+  expect(searches).toEqual([]);
+});
+
+// David Beyer 2026-11-20: words he typed into New Tab ran as a shell command on Return. What Return does shows
+// before Return: the highlighted row ends in ↩ and Send takes that row's glyph and name.
+test("a shell command's Run row shows Return's keycap and Send names it", async () => {
+  await act(async () => {
+    root!.render(<NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} />);
+  });
+  await typePrompt("ls -la");
+  const run = document.querySelector<HTMLElement>('.nt-row[data-type="run"]');
+  expect(run?.getAttribute("aria-selected")).toBe("true");
+  expect(run?.querySelector(".nt-row-return")).toBeTruthy();
+  const send = document.querySelector<HTMLElement>(".nt-send");
+  expect(send?.getAttribute("data-returns")).toBe("run");
+  expect(send?.getAttribute("aria-label")).toBe(translateNewTab("row.runInTerminal"));
+  expect(send?.querySelector('svg[data-icon="terminal"]')).toBeTruthy();
+});
+
+test("a lone word that also names a program asks on Return, Run in Terminal is one row down", async () => {
+  const shells: string[] = [];
+  const asks: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        template="minimal"
+        snapshot={noChat([])}
+        onShell={(command) => void shells.push(command)}
+        onAsk={(...args) => void asks.push(args)}
+      />,
+    );
+  });
+  let field = await typePrompt("test");
+  expect(document.querySelector('.nt-row[data-type="run"]')?.getAttribute("aria-selected")).toBe("false");
+  await press(field, "Enter");
+  expect(shells).toEqual([]);
+  expect(asks.map((ask) => ask[1])).toEqual(["test"]);
+  field = await typePrompt("test");
+  await press(field, "ArrowDown");
+  await press(field, "Enter");
+  expect(shells).toEqual(["test"]);
+});
+
 // Lawrence 2026-11-19 (New Tab typing lag): a key in the New Tab field renders what the key changed, never the
 // composer chips (the agent and model pickers, the folder and machine chips, each with its own menus): on cmux21
 // they rendered again on every key, about 2 ms of page work a key, because the screen handed them new props each render.
