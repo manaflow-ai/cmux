@@ -105,4 +105,89 @@ import Testing
         #expect(decider.requests.isEmpty)
         #expect(current(item, in: rig)?.isPending == true)
     }
+
+    // MARK: The card
+
+    func twoItems() -> AgentQuestion {
+        AgentQuestion(id: "home-question-\(UUID().uuidString)",
+                      source: .init(harness: .chief, session: "local/test-subagent", permission: UUID().uuidString),
+                      items: [.init(id: "q0", prompt: "Which auth method?",
+                                    options: [.init(id: "oauth", label: "OAuth"), .init(id: "keys", label: "API keys")]),
+                              .init(id: "q1", prompt: "Which platforms?",
+                                    options: [.init(id: "mac", label: "Mac"), .init(id: "ios", label: "iPhone"),
+                                              .init(id: "web", label: "Web")], multiSelect: true)])
+    }
+
+    func card(in rig: HomeChatRig) -> (ref: MessagesLabHome.PartRef, payload: HomeQuestionRowProvider.Payload)? {
+        guard let store = rig.view.projection.controller.store else { return nil }
+        for message in store.state.conversation.messages {
+            for (index, part) in message.parts.enumerated() {
+                if case .custom(let custom) = part, let payload = HomeQuestionRowProvider.payload(custom) {
+                    return (MessagesLabHome.PartRef(messageId: message.id, partIndex: index), payload)
+                }
+            }
+        }
+        return nil
+    }
+
+    @Test func aChiefQuestionIsACardThatPicksEveryItem() async throws {
+        let rig = try await HomeChatRig(history: 1)
+        defer { rig.stop() }
+        rig.view.approvals = Decider(.signed(Self.decision))
+        _ = try await posted(twoItems(), in: rig)
+        let shown = try #require(card(in: rig))
+        #expect(!shown.payload.complete)
+        let width: CGFloat = 400
+        let layout = HomeQuestionRowProvider.layout(shown.payload, width: width)
+        #expect(layout.send.height > 0)
+        #expect(HomeQuestionRowProvider.target(at: CGPoint(x: layout.send.midX, y: layout.send.midY), shown.payload, width: width) == nil)
+        let mac = try #require(layout.rows.first { $0.option == "mac" })
+        #expect(HomeQuestionRowProvider.target(at: CGPoint(x: mac.frame.midX, y: mac.frame.midY), shown.payload, width: width)
+                == .option(item: "q1", option: "mac"))
+
+        let projection = rig.view.projection
+        projection.questionAction(shown.ref, .option(item: "q0", option: "oauth"))
+        projection.questionAction(shown.ref, .option(item: "q0", option: "keys"))  // single select: replaces
+        projection.questionAction(shown.ref, .option(item: "q1", option: "web"))
+        projection.questionAction(shown.ref, .option(item: "q1", option: "mac"))   // multi select: adds
+        rig.frame()
+        let picked = try #require(card(in: rig)).payload
+        #expect(picked.local.picked == ["q0": ["keys"], "q1": ["web", "mac"]])
+        #expect(picked.complete)
+        // The answer keeps each item's option order, whatever order they were picked in.
+        #expect(HomeQuestionRowProvider.answer(picked)
+                == AgentQuestionAnswer(selections: ["q0": .init(optionIDs: ["keys"]), "q1": .init(optionIDs: ["mac", "web"])]))
+        let send = HomeQuestionRowProvider.layout(picked, width: width).send
+        #expect(HomeQuestionRowProvider.target(at: CGPoint(x: send.midX, y: send.midY), picked, width: width) == .send)
+    }
+
+    @Test func sendWithoutANativeClickRefusesAndTheCardSaysSo() async throws {
+        let rig = try await HomeChatRig(history: 1)
+        defer { rig.stop() }
+        let decider = Decider(.signed(Self.decision))
+        rig.view.approvals = decider
+        let item = try await posted(question(), in: rig)
+        let shown = try #require(card(in: rig))
+        rig.view.projection.questionAction(shown.ref, .option(item: "q0", option: "keys"))
+        rig.view.projection.questionAction(shown.ref, .send)
+        rig.frame()
+        let after = try #require(card(in: rig)).payload
+        #expect(after.local.note == CmuxStrings.approvalFailed && !after.local.busy && !after.local.ended)
+        #expect(decider.requests.isEmpty)
+        #expect(await rig.source.answerDecisions.isEmpty)
+        #expect(current(item, in: rig)?.isPending == true)
+    }
+
+    /// Tool approvals keep their own card and native answer; the question card never takes them.
+    @Test func anApprovalIsNeverAQuestionCard() {
+        let digest = String(repeating: "0f", count: 32)
+        let approval = AgentQuestion(id: "approval-\(UUID().uuidString)",
+                                     source: .init(harness: .chief, session: "local/test-subagent", permission: "perm"),
+                                     items: [.init(id: "approval:\(digest)", prompt: "Run ls?",
+                                                   options: [.init(id: "allow", label: "Allow"), .init(id: "deny", label: "Deny")],
+                                                   allowsOther: false)])
+        #expect(HomeApprovalRowProvider.part(approval) != nil)
+        #expect(HomeQuestionRowProvider.part(approval) == nil)
+        #expect(HomeQuestionRowProvider.part(question()) != nil)
+    }
 }
