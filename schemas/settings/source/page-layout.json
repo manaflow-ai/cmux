@@ -15,6 +15,7 @@
     {"id": "agentHarnesses"},
     {"id": "agentIntegrations"},
     {"id": "agentTools", "note": "Settings > Agents > Agents on This Mac: each coding agent and whether it gets cmux's MCP server when cmux starts it (`cmux setup mcp`, which writes nothing), with Turn On, an old cmux entry in its own config with Remove (the person's click only), and the manual lines for agents started elsewhere, right under the agents.cmuxMcp choice row (the onboarding step's question); `cmux.settings.agentTools.*`."},
+    {"id": "agentSkills", "note": "Settings > Agents > Claude Code & Codex > Skills (Labs labs.agentCustomization; drawn only while it is on): every skill and slash command Claude Code and Codex load, per agent and scope, with name, description and file; Edit opens the SKILL.md in cmux's editor, the switch turns a skill on or off in the agent's own settings (`cmux agent-config skills --json`); `cmux.settings.agentSkills.*`."},
     {"id": "chiefs"},
     {"id": "advancedInfo"},
     {"id": "advancedActions"},
@@ -23,6 +24,7 @@
     {"id": "devices"},
     {"id": "chiefPet"},
     {"id": "density", "note": "The density tiles, preview and custom density editor (plans/cmux-next/density-DESIGN.md)."},
+    {"id": "textSize", "note": "General's first card (David Beyer, 2026-11-20: Settings was overwhelming and had no sidebar font size he could find): one Text Size for the sidebar, tabs, menus and chat (appearance.metrics.chromeFontSize) and the density beside it (appearance.density), in the picker the Set Up cmux card draws too (webviews ui/TextSizePicker)."},
     {"id": "importSuggestions", "note": "What this Mac has that cmux can bring over (CmuxNextImportCards), every card found."},
     {"id": "channels", "note": "Every release channel's recent builds, with the one this Mac runs (Settings > Updates)."},
     {"id": "appUpdate", "note": "The app update's status: a check, a download's progress and Cancel, Restart to Update, a failure's Try Again (Settings > Updates; the sidebar shows only the staged update)."},
@@ -48,7 +50,7 @@
     "terminal": ["palette.openGhosttySettings", "reloadConfiguration"],
     "editor": ["fileEditor.importEditorSettings"],
     "browser": ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"],
-    "home": ["chief.importMemories", "diagnostics.viewHangReport"],
+    "home": ["diagnostics.viewHangReport"],
     "keyboard": ["keybindings.open", "palette.searchShortcuts"],
     "notifications": ["toasts.showHidden"],
     "accounts": ["accounts.refresh", "palette.mobileConnect"],
@@ -77,6 +79,7 @@
             {"group": "settings.group.tasks"},
             {"group": "settings.group.announcements"}
           ],
+          "lead": ["textSize"],
           "actions": ["general"],
           "aliases": ["general"]
         },
@@ -332,7 +335,7 @@
             {"group": "settings.group.folderTrust", "note": "Folders that start an agent without the trust question."},
             {"group": "settings.group.agentTools", "note": "Whether agents the person starts in cmux (its terminals and agent chats) get cmux's MCP server, Computer Use included (the onboarding step's question); the agentTools card under it lists the agents with Turn On."}
           ],
-          "trail": ["agentCustomization", "agentTools", "harnesses", "agentHarnesses", "agentIntegrations", "worktreeSetup"]
+          "trail": ["agentCustomization", "agentSkills", "agentTools", "harnesses", "agentHarnesses", "agentIntegrations", "worktreeSetup"]
         },
         {
           "id": "chief",
@@ -543,6 +546,7 @@
           "symbol": "flask",
           "groups": [
             {"group": "settings.group.labs", "keys": ["appearance.experimentalControls"]},
+            {"group": "settings.group.experiments", "note": "Taste prototypes, each behind its own switch, all off by default."},
             {"group": "settings.group.appearanceTuning"}
           ]
         },

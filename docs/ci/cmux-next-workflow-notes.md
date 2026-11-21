@@ -3832,6 +3832,9 @@ at most once every 15 minutes on the tip, in the run cmux-next-base-tier-kick.ym
 dispatches (cmuxterm-hq#5424). The Release compiles (nightly-next's input), the DEV
 landing compile and the fast tier still run on this push.
 
+The Swift canary (changed CmuxNext targets) is off on this push too: the scheduled tip Swift suite
+(`tip_swift_suite`, about once an hour) runs every target on the tip and is the base verdict for it.
+
 ## note-407
 
 Above `started="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempt` in `.github/workflows/cmux-next.yml`.

@@ -102,7 +102,12 @@ if [[ "$brain" == hermes ]]; then
   # the way its developer setup runs it. Its lock supports only Python 3.14 (uv installs it here).
   git clone -q --filter=blob:none https://github.com/NousResearch/hermes-agent "$work/hermes-src"
   git -C "$work/hermes-src" checkout -q "$hermes_commit"
-  (cd "$work/hermes-src" && "$work/uv-aarch64-apple-darwin/uv" sync -q --frozen --python 3.14 --extra acp)
+  # `mcp` too: its pyproject sets uv default-groups = [] and the acp extra has no MCP client, so
+  # without it Hermes skips every session MCP server and logs that only at debug level (the cmux
+  # tool check failed 10 of 10 runs, cmux-ci steps 63b0626cfa4b and 21d276d75848). The official
+  # installer installs [all], which includes mcp.
+  (cd "$work/hermes-src" && "$work/uv-aarch64-apple-darwin/uv" sync -q --frozen --python 3.14 --extra acp --extra mcp)
+  "$work/hermes-src/.venv/bin/python" -c "import mcp" || { echo "BRAIN hermes has no MCP client (import mcp failed)" >&2; exit 1; }
   ln -s "$work/hermes-src/.venv/bin/hermes" "$work/home/.local/bin/hermes"
   echo "BRAIN-BIN hermes $("$work/home/.local/bin/hermes" --version 2>&1 | head -1)"
   "$work/home/.local/bin/hermes" acp --check || { echo "BRAIN hermes acp --check failed" >&2; exit 1; }
@@ -152,6 +157,12 @@ for n in $(seq 1 "$runs"); do
     --env "ANTHROPIC_BASE_URL=$claude_url" --env "ANTHROPIC_API_KEY=sk-ant-placeholder-the-router-signs" \
     --env "CLAUDE_CONFIG_DIR=$work/home/.claude" --env "DISABLE_AUTOUPDATER=1" > "$work/driver-$n.log" 2>&1 &
   driver_pid=$!
+  # One line a minute while the driver runs: its output goes to a file, and the controller stops a
+  # measurement after 45 min with no log line (cmux-ci step 4bd3963570e5, 5 runs of about 12 min).
+  while kill -0 "$driver_pid" 2>/dev/null; do
+    echo "BRAIN-RUN $n of $runs: running, last: $(grep -E '\] BRAIN' "$work/driver-$n.log" | tail -1 | cut -c1-120)"
+    wait_s=0; while [[ $wait_s -lt 60 ]] && kill -0 "$driver_pid" 2>/dev/null; do sleep 5; wait_s=$((wait_s + 5)); done
+  done
   wait "$driver_pid" || rs=$?
   driver_pid=""
   echo "BRAIN-RUN $n of $runs: driver exit $rs"

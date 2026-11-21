@@ -19,58 +19,10 @@ name: cmux-next size budget
 # from the pull request's merge commit, as every pull_request workflow is; a change to it shows in
 # the diff under review.
 on:
-  pull_request:
-    branches: [feat-cmux-next]
-    types: [opened, synchronize, reopened, edited, ready_for_review]
-    # docs-only paths: BEGIN (scripts/ci/docs_only_paths.py --sync writes this block; edit DOCS_ONLY_PATHS there)
-    paths:
-      - "**"
-      - "!**/*.md"
-      - "!docs/**/*.png"
-      - "!docs/**/*.jpg"
-      - "!docs/**/*.gif"
-      - "!docs/**/*.webp"
-      - "!plans/**/*.png"
-      - "!plans/**/*.jpg"
-      - "!plans/**/*.gif"
-      - "!plans/**/*.webp"
-      - "**/AGENTS.md"
-      - "**/CLAUDE.md"
-      - "**/SKILL.md"
-      - ".github/**"
-      - "**/skills/**"
-      - "**/references/**"
-      - "**/templates/**"
-      - "**/Resources/**"
-      - "**/fixtures/**"
-      - "**/testdata/**"
-      - "**/test/**"
-      - "**/tests/**"
-      - "CHANGELOG.md"
-      - "THIRD_PARTY_LICENSES.md"
-      - "release-notes/**"
-      - "docs/agent-hooks.md"
-      - "docs/chief-setup-prompts.md"
-      - "docs/configuration.md"
-      - "docs/ci/node-product-cache-maintenance.md"
-      - "plans/cmux-next/actions.md"
-      - "docs/mdm/managed-preferences.md"
-      - "docs/ci/health-report.md"
-      - "docs/privacy.md"
-      - "**/notices/**"
-      - "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md"
-      - "cmux-tui/README.md"
-      - "docs/remote-agents-and-cloud.md"
-      - "docs/cmux-next/customize-recipes.md"
-      - "cmux-tui/crates/acpmux/README.md"
-      - "cmux-tui/crates/acpmux/docs/**"
-      - "cmux-tui/crates/cmux-browser-host/js/guide.md"
-      - "cmux-tui/crates/cmux-extension-sdk/README.md"
-      - "cmux-tui/vendor/terminput-crossterm/README.md"
-      - "mux/packages/brain/conformance/README.md"
-    # docs-only paths: END
-  # docs-only-fallback.yml calls this in a pull request's own context when the docs-only `paths:` above could
-  # have skipped it wrongly (over 300 changed files, or a full-ci/dev-build label): scripts/ci/docs_only_paths.py.
+  # Started only by pr-router.yml (one router per push, RFD 0023), which lists the changed files once and
+  # calls this workflow when the change touches an input it measures (scripts/ci/pr_router.json
+  # `affects`). Its check runs report as `cmux-next size budget / ...`; when the router does not start it,
+  # one skipped `cmux-next size budget` check reports instead.
   workflow_call:
 
 permissions: {}

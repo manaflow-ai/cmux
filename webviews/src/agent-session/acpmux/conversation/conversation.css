@@ -200,6 +200,14 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
+  /* A prompt's attachments are part of its message (Leo, 2026-11-21: "if you sent it iinline you prob
+     shouldn't have such odd stuff"): every sent image, video and file sits in the bubble's column,
+     its right edge on the bubble's, this far above it, with the bubble's corner (model.ts
+     ATTACHMENT_BAND_BELOW mirrors the gap). */
+  --cv-user-attachment-gap: 6px;
+  --cv-user-attachment-radius: calc(
+    3 * var(--grid-base) * var(--cmux-chat-text-scale, 1) / var(--cmux-interface-scale, 1)
+  );
 }
 /* Waiting controls use the same footer slot as a delivered prompt. The bubble and its footer stay
    right-aligned together, so accepting Send now changes only the footer contents, never the bubble's
@@ -315,7 +323,26 @@
   justify-content: flex-end;
   gap: var(--ds-space-2);
   max-width: 70%;
-  margin-bottom: var(--ds-space-2);
+  margin-bottom: var(--cv-user-attachment-gap, 6px);
+}
+/* A prompt whose attachments were placed in its text draws them in the same block above its bubble
+   (UserBubble.tsx): the bubble's column, its tiles' 4px side margins outside it so their edges are
+   the bubble's, the same gap under it (each tile's 2px bottom margin and this). */
+/* A prompt's file chips (UserBubble.tsx legacy band) keep the same column and gap. */
+.cv-user__files:not(.cv-user__inline-strip, .cv-message__files) {
+  max-width: 70%;
+  margin-bottom: var(--cv-user-attachment-gap, 6px);
+}
+.cv-user__files.cv-user__inline-strip {
+  max-width: calc(70% + 8px);
+  margin-inline-end: -4px;
+  margin-bottom: calc(var(--cv-user-attachment-gap, 6px) - 2px);
+}
+/* A tile in the strip lays its thumbnail out as a flex box, not on a text line: a line adds the
+   font's descent (3px) under the thumbnail, so the gap to the bubble would be 9px, not the 6px
+   model.ts reserves. */
+.cv-user__inline-strip > .cv-user__inline-image {
+  display: flex;
 }
 .cv-user__images button,
 .cv-user__inline-image button {
@@ -327,22 +354,24 @@
   background: none;
   cursor: zoom-in;
 }
-/* Each a rounded thumbnail of the whole image in its own shape, at most 120px tall and never larger
-   than the image (UserBubble.tsx sentImageSize sets its size), so a wide screenshot is a whole strip,
-   not a magnified crop of its middle. A neutral backing under it, so a transparent image still shows
-   its content. An image sent inline in the text (InlinePromptContent.tsx) is the same thumbnail.
-   Its size is a width and an aspect ratio, so a narrow bubble scales it down whole. */
+/* Each a rounded thumbnail of the whole image in its own shape, at most 160px tall and 480px wide and
+   never larger than the image (userBubbleModel.ts sentImageSize sets its size), so a wide screenshot
+   is a whole strip, not a magnified crop of its middle. `contain`: a box whose shape was reserved
+   from a size that turns out wrong letterboxes the image, never crops it. A neutral backing under it,
+   so a transparent image still shows its content, and the bubble's corner with a faint hairline,
+   not a bright frame. An image sent inline in the text (InlinePromptContent.tsx) is the same
+   thumbnail. Its size is a width and an aspect ratio, so a narrow bubble scales it down whole. */
 .cv-user__images img,
 .cv-user__inline-image img {
   display: block;
-  width: 120px;
+  width: 160px;
   max-width: 100%;
   height: auto;
   aspect-ratio: 1;
-  object-fit: cover;
-  border-radius: var(--cv-media-radius);
-  outline: 1px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
-  outline-offset: -1px;
+  object-fit: contain;
+  border-radius: var(--cv-user-attachment-radius, var(--cv-media-radius));
+  outline: var(--cmux-hairline, 1px) solid color-mix(in srgb, var(--agent-text) 16%, transparent);
+  outline-offset: calc(-1 * var(--cmux-hairline, 1px));
   background: var(--ds-surface-inset);
 }
 /* A sent video (SentVideoTile.tsx): its poster at a sent image's height and shape, a glass play glyph
@@ -404,7 +433,7 @@
   display: grid;
   place-items: center;
   padding: 8px;
-  border-radius: var(--cv-media-radius);
+  border-radius: var(--cv-user-attachment-radius, var(--cv-media-radius));
   line-height: 1.25;
   text-align: center;
   white-space: normal;
@@ -422,11 +451,11 @@
 /* The slot a thumbnail holds while acpmux reads it: its height, square until the image's shape is known. */
 .cv-user__image-placeholder {
   display: block;
-  flex: 0 0 120px;
-  width: 120px;
+  flex: 0 0 160px;
+  width: 160px;
   max-width: 100%;
   aspect-ratio: 1;
-  border-radius: var(--cv-media-radius);
+  border-radius: var(--cv-user-attachment-radius, var(--cv-media-radius));
   background: var(--ds-surface-inset);
 }
 /* An image that cannot be drawn: the same slot, a picture glyph over a short note. */
@@ -437,12 +466,12 @@
   align-items: center;
   justify-content: center;
   gap: var(--ds-space-1);
-  width: 120px;
+  width: 160px;
   max-width: 100%;
   aspect-ratio: 1;
   overflow: hidden;
   padding: 0 var(--ds-space-3);
-  border-radius: var(--cv-media-radius);
+  border-radius: var(--cv-user-attachment-radius, var(--cv-media-radius));
   outline: 1px dashed color-mix(in srgb, var(--agent-text) 24%, transparent);
   outline-offset: -1px;
   background: var(--ds-surface-card);
@@ -3608,15 +3637,18 @@ pre.cv-math-source {
    if it were that row's second line (Leo, 2026-11-03, on "Thinking · 1m 23s total" under "Sent a
    message, finished 3 background tasks": "the indent looks bad"). It took the text column after
    "weird indenting /cut off text?" earlier that day (#33157). */
+/* Its row is the footer's slot (transcriptGrid.ts MARK_FOOTER_SLOT): its 32 line, 8 under a reply. Its words are drawn
+   in the live line's box at the top of that slot (transcriptGrid.ts TRANSCRIPT_LIVE_LINE_BOX, --cv-live-line-box), the
+   same box under a run, a reply or a prompt, so the row over it switching moves neither its top nor its words; the
+   rest of the slot is its row's room under it (below). Never a length here. */
 .cv-worked.is-below {
-  /* The footer's slot (transcriptGrid.ts MARK_FOOTER_SLOT): its 32 line, 8 under a reply. */
-  height: var(--cv-footer-row);
+  height: var(--cv-live-line-box, var(--cv-footer-row));
   padding-top: 0;
 }
-/* Right under a step row (model.ts isLiveStep) its box is transcriptGrid.ts's TRANSCRIPT_LIVE_STEP_BOX, set on the
+/* Right under a step row (model.ts isLiveStep) its row is transcriptGrid.ts's TRANSCRIPT_LIVE_STEP_BOX, set on the
    scroller as --cv-live-step-height (transcriptLiveVars): never a length here. Its ⌃B hint stays on its line. */
 .acpmux-row--below.acpmux-row--after-step > .cv-worked.is-below {
-  height: var(--cv-live-step-height);
+  height: min(var(--cv-live-line-box, var(--cv-footer-row)), var(--cv-live-step-height));
 }
 /* Its "⌃B to run in background" keeps its room while it is offered, and pointing at the line changes
    only its opacity, on every live line (backgroundHintRoom.experiment.ts). It used to take its room
@@ -3679,7 +3711,12 @@ pre.cv-math-source {
    last footer's 32px and its estimate's (model.ts fallbackRowHeight). */
 .acpmux-row:is(.acpmux-thinking, .acpmux-working):has(> .cv-worked.is-below) {
   min-height: 0;
-  padding-bottom: 0;
+  padding-bottom: calc(var(--cv-footer-row) - var(--cv-live-line-box, var(--cv-footer-row)));
+}
+.acpmux-row--below.acpmux-row--after-step:is(.acpmux-thinking, .acpmux-working):has(> .cv-worked.is-below) {
+  padding-bottom: calc(
+    var(--cv-live-step-height) - min(var(--cv-live-line-box, var(--cv-footer-row)), var(--cv-live-step-height))
+  );
 }
 /* The live line waits, its height kept, while the answer streams over it (Thinking.tsx). */
 .cv-worked.is-quiet {
@@ -4515,8 +4552,11 @@ button.cv-worked:focus-visible {
    other tool calls are"; it lit only its chevron). A click leaves no lift: only keyboard focus is
    `:focus-visible`. Pointing at a session chip in the line lights the chip alone. A line with
    nothing behind it is no button and never lifts. test/transcript-row-word-lift-browser.test.ts. */
-button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-agent-tag.is-open:is(:hover, :focus)))
+button.cv-tool:not(.cv-sent, .cv-thought, :disabled):is(:hover, :focus-visible):not(:has(.cv-agent-tag.is-open:is(:hover, :focus)))
   > :is(.cv-tool__text, .cv-command__text, .cv-agent-activity__sentence),
+/* A thought's button spans its row for the click, but its words light only when the pointer is on its
+   glyph, words or chevron, not on the empty line after them (Lucas, 2026-11-06). */
+button.cv-thought.is-toggle:is(:focus-visible, :has(> :hover)) > .cv-tool__text,
 :is(.cv-disclosure__toggle:not(.is-chevron), .cv-disclosure__open, .cv-subagent-report__head):is(
     :hover,
     :focus-visible
@@ -4675,14 +4715,14 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   padding-block: 0;
 }
 /* The folded label uses the same row height as tools; full thought text keeps its padding. The
-   button is as wide as what it draws (its glyph, words and chevron), not the row: the words light
-   under the pointer only, and the empty line after them is no hover (Lucas, 2026-11-06: a thought
-   opened under the pointer stayed white after the pointer moved off its words). */
+   button spans the row, as a tool's and a command's do, so a click anywhere along the line opens it
+   (Leo, 2026-11-21: "inconsistent clicks (thought)": a button as wide as its words took a click on
+   them and dropped one on the empty line after them, 136 of 800 px). The words still draw the
+   same; only the hit target is the row. */
 .cv-thought.is-toggle {
   display: flex;
   align-items: center;
   gap: var(--cv-tool-gap);
-  width: fit-content;
   max-width: 100%;
   padding-block: 0;
 }
@@ -5309,21 +5349,11 @@ button.cv-video-frames__frame:focus-visible {
   background: var(--cv-rule);
   pointer-events: none;
 }
-/* Inner calls in an opened group keep their disclosure slot, but the quiet chevron only appears
-   when that row is under the pointer (Leo, 2026-11-01). The group header keeps its own disclosure.
-   A focused or opened row keeps its chevron revealed while its menu or body is open, never a
-   lifted tone: its words light on hover only, its glyph never (Lucas, 2026-11-06, above). */
-:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool > .cv-tool__chevron {
-  opacity: 0;
-  transition: var(--cv-row-reveal-out);
-}
-:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:hover > .cv-tool__chevron,
-:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:has([data-popup-open]) > .cv-tool__chevron,
-:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:is(:focus-within, [aria-expanded="true"], [data-popup-open], :has([aria-expanded="true"]))
-  > .cv-tool__chevron {
-  opacity: 1;
-  transition: none;
-}
+/* One chevron rule for every row that opens (design/chat-row-anatomy.md; Leo, 2026-11-21: "inconsistent
+   chevrons"): a row's chevron is there at rest, in the quiet tone, right after its words, whether the
+   row heads the transcript or sits inside an opened group. Inner calls hid theirs until the pointer
+   came (Leo, 2026-11-01), while message, failure and group lines beside them kept theirs, so the
+   same list read two ways (frames 07, 09, 12 of his 05:30Z video). A row that opens nothing draws none. */
 /* A thought step's brain glyph puts its words on the rows' text column; its opened text sits there too. */
 .cv-step-thought__body,
 .cv-step > .cv-tool-error {
@@ -7903,6 +7933,15 @@ a.cv-sha:focus-visible {
   max-width: 100%;
   height: auto;
 }
+/* A spec with a fixed size keeps its chart's box from the first frame (DiagramBlock chartBox): the
+   library draws into it, so the reply never grows when the chart lands. It scales with the pane as
+   the drawn svg does (max-width: 100%, height: auto). */
+.cv-diagram__chart[data-reserve]:empty::before {
+  content: "";
+  display: block;
+  width: min(100%, var(--cv-diagram-w));
+  aspect-ratio: var(--cv-diagram-ratio);
+}
 /* Ondine's monochrome diagrams take the pane's colors (its defaults are black on white). */
 .cv-diagram__chart svg.ondine {
   --ondine-fg: var(--agent-text);
@@ -8439,7 +8478,7 @@ a.cv-sha:focus-visible {
   padding-bottom: 0;
 }
 .acpmux-row.acpmux-activityLine.acpmux-row--below .cv-activity {
-  min-height: var(--cv-footer-row);
+  min-height: var(--cv-live-line-box, var(--cv-footer-row));
 }
 /* Right under a step row it takes the live line's box in a run, as the Thinking line does (transcriptGrid.ts
    TRANSCRIPT_LIVE_STEP_BOX, --cv-live-step-height). */
@@ -8447,7 +8486,7 @@ a.cv-sha:focus-visible {
   height: var(--cv-live-step-height);
 }
 .acpmux-row.acpmux-activityLine.acpmux-row--below.acpmux-row--after-step .cv-activity {
-  min-height: var(--cv-live-step-height);
+  min-height: min(var(--cv-live-line-box, var(--cv-footer-row)), var(--cv-live-step-height));
 }
 
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
