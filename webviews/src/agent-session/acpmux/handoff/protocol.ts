@@ -17,7 +17,13 @@ export type Coverage = {
   status: "included" | "summarized" | "omitted" | "unavailable";
   detail: string | null;
 };
-export type Enforcement = { policy: string; label: "native_policy"; isolation: "unverified"; detail: string | null };
+export type Enforcement = {
+  policy: string;
+  accessPreview?: { current: string; eligibility: "unavailable" };
+  label: "native_policy";
+  isolation: "unverified";
+  detail: string | null;
+};
 export type HandoffSession = {
   sessionId: string;
   harness: string;
@@ -35,7 +41,13 @@ export type Handoff = {
   capsule: {
     text: string;
     maxBytes: number;
-    context: { fromSeq: number; toSeq: number; truncated: boolean; bytes: number; totalBytes: number };
+    context: {
+      fromSeq: number;
+      toSeq: number;
+      truncated: boolean;
+      bytes: number;
+      totalBytes: number;
+    };
     checkpoint: { ref: string; attestedBy: "user"; attestedAt: string } | null;
     memoryRefs: string[];
   };

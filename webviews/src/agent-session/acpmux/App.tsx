@@ -196,6 +196,7 @@ import {
 import { CloudComposeReservation, reservedCloudCall } from "./cloudComposeReservation";
 import { harnessProfiles } from "./harnessProfiles";
 import { setStartModeSource } from "./startMode";
+import { setEarnedAccessLabs } from "./session-info/earnedAccessLabs";
 import { setPromptSurfaces } from "./surfaces/promptSurface";
 import type { MockScript } from "./mock";
 import { preparedMockTransport } from "./mockTransport";
@@ -932,7 +933,7 @@ declare global {
       /// The app's shortcuts as the user bound them, keyed by action id (shortcuts.ts).
       applyShortcuts?(labels: Record<string, string>): void;
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
-      /// default): the session coverage label.
+      /// default): prompt surface labels and the read-only access preview.
       applyPreview?(on: boolean): void;
       /// The default-off live-tree status card (Settings > Advanced > Labs, `labs.liveTree`).
       applyLiveTree?(on: boolean): void;
@@ -8289,6 +8290,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // Cloud's own checks stay: Cloud allowed by policy, a signed-in account, and an explicit
         // pick; nothing creates a paid VM without one.
         setPromptSurfaces(on === true);
+        setEarnedAccessLabs(on === true);
         // Workflows no longer follow Advanced > Labs; only applyWorkflowLabs switches them.
       },
       applyLiveTree(on) {
