@@ -179,11 +179,20 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
     }
     let report = report(&identify, &checks);
     let ok = report["ok"] == Value::Bool(true);
-    match global.output {
-        OutputMode::Human => print!("{}", human(&report)),
+    let printed = match global.output {
+        OutputMode::Human => {
+            print!("{}", human(&report));
+            0
+        }
         _ => super::super::wire::print_local_success(&report, global.output),
     };
-    if ok { 0 } else { 1 }
+    if printed != 0 {
+        printed
+    } else if ok {
+        0
+    } else {
+        1
+    }
 }
 
 fn skipped(name: &'static str) -> Check {

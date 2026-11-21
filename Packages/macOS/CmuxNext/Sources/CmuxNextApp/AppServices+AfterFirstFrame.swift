@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextCrashReporting
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextUpdater
 
 // Launch work no first frame needs: AppDelegate starts it once the first window's
 // frame is committed (FirstFrameGate), so it never delays that frame (perf-launch-memory).
@@ -27,6 +28,15 @@ extension AppServices {
         FreeTierAttestStarter(build: environment.build, bundle: .main, apiBaseURL: feed.apiBaseURL, settings: settings, loginKeychain: loginKeychain, signedIn: { [weak self] in self.map { $0.cloud.isSignedIn || $0.cloud.auth.isRestoring } ?? true }).start()
         ssh.start()
         serverReach.start()
+        // A failed check after an update is filed like any non-fatal: both builds, both commits, each check's reason.
+        updater.healthCheckFailed = { [reporter = crashReporting.reporter] failure in
+            reporter.captureNonFatal(
+                "update health check failed: \(failure.summary)", type: "UpdateHealthCheckFailed",
+                fingerprint: ["update-health-check"] + failure.checks.map(\.reason).sorted(),
+                tags: ["previous_build": failure.previousBuild, "build": failure.build,
+                       "previous_commit": failure.previousCommit ?? "unknown", "commit": failure.commit ?? "unknown"],
+                extra: Dictionary(failure.checks.map { ("check.\($0.name)", "\($0.reason): \($0.detail)") }, uniquingKeysWith: { $1 }))
+        }
         updater.start()
         // The run's crash breadcrumbs: counts and kinds only, never a title, URL, path or terminal text. The
         // run marker reads the footprint when it writes them (AppRunMarker.encoding).

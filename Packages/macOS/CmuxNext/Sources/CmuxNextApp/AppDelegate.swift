@@ -460,6 +460,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     services.apps.attach(router: router)
                 }
                 logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")
+                // The check after an update asks this socket (UpdateHealthCheck).
+                services.updater.healthCheckSocket = { [weak self] in self?.control.socketPath }
             } catch {
                 logger.error("control socket failed: \(String(describing: error), privacy: .public)")
             }

@@ -188,6 +188,8 @@ extension SettingsSchema {
         "updates.installOnQuit": .destructive,
         // On, one click restarts cmux into an update: the person's call.
         "updates.oneClickInstall": .userOnly,
+        // On, a failed check after an update restarts cmux into another build: the person's call.
+        "updates.autoRollback": .userOnly,
         // On, What's New offers Install, which restarts cmux into another build: the person's call.
         "updates.whatsNewInstall": .userOnly,
         // On, pages load from a loopback server the person runs: the person's call.
